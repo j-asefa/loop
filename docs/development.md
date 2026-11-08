@@ -204,9 +204,9 @@ Pushing a tag `vX.Y.Z` that matches the `package.json` version runs the
 stages `@j-asefa/loop` on npm with provenance through npm trusted publishing
 (no stored token; `prepack` builds `dist/` and `npm-shrinkwrap.json`), then
 drafts the GitHub Release with generated notes. The trusted publisher may only
-stage, so nothing reaches users until a maintainer approves the staged version
-with 2FA (`npm stage list @j-asefa/loop`, then `npm stage approve <stage-id>`,
-or on npmjs.com) and publishes the draft release. Bump the version in a pull
+stage, so the version is not installable until a maintainer approves it with 2FA
+(`npm stage list @j-asefa/loop`, then `npm stage approve <stage-id>`, or on
+npmjs.com). Publish the draft release after approving. Bump the version in a pull
 request first, then tag the merged commit.
 
 During editing and between commits, run focused tests for the changed boundaries.
