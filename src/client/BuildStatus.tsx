@@ -36,6 +36,7 @@ export function BrowserBuildStatus() {
         /* A failed read is not evidence that builds match. */
       } finally {
         clearTimeout(timeout);
+        controller.abort();
         if (pending === controller) pending = undefined;
       }
     };

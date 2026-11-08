@@ -134,12 +134,13 @@ export function Notifications() {
         }
         setEnabled(false);
       } else {
+        const controller = new AbortController();
         const { publicKey } = await readRoute(
           workspaceApi.notifications,
           {},
           executionSourceId(),
-          new AbortController().signal,
-        );
+          controller.signal,
+        ).finally(() => controller.abort());
         const key = Uint8Array.from(
           atob(publicKey.replaceAll("-", "+").replaceAll("_", "/")),
           (c) => c.charCodeAt(0),
