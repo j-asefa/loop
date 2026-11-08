@@ -31,10 +31,6 @@ Your coding agents run in a terminal on your computer. Loop puts their work on y
 
 Screenshots use illustrative sample data, captured from Loop’s UI. Regenerate them with `node scripts/readme-screenshots.mjs` after building the UI.
 
-## Behind the name
-
-Loop is named for the song I played on loop for my son: “Ol’ ’55,” his favourite, and the only song that would get him to sleep. I built Loop while he slept in my arms.
-
 ## Why Loop
 
 - 🗂️ **A record of results, not a chat log.** Finished answers arrive as cards in one Feed (what needs you on top, then **Done**, **Working**, **Queued**, **Threads**, **Replies**); plans, diffs, command output and traces stay one tap away. Run several agents and conversations at once and follow them through the Feed, Projects and Search. Phone notifications arrive when a result is ready, not for every tool call. See [workspace](docs/workspace.md) and [notifications](docs/workspace.md#notifications).
