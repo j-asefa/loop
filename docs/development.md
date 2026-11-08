@@ -187,14 +187,24 @@ providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
 
 ## Manual verification
 
-The [CI workflow](../.github/workflows/ci.yml) runs only `npm run check` on
-pull requests, pushes to `main` and manual dispatch, using Node 24 and Python 3.12 on an Ubuntu
-runner. It installs with `npm ci` and checks a clean source checkout without
-building first. The full Vitest matrix is deliberately absent: full suites run
-locally before review. CI retains a 15-minute job timeout, pinned checkout/Node/
-Python actions, read-only repository permissions and cancellation of superseded
-runs on the same ref. Hosted-runner usage counts against the account quota while
-the repository is private; the repository owner controls approval of fork-PR runs.
+The [CI workflow](../.github/workflows/ci.yml) runs on pull requests, pushes to
+`main` and manual dispatch, using Node 24 and Python 3.12 on Ubuntu runners. The
+`check` job installs with `npm ci` and runs `npm run check` on a clean source
+checkout without building first; it is the required status check for `main`.
+The `tests` job builds, then runs the Vitest suite as three parallel shards
+(`npm test -- --shard=N/3 --maxWorkers=1`). The native, package and browser
+suites still run locally. CI keeps pinned checkout/Node/Python actions,
+read-only repository permissions and cancellation of superseded runs on the same
+ref; the repository owner controls approval of fork-PR runs.
+
+### Releases
+
+Pushing a tag `vX.Y.Z` that matches the `package.json` version runs the
+[release workflow](../.github/workflows/release.yml). It runs `npm run check`,
+publishes `@j-asefa/loop` to npm with provenance through npm trusted publishing
+(no stored token; `prepack` builds `dist/` and `npm-shrinkwrap.json`), then
+creates the GitHub Release with generated notes. Bump the version in a pull
+request first, then tag the merged commit.
 
 During editing and between commits, run focused tests for the changed boundaries.
 Immediately before requesting a fresh review, run `npm run check` and one full
