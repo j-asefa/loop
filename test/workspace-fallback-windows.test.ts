@@ -264,3 +264,68 @@ it("keeps network read recovery pending through failed HTTP probes", async () =>
   await vi.advanceTimersByTimeAsync(1800);
   expect(changed).toHaveBeenCalledTimes(1);
 });
+
+it("finishes a recovery probe while unrelated socket frames keep arriving", async () => {
+  const controller = new AbortController();
+  stops.push(() => controller.abort());
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      throw new TypeError("Network unavailable");
+    }),
+  );
+  const changed = vi.fn();
+  let finish!: (events: { id: number }[]) => void;
+  let signal!: AbortSignal;
+  stops.push(
+    watchWorkspaceEvents({
+      url: new URL("ws://loop/api/events/ws"),
+      read: async (_cursor, currentSignal) => {
+        signal = currentSignal;
+        return await new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+      changed,
+    }),
+  );
+  const socket = Socket.instances[0];
+  socket.reset("first");
+  changed.mockClear();
+  await readRoute(
+    workspaceApi.nativeDecisions,
+    {},
+    "",
+    controller.signal,
+  ).catch(() => {});
+  await vi.advanceTimersByTimeAsync(1800);
+  for (let n = 0; n < 5; n++) {
+    socket.onmessage?.({
+      data: JSON.stringify({
+        v: 3,
+        type: "events",
+        epoch: "first",
+        cursor: 4,
+        serverNow: 1000 + n,
+        nextDeadline: null,
+        events: [
+          {
+            id: 4,
+            event: {
+              type: "invalidate",
+              scope: { kind: "collection", id: "activities" },
+            },
+          },
+        ],
+        capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
+      }),
+    });
+    await vi.advanceTimersByTimeAsync(100);
+  }
+  expect(socket.readyState).toBe(Socket.OPEN);
+  expect(signal.aborted).toBe(false);
+  changed.mockClear();
+  finish([]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(changed).toHaveBeenCalledTimes(1);
+});

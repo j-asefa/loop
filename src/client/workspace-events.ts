@@ -53,6 +53,7 @@ export function watchWorkspaceEvents(options: {
   let socket: WorkspaceSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
+  let requestWasFallback = false;
   const ownerGeneration = viewGeneration();
   const pollKey = Symbol();
   let deadlineGeneration = 0;
@@ -229,7 +230,9 @@ export function watchWorkspaceEvents(options: {
         // Polling stops while push is healthy. Its last success cannot prove
         // connectivity after this socket subsequently disconnects.
         pollHealthy = false;
-        request?.abort();
+        // Ordinary stream traffic must not starve a failed-view recovery
+        // probe. A reset or the first socket frame supersedes fallback IO.
+        if (m.type === "reset" || requestWasFallback) request?.abort();
         options.frame?.(m);
         const notifications =
           m.type === "events"
@@ -278,6 +281,7 @@ export function watchWorkspaceEvents(options: {
     if (!releasePoll) return;
     polling = true;
     const recovering = ready;
+    requestWasFallback = !recovering;
     const requestEpoch = epoch;
     const controller = (request = new AbortController());
     const deadline = setTimeout(() => controller.abort(), 12_000);

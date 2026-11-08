@@ -644,6 +644,7 @@ for (const engine of selectedEngines()) {
           scope: dialog(),
           start: () => signalCollection(page, "metadata"),
           recovered: () => signalCollection(page, "metadata"),
+          slowRefresh: true,
         });
         assert(
           (await thread()

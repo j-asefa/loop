@@ -31,11 +31,13 @@ export async function collectionReadRecovery(
     recovered,
     change,
     errorText = "Collection recovery fixture",
+    slowRefresh = false,
   },
 ) {
   let reads = 0;
   let blocked = true;
   let status = 503;
+  let delay = 0;
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
@@ -44,7 +46,10 @@ export async function collectionReadRecovery(
         status,
         json: { error: "Collection recovery fixture" },
       });
-    else await route.continue();
+    else {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      await route.continue();
+    }
   };
   // Let notifications from preceding fixture mutations settle first.
   await page.waitForTimeout(2500);
@@ -63,6 +68,37 @@ export async function collectionReadRecovery(
       .poll(() => reads, { timeout: 10_000 })
       .toBeGreaterThan(recoveryReads);
     await expect(marker).toHaveCount(0);
+
+    if (slowRefresh) {
+      // A healthy slow read must finish despite unrelated recovery broadcasts.
+      await page.waitForTimeout(500);
+      delay = 4500;
+      const beforeSlow = reads;
+      const completed = page.waitForResponse(
+        (response) => match(new URL(response.url())) && response.ok(),
+      );
+      void completed.catch(() => {});
+      await start();
+      await expect.poll(() => reads).toBe(beforeSlow + 1);
+      for (let n = 0; n < 5; n++) {
+        await signalCollection(page, "all");
+        await page.waitForTimeout(500);
+      }
+      assert.equal(
+        reads,
+        beforeSlow + 1,
+        "Invalidations let the in-flight read finish",
+      );
+      delay = 0;
+      await completed;
+      await expect.poll(() => reads).toBe(beforeSlow + 2);
+      await page.waitForTimeout(500);
+      assert.equal(
+        reads,
+        beforeSlow + 2,
+        "Concurrent invalidations coalesce to one trailing read",
+      );
+    }
 
     // Permanent refusals remain visible and require an explicit retry.
     status = 403;
