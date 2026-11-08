@@ -11,6 +11,7 @@ const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 let browser;
 let server;
 const requests = [];
+const unknownIds = new Set();
 let outcome = "success";
 const providerView = {
   providers: [
@@ -125,7 +126,14 @@ try {
       for await (const chunk of req) chunks.push(chunk);
       const body = JSON.parse(Buffer.concat(chunks).toString());
       requests.push({ path, body });
-      if (outcome === "lost") {
+      const commandId = body.commandId || body.idempotencyKey;
+      if (outcome === "unknown") unknownIds.add(commandId);
+      if (unknownIds.has(commandId)) {
+        reply(
+          { error: "Fixture unknown outcome", executionOutcome: "unknown" },
+          409,
+        );
+      } else if (outcome === "lost") {
         // A truncated reply is uncertain even though the command reached us.
         res.writeHead(200, { "content-type": "application/json" });
         res.end('{"');
@@ -138,11 +146,6 @@ try {
             executionOutcome: "refused",
           },
           422,
-        );
-      else if (outcome === "unknown")
-        reply(
-          { error: "Fixture unknown outcome", executionOutcome: "unknown" },
-          409,
         );
       else
         reply(
@@ -299,6 +302,40 @@ try {
             first,
             kind + ": uncertainty survives reload",
           );
+        if (firstOutcome === "unknown") {
+          await expect(
+            page.getByText("Fixture unknown outcome", { exact: false }).first(),
+          ).toBeVisible();
+          const recovery = page.getByRole("region", {
+            name: "Unconfirmed change",
+          });
+          const allow = recovery.getByRole("button", {
+            name: "Allow a new command",
+            exact: true,
+          });
+          await expect(allow).toBeDisabled();
+          await recovery.getByRole("checkbox").check();
+          await allow.click();
+          await expect(page.getByText(/No new command was sent/)).toBeVisible();
+          assert.equal(requests.length, 2, "Confirmation does not dispatch");
+          const history = await page.evaluate(() =>
+            Object.entries(localStorage)
+              .filter(([key]) => key.startsWith("loop-effect-history:"))
+              .map(([, value]) => JSON.parse(value)),
+          );
+          assert(
+            history.some((receipt) => receipt.commandId === first),
+            "The old uncertain identity is retained",
+          );
+          await open(kind);
+          await act(kind);
+          await expect.poll(() => requests.length).toBe(3);
+          assert.notEqual(
+            identity(requests[2]),
+            first,
+            "Explicit recovery permits a separate command",
+          );
+        }
         await expect
           .poll(() =>
             page.evaluate(

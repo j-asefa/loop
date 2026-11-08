@@ -328,6 +328,15 @@ request, but cannot settle an earlier uncertain attempt. A later authentication
 refusal therefore cannot cause a previously accepted refresh to be sent with a
 new ID.
 
+An unknown server receipt can remain unknown permanently. The recovery UI
+warns that status inspection cannot prove the outcome and requires explicit
+acknowledgement that a new command may repeat the change. Confirmation takes
+the same lock, verifies the view and exact pending attempt, archives its identity
+in owner/source-scoped history, then releases the active slot. It does not mark
+the old receipt as settled or dispatch anything. A later explicit action gets a
+new identity. Failed storage writes, stale views and newer attempts prevent
+superseding the pending identity.
+
 Provider-key identity includes a SHA-256 equality fingerprint of the normalized
 key, so entering a different key is a separate explicit request. Credential
 values are not stored in this journal. A fingerprint establishes equality; it

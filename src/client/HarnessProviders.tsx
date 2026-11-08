@@ -5,7 +5,8 @@ import { workspaceApi } from "../shared/workspace-api";
 import type { NativeProviderView } from "../shared/native-providers";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { callRoute } from "./workspace-api";
-import { performStoredEffect } from "./durableIdentities";
+import { performStoredEffect, UncertainEffect } from "./durableIdentities";
+import { EffectRecovery } from "./EffectRecovery";
 import { viewGeneration, viewOwner } from "./viewCache";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 
@@ -43,6 +44,9 @@ export function HarnessProviders({
   const [notice, setNotice] = useState("");
   const [results, setResults] = useState<string[]>([]);
   const [inspect, setInspect] = useState(false);
+  const [recoveries, setRecoveries] = useState<
+    { scope: string; label: string; failure: UncertainEffect; key: string }[]
+  >([]);
   const mounted = useRef(true);
   const owner = viewOwner();
   const generation = viewGeneration();
@@ -53,18 +57,43 @@ export function HarnessProviders({
     mounted.current &&
     activeContext.current === context &&
     generation === viewGeneration();
-  const command = <T,>(
+  const command = async <T,>(
     target: string[],
     dispatch: (id: string) => Promise<T>,
-  ) =>
-    performStoredEffect(
-      localStorage,
-      owner,
-      sourceId,
-      target,
-      current,
-      dispatch,
-    );
+  ) => {
+    const scope = JSON.stringify(target);
+    try {
+      const result = await performStoredEffect(
+        localStorage,
+        owner,
+        sourceId,
+        target,
+        current,
+        dispatch,
+      );
+      if (current())
+        setRecoveries((previous) =>
+          previous.filter((entry) => entry.scope !== scope),
+        );
+      return result;
+    } catch (error) {
+      if (current())
+        setRecoveries((previous) => [
+          ...previous.filter((entry) => entry.scope !== scope),
+          ...(error instanceof UncertainEffect
+            ? [
+                {
+                  scope,
+                  key: crypto.randomUUID(),
+                  label: `${labels[target[1] as Harness]}: ${target[0] === "provider-key" ? `save ${target[3]} credential` : target[0] === "provider-remove" ? `remove ${target[3]} credential` : "refresh providers"}`,
+                  failure: error,
+                },
+              ]
+            : []),
+        ]);
+      throw error;
+    }
+  };
   const selected = view?.providers.find((p) => p.id === provider);
   const selectedMethod = selected?.methods.find((m) => m.id === method);
   const modelCount =
@@ -582,6 +611,24 @@ export function HarnessProviders({
           {error}
         </p>
       )}
+      {recoveries.map(({ label, failure, key }) => (
+        <div key={key}>
+          <h3>{label}</h3>
+          <EffectRecovery
+            failure={failure}
+            onReady={() => {
+              if (!current()) return;
+              setRecoveries((previous) =>
+                previous.filter((entry) => entry.failure !== failure),
+              );
+              setInspect(false);
+              setNotice(
+                "No new command was sent. Use the action again when you are ready.",
+              );
+            }}
+          />
+        </div>
+      ))}
       {inspect && (
         <p>
           Refresh provider status before starting another credential change. An

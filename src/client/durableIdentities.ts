@@ -103,6 +103,17 @@ export function confirmUpgradeStart(
 
 type PendingEffect = { commandId: string; attempt: string };
 
+export class UncertainEffect extends Error {
+  constructor(
+    error: unknown,
+    readonly supersede: () => Promise<void>,
+  ) {
+    super(
+      error instanceof Error ? error.message : "The change is unconfirmed.",
+    );
+  }
+}
+
 // HTTP status alone cannot settle an execution command: an unknown effect
 // also returns 409. Only the authority's explicit outcome settles it.
 function effectOutcomeSettled(error: unknown): boolean {
@@ -184,7 +195,32 @@ export async function performStoredEffect<T>(
     await settle();
     return value;
   } catch (error) {
-    if (settledError(error, prepared.recovering)) await settle();
-    throw error;
+    if (settledError(error, prepared.recovering)) {
+      await settle();
+      throw error;
+    }
+    throw new UncertainEffect(error, async () => {
+      await navigator.locks.request(key, () => {
+        if (!current())
+          throw new Error(
+            "This view has changed. Reopen it before continuing.",
+          );
+        const saved = JSON.parse(storage.getItem(key) || "null");
+        if (
+          saved?.commandId !== prepared.receipt.commandId ||
+          saved?.attempt !== prepared.receipt.attempt
+        )
+          throw new Error(
+            "This pending change has changed. Check its status again.",
+          );
+        // Keep the uncertain identity before releasing the active slot. This
+        // never settles its server receipt or dispatches a replacement effect.
+        storage.setItem(
+          `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
+          JSON.stringify({ ...prepared.receipt, target }),
+        );
+        storage.removeItem(key);
+      });
+    });
   }
 }

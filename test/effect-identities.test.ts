@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { performStoredEffect } from "../src/client/durableIdentities";
+import {
+  performStoredEffect,
+  UncertainEffect,
+} from "../src/client/durableIdentities";
 import {
   recentSearches,
   rememberSearch,
@@ -193,4 +196,121 @@ it("separates device history by owner and never reads unscoped keys", () => {
   expect(recentSearches(undefined)).toEqual([]);
   expect(lastVisit(undefined)).toBe(0);
   expect(storage.length).toBe(count);
+});
+
+it("only explicit recovery supersedes an unknown identity and preserves its history", async () => {
+  const ids: string[] = [];
+  const send = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "source",
+      ["provider-refresh"],
+      () => true,
+      async (id) => {
+        ids.push(id);
+        throw unknown();
+      },
+    );
+  await expect(send()).rejects.toThrow("Unknown");
+  const failure = await send().catch((error) => error as UncertainEffect);
+  expect(failure).toBeInstanceOf(UncertainEffect);
+  expect(ids[1]).toBe(ids[0]);
+  await failure.supersede();
+  expect(ids).toHaveLength(2);
+  const history = JSON.parse(
+    storage.getItem(
+      `loop-effect-history:${JSON.stringify(["alice", "source", ids[0]])}`,
+    )!,
+  );
+  expect(history.commandId).toBe(ids[0]);
+  await expect(send()).rejects.toThrow("Unknown");
+  expect(ids[2]).not.toBe(ids[0]);
+});
+
+it("cannot supersede a newer attempt or a replaced owner view", async () => {
+  let current = true;
+  const send = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["provider-remove"],
+      () => current,
+      async () => {
+        throw unknown();
+      },
+    ).catch((error) => error as UncertainEffect);
+  const old = await send();
+  const latest = await send();
+  await expect(old.supersede()).rejects.toThrow("pending change has changed");
+  current = false;
+  await expect(latest.supersede()).rejects.toThrow("view has changed");
+  expect(storage.length).toBe(1);
+});
+
+it("keeps the pending identity when preserving recovery history fails", async () => {
+  const ids: string[] = [];
+  const send = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["provider-key"],
+      () => true,
+      async (id) => {
+        ids.push(id);
+        throw unknown();
+      },
+    ).catch((error) => error as UncertainEffect);
+  const failure = await send();
+  const save = storage.setItem;
+  storage.setItem = () => {
+    throw new Error("Storage full");
+  };
+  await expect(failure.supersede()).rejects.toThrow("Storage full");
+  storage.setItem = save;
+  await send();
+  expect(ids[1]).toBe(ids[0]);
+});
+
+it("refuses dispatch for a malformed pending record", async () => {
+  storage.setItem(
+    `loop-effect:${JSON.stringify(["alice", "", "provider-refresh"])}`,
+    "{broken",
+  );
+  const dispatch = vi.fn(async () => "accepted");
+  await expect(
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["provider-refresh"],
+      () => true,
+      dispatch,
+    ),
+  ).rejects.toThrow("Cannot read pending changes");
+  expect(dispatch).not.toHaveBeenCalled();
+});
+
+it("retains the identity when settled-receipt removal fails", async () => {
+  const ids: string[] = [];
+  storage.removeItem = () => {
+    throw new Error("Storage unavailable");
+  };
+  const send = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["provider-refresh"],
+      () => true,
+      async (id) => {
+        ids.push(id);
+        return "accepted";
+      },
+    );
+  await expect(send()).resolves.toBe("accepted");
+  await expect(send()).resolves.toBe("accepted");
+  expect(ids[1]).toBe(ids[0]);
 });

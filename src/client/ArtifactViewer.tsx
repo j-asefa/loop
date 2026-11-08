@@ -5,7 +5,8 @@ import type { ResultCard } from "../shared/cards";
 import type { CardArtifact } from "./card-actions";
 import { CardBody } from "./ContentCard";
 import { useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
-import { performStoredEffect } from "./durableIdentities";
+import { performStoredEffect, UncertainEffect } from "./durableIdentities";
+import { EffectRecovery } from "./EffectRecovery";
 import { viewGeneration, viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";
 import { Chart } from "./Chart";
@@ -204,6 +205,10 @@ export function ArtifactViewer({
       if (current()) setError((e as Error).message);
     }
   }
+  const [recovery, setRecovery] = useState<{
+    failure: UncertainEffect;
+    key: string;
+  }>();
   const author = agent?.name || item.name;
   return (
     <Sheet
@@ -257,6 +262,7 @@ export function ArtifactViewer({
               {(meta.refreshable || meta.connectionId) && (
                 <button
                   onClick={async () => {
+                    setRecovery(undefined);
                     try {
                       await performStoredEffect(
                         localStorage,
@@ -292,7 +298,11 @@ export function ArtifactViewer({
                         "Refresh queued. Approve the request in Running; this snapshot stays saved.",
                       );
                     } catch (e) {
-                      if (current()) setError((e as Error).message);
+                      if (current()) {
+                        setError((e as Error).message);
+                        if (e instanceof UncertainEffect)
+                          setRecovery({ failure: e, key: crypto.randomUUID() });
+                      }
                     }
                   }}
                 >
@@ -398,6 +408,19 @@ export function ArtifactViewer({
           </p>
         )}
         <RunFiles runId={item.run_id} excludeId={item.id} />
+        {recovery && (
+          <EffectRecovery
+            key={recovery.key}
+            failure={recovery.failure}
+            onReady={() => {
+              if (!current()) return;
+              setRecovery(undefined);
+              setError(
+                "No new command was sent. Use Refresh from source when you are ready.",
+              );
+            }}
+          />
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
