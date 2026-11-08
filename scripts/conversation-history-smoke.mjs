@@ -5,6 +5,7 @@ import {
 } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { publicBuild, runningBuild } from "../dist/shared/build.js";
 import { chromium, expect } from "@playwright/test";
 import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
@@ -1921,7 +1922,9 @@ async function httpEpochRecovery(engine) {
       id: "different-current-build",
     });
     await expect(reload).toBeVisible();
-    sendBuild(reset.frame.build, reset.frame.buildIdentity);
+    // The fixture server runs from source and reports development; use the
+    // compiled UI identity to establish a known match.
+    sendBuild(reset.frame.build, publicBuild(runningBuild));
     await expect(reload).toHaveCount(0);
     blocked = true;
     await page.evaluate(() =>
