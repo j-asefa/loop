@@ -66,7 +66,7 @@ The terminal screenshot uses an isolated fixture tunnel; its pairing link is no 
 
 ## Install on your phone
 
-1. In the Loop checkout on your computer, run `loop start`. It starts the workspace and displays a pairing QR code.
+1. On your computer, run `loop start`. It starts the workspace and displays a pairing QR code.
 2. Scan the QR code with your phone's camera. The link opens Loop's pairing page in your default mobile browser. Tap **Pair and open Loop**.
 3. In the browser, open **Share** and choose **Add to Home Screen**. On Android browsers, this may appear as **Install app** or **Add to Home screen** in the browser menu.
 4. Open Loop from the new home screen icon.
@@ -125,7 +125,7 @@ The paired app shows agents and conversations from your computer and enrolled fl
 
 To update a checkout install, run `git pull` and `bash install` while Loop keeps running, then `loop restart`. `loop restart` replaces only the application: a separate connection service keeps cloudflared, the Quick Tunnel address and your paired phone, and the restarted application uses the same project, harness, provider and billing settings. It refuses while runs are active unless you pass `--force`. With the login service installed, `loop restart` restarts the application service the same way.
 
-`loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address.
+`loop upgrade` does this in one command from any directory: it installs the package from the repository's remote `main` (or `--from PACKAGE`; npm installs use `loop upgrade --from @j-asefa/loop@latest`) while Loop keeps running, then restarts into the new build at the same address. A failed install leaves the running workspace alone. It does not use or modify a local Loop checkout. `loop stop` stops everything, including the tunnel; the next start can get a new address.
 
 
 The laptop and Docker companion both use device pairing. See [pairing and recovery](docs/pairing.md).
