@@ -137,15 +137,10 @@ import {
 } from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
-import {
-  listenProjectionFrames,
-  reactiveSource,
-  surfaceFallback,
-} from "./workspace-projections";
+import { listenProjectionFrames } from "./workspace-projections";
 import {
   listenWorkspaceChanges,
   workspaceChangeAffects,
-  type WorkspaceChangeDetail,
 } from "./workspace-changes";
 
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
@@ -1349,9 +1344,7 @@ export function Feed({
   ) => {
     const read = (known?: string) =>
       readSnapshot(source, { ...query, known }, "", manual);
-    return reactiveSource(source, "feed")
-      ? projectionPages.current.read(source, JSON.stringify(query), read)
-      : read();
+    return projectionPages.current.read(source, JSON.stringify(query), read);
   };
   const activeSources: AgentSource[] = doneAgent
     ? allSources.filter(
@@ -2607,12 +2600,6 @@ export function Feed({
     generation,
   ]);
   useEffect(() => {
-    const pending = activeSources
-      .filter((source) => !reactiveSource(source.id, "feed"))
-      .map((source) => source.id);
-    if (pending.length) void load(false, true, pending);
-  }, [revision]);
-  useEffect(() => {
     // Explicit refreshes supersede an older read: dropping one while polling
     // is in flight can leave a completed action or connection retry unseen.
     // The request ticket prevents the older response from replacing this one.
@@ -2623,13 +2610,8 @@ export function Feed({
     // retry budget. Only this view's notice retries the failed operation once.
     window.addEventListener("loop-source-refresh", update);
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
-      const detail = (event as CustomEvent<WorkspaceChangeDetail>).detail;
       const affected = activeSources
-        .filter(
-          (source) =>
-            workspaceChangeAffects(event, "feed", source.id) &&
-            (reactiveSource(source.id, "feed") || !detail?.changes),
-        )
+        .filter((source) => workspaceChangeAffects(event, "feed", source.id))
         .map((source) => source.id);
       if (affected.length) {
         if (
@@ -2649,26 +2631,10 @@ export function Feed({
         .map((source) => source.id);
       if (needsOnly.length) void loadNeeds(needsOnly);
     });
-    const stopFallback = surfaceFallback(
-      allSources.map((source) => source.id),
-      "feed",
-      30_000,
-      (missing) => {
-        const selected = missing.filter((source) =>
-          activeSources.some((item) => item.id === source),
-        );
-        const needsOnly = missing.filter(
-          (source) => !selected.includes(source),
-        );
-        if (selected.length) void load(false, true, selected);
-        if (needsOnly.length) void loadNeeds(needsOnly);
-      },
-    );
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-social-read", update);
       window.removeEventListener("loop-source-refresh", update);
-      stopFallback();
       stopChanges();
       clearTimeout(doneCatchup.current);
     };

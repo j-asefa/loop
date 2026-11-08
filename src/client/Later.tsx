@@ -1,5 +1,4 @@
 import { literalEntry, proseEntry } from "./textEntry";
-import { reactiveSource, surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -548,7 +547,7 @@ export function Later({
     setFocus(null);
     cacheView("later-section", value, viewOwner());
   };
-  async function load(manual = false, background = false) {
+  async function load(manual = false) {
     // The selected section owns its reader. Scheduled/Saved render their own
     // collections; their hidden reminder/count reader must not fail beside it.
     if (only && only !== "reminders") return;
@@ -582,7 +581,6 @@ export function Later({
         cacheView(cacheKey, items, owner);
       },
       manual,
-      background,
     );
   }
   useEffect(() => {
@@ -590,27 +588,15 @@ export function Later({
     setFailed(0);
   }, [read]);
   useEffect(() => {
-    // Complete sources refresh through the scoped subscription below. Parent
-    // revisions supply only the incomplete-stream fallback and must not cancel a read.
-    if (!reactiveSource(sourceId, "workspace")) void load(false, true);
-  }, [revision, sourceId, read]);
-  useEffect(() => {
-    void load(false, true);
+    void load();
     const update = () => void load();
     window.addEventListener("loop-later-change", update);
     window.addEventListener("loop-scheduled-change", update);
-    const stopFallback = surfaceFallback(
-      [sourceId],
-      "workspace",
-      30_000,
-      () => void load(false, true),
-    );
     const stopChanges = listenWorkspaceChanges("later", update, sourceId);
     const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
     return () => {
       window.removeEventListener("loop-later-change", update);
       window.removeEventListener("loop-scheduled-change", update);
-      stopFallback();
       stopChanges();
       stopScheduled();
     };

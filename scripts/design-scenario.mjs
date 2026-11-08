@@ -33,7 +33,6 @@ import {
   isWebKitNavigationFetchError,
   collectionReadRecovery,
   signalCollection,
-  incompleteStreamRecovery,
 } from "./helpers/browser-errors.mjs";
 
 import { workspaceControlsSmoke } from "./helpers/workspace-controls-smoke.mjs";
@@ -645,6 +644,8 @@ for (const engine of selectedEngines()) {
           scope: dialog(),
           start: () => signalCollection(page, "metadata"),
           recovered: () => signalCollection(page, "metadata"),
+          slowRefresh: true,
+          preserveNotice: true,
         });
         assert(
           (await thread()
@@ -1137,7 +1138,6 @@ for (const engine of selectedEngines()) {
           "Summarize the release notes and draft a short update",
         );
         await capture("search-your-prompts");
-        await incompleteStreamRecovery(browser, fixture);
         await openSettings();
         await dialog()
           .getByRole("button", { name: "Dark", exact: true })

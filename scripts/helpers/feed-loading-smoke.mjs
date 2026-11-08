@@ -14,8 +14,8 @@ const localFrames = { count: 0 };
 // wait for discovery, agent metadata, or a slower environment's feed.
 export async function feedLoadingSmoke(page, fixture, engine, capture) {
   // These fixture-only companion and linked sources have no real socket
-  // servers. Negotiate a quiet complete stream so HTTP fallback invalidations
-  // cannot replace the append operation during its retry assertions.
+  // servers. Negotiate a quiet complete stream; cases that assert explicit
+  // retries also hold HTTP event probes unavailable below.
   const streamResets = new Map();
   const resetFrame = () => ({
     v: 3,
@@ -299,6 +299,12 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   const appendReads = [];
   const refreshReads = [];
   const manual = Promise.withResolvers();
+  // This case controls recovery with explicit signals and a manual retry.
+  // Failed reads can now probe HTTP even with a ready socket; keep that
+  // transport unavailable so it cannot race the operation being asserted.
+  const eventsMatch = (url) => url.pathname === "/api/events";
+  const eventsUnavailable = (route) =>
+    route.fulfill({ status: 503, json: { error: "Event transport outage" } });
   const handler = async (route) => {
     const url = new URL(route.request().url());
     if (phase === "append" && url.searchParams.has("before")) {
@@ -322,6 +328,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
     });
   };
   await page.route(match, handler);
+  await page.route(eventsMatch, eventsUnavailable);
   try {
     await openConnectedFeed(page, fixture.base + "/?filter=working");
     await expect(
@@ -384,6 +391,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   } finally {
     manual.resolve();
     await page.unroute(match, handler);
+    await page.unroute(eventsMatch, eventsUnavailable);
   }
 }
 
@@ -480,6 +488,11 @@ async function feedLoadingCase(
       });
     await fulfill(route, discoveredSources);
   };
+  // This case asserts explicit signals and exact manual page retries. A quiet
+  // socket alone does not prevent failed reads from probing HTTP for recovery.
+  const eventsMatch = (url) => url.pathname === "/api/events";
+  const eventsUnavailable = (route) =>
+    route.fulfill({ status: 503, json: { error: "Event transport outage" } });
   const sourceRequests = new Set();
   const readSource = async (route) => {
     const url = new URL(route.request().url());
@@ -487,6 +500,7 @@ async function feedLoadingCase(
     const source = sources.find(
       (item) => item.id === decodeURIComponent(match[1]),
     );
+    if (match[2] === "events") return eventsUnavailable(route);
     if (/^messages\/[^/]+\/saved$/.test(match[2])) {
       const method = route.request().method();
       savedWrites.push({ source: source.id, method });
@@ -659,6 +673,7 @@ async function feedLoadingCase(
   await page.route("**/api/v1/cards**", localCards);
   await page.route("**/api/agent-sources", discoveryRoute);
   await page.route("**/api/agent-sources/**", sourceRoute);
+  await page.route(eventsMatch, eventsUnavailable);
   try {
     const localRead = page.waitForResponse((response) =>
       cardsUnavailable
@@ -1276,6 +1291,7 @@ async function feedLoadingCase(
     await page.unroute("**/api/v1/cards**", localCards);
     await page.unroute("**/api/agent-sources", discoveryRoute);
     await page.unroute("**/api/agent-sources/**", sourceRoute);
+    await page.unroute(eventsMatch, eventsUnavailable);
     await Promise.allSettled([...sourceRequests]);
   }
 }

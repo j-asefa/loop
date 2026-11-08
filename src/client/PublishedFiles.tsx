@@ -6,7 +6,6 @@ import {
   useSourceRouteRead,
   useSourcePath,
 } from "./SourceContext";
-import { surfaceFallback } from "./workspace-projections";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
 import { isRateLimited, parse } from "./api";
@@ -235,14 +234,10 @@ export function RunFiles({
         });
     };
     refresh();
-    const stopFallback = active
-      ? surfaceFallback([sourceId], "results", 5000, refresh)
-      : () => {};
     const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
     return () => {
       live = false;
       controller.abort();
-      stopFallback();
       stopChanges();
     };
   }, [runId, active, read, sourceId, attempt]);

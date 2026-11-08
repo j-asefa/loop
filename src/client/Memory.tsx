@@ -1,5 +1,4 @@
 import { proseEntry } from "./textEntry";
-import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {
   useSourceRoute,
@@ -385,7 +384,7 @@ export function NativeConversation({ id }: { id: string }) {
     > | null>(null),
     [error, setError] = useState(""),
     [include, setInclude] = useState(true);
-  const load = (manual = false, background = false) =>
+  const load = (manual = false) =>
     read(
       (signal, mode) =>
         readRoute(
@@ -401,22 +400,14 @@ export function NativeConversation({ id }: { id: string }) {
         setInclude(value.memoryIncluded);
       },
       manual,
-      background,
     );
   useEffect(() => {
     setData(null);
     const update = () => void load();
     const stopChanges = listenWorkspaceChanges("metadata", update, sourceId);
-    const stopFallback = surfaceFallback(
-      [sourceId],
-      "workspace",
-      4000,
-      () => void load(false, true),
-    );
     void load();
     return () => {
       stopChanges();
-      stopFallback();
     };
   }, [id, sourceId, read]);
   if (!data)

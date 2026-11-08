@@ -5,7 +5,6 @@ import {
   type RouteResponse,
 } from "../shared/workspace-api";
 import { readRoute } from "./workspace-api";
-import { reactiveSource } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type {
@@ -214,6 +213,7 @@ export function useAgentSources(
         );
       } finally {
         clearTimeout(requests.get(controller));
+        controller.abort();
         requests.delete(controller);
         cancellation?.removeEventListener("abort", abort);
       }
@@ -360,7 +360,6 @@ export function useAgentSources(
           source.id !== currentSourceId &&
           (!options.changes || options.changes.has(source.id)) &&
           (!options.discovery ||
-            !reactiveSource(source.id, "workspace") ||
             !snapshots.has(source.id) ||
             failedSources.has(source.id)),
       );

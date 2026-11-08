@@ -4,7 +4,6 @@ import type { CardPage, CardSelection } from "../shared/cards";
 import { useProjectionRoute, useSourceId } from "./SourceContext";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { CardPager, type CardWindow } from "./card-pager";
-import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 
 const noItems: CardPage["items"] = [];
@@ -103,10 +102,6 @@ export function useCards(selection: CardSelection, revision = 0) {
         void load();
       }
     };
-    const stopFallback = surfaceFallback([source], "results", 2000, () => {
-      if (document.visibilityState === "visible" && !context.pending)
-        void load();
-    });
     const stopChanges = listenWorkspaceChanges(
       selection.view === "saved" ? "saved" : "results",
       refresh,
@@ -116,7 +111,6 @@ export function useCards(selection: CardSelection, revision = 0) {
     window.addEventListener("loop-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      stopFallback();
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener("loop-later-change", refresh);

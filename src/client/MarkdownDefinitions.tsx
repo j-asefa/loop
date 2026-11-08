@@ -91,6 +91,7 @@ export function MarkdownDefinitions({
         controller.signal,
       );
     } finally {
+      controller.abort();
       reads.current.delete(controller);
     }
   }

@@ -5,7 +5,6 @@ import {
   listenWorkspaceChanges,
   workspaceChangeAffects,
 } from "./workspace-changes";
-import { surfaceFallback } from "./workspace-projections";
 import { viewGeneration } from "./viewCache";
 
 // Read the server's full-scope counts, independently of paginated cards and
@@ -79,7 +78,6 @@ export function useFeedBadge(
         ),
       ),
     );
-    const stopFallback = surfaceFallback(sources, "feed", 30_000, load);
     const update = () => load();
     window.addEventListener("loop-source-refresh", update);
     window.addEventListener("loop-later-change", update);
@@ -88,7 +86,6 @@ export function useFeedBadge(
       active = false;
       controller.abort();
       stop();
-      stopFallback();
       window.removeEventListener("loop-source-refresh", update);
       window.removeEventListener("loop-later-change", update);
     };

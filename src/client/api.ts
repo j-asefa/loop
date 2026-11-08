@@ -12,6 +12,7 @@ import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { viewGeneration } from "./viewCache";
 import { prepareFleetCommand } from "./fleetCommand";
+import { beginWorkspaceRead } from "./workspace-read-recovery";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 let backoffGeneration = -1;
@@ -237,8 +238,9 @@ async function requestInWorkspace<T>(
     command?.dispatch,
   ).catch((error) => {
     if (error instanceof TypeError && !signal?.aborted)
-      throw new Error(
-        "Couldn’t reach Loop. Check your connection and try again.",
+      throw Object.assign(
+        new Error("Couldn’t reach Loop. Check your connection and try again."),
+        { network: true },
       );
     throw error;
   });
@@ -272,14 +274,16 @@ async function requestInWorkspace<T>(
   // returned an error page instead of Loop's JSON receipt.
   const uploadFailure = `Upload failed (HTTP ${r.status}${r.statusText ? " " + r.statusText : ""}). Try again.`;
   let parsed = true;
+  let bodyDisconnected = false;
   const data = await (
     empty && r.status === 204
       ? Promise.resolve(undefined)
       : r.ok && kind === "stream"
         ? r.blob()
         : r.json()
-  ).catch(() => {
+  ).catch((error) => {
     parsed = false;
+    bodyDisconnected = r.ok && error instanceof TypeError && !signal?.aborted;
     return {
       error: multipart ? uploadFailure : "Connection unavailable. Try again.",
     };
@@ -300,6 +304,7 @@ async function requestInWorkspace<T>(
           (multipart ? uploadFailure : "Request failed"),
       ),
       {
+        ...(bodyDisconnected ? { network: true } : {}),
         status:
           parsed || r.status === 429 || r.status >= 500 ? r.status : undefined,
         ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
@@ -513,15 +518,34 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
   onRetry?: (error: unknown) => void,
   mode: ReadMode = "automatic",
 ): Promise<RouteResponse<C>> {
-  return response(
-    contract,
-    await readRequest<unknown>(
-      routePath(contract, input),
-      sourceId,
-      signal,
-      onRetry,
-      contract.kind,
-      mode,
-    ),
-  );
+  const generation = viewGeneration();
+  const path = routePath(contract, input);
+  const settleRecovery = beginWorkspaceRead(sourceId, path, signal);
+  try {
+    const value = response(
+      contract,
+      await readRequest<unknown>(
+        path,
+        sourceId,
+        signal,
+        onRetry,
+        contract.kind,
+        mode,
+      ),
+    );
+    settleRecovery(false);
+    return value;
+  } catch (error) {
+    const failure = error as { status?: number; network?: boolean };
+    settleRecovery(
+      mode === "automatic" &&
+        !signal.aborted &&
+        generation === viewGeneration() &&
+        (failure.network === true ||
+          (failure.status !== undefined &&
+            failure.status >= 500 &&
+            failure.status < 600)),
+    );
+    throw error;
+  }
 }

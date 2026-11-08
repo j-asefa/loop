@@ -10,6 +10,8 @@ export function useCollectionRead(key: string) {
     () => ({
       controller: undefined as AbortController | undefined,
       active: true,
+      running: false,
+      queued: undefined as (() => Promise<void>) | undefined,
     }),
     [key, owner],
   );
@@ -18,21 +20,26 @@ export function useCollectionRead(key: string) {
     context.active = true;
     return () => {
       context.active = false;
+      context.running = false;
+      context.queued = undefined;
       context.controller?.abort();
     };
   }, [context]);
   const load = useCallback(
-    async <T,>(
+    async function load<T>(
       read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
       receive: (value: T) => void,
       manual = false,
-      background = false,
-    ) => {
+    ): Promise<void> {
       if (!context.active || owner !== viewGeneration()) return;
-      // Background fallback ticks must not cancel a slow request or its bounded
-      // backoff. An actual change or manual retry can still supersede it.
-      if (background && context.controller) return;
-      // A newer signal supersedes an old attempt and its pending backoff.
+      // Recovery or event bursts must let a healthy slow read finish. Keep
+      // one trailing refresh so changes during that read are not lost.
+      if (context.running && !manual) {
+        context.queued = () => load(read, receive);
+        return;
+      }
+      context.queued = undefined;
+      context.running = true;
       context.controller?.abort();
       const controller = new AbortController();
       context.controller = controller;
@@ -43,8 +50,7 @@ export function useCollectionRead(key: string) {
         owner === viewGeneration();
       setState((old) => ({
         context,
-        error:
-          (manual || background) && old.context === context ? old.error : "",
+        error: old.context === context ? old.error : "",
         busy: true,
       }));
       try {
@@ -66,8 +72,13 @@ export function useCollectionRead(key: string) {
           busy: false,
         });
       } finally {
-        controller.abort();
-        if (context.controller === controller) context.controller = undefined;
+        if (context.controller === controller) {
+          context.running = false;
+          // Another load can queue a refresh across the await above.
+          const queued = context.queued as (() => Promise<void>) | undefined;
+          context.queued = undefined;
+          if (current()) void queued?.();
+        }
       }
     },
     [context, owner],

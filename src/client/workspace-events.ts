@@ -3,11 +3,15 @@ import {
   type WorkspaceFrameV3,
   WorkspaceClock,
   invalidate,
-  PARTIAL_WORKSPACE_CAPABILITIES,
+  COMPLETE_WORKSPACE_CAPABILITIES,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
 import { viewGeneration } from "./viewCache";
 import { retryAfter } from "./api";
+import {
+  needsWorkspaceReadRecovery,
+  takeWorkspaceReadRecovery,
+} from "./workspace-read-recovery";
 import type { WorkspaceSocket } from "./workspace-multiplex";
 import {
   acquireWorkspacePoll,
@@ -17,7 +21,7 @@ import {
 export type WorkspaceFrame =
   | WorkspaceFrameV3
   // A clock observed over HTTP can reset a replaced source, but cannot make
-  // claims about that deployment's build or delta capabilities.
+  // identify that deployment's build.
   | (Omit<
       Extract<WorkspaceFrameV3, { type: "reset" }>,
       "build" | "buildIdentity"
@@ -49,6 +53,7 @@ export function watchWorkspaceEvents(options: {
   let socket: WorkspaceSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let request: AbortController | undefined;
+  let requestWasFallback = false;
   const ownerGeneration = viewGeneration();
   const pollKey = Symbol();
   let deadlineGeneration = 0;
@@ -140,7 +145,7 @@ export function watchWorkspaceEvents(options: {
           v: 3,
           type: "reset",
           ...parsed.data,
-          capabilities: PARTIAL_WORKSPACE_CAPABILITIES,
+          capabilities: COMPLETE_WORKSPACE_CAPABILITIES,
         });
         options.changed();
       }
@@ -225,7 +230,9 @@ export function watchWorkspaceEvents(options: {
         // Polling stops while push is healthy. Its last success cannot prove
         // connectivity after this socket subsequently disconnects.
         pollHealthy = false;
-        request?.abort();
+        // Ordinary stream traffic must not starve a failed-view recovery
+        // probe. A reset or the first socket frame supersedes fallback IO.
+        if (m.type === "reset" || requestWasFallback) request?.abort();
         options.frame?.(m);
         const notifications =
           m.type === "events"
@@ -263,7 +270,7 @@ export function watchWorkspaceEvents(options: {
       stopped ||
       document.visibilityState === "hidden" ||
       viewGeneration() !== ownerGeneration ||
-      ready ||
+      (ready && !needsWorkspaceReadRecovery(options.source ?? "")) ||
       polling ||
       Date.now() < pollAfter
     ) {
@@ -273,6 +280,8 @@ export function watchWorkspaceEvents(options: {
     const releasePoll = acquireWorkspacePoll(pollKey);
     if (!releasePoll) return;
     polling = true;
+    const recovering = ready;
+    requestWasFallback = !recovering;
     const requestEpoch = epoch;
     const controller = (request = new AbortController());
     const deadline = setTimeout(() => controller.abort(), 12_000);
@@ -281,7 +290,7 @@ export function watchWorkspaceEvents(options: {
       if (
         stopped ||
         viewGeneration() !== ownerGeneration ||
-        ready ||
+        (ready && !recovering) ||
         controller.signal.aborted
       )
         return;
@@ -289,7 +298,8 @@ export function watchWorkspaceEvents(options: {
       options.connected?.(true);
       if (events.length && epoch === requestEpoch)
         pollCursor = events.at(-1)!.id;
-      if (events.length) options.changed();
+      const recover = takeWorkspaceReadRecovery(options.source ?? "");
+      if (events.length || recover) options.changed();
     } catch (error) {
       if (!stopped && !controller.signal.aborted)
         pollAfter = Math.max(pollAfter, Date.now() + retryAfter(error));
@@ -299,6 +309,8 @@ export function watchWorkspaceEvents(options: {
         options.connected?.(false);
       }
     } finally {
+      controller.abort();
+      if (request === controller) request = undefined;
       releasePoll();
       clearTimeout(deadline);
       polling = false;

@@ -107,6 +107,7 @@ export async function companionContractsBrowser({ browser, host, db }) {
     await expect(history.getByRole("alert")).toHaveCount(0);
     await collectionReadRecovery(page, {
       route: (url) => url.pathname === "/api/native/history",
+      automaticRecovery: false,
       scope: history,
       start: () =>
         history.getByRole("button", { name: /Discover Codex history/ }).click(),

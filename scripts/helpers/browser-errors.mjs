@@ -31,19 +31,42 @@ export async function collectionReadRecovery(
     recovered,
     change,
     errorText = "Collection recovery fixture",
+    slowRefresh = false,
+    automaticRecovery = true,
+    preserveNotice = false,
   },
 ) {
   let reads = 0;
   let blocked = true;
+  let status = 503;
+  let delay = 0;
+  let releaseRecovery;
+  let finishRecovery;
+  let recoveryStarted = false;
+  const recoveryFinished = new Promise((resolve) => {
+    finishRecovery = resolve;
+  });
+  const recoveryPending = new Promise((resolve) => {
+    releaseRecovery = resolve;
+  });
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
+    const held = automaticRecovery && preserveNotice && reads === 4;
+    if (held) {
+      recoveryStarted = true;
+      await recoveryPending;
+    }
     if (blocked)
       await route.fulfill({
-        status: 503,
+        status,
         json: { error: "Collection recovery fixture" },
       });
-    else await route.continue();
+    else {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      await route.continue();
+    }
+    if (held) finishRecovery();
   };
   // Let notifications from preceding fixture mutations settle first.
   await page.waitForTimeout(2500);
@@ -53,22 +76,95 @@ export async function collectionReadRecovery(
     const marker = scope
       .locator(".collection-read-error")
       .filter({ hasText: errorText });
-    await expect(marker).toBeVisible({ timeout: 15_000 });
-    await expect.poll(() => reads, { timeout: 10_000 }).toBe(3);
-    assert.equal(reads, 3, "One initial GET and the two existing retries");
-    await page.waitForTimeout(2100);
-    assert.equal(reads, 3, "Exhaustion stops background recovery");
+    if (automaticRecovery) {
+      // Exhaustion registers with the shared watcher, including when its event
+      // response is empty. No wake event or manual click should be necessary.
+      await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
+      // Keep the recovery request pending: cached rows must retain their warning
+      // until a successful response establishes that they are current again.
+      if (preserveNotice) {
+        await page.waitForTimeout(200);
+        await expect(marker).toBeVisible({ timeout: 1000 });
+        await expect(
+          marker.getByRole("button", { name: "Retry connection", exact: true }),
+        ).toBeDisabled();
+        releaseRecovery();
+        await recoveryFinished;
+      }
+      blocked = false;
+      const recoveryReads = reads;
+      await expect
+        .poll(() => reads, { timeout: 10_000 })
+        .toBeGreaterThan(recoveryReads);
+      await expect(marker).toHaveCount(0);
+
+      if (slowRefresh) {
+        // A healthy slow read must finish despite unrelated recovery broadcasts.
+        await page.waitForTimeout(500);
+        delay = 4500;
+        const beforeSlow = reads;
+        const completed = page.waitForResponse(
+          (response) => match(new URL(response.url())) && response.ok(),
+        );
+        void completed.catch(() => {});
+        await start();
+        await expect.poll(() => reads).toBe(beforeSlow + 1);
+        for (let n = 0; n < 5; n++) {
+          await signalCollection(page, "all");
+          await page.waitForTimeout(500);
+        }
+        assert.equal(
+          reads,
+          beforeSlow + 1,
+          "Invalidations let the in-flight read finish",
+        );
+        delay = 0;
+        await completed;
+        await expect.poll(() => reads).toBe(beforeSlow + 2);
+        await page.waitForTimeout(500);
+        assert.equal(
+          reads,
+          beforeSlow + 2,
+          "Concurrent invalidations coalesce to one trailing read",
+        );
+      }
+
+      // Permanent refusals remain visible and require an explicit retry.
+      status = 403;
+      blocked = true;
+      const beforeRefusal = reads;
+      await start();
+      await expect(marker).toBeVisible({ timeout: 10_000 });
+      await expect.poll(() => reads).toBe(beforeRefusal + 1);
+      await page.waitForTimeout(2100);
+      assert.equal(
+        reads,
+        beforeRefusal + 1,
+        "Permanent refusals do not recover automatically",
+      );
+    } else {
+      // Discovery and older-page reads are explicit requests, not live views.
+      await expect(marker).toBeVisible({ timeout: 15_000 });
+      await expect.poll(() => reads).toBe(3);
+      await page.waitForTimeout(2100);
+      assert.equal(
+        reads,
+        3,
+        "An explicit read stops after its bounded retries",
+      );
+    }
+    const beforeManual = reads;
     const retry = marker.getByRole("button", {
       name: "Retry connection",
       exact: true,
     });
     await retry.click();
-    await expect.poll(() => reads).toBe(4);
+    await expect.poll(() => reads).toBe(beforeManual + 1);
     await expect(retry).toBeEnabled();
     await page.waitForTimeout(6500);
     assert.equal(
       reads,
-      4,
+      beforeManual + 1,
       "The manual retry must not start another retry budget",
     );
     await expect(marker).toBeVisible();
@@ -76,7 +172,7 @@ export async function collectionReadRecovery(
     if (recovered) await recovered();
     else await retry.click();
     await expect(marker).toHaveCount(0);
-    await expect.poll(() => reads).toBeGreaterThanOrEqual(5);
+    await expect.poll(() => reads).toBeGreaterThanOrEqual(beforeManual + 2);
     if (change) {
       const before = reads;
       await change();
@@ -86,143 +182,9 @@ export async function collectionReadRecovery(
       assert.equal(reads, before + 1, "One change issues one healthy read");
     }
   } finally {
+    releaseRecovery();
+    if (recoveryStarted) await recoveryFinished;
     await page.unroute(match, handler);
-  }
-}
-
-// Sources without complete stream coverage retain their fallback timers. A tick must neither
-// interrupt an active read nor hide its exhausted notice before recovery.
-export async function incompleteStreamRecovery(browser, fixture) {
-  const page = await browser.newPage({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true,
-    serviceWorkers: "block",
-  });
-  await fixture.pair(page.context());
-  let incompleteFrames = 0;
-  try {
-    // The companion's sources share one multiplexed socket; downgrade the
-    // capabilities each source frame announces.
-    await page.routeWebSocket("**/api/events/multiplex/ws", (route) => {
-      const server = route.connectToServer();
-      server.onMessage((message) => {
-        const envelope = JSON.parse(message.toString());
-        const frame = envelope.frame ?? {};
-        if (frame.v === 3 && frame.capabilities) {
-          frame.capabilities = {
-            invalidations: "partial",
-            deadlines: false,
-            transcript: "snapshot",
-            feed: "snapshot",
-            results: "snapshot",
-          };
-          incompleteFrames++;
-        }
-        route.send(JSON.stringify(envelope));
-      });
-    });
-    // Saved exercises useCards' separate fallback timer. Seed through the real
-    // save endpoint, then hold an unchanged successful delta after exhaustion.
-    const saved = fixture.db
-      .prepare("SELECT id FROM messages WHERE role='assistant' LIMIT 1")
-      .get();
-    await fixture.api(`/messages/${saved.id}/saved`, {});
-    await page.goto(fixture.base);
-    await expect.poll(() => incompleteFrames).toBeGreaterThan(0);
-    await page
-      .locator(".mobile-nav")
-      .getByRole("button", { name: "Your profile", exact: true })
-      .click();
-    const profile = page.getByRole("region", {
-      name: "Your profile",
-      exact: true,
-    });
-    await profile.getByRole("tab", { name: "Saved", exact: true }).click();
-    const rows = profile.locator(".saved-item");
-    await expect(rows).not.toHaveCount(0);
-    await page.waitForTimeout(2500);
-    const count = await rows.count();
-    const finishCards = Promise.withResolvers();
-    let cardReads = 0,
-      cardsRecovered = false;
-    const cardsMatch = (url) =>
-      url.pathname === "/api/v1/cards/changes" &&
-      url.searchParams.get("view") === "saved";
-    const cardsHandler = async (route) => {
-      if (cardsRecovered) return route.continue();
-      cardReads++;
-      if (cardReads <= 3)
-        return route.fulfill({
-          status: 503,
-          json: { error: "Saved fallback outage" },
-        });
-      await finishCards.promise;
-      return route.continue();
-    };
-    await page.route(cardsMatch, cardsHandler);
-    try {
-      const notice = profile.locator(".collection-read-error");
-      await expect(notice).toContainText("Saved fallback outage", {
-        timeout: 12_000,
-      });
-      await expect.poll(() => cardReads).toBe(4);
-      await expect(notice).toBeVisible();
-      await expect(
-        notice.getByRole("button", { name: "Retry connection", exact: true }),
-      ).toBeDisabled();
-      await page.waitForTimeout(4100);
-      expect(cardReads).toBe(4);
-      await expect(rows).toHaveCount(count);
-      cardsRecovered = true;
-      finishCards.resolve();
-      await expect(notice).toHaveCount(0);
-      await expect(rows).toHaveCount(count);
-    } finally {
-      finishCards.resolve();
-      await page.unroute(cardsMatch, cardsHandler);
-    }
-
-    // These views also receive the parent's 15 s fallback revision tick. Hold
-    // their initial real response past that tick; it must still reach the UI.
-    for (const [tab, path] of [
-      ["Reminders", "/api/later"],
-      ["Scheduled", "/api/scheduled-sends"],
-    ]) {
-      const pending = Promise.withResolvers();
-      let requests = 0,
-        initial;
-      const match = (url) => url.pathname === path;
-      const handler = async (route) => {
-        requests++;
-        initial ??= route.request();
-        await pending.promise;
-        await route.continue();
-      };
-      await page.route(match, handler);
-      const later = page.getByRole("region", { name: "Later", exact: true });
-      try {
-        await profile.getByRole("tab", { name: new RegExp("^" + tab) }).click();
-        await expect.poll(() => requests).toBe(1);
-        await expect(
-          later.getByText("Loading…", { exact: true }),
-        ).toBeVisible();
-        await page.waitForTimeout(17_000);
-        expect(requests).toBe(1);
-        pending.resolve();
-        const response = await initial.response();
-        expect(response?.status()).toBe(200);
-        await response.finished();
-        await expect(later.getByText("Loading…", { exact: true })).toHaveCount(
-          0,
-        );
-      } finally {
-        pending.resolve();
-        await page.unroute(match, handler);
-      }
-    }
-  } finally {
-    await page.close();
   }
 }
 

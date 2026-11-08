@@ -22,11 +22,7 @@ import { Tools } from "./Tools";
 import { setConnection } from "./ConnectionNotice";
 import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
-import {
-  publishProjectionFrame,
-  forgetProjectionSource,
-  surfaceFallback,
-} from "./workspace-projections";
+import { publishProjectionFrame } from "./workspace-projections";
 import {
   WorkspaceChangeQueue,
   listenWorkspaceChanges,
@@ -132,7 +128,6 @@ export function WorkspaceConnection({
         if (wanted.has(source)) continue;
         stop();
         stops.delete(source);
-        forgetProjectionSource(source);
         pending.delete(source);
       }
       for (const source of wanted)
@@ -140,10 +135,7 @@ export function WorkspaceConnection({
     };
     reconcileSources.current = reconcile;
     const stop = () => {
-      stops.forEach((stop, source) => {
-        stop();
-        forgetProjectionSource(source);
-      });
+      stops.forEach((stop) => stop());
       stops.clear();
       pending.clear();
       if (reconcileSources.current === reconcile)
@@ -193,11 +185,9 @@ export function NativeDecisions({
       sourceId,
       conversation,
     );
-    const stopFallback = surfaceFallback([sourceId], "workspace", 3000, load);
     load();
     return () => {
       stopped = true;
-      stopFallback();
       stopChanges();
     };
   }, [conversation, sourceId]);

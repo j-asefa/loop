@@ -667,6 +667,52 @@ for (const engine of engines) {
                 ).length,
             );
           await expect.poll(localSockets).toBe(1);
+          // Discovery owns its retry timer. A settled failed discovery request
+          // must not leave the live source watcher probing on its behalf.
+          let discoveryFailures = 0;
+          let orphanedPolls = 0;
+          const stopDiscoveryFailure = await temporaryPageRoute(
+            working,
+            "**/api/agent-sources",
+            (route) => {
+              discoveryFailures++;
+              return route.fulfill({
+                status: 503,
+                json: { error: "Fixture discovery unavailable" },
+              });
+            },
+          );
+          const stopEventFailure = await temporaryPageRoute(
+            working,
+            (url) => url.pathname === "/api/events",
+            (route) => {
+              orphanedPolls++;
+              return route.fulfill({
+                status: 503,
+                json: { error: "Fixture event probe unavailable" },
+              });
+            },
+          );
+          try {
+            await working.evaluate(() =>
+              window.dispatchEvent(new Event("loop-source-refresh")),
+            );
+            await expect
+              .poll(() => discoveryFailures, { timeout: 10000 })
+              .toBeGreaterThanOrEqual(3);
+            await working.waitForTimeout(5500);
+            assert.equal(
+              orphanedPolls,
+              0,
+              "Settled discovery reads release recovery interest",
+            );
+          } finally {
+            await stopDiscoveryFailure();
+            await stopEventFailure();
+            await working.evaluate(() =>
+              window.dispatchEvent(new Event("loop-source-refresh")),
+            );
+          }
           assert.equal(
             await working.evaluate(
               () =>

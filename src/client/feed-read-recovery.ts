@@ -76,10 +76,17 @@ export class FeedReadRecovery<T> {
         if (!current())
           throw new DOMException("Obsolete Feed read", "AbortError");
         this.pending.delete(key);
+        entry.controller.abort();
         if (entry.retrying) recovered();
         else resolve(value);
       } catch (error) {
-        if (this.pending.get(key) === entry) this.pending.delete(key);
+        // readRoute can retain shared recovery after retry exhaustion. The
+        // view must still be able to cancel it before a manual retry or reset.
+        if (current()) entry.retrying = false;
+        else {
+          if (this.pending.get(key) === entry) this.pending.delete(key);
+          entry.controller.abort();
+        }
         reject(error);
       }
     })();

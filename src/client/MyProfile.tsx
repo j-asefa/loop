@@ -1,5 +1,4 @@
 import { literalEntry, proseEntry } from "./textEntry";
-import { surfaceFallback } from "./workspace-projections";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Plus } from "lucide-react";
@@ -91,13 +90,11 @@ export function MyProfile({
       } catch {}
     };
     const stopChanges = listenWorkspaceChanges("social", load, "");
-    const stopFallback = surfaceFallback([""], "workspace", 30_000, load);
     void load();
     window.addEventListener("loop-social-read", load);
     return () => {
       controller.abort();
       stopChanges();
-      stopFallback();
       window.removeEventListener("loop-social-read", load);
     };
   }, []);
