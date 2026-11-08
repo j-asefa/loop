@@ -201,9 +201,12 @@ ref; the repository owner controls approval of fork-PR runs.
 
 Pushing a tag `vX.Y.Z` that matches the `package.json` version runs the
 [release workflow](../.github/workflows/release.yml). It runs `npm run check`,
-publishes `@j-asefa/loop` to npm with provenance through npm trusted publishing
+stages `@j-asefa/loop` on npm with provenance through npm trusted publishing
 (no stored token; `prepack` builds `dist/` and `npm-shrinkwrap.json`), then
-creates the GitHub Release with generated notes. Bump the version in a pull
+drafts the GitHub Release with generated notes. The trusted publisher may only
+stage, so the version is not installable until a maintainer approves it with 2FA
+(`npm stage list @j-asefa/loop`, then `npm stage approve <stage-id>`, or on
+npmjs.com). Publish the draft release after approving. Bump the version in a pull
 request first, then tag the merged commit.
 
 During editing and between commits, run focused tests for the changed boundaries.
