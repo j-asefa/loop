@@ -67,27 +67,18 @@ const selection = { view: "done" as const };
 const failure = (status: number) =>
   Object.assign(new Error("Unavailable"), { status });
 
-it("falls back only on an unsupported first page and keeps outage failures visible", async () => {
-  for (const status of [400, 404]) {
+it.each([400, 404, 401, 403, 429, 500, 503])(
+  "surfaces status %s without probing another contract",
+  async (status) => {
     const reader = new DoneCardsReader("owner/source");
     const transport = vi.fn().mockRejectedValue(failure(status));
-    expect(await reader.load(transport, selection, false)).toBeNull();
-    expect(await reader.load(transport, selection, false)).toBeNull();
-    expect(transport).toHaveBeenCalledTimes(2);
-  }
-  for (const status of [401, 403, 429, 500, 503]) {
-    const reader = new DoneCardsReader("owner/source");
     await expect(
-      reader.load(
-        async () => {
-          throw failure(status);
-        },
-        selection,
-        false,
-      ),
+      reader.load(transport, selection, false),
     ).rejects.toMatchObject({ status });
-  }
-});
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(reader.pager.snapshot()).toBeNull();
+  },
+);
 
 it("retains two nonempty source windows through outage, append and recovery", async () => {
   const a = new DoneCardsReader("owner/a"),
@@ -156,51 +147,27 @@ it("retains two nonempty source windows through outage, append and recovery", as
       selection,
       true,
     ),
-  ).resolves.toBeNull();
+  ).rejects.toMatchObject({ status: 400 });
 });
 
-it("re-probes a restored source and distinguishes invalid cursors from lost capability", async () => {
+it("retains a loaded window and cursor after missing endpoint or invalid cursor responses", async () => {
   const reader = new DoneCardsReader("owner/source");
-  expect(
-    await reader.load(
-      async () => {
-        throw failure(400);
-      },
-      selection,
-      false,
-    ),
-  ).toBeNull();
   const request: CardReadTransport = async (contract, input) =>
     routePath(contract, input).includes("/changes?")
       ? { revision: "new", items: [], removed: [], more: false }
-      : { revision: "old", items: [entry("restored", 1)], next: "older" };
-  expect(
-    (await reader.load(request, selection, false))!.page.items[0].card.id,
-  ).toBe("d:message:restored");
-  await expect(
-    reader.load(
-      async (contract, input) => {
-        const path = routePath(contract, input);
-        if (path.includes("before=")) throw failure(400);
-        return request(contract, input);
-      },
-      selection,
-      true,
-    ),
-  ).rejects.toMatchObject({ status: 400 });
-  expect(reader.pager.snapshot()!.page.items).toHaveLength(1);
-  expect(
-    await reader.load(
-      async () => {
-        throw failure(404);
-      },
-      selection,
-      false,
-    ),
-  ).toBeNull();
-  expect(
-    (await reader.load(request, selection, false))!.page.items,
-  ).toHaveLength(1);
+      : { revision: "old", items: [entry("retained", 1)], next: "older" };
+  await reader.load(request, selection, false);
+  for (const status of [400, 404]) {
+    const transport = vi.fn().mockRejectedValue(failure(status));
+    await expect(reader.load(transport, selection, true)).rejects.toMatchObject(
+      { status },
+    );
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(reader.pager.snapshot()!.page.items[0].card.id).toBe(
+      "d:message:retained",
+    );
+    expect(reader.pager.snapshot()!.page.next).toBe("older");
+  }
 });
 
 it("restarts once after a 409 revision reset without misclassifying it as an outage", async () => {

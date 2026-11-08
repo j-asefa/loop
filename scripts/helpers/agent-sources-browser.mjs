@@ -110,7 +110,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       models: JSON.stringify([{ id: "gpt-5.5", name: "GPT-5.5" }]),
       metadata: JSON.stringify({
         authMode: "subscription",
-        environmentName: "This laptop",
+        environmentName: "This computer",
         location: "laptop",
       }),
       created_at: now,
@@ -463,7 +463,7 @@ export async function agentSourcesBrowser(page, workspaceUrl) {
       .click();
     await chooseAgentConnection(sheet, { source: "", id: local.connection.id });
     await expect(sheet.locator(".connection-details")).toContainText(computer);
-    await expect(sheet).not.toContainText("This laptop");
+    await expect(sheet).not.toContainText("This computer");
     await expect(
       sheet.getByRole("button", { name: "Start chatting" }),
     ).toBeDisabled();

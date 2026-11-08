@@ -82,15 +82,12 @@ export async function feedLoadingSmoke(page, fixture, engine, capture) {
       reset();
     },
   );
-  for (const cardsUnavailable of [false, true])
-    await feedLoadingCase(
-      page,
-      fixture,
-      cardsUnavailable,
-      (name) =>
-        capture((cardsUnavailable ? "cardsUnavailable-" : "cards-") + name),
-      streamResets,
-    );
+  await feedLoadingCase(
+    page,
+    fixture,
+    (name) => capture("cards-" + name),
+    streamResets,
+  );
   await openConnectedFeed(page, fixture.base);
   await page.getByRole("tab", { name: /^Working/ }).click();
   await collectionReadRecovery(page, {
@@ -395,13 +392,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   }
 }
 
-async function feedLoadingCase(
-  page,
-  fixture,
-  cardsUnavailable,
-  capture,
-  streamResets,
-) {
+async function feedLoadingCase(page, fixture, capture, streamResets) {
   const sources = [
     { id: "cloud:first", name: "First environment", kind: "cloud" },
     { id: "cloud:second", name: "Second environment", kind: "cloud" },
@@ -428,6 +419,7 @@ async function feedLoadingCase(
   let metadataReads = 0;
   let archivedAgent = false;
   const unavailableFeeds = new Set();
+  let feedFailureStatus = 404;
   let workingHistory = false;
   let workingHold = null;
   let workingStarts = 0;
@@ -470,14 +462,12 @@ async function feedLoadingCase(
   const localCards = (route) =>
     localUnavailable
       ? route.fulfill({ status: 503, json: { error: "Fixture outage" } })
-      : cardsUnavailable
-        ? route.fulfill({ status: 404, body: "{}" })
-        : fulfill(
-            route,
-            new URL(route.request().url()).pathname.endsWith("/changes")
-              ? changes
-              : { ...cards, items: [], next: null },
-          );
+      : fulfill(
+          route,
+          new URL(route.request().url()).pathname.endsWith("/changes")
+            ? changes
+            : { ...cards, items: [], next: null },
+        );
   const discoveryRoute = async (route) => {
     discoveryReads++;
     await discovery.promise;
@@ -532,14 +522,12 @@ async function feedLoadingCase(
       return fulfill(route, bootstrap);
     }
     const typed = match[2].startsWith("v1/cards");
-    if (typed && cardsUnavailable)
-      return route.fulfill({ status: 404, body: "{}" });
     if (match[2] === "feed" || typed) {
       if (!typed && url.searchParams.get("filter") === "queued")
         await queuedHold?.promise;
       if (unavailableFeeds.has(source.id))
         return route.fulfill({
-          status: 503,
+          status: feedFailureStatus,
           json: { error: "Fixture outage" },
         });
       if (
@@ -572,11 +560,7 @@ async function feedLoadingCase(
           next: index < 4 ? String(index) : null,
         });
       }
-      if (
-        !typed &&
-        (url.searchParams.get("filter") !== "done" || !cardsUnavailable)
-      )
-        return fulfill(route, empty);
+      if (!typed) return fulfill(route, empty);
       doneReads.set(source.id, (doneReads.get(source.id) || 0) + 1);
       if (source === sources[0]) await firstFeed?.promise;
       if (source === sources[1]) await slowFeed.promise;
@@ -622,36 +606,6 @@ async function feedLoadingCase(
           next: before ? null : "older",
         });
       }
-      if (before) {
-        paginationReads.push({ source: source.id, before });
-        return fulfill(route, {
-          ...feed,
-          items: [
-            {
-              ...feed.items[0],
-              conversation_id: feed.items[0].conversation_id + "-older",
-              title: source.name + " older result",
-              last_activity_at: feed.items[0].last_activity_at - 1,
-            },
-          ],
-          next: null,
-        });
-      }
-      return fulfill(route, {
-        ...feed,
-        items: [
-          {
-            ...feed.items[0],
-            title: source.name + " result",
-            last_message: {
-              ...feed.items[0].last_message,
-              saved: savedBySource.get(source.id),
-            },
-            ...(archivedAgent ? { agent_id: "archived-agent" } : {}),
-          },
-        ],
-        next: "older",
-      });
     }
     url.pathname = "/api/" + match[2];
     return route.fulfill({
@@ -675,11 +629,8 @@ async function feedLoadingCase(
   await page.route("**/api/agent-sources/**", sourceRoute);
   await page.route(eventsMatch, eventsUnavailable);
   try {
-    const localRead = page.waitForResponse((response) =>
-      cardsUnavailable
-        ? new URL(response.url()).pathname === "/api/feed" &&
-          new URL(response.url()).searchParams.get("filter") === "done"
-        : new URL(response.url()).pathname === "/api/v1/cards",
+    const localRead = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/v1/cards",
     );
     await page.goto(fixture.base);
     await localRead;
@@ -779,6 +730,7 @@ async function feedLoadingCase(
     await expect(second).toBeVisible();
     await expect(feedOutage).toBeVisible();
     unavailableFeeds.clear();
+    feedFailureStatus = 503;
     await page.evaluate(() =>
       window.dispatchEvent(new Event("loop-source-refresh")),
     );
@@ -807,8 +759,7 @@ async function feedLoadingCase(
         const url = new URL(request.url());
         return (
           url.pathname ===
-            `/api/agent-sources/${encodeURIComponent(source.id)}/${cardsUnavailable ? "feed" : "v1/cards/changes"}` &&
-          (!cardsUnavailable || url.searchParams.get("filter") === "done")
+          `/api/agent-sources/${encodeURIComponent(source.id)}/v1/cards/changes`
         );
       }),
     );
@@ -1176,13 +1127,11 @@ async function feedLoadingCase(
     // Unsaving an early card must not postpone other sources until the Undo
     // window ends. Refreshes keep the pending unsave scoped to its source.
     slowFeed = Promise.withResolvers();
-    if (cardsUnavailable) {
-      firstFeed = Promise.withResolvers();
-      doneReads.clear();
-      streamResets.clear();
-    }
+    firstFeed = Promise.withResolvers();
+    doneReads.clear();
+    streamResets.clear();
     await page.goto(fixture.base);
-    if (cardsUnavailable) {
+    {
       // Reset both linked streams after their first reads start. The empty
       // local page may complete, but cannot suppress either source's first
       // successful page on retry while the other source is still held.

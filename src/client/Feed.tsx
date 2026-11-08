@@ -2002,7 +2002,6 @@ export function Feed({
             item.last_activity_at,
             item.conversation_id + "\u001f" + (item.done_card_key ?? ""),
           ];
-        let fallbackTransition = false;
         if (filter === "done") {
           let reader = doneCards.current.get(cardKey);
           if (!reader) {
@@ -2091,75 +2090,65 @@ export function Feed({
               setItems((items) => items.filter(keep));
             }
           }
-          if (window) {
-            if (reader.discardPrior) priorItems = [];
-            if (
-              reader.hasMore ||
-              (window.boundary &&
-                priorItems.some(
-                  (item) => compareCardOrder(order(item), window.boundary!) < 0,
-                ))
-            )
-              followup.add(source);
-            if (ticket === request.current && owner === viewOwner())
-              cacheView(cardKey, window, owner);
-            // Counters remain conversation-based operational Feed state.
-            pages.set(source, { ...pages.get(source)!, doneSummary: true });
-            const operational = await callRoute(
-              workspaceApi.feed,
-              { query: query(undefined, "needs") },
-              source,
-            );
-            // Only a failed operational read needs a summary-only retry. A
-            // trailing notification in this queue must read newer card changes.
-            pages.set(source, { ...pages.get(source)!, doneSummary: false });
-            if (ticket === request.current && owner === viewOwner()) {
-              reader.discardPrior = false;
-              cacheView(cardKey + ":reset", undefined, owner);
-            }
-            const typedItems = window.page.items.flatMap(
-              ({ card, order: cardOrder }) =>
-                card.type === "done"
-                  ? [
-                      {
-                        ...card.display,
-                        done_card_key: card.display.done_card_key ?? undefined,
-                        pending_approvals: 0,
-                        position_message_id: null,
-                        card,
-                        cardOrder,
-                      },
-                    ]
-                  : [],
-            );
-            const known = new Set(
-              typedItems.map((item) => feedItemKey(item, source)),
-            );
-            return {
-              items: [
-                ...priorItems.filter(
-                  (item) =>
-                    !known.has(feedItemKey(item, source)) &&
-                    window.boundary &&
-                    compareCardOrder(order(item), window.boundary) < 0,
-                ),
-                ...typedItems,
-              ].sort(feedItemOrder),
-              next: window.page.next,
-              summary: operational.summary,
-            };
+          if (reader.discardPrior) priorItems = [];
+          if (
+            reader.hasMore ||
+            (window.boundary &&
+              priorItems.some(
+                (item) => compareCardOrder(order(item), window.boundary!) < 0,
+              ))
+          )
+            followup.add(source);
+          if (ticket === request.current && owner === viewOwner())
+            cacheView(cardKey, window, owner);
+          // Counters remain conversation-based operational Feed state.
+          pages.set(source, { ...pages.get(source)!, doneSummary: true });
+          const operational = await callRoute(
+            workspaceApi.feed,
+            { query: query(undefined, "needs") },
+            source,
+          );
+          // Only a failed operational read needs a summary-only retry. A
+          // trailing notification in this queue must read newer card changes.
+          pages.set(source, { ...pages.get(source)!, doneSummary: false });
+          if (ticket === request.current && owner === viewOwner()) {
+            reader.discardPrior = false;
+            cacheView(cardKey + ":reset", undefined, owner);
           }
-          if (doneRead !== "all")
-            throw new Error(
-              `Read status filtering is unavailable in ${activeSources.find((item) => item.id === source)?.name || "this workspace"}. Reconnect that source and try again.`,
-            );
-          fallbackTransition = !!cachedView<CardWindow>(cardKey);
-          if (fallbackTransition) doneRefresh.current.sources.delete(source);
+          const typedItems = window.page.items.flatMap(
+            ({ card, order: cardOrder }) =>
+              card.type === "done"
+                ? [
+                    {
+                      ...card.display,
+                      done_card_key: card.display.done_card_key ?? undefined,
+                      pending_approvals: 0,
+                      position_message_id: null,
+                      card,
+                      cardOrder,
+                    },
+                  ]
+                : [],
+          );
+          const known = new Set(
+            typedItems.map((item) => feedItemKey(item, source)),
+          );
+          return {
+            items: [
+              ...priorItems.filter(
+                (item) =>
+                  !known.has(feedItemKey(item, source)) &&
+                  window.boundary &&
+                  compareCardOrder(order(item), window.boundary) < 0,
+              ),
+              ...typedItems,
+            ].sort(feedItemOrder),
+            next: window.page.next,
+            summary: operational.summary,
+          };
         }
         if (appending || !previous) {
-          const page = await read(fallbackTransition ? undefined : before);
-          if (fallbackTransition && ticket === request.current)
-            cacheView(cardKey, undefined, owner);
+          const page = await read(before);
           if (appending && retainHistory && cached) {
             const earlier = cached.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
@@ -2181,29 +2170,20 @@ export function Feed({
         }
         const current = () =>
           ticket === request.current && owner === viewOwner();
-        let firstNext: string | null = null;
         const result = await refreshDonePage<FeedItem, Page>(
-          async (cursor) => {
-            const page = await read(cursor);
-            if (cursor === undefined) firstNext = page.next;
-            return page;
-          },
+          read,
           {
             items: previous.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             ),
-            next: fallbackTransition
-              ? null
-              : combined
-                ? (JSON.parse(previous.next || "{}")[source] ?? null)
-                : previous.next,
+            next: combined
+              ? (JSON.parse(previous.next || "{}")[source] ?? null)
+              : previous.next,
           },
           doneRefresh.current.sources.get(source),
           current,
         );
-        if (fallbackTransition && result.progress) result.page.next = firstNext;
         if (current()) {
-          if (fallbackTransition) cacheView(cardKey, undefined, owner);
           if (result.progress)
             doneRefresh.current.sources.set(source, result.progress);
           else doneRefresh.current.sources.delete(source);

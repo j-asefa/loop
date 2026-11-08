@@ -92,7 +92,6 @@ function connectionEnvironment(
   const runtime = metadata?.environmentName;
   return typeof runtime === "string" &&
     runtime.trim() &&
-    runtime !== "This laptop" &&
     runtime !== "This computer"
     ? runtime
     : source.name;
