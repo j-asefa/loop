@@ -299,6 +299,12 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   const appendReads = [];
   const refreshReads = [];
   const manual = Promise.withResolvers();
+  // This case controls recovery with explicit signals and a manual retry.
+  // Failed reads can now probe HTTP even with a ready socket; keep that
+  // transport unavailable so it cannot race the operation being asserted.
+  const eventsMatch = (url) => url.pathname === "/api/events";
+  const eventsUnavailable = (route) =>
+    route.fulfill({ status: 503, json: { error: "Event transport outage" } });
   const handler = async (route) => {
     const url = new URL(route.request().url());
     if (phase === "append" && url.searchParams.has("before")) {
@@ -322,6 +328,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
     });
   };
   await page.route(match, handler);
+  await page.route(eventsMatch, eventsUnavailable);
   try {
     await openConnectedFeed(page, fixture.base + "/?filter=working");
     await expect(
@@ -384,6 +391,7 @@ async function feedRefreshAfterAppendRecovery(page, fixture) {
   } finally {
     manual.resolve();
     await page.unroute(match, handler);
+    await page.unroute(eventsMatch, eventsUnavailable);
   }
 }
 
