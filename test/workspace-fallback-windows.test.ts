@@ -230,6 +230,90 @@ it.each(["abort", "owner", "source", "permanent"])(
   },
 );
 
+it("clears snapshot recovery after success while preserving another failed read on the same view signal", async () => {
+  const controller = new AbortController();
+  stops.push(() => controller.abort());
+  const fetcher = vi.fn(async () => {
+    throw new TypeError("Network unavailable");
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const decisions = () =>
+    readRoute(workspaceApi.nativeDecisions, {}, "", controller.signal);
+  const unread = () =>
+    readRoute(workspaceApi.socialUnread, {}, "", controller.signal);
+  await decisions().catch(() => {});
+  await unread().catch(() => {});
+  const poll = vi.fn(async () => {
+    throw new Error("Event endpoint unavailable");
+  });
+  stops.push(
+    watchWorkspaceEvents({
+      url: new URL("ws://loop/api/events/ws"),
+      read: poll,
+      changed: () => {},
+    }),
+  );
+  Socket.instances[0].reset("first");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json([])),
+  );
+  await decisions();
+  await vi.advanceTimersByTimeAsync(1800);
+  expect(poll).toHaveBeenCalledTimes(1);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ unread: 0 })),
+  );
+  await unread();
+  await vi.advanceTimersByTimeAsync(5400);
+  expect(poll).toHaveBeenCalledTimes(1);
+});
+
+it.each([false, true])(
+  "ignores an older read settlement when the newest read failed: %s",
+  async (newestFailed) => {
+    const controller = new AbortController();
+    stops.push(() => controller.abort());
+    let resolveOld!: (value: Response) => void;
+    let rejectOld!: (reason: unknown) => void;
+    const oldResponse = new Promise<Response>((resolve, reject) => {
+      resolveOld = resolve;
+      rejectOld = reject;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockReturnValueOnce(oldResponse)
+        .mockImplementation(async () => {
+          if (newestFailed) throw new TypeError("Network unavailable");
+          return Response.json([]);
+        }),
+    );
+    const read = () =>
+      readRoute(workspaceApi.nativeDecisions, {}, "", controller.signal).catch(
+        () => {},
+      );
+    const old = read();
+    await read();
+    if (newestFailed) resolveOld(Response.json([]));
+    else rejectOld(new TypeError("Old network failure"));
+    await old;
+    const poll = vi.fn(async () => []);
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        read: poll,
+        changed: () => {},
+      }),
+    );
+    Socket.instances[0].reset("first");
+    await vi.advanceTimersByTimeAsync(1800);
+    expect(poll).toHaveBeenCalledTimes(newestFailed ? 1 : 0);
+  },
+);
+
 it("keeps network read recovery pending through failed HTTP probes", async () => {
   const controller = new AbortController();
   stops.push(() => controller.abort());

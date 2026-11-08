@@ -12,7 +12,7 @@ import { capabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import { viewGeneration } from "./viewCache";
 import { prepareFleetCommand } from "./fleetCommand";
-import { recoverWorkspaceRead } from "./workspace-read-recovery";
+import { beginWorkspaceRead } from "./workspace-read-recovery";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
 let backoffGeneration = -1;
@@ -516,11 +516,13 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
   mode: ReadMode = "automatic",
 ): Promise<RouteResponse<C>> {
   const generation = viewGeneration();
+  const path = routePath(contract, input);
+  const settleRecovery = beginWorkspaceRead(sourceId, path, signal);
   try {
-    return response(
+    const value = response(
       contract,
       await readRequest<unknown>(
-        routePath(contract, input),
+        path,
         sourceId,
         signal,
         onRetry,
@@ -528,18 +530,19 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
         mode,
       ),
     );
+    settleRecovery(false);
+    return value;
   } catch (error) {
     const failure = error as { status?: number; network?: boolean };
-    if (
+    settleRecovery(
       mode === "automatic" &&
-      !signal.aborted &&
-      generation === viewGeneration() &&
-      (failure.network ||
-        (failure.status !== undefined &&
-          failure.status >= 500 &&
-          failure.status < 600))
-    )
-      recoverWorkspaceRead(sourceId, signal);
+        !signal.aborted &&
+        generation === viewGeneration() &&
+        (failure.network === true ||
+          (failure.status !== undefined &&
+            failure.status >= 500 &&
+            failure.status < 600)),
+    );
     throw error;
   }
 }
