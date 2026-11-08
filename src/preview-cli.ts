@@ -133,14 +133,8 @@ async function sourceCheckout(path: string) {
       "Choose the root of a Loop Git checkout with --project PATH.",
     );
   const pkg = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
-  if (
-    pkg.name !== "@j-asefa/loop" ||
-    !pkg.scripts?.build ||
-    !(await exists(join(source, "src", "preview-context.ts")))
-  )
-    throw new Error(
-      "This checkout must contain Loop's preview launcher. Bring that change into the experiment branch first.",
-    );
+  if (pkg.name !== "@j-asefa/loop" || !pkg.scripts?.build)
+    throw new Error("Choose a Loop checkout with a build script.");
   return source;
 }
 async function sourceFacts(source: string) {
@@ -339,8 +333,6 @@ async function buildCheckout(dir: string, record: Record, source: string) {
         recursive: true,
         mode: constants.COPYFILE_FICLONE,
       });
-    if (!(await exists(join(stage, "dist", "preview-context.js"))))
-      throw new Error("The build does not support preview isolation.");
     const digest = (await artifactHash(stage)).digest("hex");
     const staged = await sourceFacts(source);
     if (

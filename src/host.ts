@@ -64,7 +64,6 @@ const Pair = z
   .object({
     secret: z.string().min(40).max(60),
     name: z.string().trim().max(80).default("Phone"),
-    credential: z.literal("cookie").default("cookie"),
     ceremonyId: z.string().uuid().optional(),
   })
   .strict();
@@ -305,7 +304,6 @@ export class Host {
     atomic(join(this.dir, "control.json"), {
       port: (this.adminServer.address() as { port: number }).port,
       token: this.adminToken,
-      pid: process.pid,
     });
     this.heartbeat = setInterval(() => {
       this.trust.expire();

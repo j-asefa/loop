@@ -159,7 +159,6 @@ export const ConnectionMetadata = z.strictObject({
   permissionMode: PermissionMode.optional(),
   location: z.string().optional(),
   environmentName: z.string().optional(),
-  runtime: z.enum(["codex", "claude"]).optional(),
   scope: z.string().optional(),
   plan: z.json().optional(),
   limits: z.json().optional(),

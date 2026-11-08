@@ -26,7 +26,6 @@ import {
 
 import {
   InvalidRow,
-  parseConnectionControl,
   ConnectionModels,
   ConnectionMetadata,
   runResponse,
@@ -55,7 +54,7 @@ import {
 import { conversationPulls } from "./conversation-pulls.js";
 import { cancelRun, controlRun, dismissRun } from "./run-attention.js";
 import { conversationReturnState } from "./mobile-return.js";
-import { isSubscription, runtimeAction } from "./subscriptions.js";
+import { isSubscription } from "./subscriptions.js";
 
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
@@ -257,25 +256,16 @@ routes.on(workspaceApi.connectionReconnect, async (req, res) => {
     throw new Problem(422, "Could not validate this API key");
   }
 });
-routes.on(workspaceApi.connectionDisconnect, async (req, res) => {
+routes.on(workspaceApi.connectionDisconnect, (req, res) => {
   const raw = connectionsQueries.ownedForRevocation(
     db,
     req.params.id,
     res.locals.owner,
   );
   if (!raw) throw new Problem(404, "Item not found");
-  let c: ReturnType<typeof parseConnectionControl> | undefined;
-  try {
-    c = parseConnectionControl(raw);
-  } catch (error) {
-    if (!(error instanceof InvalidRow)) throw error;
-  }
-  // Revocation must work for an unavailable row, without using its invalid
-  // routing for an external logout or repairing it into an executable default.
   writeConnectionStatus(req.params.id, () =>
     connectionsQueries.disconnect(db, req.params.id, res.locals.owner),
   );
-  if (c && isSubscription(c)) await runtimeAction(c, "logout");
   res.json({ ok: true });
 });
 routes.on(workspaceApi.agentSuggestName, (_req, res) =>

@@ -370,43 +370,6 @@ export function subscriptionNeedsReconnect(
   return subscriptionNeedsReconnectStatement(db).run(id, owner);
 }
 
-const signingInStatement = statement(
-  "UPDATE connections SET status='signing_in' WHERE id=?",
-);
-
-export function signingIn(db: Database.Database, id: string) {
-  return signingInStatement(db).run(id);
-}
-
-const resetSigningInStatement = statement(
-  "UPDATE connections SET status='needs_sign_in' WHERE id=? AND status='signing_in'",
-);
-
-export function resetSigningIn(db: Database.Database, id: string) {
-  return resetSigningInStatement(db).run(id);
-}
-
-const subscriptionConnectedStatement = statement(
-  "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND status<>'disconnected'",
-);
-
-export function subscriptionConnected(
-  db: Database.Database,
-  models: string,
-  metadata: string,
-  id: string,
-) {
-  return subscriptionConnectedStatement(db).run(models, metadata, id);
-}
-
-const subscriptionNeedsSignInStatement = statement(
-  "UPDATE connections SET status='needs_sign_in' WHERE id=?",
-);
-
-export function subscriptionNeedsSignIn(db: Database.Database, id: string) {
-  return subscriptionNeedsSignInStatement(db).run(id);
-}
-
 const connectedExistsStatement = statement(
   "SELECT 1 FROM connections WHERE id=? AND owner_id=? AND status='connected'",
 );

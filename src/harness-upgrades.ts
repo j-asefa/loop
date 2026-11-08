@@ -142,18 +142,6 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
               packages[name] + "@latest",
             ],
           };
-        // Only Loop's private helper tree may be mutated as a local install.
-        if (base.endsWith("/helpers/native"))
-          return {
-            command: "npm",
-            args: [
-              "install",
-              "--prefix",
-              base,
-              "--save-exact",
-              packages[name] + "@latest",
-            ],
-          };
         break;
       }
     } catch {
@@ -312,7 +300,7 @@ export class HarnessUpgrades {
     if (existsSync(file)) this.records = JSON.parse(readFileSync(file, "utf8"));
     // A version probe cannot prove an interrupted installer's children stopped.
     for (const r of Object.values(this.records)) {
-      if (r.state === "running" || (r.state as string) === "unknown") {
+      if (r.state === "running") {
         r.state = "unconfirmed";
         r.message = `The upgrade was interrupted. It was not retried or rolled back. Stop any remaining installer processes and check the installation on the computer, then confirm recovery in Loop.`;
         this.save();

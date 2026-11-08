@@ -1,4 +1,3 @@
-import { parseConnection } from "../src/server/row-schemas.js";
 import { inProcessExecution } from "./in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -318,8 +317,6 @@ test(
             }
           ).n;
         const before = count();
-        const { runtimeAction } =
-          await import("../src/server/subscriptions.js");
         for (let i = 0; i < 3; i++) {
           assert(
             Array.isArray(
@@ -328,15 +325,6 @@ test(
           );
           assert.equal(
             (await api("/connections/native-claude/refresh", {})).name,
-            "claude",
-          );
-          const connection = parseConnection(
-            db
-              .prepare("SELECT * FROM connections WHERE id='native-claude'")
-              .get(),
-          );
-          assert.equal(
-            (await runtimeAction(connection, "status")).name,
             "claude",
           );
         }

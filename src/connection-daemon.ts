@@ -96,7 +96,6 @@ export async function runConnectionService(
       "tunnel-name": { type: "string" },
       "public-url": { type: "string" },
       "tunnel-config": { type: "string" },
-      "relay-host": { type: "string" },
       log: { type: "boolean" },
     },
   });
@@ -174,7 +173,7 @@ export async function runConnectionService(
     startedAt,
     mode,
     origin,
-    relay: { host: values["relay-host"] ?? "127.0.0.1", port: relay.port },
+    relay: { host: "127.0.0.1", port: relay.port },
     tunnel: {
       state: tunnelState,
       pid: current?.pid,
@@ -351,7 +350,7 @@ export async function runConnectionService(
   try {
     // The relay never binds a public interface; cloudflared shares the host
     // or container network namespace with it.
-    await relay.listen(values["relay-host"] ?? "127.0.0.1");
+    await relay.listen("127.0.0.1");
     // Only this process holds the lock, so a leftover socket is stale.
     rmSync(control, { force: true });
     await new Promise<void>((resolve, reject) => {

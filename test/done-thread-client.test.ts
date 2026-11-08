@@ -26,7 +26,7 @@ it("rejects a repeated continuation instead of looping on a peer", async () => {
   expect(calls).toBe(2);
 });
 
-it("uses the older route only when the initial page endpoint is absent", async () => {
+it("propagates an initial list 404 without issuing another request", async () => {
   const calls: string[] = [];
   const reader = contractDoneThreadReader(async (contract) => {
     calls.push(contract.path);
@@ -34,11 +34,8 @@ it("uses the older route only when the initial page endpoint is absent", async (
       throw Object.assign(new Error("Not found"), { status: 404 });
     return [];
   });
-  expect(await reader.list()).toEqual([]);
-  expect(calls).toEqual([
-    workspaceApi.doneThreadListPage.path,
-    workspaceApi.doneThreadList.path,
-  ]);
+  await expect(reader.list()).rejects.toThrow("Not found");
+  expect(calls).toEqual([workspaceApi.doneThreadListPage.path]);
   calls.length = 0;
   const interrupted = contractDoneThreadReader(async (contract) => {
     calls.push(contract.path);
@@ -78,7 +75,7 @@ it("explains a page size refusal for both list and detail readers", async () => 
   );
 });
 
-it("uses the older detail endpoint only before any page was accepted", async () => {
+it("propagates a missing detail without issuing another request", async () => {
   const detail = {
     thread: { id: "requested", title: "Group", createdAt: 1, cardIds: [] },
     cards: [],
@@ -90,11 +87,8 @@ it("uses the older detail endpoint only before any page was accepted", async () 
       throw Object.assign(new Error("Not found"), { status: 404 });
     return detail;
   });
-  expect(await reader.detail("requested")).toEqual(detail);
-  expect(calls).toEqual([
-    workspaceApi.doneThreadDetailPage.path,
-    workspaceApi.doneThreadDetail.path,
-  ]);
+  await expect(reader.detail("requested")).rejects.toThrow("Not found");
+  expect(calls).toEqual([workspaceApi.doneThreadDetailPage.path]);
   calls.length = 0;
   const interrupted = contractDoneThreadReader(async (contract) => {
     calls.push(contract.path);

@@ -2,7 +2,7 @@
 
 Use a preview to try a Loop branch before merging it. Each named preview has its own application build, database, encryption key, paired devices and connection service. It runs alongside the everyday workspace. No preview command merges a branch, installs Loop globally or changes the login service.
 
-Use Node 24. Build the checkout containing this launcher once with `npm ci && npm run build`. Run its CLI as `node dist/cli.js preview …`, or use `loop preview …` when that version is installed. The experiment's branch must also contain the preview implementation.
+Use Node 24. Build the checkout containing this launcher once with `npm ci && npm run build`. Run its CLI as `node dist/cli.js preview …`, or use `loop preview …` when that version is installed. The experiment's branch must be based on current Loop source and retain the preview implementation. `--from` selects an experiment branch; it does not make this launcher compatible with earlier Loop builds. The [fresh-install support policy](../AGENTS.md) applies to preview builds and their data too.
 
 ## Create and iterate
 
