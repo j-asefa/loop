@@ -1,4 +1,5 @@
 import { readRoute } from "../src/client/workspace-api";
+import { FeedReadRecovery } from "../src/client/feed-read-recovery";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { watchWorkspaceEvents } from "../src/client/workspace-events";
@@ -58,6 +59,58 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+it.each(["automatic", "manual retry", "unmount"])(
+  "keeps exhausted Feed recovery owned by its view through %s",
+  async (action) => {
+    const recovery = new FeedReadRecovery<unknown>();
+    stops.push(() => recovery.reset());
+    const fetcher = vi.fn(async () =>
+      Response.json({ error: "Unavailable" }, { status: 503 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const read = (manual = false) =>
+      recovery
+        .read(
+          "",
+          "older page",
+          (signal, onRetry) =>
+            readRoute(
+              workspaceApi.feed,
+              { query: { filter: "working", before: "1" } },
+              "",
+              signal,
+              onRetry,
+              manual ? "manual" : "automatic",
+            ),
+          () => {},
+        )
+        .catch(() => {});
+    const initial = read();
+    await vi.advanceTimersByTimeAsync(6000);
+    await initial;
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    if (action !== "automatic") recovery.reset();
+    if (action === "manual retry") {
+      await read(true);
+      expect(fetcher).toHaveBeenCalledTimes(4);
+    }
+    const poll = vi.fn(async () => []);
+    const changed = vi.fn();
+    stops.push(
+      watchWorkspaceEvents({
+        url: new URL("ws://loop/api/events/ws"),
+        read: poll,
+        changed,
+      }),
+    );
+    Socket.instances[0].reset("first");
+    changed.mockClear();
+    await vi.advanceTimersByTimeAsync(1800);
+    expect(poll).toHaveBeenCalledTimes(action === "automatic" ? 1 : 0);
+    expect(changed).toHaveBeenCalledTimes(action === "automatic" ? 1 : 0);
+  },
+);
 function view() {
   let stored = "initial";
   let displayed = stored;
