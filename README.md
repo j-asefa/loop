@@ -49,16 +49,14 @@ Loop is named for the song I played on loop for my son: “Ol’ ’55,” his f
 
 ## Setup
 
-Use Node.js **24** and a persistent disk. Building from source on Linux also requires **Python 3.8+** for [command supervision](docs/development.md#command-supervision). Docker is required only for container execution.
+Use Node.js **24** and a persistent disk. On Linux, Loop also needs **Python 3.8+** for [command supervision](docs/development.md#command-supervision). Docker is required only for container execution.
 
 ```sh
-git clone https://github.com/j-asefa/loop.git loop
-cd loop
-bash install
+npm install -g @j-asefa/loop
 loop start
 ```
 
-The installer runs `npm ci`, builds Loop and links `loop` into a writable directory on your PATH. If none is writable, it uses `~/.local/bin` and prints the PATH command needed for your shell. Keep the checkout in place while using this installation.
+To work on Loop itself, [build from source](#build-from-source) instead.
 
 `loop start` prints a single-use pairing code. Scan it with your phone's camera:
 
@@ -160,7 +158,7 @@ npm ci
 npm run build
 ```
 
-Run `bash install` from the checkout to build and create the `loop` command. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.
+Run `bash install` from the checkout to build and create the `loop` command. The installer runs `npm ci`, builds Loop and links `loop` into a writable directory on your PATH. If none is writable, it uses `~/.local/bin` and prints the PATH command needed for your shell. Keep the checkout in place while using this installation. For a portable installation instead, run `npm pack` and install the resulting tarball with `npm install -g /path/to/j-asefa-loop-0.1.0.tgz`. Without linking or installing, invoke the CLI directly as `node dist/cli.js <command>`.
 
 ## Run with Docker and pair your phone
 
