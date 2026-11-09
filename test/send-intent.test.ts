@@ -18,7 +18,12 @@ const keys = () => {
 it("starts a fresh fleet send only after a proven refusal, preserving uncertain choices", () => {
   const newKey = keys(),
     intent = { mode: "send" as const, sendAt: null };
-  const first = planSend({ signature: "", key: "" }, "message", intent, newKey);
+  const first = planSend(
+    { signature: "", key: "", unquoted: false },
+    "message",
+    intent,
+    newKey,
+  );
   const refused = settleFailure(first.receipt, 503, "refused");
   expect(planSend(refused, "message", intent, newKey).receipt.key).not.toBe(
     first.receipt.key,
@@ -30,7 +35,7 @@ it("starts a fresh fleet send only after a proven refusal, preserving uncertain 
 it("repeats an uncertain send exactly as first requested", () => {
   const newKey = keys();
   const first = planSend(
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     "message",
     { mode: "schedule", sendAt: 1000 },
     newKey,
@@ -65,7 +70,7 @@ it("repeats an uncertain send exactly as first requested", () => {
 it("lets a refused send change its choice, and a new message get a new key", () => {
   const newKey = keys();
   const first = planSend(
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     "message",
     { mode: "schedule", sendAt: 1000 },
     newKey,
@@ -111,21 +116,27 @@ it("does not let a late response erase or replace a newer pending send", async (
         store.delete(key);
       },
     };
-    const newer = { signature: "new message", key: "new-key", pending: true };
+    const newer = {
+      signature: "new message",
+      key: "new-key",
+      pending: true,
+      unquoted: false,
+    };
     storeSendReceipt(storage, "thread", newer);
     await settleStoredSend(
       storage,
       "thread",
-      { signature: "old message", key: "old-key" },
+      { signature: "old message", key: "old-key", unquoted: false },
       null,
     );
     await settleStoredSend(
       storage,
       "thread",
-      { signature: "old message", key: "old-key" },
+      { signature: "old message", key: "old-key", unquoted: false },
       {
         signature: "old message",
         key: "old-key",
+        unquoted: false,
         pending: true,
       },
     );
@@ -141,7 +152,7 @@ it("does not let a late response erase or replace a newer pending send", async (
 
 it("leaves out a reply target as the composer showed, and repeats that on retry", () => {
   const newKey = keys();
-  const empty = { signature: "", key: "" };
+  const empty = { signature: "", key: "", unquoted: false };
   const now = { mode: "send" as const, sendAt: null };
   const first = planSend(empty, "reply", now, newKey);
   expect(omitsReplyTarget(empty, first, true)).toBe(true);
@@ -165,10 +176,5 @@ it("leaves out a reply target as the composer showed, and repeats that on retry"
   );
   expect(
     omitsReplyTarget(quoted, planSend(quoted, "reply", now, newKey), true),
-  ).toBe(false);
-  // A receipt from before this decision existed always sent its target.
-  const legacy = settleFailure(first.receipt, undefined);
-  expect(
-    omitsReplyTarget(legacy, planSend(legacy, "reply", now, newKey), true),
   ).toBe(false);
 });

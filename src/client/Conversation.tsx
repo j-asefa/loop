@@ -29,7 +29,6 @@ import { ActivityView } from "./ActivityRecords";
 import { SessionActivityControls } from "./SessionActivityControls";
 import type { ActivityRecord } from "../agent-activities";
 import {
-  mergeConversationMessages,
   conversationRefreshCursor,
   type ConversationMessage,
 } from "./conversationMessages";
@@ -171,7 +170,11 @@ function MessageShell({
   );
 }
 
-type Transcript = ConversationPage;
+function browserTranscript(page: ConversationPage) {
+  if (!page.projection) throw new UnavailableResponse();
+  return { ...page, projection: page.projection };
+}
+type Transcript = ReturnType<typeof browserTranscript>;
 type ContinuationInput = RouteInput<
   typeof workspaceApi.conversationContinueStart
 >["body"];
@@ -567,9 +570,6 @@ function ConversationView({
     const recovery = initial
       ? undefined
       : missingMessages.current.keys().next().value;
-    const recoveryCursor = recovery
-      ? missingMessages.current.get(recovery)
-      : undefined;
     const readSnapshot = (
       query: RouteInput<typeof workspaceApi.conversation>["query"],
     ) =>
@@ -588,7 +588,7 @@ function ConversationView({
             setRateLimited(true);
           }
         },
-      );
+      ).then(browserTranscript);
     if (initial) setLoading(true);
     try {
       let fresh = await readSnapshot(
@@ -607,35 +607,33 @@ function ConversationView({
       )
         return;
       const incomingMessages = fresh.messages;
-      const replacedProjection = !!fresh.projection && !projection.ready;
-      if (fresh.projection) {
-        const rows = ProjectedMessage.array().safeParse(fresh.messages);
-        if (!rows.success) {
-          snapshotFailures.current = 3;
-          throw new Error("Couldn’t load these messages. Try again.");
-        }
-        if (
-          !projection.install(
-            snapshot,
-            fresh.projection,
-            rows.data,
-            fresh.range,
-            !recovery,
-          )
-        ) {
-          if (++snapshotFailures.current >= 3)
-            throw new Error("Messages kept changing while loading. Try again.");
-          const delay = 1000 * snapshotFailures.current;
-          retryAt.current = Date.now() + delay;
-          clearTimeout(retryTimer.current);
-          retryTimer.current = setTimeout(() => {
-            if (current === generation.current && owner === viewOwner())
-              void load(initial);
-          }, delay);
-          return;
-        }
-        fresh = { ...fresh, messages: projection.projection.rows() };
+      const replacedProjection = !projection.ready;
+      const rows = ProjectedMessage.array().safeParse(fresh.messages);
+      if (!rows.success) {
+        snapshotFailures.current = 3;
+        throw new Error("Couldn’t load these messages. Try again.");
       }
+      if (
+        !projection.install(
+          snapshot,
+          fresh.projection,
+          rows.data,
+          fresh.range,
+          !recovery,
+        )
+      ) {
+        if (++snapshotFailures.current >= 3)
+          throw new Error("Messages kept changing while loading. Try again.");
+        const delay = 1000 * snapshotFailures.current;
+        retryAt.current = Date.now() + delay;
+        clearTimeout(retryTimer.current);
+        retryTimer.current = setTimeout(() => {
+          if (current === generation.current && owner === viewOwner())
+            void load(initial);
+        }, delay);
+        return;
+      }
+      fresh = { ...fresh, messages: projection.projection.rows() };
       if (initial && !anchor) {
         // The initial route chooses the saved-position page in one request.
         const target = fresh.position_message_id;
@@ -646,28 +644,22 @@ function ConversationView({
           setJump(target);
         }
       }
-      if (fresh.projection) {
-        // The requested anchor is covered even when it became hidden. Such
-        // rows have a transcript position but are absent from the response.
-        // A newer invalidation still needs a newer consistent snapshot.
-        if (
-          recovery &&
-          (missingMessages.current.get(recovery) ?? Infinity) <=
-            fresh.projection.cursor
-        )
-          missingMessages.current.delete(recovery);
-        // A page can repair several missing rows, but cannot acknowledge an
-        // invalidation that arrived after its consistent snapshot watermark.
-        for (const message of incomingMessages) {
-          const cursor = missingMessages.current.get(message.id);
-          if (cursor !== undefined && cursor <= fresh.projection.cursor)
-            missingMessages.current.delete(message.id);
-        }
-      } else if (
+      // The requested anchor is covered even when it became hidden. Such
+      // rows have a transcript position but are absent from the response.
+      // A newer invalidation still needs a newer consistent snapshot.
+      if (
         recovery &&
-        missingMessages.current.get(recovery) === recoveryCursor
+        (missingMessages.current.get(recovery) ?? Infinity) <=
+          fresh.projection.cursor
       )
         missingMessages.current.delete(recovery);
+      // A page can repair several missing rows, but cannot acknowledge an
+      // invalidation that arrived after its consistent snapshot watermark.
+      for (const message of incomingMessages) {
+        const cursor = missingMessages.current.get(message.id);
+        if (cursor !== undefined && cursor <= fresh.projection.cursor)
+          missingMessages.current.delete(message.id);
+      }
       request.queued ||=
         missingMessages.current.size > 0 || projection.projection.needsLatest();
       initialRequest.current = false;
@@ -686,9 +678,7 @@ function ConversationView({
         !initial && old
           ? {
               ...fresh,
-              messages: fresh.projection
-                ? fresh.messages
-                : mergeConversationMessages(old.messages, fresh.messages),
+              messages: fresh.messages,
               next: replacedProjection
                 ? fresh.next
                 : recovery
@@ -791,7 +781,7 @@ function ConversationView({
       jump &&
       projectionContext.current === context &&
       dataRef.current?.messages.some((message) => message.id === jump) &&
-      (transcriptHandoff.current.ready || !dataRef.current.projection);
+      transcriptHandoff.current.ready;
     // Resuming or jumping to an already loaded row changes the scroll anchor,
     // not the snapshot. Keep its revisions and readiness for subsequent deltas.
     if (!localJump) {
@@ -1709,35 +1699,28 @@ function ConversationView({
                     { params: { id }, query: { before: data.next! } },
                     sourceId,
                     readController.current!.signal,
-                  );
+                  ).then(browserTranscript);
                   if (current !== generation.current) return;
-                  if (older.projection) {
-                    const rows = ProjectedMessage.array().parse(older.messages);
-                    if (
-                      !projection.install(
-                        snapshot,
-                        older.projection,
-                        rows,
-                        older.range,
-                      )
-                    ) {
-                      setError(
-                        "Messages changed while loading history. Try Load earlier messages again.",
-                      );
-                      return;
-                    }
-                    older.messages = projection.projection.rows();
+                  const rows = ProjectedMessage.array().parse(older.messages);
+                  if (
+                    !projection.install(
+                      snapshot,
+                      older.projection,
+                      rows,
+                      older.range,
+                    )
+                  ) {
+                    setError(
+                      "Messages changed while loading history. Try Load earlier messages again.",
+                    );
+                    return;
                   }
+                  older.messages = projection.projection.rows();
                   setData((previous) =>
                     previous
                       ? {
                           ...previous,
-                          messages: older.projection
-                            ? older.messages
-                            : mergeConversationMessages(
-                                previous.messages,
-                                older.messages,
-                              ),
+                          messages: older.messages,
                           next: older.next,
                         }
                       : previous,

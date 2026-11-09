@@ -5,6 +5,7 @@ import {
 } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { publicBuild, runningBuild } from "../dist/shared/build.js";
 import { chromium, expect } from "@playwright/test";
 import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
@@ -1641,34 +1642,46 @@ async function snapshotRecovery(engine) {
           .getByRole("button", { name: /^(Reply|Continue draft)$/ })
           .click();
     };
-    let reads = 0,
-      malformed = true;
-    await page.route(
-      (url) => url.pathname === `/api/conversations/${conversation.id}`,
-      async (route) => {
-        reads++;
-        const response = await route.fetch();
-        if (!response.ok()) return route.fulfill({ response });
-        const body = await response.json();
-        if (malformed) body.messages[0].revision = "invalid";
-        await route.fulfill({ response, json: body });
-      },
-    );
-    await openConversation();
-    const alert = page.locator(".conversation-sheet [role=alert]");
-    await expect(alert).toContainText("Couldn’t load these messages");
-    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
-    await page.waitForTimeout(1500);
-    assert.equal(
-      reads,
-      1,
-      "Invalid snapshots must stop instead of exhausting the request budget",
-    );
-    malformed = false;
-    await alert.getByRole("button", { name: "Try again", exact: true }).click();
-    await expect(page.locator(`[data-message-id="${row.id}"]`)).toHaveCount(1);
-    await expect(alert).toHaveCount(0);
-    await page.unrouteAll({ behavior: "wait" });
+    for (const invalidShape of ["invalid revision", "missing projection"]) {
+      let reads = 0,
+        malformed = true;
+      await page.route(
+        (url) => url.pathname === `/api/conversations/${conversation.id}`,
+        async (route) => {
+          reads++;
+          const response = await route.fetch();
+          if (!response.ok()) return route.fulfill({ response });
+          const body = await response.json();
+          if (malformed) {
+            if (invalidShape === "missing projection") delete body.projection;
+            else body.messages[0].revision = "invalid";
+          }
+          await route.fulfill({ response, json: body });
+        },
+      );
+      await page.goto(fixture.base);
+      await openConversation();
+      const alert = page.locator(".conversation-sheet [role=alert]");
+      await expect(alert).toContainText("Couldn’t load these messages");
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("loop-refresh")),
+      );
+      await page.waitForTimeout(1500);
+      assert.equal(
+        reads,
+        1,
+        "Invalid snapshots must stop instead of exhausting the request budget",
+      );
+      malformed = false;
+      await alert
+        .getByRole("button", { name: "Try again", exact: true })
+        .click();
+      await expect(page.locator(`[data-message-id="${row.id}"]`)).toHaveCount(
+        1,
+      );
+      await expect(alert).toHaveCount(0);
+      await page.unrouteAll({ behavior: "wait" });
+    }
     let failures = 0;
     await page.route(
       (url) => url.pathname === `/api/conversations/${conversation.id}`,
@@ -1838,6 +1851,7 @@ async function httpEpochRecovery(engine) {
     const context = await browser.newContext({ serviceWorkers: "block" });
     await fixture.pair(context);
     let blocked = false;
+    const resetSenders = [];
     // Every workspace socket, including the companion's multiplexed stream:
     // once blocked, recovery must come over HTTP.
     await context.routeWebSocket(
@@ -1847,7 +1861,16 @@ async function httpEpochRecovery(engine) {
         url.pathname === "/api/events/multiplex/ws",
       (socket) => {
         if (blocked) socket.close();
-        else socket.connectToServer();
+        else {
+          const server = socket.connectToServer();
+          server.onMessage((message) => {
+            const envelope = JSON.parse(String(message));
+            const frame = envelope.type === "frame" ? envelope.frame : envelope;
+            if (frame.type === "reset" && !envelope.source)
+              resetSenders.push({ socket, envelope, frame });
+            socket.send(message);
+          });
+        }
       },
     );
     await context.addInitScript(() => {
@@ -1857,6 +1880,10 @@ async function httpEpochRecovery(engine) {
         constructor(...args) {
           super(...args);
           window.__epochSockets.push(this);
+          this.addEventListener("message", (event) => {
+            const envelope = JSON.parse(String(event.data));
+            window.__lastBuildFrame = (envelope.frame || envelope).build;
+          });
         }
       };
     });
@@ -1866,7 +1893,39 @@ async function httpEpochRecovery(engine) {
     await expect(
       page.getByRole("status").filter({ hasText: "Connected to workspace" }),
     ).toBeVisible();
-    await page.waitForTimeout(1000);
+    await expect.poll(() => resetSenders.length).toBeGreaterThan(0);
+    const reset = resetSenders.at(-1);
+    const sendBuild = (build, buildIdentity) => {
+      const frame = { ...reset.frame, build, buildIdentity };
+      reset.socket.send(
+        JSON.stringify(
+          reset.envelope.type === "frame"
+            ? { ...reset.envelope, frame }
+            : frame,
+        ),
+      );
+    };
+    const reload = page.getByRole("dialog").getByRole("button", {
+      name: "Reload to update",
+      exact: true,
+    });
+    sendBuild("changed-raw-string", {
+      ...reset.frame.buildIdentity,
+      id: "development",
+    });
+    await page.waitForFunction(
+      () => window.__lastBuildFrame === "changed-raw-string",
+    );
+    await expect(reload).toHaveCount(0);
+    sendBuild(reset.frame.build, {
+      ...reset.frame.buildIdentity,
+      id: "different-current-build",
+    });
+    await expect(reload).toBeVisible();
+    // The fixture server runs from source and reports development; use the
+    // compiled UI identity to establish a known match.
+    sendBuild(reset.frame.build, publicBuild(runningBuild));
+    await expect(reload).toHaveCount(0);
     blocked = true;
     await page.evaluate(() =>
       window.__epochSockets.forEach((socket) => socket.close()),

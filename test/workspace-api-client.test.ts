@@ -144,7 +144,7 @@ it("reads current source catalogs and refuses missing or malformed metadata", as
 
 it("settles local input failures as readable refusals while malformed acknowledgements remain uncertain", async () => {
   const planned = planSend(
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     "draft",
     { mode: "send", sendAt: null },
     () => "request-key",

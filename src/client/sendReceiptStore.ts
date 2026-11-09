@@ -19,7 +19,7 @@ import {
 // Settlement removes only the entry it sent. Older receipts written to
 // any storage backend by earlier builds are not migrated (AGENTS.md fresh-install policy).
 
-const EMPTY: SendReceipt = { signature: "", key: "" };
+const EMPTY: SendReceipt = { signature: "", key: "", unquoted: false };
 const MAX_RECEIPTS = 20;
 
 /** Owner/source/thread-scoped key, stable across app restarts and re-auth. */

@@ -75,7 +75,7 @@ it("a pending composer receipt survives a session wipe and reload, reusing its k
   const session = new MemoryStorage();
   const key = sendReceiptKey("alice", "laptop", "conv-1");
   const receipt = planSend(
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     "hello",
     { mode: "send", sendAt: null },
     keys(),
@@ -88,7 +88,11 @@ it("a pending composer receipt survives a session wipe and reload, reusing its k
 
   const recovered = readSendReceipt(durable, key);
   // After the wipe the old session-backed receipt is gone.
-  expect(readSendReceipt(session, key)).toEqual({ signature: "", key: "" });
+  expect(readSendReceipt(session, key)).toEqual({
+    signature: "",
+    key: "",
+    unquoted: false,
+  });
   // The durable receipt is still there and replays with the same key.
   const retry = planSend(
     recovered,
@@ -100,7 +104,11 @@ it("a pending composer receipt survives a session wipe and reload, reusing its k
   expect(retry.receipt.key).toBe(receipt.key);
   // Settlement removes it for the next message.
   await settleStoredSend(durable, key, receipt, null);
-  expect(readSendReceipt(durable, key)).toEqual({ signature: "", key: "" });
+  expect(readSendReceipt(durable, key)).toEqual({
+    signature: "",
+    key: "",
+    unquoted: false,
+  });
 });
 
 it("a pending receipt is owner/thread scoped", () => {
@@ -108,6 +116,7 @@ it("a pending receipt is owner/thread scoped", () => {
   const receipt: SendReceipt = {
     signature: "m",
     key: "k",
+    unquoted: false,
     pending: true,
     intent: { mode: "send", sendAt: null },
   };
@@ -119,11 +128,11 @@ it("a pending receipt is owner/thread scoped", () => {
   // Same owner, different thread.
   expect(
     readSendReceipt(durable, sendReceiptKey("alice", "laptop", "conv-2")),
-  ).toEqual({ signature: "", key: "" });
+  ).toEqual({ signature: "", key: "", unquoted: false });
   // A different account never reads another's pending send.
   expect(
     readSendReceipt(durable, sendReceiptKey("bob", "laptop", "conv-1")),
-  ).toEqual({ signature: "", key: "" });
+  ).toEqual({ signature: "", key: "", unquoted: false });
 });
 
 it("a run retry key is stable across reloads and cleared on settlement", () => {
@@ -184,7 +193,7 @@ it("another message in the thread, from any tab, keeps an uncertain receipt", as
   const key = sendReceiptKey("alice", "", "conv-1");
   const now = { mode: "send" as const, sendAt: null };
   const first = planSend(
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     "first",
     now,
     keys(),
@@ -207,6 +216,7 @@ it("another message in the thread, from any tab, keeps an uncertain receipt", as
   expect(readSendReceipt(durable, key, "second")).toEqual({
     signature: "",
     key: "",
+    unquoted: false,
   });
 });
 
@@ -216,6 +226,7 @@ it("keeps every pending receipt when the per-thread list is full", () => {
   const pending = (n: number): SendReceipt => ({
     signature: "pending-" + n,
     key: "p" + n,
+    unquoted: false,
     pending: true,
   });
   storeSendReceipt(durable, key, pending(0));
@@ -223,6 +234,7 @@ it("keeps every pending receipt when the per-thread list is full", () => {
     storeSendReceipt(durable, key, {
       signature: "refused-" + n,
       key: "r" + n,
+      unquoted: false,
       pending: false,
     });
   expect(readSendReceipt(durable, key, "pending-0")).toEqual(pending(0));
@@ -235,6 +247,7 @@ it("retains more than twenty uncertain sends and reuses the oldest key", () => {
     storeSendReceipt(storage, scope, {
       signature: "pending-" + n,
       key: "key-" + n,
+      unquoted: false,
       pending: true,
       intent: { mode: "send", sendAt: null },
     });
@@ -266,7 +279,7 @@ it("serializes concurrent preparation and settlement without losing another send
   const storage = new MemoryStorage();
   const scope = sendReceiptKey("alice", "", "parallel");
   const intent = { mode: "send" as const, sendAt: null };
-  const empty = { signature: "", key: "" };
+  const empty = { signature: "", key: "", unquoted: false };
   const [a, b, duplicate] = await Promise.all([
     prepareStoredSend(storage, scope, "a", empty, intent, false),
     prepareStoredSend(storage, scope, "b", empty, intent, false),
@@ -284,7 +297,7 @@ it("serializes concurrent preparation and settlement without losing another send
 it("refuses preparation when persistence fails, retaining the earlier identity", async () => {
   const storage = new MemoryStorage();
   const scope = sendReceiptKey("alice", "", "quota");
-  const empty = { signature: "", key: "" };
+  const empty = { signature: "", key: "", unquoted: false };
   const intent = { mode: "send" as const, sendAt: null };
   const a = await prepareStoredSend(storage, scope, "a", empty, intent, false);
   vi.spyOn(storage, "setItem").mockImplementation(() => {
@@ -308,13 +321,17 @@ it("storage read failure leaves the composer renderable but refuses sending", as
   vi.spyOn(storage, "getItem").mockImplementation(() => {
     throw new Error("SecurityError");
   });
-  expect(readSendReceipt(storage, "scope")).toEqual({ signature: "", key: "" });
+  expect(readSendReceipt(storage, "scope")).toEqual({
+    signature: "",
+    key: "",
+    unquoted: false,
+  });
   await expect(
     prepareStoredSend(
       storage,
       "scope",
       "message",
-      { signature: "", key: "" },
+      { signature: "", key: "", unquoted: false },
       { mode: "send", sendAt: null },
       false,
     ),
@@ -324,7 +341,7 @@ it("storage read failure leaves the composer renderable but refuses sending", as
 it("abandons a choice changed while waiting without persisting its schedule", async () => {
   const storage = new MemoryStorage();
   const scope = sendReceiptKey("alice", "", "abandoned");
-  const empty = { signature: "", key: "" };
+  const empty = { signature: "", key: "", unquoted: false };
   let current = true;
   const waiting = prepareStoredSend(
     storage,
@@ -354,7 +371,7 @@ it.each([false, true])(
   async (changed) => {
     const storage = new MemoryStorage();
     const scope = sendReceiptKey("alice", "", "attempts");
-    const empty = { signature: "", key: "" };
+    const empty = { signature: "", key: "", unquoted: false };
     const initial = { mode: "send" as const, sendAt: null };
     const a = (await prepareStoredSend(
       storage,
@@ -425,7 +442,7 @@ it("starts dispatch before a post-lock view change and releases the lock before 
     storage,
     scope,
     "message",
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     { mode: "schedule", sendAt: 1000 },
     false,
     () => current,
@@ -446,7 +463,7 @@ it("starts dispatch before a post-lock view change and releases the lock before 
     storage,
     scope,
     "other",
-    { signature: "", key: "" },
+    { signature: "", key: "", unquoted: false },
     { mode: "send", sendAt: null },
     false,
   );
@@ -455,3 +472,32 @@ it("starts dispatch before a post-lock view change and releases the lock before 
   await first?.completion;
   expect(readSendReceipt(storage, scope, "message").key).toBe("");
 });
+
+it.each([false, true])(
+  "preserves the persisted reply-target decision across a new composer (%s)",
+  async (unquoted) => {
+    const storage = new MemoryStorage();
+    const scope = sendReceiptKey("alice", "", "frozen-reply");
+    const empty = { signature: "", key: "", unquoted: false };
+    const intent = { mode: "send" as const, sendAt: null };
+    const first = (await prepareStoredSend(
+      storage,
+      scope,
+      "reply",
+      empty,
+      intent,
+      unquoted,
+    ))!;
+    expect(JSON.parse(storage.getItem(scope)!)[0].unquoted).toBe(unquoted);
+    const restored = (await prepareStoredSend(
+      storage,
+      scope,
+      "reply",
+      empty,
+      intent,
+      !unquoted,
+    ))!;
+    expect(restored.receipt.key).toBe(first.receipt.key);
+    expect(restored.receipt.unquoted).toBe(unquoted);
+  },
+);

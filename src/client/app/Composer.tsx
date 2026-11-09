@@ -587,7 +587,7 @@ export function useComposerSend({
             request.current.key === sentReceipt!.key &&
             request.current.attempt === sentReceipt!.attempt
           )
-            request.current = { signature: "", key: "" };
+            request.current = { signature: "", key: "", unquoted: false };
           await settleStoredSend(
             localStorage,
             receiptStorageKey,

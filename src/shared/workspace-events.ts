@@ -536,15 +536,7 @@ export const WorkspaceCapabilities = z.strictObject({
   results: z.enum(["snapshot", "delta"]),
 });
 export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilities>;
-export const PARTIAL_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
-  invalidations: "partial",
-  deadlines: false,
-  transcript: "snapshot",
-  feed: "snapshot",
-  results: "snapshot",
-};
 export const COMPLETE_WORKSPACE_CAPABILITIES: WorkspaceCapabilities = {
-  ...PARTIAL_WORKSPACE_CAPABILITIES,
   invalidations: "complete",
   deadlines: true,
   transcript: "delta",

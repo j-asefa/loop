@@ -24,7 +24,11 @@ export async function sourceConversationBrowser(
   let holdRead, releaseRead, holdSend, releaseSend, holdUpload, releaseUpload;
   let slowUploads = false,
     uploadNumber = 0;
-  const snapshot = (record) => ({
+  const snapshot = async (record) => ({
+    projection: await page.request
+      .get(new URL("/api/feed?filter=needs", workspaceUrl).toString())
+      .then((response) => response.json())
+      .then((body) => body.projection),
     conversation: {
       id: record.thread.conversation_id,
       owner_id: record.agent.owner_id,
@@ -49,6 +53,7 @@ export async function sourceConversationBrowser(
         metadata: "{}",
         created_at: Date.now(),
         run_id: null,
+        revision: 0,
         cursor: [1, 1, 1],
       },
     ],
@@ -91,11 +96,11 @@ export async function sourceConversationBrowser(
         holdRead = null;
         await held();
       }
-      return fulfill(route, snapshot(record));
+      return fulfill(route, await snapshot(record));
     }
     if (path === `messages/${record.thread.last_message.id}`)
       return fulfill(route, {
-        ...snapshot(record).messages[0],
+        ...(await snapshot(record)).messages[0],
         content: `Full reading view for ${record.agent.name}`,
       });
     if (path.endsWith("/activities"))

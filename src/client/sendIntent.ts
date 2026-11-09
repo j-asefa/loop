@@ -14,9 +14,8 @@ export type SendReceipt = {
   intent?: SendIntent;
   /** Sent, but not yet confirmed accepted or refused. */
   pending?: boolean;
-  /** Sent without its reply target, as a reply to the agent's latest
-   * message. Absent on older receipts, which always sent the target. */
-  unquoted?: boolean;
+  /** Sent without its reply target, as a reply to the agent's latest message. */
+  unquoted: boolean;
 };
 
 const sameIntent = (a: SendIntent, b: SendIntent) =>
@@ -52,6 +51,7 @@ export function planSend(
       attempt: (receipt.attempt ?? 0) + 1,
       intent: requested,
       pending: true,
+      unquoted: false,
     },
     intent: requested,
     reconciled: false,
@@ -61,15 +61,14 @@ export function planSend(
 /**
  * Whether a send leaves out its reply target because it answers the
  * agent's latest message, as the composer showed. A repeated request keeps
- * the decision it was first sent with (older receipts always sent the
- * target).
+ * the decision it was first sent with.
  */
 export function omitsReplyTarget(
   previous: SendReceipt,
   plan: { receipt: SendReceipt },
   repliesToLatest: boolean,
 ) {
-  return plan.receipt === previous ? !!previous.unquoted : repliesToLatest;
+  return plan.receipt === previous ? previous.unquoted : repliesToLatest;
 }
 
 /**

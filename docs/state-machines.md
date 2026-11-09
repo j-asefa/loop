@@ -294,14 +294,14 @@ steering message proven unsent. Delegation results are keyed
 ### Composer send receipt
 
 [`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
-pending}` per message (keyed by its signature; settled entries are pruned toward 20 per thread, uncertain entries are never evicted), stored in an owner/source/thread-scoped durable store
+pending, unquoted}` per message (keyed by its signature; settled entries are pruned toward 20 per thread, uncertain entries are never evicted), stored in an owner/source/thread-scoped durable store
 ([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), backed by
 `localStorage`), so a pending send survives a killed home-screen app, a new
 tab and auth expiry (Session clears `sessionStorage`, never these receipts).
 Empty → pending (new key) → cleared on 2xx, refused (key kept) on a Loop
 response below 500, unchanged on 5xx or no response. A pending receipt for
 the same message, found in the store even if another tab or an earlier session
-sent it, is resent with the same key and intent; settlement compares the key and attempt generation before touching the
+sent it, is resent with the same key, intent and explicit `unquoted` reply-target decision; settlement compares the key and attempt generation before touching the
 entry with the sent key. A Web Lock covers reading, selecting and storing the
 identity and each settlement, so concurrent tabs cannot overwrite one another's
 journal changes. Persistence failure refuses a new send before dispatch;
