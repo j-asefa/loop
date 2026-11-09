@@ -1,3 +1,4 @@
+import { collapse } from "../collapse.js";
 import * as conversationsQueries from "../sql/conversations.js";
 import * as artifactsQueries from "../sql/artifacts.js";
 import * as laterItemsQueries from "../sql/later-items.js";
@@ -9,7 +10,7 @@ import { ownedFolder, owned, Problem } from "../domain.js";
 import { resultUrl } from "../results.js";
 import { savedStory } from "../news.js";
 import { feedCardTitle } from "../feed-card-display.js";
-import { collapse, projectFor } from "./shared.js";
+import { projectFor } from "./shared.js";
 
 // A conversation's folder: its recorded project, else its latest run's folder.
 // ---------------------------------------------------------------------------
