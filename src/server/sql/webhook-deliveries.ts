@@ -5,7 +5,7 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const enqueueStoppedStatement = statement(
-  "INSERT INTO webhook_deliveries(id,subscription_id,event_id,kind,payload,created_at,available_at)\n      VALUES(?,?,?,'run.stopped',?,?,?) ON CONFLICT(subscription_id,event_id) DO NOTHING",
+  "INSERT INTO webhook_deliveries(id,subscription_id,event_id,kind,payload,created_at,available_at)\n      VALUES(@id,@subscription,@event,'run.stopped',@payload,@created,@created) ON CONFLICT(subscription_id,event_id) DO NOTHING",
 );
 export function enqueueStopped(
   db: Database.Database,
@@ -14,16 +14,14 @@ export function enqueueStopped(
   event: number,
   payload: string,
   created: number,
-  available: number,
 ) {
-  return enqueueStoppedStatement(db).run(
+  return enqueueStoppedStatement(db).run({
     id,
     subscription,
     event,
     payload,
     created,
-    available,
-  );
+  });
 }
 
 const byIdStatement = statement("SELECT * FROM webhook_deliveries WHERE id=?");
@@ -57,7 +55,7 @@ export function history(db: Database.Database, subscription: string) {
 }
 
 const insertControlStatement = statement(
-  "INSERT INTO webhook_deliveries(id,subscription_id,kind,purpose,request_id,payload,created_at,available_at)\n    VALUES(?,?,'control',?,?,?,?,?)",
+  "INSERT INTO webhook_deliveries(id,subscription_id,kind,purpose,request_id,payload,created_at,available_at)\n    VALUES(@id,@subscription,'control',@purpose,@request,@payload,@created,@created)",
 );
 export function insertControl(
   db: Database.Database,
@@ -67,17 +65,15 @@ export function insertControl(
   request: string,
   payload: string,
   created: number,
-  available: number,
 ) {
-  return insertControlStatement(db).run(
+  return insertControlStatement(db).run({
     id,
     subscription,
     purpose,
     request,
     payload,
     created,
-    available,
-  );
+  });
 }
 
 const revokeSubscriptionStatement = statement(
@@ -130,7 +126,7 @@ export function exhaust(
 }
 
 const dueStatement = statement(
-  "SELECT d.* FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id\n      WHERE d.delivered_at IS NULL AND d.exhausted=0 AND d.available_at<=? AND (d.leased_until IS NULL OR d.leased_until<=?)\n      AND (? IS NULL OR d.id=?) AND (s.state='active' OR (s.state='pending_activation' AND d.purpose='activation') OR (s.state='failed' AND d.purpose='test'))\n      ORDER BY d.available_at,d.id LIMIT 4",
+  "SELECT d.* FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id\n      WHERE d.delivered_at IS NULL AND d.exhausted=0 AND d.available_at<=@time AND (d.leased_until IS NULL OR d.leased_until<=@leaseTime)\n      AND (@only IS NULL OR d.id=@only) AND (s.state='active' OR (s.state='pending_activation' AND d.purpose='activation') OR (s.state='failed' AND d.purpose='test'))\n      ORDER BY d.available_at,d.id LIMIT 4",
 );
 const dueRow = QueryRecords.webhook_deliveries;
 export function due(
@@ -138,10 +134,9 @@ export function due(
   time: number,
   leaseTime: number,
   only: string | null,
-  id: string | null,
 ) {
   return dueStatement(db)
-    .all(time, leaseTime, only, id)
+    .all({ time, leaseTime, only })
     .map((row) => parseRecord(dueRow, row, "webhook_deliveries"));
 }
 

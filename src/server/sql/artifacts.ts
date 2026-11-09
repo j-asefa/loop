@@ -70,7 +70,7 @@ export function feedHidden(
 }
 
 const insertStatement = statement(
-  "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+  "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,created_at,updated_at) VALUES(@id,@owner,@agent,@conversation,@run,@title,@kind,@content,@metadata,@folder,@created,@created)",
 );
 export function insert(
   db: Database.Database,
@@ -85,9 +85,8 @@ export function insert(
   metadata: string,
   folder: string | null,
   created: number,
-  updated: number,
 ) {
-  return insertStatement(db).run(
+  return insertStatement(db).run({
     id,
     owner,
     agent,
@@ -99,8 +98,7 @@ export function insert(
     metadata,
     folder,
     created,
-    updated,
-  );
+  });
 }
 
 // The same rule must govern initial pages and update tombstones. A running or
@@ -186,7 +184,7 @@ export function messageResult(
 }
 
 const bookmarkStatement = statement(
-  "UPDATE artifacts SET pinned=?,version=version+1,updated_at=? WHERE id=? AND owner_id=? AND pinned<>?",
+  "UPDATE artifacts SET pinned=@pinned,version=version+1,updated_at=@updated WHERE id=@artifact AND owner_id=@owner AND pinned<>@pinned",
 );
 export function bookmark(
   db: Database.Database,
@@ -194,9 +192,8 @@ export function bookmark(
   updated: number,
   artifact: string,
   owner: string,
-  previous: number,
 ) {
-  return bookmarkStatement(db).run(pinned, updated, artifact, owner, previous);
+  return bookmarkStatement(db).run({ pinned, updated, artifact, owner });
 }
 
 const isBookmarkedStatement = statement(

@@ -73,7 +73,6 @@ export function saveWatch(owner: string, body: unknown, watchId?: string) {
       d.query,
       d.feeds?.length ? JSON.stringify(d.feeds) : null,
       time,
-      time,
       d.enabled ? 1 : 0,
     );
   }

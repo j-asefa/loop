@@ -52,7 +52,7 @@ export function clear(db: Database.Database) {
 }
 const upsertStatement =
   statement(`INSERT INTO feed_stories(feed_id,story_id,url,title,summary,story,published_at,first_seen_at,fetched_at)
-       VALUES(?,?,?,?,?,?,?,?,?)
+       VALUES(@feed,@id,@url,@title,@summary,@story,@published,@fetched,@fetched)
        ON CONFLICT(feed_id,story_id) DO UPDATE SET
          url=excluded.url, title=excluded.title, summary=excluded.summary,
          story=excluded.story, published_at=excluded.published_at,
@@ -66,10 +66,9 @@ export function upsert(
   summary: string | null,
   story: string,
   published: number | null,
-  first: number,
   fetched: number,
 ) {
-  return upsertStatement(db).run(
+  return upsertStatement(db).run({
     feed,
     id,
     url,
@@ -77,9 +76,8 @@ export function upsert(
     summary,
     story,
     published,
-    first,
     fetched,
-  );
+  });
 }
 
 const ownedStatement =

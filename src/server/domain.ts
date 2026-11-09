@@ -73,7 +73,6 @@ export function createAgent(owner: string, value: unknown) {
         agentId,
         owner,
         data.name,
-        data.name,
         connection.provider,
         connection.id,
         data.model,
@@ -112,7 +111,7 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
       if (occupied && occupied.agent_id !== agentId)
         throw new Problem(409, "That name is taken or reserved");
       handlesQueries.reserve(db, normalized, agentId, now());
-      agentsQueries.rename(db, normalized, normalized, agentId);
+      agentsQueries.rename(db, normalized, agentId);
       return { ...agent, name: normalized };
     })
     .immediate();

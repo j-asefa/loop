@@ -114,7 +114,6 @@ export function enqueueStoppedWebhooks(
       event.id,
       JSON.stringify(payload),
       event.created_at,
-      event.created_at,
     );
   }
 }

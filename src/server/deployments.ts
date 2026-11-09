@@ -28,7 +28,6 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     role,
     JSON.stringify(build ?? observedBuild()),
     started,
-    started,
   );
   const pulse = () =>
     heartbeatWrite(`deployment-${role}`, () => {

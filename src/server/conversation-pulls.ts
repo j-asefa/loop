@@ -25,8 +25,6 @@ export function linkCreatedPullRequest(run: Run, ref: PullRequestRef) {
     ref.repo,
     ref.number,
     now(),
-    run.conversation_id,
-    run.owner_id,
   );
 }
 

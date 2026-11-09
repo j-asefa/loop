@@ -32,7 +32,6 @@ export function saveArtifact(
     ),
     data.folder || null,
     time,
-    time,
   );
   artifactVersionsQueries.insert(db, id(), artifactId, 1, data.content, time);
   return artifactId;

@@ -351,7 +351,6 @@ export async function executeImport(run: Run) {
         agentId,
         run.owner_id,
         name,
-        name,
         parsed.provider,
         now(),
       );
