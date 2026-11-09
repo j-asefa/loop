@@ -185,10 +185,7 @@ export function Approvals({
             >
               <span className="approval-symbol">
                 {item.name ? (
-                  <Avatar
-                    name={item.name}
-                    provider={item.provider ?? undefined}
-                  />
+                  <Avatar name={item.name} />
                 ) : (
                   <ShieldCheck size={23} />
                 )}

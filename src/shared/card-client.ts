@@ -1,10 +1,8 @@
 import { z } from "zod";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
 
-export type CardListInput = Partial<
-  z.output<typeof workspaceApi.cardList.query>
->;
-export type CardChangesInput = Omit<
+type CardListInput = Partial<z.output<typeof workspaceApi.cardList.query>>;
+type CardChangesInput = Omit<
   z.output<typeof workspaceApi.cardChanges.query>,
   "view"
 > &
@@ -39,4 +37,3 @@ export function contractCardReader(request: CardReadTransport) {
     },
   };
 }
-export type CardReader = ReturnType<typeof contractCardReader>;

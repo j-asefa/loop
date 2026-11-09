@@ -31,7 +31,7 @@ const projectTab = (value: string | null) =>
     : "threads";
 
 /** Ways into a project's history, alongside its Threads. */
-export type ProjectHistory = "search" | "outcomes" | "saved" | "unfinished";
+type ProjectHistory = "search" | "outcomes" | "saved" | "unfinished";
 const historyRoutes: [Exclude<ProjectHistory, "search">, string, ReactNode][] =
   [
     ["outcomes", "Recent outcomes", <FileText size={16} key="o" />],
@@ -334,7 +334,7 @@ export function Projects({
                       key={a.id}
                       onClick={() => onAgent(a)}
                     >
-                      <Avatar name={a.name} provider={a.provider} />
+                      <Avatar name={a.name} />
                       <span>
                         <strong>@{a.name}</strong>
                         <Badge provider={a.provider} />
@@ -460,7 +460,7 @@ export function Projects({
                     }
                   }}
                 >
-                  <Avatar name={a.name} provider={a.provider} />
+                  <Avatar name={a.name} />
                   <span>
                     <strong>@{a.name}</strong>
                     <small>{a.model}</small>

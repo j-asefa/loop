@@ -9,7 +9,8 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, renameAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
-const { routeHandle, sourceSchema } = await import("../src/server/sharing");
+const { routeHandle } = await import("../src/server/sharing");
+const { SharedSource } = await import("../src/shared/team-contract-schemas");
 const { submit } = await import("../src/server/agent-runtime");
 const { claim } = await import("../src/server/queue");
 const c = id();
@@ -41,7 +42,7 @@ it("resolves only accessible handles and preserves old aliases without silent fa
   });
 });
 it("preserves shared context, idempotency and queues behind active work", () => {
-  const source = sourceSchema.parse({
+  const source = SharedSource.parse({
       url: "https://github.com/example/repo",
       title: "Example source",
       excerpt: "User-provided fixture",
@@ -62,5 +63,5 @@ it("preserves shared context, idempotency and queues behind active work", () => 
   expect(submit("alice", data).id).toBe(second.id);
   expect(second.payload.source).toEqual(source);
   expect(claim("fixture")).toBeUndefined();
-  expect(() => sourceSchema.parse({ url: "javascript:alert(1)" })).toThrow();
+  expect(() => SharedSource.parse({ url: "javascript:alert(1)" })).toThrow();
 });

@@ -123,14 +123,3 @@ export function hasUnknownOrAccepted(
     ? undefined
     : parseRecord(hasUnknownOrAcceptedRow, row, "native_dispatch");
 }
-
-const existsForRunStatement = statement(
-  "SELECT 1 FROM native_dispatch WHERE run_id=?",
-);
-const existsForRunRow = z.object({ "1": z.number() });
-export function existsForRun(db: Database.Database, run: string) {
-  const row = existsForRunStatement(db).get(run);
-  return row === undefined
-    ? undefined
-    : parseRecord(existsForRunRow, row, "native_dispatch");
-}

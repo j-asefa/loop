@@ -112,7 +112,7 @@ export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
     SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
       AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0))
   OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
-export const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
+const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 export const fileArtifactSql = `(${finishedArtifactSql} OR json_extract(a.metadata,'$.uploaded')=1)`;
 export const resultOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
   AND json_extract(a.metadata,'$.upload') IS NOT 1
@@ -578,8 +578,8 @@ export const cardRow = z.object({
   label: z.string().nullable(),
 });
 export type CardQueryRow = z.infer<typeof cardRow>;
-export const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND COALESCE(json_extract(a.metadata,'$.snippet'),0) IN (0,'') AND ${resultOutputSql}`;
-export const savedResultCardSql = `a.archived=0 AND a.pinned=1 AND b.sequence IS NOT NULL
+const resultCardSql = `a.archived=0 AND a.feed_hidden=0 AND p.sequence IS NOT NULL AND COALESCE(json_extract(a.metadata,'$.snippet'),0) IN (0,'') AND ${resultOutputSql}`;
+const savedResultCardSql = `a.archived=0 AND a.pinned=1 AND b.sequence IS NOT NULL
   AND ${fileArtifactSql} AND json_extract(a.metadata,'$.snippet') IS NULL`;
 
 const cardsStatement = statementVariants();

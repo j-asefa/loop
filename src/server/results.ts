@@ -19,13 +19,6 @@ export function projectFolders(
   ).map((row) => row.id);
 }
 
-export {
-  traceArtifactSql,
-  finishedArtifactSql,
-  fileArtifactSql,
-  resultOutputSql,
-} from "./sql/artifacts.js";
-
 export function resultsRevision(owner: string) {
   return feedRevisionQueries.revision(db, owner);
 }

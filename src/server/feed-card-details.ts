@@ -22,13 +22,13 @@ type QueueRun = {
   worker_id: string | null;
   active_since: number | null;
 };
-export type ApprovalCandidate = {
+type ApprovalCandidate = {
   id: string;
   run_id: string;
   message_id: string | null;
   expires_at: number;
 };
-export type WatchCandidate = WatchRow & {
+type WatchCandidate = WatchRow & {
   updated_at: number;
   created_at: number;
 };
@@ -38,11 +38,7 @@ export type ThreadDetails = {
   queued_runs: FeedCardDetail["queued_runs"];
 };
 
-export function queueDetails(
-  db: Database.Database,
-  owner: string,
-  run: QueueRun,
-) {
+function queueDetails(db: Database.Database, owner: string, run: QueueRun) {
   const position = runsQueries.queuePosition(db, run.id, owner) as {
     position: number;
   };
@@ -94,8 +90,8 @@ export function threadDetails(
         run.worker_id === null &&
         !continuationQueries.byRun(db, run.id) &&
         !run.active_since &&
-        !agentCheckpointsQueries.existsForRun(db, run.id) &&
-        !nativeDispatchQueries.existsForRun(db, run.id),
+        !agentCheckpointsQueries.exists(db, run.id) &&
+        !nativeDispatchQueries.exists(db, run.id),
     })),
   };
 }

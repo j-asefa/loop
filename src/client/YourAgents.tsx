@@ -106,7 +106,7 @@ export function YourAgents({
                 {model.replace(/^Claude /, "")}
               </span>
               <span className="agent-portrait">
-                <Avatar name={agent.name} provider={agent.provider} />
+                <Avatar name={agent.name} />
                 <span
                   className="agent-status-dot"
                   data-status={status}

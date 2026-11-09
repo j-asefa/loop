@@ -46,7 +46,7 @@ import {
   structuredPreview,
   webPreview,
 } from "./preview";
-export const providerName = (p?: Provider) =>
+const providerName = (p?: Provider) =>
   p === "antigravity"
     ? "Antigravity"
     : p === "muse"
@@ -668,10 +668,7 @@ export function ArtifactCard({
       >
         <div className="card-byline">
           <button className="identity" onClick={onProfile}>
-            <Avatar
-              name={item.name || meta.name}
-              provider={item.provider || meta.provider}
-            />
+            <Avatar name={item.name || meta.name} />
             <span>
               <strong>
                 {item.name || meta.name

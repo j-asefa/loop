@@ -312,20 +312,6 @@ export function ownedName(db: Database.Database, owner: string, id: string) {
     : parseRecord(ownedNameRow, row, "agents");
 }
 
-const forConnectionStatement = statement(
-  "SELECT id FROM agents WHERE owner_id=? AND connection_id=?",
-);
-const forConnectionRow = QueryRecords.agents.pick({ id: true });
-export function forConnection(
-  db: Database.Database,
-  owner: string,
-  connection: string,
-) {
-  return forConnectionStatement(db)
-    .all(owner, connection)
-    .map((row) => parseRecord(forConnectionRow, row, "agents"));
-}
-
 const ownedDisplayStatement = statement(
   "SELECT name,provider FROM agents WHERE id=? AND owner_id=?",
 );

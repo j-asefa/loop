@@ -46,7 +46,6 @@ export function decode<T>(
 
 // Top-level named projects keep their existing grouping. Workspace covers only
 // unassigned work and ordinary folders outside an explicit project.
-export { FOLDER_PROJECT } from "../sql/folders.js";
 export function projectFor(owner: string, folder: string | null | undefined) {
   return (
     (foldersQueries.projectFor(db, { owner, folder: folder ?? null }) as

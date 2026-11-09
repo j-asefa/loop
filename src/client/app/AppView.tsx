@@ -56,7 +56,7 @@ import {
   X,
 } from "lucide-react";
 import { parse } from "../api";
-import { Connections } from "../Connections";
+import { NativeConnections } from "../NativeConnections";
 import { CreateAgent } from "../CreateAgent";
 import {
   FileSheet,
@@ -768,7 +768,7 @@ export function renderApp(props: AppViewProps) {
       )}
       {sheet === "install" && <InstallHelp onClose={closeSheet} />}
       {sheet === "connections" && (
-        <Connections
+        <NativeConnections
           connections={data.connections}
           onChange={async () => {
             await bootstrap();
