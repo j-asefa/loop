@@ -1,3 +1,4 @@
+import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -113,6 +114,7 @@ it("range-reads only a transcript page without scanning source history, before o
           Number.MAX_SAFE_INTEGER,
           Number.MAX_SAFE_INTEGER,
           Number.MAX_SAFE_INTEGER,
+          TRANSCRIPT_PAGE_ITEMS + 1,
         ) as { detail: string }[]
     )
       .map((step) => step.detail)
@@ -298,6 +300,7 @@ it("backfills a populated database, preserves legacy cursors and keeps new seque
           Number.MAX_SAFE_INTEGER,
           Number.MAX_SAFE_INTEGER,
           Number.MAX_SAFE_INTEGER,
+          TRANSCRIPT_PAGE_ITEMS + 1,
         ) as any[];
     expect(
       page().map((entry) => [
@@ -440,6 +443,12 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
     expect((await get("?resume=1")).body.messages.at(-1).id).toBe(ids[124]);
     expect((await get("?message=" + ids[30])).status).toBe(404);
     expect((await get("?before=invalid")).status).toBe(400);
+    expect(latest.body.next).toBeTypeOf("string");
+    const malformed = await get(
+      "?before=" + encodeURIComponent(latest.body.next + "!"),
+    );
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error).toBe("Invalid conversation cursor");
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

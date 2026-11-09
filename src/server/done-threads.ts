@@ -1,3 +1,4 @@
+import { encodeCursor, decodeCursor } from "./cursors.js";
 import * as doneCardReadsQueries from "./sql/done-card-reads.js";
 import * as doneThreadsQueries from "./sql/done-threads.js";
 import * as doneThreadMembersQueries from "./sql/done-thread-members.js";
@@ -138,19 +139,6 @@ const DetailCursor = z.strictObject({
 });
 const binding = (value: unknown) =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
-const encodeCursor = (value: unknown) =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
-function decodeCursor<S extends z.ZodType>(schema: S, cursor: string) {
-  try {
-    if (cursor.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(cursor))
-      throw new Error();
-    return schema.parse(
-      JSON.parse(Buffer.from(cursor, "base64url").toString()),
-    );
-  } catch {
-    throw new Problem(400, "Invalid thread page cursor.");
-  }
-}
 function tooLarge() {
   return new Problem(
     413,
@@ -171,7 +159,14 @@ export function listDoneThreadPage(
       query.agent ?? null,
       query.teams ?? null,
     ]);
-    const cursor = query.cursor ? decodeCursor(ListCursor, query.cursor) : null;
+    const cursor = query.cursor
+      ? decodeCursor(
+          query.cursor,
+          ListCursor,
+          "Invalid thread page cursor.",
+          1024,
+        )
+      : null;
     if (cursor && cursor.binding !== scope)
       throw new Problem(
         400,
@@ -234,7 +229,9 @@ export function readDoneThreadPage(
   return db.transaction(() => {
     const detail = readDoneThread(owner, id);
     const scope = binding([owner, id, detail.thread.cardIds]);
-    const cursor = token ? decodeCursor(DetailCursor, token) : null;
+    const cursor = token
+      ? decodeCursor(token, DetailCursor, "Invalid thread page cursor.", 1024)
+      : null;
     const position = cursor
       ? detail.cards.findIndex((card) => card.id === cursor.after)
       : -1;

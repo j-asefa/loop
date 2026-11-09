@@ -88,6 +88,7 @@ export function projectionFeed(
     at: number | null;
     after: string | null;
     afterCard: string | null;
+    limit: number;
   },
   filter: FeedFilter,
   results: boolean,

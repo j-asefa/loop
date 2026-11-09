@@ -1,8 +1,6 @@
 import * as foldersQueries from "../sql/folders.js";
 import * as artifactsQueries from "../sql/artifacts.js";
-import { z } from "zod";
 import { db } from "../db.js";
-import { Problem } from "../domain.js";
 import type { UploadedFile } from "../../shared/uploads.js";
 
 /**
@@ -28,22 +26,6 @@ export function attachmentDescriptors(
 
 export const collapse = (text: string | null | undefined, max: number) =>
   (text || "").replace(/\s+/g, " ").trim().slice(0, max);
-export const encode = (value: unknown) =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
-export function decode<T>(
-  value: string,
-  schema: z.ZodType<T>,
-  label: string,
-): T {
-  try {
-    return schema.parse(
-      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
-    );
-  } catch {
-    throw new Problem(400, `Invalid ${label} cursor`);
-  }
-}
-
 // Top-level named projects keep their existing grouping. Workspace covers only
 // unassigned work and ordinary folders outside an explicit project.
 export function projectFor(owner: string, folder: string | null | undefined) {

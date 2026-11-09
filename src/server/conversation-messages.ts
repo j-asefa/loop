@@ -1,3 +1,5 @@
+import { TRANSCRIPT_PAGE_ITEMS } from "./pagination.js";
+import { encodeCursor as encode, decodeCursor } from "./cursors.js";
 import * as transcriptQueries from "./sql/conversation-transcript.js";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -11,9 +13,6 @@ const position = (item: Entry): Position => [
   item.phase,
   item.ordinal,
 ];
-const encode = (value: Position) =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
-
 export { transcriptPageSql } from "./sql/conversation-transcript.js";
 
 export function conversationMessages(
@@ -28,18 +27,17 @@ export function conversationMessages(
     Number.MAX_SAFE_INTEGER,
   ];
   if (before) {
-    try {
-      cursor = z
-        .tuple([
-          z.number().int().nonnegative(),
-          z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-          z.number().int().nonnegative(),
-        ])
-        .parse(JSON.parse(Buffer.from(before, "base64url").toString("utf8")));
-    } catch {
-      throw new Problem(400, "Invalid conversation cursor");
-    }
+    cursor = decodeCursor(
+      before,
+      z.tuple([
+        z.number().int().nonnegative(),
+        z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+        z.number().int().nonnegative(),
+      ]),
+      "Invalid conversation cursor",
+    );
   }
+
   if (anchor) {
     const entry = transcriptQueries.anchor(db, owner, conversation, anchor) as
       Entry | undefined;
@@ -58,8 +56,9 @@ export function conversationMessages(
     owner,
     conversation,
     ...cursor,
+    TRANSCRIPT_PAGE_ITEMS + 1,
   ) as Entry[];
-  const hasMore = items.length > 50;
+  const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
   if (hasMore) items.pop();
   return {
     next: hasMore ? encode(position(items.at(-1)!)) : null,

@@ -1,3 +1,5 @@
+import { FEED_PAGE_ITEMS } from "./pagination.js";
+import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
 import * as steeringRepliesQueries from "./sql/steering-replies.js";
 import type { ReplyScope } from "./sql/steering-replies.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -40,13 +42,7 @@ import {
 import { projectFolders } from "./results.js";
 import { unreadCount } from "./news.js";
 import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
-import {
-  collapse,
-  encode,
-  decode,
-  projectFor,
-  contains,
-} from "./mobile-return/shared.js";
+import { collapse, projectFor, contains } from "./mobile-return/shared.js";
 
 // Keep the existing route and worker import surface stable.
 export {
@@ -115,7 +111,7 @@ function readFeed(
               z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
               z.string().min(1).max(150),
             ]),
-        "feed",
+        "Invalid feed cursor",
       )
     : undefined;
   const mode =
@@ -130,10 +126,11 @@ function readFeed(
     at: cursor?.[0] ?? null,
     after: cursor?.[1] ?? null,
     afterCard: cursor?.[2] ?? null,
+    limit: FEED_PAGE_ITEMS + 1,
   };
   const replyPage = filter === "replies" ? readReplyFeed(params) : undefined;
   const { page, summary } = projectionFeed(db, params, filter, results);
-  const more = page.length > 40;
+  const more = page.length > FEED_PAGE_ITEMS;
   if (more) page.pop();
   const rows = page.map((item) => item.row);
   const laterDue = laterItemsQueries.dueCount(db, owner) as { n: number };
@@ -177,6 +174,7 @@ function readReplyFeed(
     at: number | null;
     after: string | null;
     afterCard: string | null;
+    limit: number;
   },
 ) {
   const rows = steeringRepliesQueries.page(db, scope) as {
@@ -205,7 +203,7 @@ function readReplyFeed(
     agent_name: string | null;
     saved: number;
   }[];
-  const more = rows.length > 40;
+  const more = rows.length > FEED_PAGE_ITEMS;
   if (more) rows.pop();
   const last = rows.at(-1);
   return {
@@ -418,7 +416,7 @@ export function listSaved(
   } = {},
 ) {
   const cursor = options.before
-    ? decode(options.before, savedCursor, "saved")
+    ? decode(options.before, savedCursor, "Invalid saved cursor")
     : null;
   if (options.folder) ownedFolder(options.folder, owner);
   const page = 30;
