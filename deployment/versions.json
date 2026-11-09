@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "platform": "linux/amd64",
-  "codex": "0.160.0",
-  "claudeCode": "2.1.280",
+  "codex": "0.167.0",
+  "claudeCode": "2.1.321",
   "node": "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
   "opencode": "1.18.32",
   "pi": "1.5.0"
