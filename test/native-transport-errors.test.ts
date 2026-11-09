@@ -32,7 +32,7 @@ it("names the reconnect step without exposing arbitrary method names or error te
     "private context",
     { method: "thread/resume", timeoutMs: 30000 },
   );
-  const failure = nativeStartupFailure("Codex", error, true);
+  const failure = nativeStartupFailure("codex", error, true);
   expect(failure.message).toContain("reopening this conversation");
   expect(failure.message).toContain("No prompt was sent");
   expect(failure.diagnostic).toMatchObject({
@@ -41,11 +41,28 @@ it("names the reconnect step without exposing arbitrary method names or error te
     promptSent: false,
   });
   error.details.method = "private-token";
-  const unknown = nativeStartupFailure("Codex", error, true);
+  const unknown = nativeStartupFailure("codex", error, true);
   expect(
     JSON.stringify({
       message: unknown.message,
       diagnostic: unknown.diagnostic,
     }),
   ).not.toContain("private");
+});
+
+it("startup diagnostics use only the selected adapter's public protocol steps", () => {
+  const error = new NativeTransportError("native_request_timeout", "private", {
+    method: "get_state",
+    timeoutMs: 30000,
+  });
+  expect(nativeStartupFailure("pi", error).message).toContain(
+    "loading its session",
+  );
+  expect(nativeStartupFailure("codex", error).diagnostic).not.toHaveProperty(
+    "method",
+  );
+  error.details.method = "account/read";
+  expect(nativeStartupFailure("muse", error).message).toContain(
+    "checking its sign-in",
+  );
 });

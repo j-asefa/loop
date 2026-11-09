@@ -65,6 +65,7 @@ try {
       reply({
         computer: "Fixture laptop",
         online: true,
+        setup: "ready",
         runtimes: [
           {
             name: "codex",
@@ -104,7 +105,7 @@ try {
       return;
     }
     if (url.pathname.endsWith("/auth")) {
-      reply({ attempt: null });
+      reply({ providers: [] });
       return;
     }
     if (url.pathname === "/api/workspace/runtimes/muse/upgrade") {

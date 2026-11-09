@@ -1,3 +1,4 @@
+import { isManagedHarness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
 import {
   useEffect,
@@ -41,11 +42,6 @@ type RuntimeSignInProps = Target & {
   ): void;
   onClose(): void;
 };
-
-// Pi and OpenCode have no account of their own; sign-in connects the model
-// provider they call, so the copy names the provider rather than the harness.
-export const connectsModelProvider = (name: string) =>
-  name === "pi" || name === "opencode";
 
 function forStartCommand(
   view: NativeAuthView,
@@ -347,13 +343,13 @@ function RuntimeSignInSession({
                   ? "Saved account"
                   : enabled
                     ? "Ready in Loop"
-                    : connectsModelProvider(name)
+                    : isManagedHarness(name)
                       ? `Provider connected to ${label}`
                       : `Signed in to ${label}`}
               </h3>
               {enabled && (
                 <p>
-                  {connectsModelProvider(name)
+                  {isManagedHarness(name)
                     ? `Provider connected to ${label}`
                     : `Signed in to ${label}`}
                 </p>
@@ -374,7 +370,7 @@ function RuntimeSignInSession({
           {connectionSetup}
           {enableAction}
         </>
-      ) : connectsModelProvider(name) ? (
+      ) : isManagedHarness(name) ? (
         <>
           <h3>Connect a model provider for {label}</h3>
           <p>

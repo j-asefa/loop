@@ -11,11 +11,9 @@ const dir = await mkdtemp(resolve(".tmp/native-auth-test-"));
 process.env.LOOP_DATA_DIR = dir;
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
-const {
-  createAuthDriver,
-  setAntigravityExchangeWait,
-  setAntigravityStartWait,
-} = await import("../src/native-auth/drivers.js");
+const { createAuthDriver } = await import("../src/native-auth/drivers.js");
+const { setAntigravityExchangeWait, setAntigravityStartWait } =
+  await import("../src/native-auth/antigravity.js");
 after(async () => {
   db.close();
   await rm(dir, { recursive: true, force: true });

@@ -1,9 +1,12 @@
+import { harnesses, harnessIds } from "../../shared/harnesses.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
-export const LIVE_INPUT_HARNESSES = new Set(["codex", "claude", "pi", "muse"]);
+export const LIVE_INPUT_HARNESSES = new Set<string>(
+  harnessIds.filter((name) => harnesses[name].midTurn === "steer"),
+);
 
 // Callers qualify metadata through the connections alias c.
 export const NATIVE_CONNECTION_SQL =

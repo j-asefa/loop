@@ -1,13 +1,5 @@
-export type Provider =
-  | "openai"
-  | "anthropic"
-  | "codex"
-  | "pi"
-  | "opencode"
-  | "antigravity"
-  | "muse"
-  | "grok"
-  | "acp";
+import type { harnesses, Harness } from "./harnesses";
+export type Provider = "openai" | (typeof harnesses)[Harness]["provider"];
 export type Agent = {
   id: string;
   owner_id: string;

@@ -40,6 +40,7 @@ function foreignResult(m: any, active: boolean, session: string) {
 }
 
 export class Claude implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {};
   private controlState?: DirectControls;
   private get displayControls() {
     return (this.controlState ||= new DirectControls("claude", this.emit));

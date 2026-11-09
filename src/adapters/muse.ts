@@ -1,3 +1,4 @@
+import { supportsBilling } from "../shared/harnesses.js";
 import { createHash, randomBytes } from "node:crypto";
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
@@ -80,6 +81,11 @@ type Approval = {
 
 /** Muse Code owns sign-in, billing and context; Loop speaks its native MSP API. */
 export class Muse implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {
+    initialize: "starting its native process",
+    "account/read": "checking its sign-in",
+    "model/list": "loading available models",
+  };
   private controlState?: DirectControls;
   private get displayControls() {
     if (!this.controlState) {
@@ -185,7 +191,7 @@ export class Muse implements Adapter {
     });
   }
   async start(): Promise<Billing> {
-    if (this.options.billing !== "existing")
+    if (!supportsBilling("muse", this.options.billing))
       throw new Error(
         "Muse Code cannot verify subscription billing. Use --billing existing to retain its native sign-in and billing configuration.",
       );

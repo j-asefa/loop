@@ -1,3 +1,4 @@
+import { harnessLabel } from "../shared/harnesses";
 import { LoopLogo } from "./LoopLogo";
 import { routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -47,25 +48,13 @@ import {
   webPreview,
 } from "./preview";
 const providerName = (p?: Provider) =>
-  p === "antigravity"
-    ? "Antigravity"
-    : p === "muse"
-      ? "Meta"
-      : p === "grok"
-        ? "xAI"
-        : p === "acp"
-          ? "ACP agent"
-          : p === "pi"
-            ? "Pi"
-            : p === "opencode"
-              ? "OpenCode"
-              : p === "anthropic"
-                ? "Claude"
-                : p === "codex"
-                  ? "ChatGPT"
-                  : p === "openai"
-                    ? "OpenAI API"
-                    : "Loop";
+  p === "openai"
+    ? "OpenAI API"
+    : p === "anthropic"
+      ? harnessLabel("claude")
+      : p
+        ? harnessLabel(p)
+        : "Loop";
 export function Badge({ provider }: { provider?: Provider }) {
   return (
     <span className={"provider " + (provider || "loop")}>

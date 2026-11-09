@@ -20,6 +20,10 @@ import { NativeSetupError } from "./setup-error.js";
 import { piInventory } from "./pi-inventory.js";
 
 export class Pi implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {
+    get_state: "loading its session",
+    get_available_models: "loading available models",
+  };
   private controlState?: DirectControls;
   private get displayControls() {
     return (this.controlState ||= new DirectControls("pi", this.emit));

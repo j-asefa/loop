@@ -1,13 +1,15 @@
+import { harnesses, isHarness } from "../shared/harnesses.js";
 import * as teamsQueries from "./sql/teams.js";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
 import type { Connection } from "./row-schemas.js";
 
 export function assertTeamConnection(connection: Pick<Connection, "metadata">) {
-  if (connection.metadata.loopHarness === "antigravity")
+  const harness = connection.metadata.loopHarness;
+  if (harness && isHarness(harness) && !harnesses[harness].workspaceTools)
     throw new Problem(
       409,
-      "Antigravity does not expose Loop workspace tools. Choose another harness for team delegation and code reviews.",
+      `${harnesses[harness].label} does not expose Loop workspace tools. Choose another harness for team delegation and code reviews.`,
     );
 }
 

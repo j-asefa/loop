@@ -1,3 +1,4 @@
+import { supportsBilling } from "../shared/harnesses.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -18,6 +19,7 @@ const SETUP =
  * No ACP, private backend API, permission bypass or credential-store reads.
  */
 export class Antigravity implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {};
   capabilities = {
     approvals: false,
     questions: false,
@@ -61,7 +63,7 @@ export class Antigravity implements Adapter {
   }
 
   async start(): Promise<Billing> {
-    if (this.options.billing !== "existing")
+    if (!supportsBilling("antigravity", this.options.billing))
       throw new Error(
         "Antigravity cannot attest subscription billing. Use --billing existing to retain its native sign-in and billing configuration.",
       );
