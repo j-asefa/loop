@@ -275,10 +275,7 @@ export function submit(
         (previousReview
           ? readRunReviewId(previousReview.payload, previousReview.id)
           : undefined);
-      if (
-        !reviewId &&
-        teamsQueries.hasReviewAgent(db, owner, agent.id, agent.id)
-      )
+      if (!reviewId && teamsQueries.hasReviewAgent(db, owner, agent.id))
         throw new Problem(
           409,
           "Use Review changes to capture a snapshot for this review team first",

@@ -264,7 +264,7 @@ export function insertNativeImport(
 }
 
 const mailTeamMembersStatement = statement(
-  "SELECT id,name,connection_id FROM agents WHERE owner_id=? AND retired_at IS NULL AND (id=? OR id IN (SELECT agent_id FROM team_members WHERE team_id=?)) ORDER BY id=? DESC,name",
+  "SELECT id,name,connection_id FROM agents WHERE owner_id=@owner AND retired_at IS NULL AND (id=@manager OR id IN (SELECT agent_id FROM team_members WHERE team_id=@team)) ORDER BY id=@manager DESC,name",
 );
 const mailTeamMembersRow = QueryRecords.agents.pick({
   id: true,
@@ -276,15 +276,14 @@ export function mailTeamMembers(
   owner: string,
   manager: string,
   team: string,
-  sameManager: string,
 ) {
   return mailTeamMembersStatement(db)
-    .all(owner, manager, team, sameManager)
+    .all({ owner, manager, team })
     .map((row) => parseRecord(mailTeamMembersRow, row, "agents"));
 }
 
 const mailDirectoryStatement = statement(
-  "SELECT * FROM agents WHERE owner_id=? AND retired_at IS NULL AND id<>? AND (?='' OR instr(lower(name),lower(?))>0) ORDER BY normalized_name,id LIMIT ? OFFSET ?",
+  "SELECT * FROM agents WHERE owner_id=@owner AND retired_at IS NULL AND id<>@self AND (@query='' OR instr(lower(name),lower(@query))>0) ORDER BY normalized_name,id LIMIT @limit OFFSET @offset",
 );
 const mailDirectoryRow = QueryRecords.agents;
 export function mailDirectory(
@@ -292,12 +291,11 @@ export function mailDirectory(
   owner: string,
   self: string,
   query: string,
-  sameQuery: string,
   limit: number,
   offset: number,
 ) {
   return mailDirectoryStatement(db)
-    .all(owner, self, query, sameQuery, limit, offset)
+    .all({ owner, self, query, limit, offset })
     .map((row) => parseRecord(mailDirectoryRow, row, "agents"));
 }
 

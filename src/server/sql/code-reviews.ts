@@ -116,7 +116,7 @@ export function runStatus(db: Database.Database, id: string, owner: string) {
 }
 
 const agentReviewsStatement = statement(
-  "SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt FROM code_reviews c\n    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id\n    JOIN delegations d ON d.child_run_id=c.run_id\n    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id\n    WHERE c.owner_id=? AND p.agent_id=? AND (? IS NULL OR c.id=?)\n    ORDER BY c.created_at DESC,c.id LIMIT 10",
+  "SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt FROM code_reviews c\n    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id\n    JOIN delegations d ON d.child_run_id=c.run_id\n    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id\n    WHERE c.owner_id=@owner AND p.agent_id=@agent AND (@review IS NULL OR c.id=@review)\n    ORDER BY c.created_at DESC,c.id LIMIT 10",
 );
 const agentReviewsRow = z.object({
   reviewId: z.string(),
@@ -128,10 +128,9 @@ export function agentReviews(
   db: Database.Database,
   owner: string,
   agent: string | null,
-  filter: string | null,
-  id: string | null,
+  review: string | null,
 ) {
   return agentReviewsStatement(db)
-    .all(owner, agent, filter, id)
+    .all({ owner, agent, review })
     .map((row) => parseRecord(agentReviewsRow, row, "code_reviews"));
 }

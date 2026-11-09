@@ -104,13 +104,8 @@ export function readAgentThread(
   query: z.infer<typeof AgentThreadMessagesQuery>,
 ) {
   return db.transaction(() => {
-    const thread = agentThreadsQueries.visibleOwned(
-      db,
-      owner,
-      id,
-      owner,
-      id,
-    ) as Thread | undefined;
+    const thread = agentThreadsQueries.visibleOwned(db, owner, id) as
+      Thread | undefined;
     if (!thread) throw new Problem(404, "Thread not found");
     const cursor = query.before
       ? decode(query.before, messageCursor, "Invalid agent messages cursor")
@@ -119,7 +114,6 @@ export function readAgentThread(
       db,
       owner,
       id,
-      cursor?.[0] ?? null,
       cursor?.[0] ?? null,
       cursor?.[1] ?? null,
       query.limit + 1,

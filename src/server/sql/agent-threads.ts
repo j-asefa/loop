@@ -150,7 +150,7 @@ export function get(db: Database.Database, thread: string) {
 }
 
 const ownedTeamStatement = statement(
-  "SELECT * FROM agent_threads WHERE id=? AND owner_id=? AND (? IS NULL OR team_id=?)",
+  "SELECT * FROM agent_threads WHERE id=@thread AND owner_id=@owner AND (@team IS NULL OR team_id=@team)",
 );
 const ownedTeamRow = QueryRecords.agent_threads;
 export function ownedTeam(
@@ -158,24 +158,18 @@ export function ownedTeam(
   thread: string,
   owner: string,
   team: string | null,
-  sameTeam: string | null,
 ) {
-  const row = ownedTeamStatement(db).get(thread, owner, team, sameTeam);
+  const row = ownedTeamStatement(db).get({ thread, owner, team });
   return row === undefined
     ? undefined
     : parseRecord(ownedTeamRow, row, "agent_threads");
 }
 
 const resumeStatement = statement(
-  "UPDATE agent_threads SET paused_at=NULL,paused_reason=NULL,resumed_at=?,resumed_order=(SELECT COALESCE(max(rowid),0) FROM agent_mail),updated_at=? WHERE id=?",
+  "UPDATE agent_threads SET paused_at=NULL,paused_reason=NULL,resumed_at=@time,resumed_order=(SELECT COALESCE(max(rowid),0) FROM agent_mail),updated_at=@time WHERE id=@thread",
 );
-export function resume(
-  db: Database.Database,
-  resumed: number,
-  updated: number,
-  thread: string,
-) {
-  return resumeStatement(db).run(resumed, updated, thread);
+export function resume(db: Database.Database, time: number, thread: string) {
+  return resumeStatement(db).run({ time, thread });
 }
 
 const resumeOrderStatement = statement(
@@ -294,22 +288,15 @@ export function feed(
 }
 
 const visibleOwnedStatement = statement(
-  "SELECT * FROM agent_threads WHERE owner_id=? AND id=? AND EXISTS(SELECT 1 FROM agent_mail WHERE owner_id=? AND thread_id=?)",
+  "SELECT * FROM agent_threads WHERE owner_id=@owner AND id=@thread AND EXISTS(SELECT 1 FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread)",
 );
 const visibleOwnedRow = QueryRecords.agent_threads;
 export function visibleOwned(
   db: Database.Database,
   owner: string,
   thread: string,
-  mailOwner: string,
-  mailThread: string,
 ) {
-  const row = visibleOwnedStatement(db).get(
-    owner,
-    thread,
-    mailOwner,
-    mailThread,
-  );
+  const row = visibleOwnedStatement(db).get({ owner, thread });
   return row === undefined
     ? undefined
     : parseRecord(visibleOwnedRow, row, "agent_threads");

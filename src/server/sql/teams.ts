@@ -47,16 +47,15 @@ export function claimConversation(
 }
 
 const hasReviewAgentStatement = statement(
-  "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
+  "SELECT 1 FROM teams t WHERE t.owner_id=@owner AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=@agent OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=@agent))",
 );
 const hasReviewAgentRow = z.object({ "1": z.number() });
 export function hasReviewAgent(
   db: Database.Database,
   owner: string,
-  manager: string,
-  member: string,
+  agent: string,
 ) {
-  const row = hasReviewAgentStatement(db).get(owner, manager, member);
+  const row = hasReviewAgentStatement(db).get({ owner, agent });
   return row === undefined
     ? undefined
     : parseRecord(hasReviewAgentRow, row, "teams");
@@ -175,32 +174,30 @@ export function setFolder(
 }
 
 const agentInActiveTeamStatement = statement(
-  "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.deleted_at IS NULL\n       AND (t.manager_id=? OR EXISTS (\n         SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?\n       )) LIMIT 1",
+  "SELECT 1 FROM teams t WHERE t.owner_id=@owner AND t.deleted_at IS NULL\n       AND (t.manager_id=@agent OR EXISTS (\n         SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=@agent\n       )) LIMIT 1",
 );
 const agentInActiveTeamRow = z.object({ "1": z.number() });
 export function agentInActiveTeam(
   db: Database.Database,
   owner: string,
   agent: string,
-  sameAgent: string,
 ) {
-  const row = agentInActiveTeamStatement(db).get(owner, agent, sameAgent);
+  const row = agentInActiveTeamStatement(db).get({ owner, agent });
   return row === undefined
     ? undefined
     : parseRecord(agentInActiveTeamRow, row, "teams");
 }
 
 const agentInCodeReviewStatement = statement(
-  "SELECT 1 FROM teams t WHERE t.owner_id=? AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=? OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=?))",
+  "SELECT 1 FROM teams t WHERE t.owner_id=@owner AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=@agent OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=@agent))",
 );
 const agentInCodeReviewRow = z.object({ "1": z.number() });
 export function agentInCodeReview(
   db: Database.Database,
   owner: string,
   agent: string,
-  sameAgent: string,
 ) {
-  const row = agentInCodeReviewStatement(db).get(owner, agent, sameAgent);
+  const row = agentInCodeReviewStatement(db).get({ owner, agent });
   return row === undefined
     ? undefined
     : parseRecord(agentInCodeReviewRow, row, "teams");
@@ -222,16 +219,15 @@ export function activeOwned(
 }
 
 const reviewCandidatesStatement = statement(
-  "SELECT id,name FROM teams WHERE owner_id=? AND deleted_at IS NULL AND preset_id='code-review' AND manager_id<>? AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=?) ORDER BY name",
+  "SELECT id,name FROM teams WHERE owner_id=@owner AND deleted_at IS NULL AND preset_id='code-review' AND manager_id<>@agent AND NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=teams.id AND m.agent_id=@agent) ORDER BY name",
 );
 const reviewCandidatesRow = QueryRecords.teams.pick({ id: true, name: true });
 export function reviewCandidates(
   db: Database.Database,
   owner: string,
-  manager: string | null,
-  member: string | null,
+  agent: string | null,
 ) {
   return reviewCandidatesStatement(db)
-    .all(owner, manager, member)
+    .all({ owner, agent })
     .map((row) => parseRecord(reviewCandidatesRow, row, "teams"));
 }

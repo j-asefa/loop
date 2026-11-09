@@ -93,7 +93,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       "This native connection uses an unsupported harness.",
     );
-  if (teamsQueries.agentInCodeReview(db, owner, agentId, agentId))
+  if (teamsQueries.agentInCodeReview(db, owner, agentId))
     throw new MailRefusal(
       409,
       "Snapshot review agents accept work only through Review changes.",
@@ -240,7 +240,7 @@ export function authorizeMail(
 
 /** Refuse obsolete queued mail before it can cause an external effect. */
 export function queuedMailFailure(runId: string): string | undefined {
-  const mail = mailQueries.forQueuedRun(db, runId, runId) as
+  const mail = mailQueries.forQueuedRun(db, runId) as
     | {
         id: string;
         owner_id: string;
@@ -300,7 +300,7 @@ export function queuedMailReady(run: {
   owner_id: string;
   payload: import("./row-schemas.js").RunPayload;
 }) {
-  if (!mailQueries.hasQueuedRun(db, run.id, run.id)) return true;
+  if (!mailQueries.hasQueuedRun(db, run.id)) return true;
   const connection = connectionsQueries.status(
     db,
     run.payload.connectionId,
