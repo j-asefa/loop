@@ -1,4 +1,4 @@
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -256,4 +256,46 @@ it("card editability and command admission agree before and after a queued run s
     /already started/,
   );
   transition(claimed!, "completed");
+});
+
+it.each([
+  ["completed", 9050],
+  ["interrupted", 3050],
+] as const)("accounts active time when a run becomes %s", (state, activeMs) => {
+  const f = fixture();
+  const run = f.make(f.conversation());
+  expect(
+    claim("accounting-worker", (candidate) => candidate.id === run.id)?.id,
+  ).toBe(run.id);
+  db.prepare(
+    "UPDATE runs SET active_since=1000,heartbeat=4000,active_ms=50 WHERE id=?",
+  ).run(run.id);
+  const clock = vi.spyOn(Date, "now").mockReturnValue(10000);
+  try {
+    expect(transition(run, "pausing")).toBe(true);
+    expect(
+      db
+        .prepare("SELECT active_ms,active_since FROM runs WHERE id=?")
+        .get(run.id),
+    ).toEqual({ active_ms: 50, active_since: 1000 });
+    expect(transition(run, state)).toBe(true);
+    expect(
+      db
+        .prepare(
+          "SELECT state,updated_at,active_ms,active_since FROM runs WHERE id=?",
+        )
+        .get(run.id),
+    ).toEqual({
+      state,
+      updated_at: 10000,
+      active_ms: activeMs,
+      active_since: null,
+    });
+    expect(transition(run, state)).toBe(false);
+    expect(
+      db.prepare("SELECT active_ms FROM runs WHERE id=?").get(run.id),
+    ).toEqual({ active_ms: activeMs });
+  } finally {
+    clock.mockRestore();
+  }
 });

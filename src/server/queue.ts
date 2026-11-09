@@ -172,18 +172,7 @@ function transitionState(
       // device created it. Preserve the resuming peer alongside its creator.
       if (state === "queued") recordEffectEdit(run.owner_id, "run", run.id);
       const time = now();
-      runsQueries.transitionState(
-        db,
-        state,
-        time,
-        state,
-        state,
-        time,
-        time,
-        time,
-        state,
-        run.id,
-      );
+      runsQueries.transitionState(db, state, time, run.id);
       if (state === "queued") runsQueries.clearLease(db, run.id);
       // The capture request is durable with the transition: if the process
       // stops before the capture claims it, reconciliation finds it.

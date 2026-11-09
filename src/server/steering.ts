@@ -34,7 +34,6 @@ export function activeRun(owner: string, conversation: string, agent?: string) {
     owner,
     conversation,
     agent ?? null,
-    agent ?? null,
   ) as (Run & { live_input: number }) | undefined;
   if (!run) return;
   const { live_input, ...active } = run;

@@ -184,7 +184,7 @@ function finish(run: Run, content: string) {
     "[]",
     content,
   );
-  runsQueries.completePreview(db, content, time, time, run.id, run.owner_id);
+  runsQueries.completePreview(db, content, time, run.id, run.owner_id);
   emit(run.owner_id, run.id, "completed", { preview: true });
 }
 
@@ -258,16 +258,14 @@ export function seedDesignPreview() {
         project,
         time,
       );
-      runsQueries.insertPreview(
-        db,
-        runId,
-        OWNER,
-        agent.id,
+      runsQueries.insertPreview(db, {
+        id: runId,
+        owner: OWNER,
+        agent: agent.id,
         conversation,
-        title,
+        input: title,
         state,
-        runId,
-        JSON.stringify({
+        payload: JSON.stringify({
           agentId: agent.id,
           connectionId: connection,
           provider: "openai",
@@ -275,10 +273,9 @@ export function seedDesignPreview() {
           folderId: project,
           previewFixture: true,
         }),
-        state === "failed" ? content : null,
+        error: state === "failed" ? content : null,
         time,
-        time,
-      );
+      });
       const run = parseRun(runsQueries.get(db, runId));
       const turns = index === 0 ? 24 : 1;
       for (let turn = 0; turn < turns; turn++) {
