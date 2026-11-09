@@ -2,7 +2,7 @@ import { proseEntry } from "./textEntry";
 import { routeUrl } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
-import type { CardArtifact } from "./card-actions";
+import { resultTarget, type ResultAction } from "./card-actions";
 import { CardBody } from "./ContentCard";
 import { useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
 import { performStoredEffect, UncertainEffect } from "./durableIdentities";
@@ -138,7 +138,7 @@ export function ArtifactViewer({
   onRun,
   onReply,
 }: {
-  item: CardArtifact;
+  item: ResultAction;
   connections: Connection[];
   agent?: Agent;
   onProfile: (agent: Agent) => void;
@@ -149,11 +149,12 @@ export function ArtifactViewer({
   onRun: (text: string) => void;
   onReply: () => void;
 }) {
+  const target = resultTarget(item);
   const call = useSourceRoute();
   const sourceId = useSourceId();
   const sourceApiPath = useSourcePath();
   const generation = viewGeneration();
-  const context = JSON.stringify([sourceId, item.id, generation]);
+  const context = JSON.stringify([sourceId, target.id, generation]);
   const activeContext = useRef(context);
   activeContext.current = context;
   const owner = useRef(viewOwner()),
@@ -187,16 +188,16 @@ export function ArtifactViewer({
           name: card.display.filename,
           mime: card.display.mime,
         }
-      : parse<any>(item.metadata, {}),
+      : parse<any>(item.card ? "" : item.metadata, {}),
     [editing, setEditing] = useState(false),
-    [text, setText] = useState(item.content),
+    [text, setText] = useState(target.content),
     [error, setError] = useState("");
   async function save() {
     if (!current()) return;
     try {
       await call(workspaceApi.artifactUpdate, {
-        params: { id: item.id },
-        body: { content: text, version: item.version },
+        params: { id: target.id },
+        body: { content: text, version: target.version },
       });
       if (!current()) return;
       onChanged();
@@ -209,13 +210,13 @@ export function ArtifactViewer({
     failure: UncertainEffect;
     key: string;
   }>();
-  const author = agent?.name || item.name;
+  const author = agent?.name || (item.card ? item.card.author.name : item.name);
   return (
     <Sheet
       wide
       swipeToClose
       className="result-sheet"
-      title={item.title}
+      title={target.title}
       onClose={onClose}
       heading={
         <div className="result-header">
@@ -224,7 +225,7 @@ export function ArtifactViewer({
             model={
               card ? card.display.model || "" : runModelName(meta, connections)
             }
-            createdAt={item.created_at}
+            createdAt={target.created_at}
             onProfile={agent ? () => onProfile(agent) : undefined}
           />
           <details className="conversation-options result-options">
@@ -240,12 +241,12 @@ export function ArtifactViewer({
                     ?.removeAttribute("open");
               }}
             >
-              {item.feed_hidden === 1 && (
+              {(item.card ? item.card.hidden : item.feed_hidden === 1) && (
                 <button
                   onClick={async () => {
                     try {
                       await call(workspaceApi.resultUpdate, {
-                        params: { id: item.id },
+                        params: { id: target.id },
                         body: { hidden: false },
                       });
                       if (!current()) return;
@@ -268,11 +269,11 @@ export function ArtifactViewer({
                         localStorage,
                         owner.current,
                         sourceId,
-                        ["artifact-refresh", item.id],
+                        ["artifact-refresh", target.id],
                         current,
                         (idempotencyKey) =>
                           call(workspaceApi.artifactRefresh, {
-                            params: { id: item.id },
+                            params: { id: target.id },
                             body: { idempotencyKey },
                           }),
                         (error, recovering) => {
@@ -313,7 +314,7 @@ export function ArtifactViewer({
                 <FolderInput size={16} />
                 File
               </button>
-              {item.conversation_id && (
+              {target.conversation_id && (
                 <button onClick={onConversation}>
                   <MessageSquare size={16} />
                   Source conversation
@@ -337,7 +338,7 @@ export function ArtifactViewer({
                           sourceId,
                         )
                   }
-                  name={meta.name || item.title}
+                  name={meta.name || target.title}
                   mime={meta.mime}
                 >
                   <Download size={16} />
@@ -346,12 +347,14 @@ export function ArtifactViewer({
               )}
               <button
                 onClick={() => {
-                  const blob = new Blob([item.content], { type: "text/plain" });
+                  const blob = new Blob([target.content], {
+                    type: "text/plain",
+                  });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   a.href = url;
                   a.download =
-                    item.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md";
+                    target.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md";
                   a.click();
                   URL.revokeObjectURL(url);
                 }}
@@ -360,7 +363,7 @@ export function ArtifactViewer({
                 Download
               </button>
               <button
-                onClick={() => navigator.clipboard.writeText(item.content)}
+                onClick={() => navigator.clipboard.writeText(target.content)}
               >
                 <Copy size={16} />
                 Copy
@@ -379,11 +382,11 @@ export function ArtifactViewer({
       }
     >
       <div className="result-content">
-        <h3 className="result-title">{item.title}</h3>
+        <h3 className="result-title">{target.title}</h3>
         {meta.source && <SourceCard source={meta.source} />}
         {meta.appResource && (
           <Suspense fallback={<p>Loading isolated app…</p>}>
-            <McpApp artifactId={item.id} metadata={card ? undefined : meta} />
+            <McpApp artifactId={target.id} metadata={card ? undefined : meta} />
           </Suspense>
         )}
         <div className="artifact-body">
@@ -396,8 +399,8 @@ export function ArtifactViewer({
                 rows={16}
               />
             </AutofillBoundary>
-          ) : card ? (
-            <CardBody card={card} />
+          ) : item.card ? (
+            <CardBody card={item.card} />
           ) : (
             <ArtifactContent item={item} />
           )}
@@ -407,7 +410,7 @@ export function ArtifactViewer({
             Partial output. This run did not finish normally.
           </p>
         )}
-        <RunFiles runId={item.run_id} excludeId={item.id} />
+        <RunFiles runId={target.run_id} excludeId={target.id} />
         {recovery && (
           <EffectRecovery
             key={recovery.key}
@@ -429,7 +432,7 @@ export function ArtifactViewer({
       </div>
       {!editing &&
         agent &&
-        item.conversation_id &&
+        target.conversation_id &&
         meta.origin !== "import" && (
           <div className="result-edit-actions">
             <button className="primary" onClick={onReply}>

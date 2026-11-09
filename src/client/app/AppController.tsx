@@ -9,7 +9,7 @@ import {
 import { capabilities as shellCapabilities } from "../capabilities";
 import { composerBlockReason } from "../sourceAvailability";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
-import { cardArtifact, type CardArtifact } from "../card-actions";
+import { resultAction, resultTarget, type ResultAction } from "../card-actions";
 import { CardPager } from "../card-pager";
 import { contractCardReader } from "../../shared/card-client";
 
@@ -156,7 +156,7 @@ export function useAppController() {
     [conversation, updateConversation] = useState<string | null>(
       new URLSearchParams(location.search).get("conversation"),
     ),
-    [activeArtifact, setActiveArtifact] = useState<CardArtifact | null>(null),
+    [activeArtifact, setActiveArtifact] = useState<ResultAction | null>(null),
     [theme, setTheme] = useState(
       localStorage.getItem("loop-theme") || "system",
     ),
@@ -164,7 +164,7 @@ export function useAppController() {
   setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
   const [routePreview, setRoutePreview] = useState<any>(null),
-    [contextArtifact, setContextArtifact] = useState<Artifact | null>(null),
+    [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
   const [teamSelection, setTeamSelection] = useState<string[]>(() =>
     (new URLSearchParams(location.search).get("teams") || "")
@@ -241,7 +241,7 @@ export function useAppController() {
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [myProfile, setMyProfile] = useState<MyProfileData | null>(null);
-  const [laterCard, setLaterCard] = useState<CardArtifact | null>(null);
+  const [laterCard, setLaterCard] = useState<ResultAction | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
   // The open thread's current work, so a send can say what it will do.
   const [threadWork, setThreadWork] = useState<ThreadWork | null>(null);
@@ -709,7 +709,7 @@ export function useAppController() {
     else afterSheetsClose(focusComposer);
   }
   const replyRequest = useRef(0);
-  async function replyToArtifact(item: CardArtifact) {
+  async function replyToArtifact(item: ResultAction) {
     const source = item.sourceId ?? executionSourceId(),
       owner = ownerRef.current,
       ticket = ++replyRequest.current;
@@ -722,29 +722,34 @@ export function useAppController() {
       const reader = contractCardReader((contract, input, signal) =>
         callRoute(contract, input, source, signal),
       );
-      const card = item.card ? await reader.detail(item.card.id) : null;
-      const original =
-        card?.type === "result"
-          ? cardArtifact(card, source, owner)
-          : await callRoute(
-              workspaceApi.artifactDetail,
-              { params: { id: item.id } },
-              source,
-            );
+      let original: ResultAction;
+      if (item.card) {
+        const card = await reader.detail(item.card.id);
+        if (card.type !== "result") throw new Error("Expected a result card");
+        original = resultAction(card, source, owner);
+      } else {
+        original = await callRoute(
+          workspaceApi.artifactDetail,
+          { params: { id: resultTarget(item).id } },
+          source,
+        );
+      }
       if (!current()) return;
-      if (
-        !original.agent_id ||
-        !original.conversation_id ||
-        parse<any>(original.metadata, {}).origin === "import"
-      )
+      const target = resultTarget(original);
+      const imported = original.card
+        ? original.card.display.imported
+        : parse<any>(original.metadata, {}).origin === "import";
+      if (!target.agent_id || !target.conversation_id || imported)
         return void open(original);
       beginReply({
-        agentId: original.agent_id,
-        conversationId: original.conversation_id,
-        messageId: parse<any>(original.metadata, {}).messageId,
-        artifactId: original.id,
-        title: original.title,
-        content: original.content,
+        agentId: target.agent_id,
+        conversationId: target.conversation_id,
+        messageId: original.card
+          ? original.card.source.message_id || undefined
+          : parse<any>(original.metadata, {}).messageId,
+        artifactId: target.id,
+        title: target.title,
+        content: target.content,
       });
     } catch (error) {
       if (current()) setError((error as Error).message);
@@ -795,7 +800,7 @@ export function useAppController() {
         source,
       );
       if (source !== executionSourceId() || owner !== ownerRef.current) return;
-      setItems((old) => old.filter((item) => item.id !== id));
+      setItems((old) => old.filter((item) => resultTarget(item).id !== id));
       setArchivedCard(hidden ? { id, source, owner } : null);
       await loadResults();
     } catch (e) {
@@ -927,7 +932,7 @@ export function useAppController() {
       url.pathname + url.search + url.hash,
     );
   }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
-  const [filing, setFiling] = useState<CardArtifact | null>(null),
+  const [filing, setFiling] = useState<ResultAction | null>(null),
     [revision, setRevision] = useState(0);
   const [collectionRevisions, setCollectionRevisions] = useState<
     Partial<Record<WorkspaceCollection, number>>
@@ -1280,7 +1285,7 @@ export function useAppController() {
     } else void open(item);
   }
   const openRequest = useRef(0);
-  async function open(item: CardArtifact) {
+  async function open(item: ResultAction) {
     setFolderChoice(undefined);
     const owner = ownerRef.current,
       source = item.sourceId ?? executionSourceId(),
@@ -1295,9 +1300,11 @@ export function useAppController() {
     );
     try {
       try {
-        const card = await reader.detail("a:" + item.id);
+        const card = await reader.detail(
+          item.card?.id ?? "a:" + resultTarget(item).id,
+        );
         if (card.type !== "result") throw new Error("Expected a result card");
-        item = cardArtifact(card, source, owner);
+        item = resultAction(card, source, owner);
       } catch (error) {
         // Files and search can open artifacts outside the
         // public selections. A card itself must always use its typed detail.
@@ -1305,7 +1312,7 @@ export function useAppController() {
           throw error;
         item = await callRoute(
           workspaceApi.artifactDetail,
-          { params: { id: item.id } },
+          { params: { id: resultTarget(item).id } },
           source,
         );
       }
@@ -1315,7 +1322,8 @@ export function useAppController() {
     }
     if (!current()) return;
     setContextArtifact(item);
-    if (item.agent_id) setSelected(item.agent_id);
+    const agentId = resultTarget(item).agent_id;
+    if (agentId) setSelected(agentId);
     setActiveArtifact(item);
   }
   useEffect(() => {

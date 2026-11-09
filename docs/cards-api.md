@@ -531,7 +531,10 @@ Feed Done, Agent Results, project Activity, Saved and personally sent Messages u
 versioned service and shared typed card bodies. The result reader fetches typed
 detail on open; collection cards already contain full stored content and do not
 fetch each off-screen item. Signed-in actions continue to use their existing
-mutation endpoints. Result file links and interactive-app capability flags are
+mutation endpoints. Action handlers retain the typed card and its owner/source
+context; they read reply targets, saved state and display flags directly from
+the card. Files and search may open real artifacts outside public card selections.
+Filing and composer context use only the target fields they need. Result file links and interactive-app capability flags are
 explicit display fields; the app's private tool payload is fetched only when a
 signed-in reader opens the interactive app, outside the Cards API.
 `refreshable` requires a complete stored agent/tool/connection/arguments source.

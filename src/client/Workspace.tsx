@@ -176,7 +176,7 @@ export function FileSheet({
   initialResult,
 }: {
   initialResult?: RouteResponse<typeof workspaceApi.artifactMove>;
-  item: Artifact;
+  item: Pick<Artifact, "id" | "title" | "folder_id">;
   folders: FolderType[];
   onClose: () => void;
   onChanged: () => void;

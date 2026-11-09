@@ -23,12 +23,12 @@ import {
   workspaceApi,
   type Bootstrap as BootstrapResponse,
 } from "../../shared/workspace-api";
-import type { Agent, Artifact, RunView as Run } from "../../shared/types";
+import type { Agent, RunView as Run } from "../../shared/types";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { callRoute } from "../workspace-api";
 import type { useSourceRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
-import type { CardArtifact } from "../card-actions";
+import { resultTarget, type ResultAction } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
 import { composerLaunchRecipient } from "../composerLaunch";
 import type { ThreadWork } from "../Conversation";
@@ -75,7 +75,7 @@ type ComposerProps = {
   /** False when the reply answers the agent's latest message; undefined
    * until its thread's fresh snapshot says, which keeps the quote. */
   replyQuoted: boolean | undefined;
-  contextArtifact: Artifact | null;
+  contextArtifact: ResultAction | null;
   draft: string;
   attachments: UploadedFile[];
   busy: boolean;
@@ -122,7 +122,7 @@ type ComposerProps = {
   setAttachments: Dispatch<SetStateAction<UploadedFile[]>>;
   setRuns: Dispatch<SetStateAction<Run[]>>;
   setReplyContext: Dispatch<SetStateAction<ComposerContext | null>>;
-  setContextArtifact(value: Artifact | null): void;
+  setContextArtifact(value: ResultAction | null): void;
   setComposerExpanded(value: boolean): void;
   setComposerError(value: string): void;
   setBusy(value: boolean): void;
@@ -132,7 +132,7 @@ type ComposerProps = {
   setSheet(value: string): void;
   setError(value: string): void;
   setFilingResult(value: unknown): void;
-  setFiling(value: CardArtifact | null): void;
+  setFiling(value: ResultAction | null): void;
   setRoutePreview(value: unknown): void;
   setSendNotice(value: SendNotice | null): void;
   setThreadNotice(value: string): void;
@@ -450,7 +450,7 @@ export function useComposerSend({
       }
       try {
         const result = await threadApi(workspaceApi.artifactMove, {
-          params: { id: contextArtifact.id },
+          params: { id: resultTarget(contextArtifact).id },
           body: { command: draft },
         });
         setFilingResult(result);
@@ -519,8 +519,9 @@ export function useComposerSend({
         currentConversation ||
         (managerTeam
           ? managerTeam.conversation_id || undefined
-          : contextArtifact?.agent_id === recipient.id
-            ? contextArtifact.conversation_id || undefined
+          : contextArtifact &&
+              resultTarget(contextArtifact).agent_id === recipient.id
+            ? resultTarget(contextArtifact).conversation_id || undefined
             : teamSelection.length === 1 &&
                 composerData.teams?.find((t) => t.id === teamSelection[0])
                   ?.manager_id === recipient.id
@@ -1127,7 +1128,7 @@ export function renderComposer({
             )}
             {!replyContext && contextArtifact && (
               <div className="context-strip">
-                <span>About: {contextArtifact.title}</span>
+                <span>About: {resultTarget(contextArtifact).title}</span>
                 <button
                   aria-label="Clear conversation context"
                   onClick={() => setContextArtifact(null)}
