@@ -16,7 +16,12 @@ import { executionSourceId } from "./sourceRouting";
 import { useSourceId, useSourceRoute } from "./SourceContext";
 import { useCards } from "./useCards";
 import { ContentCard } from "./ContentCard";
-import { cardArtifact, cardMessage } from "./card-actions";
+import {
+  resultAction,
+  cardMessage,
+  type ResultAction,
+  type SavedMessage,
+} from "./card-actions";
 import type { CardEntry } from "../shared/cards";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import {
@@ -25,28 +30,11 @@ import {
   undoReminder,
   type ScheduledSend,
 } from "./ThreadTools";
-import type { Artifact } from "../shared/types";
 import { Avatar, RichText, Sheet } from "./components";
 import { relativeTime, reminderReason } from "./threadView";
 import { notify } from "./toast";
 
 type LaterView = RouteResponse<typeof workspaceApi.laterList>["due"][number];
-export type SavedMessage = {
-  message_id: string;
-  conversation_id: string;
-  conversation_title: string;
-  role: string;
-  personal?: boolean;
-  preview: string;
-  content?: string;
-  created_at: number;
-  agent_id: string | null;
-  agent_name: string | null;
-  provider: string | null;
-  project_name: string | null;
-  /** Where a saved story is, which is outside Loop. */
-  url?: string | null;
-};
 export type LaterSection = "all" | "saved" | "reminders" | "scheduled";
 
 export type ShowLater = { section: LaterSection; focusId: string | null };
@@ -237,7 +225,7 @@ type SavedListProps = {
   onOpen: (conversation: string, message?: string) => void;
   onReply: (message: SavedMessage) => void;
   renderResult: (
-    item: Artifact,
+    item: ResultAction,
     options: { onUnsave: () => void },
   ) => ReactNode;
   searchLabel?: string;
@@ -424,7 +412,7 @@ function SavedCollection({
                 </span>
               </div>
               {item.card.type === "result" ? (
-                renderResult(cardArtifact(item.card, source), {
+                renderResult(resultAction(item.card, source), {
                   onUnsave: () => unsave(item),
                 })
               ) : (
@@ -505,7 +493,7 @@ export function Later({
   /** Put a message that could not be sent back into a draft. */
   onDraft: (item: ScheduledSend) => void;
   renderResult: (
-    item: Artifact,
+    item: ResultAction,
     options: { onUnsave: () => void },
   ) => ReactNode;
 }) {

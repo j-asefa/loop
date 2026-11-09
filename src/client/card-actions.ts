@@ -1,48 +1,53 @@
 import { executionSourceId } from "./sourceRouting";
 import { viewOwner } from "./viewCache";
 import type { ResultCard, MessageCard } from "../shared/cards";
-import type { Artifact, Provider } from "../shared/types";
-import type { SavedMessage } from "./Later";
+import type { Artifact } from "../shared/types";
 
-/** Adapt typed cards for current signed-in action handlers. Rendering and
- * collection membership use the typed card, never a reconstructed DB row. */
-export type CardArtifact = Artifact & {
-  card?: ResultCard;
-  sourceId?: string;
-  cardOwner?: string;
-};
-export function cardArtifact(
+export type ResultAction =
+  | { card: ResultCard; sourceId: string; cardOwner?: string }
+  | (Artifact & { card?: undefined; sourceId?: string; cardOwner?: string });
+
+export function resultAction(
   card: ResultCard,
   sourceId = executionSourceId(),
   owner = viewOwner(),
-): CardArtifact {
+): ResultAction {
+  return { card, sourceId, cardOwner: owner };
+}
+
+export function resultTarget(item: ResultAction) {
+  if (!item.card) return item;
+  const card = item.card;
   return {
-    card,
-    sourceId,
-    cardOwner: owner,
     id: card.source.artifact_id!,
-    owner_id: "",
     agent_id: card.author.id,
     conversation_id: card.source.conversation_id,
     run_id: card.source.run_id,
     folder_id: card.context.folder_id,
-    name: card.author.name || undefined,
-    provider: card.author.provider as Provider | undefined,
     title: card.title,
     content: card.content,
     kind: card.kind,
-    pinned: Number(card.saved),
-    archived: 0,
-    feed_hidden: Number(card.hidden),
     version: card.version,
     created_at: card.created_at,
-    updated_at: card.updated_at ?? card.created_at,
-    metadata: JSON.stringify({
-      messageId: card.source.message_id,
-      origin: card.display.imported ? "import" : undefined,
-    }),
   };
 }
+
+export type SavedMessage = {
+  message_id: string;
+  conversation_id: string;
+  conversation_title: string;
+  role: string;
+  personal?: boolean;
+  preview: string;
+  content?: string;
+  created_at: number;
+  agent_id: string | null;
+  agent_name: string | null;
+  provider: string | null;
+  project_name: string | null;
+  /** Where a saved story is, which is outside Loop. */
+  url?: string | null;
+};
 export function cardMessage(card: MessageCard): SavedMessage {
   const agent =
     card.recipient || (card.author.kind === "agent" ? card.author : null);

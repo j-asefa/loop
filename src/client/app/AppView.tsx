@@ -1,3 +1,4 @@
+import { resultTarget } from "../card-actions";
 import { LoopLogo } from "../LoopLogo";
 import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
 
@@ -342,8 +343,9 @@ export function renderApp(props: AppViewProps) {
         : topProject(
             folderChoice !== undefined
               ? folderChoice
-              : contextArtifact?.agent_id === activeAgent?.id
-                ? contextArtifact?.folder_id
+              : (contextArtifact && resultTarget(contextArtifact))?.agent_id ===
+                  activeAgent?.id
+                ? (contextArtifact && resultTarget(contextArtifact))?.folder_id
                 : activeAgent?.folder_id,
           )) || "Unfiled",
     thread: threadMode
@@ -668,8 +670,8 @@ export function renderApp(props: AppViewProps) {
         <LaterSheet
           kind="artifact"
           sourceId={laterCard.sourceId ?? executionSourceId()}
-          targetId={laterCard.id}
-          title={laterCard.title}
+          targetId={resultTarget(laterCard).id}
+          title={resultTarget(laterCard).title}
           onClose={() => setLaterCard(null)}
           onDone={(label, created) =>
             notify({
@@ -1348,7 +1350,7 @@ export function renderApp(props: AppViewProps) {
             key={JSON.stringify([
               session.user.id,
               activeArtifact.sourceId ?? executionSourceId(),
-              activeArtifact.id,
+              resultTarget(activeArtifact).id,
             ])}
             item={activeArtifact}
             connections={data.connections}
@@ -1361,7 +1363,7 @@ export function renderApp(props: AppViewProps) {
               );
             }}
             agent={data.agents.find(
-              (agent) => agent.id === activeArtifact.agent_id,
+              (agent) => agent.id === resultTarget(activeArtifact).agent_id,
             )}
             onClose={() => setActiveArtifact(null)}
             onFile={() => {
@@ -1369,9 +1371,11 @@ export function renderApp(props: AppViewProps) {
               setActiveArtifact(null);
             }}
             onConversation={() => {
-              const message = parse<any>(activeArtifact.metadata, {}).messageId;
+              const message = activeArtifact.card
+                ? activeArtifact.card.source.message_id || undefined
+                : parse<any>(activeArtifact.metadata, {}).messageId;
               setConversation(
-                activeArtifact.conversation_id,
+                resultTarget(activeArtifact).conversation_id,
                 message,
                 activeArtifact.sourceId ?? executionSourceId(),
               );
@@ -1396,9 +1400,9 @@ export function renderApp(props: AppViewProps) {
             key={JSON.stringify([
               session.user.id,
               filing.sourceId ?? executionSourceId(),
-              filing.id,
+              resultTarget(filing).id,
             ])}
-            item={filing}
+            item={resultTarget(filing)}
             initialResult={filingResult}
             folders={data.folders}
             onClose={() => {

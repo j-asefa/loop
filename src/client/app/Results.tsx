@@ -1,6 +1,6 @@
 import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
 import { ContentCard } from "../ContentCard";
-import { cardArtifact, type CardArtifact } from "../card-actions";
+import { resultAction, type ResultAction } from "../card-actions";
 import { CardPager, type CardWindow } from "../card-pager";
 import { CollectionReadNotice } from "../CollectionRead";
 import { contractCardReader } from "../../shared/card-client";
@@ -8,7 +8,7 @@ import { useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 import { cacheView, cachedView } from "../viewCache";
 import { ResultsPager } from "../results";
-import { type SavedMessage } from "../Later";
+import type { SavedMessage } from "../card-actions";
 
 import { parse } from "../api";
 import { callRoute } from "../workspace-api";
@@ -32,7 +32,7 @@ type ResultsProps = {
   }>;
   resultsPager: RefObject<ResultsPager<ResultItem>>;
   cardsPager: RefObject<CardPager>;
-  setItems(value: ResultItem[] | CardArtifact[]): void;
+  setItems(value: ResultItem[] | ResultAction[]): void;
   setNext(value: string | number | null): void;
   setResultsLoading(value: boolean): void;
   setResultsError(value: string): void;
@@ -90,7 +90,7 @@ export function createResultsLoader(props: ResultsProps) {
         setItems(
           saved.page.items.flatMap((entry) =>
             entry.card.type === "result"
-              ? [cardArtifact(entry.card, source, owner)]
+              ? [resultAction(entry.card, source, owner)]
               : [],
           ),
         );
@@ -150,7 +150,7 @@ export function createResultsLoader(props: ResultsProps) {
               ...cardPage,
               items: cardPage.items.flatMap((entry) =>
                 entry.card.type === "result"
-                  ? [cardArtifact(entry.card, source, owner)]
+                  ? [resultAction(entry.card, source, owner)]
                   : [],
               ),
             }
@@ -297,7 +297,7 @@ export function renderResults(
       : setConversation(message.conversation_id, message.message_id);
   // Result cards look and act the same in the feed, projects and Saved.
   const resultCard = (
-    item: CardArtifact & { team_id?: string | null },
+    item: ResultAction & { team_id?: string | null },
     inSaved = false,
     onUnsave?: () => void,
   ) =>
@@ -310,20 +310,25 @@ export function renderResults(
         onArchive={
           inSaved
             ? undefined
-            : () => void archiveCard(item.id, true, item.sourceId)
+            : () =>
+                void archiveCard(
+                  item.card.source.artifact_id!,
+                  true,
+                  item.sourceId,
+                )
         }
         onLater={() => setLaterCard(item)}
         onFile={() => setFiling(item)}
         onProfile={
-          data.agents.some((a) => a.id === item.agent_id)
+          data.agents.some((a) => a.id === item.card.author.id)
             ? () =>
                 setProfile(
-                  data.agents.find((a) => a.id === item.agent_id) || null,
+                  data.agents.find((a) => a.id === item.card.author.id) || null,
                 )
             : undefined
         }
         onSave={async () => {
-          if (onUnsave && item.pinned) return onUnsave();
+          if (onUnsave && item.card.saved) return onUnsave();
           const source = item.sourceId ?? executionSourceId(),
             owner = ownerRef.current;
           if (item.cardOwner && item.cardOwner !== owner) return;
@@ -331,8 +336,8 @@ export function renderResults(
             await callRoute(
               workspaceApi.artifactUpdate,
               {
-                params: { id: item.id },
-                body: { pinned: !item.pinned, version: item.version },
+                params: { id: item.card.source.artifact_id! },
+                body: { pinned: !item.card.saved, version: item.card.version },
               },
               source,
             );
@@ -406,11 +411,7 @@ export function renderResults(
         items
           // Typed cards already carry public selection membership. Retained
           // Files rows keep their existing snippet filter.
-          .filter(
-            (item) =>
-              item.card ||
-              (!item.role && !parse<any>(item.metadata, {}).snippet),
-          )
+          .filter((item) => item.card || !parse<any>(item.metadata, {}).snippet)
           .map((item) => resultCard(item))
       ) : (
         <Empty

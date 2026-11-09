@@ -1,21 +1,21 @@
 import { Empty } from "./components";
 import { ContentCard } from "./ContentCard";
-import { cardArtifact } from "./card-actions";
+import { resultAction, type ResultAction } from "./card-actions";
 import { useCards } from "./useCards";
 import { CollectionReadNotice } from "./CollectionRead";
 import { useSourceId } from "./SourceContext";
-import type { Agent, Artifact, Connection } from "../shared/types";
+import type { Agent, Connection } from "../shared/types";
 
 type Props = {
   projectId: string;
   agents: Agent[];
   connections: Connection[];
   revision: number;
-  onOpen: (item: Artifact) => void;
-  onReply: (item: Artifact) => void;
+  onOpen: (item: ResultAction) => void;
+  onReply: (item: ResultAction) => void;
   onConversation: (id: string) => void;
   onAgent: (agent: Agent) => void;
-  onFile: (item: Artifact) => void;
+  onFile: (item: ResultAction) => void;
 };
 
 export function ProjectActivity(props: Props) {
@@ -58,7 +58,7 @@ function ProjectActivityFeed({
       )}
       {items.map(({ card }) => {
         if (card.type !== "result") return null;
-        const item = cardArtifact(card, source);
+        const item = resultAction(card, source);
         return (
           <ContentCard
             key={card.id}
