@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ProfilePhoto } from "./ProfilePhoto";
-import type { Provider } from "../shared/types";
 
 import { agentAppearance } from "./agentAppearance";
-
-export { agentAppearance as avatarIdentity } from "./agentAppearance";
 
 export function Avatar({
   name = "Loop",
@@ -13,7 +10,6 @@ export function Avatar({
 }: {
   name?: string;
   className?: string;
-  provider?: Provider;
   expandable?: boolean;
 }) {
   const { character, background } = agentAppearance(name);

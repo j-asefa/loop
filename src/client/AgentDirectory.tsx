@@ -99,7 +99,7 @@ export function AgentDirectory({
                 key={key(a)}
                 onClick={() => onAgent(a)}
               >
-                <Avatar name={a.name} provider={a.provider} />
+                <Avatar name={a.name} />
                 <span>
                   <strong>@{a.name}</strong>
                   <Badge provider={a.provider} />

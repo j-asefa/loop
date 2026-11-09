@@ -7,10 +7,10 @@ import { parseRecord, parseRun, InvalidRow, type Run } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
 import { READY_REVIEW_CONTINUATION } from "./review-continuations.js";
 
-export const RUN_LIVE_INPUT_SQL = (r: string) =>
+const RUN_LIVE_INPUT_SQL = (r: string) =>
   `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loopHarness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
 
-export const perConversation = (r: string) =>
+const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
 
 export const ACTIVE =
@@ -366,20 +366,6 @@ export function existsOwned(
   return row === undefined
     ? undefined
     : parseRecord(existsOwnedRow, row, "runs");
-}
-
-const stateAndOwnerStatement = statement(
-  "SELECT state,owner_id FROM runs WHERE id=?",
-);
-const stateAndOwnerRow = QueryRecords.runs.pick({
-  state: true,
-  owner_id: true,
-});
-export function stateAndOwner(db: Database.Database, id: string | null) {
-  const row = stateAndOwnerStatement(db).get(id);
-  return row === undefined
-    ? undefined
-    : parseRecord(stateAndOwnerRow, row, "runs");
 }
 
 const outlineStatement = statement(
@@ -775,16 +761,6 @@ export function leaseError(
   worker: string | null,
 ) {
   return leaseErrorStatement(db).run(error, id, owner, worker);
-}
-
-const workerIdentitiesStatement = statement(
-  "SELECT id,owner_id FROM runs WHERE worker_id=? AND state IN ('running','pausing','awaiting_approval')",
-);
-const workerIdentitiesRow = RunIdentity;
-export function workerIdentities(db: Database.Database, worker: string | null) {
-  return workerIdentitiesStatement(db)
-    .all(worker)
-    .map((row) => parseRecord(workerIdentitiesRow, row, "runs"));
 }
 
 // Graceful shutdown interrupts what a crash leaves recoverable. A run that is

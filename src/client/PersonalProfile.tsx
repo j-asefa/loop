@@ -4,7 +4,6 @@ import { useCards } from "./useCards";
 import { CollectionReadNotice } from "./CollectionRead";
 import type { Agent } from "../shared/types";
 
-export { opensContentCard as opensConversationFromCard } from "./ContentCard";
 export type PromptReply = {
   id: string;
   content: string;

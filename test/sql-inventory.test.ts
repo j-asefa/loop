@@ -40,10 +40,6 @@ const exemptions = new Map([
     "feed-card-source.ts",
     "Selects the projector's source rows inside that transaction.",
   ],
-  [
-    "feed-projection.ts",
-    "Defines projection storage and its invalidation contract.",
-  ],
 ]);
 
 // Named files still being migrated. Only remove entries as their final direct

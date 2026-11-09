@@ -6,7 +6,7 @@ import { shellWords } from "./pr-command.js";
  * ran and the exit it saw; it never runs them itself. The classifier is
  * conservative: only literal commands it recognises, never expansions.
  */
-export type VerificationKind = "test" | "typecheck" | "lint";
+type VerificationKind = "test" | "typecheck" | "lint";
 export type VerificationStatus = "passed" | "failed" | "unknown";
 export type VerificationItem = {
   id: string;
@@ -268,18 +268,6 @@ export function chainLength(command: string) {
     tokens = shellWords(tokens[2] || "", { strict: true });
   if (!tokens?.length) return 0;
   return tokens.filter((t) => t === null).length + 1;
-}
-
-/** The card line: what ran and how it ended, or that nothing was observed. */
-export function verificationLine(summary: VerificationSummary | null) {
-  if (!summary || !summary.items.length) return "No checks observed";
-  const mark = { passed: "✓", failed: "✗", unknown: "?" } as const;
-  const shown = summary.items.slice(0, 4);
-  const parts = shown.map(
-    (item) => `${item.tools.join(" + ")} ${mark[item.status]}`,
-  );
-  const more = summary.items.length - shown.length;
-  return `Ran ${parts.join(" · ")}${more > 0 ? ` · ${more} more` : ""}`;
 }
 
 export function summarize(items: VerificationItem[]): VerificationSummary {

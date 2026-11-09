@@ -179,17 +179,6 @@ export function workerStage(db: Database.Database, run: string) {
     : parseRecord(workerStageRow, row, "agent_checkpoints");
 }
 
-const existsForRunStatement = statement(
-  "SELECT 1 FROM agent_checkpoints WHERE run_id=?",
-);
-const existsForRunRow = z.object({ "1": z.number() });
-export function existsForRun(db: Database.Database, run: string) {
-  const row = existsForRunStatement(db).get(run);
-  return row === undefined
-    ? undefined
-    : parseRecord(existsForRunRow, row, "agent_checkpoints");
-}
-
 const feedContentStatement = statement(
   "SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=? JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?",
 );

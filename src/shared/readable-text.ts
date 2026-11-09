@@ -1,5 +1,3 @@
-export type DisplayAgent = { id: string; name: string };
-
 const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const opaque = `(?:${uuid}|[0-9a-f]{32,64})`;
 
@@ -51,15 +49,4 @@ export function readableText(value: string): string {
       /\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{8,40}\b/gi,
       "the revision",
     );
-}
-
-export function readableAuthor(
-  value: string,
-  agents: readonly DisplayAgent[] = [],
-): string {
-  if (value === "you" || value === "owner") return "you";
-  const agent = agents.find((a) => a.id === value.replace(/^@/, ""));
-  const name = agent?.name ?? value;
-  if (!name.trim() || readableText(name) !== name) return "an agent";
-  return agent ? "@" + name.replace(/^@/, "") : name;
 }

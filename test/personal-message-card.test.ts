@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { opensConversationFromCard } from "../src/client/PersonalProfile";
+import { opensContentCard } from "../src/client/ContentCard";
 
 const control = { tag: "button" };
 const card = {
@@ -10,12 +10,12 @@ const target = (closest: unknown) =>
 
 describe("sent message card clicks", () => {
   it("opens the conversation from the card body", () => {
-    expect(opensConversationFromCard(target(null), card)).toBe(true);
+    expect(opensContentCard(target(null), card)).toBe(true);
   });
   it("leaves controls inside the card to their own handlers", () => {
-    expect(opensConversationFromCard(target(control), card)).toBe(false);
+    expect(opensContentCard(target(control), card)).toBe(false);
   });
   it("does not navigate while the user is selecting text", () => {
-    expect(opensConversationFromCard(target(null), card, "PR")).toBe(false);
+    expect(opensContentCard(target(null), card, "PR")).toBe(false);
   });
 });

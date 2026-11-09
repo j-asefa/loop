@@ -297,11 +297,7 @@ export function renderAppPages(
             >
               <MoreHorizontal size={20} />
             </button>
-            <Avatar
-              name={profile.name}
-              provider={profile.provider}
-              expandable
-            />
+            <Avatar name={profile.name} expandable />
             <div className="profile-identity">
               <div className="profile-name">
                 <h1>{profile.name}</h1>

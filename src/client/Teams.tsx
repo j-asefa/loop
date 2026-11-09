@@ -205,7 +205,7 @@ export function TeamDirectory({
                   }
                 }}
               >
-                <Avatar name={agent.name} provider={agent.provider} />
+                <Avatar name={agent.name} />
                 <span>
                   <strong>@{agent.name}</strong>
                   <small>{agentModelName(agent, connections)}</small>
@@ -343,7 +343,7 @@ export function TeamManagerShortcut({
                     onOpen(team);
                   }}
                 >
-                  <Avatar name={manager?.name} provider={manager?.provider} />
+                  <Avatar name={manager?.name} />
                   <span>
                     <strong>{team.name}</strong>
                     <small>

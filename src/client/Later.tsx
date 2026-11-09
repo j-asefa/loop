@@ -62,7 +62,6 @@ export function showLater(section: LaterSection, focusId?: string) {
 // Every Later item is a full-size card, matching result and Feed cards.
 function Card({
   agentName,
-  provider,
   meta,
   eyebrow,
   title,
@@ -75,7 +74,6 @@ function Card({
   id,
 }: {
   agentName: string | null;
-  provider: string | null;
   meta: string;
   eyebrow: ReactNode;
   title: string;
@@ -99,7 +97,7 @@ function Card({
     >
       <div className="card-byline">
         <span className="identity">
-          <Avatar name={agentName || "Loop"} provider={provider as any} />
+          <Avatar name={agentName || "Loop"} />
           <span>
             <strong>{agentName ? "@" + agentName : "Your workspace"}</strong>
             <span className="subline">{meta}</span>
@@ -635,7 +633,6 @@ export function Later({
         id={"later-" + item.id}
         focused={focus === item.id}
         agentName={item.agent_name}
-        provider={item.provider}
         meta={
           due
             ? `Back ${relativeTime(item.surfaced_at || item.created_at).toLowerCase()}`

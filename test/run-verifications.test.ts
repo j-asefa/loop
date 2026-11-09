@@ -12,7 +12,7 @@ const { db, id, now } = await import("../src/server/db");
 const { ownedRun } = await import("../src/server/domain");
 const { observeCompletedOutput, runVerifications } =
   await import("../src/server/run-verifications");
-const { classifyVerification, verificationLine, summarize } =
+const { classifyVerification, summarize } =
   await import("../src/shared/verification");
 const { shellWords, createdPullRequest } =
   await import("../src/shared/pr-command");
@@ -243,10 +243,6 @@ it("records the exit Loop saw, including failures, unknown exits and cut output"
   expect(items[4].output_tail!.length).toBe(1500);
   const summary = summarize(runVerifications(owner, run.id))!;
   expect(summary).toMatchObject({ passed: 3, failed: 1, unknown: 1 });
-  expect(verificationLine(summary)).toBe(
-    "Ran npm test ✓ · tsc ✗ · eslint ? · pytest ✓ · 1 more",
-  );
-  expect(verificationLine(null)).toBe("No checks observed");
 });
 
 it("gives a chain one exit shared by its tools, and only trusts a zero exit", () => {
@@ -274,7 +270,4 @@ it("gives a chain one exit shared by its tools, and only trusts a zero exit", ()
     [["npm test"], "unknown", 1],
     [["npm test"], "failed", 1],
   ]);
-  expect(verificationLine(summarize(runVerifications(owner, run.id)))).toBe(
-    "Ran npm run typecheck + npm test ✓ · npm run typecheck + npm test ? · npm test ? · npm test ✗",
-  );
 });

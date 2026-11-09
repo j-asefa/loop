@@ -1208,7 +1208,7 @@ function ConversationView({
           aria-label={`Open @${agent.name} profile`}
           onClick={() => onProfile(agent)}
         >
-          <Avatar name={agent.name} provider={agent.provider} />
+          <Avatar name={agent.name} />
         </button>
       ) : (
         <span className="thread-avatar" />

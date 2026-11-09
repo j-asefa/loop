@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   File,
 } from "lucide-react";
-import type { Provider } from "../shared/types";
 import type { Card } from "../shared/cards";
 import {
   Avatar,
@@ -33,7 +32,7 @@ export function opensContentCard(
   );
   return !control || !card.contains(control);
 }
-export function CardAttachments({ card }: { card: Card }) {
+function CardAttachments({ card }: { card: Card }) {
   const path = useSourcePath(),
     source = useSourceId(),
     [preview, setPreview] = useState<Card["attachments"][number]>();
@@ -255,12 +254,7 @@ export function ContentCard({
             disabled={!onProfile}
             onClick={onProfile}
           >
-            <Avatar
-              name={name}
-              provider={
-                (identity?.provider || undefined) as Provider | undefined
-              }
-            />
+            <Avatar name={name} />
             <span>
               {personal && (
                 <small className="muted">You sent a message to</small>

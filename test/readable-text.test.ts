@@ -1,17 +1,8 @@
 import { expect, it } from "vitest";
-import { readableAuthor, readableText } from "../src/shared/readable-text";
+import { readableText } from "../src/shared/readable-text";
 
 const agent = "3dd35f59-14de-44cb-9914-d991edfc28ce";
 const thread = "2c20ef58-0ba2-4ef6-b87c-a74e724432f5";
-
-it("names an author only from the supplied workspace", () => {
-  expect(readableAuthor(agent, [{ id: agent, name: "forest" }])).toBe(
-    "@forest",
-  );
-  expect(readableAuthor(thread)).toBe("an agent");
-  expect(readableAuthor("owner")).toBe("you");
-  expect(readableAuthor("octocat")).toBe("octocat");
-});
 
 it("describes internal references without exposing their tokens", () => {
   const text = `Agent ${agent} reviewed thread \`${thread}\`, snapshot ${thread}, res_${thread}, loop/agent-${"ab12".repeat(16)}, /repo/.git/loop-agent-worktrees/${"cd34".repeat(16)} at c96cd311.`;

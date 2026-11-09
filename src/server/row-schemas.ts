@@ -190,10 +190,6 @@ export const ConnectionModels = z.array(
   }),
 );
 export type ConnectionModels = z.infer<typeof ConnectionModels>;
-// Current conversations have scalar columns only. This reserves the JSON
-// contract without adding a fictional persisted metadata column.
-export const ConversationMetadata = z.strictObject({});
-export type ConversationMetadata = z.infer<typeof ConversationMetadata>;
 export const SealedEnvelope = z.string().refine((value) => {
   const parts = value.split(".");
   return (
@@ -249,7 +245,7 @@ export function parseRecord<T extends z.ZodType>(
   );
 }
 const Identity = { id: Id, owner_id: Id };
-export const RunRow = z.object({
+const RunRow = z.object({
   ...Identity,
   agent_id: Id.nullable(),
   conversation_id: Id.nullable(),
@@ -383,7 +379,6 @@ export function parseConnectionControl(value: unknown) {
     ),
   };
 }
-export type ConnectionControl = ReturnType<typeof parseConnectionControl>;
 export function parseMessage(value: unknown) {
   const row = parseRecord(MessageRecord, value, "messages");
   return {

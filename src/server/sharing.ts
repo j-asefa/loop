@@ -10,7 +10,6 @@ import { submit } from "./agent-runtime.js";
 import type { Agent } from "../shared/types.js";
 const routes = registrar("sharing");
 export const sharing = routes.mount;
-export { SharedSource as sourceSchema } from "../shared/team-contract-schemas.js";
 export function routeHandle(owner: string, text: string) {
   const match = text.trim().match(/^@([^\s]+)(?:\s|$)/);
   if (!match) return null;

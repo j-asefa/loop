@@ -476,10 +476,7 @@ function FeedCard({
           )}
           <button className="identity" disabled={!onAgent} onClick={onAgent}>
             <span className="feed-avatar">
-              <Avatar
-                name={name || "Loop"}
-                provider={(item.provider || agent?.provider) as any}
-              />
+              <Avatar name={name || "Loop"} />
             </span>
             <span>
               <strong>{name ? "@" + name : "Your workspace"}</strong>
