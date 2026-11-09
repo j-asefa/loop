@@ -1,3 +1,4 @@
+import { harnesses, isHarness } from "../shared/harnesses";
 import type { Connection } from "../shared/types";
 import type { ModelOption } from "../shared/models";
 import { parse } from "./api";
@@ -6,22 +7,16 @@ export { modelDisplayName, runModelName } from "../shared/model-display";
 
 export function harnessName(connection: Connection) {
   const metadata = parse<any>(connection.metadata, {});
-  if (connection.provider === "codex") return "Codex";
   if (connection.provider === "anthropic")
     return metadata.authMode === "subscription" ||
       metadata.loopHarness === "claude"
-      ? "Claude Code"
+      ? harnesses.claude.label
       : "Claude API";
-  return {
-    openai: "OpenAI API",
-    antigravity: "Antigravity",
-
-    muse: "Muse Code",
-    grok: "Grok Build",
-    pi: "Pi",
-    opencode: "OpenCode",
-    acp: "ACP agent",
-  }[connection.provider];
+  return connection.provider === "openai"
+    ? "OpenAI API"
+    : isHarness(connection.provider)
+      ? harnesses[connection.provider].label
+      : undefined;
 }
 export function modelGroups(
   connections: Connection[],

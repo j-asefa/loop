@@ -1,3 +1,4 @@
+import { harnesses, isHarness } from "../shared/harnesses.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -78,17 +79,16 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       "This agent needs a provider connection before it can receive mail.",
     );
   const meta = connection.metadata;
-  if (meta.loopHarness === "antigravity")
+  if (
+    meta.loopHarness &&
+    isHarness(meta.loopHarness) &&
+    !harnesses[meta.loopHarness].agentMail
+  )
     throw new MailRefusal(
       409,
-      "Antigravity does not expose Loop workspace tools. Agent mail and team delegation require another harness.",
+      `${harnesses[meta.loopHarness].label} does not expose Loop workspace tools. Agent mail and team delegation require another harness.`,
     );
-  if (
-    meta.loopHarness != null &&
-    !["codex", "claude", "pi", "opencode", "muse", "grok", "acp"].includes(
-      meta.loopHarness,
-    )
-  )
+  if (meta.loopHarness != null && !isHarness(meta.loopHarness))
     throw new MailRefusal(
       409,
       "This native connection uses an unsupported harness.",

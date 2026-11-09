@@ -1,3 +1,4 @@
+import { harnesses } from "../../shared/harnesses.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as companionSessionsQueries from "../sql/companion-sessions.js";
 import * as connectionsQueries from "../sql/connections.js";
@@ -51,7 +52,7 @@ import {
 } from "../../agent-activities.js";
 import { type PiPackageEntry } from "../pi-customization-files.js";
 import { type Live, type Binding } from "./state.js";
-import { classes, labels } from "./adapters.js";
+import { classes } from "./adapters.js";
 import { prepareWorkspace, boundWorkspace } from "./workspace.js";
 import { PiCustomization } from "./pi-customization.js";
 import { NativeProjects } from "./projects.js";
@@ -576,7 +577,9 @@ export class NativeSessions {
         binding.permission_mode ||
         launchPermissionMode(harness, permissionMode),
       instructions: binding.instructions,
-      workspaceTools: this.tools?.(conversation, generation),
+      workspaceTools: harnesses[harness].workspaceTools
+        ? this.tools?.(conversation, generation)
+        : undefined,
       projectTrust:
         harness === "pi"
           ? this.pi.projectTrust(this.directory(binding.project)).override
@@ -617,7 +620,7 @@ export class NativeSessions {
           conversation,
           generation,
         );
-        throw nativeStartupFailure(labels[harness], error, !!options.resume);
+        throw nativeStartupFailure(harness, error, !!options.resume);
       }
     })();
     await live.ready;

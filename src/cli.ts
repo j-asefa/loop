@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { harnesses } from "./shared/harnesses.js";
+import { harnesses, runtimeHarnessIds } from "./shared/harnesses.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync, existsSync } from "node:fs";
@@ -668,11 +668,11 @@ async function main() {
 loop start              Start this computer and show a pairing QR code.
                         Discovers installed harnesses and reuses their native sign-in.
 loop                  Alias for loop start.
-loop start [--providers installed|codex,claude,opencode,pi,antigravity,muse,grok]
+loop start [--providers installed|${runtimeHarnessIds.join(",")}]
      [--project PATH] [--tunnel-name NAME --public-url https://HOST]
      [--fleet]          Also run the experimental multi-machine fleet
                         extension (off unless given). See docs/pairing.md.
-loop codex|claude|pi|opencode|antigravity|muse|grok [--project PATH] [--executable PATH]
+loop ${runtimeHarnessIds.join("|")} [--project PATH] [--executable PATH]
      [--billing subscription|existing] [--resume NATIVE_SESSION]
      [--local-only | --public-url https://stable-origin] [--foreground]
                         Start this computer's workspace with that harness,
@@ -1069,7 +1069,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       values["acp-arg"]?.length)
   )
     throw new Error(
-      "Runtime options belong to loop codex|claude|pi|opencode|antigravity|muse|grok|acp. Use loop start without a runtime, then choose it in the app.",
+      `Runtime options belong to loop ${runtimeHarnessIds.join("|")}|acp. Use loop start without a runtime, then choose it in the app.`,
     );
   const preferencesPath = join(dir, "preferences.json");
   const preferences = await readFile(preferencesPath, "utf8")

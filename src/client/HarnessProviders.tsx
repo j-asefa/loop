@@ -1,3 +1,4 @@
+import { harnesses, type ManagedHarness as Harness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
@@ -10,10 +11,8 @@ import { EffectRecovery } from "./EffectRecovery";
 import { viewGeneration, viewOwner } from "./viewCache";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 
-type Harness = "pi" | "opencode";
 type Target = { name: Harness; label: string; projectId: string };
 type Provider = NativeProviderView["providers"][number];
-const labels = { pi: "Pi", opencode: "OpenCode" };
 
 export function HarnessProviders({
   runtime,
@@ -85,7 +84,7 @@ export function HarnessProviders({
                 {
                   scope,
                   key: crypto.randomUUID(),
-                  label: `${labels[target[1] as Harness]}: ${target[0] === "provider-key" ? `save ${target[3]} credential` : target[0] === "provider-remove" ? `remove ${target[3]} credential` : "refresh providers"}`,
+                  label: `${harnesses[target[1] as Harness].label}: ${target[0] === "provider-key" ? `save ${target[3]} credential` : target[0] === "provider-remove" ? `remove ${target[3]} credential` : "refresh providers"}`,
                   failure: error,
                 },
               ]
@@ -160,7 +159,7 @@ export function HarnessProviders({
       }
       if (current()) await onChange();
       if (current() && next.enabled && !next.syncError)
-        setNotice(`${labels[runtime]} refreshed successfully.`);
+        setNotice(`${harnesses[runtime].label} refreshed successfully.`);
     });
     if (current()) setRefreshing(false);
   }
@@ -190,7 +189,7 @@ export function HarnessProviders({
       const outcomes: string[] = [];
       let failed = false;
       for (const target of [
-        { name: runtime, projectId, label: labels[runtime] },
+        { name: runtime, projectId, label: harnesses[runtime].label },
         ...targets.filter((t) => also.includes(t.name)),
       ]) {
         try {
@@ -269,7 +268,7 @@ export function HarnessProviders({
           runtime={runtime}
           backend="direct"
           name={runtime}
-          label={labels[runtime]}
+          label={harnesses[runtime].label}
           location={location}
           projectId={projectId}
           initialProvider={login.provider}
@@ -293,7 +292,7 @@ export function HarnessProviders({
   return (
     <section
       className="harness-providers"
-      aria-label={`${labels[runtime]} providers`}
+      aria-label={`${harnesses[runtime].label} providers`}
     >
       {!view && !error && <p role="status">Loading providers and models…</p>}
       {view?.billing === "subscription" && (
@@ -321,14 +320,17 @@ export function HarnessProviders({
               {view.enabled && !view.syncError && (
                 <CircleCheck size={22} aria-hidden="true" />
               )}
-              {labels[runtime]} is {view.enabled ? "enabled" : "not enabled"} in
-              Loop
+              {harnesses[runtime].label} is{" "}
+              {view.enabled ? "enabled" : "not enabled"} in Loop
             </h3>
             <p>
               {modelCount} {modelCount === 1 ? "model" : "models"} found.
             </p>
             {view.enabled && !view.syncError && (
-              <p>You can choose {labels[runtime]} when creating an agent.</p>
+              <p>
+                You can choose {harnesses[runtime].label} when creating an
+                agent.
+              </p>
             )}
           </div>
           <p className="field-hint">
@@ -433,7 +435,7 @@ export function HarnessProviders({
           aria-label="Remove provider credential"
         >
           <h3>
-            Remove {removing.name} credential from {labels[runtime]}?
+            Remove {removing.name} credential from {harnesses[runtime].label}?
           </h3>
           <p>
             Agents using this provider:{" "}
@@ -550,8 +552,8 @@ export function HarnessProviders({
                 />
               </label>
               <p className="field-hint">
-                Saved by {labels[runtime]} on {location}. API usage is billed by
-                the provider.
+                Saved by {harnesses[runtime].label} on {location}. API usage is
+                billed by the provider.
               </p>
               {targets
                 .filter((t) => t.name !== runtime)
@@ -644,7 +646,7 @@ export function HarnessProviders({
         >
           {refreshing
             ? "Refreshing…"
-            : `${view?.enabled ? "Refresh" : "Enable"} ${labels[runtime]}`}
+            : `${view?.enabled ? "Refresh" : "Enable"} ${harnesses[runtime].label}`}
         </button>
         <button
           type="button"

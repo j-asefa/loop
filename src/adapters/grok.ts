@@ -1,4 +1,4 @@
-import { harnesses } from "../shared/harnesses.js";
+import { harnesses, supportsBilling } from "../shared/harnesses.js";
 import { Acp } from "./acp.js";
 import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
@@ -38,7 +38,7 @@ export class Grok extends Acp {
     };
   }
   override async start() {
-    if (this.grokOptions.billing !== "existing")
+    if (!supportsBilling("grok", this.grokOptions.billing))
       throw new Error(
         "Grok Build cannot verify subscription billing through ACP. Use --billing existing to retain its native sign-in and billing configuration.",
       );

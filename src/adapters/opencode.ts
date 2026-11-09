@@ -1,3 +1,4 @@
+import { supportsBilling } from "../shared/harnesses.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../agent-activities.js";
@@ -18,6 +19,7 @@ import type { Billing } from "../protocol.js";
 
 /** Native HTTP/SSE stays on loopback; only normalized Loop WebSockets reach the phone. */
 export class OpenCode implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {};
   private controlState?: DirectControls;
   private get displayControls() {
     return (this.controlState ||= new DirectControls("opencode", this.emit));
@@ -142,7 +144,7 @@ export class OpenCode implements Adapter {
   async start(): Promise<Billing> {
     // The server's provider metadata does not expose an authoritative effective billing mode.
     // OAuth alone is not sufficient. Keep the native configuration only with explicit consent.
-    if (this.options.billing === "subscription")
+    if (!supportsBilling("opencode", this.options.billing))
       throw new Error(
         "OpenCode does not expose a verified effective subscription mode through this server interface. Check your provider in opencode, then explicitly use --billing existing to retain it. Loop never substitutes an API provider.",
       );

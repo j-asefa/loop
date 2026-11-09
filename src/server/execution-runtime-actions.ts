@@ -1,4 +1,8 @@
-import { harnesses, type Harness } from "../shared/harnesses.js";
+import {
+  harnesses,
+  supportsBilling,
+  type Harness,
+} from "../shared/harnesses.js";
 import { nativeConnectionId } from "../shared/harnesses.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -222,7 +226,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       409,
       "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
     );
-  if (input.billing === "subscription" && !harnesses[name].billing.subscription)
+  if (!supportsBilling(name, input.billing))
     throw new ExecutionRefused(
       422,
       `${harnesses[name].label} cannot verify subscription billing. Choose existing native configuration instead.`,

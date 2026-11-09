@@ -36,6 +36,15 @@ function elicitationUrl(params: any): string | undefined {
 }
 
 export class Codex implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {
+    initialize: "starting its native process",
+    "account/read": "checking its sign-in",
+    "config/read": "loading its configuration",
+    "model/list": "loading available models",
+    "skills/list": "loading available skills",
+    "thread/resume": "reopening this conversation",
+    "thread/start": "opening a new conversation",
+  };
   private controlState?: DirectControls;
   private get displayControls() {
     return (this.controlState ||= new DirectControls("codex", this.emit));

@@ -71,6 +71,9 @@ async function within<T>(promise: Promise<T>, label: string): Promise<T> {
 
 /** Local ACP v1 subprocess. File and terminal host capabilities are deliberately absent. */
 export class Acp implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {
+    initialize: "starting its native process",
+  };
   capabilities = {
     approvals: true,
     questions: false,

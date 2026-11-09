@@ -1,3 +1,4 @@
+import { harnesses, isManagedHarness } from "../shared/harnesses";
 import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./workspace-api";
@@ -10,7 +11,7 @@ import { ConnectionDetails } from "./ConnectionDetails";
 import type { Connection } from "../shared/types";
 import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
-import { connectsModelProvider, RuntimeSignIn } from "./RuntimeSignIn";
+import { RuntimeSignIn } from "./RuntimeSignIn";
 import { HarnessProviders } from "./HarnessProviders";
 type SignIn = NonNullable<
   RouteResponse<typeof workspaceApi.runtimeAuthStatus>["attempt"]
@@ -18,22 +19,6 @@ type SignIn = NonNullable<
 
 type Discovery = RouteResponse<typeof workspaceApi.runtimeList>;
 type Runtime = Discovery["runtimes"][number];
-const labels: Record<string, string> = {
-  codex: "Codex",
-  claude: "Claude Code",
-  pi: "Pi",
-  opencode: "OpenCode",
-  antigravity: "Antigravity",
-
-  muse: "Muse Code",
-  grok: "Grok Build",
-};
-// These harnesses cannot attest subscription billing, so setup has no picker.
-const existingOnly = (name: string) =>
-  connectsModelProvider(name) ||
-  name === "antigravity" ||
-  name === "muse" ||
-  name === "grok";
 function matchesRuntime(connection: Connection, runtime: Runtime) {
   return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
 }
@@ -148,7 +133,10 @@ export function RuntimeSetup({
         ? projects.find((p) => p.path === runtime.project)?.folder_id
         : project;
       const selectedBilling =
-        runtime.billing || (existingOnly(runtime.name) ? "existing" : billing);
+        runtime.billing ||
+        (harnesses[runtime.name].billing.default === "existing"
+          ? "existing"
+          : billing);
       const commandKey = JSON.stringify([
         runtime.name,
         projectId,
@@ -329,7 +317,7 @@ export function RuntimeSetup({
       )}
       <div className="settings-card-list">
         {discovery?.runtimes.map((runtime) => {
-          const label = labels[runtime.name] || runtime.name;
+          const label = harnesses[runtime.name].label;
           const scope = runtimeAuthScope(runtime);
           const open = signingIn === runtime.name;
           const signedIn =
@@ -424,10 +412,10 @@ export function RuntimeSetup({
                 <div>
                   <h3>{label}</h3>
                   <small>
-                    {connectsModelProvider(runtime.name)
+                    {isManagedHarness(runtime.name)
                       ? "Model providers managed by the harness"
                       : runtime.billing === "existing" ||
-                          existingOnly(runtime.name)
+                          harnesses[runtime.name].billing.default === "existing"
                         ? "Existing billing · may incur API charges"
                         : runtime.billing === "subscription"
                           ? "Native subscription"
@@ -452,24 +440,24 @@ export function RuntimeSetup({
                 aria-label={
                   !runtime.available || !discovery.online
                     ? `${label} setup details`
-                    : connectsModelProvider(runtime.name)
+                    : isManagedHarness(runtime.name)
                       ? `Manage ${label} providers`
                       : signedIn || runtime.enabled
                         ? `Manage ${label} account`
-                        : connectsModelProvider(runtime.name)
+                        : isManagedHarness(runtime.name)
                           ? `Connect a model provider for ${label}`
                           : `Sign in to ${label}`
                 }
               >
                 {!runtime.available || !discovery.online
                   ? "Setup details"
-                  : connectsModelProvider(runtime.name)
+                  : isManagedHarness(runtime.name)
                     ? "Manage providers"
                     : signedIn || runtime.enabled
                       ? runtime.enabled
                         ? "Manage account"
                         : "Finish connecting"
-                      : connectsModelProvider(runtime.name)
+                      : isManagedHarness(runtime.name)
                         ? "Connect a provider"
                         : `Sign in to ${label}`}{" "}
                 <span aria-hidden="true">→</span>
@@ -512,7 +500,7 @@ export function RuntimeSetup({
                   </p>
                   {runtime.available &&
                   discovery.online &&
-                  (runtime.name === "pi" || runtime.name === "opencode") ? (
+                  isManagedHarness(runtime.name) ? (
                     <HarnessProviders
                       key={`${executionSourceId()}:${runtime.name}:${projectId}`}
                       runtime={runtime.name}
@@ -520,7 +508,7 @@ export function RuntimeSetup({
                       location={discovery.computer}
                       targets={discovery.runtimes.flatMap((r) => {
                         if (
-                          (r.name !== "pi" && r.name !== "opencode") ||
+                          !isManagedHarness(r.name) ||
                           !r.available ||
                           r.name === runtime.name
                         )
@@ -533,7 +521,7 @@ export function RuntimeSetup({
                           ? [
                               {
                                 name: r.name,
-                                label: labels[r.name],
+                                label: harnesses[r.name].label,
                                 projectId: id,
                               },
                             ]
@@ -564,7 +552,8 @@ export function RuntimeSetup({
                               Project:{" "}
                               <code>{runtime.project || "Unknown"}</code>
                             </p>
-                          ) : existingOnly(runtime.name) ? (
+                          ) : harnesses[runtime.name].billing.default ===
+                            "existing" ? (
                             projectFields
                           ) : (
                             setupFields

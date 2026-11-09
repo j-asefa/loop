@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import {
@@ -34,6 +35,8 @@ it("every registered harness supplies complete browser-safe discovery and policy
     agentMail: z.boolean(),
     midTurn: z.enum(["steer", "queue"]),
     provider: z.string().min(1),
+    importWorktree: z.boolean(),
+    history: z.string().min(1),
   });
   expect(Object.keys(harnesses)).not.toHaveLength(0);
   for (const [id, facts] of Object.entries(harnesses)) {
@@ -50,4 +53,27 @@ it("every registered harness supplies complete browser-safe discovery and policy
   expect(ManagedHarness.parse("pi")).toBe("pi");
   expect(Harness.safeParse("toString").success).toBe(false);
   expect(nativeConnectionId("claude")).toBe("native-claude");
+});
+
+it("the Docker provider selection matches the bundled harness descriptors", () => {
+  const dockerfile = readFileSync(
+    new URL("../Dockerfile.companion", import.meta.url),
+    "utf8",
+  );
+  const command = JSON.parse(dockerfile.match(/^CMD (.*)$/m)![1]) as string[];
+  const selected = command[command.indexOf("--providers") + 1].split(",");
+  const bundled = Object.entries(harnesses)
+    .filter(([, facts]) => facts.upgrade.package)
+    .map(([name]) => name);
+  expect(selected.sort()).toEqual(bundled.sort());
+  const packages = JSON.parse(
+    readFileSync(
+      new URL("../deployment/native/package.json", import.meta.url),
+      "utf8",
+    ),
+  ).dependencies;
+  for (const name of bundled)
+    expect(
+      packages[harnesses[Harness.parse(name)].upgrade.package!],
+    ).toBeTruthy();
 });

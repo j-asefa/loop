@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   agentModelName,
+  harnessName,
   connectionLocation,
   modelDisplayName,
   modelOptionLabel,
@@ -246,4 +247,17 @@ it("does not guess a model when the saved account or provider does not match", (
     expect(runModelName(snapshot, runConnections)).toBe("default");
   }
   expect(runModelName({}, runConnections)).toBe("");
+});
+
+it("model pickers distinguish Claude API connections from the native harness", () => {
+  const connection = { provider: "anthropic", metadata: "{}" } as Connection;
+  expect(harnessName(connection)).toBe("Claude API");
+  expect(
+    harnessName({
+      ...connection,
+      metadata: JSON.stringify({ loopHarness: "claude" }),
+    }),
+  ).toBe("Claude Code");
+  expect(harnessName({ ...connection, provider: "codex" })).toBe("Codex");
+  expect(harnessName({ ...connection, provider: "grok" })).toBe("Grok Build");
 });

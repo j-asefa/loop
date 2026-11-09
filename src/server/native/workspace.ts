@@ -1,3 +1,4 @@
+import { harnesses } from "../../shared/harnesses.js";
 import {
   agentWorkspace,
   prepareAgentWorkspace,
@@ -38,7 +39,7 @@ export async function prepareImportedWorkspace(
           project,
           project,
           identity,
-          harness === "codex",
+          harnesses[harness].importWorktree,
         );
   } catch (error) {
     workspaceError(error);

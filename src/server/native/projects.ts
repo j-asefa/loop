@@ -163,7 +163,7 @@ export class NativeProjects {
     } catch (error) {
       // This is a prompt-free verification adapter, before registration writes.
       // Disposal below must complete before a failed probe becomes retryable.
-      const failure = nativeStartupFailure(labels[options.harness], error);
+      const failure = nativeStartupFailure(options.harness, error);
       throw new ExecutionRefused(
         failure.status,
         failure.message,
@@ -206,10 +206,7 @@ export class NativeProjects {
       nativePause: false,
       settingsApplyTo: "next message",
       nativeTokenBudget: false,
-      history:
-        options.harness === "codex"
-          ? "native read/list/fork"
-          : "Loop-managed history; native resume",
+      history: harnesses[options.harness].history,
       billingVerified: options.billing === "subscription",
     };
     const metadata = {

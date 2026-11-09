@@ -17,7 +17,13 @@ export const classes = {
   antigravity: Antigravity,
   muse: Muse,
   grok: Grok,
-} satisfies Record<Harness, new (options: Options, emit: Emit) => Adapter>;
+} satisfies Record<
+  Harness,
+  {
+    new (options: Options, emit: Emit): Adapter;
+    readonly startupSteps: Readonly<Record<string, string>>;
+  }
+>;
 
 export const labels = Object.fromEntries(
   Object.entries(harnesses).map(([name, descriptor]) => [

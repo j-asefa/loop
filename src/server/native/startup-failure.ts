@@ -1,27 +1,19 @@
+import { harnesses, type Harness } from "../../shared/harnesses.js";
+import { classes } from "./adapters.js";
 import { NativeRpcError, NativeTransportError } from "../../native.js";
 import { NativeSetupError } from "../../adapters/setup-error.js";
 import { Problem } from "../../shared/problem.js";
 import { NativeMemoryError } from "../../native-memory.js";
 
-const steps: Record<string, string> = {
-  initialize: "starting its native process",
-  "account/read": "checking its sign-in",
-  "config/read": "loading its configuration",
-  "model/list": "loading available models",
-  "skills/list": "loading available skills",
-  "thread/resume": "reopening this conversation",
-  "thread/start": "opening a new conversation",
-  get_state: "loading its session",
-  get_available_models: "loading available models",
-};
-
 /** Use only before prompt dispatch. Never use provider text to compose this
  * public message: it can contain credentials, paths or conversation content. */
 export function nativeStartupFailure(
-  label: string,
+  harness: Harness,
   error: unknown,
   resuming = false,
 ): Problem {
+  const label = harnesses[harness].label;
+  const steps = classes[harness].startupSteps;
   if (error instanceof Problem) return error;
   if (error instanceof NativeMemoryError)
     return new Problem(503, `${error.message} No prompt was sent.`, {

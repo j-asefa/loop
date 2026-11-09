@@ -1,3 +1,4 @@
+import { Badge } from "../src/client/components";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { RuntimeSignIn } from "../src/client/RuntimeSignIn";
@@ -48,4 +49,26 @@ it("lets an account signed in outside Loop connect without a new sign-in", () =>
   const html = render("grok", "Grok Build", <button>Enable Grok Build</button>);
   expect(html).toContain("Already signed in on loop-dev?");
   expect(html).toContain("Enable Grok Build");
+});
+
+it("provider badges consistently name the harness instead of its vendor", () => {
+  for (const [provider, label] of [
+    ["codex", "Codex"],
+    ["muse", "Muse Code"],
+    ["grok", "Grok Build"],
+  ] as const) {
+    expect(renderToStaticMarkup(<Badge provider={provider} />)).toContain(
+      label,
+    );
+  }
+  expect(renderToStaticMarkup(<Badge provider="openai" />)).toContain(
+    "OpenAI API",
+  );
+});
+
+it("keeps Anthropic badges neutral when the connection runtime is unknown", () => {
+  const html = renderToStaticMarkup(<Badge provider="anthropic" />);
+  expect(html).toContain(">Claude</span>");
+  expect(html).not.toContain("Claude Code");
+  expect(html).not.toContain("Claude API");
 });

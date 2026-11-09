@@ -22,6 +22,8 @@ type HarnessDescriptor = {
   agentMail: boolean;
   midTurn: "steer" | "queue";
   provider: string;
+  importWorktree: boolean;
+  history: string;
 };
 
 // Version floors admit newer stable releases; adapters still verify their live
@@ -49,6 +51,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "codex",
+    importWorktree: true,
+    history: "native read/list/fork",
   },
   claude: {
     label: "Claude Code",
@@ -72,6 +76,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "anthropic",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   pi: {
     label: "Pi",
@@ -95,6 +101,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "pi",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   opencode: {
     label: "OpenCode",
@@ -118,6 +126,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "opencode",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   antigravity: {
     label: "Antigravity",
@@ -143,6 +153,8 @@ export const harnesses = {
     agentMail: false,
     midTurn: "queue",
     provider: "antigravity",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   muse: {
     label: "Muse Code",
@@ -168,6 +180,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "muse",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   grok: {
     label: "Grok Build",
@@ -195,6 +209,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "grok",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
   acp: {
     label: "ACP agent",
@@ -218,6 +234,8 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "acp",
+    importWorktree: false,
+    history: "Loop-managed history; native resume",
   },
 } as const satisfies Record<string, HarnessDescriptor>;
 
@@ -247,4 +265,11 @@ export function nativeConnectionId(name: Harness) {
 }
 export function harnessLabel(name: string) {
   return isHarness(name) ? harnesses[name].label : name;
+}
+
+export function supportsBilling(
+  name: Harness,
+  mode: "existing" | "subscription",
+) {
+  return mode === "existing" || harnesses[name].billing.subscription;
 }
