@@ -9,6 +9,7 @@ import {
 import { workspaceCapabilities } from "../src/shared/capabilities";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
+  sourceUrl,
   routeSourceId,
   setShellSource,
   executionSourceId,
@@ -204,4 +205,25 @@ it("restores the shell source on reload while keeping fresh thread links local",
   history.state = null;
   initializeShellSource();
   expect(executionSourceId()).toBe("");
+});
+
+it("builds source navigation without leaking the current query or splitting target IDs", () => {
+  vi.stubGlobal("location", {
+    href: "https://loop.test/workspace/?social=old#old",
+  });
+  const href = sourceUrl("docker:alpha", {
+    conversation: "thread & question?",
+    message: "answer+#é",
+  });
+  const target = new URL(href, "https://loop.test");
+  expect(target.pathname).toBe("/workspace/");
+  expect(Object.fromEntries(target.searchParams)).toEqual({
+    source: "docker:alpha",
+    conversation: "thread & question?",
+    message: "answer+#é",
+  });
+  expect(target.hash).toBe("");
+  expect(sourceUrl("", { artifact: "file/id" })).toBe(
+    "/workspace/?artifact=file%2Fid",
+  );
 });

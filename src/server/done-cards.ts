@@ -1,3 +1,5 @@
+import { workspaceLink } from "../shared/workspace-links.js";
+import { doneCardId, idleDoneKey } from "../shared/done-card-id.js";
 import { cardAttachments } from "./card-attachments.js";
 import type { CardEntry } from "../shared/cards.js";
 import { DoneDisplaySchema } from "../shared/done-card.js";
@@ -11,7 +13,7 @@ export function doneCards(
     ({ row, display, read_at, unread_version }) => ({
       card: {
         type: "done",
-        id: "d:" + (row.done_card_key ?? "idle:" + row.conversation_id),
+        id: doneCardId(row.done_card_key ?? idleDoneKey(row.conversation_id)),
         source: {
           artifact_id: null,
           message_id: row.message_id,
@@ -46,12 +48,10 @@ export function doneCards(
           owner,
           JSON.parse(row.message_metadata ?? "{}"),
         ),
-        href:
-          "/?conversation=" +
-          encodeURIComponent(row.conversation_id) +
-          (row.message_id
-            ? "&message=" + encodeURIComponent(row.message_id)
-            : ""),
+        href: workspaceLink({
+          conversation: row.conversation_id,
+          message: row.message_id,
+        }),
         display: DoneDisplaySchema.parse({
           ...display,
           read_at,

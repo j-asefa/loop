@@ -1,3 +1,4 @@
+import { doneCardId } from "../shared/done-card-id.js";
 import { collapse } from "./collapse.js";
 import { FEED_PAGE_ITEMS } from "./pagination.js";
 import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
@@ -359,7 +360,7 @@ export function setDoneCardRead(
         emit(owner, { kind: "collection", id: "feed" }, "invalidate", {
           scope: { kind: "collection", id: "feed" },
         });
-        return { ok: true, unreadVersions: { ["d:" + cardKey]: version } };
+        return { ok: true, unreadVersions: { [doneCardId(cardKey)]: version } };
       }
       return { ok: true };
     })

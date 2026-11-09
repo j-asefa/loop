@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import * as searchFtsQueries from "./sql/search-fts.js";
 import * as preferencesQueries from "./sql/preferences.js";
 import * as searchIndexStatusQueries from "./sql/search-index-status.js";
@@ -352,8 +353,11 @@ export async function search(
         message_id: messageId || null,
         score: scores.get(d.id),
         url: messageId
-          ? `/?conversation=${d.conversation_id}&message=${messageId}`
-          : `/?artifact=${d.id.slice(9)}`,
+          ? workspaceLink({
+              conversation: d.conversation_id,
+              message: messageId,
+            })
+          : workspaceLink({ artifact: d.id.slice(9) }),
       };
     }),
   };

@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links";
 // The shell keeps its original source while a thread opens on another source.
 // Read the address separately for navigation; async work must not derive its
 // destination from a URL that can change underneath it.
@@ -73,15 +74,10 @@ export function sourceUrl(
     artifact?: string;
   } = {},
 ) {
-  const url = new URL(location.href);
-  url.search = "";
-  if (id) url.searchParams.set("source", id);
-  if (target.conversation)
-    url.searchParams.set("conversation", target.conversation);
-  if (target.message) url.searchParams.set("message", target.message);
-  if (target.agent) url.searchParams.set("agent", target.agent);
-  if (target.artifact) url.searchParams.set("artifact", target.artifact);
-  return url.pathname + url.search;
+  return workspaceLink(
+    { source: id, ...target },
+    new URL(location.href).pathname,
+  );
 }
 
 export function returnToLocalSource() {
