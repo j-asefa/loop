@@ -20,7 +20,7 @@ export const ReplyState = z.union([
   z.strictObject({ read: z.literal(true).optional(), archived: z.boolean() }),
 ]);
 
-export const ReplyContext = z.object({
+export const SteeringReplyContext = z.object({
   message_id: z.string(),
   content: z.string(),
   read_at: z.number().nullable(),

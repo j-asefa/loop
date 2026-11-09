@@ -1,3 +1,4 @@
+import { feedItemOrder } from "../shared/feed-order";
 import { useEffect, useRef, useState } from "react";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import type { AgentThreadSummary } from "../shared/agent-thread-feed";
@@ -7,11 +8,7 @@ import {
   listenWorkspaceChanges,
   workspaceChangeAffects,
 } from "./workspace-changes";
-import {
-  feedItemOrder,
-  refreshDonePage,
-  type DoneRefresh,
-} from "./feed-done-refresh";
+import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
 
 export type SourcedAgentThread = AgentThreadSummary & { source: string };
 // Status depends on runs and steering receipts; visibility and names depend on

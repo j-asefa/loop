@@ -1,3 +1,6 @@
+import { PullStateSchema } from "./pull-state.js";
+import { VerificationSummarySchema } from "./verification.js";
+import { CheckoutSummarySchema } from "./checkout.js";
 import { z } from "zod";
 
 const text = z.string().nullable();
@@ -44,59 +47,11 @@ export const DoneDisplaySchema = z.object({
       can_move_down: z.boolean(),
       automation: z.string().optional(),
       automation_from: text.optional(),
-      checkout: z
-        .object({
-          id: z.string(),
-          state: z.enum(["started", "captured", "failed"]),
-          scope: z.literal("run").optional(),
-          branch: z.string(),
-          base_ref: text,
-          ahead: z.number().nullable(),
-          behind: z.number().nullable(),
-          files: z.number(),
-          additions: z.number(),
-          deletions: z.number(),
-          untracked: z.number(),
-          remote: z.enum(["none", "contains", "missing", "unknown"]),
-          started_dirty: z.boolean(),
-          overlap: z.number(),
-          late: z.boolean(),
-          error: text,
-        })
-        .optional(),
-      verification: z
-        .object({
-          passed: z.number(),
-          failed: z.number(),
-          unknown: z.number(),
-          items: z.array(
-            z.object({
-              id: z.string(),
-              kind: z.enum(["test", "typecheck", "lint"]),
-              tools: z.array(z.string()),
-              status: z.enum(["passed", "failed", "unknown"]),
-            }),
-          ),
-        })
-        .optional(),
+      checkout: CheckoutSummarySchema.optional(),
+      verification: VerificationSummarySchema.optional(),
     })
     .nullable(),
-  pull: z
-    .object({
-      repo_owner: z.string(),
-      repo_name: z.string(),
-      number: z.number(),
-      watch: z.enum(["watching", "paused", "stopped"]),
-      ended_reason: text,
-      error: text,
-      head_sha: text,
-      ci: z
-        .object({ sha: z.string(), conclusion: z.enum(["success", "failure"]) })
-        .nullable(),
-      pending: z.boolean(),
-      checked_at: time.nullable(),
-    })
-    .nullable(),
+  pull: PullStateSchema.nullable(),
   // When the owner opened this result; null while unread. Absent for idle
   // threads and for sources that do not record reads.
   read_at: time.nullable().optional(),

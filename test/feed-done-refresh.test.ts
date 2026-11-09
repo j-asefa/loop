@@ -1,6 +1,6 @@
+import { feedItemOrder } from "../src/shared/feed-order";
 import { expect, it } from "vitest";
 import {
-  feedItemOrder,
   refreshDonePage,
   type DoneRefresh,
 } from "../src/client/feed-done-refresh";

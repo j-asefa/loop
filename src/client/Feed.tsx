@@ -1,3 +1,4 @@
+import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
 import {
   WORKING_RUN_DISPLAY_STATES,
@@ -98,9 +99,6 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { ConversationPulls } from "./ConversationPulls";
-import type { PullState } from "../shared/pull-state";
-import type { CheckoutSummary } from "../shared/checkout";
-import type { VerificationSummary } from "../shared/verification";
 import { sourceUrl } from "./sourceRouting";
 import type {
   EnvironmentAgent,
@@ -136,11 +134,7 @@ import {
   type FeedNextAction,
 } from "./threadView";
 import { notify } from "./toast";
-import {
-  feedItemOrder,
-  refreshDonePage,
-  type DoneRefresh,
-} from "./feed-done-refresh";
+import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
 import { listenProjectionFrames } from "./workspace-projections";
@@ -149,107 +143,20 @@ import {
   workspaceChangeAffects,
 } from "./workspace-changes";
 
-import { feedCategories, type FeedCategory } from "../shared/feed-categories";
+import {
+  feedCategories,
+  type FeedView as FeedFilter,
+} from "../shared/feed-categories";
 
-export type FeedFilter =
-  | "all"
-  | FeedCategory
-  // Project history views (no chip of their own).
-  | "outcomes"
-  | "unfinished";
-
-export type FeedItem = {
+export type FeedItem = RouteResponse<
+  typeof workspaceApi.feed
+>["items"][number] & {
   card?: Card;
   cardOrder?: CardEntry["order"];
   sourceId?: string;
   executionEnvironment?: string;
-  conversation_id: string;
-  done_card_key?: string;
-  /** When a Done result was opened; null while unread. */
-  read_at?: number | null;
-  unread_version?: number;
-  reply_card_key?: string;
-  reply?: { message_id: string; content: string; read_at: number | null };
-  title: string;
-  agent_id: string | null;
-  connection_id: string | null;
-  agent_name: string | null;
-  provider: string | null;
-  project_id: string | null;
-  project_name: string | null;
-  team_id: string | null;
-  origin: string;
-  last_activity_at: number;
-  last_message: {
-    id: string;
-    role: string;
-    preview: string;
-    content?: string;
-    created_at: number;
-    automation?: string;
-    automation_from?: string;
-    /** In Later → Saved, itself or through its result card. */
-    saved?: boolean;
-  } | null;
-  run: {
-    id: string;
-    state: string;
-    error: string | null;
-    input: string;
-    connection_id: string | null;
-    automation?: string;
-    automation_from?: string | null;
-    model: string | null;
-    resolved_model: string | null;
-    created_at: number;
-    updated_at: number;
-    queue_position: number | null;
-    can_move_up?: boolean;
-    can_move_down?: boolean;
-    /** What Loop observed in the agent's worktree; null for API agents. */
-    checkout?: CheckoutSummary | null;
-    /** Test, type-check and lint commands Loop observed, with their exits. */
-    verification?: VerificationSummary | null;
-  } | null;
-  queued_runs?: {
-    id: string;
-    input: string;
-    created_at: number;
-    queue_position: number | null;
-    can_edit: boolean;
-    can_move_up: boolean;
-    can_move_down: boolean;
-  }[];
-  /** What a working agent has written so far. */
-  live_preview?: string | null;
-  /** The thread's pull request as its watch last saw it. */
-  pull?: PullState | null;
-  pending_approvals: number;
-  position_message_id: string | null;
-  later: {
-    id: string;
-    due_at: number | null;
-    condition: string | null;
-    surfaced_at: number | null;
-  } | null;
-  /** The specific thing this thread waits for, and the message holding it. */
-  next_action?: {
-    kind: "approve" | "answer" | "result";
-    message_id: string | null;
-    run_id: string;
-  } | null;
 };
-type Summary = {
-  needs: number;
-  working: number;
-  queued: number;
-  later_due: number;
-  scheduled_failed?: number;
-  scheduled_pending?: number;
-  social_unread?: number;
-  replies_unread?: number;
-  done_unread?: number;
-};
+type Summary = RouteResponse<typeof workspaceApi.feed>["summary"];
 const combineSummaries = (summaries: Summary[]) =>
   summaries.reduce(
     (sum, summary) => ({
@@ -274,9 +181,6 @@ const combineSummaries = (summaries: Summary[]) =>
 type AwayItem = RouteResponse<
   typeof workspaceApi.feedAway
 >["completed"][number] & { sourceId?: string };
-
-// What needs you has no chip: it stacks above the row (NeedsStack).
-export const feedFilters = feedCategories;
 
 // A thread can have several Done cards; source and result identity must both
 // survive pagination, refreshes and React reconciliation.
@@ -3596,7 +3500,7 @@ export function Feed({
       )}
       {!hideFilters && (
         <div className="chip-row feed-tabs" role="tablist" aria-label="Show">
-          {feedFilters.map((f) => (
+          {feedCategories.map((f) => (
             <button
               key={f.id}
               role="tab"

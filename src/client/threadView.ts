@@ -1,5 +1,5 @@
 import { plainPreview } from "../shared/text";
-import { SESSION_KINDS } from "../agent-activities";
+import { activityRecordKey } from "../agent-activities";
 import type { ActivityRecord } from "../agent-activities";
 
 const MINUTE = 60_000;
@@ -111,18 +111,6 @@ export function runStatus(
 /** An activity record with the run it was reported in (from trusted context). */
 type RunActivity = { run: string | null; record: ActivityRecord };
 
-// The record's durable identity, as the server's activityKey(): session kinds
-// live for the whole conversation, every other kind within its own run, so
-// two runs may reuse an activity id for different edits.
-const recordKey = ({ run, record }: RunActivity) =>
-  [
-    record.kind,
-    record.source?.transport,
-    record.source?.origin,
-    SESSION_KINDS.includes(record.kind) ? "session" : run,
-    record.id,
-  ].join(":");
-
 /**
  * Recorded activity (saved on messages) and live activity for the same runs,
  * merged for the tool activity view. Only copies of the same record
@@ -136,7 +124,7 @@ export function mergeActivityRecords(
 ) {
   const merged = new Map<string, RunActivity>();
   for (const item of [...recorded, ...live]) {
-    const key = recordKey(item);
+    const key = activityRecordKey(item.record, item.run);
     merged.delete(key);
     merged.set(key, item);
   }

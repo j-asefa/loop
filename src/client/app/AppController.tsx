@@ -42,7 +42,10 @@ import {
 import { ResultsPager } from "../results";
 import { initialShare, type SharedDraft } from "../Sharing";
 import { OPEN_PULL } from "../PullRequests";
-import { feedFilters, type FeedFilter } from "../Feed";
+import {
+  feedCategories,
+  type FeedView as FeedFilter,
+} from "../../shared/feed-categories";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
 import { useLongPress, type ScheduledSend } from "../ThreadTools";
@@ -91,7 +94,7 @@ function initialPage() {
 function initialFilter(): FeedFilter {
   const params = new URLSearchParams(location.search);
   const value = params.get("filter");
-  return feedFilters.some((f) => f.id === value)
+  return feedCategories.some((f) => f.id === value)
     ? (value as FeedFilter)
     : "done";
 }
