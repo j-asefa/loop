@@ -92,8 +92,8 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
             run.id,
             id,
             kind,
-            response && JSON.stringify(response),
-            Number(index === 51),
+            JSON.stringify(response),
+            Number(index === 51 || index === 47),
             started + index,
           );
       })
@@ -104,10 +104,12 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       i,
       i === 50 ? "unknown" : "resolved",
       i === 49
-        ? null
+        ? { environment: [], token: null }
         : i === 48
           ? { environment: [freeTextAnswer], token: null }
-          : undefined,
+          : i === 47
+            ? { environment: null, token: null }
+            : undefined,
     );
   seed(52, "resolved", { choice: "deny" }, "approval");
   for (const width of [320, 390, 1280]) {
@@ -217,18 +219,19 @@ export async function personalDecisionsSmoke(page, fixture, engine, capture) {
       "Your response",
     );
     await expect(newest.locator("dd").nth(1)).not.toContainText("You answered");
-    const missing = history.locator("article").nth(2).locator("dd").first();
-    await expect(missing).toHaveText("Response not recorded");
+    const unanswered = history.locator("article").nth(2).locator("dd").first();
+    await expect(unanswered).toHaveText("No answer provided");
     const freeText = history.locator("article").nth(3).locator("dd").first();
     await expect(freeText).toContainText("You answered");
     await expect(freeText.locator("p")).toHaveText(freeTextAnswer);
-    await expect(history).toContainText("Delivery was not confirmed");
-    await expect(history).toContainText(
-      "The response text was not saved for this older request.",
+    const omitted = history.locator("article").nth(4);
+    await expect(omitted.locator("dd").first()).toHaveText(
+      "Not included in this preview",
     );
-    await expect(
-      history.locator("article").nth(2).locator("time"),
-    ).toContainText("Requested");
+    await expect(omitted).toContainText(
+      "Long responses are shortened in history.",
+    );
+    await expect(history).toContainText("Delivery was not confirmed");
     await checkLayout(newest, width);
     await history.evaluate((node) => node.scrollIntoView({ block: "start" }));
     await capture(`personal-answers-${width}`);

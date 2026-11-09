@@ -344,9 +344,8 @@ export function PersonalDecisions({
                   <time
                     dateTime={new Date(item.created_at).toISOString()}
                     title={new Date(item.created_at).toLocaleString()}
-                    aria-label={`${!item.response_recorded ? "Requested " : ""}${new Date(item.created_at).toLocaleString()}`}
+                    aria-label={new Date(item.created_at).toLocaleString()}
                   >
-                    {!item.response_recorded && "Requested "}
                     {new Date(item.created_at).toLocaleDateString(undefined, {
                       day: "numeric",
                       month: "short",
@@ -425,11 +424,7 @@ export function PersonalDecisions({
                         ) : answer.secret ? (
                           "Secret response — not saved"
                         ) : answer.values === null ? (
-                          item.response_truncated && item.response_recorded ? (
-                            "Not included in this preview"
-                          ) : (
-                            "Response not recorded"
-                          )
+                          "Not included in this preview"
                         ) : (
                           "No answer provided"
                         )}
@@ -442,11 +437,6 @@ export function PersonalDecisions({
             {item.response_truncated && (
               <p className="field-hint">
                 Long responses are shortened in history.
-              </p>
-            )}
-            {!item.response_recorded && (
-              <p className="field-hint">
-                The response text was not saved for this older request.
               </p>
             )}
             {item.state !== "resolved" && (
