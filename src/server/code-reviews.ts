@@ -305,7 +305,7 @@ const ACTIVE = [
 ];
 // Review teams an agent can ask for: active, and without the agent on them.
 export function requestableReviewTeams(owner: string, agentId: string) {
-  return teamsQueries.reviewCandidates(db, owner, agentId, agentId) as {
+  return teamsQueries.reviewCandidates(db, owner, agentId) as {
     id: string;
     name: string;
   }[];
@@ -401,7 +401,6 @@ export function requestedReviewStatus(run: Run, reviewId?: string) {
     db,
     run.owner_id,
     run.agent_id,
-    reviewId ?? null,
     reviewId ?? null,
   ) as {
     reviewId: string;

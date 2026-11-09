@@ -98,7 +98,7 @@ export function threadMessageCount(
 }
 
 const pairMessageCountStatement = statement(
-  "SELECT count(*) n FROM agent_mail WHERE owner_id=? AND kind='message' AND state IN ('sent','pending') AND id<>? AND created_at>? AND rowid>? AND ((sender_agent_id=? AND recipient_agent_id=?) OR (sender_agent_id=? AND recipient_agent_id=?))",
+  "SELECT count(*) n FROM agent_mail WHERE owner_id=@owner AND kind='message' AND state IN ('sent','pending') AND id<>@excluding AND created_at>@since AND rowid>@after AND ((sender_agent_id=@sender AND recipient_agent_id=@recipient) OR (sender_agent_id=@recipient AND recipient_agent_id=@sender))",
 );
 const pairMessageCountRow = z.object({ n: z.number() });
 export function pairMessageCount(
@@ -109,21 +109,17 @@ export function pairMessageCount(
   after: number,
   sender: string,
   recipient: string,
-  reverseSender: string,
-  reverseRecipient: string,
 ) {
   return parseRecord(
     pairMessageCountRow,
-    pairMessageCountStatement(db).get(
+    pairMessageCountStatement(db).get({
       owner,
       excluding,
       since,
       after,
       sender,
       recipient,
-      reverseSender,
-      reverseRecipient,
-    ),
+    }),
     "agent_mail",
   ).n;
 }
@@ -392,30 +388,22 @@ export function heldInThread(db: Database.Database, thread: string) {
 }
 
 const forQueuedRunStatement = statement(
-  "SELECT m.*,t.scope FROM agent_mail m JOIN agent_threads t ON t.id=m.thread_id WHERE (m.run_id=? AND m.steering_id IS NULL) OR m.requeued_run_id=?",
+  "SELECT m.*,t.scope FROM agent_mail m JOIN agent_threads t ON t.id=m.thread_id WHERE (m.run_id=@run AND m.steering_id IS NULL) OR m.requeued_run_id=@run",
 );
 const forQueuedRunRow = QueryRecords.agent_mail.extend({ scope: z.string() });
-export function forQueuedRun(
-  db: Database.Database,
-  run: string,
-  requeuedRun: string,
-) {
-  const row = forQueuedRunStatement(db).get(run, requeuedRun);
+export function forQueuedRun(db: Database.Database, run: string) {
+  const row = forQueuedRunStatement(db).get({ run });
   return row === undefined
     ? undefined
     : parseRecord(forQueuedRunRow, row, "agent_mail");
 }
 
 const hasQueuedRunStatement = statement(
-  "SELECT 1 FROM agent_mail WHERE (run_id=? AND steering_id IS NULL) OR requeued_run_id=?",
+  "SELECT 1 FROM agent_mail WHERE (run_id=@run AND steering_id IS NULL) OR requeued_run_id=@run",
 );
 const hasQueuedRunRow = z.object({ "1": z.number() });
-export function hasQueuedRun(
-  db: Database.Database,
-  run: string,
-  requeuedRun: string,
-) {
-  const row = hasQueuedRunStatement(db).get(run, requeuedRun);
+export function hasQueuedRun(db: Database.Database, run: string) {
+  const row = hasQueuedRunStatement(db).get({ run });
   return row === undefined
     ? undefined
     : parseRecord(hasQueuedRunRow, row, "agent_mail");
@@ -548,7 +536,7 @@ export function ownedThreadCount(
 }
 
 const ownedThreadPageStatement = statement(
-  "SELECT *,rowid ordinal FROM agent_mail WHERE owner_id=? AND thread_id=? AND (? IS NULL OR (created_at,rowid)<(?,?)) ORDER BY created_at DESC,rowid DESC LIMIT ?",
+  "SELECT *,rowid ordinal FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread AND (@before IS NULL OR (created_at,rowid)<(@before,@ordinal)) ORDER BY created_at DESC,rowid DESC LIMIT @limit",
 );
 const ownedThreadPageRow = messageRow.extend({
   ordinal: z.number(),
@@ -557,13 +545,12 @@ export function ownedThreadPage(
   db: Database.Database,
   owner: string,
   thread: string,
-  hasCursor: number | null,
   before: number | null,
   ordinal: number | null,
   limit: number,
 ) {
   return ownedThreadPageStatement(db)
-    .all(owner, thread, hasCursor, before, ordinal, limit)
+    .all({ owner, thread, before, ordinal, limit })
     .map((row) => parseRecord(ownedThreadPageRow, row, "agent_mail"));
 }
 

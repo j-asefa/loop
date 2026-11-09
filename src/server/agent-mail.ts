@@ -200,13 +200,7 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
 /** Teammates an agent can message, for the loop_message description. */
 export function teamRoster(team: Team, owner: string, self: string) {
   return (
-    agentsQueries.mailTeamMembers(
-      db,
-      owner,
-      team.manager_id,
-      team.id,
-      team.manager_id,
-    ) as {
+    agentsQueries.mailTeamMembers(db, owner, team.manager_id, team.id) as {
       id: string;
       name: string;
       connection_id: string | null;
@@ -307,7 +301,6 @@ function localAgentDirectory(
     db,
     owner,
     self,
-    args.query ?? "",
     args.query ?? "",
     args.limit + 1,
     args.offset,
@@ -648,8 +641,6 @@ function limitReason(thread: Thread, mail: Mail) {
       Math.max(since, resumed ?? 0),
       a,
       b,
-      b,
-      a,
     ) >= MAIL_LIMITS.perPairHour
   )
     return `These two agents exchanged ${MAIL_LIMITS.perPairHour} messages in an hour.`;
@@ -1703,12 +1694,11 @@ export function resumeThread(
         threadId,
         owner,
         teamId,
-        teamId,
       ) as Thread | undefined;
       if (!thread) throw new Problem(404, "Thread not found");
       if (!thread.paused_at) return { released: 0, refused: 0, held: 0 };
       const time = now();
-      agentThreadsQueries.resume(db, time, time, thread.id);
+      agentThreadsQueries.resume(db, time, thread.id);
       Object.assign(thread, {
         paused_at: null,
         paused_reason: null,

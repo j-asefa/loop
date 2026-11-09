@@ -20,6 +20,6 @@ export function assertTeamConnectionChange(
   agentId: string,
   connection: Pick<Connection, "metadata">,
 ) {
-  const member = teamsQueries.agentInActiveTeam(db, owner, agentId, agentId);
+  const member = teamsQueries.agentInActiveTeam(db, owner, agentId);
   if (member) assertTeamConnection(connection);
 }
