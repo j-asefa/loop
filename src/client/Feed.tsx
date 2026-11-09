@@ -1,3 +1,4 @@
+import { doneCardId } from "../shared/done-card-id";
 import {
   WORKING_RUN_DISPLAY_STATES,
   TERMINAL_RUN_STATES,
@@ -1465,7 +1466,8 @@ export function Feed({
     grouping.supported.includes(item.sourceId ?? scopedSource) &&
     !!item.done_card_key &&
     item.last_message?.role === "assistant";
-  const doneId = (item: FeedItem) => item.card?.id ?? "d:" + item.done_card_key;
+  const doneId = (item: FeedItem) =>
+    item.card?.id ?? doneCardId(item.done_card_key!);
   type VisibleCard = {
     item: FeedItem;
     thread?: SourcedDoneThread;
@@ -2819,7 +2821,7 @@ export function Feed({
               cardKey,
               unreadVersion: doneReadVersion(
                 source,
-                "d:" + cardKey,
+                doneCardId(cardKey),
                 item.unread_version,
               ),
             },

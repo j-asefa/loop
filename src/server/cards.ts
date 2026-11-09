@@ -1,3 +1,5 @@
+import { downloadLink } from "../shared/workspace-links.js";
+import { DONE_CARD_PREFIX } from "../shared/done-card-id.js";
 import { REVISION_PAGE_ITEMS } from "./pagination.js";
 import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
 import * as cardRevisionDomainQueries from "./sql/card-revision-domain.js";
@@ -203,10 +205,19 @@ function toCard(row: Row): Card {
       download: (() => {
         for (const id of [text(meta.objectId), text(meta.rawObjectId)])
           if (id && objectQueries.cardOwned(db, row.owner_id, id))
-            return "/api/objects/" + encodeURIComponent(id);
-        return artifactObjectQueries.cardPublished(db, row.owner_id, row.id)
-          ? "/api/artifacts/" + encodeURIComponent(row.id) + "/file"
-          : null;
+            return downloadLink({
+              artifactId: row.id,
+              objectId: id,
+              published: false,
+            });
+        return downloadLink({
+          artifactId: row.id,
+          published: !!artifactObjectQueries.cardPublished(
+            db,
+            row.owner_id,
+            row.id,
+          ),
+        });
       })(),
       source: (() => {
         const source = meta.source as Record<string, unknown> | undefined;
@@ -295,7 +306,7 @@ export function cardDetail(
 ): Card {
   if (!CardIdSchema.safeParse(id).success)
     throw new Problem(404, "Card not found");
-  if (id.startsWith("d:")) {
+  if (id.startsWith(DONE_CARD_PREFIX)) {
     if (admission) throw new Problem(404, "Card not found");
     const found = doneCards(owner, {
       folders: null,

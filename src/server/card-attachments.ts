@@ -1,3 +1,4 @@
+import { workspaceLink, downloadLink } from "../shared/workspace-links.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import { db } from "./db.js";
 import type { Card } from "../shared/cards.js";
@@ -27,12 +28,12 @@ export function cardAttachments(
         name: f.name,
         mime: f.mime,
         size: f.size,
-        href: "/?artifact=" + encodeURIComponent(f.id),
-        download: target.object_id
-          ? "/api/objects/" + encodeURIComponent(target.object_id)
-          : target.published
-            ? "/api/artifacts/" + encodeURIComponent(target.id) + "/file"
-            : null,
+        href: workspaceLink({ artifact: f.id }),
+        download: downloadLink({
+          artifactId: target.id,
+          objectId: target.object_id,
+          published: !!target.published,
+        }),
       },
     ];
   });

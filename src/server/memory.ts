@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
@@ -173,12 +174,13 @@ function readMemory(
     content: s.content.slice(0, 12000),
     truncated: s.content.length > 12000,
     link: s.conversation_id
-      ? "/?conversation=" +
-        encodeURIComponent(s.conversation_id) +
-        (s.message_id ? "&message=" + encodeURIComponent(s.message_id) : "")
+      ? workspaceLink({
+          conversation: s.conversation_id,
+          message: s.message_id,
+        })
       : s.kind === "artifact"
-        ? "/?artifact=" + s.source_id
-        : "/?memory=" + s.id,
+        ? workspaceLink({ artifact: s.source_id })
+        : workspaceLink({ memory: s.id }),
   };
 }
 export async function searchMemory(

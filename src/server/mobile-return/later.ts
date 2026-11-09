@@ -1,3 +1,4 @@
+import { workspaceLink } from "../../shared/workspace-links.js";
 import { collapse } from "../collapse.js";
 import * as conversationsQueries from "../sql/conversations.js";
 import * as artifactsQueries from "../sql/artifacts.js";
@@ -68,7 +69,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
       agent_name: c.agent_name as string | null,
       provider: c.provider as string | null,
       folder_id: c.folder_id as string | null,
-      url: "/?conversation=" + encodeURIComponent(c.id),
+      url: workspaceLink({ conversation: c.id }),
     };
   }
   if (kind === "message") {
@@ -97,11 +98,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
       agent_name: m.agent_name as string | null,
       provider: m.provider as string | null,
       folder_id: m.folder_id as string | null,
-      url:
-        "/?conversation=" +
-        encodeURIComponent(m.conversation_id) +
-        "&message=" +
-        encodeURIComponent(m.id),
+      url: workspaceLink({ conversation: m.conversation_id, message: m.id }),
     };
   }
   const a = artifactsQueries.laterTarget(db, target, owner) as
@@ -340,8 +337,8 @@ export function surfaceLater(time = now()) {
           body: target?.title || "An item you deferred is ready",
           url:
             item.kind === "story"
-              ? "/?social=" + encodeURIComponent(item.target_id)
-              : target?.url || "/?page=profile",
+              ? workspaceLink({ social: item.target_id })
+              : target?.url || workspaceLink({ page: "profile" }),
         });
       }
       return surfaced;

@@ -1,3 +1,7 @@
+import {
+  DONE_CARD_PREFIX,
+  IDLE_DONE_KEY_PREFIX,
+} from "../../shared/done-card-id.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { parseRecord } from "../row-schemas.js";
@@ -160,7 +164,7 @@ export function donePage(
     WHERE ${scope("p", params)} AND p.kind IN ('result','idle') AND (p.kind='result' OR (p.kind='idle' AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result') AND ${idle}))
       AND (@includeDismissed OR NOT p.hidden) AND (@detail OR @teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)
       ${params.read ? `AND p.kind='result' AND p.unread=${params.read === "unread" ? 1 : 0}` : ""}
-      AND (@ids IS NULL OR 'd:'||COALESCE(NULLIF(p.card_key,''),'idle:'||p.conversation_id) IN (SELECT value FROM json_each(@ids)))
+      AND (@ids IS NULL OR '${DONE_CARD_PREFIX}'||COALESCE(NULLIF(p.card_key,''),'${IDLE_DONE_KEY_PREFIX}'||p.conversation_id) IN (SELECT value FROM json_each(@ids)))
       AND (@at IS NULL OR (p.sort_at,p.conversation_id||char(31)||p.card_key)<(@at,@key))
     ORDER BY p.sort_at DESC,p.conversation_id DESC,p.card_key DESC LIMIT @limit`,
     db,

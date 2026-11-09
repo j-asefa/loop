@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import * as feedWatchesQueries from "./sql/feed-watches.js";
 import * as feedWatchHitsQueries from "./sql/feed-watch-hits.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -176,7 +177,7 @@ export function matchWatches(at = now()) {
           {
             title: `“${watch.query}” · ${feed}`,
             body: story.title,
-            url: `/?social=${encodeURIComponent(`${feed_id}:${story.id}`)}`,
+            url: workspaceLink({ social: `${feed_id}:${story.id}` }),
           },
           "social",
         );
@@ -191,7 +192,7 @@ export function matchWatches(at = now()) {
         {
           title: `“${watch.query}”`,
           body: `${held} more ${held === 1 ? "story" : "stories"} matched.`,
-          url: "/?social=1",
+          url: workspaceLink({ social: "1" }),
         },
         "social",
       );

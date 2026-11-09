@@ -1,3 +1,7 @@
+import {
+  DONE_CARD_PREFIX,
+  IDLE_DONE_KEY_PREFIX,
+} from "../../shared/done-card-id.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -327,13 +331,13 @@ const expiredCardsStatement = statement(`WITH expired_watches AS (
         AND updated_at+604800000<=@now
     ), expiries AS (
       SELECT approval_until at,
-        'd:'||COALESCE(NULLIF(card_key,''),'idle:'||conversation_id) key
+        '${DONE_CARD_PREFIX}'||COALESCE(NULLIF(card_key,''),'${IDLE_DONE_KEY_PREFIX}'||conversation_id) key
       FROM feed_cards WHERE owner_id=@owner AND kind='thread' AND approval_until>=@afterAt AND approval_until<=@now
-      UNION SELECT w.at,'d:run:'||r.id FROM expired_watches w JOIN runs r
+      UNION SELECT w.at,'${DONE_CARD_PREFIX}run:'||r.id FROM expired_watches w JOIN runs r
         ON r.conversation_id=w.conversation_id AND r.owner_id=@owner
-      UNION SELECT w.at,'d:message:'||m.id FROM expired_watches w JOIN messages m
+      UNION SELECT w.at,'${DONE_CARD_PREFIX}message:'||m.id FROM expired_watches w JOIN messages m
         ON m.conversation_id=w.conversation_id AND m.owner_id=@owner
-      UNION SELECT w.at,'d:idle:'||w.conversation_id FROM expired_watches w
+      UNION SELECT w.at,'${DONE_CARD_PREFIX}${IDLE_DONE_KEY_PREFIX}'||w.conversation_id FROM expired_watches w
     ) SELECT key id,at,key FROM expiries WHERE (at,key)>(@afterAt,@afterId)
       ORDER BY at,key LIMIT @limit`);
 const expiredCardsRow = z.object({

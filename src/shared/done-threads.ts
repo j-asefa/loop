@@ -1,3 +1,4 @@
+import { DONE_CARD_PREFIX } from "./done-card-id.js";
 import { z } from "zod";
 import { CardSelectionSchema, DoneCardSchema } from "./cards.js";
 import { DoneReadVersions } from "./mobile-contract-schemas.js";
@@ -6,7 +7,7 @@ export const MAX_DONE_THREAD_MEMBERS = 100;
 
 export const DoneThreadCardId = z
   .string()
-  .regex(/^d:(run|message):[^/\\?#\s]+$/)
+  .regex(new RegExp(`^${DONE_CARD_PREFIX}(run|message):[^/\\\\?#\\s]+$`))
   .max(160);
 export const DoneThreadMembers = z
   .object({

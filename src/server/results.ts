@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import { REVISION_PAGE_ITEMS } from "./pagination.js";
 import * as projectChangeFoldersQueries from "./sql/project-change-folders.js";
 import * as foldersQueries from "./sql/folders.js";
@@ -105,13 +106,9 @@ export function resultUrl(result: {
   conversation_id: string | null;
   message_id?: string | null;
 }) {
-  if (!result.conversation_id)
-    return "/?artifact=" + encodeURIComponent(result.id);
-  return (
-    "/?conversation=" +
-    encodeURIComponent(result.conversation_id) +
-    (result.message_id
-      ? "&message=" + encodeURIComponent(result.message_id)
-      : "")
-  );
+  if (!result.conversation_id) return workspaceLink({ artifact: result.id });
+  return workspaceLink({
+    conversation: result.conversation_id,
+    message: result.message_id,
+  });
 }

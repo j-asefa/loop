@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import * as pushConfigQueries from "./sql/push-config.js";
 import * as pushSubscriptionsQueries from "./sql/push-subscriptions.js";
 import * as pushPreferencesQueries from "./sql/push-preferences.js";
@@ -201,7 +202,7 @@ export async function deliverNotifications(send = webpush.sendNotification) {
         payload: {
           ...resultNotification(job),
           tag: `loop-result-${job.artifact_id}`,
-          url: `/?artifact=${encodeURIComponent(job.artifact_id)}`,
+          url: workspaceLink({ artifact: job.artifact_id }),
         },
       }));
       const messages = (

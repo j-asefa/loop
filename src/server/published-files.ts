@@ -1,3 +1,4 @@
+import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
 import * as companionSessionsQueries from "./sql/companion-sessions.js";
@@ -151,7 +152,7 @@ export function storePublishedFile(
       }
       return {
         artifactId: aid,
-        url: "/?artifact=" + aid,
+        url: workspaceLink({ artifact: aid }),
         downloadUrl: "/api/artifacts/" + aid + "/file",
         name,
         mime: file.mime,
@@ -186,7 +187,7 @@ export async function publishRunFile(
   if (prior)
     return {
       artifactId: prior.id,
-      url: "/?artifact=" + prior.id,
+      url: workspaceLink({ artifact: prior.id }),
       downloadUrl: "/api/artifacts/" + prior.id + "/file",
       name: JSON.parse(prior.metadata).name || prior.title,
       mime: prior.mime,
