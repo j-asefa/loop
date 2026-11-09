@@ -1,6 +1,6 @@
 -- Evaluate final-answer eligibility once when a message changes. Expanded
 -- Done can enumerate result identities without rereading historical bodies.
--- Keep this predicate aligned with nonemptyAnswer in mobile-return.ts.
+-- Keep this predicate aligned with answerPredicate in src/server/feed-answers.ts.
 CREATE INDEX messages_feed_answers
 ON messages(owner_id,run_id,conversation_id,created_at DESC,id)
 WHERE role='assistant' AND COALESCE(json_extract(metadata,'$.progress'),0)=0

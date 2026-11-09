@@ -1,3 +1,4 @@
+import { collapse } from "./collapse.js";
 import * as feedSourcesQueries from "./sql/feed-sources.js";
 import * as feedReadsQueries from "./sql/feed-reads.js";
 import * as feedDismissalsQueries from "./sql/feed-dismissals.js";
@@ -84,8 +85,7 @@ export function ownSource(owner: string, id: string) {
 }
 
 const title = (value: string | null | undefined, url: URL) =>
-  (value || "").replace(/\s+/g, " ").trim().slice(0, MAX_TITLE) ||
-  url.hostname.replace(/^www\./, "");
+  collapse(value, MAX_TITLE) || url.hostname.replace(/^www\./, "");
 
 const siteOf = (url: URL) => url.hostname.replace(/^(www|feeds|rss)\./, "");
 

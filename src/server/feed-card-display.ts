@@ -1,3 +1,4 @@
+import { collapse } from "./collapse.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../shared/run-state.js";
 import type { CheckoutSummary } from "../shared/checkout.js";
 import type { VerificationSummary } from "../shared/verification.js";
@@ -73,8 +74,6 @@ export type FeedCardDetail = {
   }[];
   live_preview: string | null;
 };
-const collapse = (text: string | null | undefined, max: number) =>
-  (text || "").replace(/\s+/g, " ").trim().slice(0, max);
 export function feedCardTitle(
   row: Pick<
     FeedRow,

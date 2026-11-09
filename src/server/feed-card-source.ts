@@ -3,7 +3,8 @@ import {
   WORKING_RUN_DISPLAY_STATES_SQL,
 } from "../shared/run-state.js";
 import type Database from "better-sqlite3";
-import { nonemptyAnswer } from "./feed-answers.js";
+import { answerPredicate } from "./feed-answers.js";
+import { FOLDER_PROJECT } from "./sql/folders.js";
 import type { FeedRow } from "./feed-card-display.js";
 
 // These are write-side source reads, always limited to a single affected
@@ -43,17 +44,8 @@ export type SourceRow = FeedRow & {
   hide_results: number;
 };
 
-const FOLDER_PROJECT = `folder_project(id,project_id) AS (
-  SELECT id,id FROM folders WHERE owner_id=@owner AND kind='project' AND parent_id IS NULL
-  UNION
-  SELECT folder_id,project_id FROM project_change_folders
-    WHERE owner_id=@owner AND project_id=(SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
-  UNION
-  SELECT f.id,p.project_id FROM folders f JOIN folder_project p ON f.parent_id=p.id
-    WHERE f.owner_id=@owner AND p.project_id IS NOT (SELECT project_id FROM workspace_projects WHERE owner_id=@owner)
-)`;
 const assistantAnswer = (run: string) =>
-  `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("m.content")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
+  `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND ${answerPredicate("m")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
 const cardSql = (doneOnly = false) => `
 page_run AS MATERIALIZED (
   SELECT p.*,CASE WHEN @mode='done' THEN p.done_run_id ELSE p.run_id END card_run FROM page p
@@ -162,12 +154,12 @@ export function sourceCards(
     FROM runs r WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND r.state='completed'
       AND (@keys IS NULL OR 'run:'||r.id IN (SELECT value FROM json_each(@keys)))
       AND EXISTS(SELECT 1 FROM messages m INDEXED BY messages_feed_answers WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id
-        AND m.run_id=r.id AND m.role='assistant' AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("m.content")})
+        AND m.run_id=r.id AND ${answerPredicate("m")})
     UNION ALL
     SELECT NULL,id,created_at,'message:'||id,NULL,0 FROM messages INDEXED BY messages_feed_answers
-    WHERE owner_id=@owner AND conversation_id=@conversation AND run_id IS NULL AND role='assistant'
+    WHERE owner_id=@owner AND conversation_id=@conversation AND run_id IS NULL
       AND (@keys IS NULL OR 'message:'||id IN (SELECT value FROM json_each(@keys)))
-      AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND ${nonemptyAnswer("content")}
+      AND ${answerPredicate()}
   ), flagged AS (
     SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
       ${folder} folder_id,c.feed_run_id run_id,c.run_state,${doneRun} done_run_id,${doneAt} done_at,

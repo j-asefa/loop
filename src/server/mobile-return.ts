@@ -1,3 +1,4 @@
+import { collapse } from "./collapse.js";
 import { FEED_PAGE_ITEMS } from "./pagination.js";
 import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
 import * as steeringRepliesQueries from "./sql/steering-replies.js";
@@ -42,7 +43,7 @@ import {
 import { projectFolders } from "./results.js";
 import { unreadCount } from "./news.js";
 import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
-import { collapse, projectFor, contains } from "./mobile-return/shared.js";
+import { projectFor, contains } from "./mobile-return/shared.js";
 
 // Keep the existing route and worker import surface stable.
 export {

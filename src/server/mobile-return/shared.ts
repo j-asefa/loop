@@ -24,8 +24,6 @@ export function attachmentDescriptors(
 // Every function here takes the owner from authentication. Rows are always
 // selected with that owner, so another owner's ids behave as missing.
 
-export const collapse = (text: string | null | undefined, max: number) =>
-  (text || "").replace(/\s+/g, " ").trim().slice(0, max);
 // Top-level named projects keep their existing grouping. Workspace covers only
 // unassigned work and ordinary folders outside an explicit project.
 export function projectFor(owner: string, folder: string | null | undefined) {
