@@ -3,7 +3,7 @@ import { WorkspaceFrameV3 } from "./workspace-events.js";
 import { FleetEventSubscription } from "./fleet-workspace-events.js";
 
 export const WORKSPACE_MULTIPLEX_PATH = "/api/events/multiplex/ws";
-export const WorkspaceSourceId = z
+const WorkspaceSourceId = z
   .string()
   .max(180)
   .regex(/^(?:[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128})?$/);

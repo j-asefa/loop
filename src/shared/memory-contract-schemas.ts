@@ -16,7 +16,7 @@ export const MemoryNoteUpdateInput = MemoryNoteInput.omit({
   projectId: true,
 }).extend({ revision: Count.int() });
 
-export const PublicMemorySummary = z.object({
+const PublicMemorySummary = z.object({
   id: Text,
   title: Text,
   kind: Text,

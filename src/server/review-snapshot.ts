@@ -4,7 +4,7 @@ import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
 import { Problem } from "./domain.js";
 
-export type ReviewScope = "uncommitted" | "staged" | "branch";
+type ReviewScope = "uncommitted" | "staged" | "branch";
 export type ReviewSnapshot = {
   scope: ReviewScope;
   base: string;

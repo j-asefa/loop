@@ -15,7 +15,7 @@ type Manifest = {
   description?: string;
   pi?: Record<string, unknown>;
 };
-export type PackageInspection = {
+type PackageInspection = {
   source: string;
   inspected: boolean;
   resolved?: string;

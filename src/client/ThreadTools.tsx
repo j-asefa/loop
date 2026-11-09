@@ -288,7 +288,7 @@ export function QuotePartSheet({
 }
 
 /** A reminder Loop created, for the confirmation's link and Undo. */
-export type CreatedReminder = Required<
+type CreatedReminder = Required<
   Pick<RouteResponse<typeof workspaceApi.laterCreate>, "id" | "replaced">
 >;
 

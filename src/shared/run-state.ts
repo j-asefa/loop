@@ -4,7 +4,7 @@ import { z } from "zod";
 // (queued → running) and guarded deferUndispatched (running → queued) remain
 // lease operations in queue.ts. queued → failed rejects invalid, unleased
 // saved work before dispatch; an old worker cannot use it after lease release.
-export const RUN_TRANSITIONS = {
+const RUN_TRANSITIONS = {
   queued: ["cancelled", "paused", "failed"],
   running: [
     "completed",

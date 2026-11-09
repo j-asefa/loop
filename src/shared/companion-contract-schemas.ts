@@ -113,7 +113,7 @@ export const PublicRuntimes = z.object({
     }),
   ),
 });
-export const PublicUpgrade = z.object({
+const PublicUpgrade = z.object({
   commandId: Text,
   name: RuntimeHarness,
   state: z.enum([
@@ -159,7 +159,7 @@ export const PublicProject = z.union([
   }),
   CreatedProject,
 ]);
-export const PublicNativeItem = ItemSchema.extend({
+const PublicNativeItem = ItemSchema.extend({
   phase: z.enum(["commentary", "final_answer"]).optional(),
 });
 export const PublicNativeConversation = z.object({
@@ -216,7 +216,7 @@ export const ActivityQuery = z.object({
     .describe("Comma-separated run IDs: 1–50 IDs, each 1–150 characters.")
     .optional(),
 });
-export const PublicActivityItem = z.object({
+const PublicActivityItem = z.object({
   key: Text,
   kind: z.enum([...ActivityKind.options, "capabilities"]),
   run: Text.nullable(),

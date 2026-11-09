@@ -33,7 +33,7 @@ import { Diagram } from "./Diagram";
 import { parse } from "./api";
 import { AutofillBoundary } from "./AutofillBoundary";
 import type { Agent, Artifact, Connection } from "../shared/types";
-export function ArtifactContent({ item }: { item: Artifact }) {
+function ArtifactContent({ item }: { item: Artifact }) {
   if (parse<any>(item.metadata, {}).uploaded)
     return <PublishedFile item={item} />;
   return <ResultContent item={item} />;

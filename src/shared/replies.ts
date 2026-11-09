@@ -13,7 +13,7 @@ export type ReplyContext = {
 export const REPLY_EXCERPT_LIMIT = 4000;
 // A whole-message quote keeps its start and end within this many characters.
 // The full message stays in Loop; replies never resend an unbounded answer.
-export const REPLY_QUOTE_LIMIT = 6000;
+const REPLY_QUOTE_LIMIT = 6000;
 
 function bounded(content: string) {
   if (content.length <= REPLY_QUOTE_LIMIT) return content;

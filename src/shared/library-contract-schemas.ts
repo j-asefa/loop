@@ -90,7 +90,7 @@ export const PublicSearchStatus = z.object({
   pending: Num,
   detail: MaybeText,
 });
-export const PublicSearchItem = z.object({
+const PublicSearchItem = z.object({
   id: Text,
   owner_id: Text,
   kind: Text,
@@ -134,7 +134,7 @@ export const PublicImport = z.object({
   summary: Text,
   created_at: Num,
 });
-export const PublicImportSummary = z.object({
+const PublicImportSummary = z.object({
   objectId: Text,
   conversations: Num,
   messages: Num,
@@ -159,7 +159,7 @@ export const PublicImportPreview = z.union([
     duplicate: z.never().optional(),
   }),
 ]);
-export const PublicCheckoutFile = z.object({
+const PublicCheckoutFile = z.object({
   path: Text,
   additions: Num,
   deletions: Num,
@@ -172,7 +172,7 @@ const CheckoutStat = z.object({
   additions: Num,
   deletions: Num,
 });
-export const PublicCheckoutSummary = z.object({
+const PublicCheckoutSummary = z.object({
   id: Text,
   state: z.enum(["started", "captured", "failed"]),
   // Present when a start-patch baseline was captured for this run.

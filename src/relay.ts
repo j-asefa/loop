@@ -10,7 +10,7 @@ import {
 import { connect, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 
-export type Backend = { generation: number; path: string };
+type Backend = { generation: number; path: string };
 type Active = Backend & { sockets: Set<Duplex>; requests: Set<ClientRequest> };
 
 // RFC 9110 connection-specific fields, plus Loop's private probe marker.

@@ -315,7 +315,7 @@ export function Memory({
     </Sheet>
   );
 }
-export type MemoryReceipt = Pick<
+type MemoryReceipt = Pick<
   RouteResponse<typeof workspaceApi.runMemory>,
   "mode" | "sources" | "tokens"
 >;

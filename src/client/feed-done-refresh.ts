@@ -1,4 +1,4 @@
-export type DonePosition = {
+type DonePosition = {
   conversation_id: string;
   done_card_key?: string;
   reply_card_key?: string;

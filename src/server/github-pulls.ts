@@ -807,7 +807,7 @@ function looksLikeText(file: string) {
  * The file at `path` in the commit `head`, read with your GitHub connection
  * and kept for you alone. Returns where the copy is.
  */
-export async function fileAt(
+async function fileAt(
   owner: string,
   ref: PullRequestRef,
   head: string,
@@ -937,11 +937,7 @@ export async function review(
   }
 }
 
-export async function addComment(
-  owner: string,
-  ref: PullRequestRef,
-  body: unknown,
-) {
+async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
   const input = PullCommentInput.parse(body);
   const token = writing(owner);
   try {

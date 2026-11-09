@@ -108,14 +108,14 @@ export const PublicSavedMessage = z.object({
   project_name: MaybeText,
   preview: Text,
 });
-export const PublicOutlineItem = z.object({
+const PublicOutlineItem = z.object({
   message_id: Text,
   kind: z.enum(["prompt", "result", "approval", "failure", "saved"]),
   preview: Text,
   created_at: Time,
   run_id: MaybeText,
 });
-export const PublicThreadMatch = z.object({
+const PublicThreadMatch = z.object({
   message_id: Text,
   kind: z.enum(["prompt", "response", "update", "result", "failure"]),
   saved: z.boolean(),
@@ -192,7 +192,7 @@ export const PublicScheduledSend = z.object({
   error: MaybeText,
   created_at: Time,
 });
-export const PublicScheduledView = PublicScheduledSend.extend({
+const PublicScheduledView = PublicScheduledSend.extend({
   agent_name: MaybeText,
   provider: MaybeText,
   conversation_title: MaybeText,

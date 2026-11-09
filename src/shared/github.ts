@@ -32,7 +32,7 @@ export type PullRequestCard = {
 
 // Tools whose results describe pull requests. Names match the official GitHub
 // MCP server (api.githubcopilot.com/mcp).
-export const PULL_REQUEST_READ_TOOLS = new Set([
+const PULL_REQUEST_READ_TOOLS = new Set([
   "pull_request_read",
   "list_pull_requests",
   "search_pull_requests",

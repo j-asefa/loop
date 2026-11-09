@@ -12,7 +12,7 @@ import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
 
 export type MyProfileData = RouteResponse<typeof workspaceApi.personalProfile>;
-export type ProfileTab =
+type ProfileTab =
   | "messages"
   | "approvals"
   | "answers"

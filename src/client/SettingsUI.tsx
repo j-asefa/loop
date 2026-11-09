@@ -14,7 +14,7 @@ import {
  * not in a paragraph above the controls.
  */
 
-export type SettingsTone = "ready" | "attention" | "muted";
+type SettingsTone = "ready" | "attention" | "muted";
 
 /** A state label: a coloured dot plus a word. Colour never carries meaning alone. */
 export function SettingsPill({

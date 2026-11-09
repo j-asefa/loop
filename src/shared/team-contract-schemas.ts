@@ -85,7 +85,7 @@ export const DefinitionCreateInput = z.strictObject({
     .default({}),
   idempotencyKey: Text.min(8).max(150),
 });
-export const PublicDefinitionRole = z.object({
+const PublicDefinitionRole = z.object({
   name: Text,
   description: Text,
   instructions: Text,
@@ -93,7 +93,7 @@ export const PublicDefinitionRole = z.object({
   model: Text.optional(),
   effort: Text.nullable().optional(),
 });
-export const PublicDefinitionSpec = z.discriminatedUnion("kind", [
+const PublicDefinitionSpec = z.discriminatedUnion("kind", [
   PublicDefinitionRole.extend({ kind: z.literal("agent") }),
   z.object({
     kind: z.literal("team"),
@@ -221,7 +221,7 @@ const Rect = z.union([
   z.array(Geometry).length(0),
   z.array(Geometry).length(4),
 ]);
-export const ViewportSample = z.strictObject({
+const ViewportSample = z.strictObject({
   elapsed: Geometry,
   viewport: z.array(Geometry).length(9),
   dialog: Rect,

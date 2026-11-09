@@ -221,7 +221,7 @@ export function displayFeedCard(
   };
 }
 
-export type NextAction = {
+type NextAction = {
   kind: "approve" | "answer" | "result";
   message_id: string | null;
   run_id: string;

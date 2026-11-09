@@ -17,7 +17,7 @@ export type TokenWrite = (
   request: TokenRequest,
   effect: () => TokenResult | Promise<TokenResult>,
 ) => TokenResult | Promise<TokenResult>;
-export type TokenWritePolicy = {
+type TokenWritePolicy = {
   mode: "local" | "external";
   // Capture owner/generation checks before admitting a new effect. A completed
   // replay only projects its saved locator; it never re-enters this preparation.

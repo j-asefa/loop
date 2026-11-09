@@ -68,7 +68,7 @@ function standardServers(
     add(results, provider, name, config);
 }
 
-export async function nativeMcpCandidates() {
+async function nativeMcpCandidates() {
   const results: Candidate[] = [];
   // The Codex CLI merges user, project and plugin configuration. Its JSON
   // output is read only inside the source process; env values never go to UI.

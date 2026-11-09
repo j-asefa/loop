@@ -6,7 +6,7 @@ import { ExecutionRefused } from "./execution-refusal.js";
 // inside their owning transaction, so any record an implementation writes
 // commits atomically with the effect it authorizes.
 export type EffectKind = "run" | "steering" | "scheduled";
-export type EffectEdit = Readonly<{
+type EffectEdit = Readonly<{
   owner: string;
   kind: EffectKind;
   effectId: string;

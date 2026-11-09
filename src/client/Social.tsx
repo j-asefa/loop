@@ -160,7 +160,7 @@ const plural = (n: number, word: string) =>
  * The story a `?social=` link points at. A notification about a watched word
  * opens Social here, on the story it matched.
  */
-export function openedStory() {
+function openedStory() {
   const value = new URLSearchParams(location.search).get("social") || "";
   return /^[a-z0-9][\w.:-]{0,160}:.{1,500}$/i.test(value) ? value : "";
 }

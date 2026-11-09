@@ -8,7 +8,7 @@ type ParameterPath<P extends string> =
     : P extends `${infer Head}:${string}`
       ? `${Head}${string}`
       : P;
-export type RoutePath<P extends string> =
+type RoutePath<P extends string> =
   ParameterPath<P> | `${ParameterPath<P>}?${string}`;
 
 /** Validate before sending, but serialize the input: server defaults and query

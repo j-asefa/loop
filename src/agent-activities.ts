@@ -55,7 +55,7 @@ const Id = z.string().min(1).max(ACTIVITY_LIMITS.id);
 const Text = z.string().max(ACTIVITY_LIMITS.text);
 const Path = z.string().min(1).max(ACTIVITY_LIMITS.path);
 
-export const ActivitySource = z
+const ActivitySource = z
   .object({
     // How Loop reached the harness. Independent of model provider/account.
     transport: z.enum(["native", "api", "acp"]),
@@ -65,10 +65,10 @@ export const ActivitySource = z
     origin: z.string().min(1).max(100),
   })
   .strict();
-export type ActivitySource = z.infer<typeof ActivitySource>;
+type ActivitySource = z.infer<typeof ActivitySource>;
 
 // ---- Plans --------------------------------------------------------------
-export const PlanStepStatus = z.enum([
+const PlanStepStatus = z.enum([
   "pending",
   "in_progress",
   "completed",
@@ -88,7 +88,7 @@ const PlanStep = z
     priority: z.enum(["high", "medium", "low"]).optional(),
   })
   .strict();
-export type PlanStep = z.infer<typeof PlanStep>;
+type PlanStep = z.infer<typeof PlanStep>;
 const PlanPatch = z
   .object({
     // Plans are replaced as a whole list, matching ACP/Codex semantics.
@@ -96,7 +96,7 @@ const PlanPatch = z
     explanation: Text.nullable().optional(),
   })
   .strict();
-export type PlanData = {
+type PlanData = {
   steps: PlanStep[];
   explanation?: string;
   // Increments whenever the step list is replaced.
@@ -104,7 +104,7 @@ export type PlanData = {
 };
 
 // ---- Tools --------------------------------------------------------------
-export const ToolStatus = z.enum([
+const ToolStatus = z.enum([
   "proposed", // requested, not yet authorized or started
   "waiting", // waiting for approval or child work
   "running",
@@ -113,7 +113,7 @@ export const ToolStatus = z.enum([
   "cancelled",
   "unknown", // dispatch outcome uncertain; never automatically replayed
 ]);
-export type ToolStatus = z.infer<typeof ToolStatus>;
+type ToolStatus = z.infer<typeof ToolStatus>;
 const ToolContent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: Text }).strict(),
   z.object({ type: z.literal("file_change"), activity: Id }).strict(),
@@ -134,7 +134,7 @@ const ToolContent = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
-export type ToolContent = z.infer<typeof ToolContent>;
+type ToolContent = z.infer<typeof ToolContent>;
 const ToolPatch = z
   .object({
     title: z.string().max(ACTIVITY_LIMITS.title).nullable().optional(),
@@ -159,7 +159,7 @@ const ToolPatch = z
       .optional(),
   })
   .strict();
-export type ToolData = {
+type ToolData = {
   title?: string;
   category?: string;
   status: ToolStatus;
@@ -186,7 +186,7 @@ const FileEntry = z
     reason: z.string().max(1000).optional(),
   })
   .strict();
-export type FileEntry = z.infer<typeof FileEntry>;
+type FileEntry = z.infer<typeof FileEntry>;
 const FileChangePatch = z
   .object({
     tool: Id.nullable().optional(),
@@ -322,7 +322,7 @@ const CatalogCommand = z
     reason: z.string().max(1000).optional(),
   })
   .strict();
-export type CatalogCommand = z.infer<typeof CatalogCommand>;
+type CatalogCommand = z.infer<typeof CatalogCommand>;
 const CommandsPatch = z
   .object({
     // Always the complete catalog, so removals are explicit.
@@ -514,9 +514,8 @@ export const ActivityRecordSchema = z.discriminatedUnion("kind", [
   }),
 ]) satisfies z.ZodType<ActivityRecord>;
 
-export type ActivityCapabilityState =
-  "supported" | "unsupported" | "undiscovered";
-export type ActivityCapability = {
+type ActivityCapabilityState = "supported" | "unsupported" | "undiscovered";
+type ActivityCapability = {
   state: ActivityCapabilityState;
   // Where this answer came from: "loop", "codex app-server 0.x", "acp initialize", ...
   source: string;
@@ -530,7 +529,7 @@ export const ACTIVITY_FEATURES = [
   "settings",
   "commands",
 ] as const;
-export type ActivityFeature = (typeof ACTIVITY_FEATURES)[number];
+type ActivityFeature = (typeof ACTIVITY_FEATURES)[number];
 export type ActivityCapabilities = Record<ActivityFeature, ActivityCapability>;
 export function undiscoveredCapabilities(source: string): ActivityCapabilities {
   return Object.fromEntries(
@@ -703,7 +702,7 @@ function mergeSetting(prev: Setting | undefined, patch: Setting): Setting {
   return out as Setting;
 }
 
-export type ReduceResult =
+type ReduceResult =
   | { changed: true; record: ActivityRecord }
   | { changed: false; record: ActivityRecord | undefined; reason: string };
 

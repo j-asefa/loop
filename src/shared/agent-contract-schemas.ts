@@ -81,7 +81,7 @@ export const PublicConnectionRefresh = PublicModels.extend({
     .optional(),
   capabilities: z.record(Text, z.json()).optional(),
 });
-export const PublicHarnessCommand = z.object({
+const PublicHarnessCommand = z.object({
   name: Text,
   token: Text,
   kind: Text,
@@ -101,7 +101,7 @@ export const PublicHarnessCommand = z.object({
     .catchall(z.json())
     .optional(),
 });
-export const PublicPiResource = z.object({
+const PublicPiResource = z.object({
   name: Text,
   description: Text,
   kind: z.enum(["skill", "prompt", "extension", "tool"]),
@@ -112,7 +112,7 @@ export const PublicPiResource = z.object({
   package: Text.optional(),
   path: Text.optional(),
 });
-export const PublicPiInventory = z.object({
+const PublicPiInventory = z.object({
   resources: z.array(PublicPiResource),
   packages: z.array(
     z.object({ path: Text, name: Text, resources: z.number() }),
@@ -147,7 +147,7 @@ export const PublicHarnessCatalog = z.object({
   capabilities: SessionCapabilities.optional(),
   inventory: PublicPiInventory.optional(),
 });
-export const PiFilters = z.strictObject({
+const PiFilters = z.strictObject({
   extensions: z.array(Text.max(300)).max(100).optional(),
   skills: z.array(Text.max(300)).max(100).optional(),
   prompts: z.array(Text.max(300)).max(100).optional(),

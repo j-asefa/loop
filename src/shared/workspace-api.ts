@@ -430,7 +430,7 @@ export const NativeDecision = z.object({
 export type NativeDecision = z.infer<typeof NativeDecision>;
 
 export const CardErrorSchema = z.object({ error: z.string() });
-export const CreatedCardTokenSchema = z.object({
+const CreatedCardTokenSchema = z.object({
   token: CardTokenSchema,
   secret: z.string(),
 });
@@ -452,7 +452,7 @@ const NumberCursor = z.coerce
   .int()
   .min(0)
   .max(Number.MAX_SAFE_INTEGER);
-export type PeerAccess =
+type PeerAccess =
   | "peer:enrollment"
   | "peer:handoff"
   | "peer:directory"

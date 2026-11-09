@@ -21,7 +21,7 @@ export type NewsStory = {
 };
 
 /** A story as Social shows it: with the feed it came from, and when it arrived. */
-export type SocialStoryFields = {
+type SocialStoryFields = {
   feed: string;
   /** When Loop first read this story, which undated feeds are sorted by. */
   first_seen_at: number;
@@ -49,7 +49,7 @@ export type SocialResponse = {
 };
 
 /** When a feed was last read, and what went wrong if it could not be. */
-export type FeedHealth = {
+type FeedHealth = {
   id: string;
   fetched_at: number | null;
   failed_at: number | null;
@@ -93,7 +93,7 @@ export type FeedEntry = {
 };
 
 /** Sites whose own mark Social draws rather than an initial on a colour. */
-export type FeedMarkName = "hn" | "reddit" | "github" | "youtube";
+type FeedMarkName = "hn" | "reddit" | "github" | "youtube";
 
 const entry = (
   id: string,

@@ -57,9 +57,9 @@ export const TERMINAL_STATES = [
 ];
 const ACTIVE_STATES = ["running", "pausing", "paused", "awaiting_approval"];
 
-export class CheckoutError extends Error {}
+class CheckoutError extends Error {}
 
-export type CheckoutRow = {
+type CheckoutRow = {
   id: string;
   owner_id: string;
   run_id: string;
@@ -620,7 +620,7 @@ function summarize(row: CheckoutRow): CheckoutSummary {
 const select = (runId: string, owner?: string) =>
   runCheckoutsQueries.select(db, runId, owner);
 
-export function toDetail(row: CheckoutRow): CheckoutDetail {
+function toDetail(row: CheckoutRow): CheckoutDetail {
   // The baseline is capture machinery, not another browser-visible patch.
   const { start_patch, start_untracked_paths, ...detail } = row;
   return {

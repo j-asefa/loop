@@ -218,11 +218,7 @@ export function assertTeamRestoreCapacity(owner: string, agentId: string) {
 
 const routes = registrar("teams");
 export const teams = routes.mount;
-export function setTeamFeedVisibility(
-  owner: string,
-  teamId: string,
-  input: unknown,
-) {
+function setTeamFeedVisibility(owner: string, teamId: string, input: unknown) {
   const { hideResultsFromFeed } =
     workspaceApi.teamFeedVisibility.body.parse(input);
   return db

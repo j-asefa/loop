@@ -17,9 +17,7 @@ import { DeviceExpiryChecks, type DeviceExpiryCheck } from "./device-expiry.js";
 const Id = z.string().uuid();
 const Digest = z.string().regex(/^[a-f0-9]{64}$/);
 /** 256-bit base64url secret, the same format fleet links use. */
-export const PairingSecret = z
-  .string()
-  .regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
+const PairingSecret = z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
 const Device = z.object({
   id: Id,
   name: z.string().max(100),

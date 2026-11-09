@@ -207,7 +207,7 @@ export function localAttachmentPrompt(
   });
   return attachmentPrompt(content, files) + localPathsPrompt(local);
 }
-export const localPathsPrompt = (local: { name: string; path: string }[]) =>
+const localPathsPrompt = (local: { name: string; path: string }[]) =>
   local.length
     ? "\nThese uploaded files are also available on this machine at the following paths. Use native file tools to inspect them:\n" +
       JSON.stringify(local)

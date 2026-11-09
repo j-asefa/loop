@@ -6,16 +6,16 @@ import {
   type WorkspaceCapabilities,
 } from "../shared/workspace-events";
 
-export type WorkspaceChange = {
+type WorkspaceChange = {
   source: string;
   events: readonly WorkspaceEvent[];
   capabilities?: WorkspaceCapabilities;
 };
-export type WorkspaceChangeDetail = {
+type WorkspaceChangeDetail = {
   sources: string[];
   changes?: WorkspaceChange[];
 };
-export type WorkspaceSurface = WorkspaceCollection | "thread" | "metadata";
+type WorkspaceSurface = WorkspaceCollection | "thread" | "metadata";
 
 export function broadWorkspaceChange(event: Event) {
   const detail = (event as CustomEvent<WorkspaceChangeDetail>).detail;

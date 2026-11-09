@@ -112,7 +112,7 @@ export function serviceDefinitions(
 }
 
 /** Repoint the executable in installed service units. */
-export function repointUnit(
+function repointUnit(
   platform: string,
   contents: string,
   cli: string,

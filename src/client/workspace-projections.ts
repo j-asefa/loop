@@ -1,7 +1,7 @@
 import type { WorkspaceFrame } from "./workspace-events";
 import { viewGeneration } from "./viewCache";
 
-export type ProjectionFrame = {
+type ProjectionFrame = {
   source: string;
   generation: number;
   frame: WorkspaceFrame;

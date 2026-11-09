@@ -9,7 +9,7 @@ import { topSheet } from "./modalDialog";
  * action. For a deferred action, `onExpire` commits it when the toast ends,
  * is replaced, or the page is hidden; Undo then simply never commits it.
  */
-export type Toast = {
+type Toast = {
   text: string;
   tone?: "error";
   link?: { label: string; onSelect: () => void };
