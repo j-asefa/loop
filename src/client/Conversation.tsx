@@ -32,7 +32,7 @@ import {
 } from "./activityView";
 import { ActivityView } from "./ActivityRecords";
 import { SessionActivityControls } from "./SessionActivityControls";
-import type { ActivityRecord } from "../agent-activities";
+import type { ActivityRecord } from "../shared/agent-activities";
 import {
   conversationRefreshCursor,
   type ConversationMessage,

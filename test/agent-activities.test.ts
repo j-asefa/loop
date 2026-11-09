@@ -7,7 +7,7 @@ import {
   reduceActivity,
   type ActivityRecord,
   type ActivityUpdate,
-} from "../src/agent-activities";
+} from "../src/shared/agent-activities";
 
 const source = {
   transport: "native" as const,

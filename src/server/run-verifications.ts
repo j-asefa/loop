@@ -1,7 +1,7 @@
 import * as runVerificationsQueries from "./sql/run-verifications.js";
 import { db, id, now } from "./db.js";
 import type { Run } from "./queue.js";
-import type { OutputData } from "../agent-activities.js";
+import type { OutputData } from "../shared/agent-activities.js";
 import {
   chainLength,
   classifyVerification,

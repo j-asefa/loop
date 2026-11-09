@@ -15,7 +15,7 @@ import {
   runTiming,
   startsNewDay,
 } from "../src/client/threadView";
-import type { ActivityRecord } from "../src/agent-activities";
+import type { ActivityRecord } from "../src/shared/agent-activities";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

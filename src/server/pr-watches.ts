@@ -14,7 +14,7 @@ import { db, id, now } from "./db.js";
 import { ownedArtifact, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import type { Run } from "./queue.js";
-import type { OutputData } from "../agent-activities.js";
+import type { OutputData } from "../shared/agent-activities.js";
 import {
   GithubError,
   githubRest,

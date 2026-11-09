@@ -49,7 +49,7 @@ import {
   teamOf,
   teamRoster,
 } from "./agent-mail.js";
-import { ACTIVITY_LIMITS } from "../agent-activities.js";
+import { ACTIVITY_LIMITS } from "../shared/agent-activities.js";
 import {
   GITHUB_GUIDANCE,
   githubContext,

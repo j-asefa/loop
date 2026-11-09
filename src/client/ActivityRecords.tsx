@@ -1,5 +1,5 @@
-import type { ActivityRecord } from "../agent-activities";
-import { outputText } from "../agent-activities";
+import type { ActivityRecord } from "../shared/agent-activities";
+import { outputText } from "../shared/agent-activities";
 import {
   PlanPanel,
   FileChangePanel,

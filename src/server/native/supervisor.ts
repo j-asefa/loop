@@ -38,7 +38,8 @@ import {
   type Adapter,
   type Options,
 } from "../../adapters/types.js";
-import { type AdapterEvent, type Harness } from "../../protocol.js";
+import type { AdapterEvent } from "../../adapters/events.js";
+import { type Harness } from "../../shared/protocol.js";
 import { replyPrompt } from "../../shared/replies.js";
 import { reviewContext } from "../review-access.js";
 import {
@@ -49,7 +50,7 @@ import {
 import {
   undiscoveredCapabilities,
   type SettingValue,
-} from "../../agent-activities.js";
+} from "../../shared/agent-activities.js";
 import { type PiPackageEntry } from "../pi-customization-files.js";
 import { type Live, type Binding } from "./state.js";
 import { classes } from "./adapters.js";

@@ -14,7 +14,7 @@ import {
   prepareImportedWorkspace,
 } from "./native-sessions.js";
 import type { Options } from "../adapters/types.js";
-import { type Item } from "../protocol.js";
+import { type Item } from "../shared/protocol.js";
 import { Problem } from "./domain.js";
 import type { AgentWorkspace } from "./agent-worktree.js";
 

@@ -22,7 +22,7 @@ export {
   MemorySourceRecord,
 } from "./storage-schemas.js";
 import { z } from "zod";
-import { Harness } from "../protocol.js";
+import { Harness } from "../shared/protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
 import { RunState } from "../shared/run-state.js";
 import { Problem } from "../shared/problem.js";

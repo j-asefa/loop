@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
 import qr from "qrcode-terminal";
-import { Harness } from "./protocol.js";
+import { Harness } from "./shared/protocol.js";
 import { privateDir, atomic } from "./state.js";
 import {
   BackendLease,

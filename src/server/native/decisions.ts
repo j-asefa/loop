@@ -14,14 +14,14 @@ import { createHash } from "node:crypto";
 import { db, id, now, emit } from "../db.js";
 import { ownedRun, Problem } from "../domain.js";
 import { NotDelivered } from "../../adapters/types.js";
-import { validateAnswer } from "../../protocol.js";
+import { validateAnswer } from "../../shared/protocol.js";
 import {
   autoApproval,
   DEFAULT_PERMISSION_MODE,
 } from "../../shared/permission-modes.js";
 import { MAX_NATIVE_REQUEST_BYTES } from "../../shared/workspace-events.js";
 import { transition, type Run } from "../queue.js";
-import type { AdapterEvent } from "../../protocol.js";
+import type { AdapterEvent } from "../../adapters/events.js";
 import { OWNER, type Live } from "./state.js";
 
 type Context = {

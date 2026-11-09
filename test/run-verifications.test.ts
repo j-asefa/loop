@@ -17,7 +17,7 @@ const { classifyVerification, summarize } =
 const { shellWords, createdPullRequest } =
   await import("../src/shared/pr-command");
 import type { Run } from "../src/server/queue";
-import type { OutputData } from "../src/agent-activities";
+import type { OutputData } from "../src/shared/agent-activities";
 
 afterAll(() => {
   db.close();

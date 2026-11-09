@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { routePath } from "../src/shared/route-path";
-import { reduceActivity } from "../src/agent-activities";
+import { reduceActivity } from "../src/shared/agent-activities";
 import { ActivityHistory } from "../src/client/activityHistory";
 import {
   mergeActivities,

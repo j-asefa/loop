@@ -2,7 +2,7 @@ import { harnesses, supportsBilling } from "../shared/harnesses.js";
 import { Acp } from "./acp.js";
 import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
-import type { Billing } from "../protocol.js";
+import type { Billing } from "../shared/protocol.js";
 
 /** Grok Build owns sign-in, billing and context; Loop speaks its native ACP API. */
 export class Grok extends Acp {

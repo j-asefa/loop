@@ -1,5 +1,5 @@
 import type { Live } from "../src/server/native-sessions";
-import type { Item } from "../src/protocol";
+import type { Item } from "../src/shared/protocol";
 import { Codex } from "../src/adapters/codex";
 import Database from "better-sqlite3";
 import { afterAll, expect, it, vi } from "vitest";

@@ -18,7 +18,8 @@ import { recordConversationUpdate } from "../conversation-updates.js";
 import { recordTrace } from "../traces.js";
 import { transition } from "../queue.js";
 
-import { type AdapterEvent, type Item } from "../../protocol.js";
+import type { AdapterEvent } from "../../adapters/events.js";
+import { type Item } from "../../shared/protocol.js";
 import {
   MAX_NATIVE_REQUEST_BYTES,
   MAX_NATIVE_EVENT_BYTES,

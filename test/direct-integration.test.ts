@@ -7,7 +7,7 @@ import {
   ActivityUpdate,
   reduceActivities,
   outputText,
-} from "../src/agent-activities";
+} from "../src/shared/agent-activities";
 import { DirectControls } from "../src/adapters/direct-controls";
 
 const options = {
@@ -391,7 +391,7 @@ it("direct output has instance-local ordering and duplicate-safe chunk indices",
 });
 
 it("new producer generations replace settings and command revisions without stale choices", async () => {
-  const { reduceActivity } = await import("../src/agent-activities");
+  const { reduceActivity } = await import("../src/shared/agent-activities");
   const source = {
     transport: "native" as const,
     harness: "codex",

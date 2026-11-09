@@ -17,7 +17,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { killOwned, own } from "../processes.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
-import type { Billing, Item } from "../protocol.js";
+import type { Billing, Item } from "../shared/protocol.js";
 import {
   ACTIVITY_VERSION,
   ACTIVITY_LIMITS,
@@ -28,7 +28,7 @@ import {
   type SettingsData,
   type CommandsData,
   type FileChangeData,
-} from "../agent-activities.js";
+} from "../shared/agent-activities.js";
 
 const LIMIT = 8 * 1024 * 1024;
 const STARTUP_MS = 15_000;

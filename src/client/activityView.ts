@@ -2,7 +2,7 @@ import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
-import type { ActivityRecord } from "../agent-activities";
+import type { ActivityRecord } from "../shared/agent-activities";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 
 // Client side of the shared activity projection. The server has already

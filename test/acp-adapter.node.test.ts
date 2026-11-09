@@ -5,8 +5,8 @@ import { Acp } from "../src/adapters/acp.js";
 import {
   reduceActivity,
   type ActivityRecord,
-} from "../src/agent-activities.js";
-import type { AdapterEvent } from "../src/protocol.js";
+} from "../src/shared/agent-activities.js";
+import type { AdapterEvent } from "../src/adapters/events.js";
 
 const fixture = fileURLToPath(
   new URL("./fixtures/fake-acp.mjs", import.meta.url),

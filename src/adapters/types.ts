@@ -1,15 +1,11 @@
-import type {
-  AdapterEvent,
-  Billing,
-  Capabilities,
-  Harness,
-} from "../protocol.js";
+import type { AdapterEvent } from "./events.js";
+import type { Billing, Capabilities, Harness } from "../shared/protocol.js";
 import type {
   ActivityCapabilities,
   CommandsData,
   SettingsData,
   SettingValue,
-} from "../agent-activities.js";
+} from "../shared/agent-activities.js";
 import type { ModelOption } from "../shared/models.js";
 export type Options = {
   harness: Harness;

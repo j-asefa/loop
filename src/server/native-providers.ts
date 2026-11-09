@@ -22,7 +22,7 @@ import { reserveProviderChange } from "./native-provider-locks.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { ExecutionProblem } from "../shared/problem.js";
 import { writeConnectionStatus } from "./connection-status.js";
-import type { Harness } from "../protocol.js";
+import type { Harness } from "../shared/protocol.js";
 
 type Target = ExecutionInput<"provider.catalog">;
 // Secret-bearing commands have only HMAC receipts on disk. Keep their safe
