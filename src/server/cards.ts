@@ -1,3 +1,5 @@
+import { REVISION_PAGE_ITEMS } from "./pagination.js";
+import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
 import * as cardRevisionDomainQueries from "./sql/card-revision-domain.js";
 import * as doneCardRevisionsQueries from "./sql/done-card-revisions.js";
 import * as feedRevisionsQueries from "./sql/feed-revisions.js";
@@ -33,12 +35,6 @@ type Selection = CardQuerySelection;
 type Row = CardQueryRow;
 const text = (value: unknown): string | null =>
   typeof value === "string" ? value : null;
-const encode = (value: unknown) =>
-  Buffer.from(JSON.stringify(value)).toString("base64url");
-function decode(value: string): unknown {
-  if (!/^[\w-]+$/.test(value)) throw new Error("Invalid encoding");
-  return JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-}
 function selection(owner: string, input: CardSelection): Selection {
   if (input.read !== undefined && input.view !== "done")
     throw new Problem(400, "Read status is supported only for Done");
@@ -79,7 +75,7 @@ const orderTuple = z.tuple([
 ]);
 function readRevision(value: string, scope: string, current: number) {
   try {
-    const [domain, revision] = revisionTuple.parse(decode(value));
+    const [domain, revision] = decode(value, revisionTuple);
     if (domain !== scope || revision > current)
       throw new Error("Different revision domain");
     return revision;
@@ -96,9 +92,7 @@ function readBefore(
 ): [number, string] | null {
   if (!value) return null;
   try {
-    const [domain, order] = z
-      .tuple([z.string(), orderTuple])
-      .parse(decode(value));
+    const [domain, order] = decode(value, z.tuple([z.string(), orderTuple]));
     if (domain !== scope) throw new Error("Different selection");
     return order;
   } catch {
@@ -348,14 +342,15 @@ export function cardChanges(owner: string, input: unknown) {
   let after: number;
   if (options.view === "done") {
     try {
-      const value = z
-        .tuple([
+      const value = decode(
+        options.after,
+        z.tuple([
           z.string(),
           z.number().int().nonnegative(),
           z.number().int().nonnegative(),
           z.string(),
-        ])
-        .parse(decode(options.after));
+        ]),
+      );
       if (value[0] !== scope || value[1] > revision)
         throw new Error("Different domain");
       [, after, expiryAt, expiryId] = value;
@@ -370,13 +365,25 @@ export function cardChanges(owner: string, input: unknown) {
   // progress through removals. Both prompt/message entities map to one identity.
   const changed =
     options.view === "done"
-      ? doneCardRevisionsQueries.cardChanges(db, owner, after, revision)
-      : feedRevisionsQueries.cardChanges(db, owner, after, revision);
+      ? doneCardRevisionsQueries.cardChanges(
+          db,
+          owner,
+          after,
+          revision,
+          REVISION_PAGE_ITEMS,
+        )
+      : feedRevisionsQueries.cardChanges(
+          db,
+          owner,
+          after,
+          revision,
+          REVISION_PAGE_ITEMS,
+        );
   if (options.view === "done") {
     // Approval and stopped-watch expiry can change cards without a write. Carry a
     // second, bounded cursor so timestamp ties and revision backlogs cannot
     // skip those transitions or require an unbounded refresh.
-    const remaining = 200 - changed.length;
+    const remaining = REVISION_PAGE_ITEMS - changed.length;
     const expired = remaining
       ? watchQueries.expiredCards(db, {
           owner,
@@ -400,20 +407,22 @@ export function cardChanges(owner: string, input: unknown) {
     const items = doneCards(owner, {
       ...selected,
       ids,
-      limit: 200,
+      limit: REVISION_PAGE_ITEMS,
       atTime: observedAt,
     });
     const present = new Set(items.map((item) => item.card.id));
     return {
       revision: encode([
         scope,
-        changed.length === 200 ? changed.at(-1)!.revision : revision,
+        changed.length === REVISION_PAGE_ITEMS
+          ? changed.at(-1)!.revision
+          : revision,
         pendingExpiry ? (last?.at ?? expiryAt) : observedAt,
         pendingExpiry ? (last?.id ?? expiryId) : "",
       ]),
       items,
       removed: ids.filter((id) => !present.has(id)),
-      more: changed.length === 200 || pendingExpiry,
+      more: changed.length === REVISION_PAGE_ITEMS || pendingExpiry,
     };
   }
   const artifacts = new Set(
@@ -425,8 +434,14 @@ export function cardChanges(owner: string, input: unknown) {
       .map((r) => r.object_id),
   );
   const current = [
-    ...query(owner, selected, "artifact", { ids: [...artifacts], limit: 200 }),
-    ...query(owner, selected, "message", { ids: [...messages], limit: 200 }),
+    ...query(owner, selected, "artifact", {
+      ids: [...artifacts],
+      limit: REVISION_PAGE_ITEMS,
+    }),
+    ...query(owner, selected, "message", {
+      ids: [...messages],
+      limit: REVISION_PAGE_ITEMS,
+    }),
   ];
   const candidates = new Set([
     ...(options.view !== "sent" ? [...artifacts].map((id) => "a:" + id) : []),
@@ -444,10 +459,12 @@ export function cardChanges(owner: string, input: unknown) {
   return {
     revision: encode([
       scope,
-      changed.length === 200 ? changed.at(-1)!.revision : revision,
+      changed.length === REVISION_PAGE_ITEMS
+        ? changed.at(-1)!.revision
+        : revision,
     ]),
     items,
     removed: [...candidates],
-    more: changed.length === 200,
+    more: changed.length === REVISION_PAGE_ITEMS,
   };
 }

@@ -1,3 +1,4 @@
+import { REVISION_PAGE_ITEMS } from "./pagination.js";
 import * as projectChangeFoldersQueries from "./sql/project-change-folders.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as feedRevisionQueries from "./sql/feed-revisions.js";
@@ -47,6 +48,7 @@ export function resultsUpdates(
     owner,
     options,
     revision,
+    REVISION_PAGE_ITEMS,
   ) as any[];
   const items = [],
     removed: string[] = [];
@@ -85,8 +87,11 @@ export function resultsUpdates(
   return {
     items,
     removed,
-    revision: rows.length === 200 ? rows.at(-1)!.change_revision : revision,
-    more: rows.length === 200,
+    revision:
+      rows.length === REVISION_PAGE_ITEMS
+        ? rows.at(-1)!.change_revision
+        : revision,
+    more: rows.length === REVISION_PAGE_ITEMS,
   };
 }
 

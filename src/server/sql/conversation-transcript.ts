@@ -8,7 +8,7 @@ import { statement } from "./statement.js";
 export const transcriptPageSql = `WITH page AS MATERIALIZED (
   SELECT * FROM conversation_transcript
   WHERE owner_id=? AND conversation_id=? AND (position,phase,ordinal)<(?,?,?)
-  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT 51
+  ORDER BY position DESC,phase DESC,ordinal DESC LIMIT ?
 ) SELECT m.id,m.owner_id,m.conversation_id,m.run_id,m.role,m.content,
   m.metadata,m.created_at,m.revision,m.run_state,m.run_error,m.run_checkout,m.run_verification,
   p.position,p.phase,p.ordinal
@@ -76,6 +76,7 @@ export function page(
     position: number,
     phase: number,
     ordinal: number,
+    limit: number,
   ]
 ) {
   return pageStatement(db)

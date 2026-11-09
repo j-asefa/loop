@@ -71,6 +71,7 @@ export function updates(
   owner: string,
   options: { saved?: boolean; view?: string; after: number; through: number },
   revision: number,
+  limit: number,
 ) {
   const prompts = !options.saved && options.view === "prompts";
   const rows = updatesStatement(
@@ -81,7 +82,7 @@ export function updates(
     LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=m.owner_id
     LEFT JOIN conversations c ON c.id=m.conversation_id LEFT JOIN agents g ON g.id=c.agent_id
     WHERE f.owner_id=? AND f.entity='prompt' AND f.revision>? AND f.revision<=? AND f.cursor>=?
-    ORDER BY f.revision LIMIT 200
+    ORDER BY f.revision LIMIT ?
   `
       : `
     SELECT f.revision AS change_revision,f.object_id AS changed_id,COALESCE(p.sequence,f.cursor) AS cursor,a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,g.name,g.provider,c.team_id,(${options.saved || options.view === "files" ? fileArtifactSql : resultOutputSql}) AS output_visible
@@ -90,10 +91,10 @@ export function updates(
     LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     LEFT JOIN agents g ON g.id=a.agent_id LEFT JOIN conversations c ON c.id=a.conversation_id
     WHERE f.owner_id=? AND f.entity='artifact' AND f.revision>? AND f.revision<=? AND (p.sequence>=? OR p.sequence IS NULL)
-    ORDER BY f.revision LIMIT 200
+    ORDER BY f.revision LIMIT ?
   `,
     db,
-  ).all(owner, options.after, revision, options.through);
+  ).all(owner, options.after, revision, options.through, limit);
   return prompts
     ? rows.map((row) => parseRecord(promptUpdateRow, row, "feed_revisions"))
     : rows.map((row) => parseRecord(artifactUpdateRow, row, "feed_revisions"));
@@ -101,7 +102,7 @@ export function updates(
 
 const cardChangesStatement =
   statement(`SELECT revision,entity,object_id FROM feed_revisions
-    WHERE owner_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 200`);
+    WHERE owner_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT ?`);
 const cardChangesRow = z.object({
   revision: z.number(),
   entity: z.string(),
@@ -112,8 +113,9 @@ export function cardChanges(
   owner: string,
   after: number,
   revision: number,
+  limit: number,
 ) {
   return cardChangesStatement(db)
-    .all(owner, after, revision)
+    .all(owner, after, revision, limit)
     .map((row) => parseRecord(cardChangesRow, row, "feed_revisions"));
 }

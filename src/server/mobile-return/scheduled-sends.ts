@@ -1,3 +1,4 @@
+import { encodeCursor as encode, decodeCursor as decode } from "../cursors.js";
 import * as scheduledSendsQueries from "../sql/scheduled-sends.js";
 import * as runsQueries from "../sql/runs.js";
 import {
@@ -15,7 +16,7 @@ import {
 import { submit } from "../agent-runtime.js";
 import { attachedFiles } from "../uploads.js";
 import { messageReplyContext } from "../message-replies.js";
-import { attachmentDescriptors, encode, decode } from "./shared.js";
+import { attachmentDescriptors } from "./shared.js";
 import {
   recordEffect,
   recordEffectEdit,
@@ -156,7 +157,7 @@ export function listScheduledSends(
 ) {
   if (conversation) ownedConversation(conversation, owner);
   const cursor = failedBefore
-    ? decode(failedBefore, failedCursor, "scheduled")
+    ? decode(failedBefore, failedCursor, "Invalid scheduled cursor")
     : null;
   // Waiting and not-sent messages are read separately, so a long history of
   // failures can never hide work that is still going to be sent. Failures

@@ -1,3 +1,4 @@
+import { encodeCursor as encode, decodeCursor as decode } from "./cursors.js";
 import * as agentMailQueries from "./sql/agent-mail.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as artifactsQueries from "./sql/artifacts.js";
@@ -8,7 +9,6 @@ import { db } from "./db.js";
 import { ownedAgent, ownedFolder, Problem } from "./domain.js";
 import { projectFolders } from "./results.js";
 import { teamFilter } from "./teams.js";
-import { encode, decode } from "./mobile-return/shared.js";
 import {
   publicMailMessage,
   publicMailAgentReference,
@@ -76,7 +76,7 @@ export function listAgentThreads(
     const folders = query.project ? projectFolders(owner, query.project) : null;
     const teams = teamFilter(query.teams, owner);
     const cursor = query.before
-      ? decode(query.before, listCursor, "agent threads")
+      ? decode(query.before, listCursor, "Invalid agent threads cursor")
       : null;
     const rows = agentThreadsQueries.feed(db, {
       owner,
@@ -113,7 +113,7 @@ export function readAgentThread(
     ) as Thread | undefined;
     if (!thread) throw new Problem(404, "Thread not found");
     const cursor = query.before
-      ? decode(query.before, messageCursor, "agent messages")
+      ? decode(query.before, messageCursor, "Invalid agent messages cursor")
       : null;
     const rows = mailQueries.ownedThreadPage(
       db,

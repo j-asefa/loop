@@ -97,6 +97,7 @@ export function feedPage(
     at: number | null;
     after: string | null;
     afterCard: string | null;
+    limit: number;
   },
   filter: FeedFilter,
   results: boolean,
@@ -121,7 +122,7 @@ export function feedPage(
       ${filter === "all" || filter === "done" || filter === "outcomes" ? "AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)" : ""}
       AND (@at IS NULL OR ${sort}<@at OR (${sort}=@at AND (p.conversation_id<@after OR
         (p.conversation_id=@after AND p.card_key<@afterCard))))
-    ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT 41`;
+    ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT @limit`;
   // One indexed page selection and covering-index aggregate in one statement.
   // LEFT JOIN preserves summary counts even when this continuation has no rows.
   const summarySql = `SELECT COALESCE(sum(${needs}),0) needs,
