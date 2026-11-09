@@ -674,11 +674,6 @@ a:focus-visible {
   font-weight: 500;
   margin: 0;
 }
-.workspace-content .feed-item-details {
-  margin: 0 0 0 54px;
-  padding-top: 4px;
-  flex-wrap: wrap;
-}
 .workspace-content .feed-card .preview {
   max-height: 200px;
   -webkit-line-clamp: 7;
