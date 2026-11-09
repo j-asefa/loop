@@ -1,3 +1,4 @@
+import { MAX_TEAM_WORKERS } from "../../shared/team-limits.js";
 import { z } from "zod";
 import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
@@ -111,7 +112,7 @@ export function preset(
 }
 
 const fullForRestoredAgentStatement = statement(
-  "\n    SELECT t.name FROM teams t\n    JOIN team_members membership ON membership.team_id=t.id\n    WHERE t.owner_id=? AND t.deleted_at IS NULL AND membership.agent_id=?\n      AND (SELECT count(*) FROM team_members m\n           JOIN agents a ON a.id=m.agent_id\n           WHERE m.team_id=t.id AND a.retired_at IS NULL) >= 8\n    LIMIT 1\n  ",
+  "\n    SELECT t.name FROM teams t\n    JOIN team_members membership ON membership.team_id=t.id\n    WHERE t.owner_id=? AND t.deleted_at IS NULL AND membership.agent_id=?\n      AND (SELECT count(*) FROM team_members m\n           JOIN agents a ON a.id=m.agent_id\n           WHERE m.team_id=t.id AND a.retired_at IS NULL) >= ?\n    LIMIT 1\n  ",
 );
 const fullForRestoredAgentRow = QueryRecords.teams.pick({ name: true });
 export function fullForRestoredAgent(
@@ -119,7 +120,11 @@ export function fullForRestoredAgent(
   owner: string,
   agent: string,
 ) {
-  const row = fullForRestoredAgentStatement(db).get(owner, agent);
+  const row = fullForRestoredAgentStatement(db).get(
+    owner,
+    agent,
+    MAX_TEAM_WORKERS,
+  );
   return row === undefined
     ? undefined
     : parseRecord(fullForRestoredAgentRow, row, "teams");

@@ -1,3 +1,4 @@
+import { MAX_DONE_THREAD_MEMBERS } from "./done-threads.js";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
 import type {
   DoneThreadDetail,
@@ -85,7 +86,7 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
           );
         result ??= { thread: page.thread, cards: [] };
         result.cards.push(...page.cards);
-        if (result.cards.length > 100)
+        if (result.cards.length > MAX_DONE_THREAD_MEMBERS)
           throw new Error("Thread response exceeded its member limit.");
         cursor = advance(seen, page.next);
       } while (cursor);

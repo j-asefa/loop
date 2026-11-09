@@ -6,7 +6,7 @@ import type { PublicAgentTrace } from "../shared/agent-contract-schemas.js";
 import { db, now } from "./db.js";
 import { ownedAgent, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
-import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 
 export function recordTrace(
   run: Run,
@@ -70,7 +70,7 @@ const exportLimit = 5000;
 const exportTooLarge = () =>
   new Problem(
     413,
-    "This trace export exceeds 25 MB. Read the paginated traces instead.",
+    `This trace export exceeds ${MAX_UPLOAD_LABEL}. Read the paginated traces instead.`,
   );
 // A complete public record of one run, final answer included, for download.
 export function runTraceExport(owner: string, agent: string, runId: string) {

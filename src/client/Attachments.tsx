@@ -12,6 +12,7 @@ import { viewGeneration } from "./viewCache";
 import {
   MAX_MESSAGE_FILES,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
   type UploadedFile,
 } from "../shared/uploads";
 
@@ -196,7 +197,7 @@ export function UploadButton({
     if (
       files.some((file) => !shouldPrepare(file) && file.size > MAX_UPLOAD_BYTES)
     ) {
-      setError("Files can be up to 25 MB each.");
+      setError(`Files can be up to ${MAX_UPLOAD_LABEL} each.`);
       return;
     }
     const controller = new AbortController();
@@ -223,7 +224,7 @@ export function UploadButton({
         if (controller.signal.aborted || viewGeneration() !== generation)
           return;
         if (file.size > MAX_UPLOAD_BYTES)
-          throw new Error("Files can be up to 25 MB each.");
+          throw new Error(`Files can be up to ${MAX_UPLOAD_LABEL} each.`);
         let result: RouteResponse<typeof workspaceApi.uploadCreate>;
         timer = setTimeout(
           () =>

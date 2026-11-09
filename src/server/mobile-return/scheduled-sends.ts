@@ -26,6 +26,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // 6. Scheduled sends
+const MAX_PENDING_SENDS = 100;
 const MONTH = 30 * 24 * 60 * 60 * 1000;
 type ScheduledSend = {
   id: string;
@@ -107,10 +108,10 @@ export function createScheduledSend(owner: string, body: unknown) {
       const pending = scheduledSendsQueries.pendingCount(db, owner) as {
         n: number;
       };
-      if (pending.n >= 100)
+      if (pending.n >= MAX_PENDING_SENDS)
         throw new Problem(
           429,
-          "You have 100 scheduled messages. Cancel some first.",
+          `You have ${MAX_PENDING_SENDS} scheduled messages. Cancel some first.`,
         );
       const sendId = id();
       recordEffect(owner, "scheduled", sendId);
@@ -173,7 +174,7 @@ export function listScheduledSends(
   const more = failed.length > FAILED_PAGE;
   if (more) failed.pop();
   const last = failed.at(-1);
-  // Pending messages are capped at 100 per owner, so one read holds them all.
+  // Pending messages are capped at MAX_PENDING_SENDS per owner, so one read holds them all.
   const pending = cursor
     ? []
     : scheduledSendsQueries.pendingPage(db, {
@@ -233,10 +234,10 @@ export function editScheduledSend(
         const pending = scheduledSendsQueries.pendingCount(db, owner) as {
           n: number;
         };
-        if (pending.n >= 100)
+        if (pending.n >= MAX_PENDING_SENDS)
           throw new Problem(
             429,
-            "You have 100 scheduled messages. Cancel some first.",
+            `You have ${MAX_PENDING_SENDS} scheduled messages. Cancel some first.`,
           );
       }
       if (d.sendAt !== undefined) validSendAt(d.sendAt);
