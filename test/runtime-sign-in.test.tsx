@@ -54,7 +54,6 @@ it("lets an account signed in outside Loop connect without a new sign-in", () =>
 it("provider badges consistently name the harness instead of its vendor", () => {
   for (const [provider, label] of [
     ["codex", "Codex"],
-    ["anthropic", "Claude Code"],
     ["muse", "Muse Code"],
     ["grok", "Grok Build"],
   ] as const) {
@@ -65,4 +64,11 @@ it("provider badges consistently name the harness instead of its vendor", () => 
   expect(renderToStaticMarkup(<Badge provider="openai" />)).toContain(
     "OpenAI API",
   );
+});
+
+it("keeps Anthropic badges neutral when the connection runtime is unknown", () => {
+  const html = renderToStaticMarkup(<Badge provider="anthropic" />);
+  expect(html).toContain(">Claude</span>");
+  expect(html).not.toContain("Claude Code");
+  expect(html).not.toContain("Claude API");
 });

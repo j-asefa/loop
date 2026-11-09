@@ -51,7 +51,7 @@ const providerName = (p?: Provider) =>
   p === "openai"
     ? "OpenAI API"
     : p === "anthropic"
-      ? harnessLabel("claude")
+      ? "Claude"
       : p
         ? harnessLabel(p)
         : "Loop";
