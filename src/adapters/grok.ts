@@ -1,3 +1,4 @@
+import { harnesses } from "../shared/harnesses.js";
 import { Acp } from "./acp.js";
 import { NativeMemoryError } from "../native-memory.js";
 import type { Emit, Options } from "./types.js";
@@ -27,7 +28,7 @@ export class Grok extends Acp {
     // Probes and turns must not replace the binary under a running session.
     // Grok still updates itself when the user runs it. No credential
     // variables are changed.
-    return { ...process.env, GROK_DISABLE_AUTOUPDATER: "1" };
+    return { ...process.env, ...harnesses.grok.environment };
   }
   protected override billing(): Billing {
     return {

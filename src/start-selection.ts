@@ -1,7 +1,12 @@
-import type { Harness } from "./protocol.js";
+import {
+  harnesses,
+  RuntimeHarness,
+  runtimeHarnessIds,
+  type Harness,
+} from "./shared/harnesses.js";
 export function selectedHarnesses(value = "installed"): Harness[] {
   const aliases: Record<string, string> = {
-    installed: "codex,claude,pi,opencode,antigravity,muse,grok",
+    installed: runtimeHarnessIds.join(","),
     both: "codex,claude",
     openai: "codex",
     anthropic: "claude",
@@ -11,22 +16,28 @@ export function selectedHarnesses(value = "installed"): Harness[] {
   ];
   if (
     !names.length ||
-    names.some(
-      (n) =>
-        ![
-          "codex",
-          "claude",
-          "pi",
-          "opencode",
-          "antigravity",
-
-          "muse",
-          "grok",
-        ].includes(n),
-    )
+    names.some((name) => !RuntimeHarness.safeParse(name).success)
   )
     throw new Error(
-      "Choose installed, codex, claude, pi, opencode, antigravity, muse or grok. Register custom ACP agents with loop acp --executable PATH.",
+      `Choose installed, ${runtimeHarnessIds.slice(0, -1).join(", ")} or ${runtimeHarnessIds.at(-1)}. Register custom ACP agents with loop acp --executable PATH.`,
     );
   return names as Harness[];
+}
+
+export function selectedBilling(
+  name: Harness,
+  explicit?: string,
+  saved?: string,
+): "existing" | "subscription" {
+  // OpenCode's CLI asks for consent before using potentially paid native
+  // configuration. Preserve that prompt instead of silently opting in.
+  const billing =
+    explicit ??
+    saved ??
+    (harnesses[name].billing.cliConsent
+      ? "subscription"
+      : harnesses[name].billing.default);
+  if (billing !== "subscription" && billing !== "existing")
+    throw new Error("Billing must be subscription or existing.");
+  return billing;
 }

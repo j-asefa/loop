@@ -35,6 +35,8 @@ Harnesses own their context, tools, configuration and credential homes. Availabl
 | Grok Build | Existing native sign-in and billing configuration | Next-turn queue |
 | Custom ACP | Explicit desktop registration | Next-turn queue |
 
+`loop pi` also defaults to existing native configuration. Use `--billing subscription` to require a verified Pi subscription for the selected model. OpenCode keeps its interactive consent prompt before using existing provider configuration.
+
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
 
 Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. Antigravity reports the completed steps in the current turn. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.

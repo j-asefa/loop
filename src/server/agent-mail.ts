@@ -1,3 +1,4 @@
+import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -172,17 +173,6 @@ export function teamOf(run: Pick<Run, "payload" | "owner_id" | "agent_id">) {
   return team && memberRole(team, run.agent_id) ? team : undefined;
 }
 
-const HARNESSES: Record<string, string> = {
-  codex: "Codex",
-  claude: "Claude Code",
-  pi: "Pi",
-  opencode: "OpenCode",
-  antigravity: "Antigravity",
-
-  muse: "Muse Code",
-  grok: "Grok Build",
-  acp: "ACP agent",
-};
 // What an agent runs on and where, so teammates know whose files they share.
 function runtimeOf(owner: string, connectionId: string | null | undefined) {
   let connection;
@@ -198,7 +188,7 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
   const meta = connection.metadata || "{}";
   if (meta.loopHarness)
     return {
-      runtime: HARNESSES[meta.loopHarness] ?? meta.loopHarness,
+      runtime: harnessLabel(meta.loopHarness),
       place: "companion",
     };
   return {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { harnesses } from "./shared/harnesses.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
 import { openSync, closeSync, statSync, existsSync } from "node:fs";
@@ -706,8 +707,9 @@ Every project and enabled harness shares one workspace host and tunnel.
 A separate connection service keeps the tunnel and its address while the
 application restarts or upgrades. Phone disconnection does not stop native
 work; loop stop does.
-Default billing is verified native subscription; existing mode retains your
-selected native configuration and can incur API charges. No API fallback.
+Codex and Claude default to verified native subscription. Pi and other
+harnesses retain existing native billing, which can incur API charges;
+OpenCode asks for consent. No API fallback.
 Native permissions, skills, plugins and project configuration are preserved.
 Quick Tunnel addresses change after loop stop, a reboot or a tunnel failure.
 When that happens, run loop pair and scan the code from the Loop app.
@@ -1077,7 +1079,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const running = await control(dir, "status").catch(() => undefined);
   if (neutral && !values.project && preferences.project)
     project = await realpath(preferences.project);
-  const { selectedHarnesses } = await import("./start-selection.js");
+  const { selectedHarnesses, selectedBilling } =
+    await import("./start-selection.js");
   const providers = selectedHarnesses(
     values.providers ?? preferences.providers ?? "installed",
   );
@@ -1125,20 +1128,17 @@ Uninstall removes the package separately; workspace/native history is retained.`
         : await discover(selected, values.executable);
   if (!probe.installed || !probe.supported || !probe.version)
     throw new Error(probe.help);
-  let billing =
-    values.billing ??
-    preferences.billing?.[selected] ??
-    (["acp", "antigravity", "muse", "grok"].includes(selected)
-      ? "existing"
-      : "subscription");
+  let billing: Options["billing"] = selectedBilling(
+    selected,
+    values.billing,
+    preferences.billing?.[selected],
+  );
   if (selected === "acp" && billing !== "existing")
     throw new Error(
       "ACP uses the agent's own authentication and billing; choose --billing existing.",
     );
-  if (!["subscription", "existing"].includes(billing))
-    throw new Error("Billing must be subscription or existing.");
   if (
-    selected === "opencode" &&
+    harnesses[selected].billing.cliConsent &&
     billing === "subscription" &&
     !values.billing &&
     process.stdin.isTTY

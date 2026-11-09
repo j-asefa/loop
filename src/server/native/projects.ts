@@ -1,3 +1,4 @@
+import { nativeConnectionId, harnesses } from "../../shared/harnesses.js";
 import * as harnessesQueries from "../sql/harnesses.js";
 import * as connectionsQueries from "../sql/connections.js";
 import * as agentsQueries from "../sql/agents.js";
@@ -64,14 +65,18 @@ export class NativeProjects {
       updatedAt: r.updated_at,
     }));
   }
-  registration(name: Harness): Options {
+  savedRegistration(name: Harness): Options | undefined {
     const row = harnessesQueries.get(db, name) as Registration | undefined;
-    if (!row)
+    return row ? JSON.parse(row.options) : undefined;
+  }
+  registration(name: Harness): Options {
+    const options = this.savedRegistration(name);
+    if (!options)
       throw new Problem(
         409,
         `Run loop ${name} on the desktop to enable this harness.`,
       );
-    return JSON.parse(row.options);
+    return options;
   }
   isEnabling(name: Harness) {
     return this.enabling.has(name);
@@ -177,7 +182,7 @@ export class NativeProjects {
       : (
           connectionsQueries.resolvedNativeModel(
             db,
-            "native-" + options.harness,
+            nativeConnectionId(options.harness),
             OWNER,
           ) as { model: string | null } | undefined
         )?.model;
@@ -227,12 +232,12 @@ export class NativeProjects {
         JSON.stringify(ConnectionModels.parse(models)),
         now(),
       );
-      writeConnectionStatus("native-" + options.harness, () =>
+      writeConnectionStatus(nativeConnectionId(options.harness), () =>
         connectionsQueries.registerNative(
           db,
-          "native-" + options.harness,
+          nativeConnectionId(options.harness),
           OWNER,
-          options.harness === "claude" ? "anthropic" : options.harness,
+          harnesses[options.harness].provider,
           metadata.environmentName + " · " + labels[options.harness],
           "",
           JSON.stringify(ConnectionModels.parse(models)),
@@ -242,7 +247,7 @@ export class NativeProjects {
       );
       agentsQueries.bindNativeHarness(
         db,
-        "native-" + options.harness,
+        nativeConnectionId(options.harness),
         options.harness,
       );
       this.addProject(options.project);

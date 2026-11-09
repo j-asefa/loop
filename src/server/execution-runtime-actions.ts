@@ -1,3 +1,5 @@
+import { harnesses, type Harness } from "../shared/harnesses.js";
+import { nativeConnectionId } from "../shared/harnesses.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as harnessesQueries from "./sql/harnesses.js";
@@ -16,12 +18,6 @@ import {
   RuntimeHarness,
   type ExecutionInput,
 } from "../shared/execution-authority.js";
-import type { Harness } from "../protocol.js";
-
-const savedRegistration = (name: Harness) =>
-  nativeSessions.registrations().some((r) => r.name === name)
-    ? nativeSessions.registration(name)
-    : undefined;
 
 export async function authOptions({
   name,
@@ -35,7 +31,7 @@ export async function authOptions({
       422,
       "Choose a project directory on this computer.",
     );
-  const saved = savedRegistration(name);
+  const saved = nativeSessions.savedRegistration(name);
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported)
     throw new ExecutionRefused(409, probe.help);
@@ -99,8 +95,11 @@ export async function runtimeList({
         help: probe.help,
         enabled:
           !!enabled &&
-          connectionsQueries.connectedExists(db, "native-" + name, OWNER) !=
-            null,
+          connectionsQueries.connectedExists(
+            db,
+            nativeConnectionId(name),
+            OWNER,
+          ) != null,
         authentication: enabled ? "previously_verified" : "unknown",
         billing: saved?.billing,
         project: saved?.project,
@@ -113,7 +112,10 @@ export async function upgradeStatus({
   name,
   check,
 }: ExecutionInput<"upgrade.status">) {
-  const probe = await discover(name, savedRegistration(name)?.executable);
+  const probe = await discover(
+    name,
+    nativeSessions.savedRegistration(name)?.executable,
+  );
   const release =
     check && probe.installed
       ? await upgrades.check(name, probe.executable!)
@@ -151,7 +153,7 @@ export async function upgradeStart(
         409,
         "Finish or cancel active runs before upgrading runtimes.",
       );
-    const saved = savedRegistration(name);
+    const saved = nativeSessions.savedRegistration(name);
     const probe = await discover(name, saved?.executable);
     if (!probe.installed)
       throw new Problem(409, "Install this runtime on the computer first.");
@@ -209,7 +211,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       422,
       "Choose a project with a directory on this computer. Add one in Projects.",
     );
-  const saved = savedRegistration(name);
+  const saved = nativeSessions.savedRegistration(name);
   if (saved && input.billing !== saved.billing)
     throw new ExecutionRefused(
       409,
@@ -220,13 +222,10 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       409,
       "This runtime is already bound to another project. Stop the desktop workspace before changing its project.",
     );
-  if (
-    input.billing === "subscription" &&
-    ["opencode", "antigravity", "muse", "grok"].includes(name)
-  )
+  if (input.billing === "subscription" && !harnesses[name].billing.subscription)
     throw new ExecutionRefused(
       422,
-      `${({ antigravity: "Antigravity", muse: "Muse Code", grok: "Grok Build" } as Record<string, string>)[name] ?? "OpenCode"} cannot verify subscription billing. Choose existing native configuration instead.`,
+      `${harnesses[name].label} cannot verify subscription billing. Choose existing native configuration instead.`,
     );
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported || !probe.version)

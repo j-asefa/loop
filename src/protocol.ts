@@ -4,18 +4,7 @@ import type {
   ActivityCapabilities,
 } from "./agent-activities.js";
 
-export const Harness = z.enum([
-  "pi",
-  "claude",
-  "codex",
-  "opencode",
-  "antigravity",
-
-  "muse",
-  "grok",
-  "acp",
-]);
-export type Harness = z.infer<typeof Harness>;
+export { Harness } from "./shared/harnesses.js";
 export type Status =
   | "starting"
   | "ready"

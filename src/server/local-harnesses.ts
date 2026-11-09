@@ -1,3 +1,4 @@
+import { nativeConnectionId, harnesses } from "../shared/harnesses.js";
 import * as connectionsQueries from "./sql/connections.js";
 import { executionRequest } from "./execution-client.js";
 import { writeConnectionStatus } from "./connection-status.js";
@@ -28,14 +29,12 @@ export async function prepareLocalHarnesses(
     if (stopping()) break;
     const connection = connectionsQueries.statusMetadata(
       db,
-      "native-" + name,
+      nativeConnectionId(name),
       OWNER,
     ) as { status: string; metadata: string } | undefined;
     // An intentional disconnect is not an invitation to sign in again.
     if (connection?.status === "disconnected") continue;
-    const saved = registered.some((r) => r.name === name)
-      ? nativeSessions.registration(name)
-      : undefined;
+    const saved = nativeSessions.savedRegistration(name);
     try {
       const probe =
         name === "acp" && saved
@@ -58,25 +57,15 @@ export async function prepareLocalHarnesses(
               executable: probe.executable,
               version: probe.version,
               project,
-              billing: [
-                "opencode",
-                "pi",
-                "antigravity",
-
-                "muse",
-                "grok",
-                "acp",
-              ].includes(name)
-                ? "existing"
-                : "subscription",
+              billing: harnesses[name].billing.default,
             },
       });
       enabled++;
     } catch {
       // Never print provider configuration, credentials or raw auth subprocess output.
       // Verification failure must not leave a stale account available for dispatch.
-      writeConnectionStatus("native-" + name, () =>
-        connectionsQueries.needsSignIn(db, "native-" + name, OWNER),
+      writeConnectionStatus(nativeConnectionId(name), () =>
+        connectionsQueries.needsSignIn(db, nativeConnectionId(name), OWNER),
       );
       console.log(
         `${name}: check installation and sign-in in Provider connections.`,

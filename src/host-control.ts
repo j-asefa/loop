@@ -3,7 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
-import type { Harness } from "./protocol.js";
+import { harnesses, type Harness } from "./shared/harnesses.js";
 import { own, killOwned } from "./processes.js";
 const versionProbes = new Map<string, Promise<string>>();
 
@@ -19,7 +19,7 @@ function versionOutput(name: Harness, executable: string) {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        ...(name === "grok" ? { GROK_DISABLE_AUTOUPDATER: "1" } : {}),
+        ...harnesses[name].environment,
       },
     });
     // A launcher can exit while its child keeps the output pipes open. Stop
@@ -65,33 +65,6 @@ function versionOutput(name: Harness, executable: string) {
   versionProbes.set(key, probe);
   return probe;
 }
-// Floors for the adapter protocols we require, not exact release pins. New
-// stable releases are admitted; adapter startup still checks the live protocol
-// and authentication/billing contract before dispatching a prompt.
-const minimumVersions = {
-  codex: "0.157.0",
-  claude: "2.1.237",
-  pi: "0.87.1",
-  opencode: "1.18.32",
-  // Public stream-json input/output, exact conversation resume and literal prompts.
-  antigravity: "1.4.9",
-
-  // Account sign-in and login methods on the experimental MSP surface.
-  muse: "1.4.12",
-  // ACP over `grok agent stdio`, verified with this release.
-  grok: "1.0.70",
-};
-const install = {
-  codex: "https://developers.openai.com/codex/cli",
-  claude: "https://code.claude.com/docs/en/setup",
-  pi: "https://github.com/earendil-works/pi",
-  opencode: "https://opencode.ai/docs",
-  antigravity: "https://antigravity.google/docs/getting-started?tab=cli",
-
-  muse: "https://dev.meta.ai/docs/muse-code/",
-  grok: "https://x.ai/cli",
-};
-
 function meetsMinimum(version: string | undefined, minimum: string) {
   if (!version) return false;
   const core = version.split("+")[0];
@@ -114,7 +87,7 @@ export async function discover(name: Harness, explicit?: string) {
     ? [resolve(explicit)]
     : (process.env.PATH ?? "")
         .split(delimiter)
-        .map((p) => join(p, name === "antigravity" ? "agy" : name))) {
+        .map((p) => join(p, harnesses[name].executable))) {
     try {
       await access(candidate, constants.X_OK);
       executable = resolve(candidate);
@@ -124,13 +97,17 @@ export async function discover(name: Harness, explicit?: string) {
     }
   }
   if (!executable)
-    return { name, installed: false as const, help: install[name] };
+    return {
+      name,
+      installed: false as const,
+      help: harnesses[name].installUrl,
+    };
   try {
     const stdout = await versionOutput(name, executable);
     const version = stdout.match(
       /(?:^|\s)v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=\s|$)/,
     )?.[1];
-    const supported = meetsMinimum(version, minimumVersions[name]);
+    const supported = meetsMinimum(version, harnesses[name].minimumVersion);
     return {
       name,
       installed: true as const,
@@ -139,7 +116,7 @@ export async function discover(name: Harness, explicit?: string) {
       supported,
       help: supported
         ? ""
-        : `Requires a stable ${name} version >= ${minimumVersions[name]}. ${version ? `Found ${version}.` : "Could not read its version."} Install/check it at ${install[name]}.`,
+        : `Requires a stable ${name} version >= ${harnesses[name].minimumVersion}. ${version ? `Found ${version}.` : "Could not read its version."} Install/check it at ${harnesses[name].installUrl}.`,
     };
   } catch {
     return {
