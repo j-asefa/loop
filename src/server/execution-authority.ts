@@ -1,3 +1,4 @@
+import { isManagedHarness } from "../shared/harnesses.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { withFleetAction } from "./fleet-action-context.js";
@@ -97,7 +98,8 @@ const handlers: Handlers = {
         );
     };
     checkUpgrade();
-    if (input.name === "pi" || input.name === "opencode") {
+    if (isManagedHarness(input.name)) {
+      const name = input.name;
       const release = reserveProviderChange(input.name);
       try {
         requireProviderIdle(input.name);
@@ -113,13 +115,10 @@ const handlers: Handlers = {
           {
             beforeStart: async () => {
               await nativeSessions.resetProviderSessions(input.name);
-              invalidateProviderConnection(input.name);
+              invalidateProviderConnection(name);
             },
             authenticated: (signal) =>
-              completeProviderSignIn(
-                { ...input, name: input.name as "pi" | "opencode" },
-                signal,
-              ),
+              completeProviderSignIn({ ...input, name }, signal),
           },
         );
       } finally {

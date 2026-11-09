@@ -13,7 +13,7 @@ import {
   ProviderRemove,
   ProviderRefresh,
 } from "./native-providers.js";
-import { Harness } from "../protocol.js";
+import { Harness, RuntimeHarness } from "./harnesses.js";
 import {
   SessionControls as Controls,
   SessionCapabilities as Capabilities,
@@ -81,26 +81,8 @@ const Catalog = z.strictObject({
   capabilities: Capabilities.optional(),
   message: z.string().optional(),
 });
-export const RuntimeHarness = z.enum([
-  "codex",
-  "claude",
-  "pi",
-  "opencode",
-  "antigravity",
-
-  "muse",
-  "grok",
-]);
-export const AuthHarness = z.enum([
-  "codex",
-  "claude",
-  "pi",
-  "opencode",
-  "antigravity",
-
-  "muse",
-  "grok",
-]);
+export { RuntimeHarness };
+export const AuthHarness = RuntimeHarness;
 export const RegistrationOptions = z.strictObject({
   harness: Harness,
   executable: Path,

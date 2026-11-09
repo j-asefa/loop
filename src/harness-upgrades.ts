@@ -13,8 +13,10 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
-type UpgradeHarness =
-  "codex" | "claude" | "pi" | "opencode" | "antigravity" | "muse" | "grok";
+import {
+  harnesses,
+  type RuntimeHarness as UpgradeHarness,
+} from "./shared/harnesses.js";
 type ReleaseCheck = {
   installedVersion?: string;
   latestVersion?: string;
@@ -44,13 +46,6 @@ export type UpgradeRunner = (
   args: string[],
   options: { env: NodeJS.ProcessEnv; timeout: number },
 ) => Promise<string>;
-// Muse Code and Grok Build are not npm packages; they update themselves.
-const packages: Partial<Record<UpgradeHarness, string>> = {
-  codex: "@openai/codex",
-  claude: "@anthropic-ai/claude-code",
-  pi: "@earendil-works/pi-coding-agent",
-  opencode: "opencode-ai",
-};
 const READY =
   "New sessions use the updated runtime; refresh its models before creating an agent.";
 const CHECK =
@@ -95,29 +90,12 @@ export function upgradeLauncher(name: UpgradeHarness, executable: string) {
 // Resolve the installation that owns the executable, never the user's current
 // npm prefix. Unknown/custom installations must use their own package manager.
 export function upgradePlan(name: UpgradeHarness, executable: string) {
-  // Muse's launcher checks for and installs updates itself.
-  if (name === "muse")
-    throw new Error(
-      "Muse Code updates itself. Run muse on the computer to check for an update now.",
-    );
-  if (name === "grok")
-    throw new Error(
-      "Grok Build updates itself. Run grok update on the computer to check for an update now.",
-    );
-  if (name === "antigravity")
-    throw new Error(
-      "Antigravity updates itself. Run agy update on the computer.",
-    );
+  const policy = harnesses[name].upgrade;
+  if (policy.selfUpdating) throw new Error(policy.selfUpdating);
   const real = realpathSync(executable);
   const brew = real.match(/^(.*)\/(Cellar|Caskroom)\/([^/]+)\//);
   if (brew) {
-    const allowed = {
-      codex: ["codex"],
-      claude: ["claude-code", "claude-code@latest"],
-      pi: ["pi"],
-      opencode: ["opencode"],
-    };
-    if (!allowed[name].includes(brew[3]))
+    if (!(policy.brew as readonly string[]).includes(brew[3]))
       throw new Error(
         "Upgrade this custom installation with its package manager on the computer.",
       );
@@ -127,8 +105,8 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
   while (dirname(dir) !== dir) {
     try {
       const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-      if (pkg.name === packages[name]) {
-        const suffix = "/node_modules/" + packages[name];
+      if (pkg.name === harnesses[name].upgrade.package) {
+        const suffix = "/node_modules/" + harnesses[name].upgrade.package;
         if (!dir.endsWith(suffix)) break;
         const base = dir.slice(0, -suffix.length);
         if (base.endsWith("/lib"))
@@ -139,7 +117,7 @@ export function upgradePlan(name: UpgradeHarness, executable: string) {
               "--global",
               "--prefix",
               dirname(base),
-              packages[name] + "@latest",
+              harnesses[name].upgrade.package + "@latest",
             ],
           };
         break;
@@ -167,7 +145,10 @@ function versioned(
   if (plan.command === "npm")
     return {
       command: "npm",
-      args: [...plan.args.slice(0, -1), packages[name] + "@" + version],
+      args: [
+        ...plan.args.slice(0, -1),
+        harnesses[name].upgrade.package + "@" + version,
+      ],
     };
   // Homebrew cannot install a chosen earlier formula or cask version.
   if (plan.args.length !== 1) return undefined;
@@ -235,7 +216,7 @@ export class HarnessUpgrades {
         latestVersion = (
           await this.run(
             "npm",
-            ["view", packages[name] + "@latest", "version"],
+            ["view", harnesses[name].upgrade.package + "@latest", "version"],
             options,
           )
         ).trim();
@@ -525,7 +506,7 @@ export class HarnessUpgrades {
       // Resolve the target first so the result can be verified exactly.
       const latest = await this.run(
         "npm",
-        ["view", packages[record.name] + "@latest", "version"],
+        ["view", harnesses[record.name].upgrade.package + "@latest", "version"],
         { env: installEnv, timeout: 60000 },
       ).catch(() => "");
       record.target = latest.trim();

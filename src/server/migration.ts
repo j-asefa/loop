@@ -1,3 +1,4 @@
+import { nativeConnectionId, harnesses } from "../shared/harnesses.js";
 import * as nativeImportWorkspacesQueries from "./sql/native-import-workspaces.js";
 import * as companionSessionsQueries from "./sql/companion-sessions.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -159,7 +160,7 @@ export function importSession(
   const folder = nativeSessions.addProject(project) as any;
   const connection = connectionsQueries.id(
     db,
-    "native-" + options.harness,
+    nativeConnectionId(options.harness),
   ) as any;
   agentsQueries.insertNativeImport(
     db,
@@ -167,7 +168,7 @@ export function importSession(
     OWNER,
     name,
     name,
-    options.harness === "claude" ? "anthropic" : options.harness,
+    harnesses[options.harness].provider,
     connection?.id || null,
     "native-default",
     now(),

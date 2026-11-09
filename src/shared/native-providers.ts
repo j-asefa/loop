@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const ManagedHarness = z.enum(["pi", "opencode"]);
+import { ManagedHarness } from "./harnesses.js";
+export { ManagedHarness };
 export const NativeProvider = z.object({
   id: z.string(),
   name: z.string(),

@@ -160,6 +160,9 @@ export class NativeSessions {
   registrations() {
     return this.projects.registrations();
   }
+  savedRegistration(name: Harness) {
+    return this.projects.savedRegistration(name);
+  }
   registration(name: Harness): Options {
     return this.projects.registration(name);
   }

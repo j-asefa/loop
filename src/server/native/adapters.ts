@@ -1,3 +1,5 @@
+import { harnesses, type Harness } from "../../shared/harnesses.js";
+import type { Adapter, Options, Emit } from "../../adapters/types.js";
 import { Codex } from "../../adapters/codex.js";
 import { Claude } from "../../adapters/claude.js";
 import { Pi } from "../../adapters/pi.js";
@@ -13,19 +15,13 @@ export const classes = {
   opencode: OpenCode,
   acp: Acp,
   antigravity: Antigravity,
-
   muse: Muse,
   grok: Grok,
-};
+} satisfies Record<Harness, new (options: Options, emit: Emit) => Adapter>;
 
-export const labels = {
-  codex: "Codex",
-  claude: "Claude Code",
-  pi: "Pi",
-  opencode: "OpenCode",
-  acp: "ACP agent",
-  antigravity: "Antigravity",
-
-  muse: "Muse Code",
-  grok: "Grok Build",
-};
+export const labels = Object.fromEntries(
+  Object.entries(harnesses).map(([name, descriptor]) => [
+    name,
+    descriptor.label,
+  ]),
+) as Record<Harness, string>;

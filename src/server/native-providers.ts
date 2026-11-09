@@ -1,3 +1,8 @@
+import {
+  nativeConnectionId,
+  harnesses,
+  type ManagedHarness,
+} from "../shared/harnesses.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as runsQueries from "./sql/runs.js";
@@ -41,7 +46,7 @@ const registration = (name: Target["name"]) =>
     ? nativeSessions.registration(name)
     : undefined;
 
-export function requireProviderIdle(name: string) {
+export function requireProviderIdle(name: ManagedHarness) {
   if (harnessUpgrades.busy(name) || nativeSignIns.inProgress(name))
     throw new ExecutionRefused(
       409,
@@ -55,19 +60,19 @@ export function requireProviderIdle(name: string) {
   if (runsQueries.hasActiveProvider(db, OWNER, name))
     throw new ExecutionRefused(
       409,
-      `Finish or cancel active ${name === "pi" ? "Pi" : "OpenCode"} runs before changing provider credentials.`,
+      `Finish or cancel active ${harnesses[name].label} runs before changing provider credentials.`,
     );
 }
-export function invalidateProviderConnection(name: string) {
+export function invalidateProviderConnection(name: ManagedHarness) {
   syncErrors.delete(name);
-  const id = "native-" + name;
+  const id = nativeConnectionId(name);
   writeConnectionStatus(id, () =>
     connectionsQueries.registerDisconnectedNative(
       db,
       id,
       OWNER,
       name,
-      name === "pi" ? "Pi" : "OpenCode",
+      harnesses[name].label,
       JSON.stringify({
         loopHarness: name,
         authMode: "native-existing",
@@ -107,7 +112,7 @@ export async function providerCatalog(
       const saved = registration(target.name);
       const connection = connectionsQueries.statusModels(
         db,
-        "native-" + target.name,
+        nativeConnectionId(target.name),
         OWNER,
       ) as { status: string; models: string } | undefined;
       if (saved?.billing === "subscription") {
@@ -123,7 +128,7 @@ export async function providerCatalog(
       const agents = agentsQueries.connectionModels(
         db,
         OWNER,
-        "native-" + target.name,
+        nativeConnectionId(target.name),
       );
       return NativeProviderView.parse({
         providers,
@@ -177,7 +182,7 @@ async function syncModels(
     );
     const connection = connectionsQueries.readModels(
       db,
-      "native-" + target.name,
+      nativeConnectionId(target.name),
       OWNER,
     ) as { models: string };
     syncErrors.delete(target.name);

@@ -1,3 +1,4 @@
+import { harnesses, RuntimeHarness } from "../shared/harnesses.js";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -73,7 +74,7 @@ function cliDriver(options: AuthOptions): AuthDriver {
             ...(options.env ?? globalThis.process.env),
             BROWSER: "false",
             DISABLE_AUTOUPDATER: "1",
-            GROK_DISABLE_AUTOUPDATER: "1",
+            ...(grok ? harnesses.grok.environment : {}),
           },
           stdio: "pipe",
           detached: true,
@@ -801,14 +802,22 @@ async function museDriver(options: AuthOptions): Promise<AuthDriver> {
   };
 }
 
+const drivers = {
+  codex: cliDriver,
+  claude: cliDriver,
+  grok: cliDriver,
+  pi: piDriver,
+  opencode: openCodeDriver,
+  muse: museDriver,
+  antigravity: antigravityDriver,
+} satisfies Record<
+  RuntimeHarness,
+  (options: AuthOptions) => AuthDriver | Promise<AuthDriver>
+>;
 export async function createAuthDriver(
   options: AuthOptions,
 ): Promise<AuthDriver> {
-  if (["codex", "claude", "grok"].includes(options.name))
-    return cliDriver(options);
-  if (options.name === "pi") return piDriver(options);
-  if (options.name === "opencode") return openCodeDriver(options);
-  if (options.name === "muse") return museDriver(options);
-  if (options.name === "antigravity") return antigravityDriver(options);
-  throw new Error("Unsupported sign-in harness");
+  const name = RuntimeHarness.safeParse(options.name);
+  if (!name.success) throw new Error("Unsupported sign-in harness");
+  return drivers[name.data](options);
 }
