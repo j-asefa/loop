@@ -1,3 +1,7 @@
+import {
+  TERMINAL_RUN_STATES,
+  STARTED_RUN_STATES,
+} from "../shared/run-state.js";
 import { CAPTURE_FIELDS } from "./sql/run-checkouts.js";
 import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as runsQueries from "./sql/runs.js";
@@ -49,13 +53,6 @@ export { checkoutLine };
 export const PATCH_LIMIT = 300 * 1024;
 const GIT_TIMEOUT_MS = 30000;
 const OUTPUT_LIMIT = 4 * 1024 * 1024;
-export const TERMINAL_STATES = [
-  "completed",
-  "failed",
-  "interrupted",
-  "cancelled",
-];
-const ACTIVE_STATES = ["running", "pausing", "paused", "awaiting_approval"];
 
 class CheckoutError extends Error {}
 
@@ -918,7 +915,7 @@ async function captureClaimed(
           row.run_id,
           now(),
           row.started_at,
-          ACTIVE_STATES,
+          STARTED_RUN_STATES,
         ) as { id: string }[]
       ).map((r) => r.id),
     );
@@ -986,7 +983,7 @@ export function reconcileCheckouts(): Promise<void> {
     const pending = runCheckoutsQueries.reconcileCandidates(
       db,
       time - CAPTURE_LEASE_MS,
-      TERMINAL_STATES,
+      TERMINAL_RUN_STATES,
     );
     for (const { run_id, updated_at } of pending)
       await completeCheckout(run_id, {

@@ -1,11 +1,10 @@
-import * as continuationQueries from "./sql/review-continuations.js";
+import { STARTED_RUN_STATES } from "../shared/run-state.js";
+import { canSwapQueuedRuns, editableQueuedRun } from "./queued-run-policy.js";
+import { runPreview } from "./run-preview.js";
 import * as approvalsQueries from "./sql/approvals.js";
-import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
-import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as runVerificationsQueries from "./sql/run-verifications.js";
 import * as runsQueries from "./sql/runs.js";
-import * as messagesQueries from "./sql/messages.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import type Database from "better-sqlite3";
 import { summarize, type VerificationItem } from "../shared/verification.js";
@@ -42,24 +41,12 @@ function queueDetails(db: Database.Database, owner: string, run: QueueRun) {
   const position = runsQueries.queuePosition(db, run.id, owner) as {
     position: number;
   };
-  const peers = !run.agent_id
-    ? []
-    : (runsQueries.projectionQueuePeers(db, {
-        owner,
-        agent: run.agent_id,
-        conversation: run.conversation_id,
-        run: run.id,
-      }) as { id: string; conversation_id: string | null }[]);
+  const peers = runsQueries.queuePeers(db, run.id, owner);
   const index = peers.findIndex((p) => p.id === run.id);
-  const swap = (other: number) =>
-    index >= 0 &&
-    other >= 0 &&
-    other < peers.length &&
-    peers[other].conversation_id !== peers[index].conversation_id;
   return {
     queue_position: position.position,
-    can_move_up: swap(index - 1),
-    can_move_down: swap(index + 1),
+    can_move_up: canSwapQueuedRuns(peers, index, index - 1),
+    can_move_down: canSwapQueuedRuns(peers, index, index + 1),
   };
 }
 
@@ -86,12 +73,7 @@ export function threadDetails(
       input: run.input,
       created_at: run.created_at,
       ...queueDetails(db, owner, run),
-      can_edit:
-        run.worker_id === null &&
-        !continuationQueries.byRun(db, run.id) &&
-        !run.active_since &&
-        !agentCheckpointsQueries.exists(db, run.id) &&
-        !nativeDispatchQueries.exists(db, run.id),
+      can_edit: editableQueuedRun(db, run),
     })),
   };
 }
@@ -143,19 +125,12 @@ export function runDetails(
     detail.queue_position = queue_position;
     detail.moves = moves;
   }
-  if (
-    ["running", "pausing", "paused", "awaiting_approval"].includes(run.state)
-  ) {
-    const artifact = agentCheckpointsQueries.feedContent(db, owner, runId) as
-      { content: string } | undefined;
-    const latest = !artifact?.content
-      ? (messagesQueries.latestAssistantContent(db, owner, runId) as
-          { content: string } | undefined)
-      : undefined;
+  if (STARTED_RUN_STATES.includes(run.state)) {
+    const { latest, artifact } = runPreview(db, owner, runId);
     detail.live_preview =
-      (latest?.content ?? artifact?.content ?? "").trim().slice(0, 4000) ||
-      null;
+      (latest ?? artifact?.content ?? "").trim().slice(0, 4000) || null;
   }
+
   return detail;
 }
 

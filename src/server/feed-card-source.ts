@@ -1,3 +1,7 @@
+import {
+  publicRunStateSql,
+  WORKING_RUN_DISPLAY_STATES_SQL,
+} from "../shared/run-state.js";
 import type Database from "better-sqlite3";
 import { nonemptyAnswer } from "./feed-answers.js";
 import type { FeedRow } from "./feed-card-display.js";
@@ -24,7 +28,7 @@ const stateSql = `state_base AS MATERIALIZED (
  FROM conversations c WHERE c.owner_id=@owner AND c.id=@conversation
 ), state AS MATERIALIZED (
  SELECT b.*,r.state raw_state,r.attention_dismissed_at,
-  CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END run_state
+  ${publicRunStateSql("r")} run_state
  FROM state_base b LEFT JOIN runs r ON r.id=b.feed_run_id AND r.owner_id=b.owner_id
 )`;
 
@@ -56,7 +60,7 @@ page_run AS MATERIALIZED (
 ),
 picked AS MATERIALIZED (
   SELECT k.*,r.id card_run_id,
-    CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END card_run_state,
+    ${publicRunStateSql("r")} card_run_state,
     r.error card_run_error,r.input card_run_input,
     json_extract(r.payload,'$.connectionId') card_run_connection_id,json_extract(r.payload,'$.model') card_run_model,
     json_extract(r.payload,'$.resolvedModel') card_run_resolved_model,r.created_at card_run_created_at,r.updated_at card_run_updated_at,
@@ -81,7 +85,7 @@ chosen AS MATERIALIZED (
     CASE
       WHEN @mode='done' AND k.done_message_id IS NOT NULL THEN k.done_message_id
       WHEN @mode='done' AND k.card_run IS NOT NULL THEN COALESCE(k.card_answer_id,k.card_any_id)
-      WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ('running','pausing','waiting_children'))) THEN k.card_answer_id
+      WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ${WORKING_RUN_DISPLAY_STATES_SQL})) THEN k.card_answer_id
       ELSE k.thread_latest_id
     END message_id,
     ${
@@ -174,7 +178,7 @@ export function sourceCards(
       c.feed_queued>0 has_queued,c.approval_until,
       COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
-      COALESCE(c.run_state IN ('running','pausing','waiting_children'),0) is_working,
+      COALESCE(c.run_state IN ${WORKING_RUN_DISPLAY_STATES_SQL},0) is_working,
       COALESCE(c.raw_state='completed',0) is_done,
       EXISTS(SELECT 1 FROM teams t WHERE t.id=c.team_id AND t.owner_id=@owner AND t.deleted_at IS NULL AND t.hide_results_from_feed=1) hide_results
     FROM state c ${results ? "CROSS JOIN completed_results completed" : ""}

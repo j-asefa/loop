@@ -1,3 +1,9 @@
+import {
+  ACTIVE_RUN_DISPLAY_STATES_SQL,
+  ACTIVE_RUN_STATES_SQL,
+  TERMINAL_RUN_STATES_SQL,
+  publicRunStateSql,
+} from "../../shared/run-state.js";
 import { FOLDER_PROJECT } from "./folders.js";
 import { LIVE_INPUT_HARNESSES, NATIVE_CONNECTION_SQL } from "./connections.js";
 import type Database from "better-sqlite3";
@@ -12,9 +18,6 @@ const RUN_LIVE_INPUT_SQL = (r: string) =>
 
 const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
-
-export const ACTIVE =
-  "('queued','running','pausing','paused','awaiting_approval')";
 
 export const RunIdentity = z.object({
   id: z.string().min(1),
@@ -474,7 +477,7 @@ export function interruptOrphanedNative(
 }
 
 const pendingCountStatement = statement(
-  "SELECT count(*) n FROM runs WHERE owner_id=? AND state IN ('queued','running','pausing','paused','awaiting_approval')",
+  `SELECT count(*) n FROM runs WHERE owner_id=? AND state IN ${ACTIVE_RUN_STATES_SQL}`,
 );
 const pendingCountRow = z.object({ n: z.number() });
 export function pendingCount(db: Database.Database, owner: string | null) {
@@ -859,7 +862,7 @@ export function importIdentities(
 }
 
 const hasActiveForAgentStatement = statement(
-  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND state IN ${ACTIVE} LIMIT 1`,
+  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND state IN ${ACTIVE_RUN_STATES_SQL} LIMIT 1`,
 );
 const hasActiveForAgentRow = z.object({ "1": z.number() });
 export function hasActiveForAgent(
@@ -874,7 +877,7 @@ export function hasActiveForAgent(
 }
 
 const activeTeamConversationStatement = statement(
-  `SELECT r.conversation_id FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id WHERE r.owner_id=? AND r.agent_id=? AND r.kind='agent' AND c.team_id=? AND r.state IN ${ACTIVE} ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
+  `SELECT r.conversation_id FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id WHERE r.owner_id=? AND r.agent_id=? AND r.kind='agent' AND c.team_id=? AND r.state IN ${ACTIVE_RUN_STATES_SQL} ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1`,
 );
 const activeTeamConversationRow = z.object({ conversation_id: z.string() });
 export function activeTeamConversation(
@@ -890,7 +893,7 @@ export function activeTeamConversation(
 }
 
 const hasActiveAgentConversationStatement = statement(
-  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ${ACTIVE}`,
+  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND kind='agent' AND state IN ${ACTIVE_RUN_STATES_SQL}`,
 );
 const hasActiveAgentConversationRow = z.object({ "1": z.number() });
 export function hasActiveAgentConversation(
@@ -928,7 +931,7 @@ export function currentMailConversation(
 }
 
 const hasActiveConversationStatement = statement(
-  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ${ACTIVE}`,
+  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND conversation_id=? AND state IN ${ACTIVE_RUN_STATES_SQL}`,
 );
 const hasActiveConversationRow = z.object({ "1": z.number() });
 export function hasActiveConversation(
@@ -948,7 +951,7 @@ export function hasActiveConversation(
 }
 
 const hasOtherActiveStatement = statement(
-  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND id<>? AND state IN ${ACTIVE}`,
+  `SELECT 1 FROM runs WHERE owner_id=? AND agent_id=? AND id<>? AND state IN ${ACTIVE_RUN_STATES_SQL}`,
 );
 const hasOtherActiveRow = z.object({ "1": z.number() });
 export function hasOtherActive(
@@ -965,7 +968,7 @@ export function hasOtherActive(
 
 const queuePositionStatement =
   statement(`SELECT (SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id
-    AND older.state IN ('queued','running','pausing','paused','awaiting_approval')
+    AND older.state IN ${ACTIVE_RUN_STATES_SQL}
     AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at)
       OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) position
     FROM runs r WHERE r.id=? AND r.owner_id=?`);
@@ -981,61 +984,18 @@ export function queuePosition(
     : parseRecord(queuePositionRow, row, "runs");
 }
 
-const projectionQueuePeersStatement =
-  statement(`SELECT r.id,r.conversation_id FROM runs r
-    WHERE r.owner_id=@owner AND r.agent_id=@agent AND r.state='queued'
-      AND (r.conversation_id=@conversation OR NOT (SELECT ${perConversation("p")} FROM runs p WHERE p.id=@run) OR NOT ${perConversation("r")})
-    ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`);
-const projectionQueuePeersRow = QueryRecords.runs.pick({
-  id: true,
-  conversation_id: true,
-});
-export function projectionQueuePeers(
-  db: Database.Database,
-  bindings: {
-    owner: string;
-    agent: string;
-    conversation: string | null;
-    run: string;
-  },
-) {
-  return projectionQueuePeersStatement(db)
-    .all(bindings)
-    .map((row) => parseRecord(projectionQueuePeersRow, row, "runs"));
-}
-
-const queueScopeStatement = statement(
-  `SELECT r.agent_id,r.conversation_id,${perConversation("r")} per FROM runs r WHERE r.id=? AND r.owner_id=?`,
-);
-const queueScopeRow = QueryRecords.runs
-  .pick({ agent_id: true, conversation_id: true })
-  .extend({ per: z.number() });
-export function queueScope(db: Database.Database, id: string, owner: string) {
-  const row = queueScopeStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(queueScopeRow, row, "runs");
-}
-
 const queuePeersStatement =
-  statement(`SELECT r.id,r.conversation_id,COALESCE(r.queue_rank,r.created_at) queue_key FROM runs r
-      WHERE r.owner_id=@owner AND r.agent_id=@agent AND r.state='queued'
-        AND (r.conversation_id=@conversation OR NOT @per OR NOT ${perConversation("r")})
-      ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`);
+  statement(`SELECT r.id,r.conversation_id,COALESCE(r.queue_rank,r.created_at) queue_key
+  FROM runs r JOIN runs selected ON selected.id=@run AND selected.owner_id=@owner
+  WHERE r.owner_id=@owner AND r.agent_id=selected.agent_id AND r.state='queued'
+    AND (r.conversation_id=selected.conversation_id OR NOT ${perConversation("selected")} OR NOT ${perConversation("r")})
+  ORDER BY COALESCE(r.queue_rank,r.created_at),r.rowid`);
 const queuePeersRow = QueryRecords.runs
   .pick({ id: true, conversation_id: true })
   .extend({ queue_key: z.number() });
-export function queuePeers(
-  db: Database.Database,
-  bindings: {
-    owner: string;
-    agent: string;
-    conversation: string | null;
-    per: number;
-  },
-) {
+export function queuePeers(db: Database.Database, run: string, owner: string) {
   return queuePeersStatement(db)
-    .all(bindings)
+    .all({ run, owner })
     .map((row) => parseRecord(queuePeersRow, row, "runs"));
 }
 
@@ -1143,16 +1103,16 @@ const claimCandidatesStatement = statement(`WITH candidates AS (
    EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(runs.payload,'$.connectionId')
      AND c.owner_id=runs.owner_id AND ${NATIVE_CONNECTION_SQL}) AS per_conversation
  FROM runs
- WHERE runs.state IN ('queued','running','pausing','paused','awaiting_approval')
+ WHERE runs.state IN ${ACTIVE_RUN_STATES_SQL}
 )
 SELECT r.* FROM candidates r WHERE
  ${READY_REVIEW_CONTINUATION("r")} AND
  ((r.state='queued' AND r.worker_id IS NULL AND NOT EXISTS(SELECT 1 FROM native_dispatch d WHERE d.run_id=r.id)) OR (r.state IN ('running','pausing') AND r.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations d WHERE d.parent_run_id=r.id AND d.background=0)))
  AND NOT EXISTS(SELECT 1 FROM candidates busy WHERE busy.owner_id=r.owner_id AND busy.agent_id=r.agent_id AND (r.is_mail OR busy.is_mail OR busy.conversation_id=r.conversation_id OR NOT r.per_conversation OR NOT busy.per_conversation) AND busy.id<>r.id AND ((busy.state IN ('running','pausing','awaiting_approval') AND busy.worker_id IS NOT NULL) OR ((r.is_mail OR busy.is_mail) AND busy.state IN ('running','pausing','paused','awaiting_approval'))))
- AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.owner_id=r.owner_id AND older.agent_id=r.agent_id AND (r.is_mail OR older.conversation_id=r.conversation_id OR NOT r.per_conversation OR (NOT older.is_mail AND NOT older.per_conversation)) AND older.state IN ('running','pausing','paused','awaiting_approval','queued') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
+ AND NOT EXISTS(SELECT 1 FROM candidates older WHERE older.owner_id=r.owner_id AND older.agent_id=r.agent_id AND (r.is_mail OR older.conversation_id=r.conversation_id OR NOT r.per_conversation OR (NOT older.is_mail AND NOT older.per_conversation)) AND older.state IN ${ACTIVE_RUN_STATES_SQL} AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.queue_order<r.queue_order))
    AND (older.conversation_id=r.conversation_id OR NOT older.waiting_review)
    AND NOT (EXISTS(SELECT 1 FROM delegations delegated WHERE delegated.child_run_id=r.id AND delegated.background=0) AND (older.state='queued' OR (older.state='running' AND older.worker_id IS NULL AND EXISTS(SELECT 1 FROM delegations waiting WHERE waiting.parent_run_id=older.id AND waiting.background=0)))))
- AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children'))
+ AND NOT EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=r.id AND d.background=0 AND child.state IN ${ACTIVE_RUN_DISPLAY_STATES_SQL})
  ORDER BY COALESCE(r.queue_rank,r.created_at),r.queue_order`);
 export function claimCandidates(
   db: Database.Database,
@@ -1198,11 +1158,11 @@ export function attention(
         ))`
     : "";
   const order = active
-    ? "CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NOT NULL THEN 0 WHEN r.state IN ('queued','running','pausing','awaiting_approval','paused') THEN 1 ELSE 2 END,"
+    ? `CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NOT NULL THEN 0 WHEN r.state IN ${ACTIVE_RUN_STATES_SQL} THEN 1 ELSE 2 END,`
     : "";
 
   return attentionStatements(
-    `SELECT r.*,CASE WHEN r.state IN ('running','pausing') AND r.worker_id IS NULL THEN 'waiting_children' ELSE r.state END AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ('queued','running','pausing','paused','awaiting_approval','waiting_children') AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
+    `SELECT r.*,${publicRunStateSql("r")} AS state,(SELECT count(*)+1 FROM runs older WHERE older.agent_id=r.agent_id AND older.state IN ${ACTIVE_RUN_DISPLAY_STATES_SQL} AND (COALESCE(older.queue_rank,older.created_at)<COALESCE(r.queue_rank,r.created_at) OR (COALESCE(older.queue_rank,older.created_at)=COALESCE(r.queue_rank,r.created_at) AND older.rowid<r.rowid))) queue_position,(SELECT substr(m.content,1,320) FROM messages m WHERE m.run_id=r.id AND m.role='assistant' ORDER BY m.rowid DESC LIMIT 1) preview FROM runs r WHERE r.owner_id=?${filters}${states} ORDER BY ${order}r.created_at DESC,r.rowid DESC LIMIT 200`,
     db,
   )
     .all(owner, ...teams)
@@ -1225,7 +1185,7 @@ export function ownedNotice(db: Database.Database, id: string, owner: string) {
 }
 
 const doneInConversationStatement = statement(
-  "SELECT 1 FROM runs WHERE id=? AND owner_id=? AND conversation_id=? AND state IN ('completed','cancelled','failed','interrupted')",
+  `SELECT 1 FROM runs WHERE id=? AND owner_id=? AND conversation_id=? AND state IN ${TERMINAL_RUN_STATES_SQL}`,
 );
 const doneInConversationRow = z.object({ "1": z.number() });
 export function doneInConversation(
@@ -1239,9 +1199,6 @@ export function doneInConversation(
     ? undefined
     : parseRecord(doneInConversationRow, row, "runs");
 }
-
-const publicState = (r: string) =>
-  `CASE WHEN ${r}.state IN ('running','pausing') AND ${r}.worker_id IS NULL THEN 'waiting_children' ELSE ${r}.state END`;
 
 const awayStatements = statementVariants();
 const awayRow = z.object({
@@ -1260,7 +1217,7 @@ export function awaySummary(
 ) {
   const summary = (condition: string, params: unknown[] = []) =>
     awayStatements(
-      `SELECT r.conversation_id,c.title,a.name agent_name,r.id run_id,${publicState("r")} state,r.updated_at
+      `SELECT r.conversation_id,c.title,a.name agent_name,r.id run_id,${publicRunStateSql("r")} state,r.updated_at
         FROM runs r JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
         LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=r.owner_id
         WHERE r.owner_id=? AND (${condition})
@@ -1328,7 +1285,7 @@ export function projectSummaries(db: Database.Database, owner: string) {
 }
 
 const conversationWorkingStatement = statement(
-  "SELECT EXISTS(SELECT 1 FROM runs WHERE owner_id=? AND conversation_id=? AND state IN ('queued','running','pausing','paused','awaiting_approval')) working",
+  `SELECT EXISTS(SELECT 1 FROM runs WHERE owner_id=? AND conversation_id=? AND state IN ${ACTIVE_RUN_STATES_SQL}) working`,
 );
 const conversationWorkingRow = z.object({ working: z.number() });
 export function conversationWorking(

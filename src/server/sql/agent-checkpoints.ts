@@ -179,17 +179,6 @@ export function workerStage(db: Database.Database, run: string) {
     : parseRecord(workerStageRow, row, "agent_checkpoints");
 }
 
-const feedContentStatement = statement(
-  "SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id AND a.owner_id=? JOIN runs r ON r.id=cp.run_id WHERE cp.run_id=?",
-);
-const feedContentRow = QueryRecords.artifacts.pick({ content: true });
-export function feedContent(db: Database.Database, owner: string, run: string) {
-  const row = feedContentStatement(db).get(owner, run);
-  return row === undefined
-    ? undefined
-    : parseRecord(feedContentRow, row, "agent_checkpoints");
-}
-
 const previewCompleteStatement = statement(
   "INSERT OR REPLACE INTO agent_checkpoints(run_id,message_id,artifact_id,history,output,stage) VALUES(?,?,?,?,?,'done')",
 );

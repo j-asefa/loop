@@ -1,3 +1,4 @@
+import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
 import { PersonalProfile } from "../PersonalProfile";
 import { PersonalFiles } from "../PersonalFiles";
@@ -308,16 +309,12 @@ export function renderAppPages(
             <p className="profile-status">
               {profile.instructions ||
                 (profileWork.some((run) =>
-                  ["running", "pausing", "waiting_children"].includes(
-                    run.state,
-                  ),
+                  WORKING_RUN_DISPLAY_STATES.includes(run.state),
                 )
                   ? agentStatusLine(
                       profile.id,
                       profileWork.find((run) =>
-                        ["running", "pausing", "waiting_children"].includes(
-                          run.state,
-                        ),
+                        WORKING_RUN_DISPLAY_STATES.includes(run.state),
                       )?.id,
                     )
                   : profileWork.some((run) =>

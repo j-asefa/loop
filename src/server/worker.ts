@@ -1,3 +1,4 @@
+import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as importsQueries from "./sql/imports.js";
@@ -310,14 +311,9 @@ export function startWorker() {
     if (
       events.some(
         ({ type }) =>
-          [
-            "queued",
-            "running",
-            "completed",
-            "failed",
-            "cancelled",
-            "interrupted",
-          ].includes(type) || type.startsWith("queue."),
+          ["queued", "running"].includes(type) ||
+          TERMINAL_RUN_STATES.includes(type) ||
+          type.startsWith("queue."),
       )
     )
       wake();

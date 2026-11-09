@@ -43,6 +43,7 @@ Invariants:
 - `running` and `pausing` have a `worker_id` and a recent `heartbeat`, except a
   manager run waiting for its children, which is `running` with `worker_id`
   NULL (`releaseForChildren`).
+- Public run projections call unleased `running` or `pausing` work `waiting_children`; this is a display state, never a stored transition. The TypeScript rule and SQL expression live beside `RUN_TRANSITIONS`.
 - `awaiting_approval` keeps the claiming worker's `worker_id`.
 - `active_since` is set only while `running` or `pausing`.
 - A run with a `native_dispatch` row is never claimed again.

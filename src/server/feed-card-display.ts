@@ -1,3 +1,4 @@
+import { STARTED_RUN_DISPLAY_STATES } from "../shared/run-state.js";
 import type { CheckoutSummary } from "../shared/checkout.js";
 import type { VerificationSummary } from "../shared/verification.js";
 import type { PullState } from "../shared/pull-state.js";
@@ -188,23 +189,10 @@ export function displayFeedCard(
             : { can_move_up: false, can_move_down: false }),
         }
       : null,
-    // Queued follow-ups, listed separately so they stay manageable while
-    // the thread's current run is still working.
-    // The thread's pull request as its watch last saw it. Null says there
-    // is none; a response without the key comes from a server that does not
-    // report it, and the client treats that as unknown.
     pull: detail.pull,
     queued_runs: mode === "done" ? [] : detail.queued_runs,
-    // While the agent works, its card shows what it has written so far.
     live_preview:
-      run &&
-      [
-        "running",
-        "pausing",
-        "waiting_children",
-        "paused",
-        "awaiting_approval",
-      ].includes(run.state)
+      run && STARTED_RUN_DISPLAY_STATES.includes(run.state)
         ? detail.live_preview
         : null,
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,

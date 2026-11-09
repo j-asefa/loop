@@ -1,3 +1,4 @@
+import { ACTIVE_RUN_STATES_SQL } from "../../shared/run-state.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -159,13 +160,10 @@ export function surface(db: Database.Database, time: number, id: string) {
   return surfaceStatement(db).run(time, id);
 }
 
-const ACTIVE_STATES =
-  "('queued','running','pausing','paused','awaiting_approval')";
-
 const dueStatement =
   statement(`SELECT l.* FROM later_items l WHERE l.done_at IS NULL AND l.surfaced_at IS NULL AND (
           (l.condition='time' AND l.due_at<=@now) OR
-          (l.condition='run_finished' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=l.owner_id AND r.state IN ${ACTIVE_STATES}
+          (l.condition='run_finished' AND NOT EXISTS(SELECT 1 FROM runs r WHERE r.owner_id=l.owner_id AND r.state IN ${ACTIVE_RUN_STATES_SQL}
             AND r.conversation_id=(CASE l.kind
               WHEN 'conversation' THEN l.target_id
               WHEN 'message' THEN (SELECT m.conversation_id FROM messages m WHERE m.id=l.target_id AND m.owner_id=l.owner_id)

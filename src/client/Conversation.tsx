@@ -1,3 +1,8 @@
+import {
+  ACTIVE_RUN_DISPLAY_STATES,
+  STARTED_RUN_DISPLAY_STATES,
+  PENDING_RUN_DISPLAY_STATES,
+} from "../shared/run-state";
 import { proseEntry } from "./textEntry";
 import {
   workspaceApi,
@@ -114,14 +119,6 @@ import {
   timeLabel,
 } from "./threadView";
 
-const activeWork = [
-  "queued",
-  "running",
-  "pausing",
-  "paused",
-  "awaiting_approval",
-  "waiting_children",
-];
 export type ThreadWork = {
   state: string;
   /** A reply now is delivered to the running task (steering). */
@@ -1143,20 +1140,12 @@ function ConversationView({
   // The thread's current work: a task in progress, else one waiting in the
   // queue, else its latest run. A newer cancelled or withdrawn follow-up
   // does not hide a task that is still running.
-  const runOf = (states: string[]) =>
+  const runOf = (states: readonly string[]) =>
     [...(data?.messages || [])]
       .reverse()
       .find((m) => m.run_id && states.includes(m.run_state || ""));
   const currentRun =
-    runOf([
-      "running",
-      "pausing",
-      "paused",
-      "awaiting_approval",
-      "waiting_children",
-    ]) ||
-    runOf(["queued"]) ||
-    latestRun;
+    runOf(STARTED_RUN_DISPLAY_STATES) || runOf(["queued"]) || latestRun;
   const status = runStatus(currentRun?.run_state);
   const workState = currentRun?.run_state || "";
   // API, subscription, Codex, Claude and Pi turns take a message mid-task.
@@ -1169,7 +1158,7 @@ function ConversationView({
   const workRef = useRef(onWork);
   workRef.current = onWork;
   useEffect(() => {
-    const active = activeWork.includes(workState);
+    const active = ACTIVE_RUN_DISPLAY_STATES.includes(workState);
     workRef.current?.(active ? { state: workState, steerable } : null);
   }, [workState, steerable]);
   useEffect(() => () => workRef.current?.(null), []);
@@ -1184,7 +1173,8 @@ function ConversationView({
   latestRef.current = onLatestAgentMessage;
   // The page may be anchored before the current work; the conversation's own
   // run state covers it.
-  const working = activeWork.includes(workState) || data?.working === true;
+  const working =
+    ACTIVE_RUN_DISPLAY_STATES.includes(workState) || data?.working === true;
   useEffect(() => {
     if (loadedFor)
       latestRef.current?.({
@@ -1393,12 +1383,9 @@ function ConversationView({
           kind={laterFor.kind}
           targetId={laterFor.id}
           title={laterFor.title}
-          running={[
-            "queued",
-            "running",
-            "pausing",
-            "waiting_children",
-          ].includes(currentRun?.run_state || "")}
+          running={PENDING_RUN_DISPLAY_STATES.includes(
+            currentRun?.run_state || "",
+          )}
           project={project ? { id: project.id, name: project.name } : undefined}
           onClose={() => setLaterFor(null)}
           onDone={(label, created) => {

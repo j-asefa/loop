@@ -14,7 +14,7 @@ const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
-const { runPreview } = await import("../src/server/run-attention");
+const { runPreview } = await import("../src/server/run-preview");
 const { feed } = await import("../src/server/mobile-return");
 
 let executed = 0;
@@ -62,7 +62,7 @@ const restore = withTestAdapter("openai", {
       if (index === 1 || index === 3) await vi.advanceTimersByTimeAsync(250);
       const after = executed;
       expect(snapshot()).toEqual(indexed);
-      const { artifact } = runPreview("alice", runId);
+      const { artifact } = runPreview(db, "alice", runId);
       const stored = prepare(
         "SELECT a.content FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id WHERE cp.run_id=?",
       ).get(runId) as { content: string };
@@ -142,7 +142,7 @@ it("keeps the result live while deferring its indexes until completion", async (
       "SELECT count(*) n FROM artifact_publications p JOIN agent_checkpoints cp ON cp.artifact_id=p.artifact_id WHERE cp.run_id=?",
     ).get(run.id),
   ).toEqual({ n: 1 });
-  expect(runPreview("alice", run.id).artifact?.content).toBe(answer);
+  expect(runPreview(db, "alice", run.id).artifact?.content).toBe(answer);
   const indexedFinal =
     prepare(`SELECT f.content fts, s.content search, r.revision
     FROM artifacts a JOIN search_fts f ON f.id='artifact:'||a.id
