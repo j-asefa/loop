@@ -439,7 +439,6 @@ export function listActivities(
     conversation,
     options.after || 0,
     options.run || null,
-    options.run || null,
   ) as Row[];
   const more = rows.length > 500;
   if (more) rows.pop();

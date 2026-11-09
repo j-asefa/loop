@@ -62,13 +62,7 @@ function conversationPullRefs(owner: string, conversation: string) {
   // Keep confirmed creations and old watches even when watching ends, pauses,
   // is unavailable, or the agent omitted the URL from its final answer.
   const createdCandidates = new Set<string>();
-  for (const row of watchQueries.createdPulls(
-    db,
-    owner,
-    conversation,
-    owner,
-    conversation,
-  )) {
+  for (const row of watchQueries.createdPulls(db, owner, conversation)) {
     add(
       { owner: row.owner, repo: row.repo, number: row.number },
       row.created_at,

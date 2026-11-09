@@ -48,7 +48,7 @@ export function insert(
 }
 
 const agentHistoryStatement = statement(
-  `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=? AND m.owner_id=? AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=?)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=? OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
+  `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=@conversation AND m.owner_id=@owner AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=@run)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=@run OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
 );
 const agentHistoryRow = QueryRecords.messages;
 export function agentHistory(
@@ -56,10 +56,9 @@ export function agentHistory(
   conversation: string | null,
   owner: string | null,
   run: string | null,
-  steeringRun: string | null,
 ) {
   return agentHistoryStatement(db)
-    .all(conversation, owner, run, steeringRun)
+    .all({ conversation, owner, run })
     .map((row) => parseRecord(agentHistoryRow, row, "messages"));
 }
 
@@ -292,20 +291,19 @@ export function forkPosition(
 }
 
 const forkHistoryStatement =
-  statement(`SELECT * FROM messages WHERE owner_id=? AND conversation_id=?
+  statement(`SELECT * FROM messages WHERE owner_id=@owner AND conversation_id=@conversation
           AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
-          AND (created_at<? OR (created_at=? AND rowid<=?)) ORDER BY created_at,rowid`);
+          AND (created_at<@at OR (created_at=@at AND rowid<=@seq)) ORDER BY created_at,rowid`);
 const forkHistoryRow = QueryRecords.messages;
 export function forkHistory(
   db: Database.Database,
   owner: string | null,
   conversation: string | null,
-  before: number,
   at: number,
   seq: number,
 ) {
   return forkHistoryStatement(db)
-    .all(owner, conversation, before, at, seq)
+    .all({ owner, conversation, at, seq })
     .map((row) => parseRecord(forkHistoryRow, row, "messages"));
 }
 
@@ -508,11 +506,11 @@ const agentOutputPageStatement = statement(`WITH entries AS (
         ORDER BY f.rowid DESC LIMIT 1),m.created_at) created_at,m.conversation_id,m.run_id,
       CASE WHEN json_extract(m.metadata,'$.progress')=1 THEN 0 ELSE 1 END final
     FROM messages m JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=m.owner_id
-    WHERE m.owner_id=? AND c.agent_id=? AND m.role='assistant'
+    WHERE m.owner_id=@owner AND c.agent_id=@agent AND m.role='assistant'
       AND json_extract(m.metadata,'$.partial') IS NOT 1
       AND NOT (json_extract(m.metadata,'$.progress') IS 1 AND json_extract(m.metadata,'$.final') IS 1)
       AND length(trim(m.content))>0
-    ) SELECT *, (SELECT json_extract(r.payload,'$.model') FROM runs r WHERE r.id=entries.run_id AND r.owner_id=?) model FROM entries WHERE (created_at,final,id)<(?,?,?)
+    ) SELECT *, (SELECT json_extract(r.payload,'$.model') FROM runs r WHERE r.id=entries.run_id AND r.owner_id=@owner) model FROM entries WHERE (created_at,final,id)<(@before,@final,@id)
     ORDER BY created_at DESC,final DESC,id DESC LIMIT 51`);
 const agentOutputPageRow = QueryRecords.messages
   .pick({
@@ -527,13 +525,12 @@ export function agentOutputPage(
   db: Database.Database,
   owner: string,
   agent: string,
-  modelOwner: string,
   before: number,
   final: number,
   id: string,
 ) {
   return agentOutputPageStatement(db)
-    .all(owner, agent, modelOwner, before, final, id)
+    .all({ owner, agent, before, final, id })
     .map((row) => parseRecord(agentOutputPageRow, row, "messages"));
 }
 
@@ -768,7 +765,7 @@ const PROMPTS_FROM = `    FROM messages m
     LEFT JOIN agents a ON a.id=r.agent_id AND a.owner_id=m.owner_id
     LEFT JOIN folder_project fp ON fp.id=COALESCE(json_extract(r.payload,'$.folderId'),c.project_id) AND fp.owner_id=m.owner_id
     LEFT JOIN folders project ON project.id=fp.project_id AND project.owner_id=m.owner_id
-    WHERE m.owner_id=? AND ${personalMessageSql}`;
+    WHERE m.owner_id=@owner AND ${personalMessageSql}`;
 
 const personalRow = z.object({
   id: z.string(),
@@ -788,22 +785,19 @@ const personalHistoryStatement = statement(`${PROMPTS_WITH}
     json_extract(m.metadata,'$.attachments') attachments,c.title conversation_title,
     a.name agent_name,a.provider,a.id agent_id,project.name project_name
 ${PROMPTS_FROM}
-    AND (? IS NULL OR instr(lower(m.content),lower(?))>0)
-    AND (m.created_at,m.id)<(?,?)
+    AND (@query IS NULL OR instr(lower(m.content),lower(@query))>0)
+    AND (m.created_at,m.id)<(@before,@id)
     ORDER BY m.created_at DESC,m.id DESC LIMIT 51`);
 const personalHistorySelection = personalRow;
 export function personalHistory(
   db: Database.Database,
-  ...bindings: [
-    owner: string,
-    query: string | null,
-    matchingQuery: string | null,
-    before: number,
-    id: string,
-  ]
+  owner: string,
+  query: string | null,
+  before: number,
+  id: string,
 ) {
   return personalHistoryStatement(db)
-    .all(...bindings)
+    .all({ owner, query, before, id })
     .map((row) => parseRecord(personalHistorySelection, row, "messages"));
 }
 
@@ -811,11 +805,8 @@ const personalCountStatement = statement(
   `${PROMPTS_WITH}\n    SELECT count(*) n\n${PROMPTS_FROM}`,
 );
 const personalCountSelection = z.object({ n: z.number() });
-export function personalCount(
-  db: Database.Database,
-  ...bindings: [owner: string]
-) {
-  const row = personalCountStatement(db).get(...bindings);
+export function personalCount(db: Database.Database, owner: string) {
+  const row = personalCountStatement(db).get({ owner });
   return parseRecord(personalCountSelection, row, "messages");
 }
 

@@ -23,7 +23,6 @@ export function agentMessages(owner: string, agent: string, before?: string) {
     db,
     owner,
     agent,
-    owner,
     ...cursor,
   ) as {
     id: string;

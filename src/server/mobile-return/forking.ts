@@ -40,7 +40,6 @@ export function forkConversation(
           owner,
           c.id,
           target.created_at,
-          target.created_at,
           target.seq,
         ),
       );

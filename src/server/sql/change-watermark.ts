@@ -30,19 +30,15 @@ export function epoch(db: Database.Database, owner: string) {
 }
 
 const boundsStatement = statement(
-  "SELECT\n      (SELECT id FROM events WHERE owner_id=? ORDER BY id LIMIT 1) first,\n      last_event_id last, epoch FROM change_watermark WHERE owner_id=?\n    ",
+  "SELECT\n      (SELECT id FROM events WHERE owner_id=@owner ORDER BY id LIMIT 1) first,\n      last_event_id last, epoch FROM change_watermark WHERE owner_id=@owner\n    ",
 );
 const boundsRow = z.object({
   first: z.number().nullable(),
   last: z.number(),
   epoch: z.string(),
 });
-export function bounds(
-  db: Database.Database,
-  eventOwner: string,
-  clockOwner: string,
-) {
-  const row = boundsStatement(db).get(eventOwner, clockOwner);
+export function bounds(db: Database.Database, owner: string) {
+  const row = boundsStatement(db).get({ owner });
   return row === undefined
     ? undefined
     : parseRecord(boundsRow, row, "change_watermark");

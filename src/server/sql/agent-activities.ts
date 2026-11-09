@@ -134,7 +134,7 @@ export function hasEarlierTools(
 }
 
 const updatesStatement = statement(
-  "SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND sequence>?\n      AND (? IS NULL OR run_id IS NULL OR run_id=?) ORDER BY sequence LIMIT 501",
+  "SELECT * FROM agent_activities WHERE owner_id=@owner AND scope=@scope AND sequence>@after\n      AND (@run IS NULL OR run_id IS NULL OR run_id=@run) ORDER BY sequence LIMIT 501",
 );
 const updatesRow = QueryRecords.agent_activities;
 export function updates(
@@ -143,10 +143,9 @@ export function updates(
   scope: string,
   after: number,
   run: string | null,
-  sameRun: string | null,
 ) {
   return updatesStatement(db)
-    .all(owner, scope, after, run, sameRun)
+    .all({ owner, scope, after, run })
     .map((row) => parseRecord(updatesRow, row, "agent_activities"));
 }
 

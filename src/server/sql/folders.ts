@@ -48,17 +48,16 @@ export function withProjects(db: Database.Database, owner: string) {
 }
 
 const descendantsStatement = statement(
-  "WITH RECURSIVE scope(id) AS (\n    SELECT id FROM folders WHERE owner_id=? AND id=?\n    UNION SELECT f.id FROM folders f JOIN scope s ON f.parent_id=s.id WHERE f.owner_id=?\n  ) SELECT id FROM scope",
+  "WITH RECURSIVE scope(id) AS (\n    SELECT id FROM folders WHERE owner_id=@owner AND id=@folder\n    UNION SELECT f.id FROM folders f JOIN scope s ON f.parent_id=s.id WHERE f.owner_id=@owner\n  ) SELECT id FROM scope",
 );
 const descendantsRow = QueryRecords.folders.pick({ id: true });
 export function descendants(
   db: Database.Database,
   owner: string,
   folder: string,
-  descendantOwner: string,
 ) {
   return descendantsStatement(db)
-    .all(owner, folder, descendantOwner)
+    .all({ owner, folder })
     .map((row) => parseRecord(descendantsRow, row, "folders"));
 }
 
