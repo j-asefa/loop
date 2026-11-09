@@ -1,3 +1,4 @@
+import { TERMINAL_RUN_STATES } from "../../shared/run-state.js";
 import * as runsQueries from "../sql/runs.js";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { db } from "../db.js";
@@ -36,10 +37,7 @@ export async function closeFinishedSessions() {
   for (const [key, record] of sessions) {
     const run = runsQueries.state(db, record.run) as
       { state: string } | undefined;
-    if (
-      !run ||
-      ["completed", "failed", "cancelled", "interrupted"].includes(run.state)
-    ) {
+    if (!run || TERMINAL_RUN_STATES.includes(run.state)) {
       sessions.delete(key);
       await record.client.then((client) => client.close()).catch(() => {});
     }

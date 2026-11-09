@@ -1,9 +1,7 @@
-import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
-import * as nativeDispatchQueries from "../sql/native-dispatch.js";
+import { canSwapQueuedRuns, editableQueuedRun } from "../queued-run-policy.js";
 import * as delegationsQueries from "../sql/delegations.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
-import * as continuationQueries from "../sql/review-continuations.js";
 import {
   RunReorderInput,
   QueuedRunInput,
@@ -13,7 +11,7 @@ import {
 import { db, emit, now } from "../db.js";
 import { ownedRun, Problem } from "../domain.js";
 import { submit } from "../agent-runtime.js";
-import { transition, type Run } from "../queue.js";
+import { transition } from "../queue.js";
 
 import { MAX_MESSAGE_FILES } from "../../shared/uploads.js";
 import { attachmentDescriptors } from "./shared.js";
@@ -23,52 +21,7 @@ import {
   inheritEffect,
 } from "../effect-authority.js";
 
-// Queued runs a reorder can swap with. Same scope as the queue claim: one
-// agent, and one conversation when both runs use a per-conversation (native)
-// connection. Running, paused and approval-waiting work never moves.
-function queuedPeers(owner: string, runId: string) {
-  const run = runsQueries.queueScope(db, runId, owner) as
-    | { agent_id: string | null; conversation_id: string | null; per: number }
-    | undefined;
-  if (!run?.agent_id) return [];
-  const per = run.per;
-  return runsQueries.queuePeers(db, {
-    owner,
-    agent: run.agent_id,
-    conversation: run.conversation_id,
-    per,
-  }) as { id: string; conversation_id: string | null; queue_key: number }[];
-}
-// A swap only crosses threads: each conversation's turns run in the order
-// they were sent, because its model history is built in that order.
-function canSwap(
-  peers: { id: string; conversation_id: string | null }[],
-  index: number,
-  other: number,
-) {
-  return (
-    index >= 0 &&
-    other >= 0 &&
-    other < peers.length &&
-    peers[other].conversation_id !== peers[index].conversation_id
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 7. Queue management
 const RANK_STEP = 1 / 1024;
-function editable(
-  run: Pick<Run, "id" | "worker_id" | "active_since"> & { state: string },
-) {
-  return (
-    run.state === "queued" &&
-    run.worker_id === null &&
-    !run.active_since &&
-    !continuationQueries.byRun(db, run.id) &&
-    !agentCheckpointsQueries.exists(db, run.id) &&
-    !nativeDispatchQueries.exists(db, run.id)
-  );
-}
 
 export function reorderRun(owner: string, runId: string, body: unknown) {
   const { direction } = RunReorderInput.parse(body);
@@ -77,12 +30,12 @@ export function reorderRun(owner: string, runId: string, body: unknown) {
       const run = ownedRun(runId, owner);
       if (run.state !== "queued" || !run.agent_id)
         throw new Problem(409, "Only queued work can be reordered");
-      const peers = queuedPeers(owner, run.id);
+      const peers = runsQueries.queuePeers(db, run.id, owner);
       const index = peers.findIndex((peer) => peer.id === run.id);
       const other = index + (direction === "up" ? -1 : 1);
       if (index < 0 || other < 0 || other >= peers.length)
         throw new Problem(409, "There is no queued message to swap with");
-      if (!canSwap(peers, index, other))
+      if (!canSwapQueuedRuns(peers, index, other))
         throw new Problem(
           409,
           "Messages in the same thread run in the order they were sent",
@@ -113,7 +66,7 @@ export function editQueuedRun(owner: string, runId: string, body: unknown) {
   return db
     .transaction(() => {
       const run = ownedRun(runId, owner);
-      if (!editable(run))
+      if (!editableQueuedRun(db, run))
         throw new Problem(
           409,
           "This message has already started. It can no longer be edited.",
@@ -145,7 +98,7 @@ export function withdrawQueuedRun(
       const run = ownedRun(runId, owner);
       if (
         run.kind !== "agent" ||
-        !editable(run) ||
+        !editableQueuedRun(db, run) ||
         delegationsQueries.delegatedChild(db, run.id)
       )
         throw new Problem(
@@ -200,7 +153,7 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
         return submit(owner, request);
       if (
         run.kind !== "agent" ||
-        !editable(run) ||
+        !editableQueuedRun(db, run) ||
         delegationsQueries.delegatedChild(db, run.id)
       )
         throw new Problem(409, "Only a queued message you sent can be moved");

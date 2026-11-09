@@ -1,4 +1,4 @@
-import { ACTIVE } from "./runs.js";
+import { ACTIVE_RUN_STATES_SQL } from "../../shared/run-state.js";
 const FINISHED = "('completed','failed','cancelled','interrupted')";
 import type Database from "better-sqlite3";
 import { z } from "zod";
@@ -138,7 +138,7 @@ export function mailChildConversation(
 }
 
 const hasBlockingChildStatement = statement(
-  `SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=? AND d.background=0 AND child.state IN ${ACTIVE}`,
+  `SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=? AND d.background=0 AND child.state IN ${ACTIVE_RUN_STATES_SQL}`,
 );
 const hasBlockingChildRow = z.object({ "1": z.number() });
 export function hasBlockingChild(db: Database.Database, run: string) {

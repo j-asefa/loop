@@ -1,9 +1,9 @@
+import { waitingForChildren } from "../shared/run-state.js";
+import { runPreview } from "./run-preview.js";
 import * as approvalsQueries from "./sql/approvals.js";
-import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as runsQueries from "./sql/runs.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
-import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 
 import { db, emit, now } from "./db.js";
@@ -94,7 +94,7 @@ export function controlRun(
           409,
           "That action is not available in the current state",
         );
-      if (next === "pausing" && run.worker_id === null)
+      if (next === "pausing" && waitingForChildren(run))
         transition(run, "paused");
       return { ok: true };
     })
@@ -130,28 +130,11 @@ export function dismissRun(owner: string, runId: string) {
 export function listRuns(owner: string, teams: string[] = [], active = false) {
   return runsQueries.attention(db, owner, teams, active).map((row) => {
     const run = z.object({ id: z.string() }).passthrough().parse(row);
-    const { latest, artifact } = runPreview(owner, run.id);
+    const { latest, artifact } = runPreview(db, owner, run.id);
     return {
       ...run,
       ...(latest ? { preview: latest } : {}),
       preview_artifact: artifact,
     };
   });
-}
-
-/**
- * What a run has produced so far: its result artifact, if one exists, and
- * the newest public update when the artifact has no content yet.
- */
-export function runPreview(owner: string, runId: string) {
-  const artifact = agentCheckpointsQueries.result(db, owner, runId) as
-    ({ content: string } & Record<string, unknown>) | undefined;
-  const latest = !artifact?.content
-    ? (
-        messagesQueries.latestAssistantContent(db, owner, runId) as
-          { content: string } | undefined
-      )?.content
-    : undefined;
-  if (artifact && latest) artifact.content = latest;
-  return { latest, artifact: artifact || null };
 }

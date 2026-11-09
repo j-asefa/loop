@@ -1,3 +1,8 @@
+import {
+  WORKING_RUN_DISPLAY_STATES,
+  TERMINAL_RUN_STATES,
+  PENDING_RUN_DISPLAY_STATES,
+} from "../shared/run-state";
 import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
@@ -288,7 +293,7 @@ const AWAY_AFTER = 30 * 60_000;
  * byline, status and project, the thread title and the latest message.
  */
 // Run states whose prompt the Feed hides until the agent writes something.
-const awaitingStates = ["running", "pausing", "waiting_children"];
+
 function FeedCard({
   item,
   agent,
@@ -374,7 +379,7 @@ function FeedCard({
   const name = item.agent_name || agent?.name;
   const awaitingUpdate =
     item.run &&
-    awaitingStates.includes(item.run.state) &&
+    WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
   useEffect(() => {
@@ -571,7 +576,7 @@ function FeedCard({
               <RichText content={item.live_preview} compact />
             </div>
           ) : item.run &&
-            awaitingStates.includes(item.run.state) &&
+            WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
             item.last_message?.role !== "assistant" ? (
             // The server hides the prompt while its run works; say whether
             // the agent has written anything yet, and who started the work.
@@ -3332,10 +3337,7 @@ export function Feed({
         icon: <X size={20} />,
         onSelect: () => void runAction(item.run!.id, "dismiss", source),
       });
-    if (
-      state &&
-      !["completed", "failed", "cancelled", "interrupted"].includes(state)
-    )
+    if (state && !TERMINAL_RUN_STATES.includes(state))
       actions.push({
         id: "cancel",
         label:
@@ -3855,12 +3857,7 @@ export function Feed({
           targetId={reminderMessage?.id ?? later.conversation_id}
           sourceId={later.sourceId ?? scopedSource}
           title={later.title}
-          running={[
-            "queued",
-            "running",
-            "pausing",
-            "waiting_children",
-          ].includes(later.run?.state || "")}
+          running={PENDING_RUN_DISPLAY_STATES.includes(later.run?.state || "")}
           project={
             later.project_id && later.project_name
               ? { id: later.project_id, name: later.project_name }

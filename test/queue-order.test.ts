@@ -211,3 +211,49 @@ it.each(["run payload", "mail attempts"])(
     transition(claimed!, "completed");
   },
 );
+
+it.each(["running", "pausing"])(
+  "projects an unleased %s parent as waiting for children",
+  (state) => {
+    const f = fixture();
+    const run = f.make(f.conversation());
+    db.prepare("UPDATE runs SET state=?,worker_id=NULL WHERE id=?").run(
+      state,
+      run.id,
+    );
+    expect(
+      listRuns(f.owner).find((entry) => entry.id === run.id),
+    ).toMatchObject({ state: "waiting_children" });
+    db.prepare("UPDATE runs SET worker_id='fixture-worker' WHERE id=?").run(
+      run.id,
+    );
+    expect(
+      listRuns(f.owner).find((entry) => entry.id === run.id),
+    ).toMatchObject({ state });
+    expect(listRuns(id()).some((entry) => entry.id === run.id)).toBe(false);
+    transition(run, "cancelled");
+  },
+);
+
+it("card editability and command admission agree before and after a queued run starts", async () => {
+  const { threadDetails } = await import("../src/server/feed-card-details");
+  const { editQueuedRun } =
+    await import("../src/server/mobile-return/queued-runs");
+  const f = fixture();
+  const conversation = f.conversation();
+  const run = f.make(conversation);
+  expect(threadDetails(db, f.owner, conversation).queued_runs).toMatchObject([
+    { id: run.id, can_edit: true },
+  ]);
+  editQueuedRun(f.owner, run.id, { input: "Edited before execution" });
+  expect(threadDetails(db, f.owner, conversation).queued_runs[0].input).toBe(
+    "Edited before execution",
+  );
+  const claimed = claim("fixture-worker");
+  expect(claimed?.id).toBe(run.id);
+  expect(threadDetails(db, f.owner, conversation).queued_runs).toEqual([]);
+  expect(() => editQueuedRun(f.owner, run.id, { input: "Too late" })).toThrow(
+    /already started/,
+  );
+  transition(claimed!, "completed");
+});

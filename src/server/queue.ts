@@ -1,3 +1,4 @@
+import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
 import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as mailQueries from "./sql/agent-mail.js";
 import * as runsQueries from "./sql/runs.js";
@@ -18,7 +19,7 @@ import {
 import { queuedMailFailure, queuedMailReady } from "./agent-mail-policy.js";
 import { Problem } from "./domain.js";
 import { db, emit, id, now } from "./db.js";
-import { completeCheckout, TERMINAL_STATES } from "./run-checkouts.js";
+import { completeCheckout } from "./run-checkouts.js";
 import type {
   RunEventState,
   RunEventPayload,
@@ -152,7 +153,7 @@ export function transition(
   // A run that ended gets its checkout captured off the transition path:
   // read-only Git on a worktree can take a moment and must not hold the
   // database transaction or the caller.
-  if (changed && TERMINAL_STATES.includes(state))
+  if (changed && TERMINAL_RUN_STATES.includes(state))
     void completeCheckout(run.id).catch(() => {});
   return changed;
 }
@@ -186,7 +187,7 @@ function transitionState(
       if (state === "queued") runsQueries.clearLease(db, run.id);
       // The capture request is durable with the transition: if the process
       // stops before the capture claims it, reconciliation finds it.
-      if (TERMINAL_STATES.includes(state))
+      if (TERMINAL_RUN_STATES.includes(state))
         runCheckoutsQueries.markPending(db, run.id);
       const event = emit(run.owner_id, run.id, state, payload);
       enqueueStoppedWebhooks(db, event);
