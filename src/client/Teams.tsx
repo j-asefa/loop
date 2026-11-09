@@ -1,3 +1,4 @@
+import { MAX_TEAM_WORKERS } from "../shared/team-limits";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
@@ -163,8 +164,8 @@ export function TeamDirectory({
       {adding ? (
         <>
           <p className="muted">
-            Choose an agent with a connected provider. A team can have up to 8
-            workers.
+            Choose an agent with a connected provider. A team can have up to{" "}
+            {MAX_TEAM_WORKERS} workers.
           </p>
           <button
             className="text-button"
@@ -267,7 +268,7 @@ export function TeamDirectory({
                   {team.preset_id !== "code-review" && (
                     <button
                       className="text-button"
-                      disabled={workers.length >= 8}
+                      disabled={workers.length >= MAX_TEAM_WORKERS}
                       onClick={() => {
                         setAdding(team);
                         setError("");
@@ -889,7 +890,10 @@ export function CreateTeam({
             <button
               className="primary"
               disabled={
-                busy || !manager || !members.length || members.length > 8
+                busy ||
+                !manager ||
+                !members.length ||
+                members.length > MAX_TEAM_WORKERS
               }
             >
               {busy ? "Creating…" : "Create team & talk to manager"}

@@ -16,6 +16,7 @@ import { assertFleetAction } from "./fleet-action-context.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+  MAX_DONE_THREAD_MEMBERS,
   DONE_THREAD_PAGE_BYTES,
   DONE_THREAD_PAGE_ITEMS,
 } from "../shared/done-threads.js";
@@ -333,8 +334,11 @@ function move(owner: string, id: string, input: string[]) {
   if (result.length !== ids.length)
     throw new Problem(404, "One or more Done cards are unavailable");
   const combined = new Set([...cardIds(owner, id), ...ids]);
-  if (combined.size > 100)
-    throw new Problem(400, "A thread can contain up to 100 cards");
+  if (combined.size > MAX_DONE_THREAD_MEMBERS)
+    throw new Problem(
+      400,
+      `A thread can contain up to ${MAX_DONE_THREAD_MEMBERS} cards`,
+    );
   if (combined.size < 2)
     throw new Problem(400, "Select at least two cards for a new thread");
   for (const card of result)

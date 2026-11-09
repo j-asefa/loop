@@ -1,3 +1,4 @@
+import { MAX_TEAM_WORKERS } from "../shared/team-limits.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
@@ -197,8 +198,11 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
         const count = (
           teamMembersQueries.activeCount(db, teamId) as { n: number }
         ).n;
-        if (count >= 8)
-          throw new Problem(409, "A team can have up to 8 workers");
+        if (count >= MAX_TEAM_WORKERS)
+          throw new Problem(
+            409,
+            `A team can have up to ${MAX_TEAM_WORKERS} workers`,
+          );
         teamMembersQueries.add(db, teamId, agentId);
       }
       return listTeams(owner).find((item) => item.id === teamId)!;
@@ -212,7 +216,7 @@ export function assertTeamRestoreCapacity(owner: string, agentId: string) {
   if (full)
     throw new Problem(
       409,
-      `Cannot restore this agent: team "${full.name}" already has 8 active workers. Retire another worker or delete the team first.`,
+      `Cannot restore this agent: team "${full.name}" already has ${MAX_TEAM_WORKERS} active workers. Retire another worker or delete the team first.`,
     );
 }
 

@@ -1,3 +1,4 @@
+import { MAX_TEAM_WORKERS } from "./team-limits.js";
 import { z } from "zod";
 import { AgentHandle, AgentInput } from "./agent-contract-schemas.js";
 import { MAX_DEFINITION_BYTES } from "./agent-definitions.js";
@@ -8,7 +9,7 @@ const Text = z.string(),
 export const TeamCreateInput = z.object({
   name: Text.trim().min(1).max(80),
   managerId: Text,
-  members: z.array(Text).min(1).max(8),
+  members: z.array(Text).min(1).max(MAX_TEAM_WORKERS),
 });
 const Selection = z.object({
   connectionId: Text,

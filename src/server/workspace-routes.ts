@@ -38,7 +38,7 @@ import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
 import { sendHtmlPreview } from "./file-preview.js";
-import { MAX_UPLOAD_BYTES } from "../shared/uploads.js";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
 import { stageImport } from "./imports.js";
@@ -67,7 +67,10 @@ routes.on(
             return next(
               error instanceof multer.MulterError &&
                 error.code === "LIMIT_FILE_SIZE"
-                ? new Problem(413, "Files can be up to 25 MB each")
+                ? new Problem(
+                    413,
+                    `Files can be up to ${MAX_UPLOAD_LABEL} each`,
+                  )
                 : error,
             );
           next();

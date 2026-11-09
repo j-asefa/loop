@@ -2,12 +2,16 @@ import { z } from "zod";
 import { CardSelectionSchema, DoneCardSchema } from "./cards.js";
 import { DoneReadVersions } from "./mobile-contract-schemas.js";
 
+export const MAX_DONE_THREAD_MEMBERS = 100;
+
 export const DoneThreadCardId = z
   .string()
   .regex(/^d:(run|message):[^/\\?#\s]+$/)
   .max(160);
 export const DoneThreadMembers = z
-  .object({ cardIds: z.array(DoneThreadCardId).min(1).max(100) })
+  .object({
+    cardIds: z.array(DoneThreadCardId).min(1).max(MAX_DONE_THREAD_MEMBERS),
+  })
   .strict();
 export const DoneThreadCreate = DoneThreadMembers.extend({
   id: z.string().uuid(),

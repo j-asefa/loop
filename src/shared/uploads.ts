@@ -10,6 +10,7 @@ export type UploadedFile = {
   published?: boolean;
 };
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)} MB`;
 export const MAX_MESSAGE_FILES = 8;
 
 export const AttachmentIds = z
