@@ -145,7 +145,6 @@ export function watchCreatedPullRequest(
         pr.headSha ?? null,
         pr.createdAt ?? time,
         time,
-        time,
       );
       return watchQueries.get(db, watchId)!;
     })
@@ -287,7 +286,6 @@ export function startWatch(owner: string, body: unknown) {
         pr.number,
         pr.headSha ?? null,
         since,
-        time,
         time,
       );
       return watchQueries.get(db, watchId)!;
@@ -719,8 +717,6 @@ export async function pollWatch(watchId: string, time = now()) {
           db,
           login,
           update.head,
-          update.ciState?.sha ?? null,
-          update.ciState?.conclusion ?? null,
           update.ciState?.sha ?? null,
           update.ciState?.conclusion ?? null,
           update.ciPending ? 1 : 0,

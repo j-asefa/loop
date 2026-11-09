@@ -122,7 +122,6 @@ function pendingPing(
     request,
     JSON.stringify(payload),
     time,
-    time,
   );
   return payload.id;
 }
@@ -360,7 +359,6 @@ function exhaust(
   webhookSubscriptionsQueries.fail(
     db,
     job.kind,
-    job.kind,
     now(),
     message,
     status,
@@ -377,7 +375,6 @@ export function claimWebhooks(only?: string) {
         db,
         now(),
         now(),
-        only ?? null,
         only ?? null,
       ) as DeliveryRow[];
       return jobs.flatMap((job) => {
@@ -545,9 +542,6 @@ async function deliverClaim(
       keepFailure ? current.last_attempts : attempts,
       accepted ? 1 : 0,
       now(),
-      accepted ? 1 : 0,
-      job.purpose,
-      accepted ? 1 : 0,
       job.purpose,
       now(),
       current.id,

@@ -53,7 +53,7 @@ export function byHash(db: Database.Database, owner: string, hash: string) {
 }
 
 const renewStatement = statement(
-  "UPDATE devices SET expires=max(expires,?) WHERE owner_id=? AND id=? AND hash=? AND expires>? AND max_expires>?",
+  "UPDATE devices SET expires=max(expires,@expires) WHERE owner_id=@owner AND id=@id AND hash=@hash AND expires>@now AND max_expires>@now",
 );
 export function renew(
   db: Database.Database,
@@ -62,9 +62,8 @@ export function renew(
   id: string,
   hash: string,
   now: number,
-  maximumNow: number,
 ) {
-  return renewStatement(db).run(expires, owner, id, hash, now, maximumNow);
+  return renewStatement(db).run({ expires, owner, id, hash, now });
 }
 
 const removeStatement = statement(
@@ -75,15 +74,10 @@ export function remove(db: Database.Database, owner: string, id: string) {
 }
 
 const expireStatement = statement(
-  "DELETE FROM devices WHERE owner_id=? AND (expires<=? OR max_expires<=?)",
+  "DELETE FROM devices WHERE owner_id=@owner AND (expires<=@now OR max_expires<=@now)",
 );
-export function expire(
-  db: Database.Database,
-  owner: string,
-  now: number,
-  maximumNow: number,
-) {
-  return expireStatement(db).run(owner, now, maximumNow);
+export function expire(db: Database.Database, owner: string, now: number) {
+  return expireStatement(db).run({ owner, now });
 }
 
 const countStatement = statement(

@@ -21,7 +21,7 @@ export function prune(db: Database.Database, before: number) {
 }
 
 const insertStatement = statement(
-  "INSERT INTO deployment_instances VALUES(?,?,?,?,?,NULL)",
+  "INSERT INTO deployment_instances VALUES(@id,@role,@build,@started,@started,NULL)",
 );
 export function insert(
   db: Database.Database,
@@ -29,9 +29,8 @@ export function insert(
   role: string,
   build: string,
   started: number,
-  seen: number,
 ) {
-  return insertStatement(db).run(id, role, build, started, seen);
+  return insertStatement(db).run({ id, role, build, started });
 }
 
 const heartbeatStatement = statement(

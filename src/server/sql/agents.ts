@@ -32,14 +32,13 @@ export function existsOwned(db: Database.Database, id: string, owner: string) {
 }
 
 const insertStatement = statement(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id,effort) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id,effort) VALUES(@id,@owner,@name,@name,@provider,@connection,@model,@instructions,@created,@folder,@effort)",
 );
 export function insert(
   db: Database.Database,
   id: string,
   owner: string,
   name: string,
-  normalized: string,
   provider: string,
   connection: string,
   model: string,
@@ -48,11 +47,10 @@ export function insert(
   folder: string | null,
   effort: string | null,
 ) {
-  return insertStatement(db).run(
+  return insertStatement(db).run({
     id,
     owner,
     name,
-    normalized,
     provider,
     connection,
     model,
@@ -60,19 +58,14 @@ export function insert(
     created,
     folder,
     effort,
-  );
+  });
 }
 
 const renameStatement = statement(
-  "UPDATE agents SET name=?,normalized_name=? WHERE id=?",
+  "UPDATE agents SET name=@name,normalized_name=@name WHERE id=@agent",
 );
-export function rename(
-  db: Database.Database,
-  name: string,
-  normalized: string,
-  agent: string,
-) {
-  return renameStatement(db).run(name, normalized, agent);
+export function rename(db: Database.Database, name: string, agent: string) {
+  return renameStatement(db).run({ name, agent });
 }
 
 const ownedStatement = statement(
@@ -185,25 +178,23 @@ export function routingSuggestion(
 }
 
 const insertImportedStatement = statement(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(?,?,?,?,?,'Imported history','','import',?)",
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,origin,created_at) VALUES(@id,@owner,@name,@name,@provider,'Imported history','','import',@created)",
 );
 export function insertImported(
   db: Database.Database,
   id: string,
   owner: string,
   name: string,
-  normalized: string,
   provider: string,
   created: number,
 ) {
-  return insertImportedStatement(db).run(
+  return insertImportedStatement(db).run({
     id,
     owner,
     name,
-    normalized,
     provider,
     created,
-  );
+  });
 }
 
 const bindNativeHarnessStatement = statement(
@@ -235,31 +226,29 @@ export function connectionModels(
 }
 
 const insertNativeImportStatement = statement(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(?,?,?,?,?,?,?,'',?,?)",
+  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at,folder_id) VALUES(@id,@owner,@name,@name,@provider,@connection,@model,'',@created,@folder)",
 );
 export function insertNativeImport(
   db: Database.Database,
   id: string,
   owner: string,
   name: string,
-  normalized: string,
   provider: string,
   connection: string | null,
   model: string,
   created: number,
   folder: string,
 ) {
-  return insertNativeImportStatement(db).run(
+  return insertNativeImportStatement(db).run({
     id,
     owner,
     name,
-    normalized,
     provider,
     connection,
     model,
     created,
     folder,
-  );
+  });
 }
 
 const mailTeamMembersStatement = statement(

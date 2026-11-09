@@ -41,7 +41,6 @@ it("keeps lazy query statements on their supplied connection and inside the proj
           null,
           10,
           10,
-          10,
         );
         watches.schedule(first, 20, "watch");
       })
@@ -67,7 +66,6 @@ it("keeps lazy query statements on their supplied connection and inside the proj
       "repo",
       43,
       null,
-      10,
       10,
       10,
     );
@@ -123,7 +121,6 @@ it("resumes only a paused watch, so a stop committed first is kept", () => {
       "repo",
       42,
       null,
-      10,
       10,
       10,
     );

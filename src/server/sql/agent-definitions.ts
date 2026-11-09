@@ -48,7 +48,7 @@ export function update(
 }
 
 const insertStatement = statement(
-  "INSERT INTO agent_definitions(id,owner_id,kind,name,description,markdown,version,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?)",
+  "INSERT INTO agent_definitions(id,owner_id,kind,name,description,markdown,version,created_at,updated_at) VALUES(@id,@owner,@kind,@name,@description,@markdown,1,@created,@created)",
 );
 export function insert(
   db: Database.Database,
@@ -59,9 +59,8 @@ export function insert(
   description: string,
   markdown: string,
   created: number,
-  updated: number,
 ) {
-  return insertStatement(db).run(
+  return insertStatement(db).run({
     id,
     owner,
     kind,
@@ -69,8 +68,7 @@ export function insert(
     description,
     markdown,
     created,
-    updated,
-  );
+  });
 }
 
 const summariesStatement = statement(

@@ -29,7 +29,7 @@ export function update(
 }
 
 const insertStatement = statement(
-  "INSERT INTO feed_watches(id,owner_id,query,feeds,created_at,since_at,enabled)\n       VALUES(?,?,?,?,?,?,?)",
+  "INSERT INTO feed_watches(id,owner_id,query,feeds,created_at,since_at,enabled)\n       VALUES(@id,@owner,@query,@feeds,@created,@created,@enabled)",
 );
 export function insert(
   db: Database.Database,
@@ -38,18 +38,9 @@ export function insert(
   query: string,
   feeds: string | null,
   created: number,
-  since: number,
   enabled: number,
 ) {
-  return insertStatement(db).run(
-    id,
-    owner,
-    query,
-    feeds,
-    created,
-    since,
-    enabled,
-  );
+  return insertStatement(db).run({ id, owner, query, feeds, created, enabled });
 }
 
 const ownedStatement = statement(

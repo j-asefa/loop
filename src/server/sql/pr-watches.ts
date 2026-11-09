@@ -103,7 +103,7 @@ export function latestForPull(
 }
 
 const insertStatement = statement(
-  "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'watching',?,?,0,?,?)",
+  "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,head_sha,since_at,next_poll_at,created_at,updated_at) VALUES(@id,@owner,@conversation,@agent,@repoOwner,@repoName,@number,'watching',@head,@since,0,@created,@created)",
 );
 export function insert(
   db: Database.Database,
@@ -117,9 +117,8 @@ export function insert(
   head: string | null,
   since: number,
   created: number,
-  updated: number,
 ) {
-  return insertStatement(db).run(
+  return insertStatement(db).run({
     id,
     owner,
     conversation,
@@ -130,8 +129,7 @@ export function insert(
     head,
     since,
     created,
-    updated,
-  );
+  });
 }
 
 const getStatement = statement("SELECT * FROM pr_watches WHERE id=?");
@@ -249,35 +247,32 @@ export function notStopped(db: Database.Database, id: string) {
     : parseRecord(notStoppedRow, row, "pr_watches");
 }
 
-const advanceStatement = statement(`UPDATE pr_watches SET login=?,head_sha=?,
-            ci_sha=COALESCE(?,ci_sha),ci_conclusion=COALESCE(?,ci_conclusion),
-            seen_ci_sha=COALESCE(?,seen_ci_sha),seen_ci_conclusion=COALESCE(?,seen_ci_conclusion),
-            ci_pending=?,read_at=?,error=NULL,updated_at=? WHERE id=?`);
+const advanceStatement =
+  statement(`UPDATE pr_watches SET login=@login,head_sha=@head,
+            ci_sha=COALESCE(@ciSha,ci_sha),ci_conclusion=COALESCE(@ciConclusion,ci_conclusion),
+            seen_ci_sha=COALESCE(@ciSha,seen_ci_sha),seen_ci_conclusion=COALESCE(@ciConclusion,seen_ci_conclusion),
+            ci_pending=@pending,read_at=@read,error=NULL,updated_at=@updated WHERE id=@id`);
 export function advance(
   db: Database.Database,
   login: string | null,
   head: string,
   ciSha: string | null,
   ciConclusion: string | null,
-  seenSha: string | null,
-  seenConclusion: string | null,
   pending: number,
   read: number,
   updated: number,
   id: string,
 ) {
-  return advanceStatement(db).run(
+  return advanceStatement(db).run({
     login,
     head,
     ciSha,
     ciConclusion,
-    seenSha,
-    seenConclusion,
     pending,
     read,
     updated,
     id,
-  );
+  });
 }
 
 const observeStatement = statement(

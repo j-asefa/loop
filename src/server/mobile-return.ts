@@ -390,14 +390,7 @@ export function setSaved(owner: string, messageId: string, on: boolean) {
       const result = resultFor(owner, messageId),
         savedAt = now();
       if (result && result.pinned !== Number(on)) {
-        artifactsQueries.bookmark(
-          db,
-          Number(on),
-          savedAt,
-          result.id,
-          owner,
-          Number(on),
-        );
+        artifactsQueries.bookmark(db, Number(on), savedAt, result.id, owner);
       }
       on && !result
         ? messageBookmarksQueries.insert(db, owner, messageId, savedAt).changes

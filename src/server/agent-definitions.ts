@@ -83,7 +83,6 @@ function saveDefinition(owner: string, definitionId: string, input: unknown) {
           spec.description,
           data.markdown,
           at,
-          at,
         );
       }
       return detail(stored(owner, definitionId));

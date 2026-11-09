@@ -123,31 +123,22 @@ export function activate(db: Database.Database, id: string) {
 }
 
 const failStatement = statement(
-  "UPDATE webhook_subscriptions SET state=CASE WHEN state='active' AND ?='run.stopped' THEN 'failed' ELSE state END,\n    failed_at=CASE WHEN state IN ('active','failed') AND ?='run.stopped' THEN ? ELSE failed_at END,last_error=?,last_status=?,last_attempts=? WHERE id=? AND state<>'revoked'",
+  "UPDATE webhook_subscriptions SET state=CASE WHEN state='active' AND @kind='run.stopped' THEN 'failed' ELSE state END,\n    failed_at=CASE WHEN state IN ('active','failed') AND @kind='run.stopped' THEN @time ELSE failed_at END,last_error=@error,last_status=@status,last_attempts=@attempts WHERE id=@id AND state<>'revoked'",
 );
 export function fail(
   db: Database.Database,
   kind: string,
-  failedKind: string,
   time: number,
   error: string,
   status: number | null,
   attempts: number,
   id: string,
 ) {
-  return failStatement(db).run(
-    kind,
-    failedKind,
-    time,
-    error,
-    status,
-    attempts,
-    id,
-  );
+  return failStatement(db).run({ kind, time, error, status, attempts, id });
 }
 
 const settleStatement = statement(
-  "UPDATE webhook_subscriptions SET last_status=?,last_error=?,last_attempts=?,last_delivered_at=CASE WHEN ? THEN ? ELSE last_delivered_at END,\n      state=CASE WHEN ? AND ?='activation' AND state='pending_activation' THEN 'active' ELSE state END,\n      activated_at=CASE WHEN ? AND ?='activation' AND state='pending_activation' THEN ? ELSE activated_at END WHERE id=?",
+  "UPDATE webhook_subscriptions SET last_status=@status,last_error=@error,last_attempts=@attempts,last_delivered_at=CASE WHEN @accepted THEN @time ELSE last_delivered_at END,\n      state=CASE WHEN @accepted AND @purpose='activation' AND state='pending_activation' THEN 'active' ELSE state END,\n      activated_at=CASE WHEN @accepted AND @purpose='activation' AND state='pending_activation' THEN @activatedAt ELSE activated_at END WHERE id=@id",
 );
 export function settle(
   db: Database.Database,
@@ -156,24 +147,18 @@ export function settle(
   attempts: number,
   accepted: number,
   time: number,
-  activate: number,
   purpose: string | null,
-  activated: number,
-  activationPurpose: string | null,
   activatedAt: number,
   id: string,
 ) {
-  return settleStatement(db).run(
+  return settleStatement(db).run({
     status,
     error,
     attempts,
     accepted,
     time,
-    activate,
     purpose,
-    activated,
-    activationPurpose,
     activatedAt,
     id,
-  );
+  });
 }

@@ -186,7 +186,6 @@ const keep = db.transaction(
         JSON.stringify(story),
         story.published_at,
         at,
-        at,
       );
     feedStoriesQueries.prune(db, { feed: feed.id, keep: KEEP_PER_FEED });
     // A read mark or watch hit for a story that is gone can never be used.

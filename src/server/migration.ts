@@ -167,7 +167,6 @@ export function importSession(
     agent,
     OWNER,
     name,
-    name,
     harnesses[options.harness].provider,
     connection?.id || null,
     "native-default",

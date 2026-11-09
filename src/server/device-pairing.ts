@@ -187,7 +187,6 @@ export class DevicePairing implements DeviceTrust {
           device.id,
           digest,
           now,
-          now,
         );
         if (!update.changes) return;
         device.expires = expires;
@@ -344,7 +343,7 @@ export class DevicePairing implements DeviceTrust {
           (value.ceremonyId && value.ceremonyId !== ceremony.id)
         )
           throw rejected();
-        devicesQueries.expire(this.db, this.owner, now, now);
+        devicesQueries.expire(this.db, this.owner, now);
         const count = devicesQueries.count(this.db, this.owner) as {
           n: number;
         };
