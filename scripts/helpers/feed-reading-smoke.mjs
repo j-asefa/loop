@@ -214,9 +214,12 @@ export async function feedReadingSmoke(page, fixture, capture) {
   const draft = "An unsent follow-up.\n\n" + "Draft details. ".repeat(30);
   await page.evaluate(
     ({ owner, id, draft }) => {
-      localStorage.setItem(`loop-draft-text:${owner}:${id}`, draft);
       localStorage.setItem(
-        `loop-draft-text:another-owner:${id}`,
+        `loop-draft-text:${owner}:${JSON.stringify(["", id])}`,
+        draft,
+      );
+      localStorage.setItem(
+        `loop-draft-text:another-owner:${JSON.stringify(["", id])}`,
         "Private draft",
       );
     },

@@ -355,7 +355,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.evaluate(
       ({ owner, id }) =>
         localStorage.setItem(
-          `loop-draft-text:${owner}:${id}`,
+          `loop-draft-text:${owner}:${JSON.stringify(["", id])}`,
           "Half-written follow-up",
         ),
       { owner, id: done.id },
@@ -805,7 +805,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.evaluate(
       ({ owner, id, file }) =>
         localStorage.setItem(
-          `loop-draft-files:${owner}:${id}`,
+          `loop-draft-files:${owner}:${JSON.stringify(["", id])}`,
           JSON.stringify([file]),
         ),
       { owner, id: working.id, file: attached },
@@ -828,7 +828,7 @@ export async function continuitySmoke(page, fixture, capture) {
         const cancel = originalClearTimeout.bind(window);
         const remove = Storage.prototype.removeItem;
         const held = new Map();
-        const fileKey = `loop-draft-files:${owner}:${id}`;
+        const fileKey = `loop-draft-files:${owner}:${JSON.stringify(["", id])}`;
         let armed = true;
         let captured = 0;
         let released = false;
@@ -914,8 +914,12 @@ export async function continuitySmoke(page, fixture, capture) {
       .poll(() =>
         page.evaluate(
           ({ owner, id }) => ({
-            text: localStorage.getItem(`loop-draft-text:${owner}:${id}`),
-            files: localStorage.getItem(`loop-draft-files:${owner}:${id}`),
+            text: localStorage.getItem(
+              `loop-draft-text:${owner}:${JSON.stringify(["", id])}`,
+            ),
+            files: localStorage.getItem(
+              `loop-draft-files:${owner}:${JSON.stringify(["", id])}`,
+            ),
           }),
           { owner, id: working.id },
         ),
