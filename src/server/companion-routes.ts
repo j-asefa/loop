@@ -202,7 +202,6 @@ routes.on(workspaceApi.nativeDecisions, (req, res) => {
       db,
       OWNER,
       conversation || null,
-      conversation || null,
     ) as z.input<typeof workspaceApi.nativeDecisions.response>,
   );
 });

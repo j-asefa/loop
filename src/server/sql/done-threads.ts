@@ -19,7 +19,7 @@ export function owned(db: Database.Database, owner: string, id: string) {
 }
 
 const pageStatement = statement(
-  "SELECT id,title,created_at FROM done_threads WHERE owner_id=? AND (? IS NULL OR created_at<? OR (created_at=? AND id>?)) ORDER BY created_at DESC,id LIMIT ?",
+  "SELECT id,title,created_at FROM done_threads WHERE owner_id=@owner AND (@before IS NULL OR created_at<@before OR (created_at=@before AND id>@id)) ORDER BY created_at DESC,id LIMIT @limit",
 );
 const pageRow = QueryRecords.done_threads.pick({
   id: true,
@@ -29,14 +29,12 @@ const pageRow = QueryRecords.done_threads.pick({
 export function page(
   db: Database.Database,
   owner: string,
-  cursor: number | null,
   before: number | null,
-  at: number | null,
   id: string,
   limit: number,
 ) {
   return pageStatement(db)
-    .all(owner, cursor, before, at, id, limit)
+    .all({ owner, before, id, limit })
     .map((row) => parseRecord(pageRow, row, "done_threads"));
 }
 

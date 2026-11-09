@@ -46,18 +46,17 @@ const listRow = QueryRecords.pr_watches.pick({
 
 const listStatement =
   statement(`SELECT id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,error,head_sha,ci_sha,ci_conclusion,ci_pending,read_at,seen_ci_sha,seen_ci_conclusion,created_at,updated_at
-      FROM pr_watches WHERE owner_id=? AND (? IS NULL OR conversation_id=?)
-        AND (state IN ('watching','paused') OR updated_at>?)
+      FROM pr_watches WHERE owner_id=@owner AND (@conversation IS NULL OR conversation_id=@conversation)
+        AND (state IN ('watching','paused') OR updated_at>@since)
       ORDER BY CASE state WHEN 'watching' THEN 0 WHEN 'paused' THEN 1 ELSE 2 END, created_at DESC LIMIT 100`);
 export function list(
   db: Database.Database,
   owner: string,
   conversation: string | null,
-  matchingConversation: string | null,
   since: number,
 ) {
   return listStatement(db)
-    .all(owner, conversation, matchingConversation, since)
+    .all({ owner, conversation, since })
     .map((row) => parseRecord(listRow, row, "pr_watches"));
 }
 
@@ -362,8 +361,8 @@ export function expiredCards(
 
 const createdPullsStatement =
   statement(`SELECT repo_owner owner,repo_name repo,number,created_at FROM (
-    SELECT repo_owner,repo_name,number,created_at FROM conversation_pull_links WHERE owner_id=? AND conversation_id=?
-    UNION ALL SELECT repo_owner,repo_name,number,created_at FROM pr_watches WHERE owner_id=? AND conversation_id=?
+    SELECT repo_owner,repo_name,number,created_at FROM conversation_pull_links WHERE owner_id=@owner AND conversation_id=@conversation
+    UNION ALL SELECT repo_owner,repo_name,number,created_at FROM pr_watches WHERE owner_id=@owner AND conversation_id=@conversation
   ) ORDER BY created_at DESC`);
 const createdPullsRow = z.object({
   owner: z.string(),
@@ -375,15 +374,8 @@ export function* createdPulls(
   db: Database.Database,
   owner: string,
   conversation: string,
-  watchOwner: string,
-  watchConversation: string,
 ) {
-  for (const row of createdPullsStatement(db).iterate(
-    owner,
-    conversation,
-    watchOwner,
-    watchConversation,
-  ))
+  for (const row of createdPullsStatement(db).iterate({ owner, conversation }))
     yield parseRecord(createdPullsRow, row, "pr_watches");
 }
 

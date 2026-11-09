@@ -17,7 +17,7 @@ export function projectFolders(
       }[]
     ).map((row) => row.folder_id);
   return (
-    foldersQueries.descendants(db, owner, project, owner) as { id: string }[]
+    foldersQueries.descendants(db, owner, project) as { id: string }[]
   ).map((row) => row.id);
 }
 

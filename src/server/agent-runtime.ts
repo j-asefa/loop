@@ -490,7 +490,6 @@ export async function executeAgent(run: Run): Promise<boolean> {
         run.conversation_id,
         run.owner_id,
         run.id,
-        run.id,
       ),
     );
     const history: ChatMessage[] = turns.map((m) => ({

@@ -832,7 +832,7 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
   expect(messages.personalCount(db, "alice").n).toBe(personalBefore);
   expect(
     messages
-      .personalHistory(db, "alice", null, null, Number.MAX_SAFE_INTEGER, "z")
+      .personalHistory(db, "alice", null, Number.MAX_SAFE_INTEGER, "z")
       .some((message) => message.content === claimed.input),
   ).toBe(false);
   const modelInputs: string[] = [];

@@ -230,7 +230,7 @@ export function pendingWebhook(db: Database.Database, run: string) {
 }
 
 const ownedGenerationStatement = statement(
-  "SELECT d.generation FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND r.owner_id=? AND c.owner_id=?",
+  "SELECT d.generation FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=@id AND r.owner_id=@owner AND c.owner_id=@owner",
 );
 
 const ownedGenerationRow = QueryRecords.native_decisions.pick({
@@ -240,17 +240,16 @@ const ownedGenerationRow = QueryRecords.native_decisions.pick({
 export function ownedGeneration(
   db: Database.Database,
   id: string,
-  runOwner: string,
-  conversationOwner: string,
+  owner: string,
 ) {
-  const row = ownedGenerationStatement(db).get(id, runOwner, conversationOwner);
+  const row = ownedGenerationStatement(db).get({ id, owner });
   return row === undefined
     ? undefined
     : parseRecord(ownedGenerationRow, row, "native_decisions");
 }
 
 const ownedGenerationStateStatement = statement(
-  "SELECT d.state FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=? AND d.generation=? AND r.owner_id=? AND c.owner_id=?",
+  "SELECT d.state FROM native_decisions d JOIN runs r ON r.id=d.run_id JOIN conversations c ON c.id=d.conversation_id WHERE d.id=@id AND d.generation=@generation AND r.owner_id=@owner AND c.owner_id=@owner",
 );
 
 const ownedGenerationStateRow = QueryRecords.native_decisions.pick({
@@ -261,15 +260,9 @@ export function ownedGenerationState(
   db: Database.Database,
   id: string,
   generation: string,
-  runOwner: string,
-  conversationOwner: string,
+  owner: string,
 ) {
-  const row = ownedGenerationStateStatement(db).get(
-    id,
-    generation,
-    runOwner,
-    conversationOwner,
-  );
+  const row = ownedGenerationStateStatement(db).get({ id, generation, owner });
   return row === undefined
     ? undefined
     : parseRecord(ownedGenerationStateRow, row, "native_decisions");
@@ -291,7 +284,7 @@ export function conversation(db: Database.Database, id: string) {
 }
 
 const visibleForOwnerStatement = statement(
-  "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=? AND (? IS NULL OR d.conversation_id=?) ORDER BY d.created_at",
+  "SELECT d.*,a.name,a.provider,r.input FROM native_decisions d JOIN runs r ON r.id=d.run_id LEFT JOIN agents a ON a.id=r.agent_id WHERE d.state IN ('pending','deciding','unknown') AND r.owner_id=@owner AND (@conversation IS NULL OR d.conversation_id=@conversation) ORDER BY d.created_at",
 );
 
 const visibleForOwnerRow = QueryRecords.native_decisions.extend({
@@ -303,10 +296,9 @@ const visibleForOwnerRow = QueryRecords.native_decisions.extend({
 export function visibleForOwner(
   db: Database.Database,
   owner: string,
-  filter: string | null,
   conversation: string | null,
 ) {
   return visibleForOwnerStatement(db)
-    .all(owner, filter, conversation)
+    .all({ owner, conversation })
     .map((row) => parseRecord(visibleForOwnerRow, row, "native_decisions"));
 }

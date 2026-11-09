@@ -158,7 +158,6 @@ export const nativeAnswerTokenWrite = tokenWrite({
       db,
       decision,
       request.owner,
-      request.owner,
     ) as { generation: string } | undefined;
     if (!row) throw new Problem(404, "Native decision not found.");
     return { decision, generation: row.generation };
@@ -170,7 +169,6 @@ export const nativeAnswerTokenWrite = tokenWrite({
       db,
       saved.decision,
       saved.generation,
-      owner,
       owner,
     ) as { state: string } | undefined;
     if (!row) throw unavailable();

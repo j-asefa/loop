@@ -170,16 +170,15 @@ export function projectCounts(db: Database.Database, owner: string) {
 }
 
 const routingSuggestionStatement = statement(
-  "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=? AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (? IS NULL OR json_extract(r.payload,'$.folderId')=?)),0) DESC,a.created_at DESC LIMIT 1",
+  "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=@owner AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (@project IS NULL OR json_extract(r.payload,'$.folderId')=@project)),0) DESC,a.created_at DESC LIMIT 1",
 );
 const routingSuggestionRow = QueryRecords.agents;
 export function routingSuggestion(
   db: Database.Database,
   owner: string,
   project: string | null,
-  sameProject: string | null,
 ) {
-  const row = routingSuggestionStatement(db).get(owner, project, sameProject);
+  const row = routingSuggestionStatement(db).get({ owner, project });
   return row === undefined
     ? undefined
     : parseRecord(routingSuggestionRow, row, "agents");

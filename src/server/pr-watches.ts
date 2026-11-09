@@ -85,9 +85,7 @@ function watchesFor(owner: string, conversation?: string) {
   return watchQueries.list(
     db,
     owner,
-    conversation ?? null,
-    conversation ?? null,
-    // Recently ended watches stay listed so a card can say why it stopped.
+    conversation ?? null, // Recently ended watches stay listed so a card can say why it stopped.
     now() - 7 * 24 * 3600_000,
   );
 }

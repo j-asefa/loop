@@ -177,8 +177,6 @@ export function listDoneThreadPage(
       db,
       owner,
       cursor?.at ?? null,
-      cursor?.at ?? null,
-      cursor?.at ?? null,
       cursor?.id ?? "",
       DONE_THREAD_PAGE_ITEMS + 1,
     ) as ThreadRow[];

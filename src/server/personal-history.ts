@@ -38,7 +38,6 @@ export function personalHistory(owner: string, before?: string, q?: string) {
     db,
     owner,
     q || null,
-    q || null,
     ...cursor,
   ) as HistoryRow[];
   const more = items.length > 50;

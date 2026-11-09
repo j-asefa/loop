@@ -52,12 +52,10 @@ it("keeps lazy query statements on their supplied connection and inside the proj
       id: "watch",
       next_poll_at: 20,
     });
-    expect(watches.list(first, "bob", null, null, 0)).toEqual([]);
+    expect(watches.list(first, "bob", null, 0)).toEqual([]);
     expect(watches.threadDetails(first, "bob", "thread")).toEqual([]);
     expect(watches.pullStatus(first, "bob", "thread", 0)).toBeUndefined();
-    expect([
-      ...watches.createdPulls(first, "bob", "thread", "bob", "thread"),
-    ]).toEqual([]);
+    expect([...watches.createdPulls(first, "bob", "thread")]).toEqual([]);
     expect(watches.get(second, "watch")).toBeUndefined();
     watches.insert(
       second,

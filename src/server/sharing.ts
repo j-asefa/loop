@@ -91,7 +91,6 @@ routes.on(workspaceApi.routingPreview, (req, res) => {
         db,
         res.locals.owner,
         d.folderId || null,
-        d.folderId || null,
       ) as Agent) || null;
   res.json({
     agent,
