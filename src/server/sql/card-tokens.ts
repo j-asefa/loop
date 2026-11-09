@@ -28,14 +28,10 @@ export function activeCount(db: Database.Database, owner: string) {
 }
 
 const pruneRevokedStatement = statement(
-  "DELETE FROM card_tokens WHERE owner_id=? AND revoked_at IS NOT NULL AND id NOT IN (SELECT id FROM card_tokens WHERE owner_id=? AND revoked_at IS NOT NULL ORDER BY revoked_at DESC,id DESC LIMIT 50)",
+  "DELETE FROM card_tokens WHERE owner_id=@owner AND revoked_at IS NOT NULL AND id NOT IN (SELECT id FROM card_tokens WHERE owner_id=@owner AND revoked_at IS NOT NULL ORDER BY revoked_at DESC,id DESC LIMIT 50)",
 );
-export function pruneRevoked(
-  db: Database.Database,
-  owner: string,
-  retainedOwner: string,
-) {
-  return pruneRevokedStatement(db).run(owner, retainedOwner);
+export function pruneRevoked(db: Database.Database, owner: string) {
+  return pruneRevokedStatement(db).run({ owner });
 }
 
 const insertStatement = statement(
@@ -93,16 +89,11 @@ export function byDigest(db: Database.Database, digest: string) {
 }
 
 const chargeStatement = statement(
-  "UPDATE card_tokens SET request_window=?,request_count=CASE WHEN request_window=? THEN request_count+1 ELSE 1 END WHERE id=? RETURNING request_count n",
+  "UPDATE card_tokens SET request_window=@window,request_count=CASE WHEN request_window=@window THEN request_count+1 ELSE 1 END WHERE id=@id RETURNING request_count n",
 );
 const chargeRow = z.object({ n: z.number() });
-export function charge(
-  db: Database.Database,
-  window: number,
-  currentWindow: number,
-  id: string,
-) {
-  const row = chargeStatement(db).get(window, currentWindow, id);
+export function charge(db: Database.Database, window: number, id: string) {
+  const row = chargeStatement(db).get({ window, id });
   return row === undefined
     ? undefined
     : parseRecord(chargeRow, row, "card_tokens");

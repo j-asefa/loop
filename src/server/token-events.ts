@@ -161,19 +161,15 @@ class TokenEventConnection extends EventEmitter {
         throw new Error("This connection's checkpoint is no longer current");
       // Preserve the offered reset's meaning even if later commits overtake an
       // invalid saved cursor. Ordinary replay cannot rewind confirmed progress.
-      tokenEventCursorsQueries.confirm(
-        db,
-        query.epoch,
-        offered.reset ? 1 : 0,
-        query.cursor,
-        query.epoch,
-        clock.last_event_id,
-        query.cursor,
-        query.cursor,
-        this.tokenId,
-        this.owner,
-        this.connection,
-      );
+      tokenEventCursorsQueries.confirm(db, {
+        epoch: query.epoch,
+        reset: offered.reset ? 1 : 0,
+        cursor: query.cursor,
+        lastEvent: clock.last_event_id,
+        token: this.tokenId,
+        owner: this.owner,
+        connection: this.connection,
+      });
     }).immediate();
     for (const id of this.offers.keys())
       if (id < query.cursor) this.offers.delete(id);

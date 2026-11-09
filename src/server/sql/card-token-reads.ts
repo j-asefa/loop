@@ -27,23 +27,15 @@ export function knownPage(
 }
 
 const insertActiveStatement = statement(
-  "INSERT OR IGNORE INTO card_token_reads(token_id,owner_id,card_id) SELECT ?,?,? WHERE EXISTS(SELECT 1 FROM card_tokens WHERE id=? AND owner_id=? AND revoked_at IS NULL)",
+  "INSERT OR IGNORE INTO card_token_reads(token_id,owner_id,card_id) SELECT @token,@owner,@card WHERE EXISTS(SELECT 1 FROM card_tokens WHERE id=@token AND owner_id=@owner AND revoked_at IS NULL)",
 );
 export function insertActive(
   db: Database.Database,
   token: string,
   owner: string,
   card: string,
-  expectedToken: string,
-  expectedOwner: string,
 ) {
-  return insertActiveStatement(db).run(
-    token,
-    owner,
-    card,
-    expectedToken,
-    expectedOwner,
-  );
+  return insertActiveStatement(db).run({ token, owner, card });
 }
 const knownStatement = statement(
   "SELECT 1 FROM card_token_reads WHERE token_id=? AND owner_id=? AND card_id=?",

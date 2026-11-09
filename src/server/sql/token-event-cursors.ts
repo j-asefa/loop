@@ -17,33 +17,21 @@ export function current(db: Database.Database, token: string, owner: string) {
 }
 
 const confirmStatement = statement(
-  "UPDATE token_event_cursors SET epoch=?,cursor=CASE WHEN ? THEN ? WHEN epoch=? AND cursor<=? THEN max(cursor,?) ELSE ? END\n        WHERE token_id=? AND owner_id=? AND connection_id=?",
+  "UPDATE token_event_cursors SET epoch=@epoch,cursor=CASE WHEN @reset THEN @cursor WHEN epoch=@epoch AND cursor<=@lastEvent THEN max(cursor,@cursor) ELSE @cursor END\n        WHERE token_id=@token AND owner_id=@owner AND connection_id=@connection",
 );
 export function confirm(
   db: Database.Database,
-  epoch: string,
-  reset: number,
-  resetCursor: number,
-  expectedEpoch: string,
-  lastEvent: number,
-  advanceCursor: number,
-  fallbackCursor: number,
-  token: string,
-  owner: string,
-  connection: string,
+  params: {
+    epoch: string;
+    reset: number;
+    cursor: number;
+    lastEvent: number;
+    token: string;
+    owner: string;
+    connection: string;
+  },
 ) {
-  return confirmStatement(db).run(
-    epoch,
-    reset,
-    resetCursor,
-    expectedEpoch,
-    lastEvent,
-    advanceCursor,
-    fallbackCursor,
-    token,
-    owner,
-    connection,
-  );
+  return confirmStatement(db).run(params);
 }
 
 const connectStatement = statement(

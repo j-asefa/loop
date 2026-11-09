@@ -13,15 +13,11 @@ export function exists(db: Database.Database, id: string) {
 }
 
 const digestExistsStatement = statement(
-  "SELECT 1 FROM card_token_ids WHERE digest=? UNION ALL SELECT 1 FROM card_tokens WHERE digest=? LIMIT 1",
+  "SELECT 1 FROM card_token_ids WHERE digest=@digest UNION ALL SELECT 1 FROM card_tokens WHERE digest=@digest LIMIT 1",
 );
 const digestExistsRow = z.object({ "1": z.number() });
-export function digestExists(
-  db: Database.Database,
-  digest: string,
-  activeDigest: string,
-) {
-  const row = digestExistsStatement(db).get(digest, activeDigest);
+export function digestExists(db: Database.Database, digest: string) {
+  const row = digestExistsStatement(db).get({ digest });
   return row === undefined
     ? undefined
     : parseRecord(digestExistsRow, row, "card_token_ids");
