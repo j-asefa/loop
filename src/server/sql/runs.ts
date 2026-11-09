@@ -222,50 +222,37 @@ export function forAgent(
 }
 
 const completePreviewStatement =
-  statement(`UPDATE runs SET result=?,state='completed',worker_id=NULL,heartbeat=NULL,updated_at=?,
-      active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,?-active_since) ELSE 0 END,
-      active_since=NULL WHERE id=? AND owner_id=?`);
+  statement(`UPDATE runs SET result=@result,state='completed',worker_id=NULL,heartbeat=NULL,updated_at=@time,
+      active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,@time-active_since) ELSE 0 END,
+      active_since=NULL WHERE id=@id AND owner_id=@owner`);
 export function completePreview(
   db: Database.Database,
   result: string | null,
-  updated: number,
-  ended: number,
+  time: number,
   id: string | null,
   owner: string | null,
 ) {
-  return completePreviewStatement(db).run(result, updated, ended, id, owner);
+  return completePreviewStatement(db).run({ result, time, id, owner });
 }
 
 const insertPreviewStatement = statement(
-  "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+  "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at) VALUES(@id,@owner,@agent,@conversation,@input,@state,@id,@payload,@error,@time,@time)",
 );
 export function insertPreview(
   db: Database.Database,
-  id: string | null,
-  owner: string | null,
-  agent: string | null,
-  conversation: string | null,
-  input: string | null,
-  state: string | null,
-  key: string | null,
-  payload: string | null,
-  error: string | null,
-  created: number,
-  updated: number,
+  params: {
+    id: string | null;
+    owner: string | null;
+    agent: string | null;
+    conversation: string | null;
+    input: string | null;
+    state: string | null;
+    payload: string | null;
+    error: string | null;
+    time: number;
+  },
 ) {
-  return insertPreviewStatement(db).run(
-    id,
-    owner,
-    agent,
-    conversation,
-    input,
-    state,
-    key,
-    payload,
-    error,
-    created,
-    updated,
-  );
+  return insertPreviewStatement(db).run(params);
 }
 
 const getStatement = statement("SELECT * FROM runs WHERE id=?");
@@ -585,34 +572,18 @@ export function leasedState(
 }
 
 const transitionStateStatement =
-  statement(`UPDATE runs SET state=?,updated_at=?,
-      active_ms=active_ms+CASE WHEN active_since IS NOT NULL AND ? NOT IN ('running','pausing')
-        THEN max(0,(CASE WHEN ?='interrupted' THEN min(?,COALESCE(heartbeat,?)) ELSE ? END)-active_since) ELSE 0 END,
-      active_since=CASE WHEN ? IN ('running','pausing') THEN active_since ELSE NULL END
-      WHERE id=?`);
+  statement(`UPDATE runs SET state=@state,updated_at=@time,
+      active_ms=active_ms+CASE WHEN active_since IS NOT NULL AND @state NOT IN ('running','pausing')
+        THEN max(0,(CASE WHEN @state='interrupted' THEN min(@time,COALESCE(heartbeat,@time)) ELSE @time END)-active_since) ELSE 0 END,
+      active_since=CASE WHEN @state IN ('running','pausing') THEN active_since ELSE NULL END
+      WHERE id=@id`);
 export function transitionState(
   db: Database.Database,
   state: string | null,
-  updated: number,
-  accountingState: string | null,
-  interruptedState: string | null,
-  interruptedAt: number,
-  heartbeatFallback: number,
-  endAt: number,
-  activeState: string | null,
+  time: number,
   id: string | null,
 ) {
-  return transitionStateStatement(db).run(
-    state,
-    updated,
-    accountingState,
-    interruptedState,
-    interruptedAt,
-    heartbeatFallback,
-    endAt,
-    activeState,
-    id,
-  );
+  return transitionStateStatement(db).run({ state, time, id });
 }
 
 const clearLeaseStatement = statement(
@@ -648,24 +619,22 @@ export function markInvalidUnleased(
 }
 
 const cancellableChildrenStatement = statement(`
-      SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=? AND r.id IN (
-        SELECT child_run_id FROM delegations WHERE parent_run_id=?
-        UNION SELECT rc.run_id FROM review_continuations rc WHERE rc.parent_run_id=? AND rc.owner_id=?
+      SELECT r.id,r.owner_id FROM runs r WHERE r.owner_id=@owner AND r.id IN (
+        SELECT child_run_id FROM delegations WHERE parent_run_id=@parent
+        UNION SELECT rc.run_id FROM review_continuations rc WHERE rc.parent_run_id=@parent AND rc.owner_id=@owner
         UNION SELECT m.run_id FROM delegations d JOIN agent_mail m
-          ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=?
+          ON m.sender_run_id=d.child_run_id AND m.kind='result' AND m.owner_id=@owner
           JOIN runs result ON result.id=m.run_id AND result.owner_id=m.owner_id
-          WHERE d.parent_run_id=? AND d.background=1 AND result.state='queued'
+          WHERE d.parent_run_id=@parent AND d.background=1 AND result.state='queued'
       )`);
 const cancellableChildrenRow = RunIdentity;
 export function cancellableChildren(
   db: Database.Database,
   owner: string | null,
   parent: string | null,
-  mailOwner: string | null,
-  mailParent: string | null,
 ) {
   return cancellableChildrenStatement(db)
-    .all(owner, parent, parent, owner, mailOwner, mailParent)
+    .all({ owner, parent })
     .map((row) => parseRecord(cancellableChildrenRow, row, "runs"));
 }
 
@@ -1035,7 +1004,7 @@ export function hasActiveProvider(
 }
 
 const activeSteeringStatement = statement(
-  `SELECT r.*,${RUN_LIVE_INPUT_SQL("r")} live_input FROM runs r WHERE r.owner_id=? AND r.conversation_id=? AND (? IS NULL OR r.agent_id=?) AND r.kind='agent' AND r.state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY r.created_at DESC LIMIT 1`,
+  `SELECT r.*,${RUN_LIVE_INPUT_SQL("r")} live_input FROM runs r WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND (@agent IS NULL OR r.agent_id=@agent) AND r.kind='agent' AND r.state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY r.created_at DESC LIMIT 1`,
 );
 const activeSteeringRow = QueryRecords.runs.extend({ live_input: z.number() });
 export function activeSteering(
@@ -1043,14 +1012,8 @@ export function activeSteering(
   owner: string,
   conversation: string,
   agent: string | null,
-  matchingAgent: string | null,
 ) {
-  const row = activeSteeringStatement(db).get(
-    owner,
-    conversation,
-    agent,
-    matchingAgent,
-  );
+  const row = activeSteeringStatement(db).get({ owner, conversation, agent });
   return row === undefined
     ? undefined
     : parseRecord(activeSteeringRow, row, "runs");

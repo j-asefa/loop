@@ -36,18 +36,7 @@ it("keeps attention query variants owner-scoped and preserves waiting-child disp
     insert("foreign", "bob", 3, "team-a");
     runs.claimLease(db, "running", null, 4, 4, 4, "a");
     runs.setResult(db, "done", "b");
-    runs.transitionState(
-      db,
-      "completed",
-      5,
-      "completed",
-      "completed",
-      5,
-      5,
-      5,
-      "completed",
-      "b",
-    );
+    runs.transitionState(db, "completed", 5, "b");
     expect(runs.attention(db, "alice", [], false).map((r) => r.id)).toEqual([
       "b",
       "a",

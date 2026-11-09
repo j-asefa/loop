@@ -27,7 +27,7 @@ function cancelChildren(
     approvalsQueries.rejectPending(db, owner, parent);
     const children = z
       .array(RunIdentity)
-      .parse(runsQueries.cancellableChildren(db, owner, parent, owner, parent));
+      .parse(runsQueries.cancellableChildren(db, owner, parent));
     for (const child of children) {
       transition(child, "cancelled", reason);
       pending.push(child.id);
