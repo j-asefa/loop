@@ -1,3 +1,5 @@
+import { feedOrderSql } from "../../shared/feed-order.js";
+import type { FeedFilter } from "../../shared/feed-categories.js";
 import {
   DONE_CARD_PREFIX,
   IDLE_DONE_KEY_PREFIX,
@@ -23,16 +25,6 @@ export function hasResult(
     : parseRecord(hasResultRow, row, "feed_cards");
 }
 
-export type FeedFilter =
-  | "all"
-  | "done"
-  | "replies"
-  | "needs"
-  | "working"
-  | "queued"
-  | "later"
-  | "outcomes"
-  | "unfinished";
 export type Scope = {
   owner: string;
   now: number;
@@ -126,7 +118,7 @@ export function feedPage(
       ${filter === "all" || filter === "done" || filter === "outcomes" ? "AND (@teams IS NOT NULL OR @agent IS NOT NULL OR NOT t.hide_results)" : ""}
       AND (@at IS NULL OR ${sort}<@at OR (${sort}=@at AND (p.conversation_id<@after OR
         (p.conversation_id=@after AND p.card_key<@afterCard))))
-    ORDER BY ${sort} DESC,p.conversation_id DESC,p.card_key DESC LIMIT @limit`;
+    ORDER BY ${feedOrderSql({ at: sort, conversation: "p.conversation_id", card: "p.card_key" })} LIMIT @limit`;
   // One indexed page selection and covering-index aggregate in one statement.
   // LEFT JOIN preserves summary counts even when this continuation has no rows.
   const summarySql = `SELECT COALESCE(sum(${needs}),0) needs,
@@ -137,7 +129,7 @@ export function feedPage(
     `WITH summary AS (${summarySql})
     SELECT page.*,summary.needs,summary.working,summary.queued,summary.done_unread FROM summary
     LEFT JOIN (${results ? sql : sql.replace(/\bt\./g, "p.")}) page ON 1
-    ORDER BY page.sort_at DESC,page.conversation_id DESC,page.card_key DESC`,
+    ORDER BY ${feedOrderSql({ at: "page.sort_at", conversation: "page.conversation_id", card: "page.card_key" })}`,
     db,
   )
     .all(params)
@@ -166,7 +158,7 @@ export function donePage(
       ${params.read ? `AND p.kind='result' AND p.unread=${params.read === "unread" ? 1 : 0}` : ""}
       AND (@ids IS NULL OR '${DONE_CARD_PREFIX}'||COALESCE(NULLIF(p.card_key,''),'${IDLE_DONE_KEY_PREFIX}'||p.conversation_id) IN (SELECT value FROM json_each(@ids)))
       AND (@at IS NULL OR (p.sort_at,p.conversation_id||char(31)||p.card_key)<(@at,@key))
-    ORDER BY p.sort_at DESC,p.conversation_id DESC,p.card_key DESC LIMIT @limit`,
+    ORDER BY ${feedOrderSql({ at: "p.sort_at", conversation: "p.conversation_id", card: "p.card_key" })} LIMIT @limit`,
     db,
   )
     .all({

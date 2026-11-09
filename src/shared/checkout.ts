@@ -1,25 +1,27 @@
+import { z } from "zod";
 /** The one-line view of a run's checkout record; everything else is a tap away. */
-export type CheckoutSummary = {
-  id: string;
-  state: "started" | "captured" | "failed";
-  /** Absent on historical cumulative comparisons with the source checkout. */
-  scope?: "run";
-  branch: string;
-  base_ref: string | null;
-  ahead: number | null;
-  behind: number | null;
-  files: number;
-  additions: number;
-  deletions: number;
-  untracked: number;
-  /** What the local remote-tracking ref said at capture; Loop never fetches. */
-  remote: "none" | "contains" | "missing" | "unknown";
-  started_dirty: boolean;
-  overlap: number;
-  /** Captured after a restart, later than the run ended. */
-  late: boolean;
-  error: string | null;
-};
+export const CheckoutSummarySchema = z.object({
+  id: z.string(),
+  state: z.enum(["started", "captured", "failed"]),
+  // Absent on cumulative comparisons with the source checkout.
+  scope: z.literal("run").optional(),
+  branch: z.string(),
+  base_ref: z.string().nullable(),
+  ahead: z.number().nullable(),
+  behind: z.number().nullable(),
+  files: z.number(),
+  additions: z.number(),
+  deletions: z.number(),
+  untracked: z.number(),
+  // Local remote-tracking state; Loop never fetches for this observation.
+  remote: z.enum(["none", "contains", "missing", "unknown"]),
+  started_dirty: z.boolean(),
+  overlap: z.number(),
+  // Captured after a restart, later than the run ended.
+  late: z.boolean(),
+  error: z.string().nullable(),
+});
+export type CheckoutSummary = z.infer<typeof CheckoutSummarySchema>;
 
 export type CheckoutFile = {
   path: string;

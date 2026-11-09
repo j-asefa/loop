@@ -129,6 +129,15 @@ describe("merging recorded and live activity", () => {
     // The latest copy wins: e1 was applied after being proposed.
     expect((merged[0].record.data as any).state).toBe("applied");
   });
+  it("keeps runless history separate from a named turn", () => {
+    const merged = mergeActivityRecords(
+      [inRun(null, record("replay", ["old.ts"]))],
+      [inRun("history", record("replay", ["new.ts"]))],
+    );
+    expect(merged.map(({ run }) => run)).toEqual([null, "history"]);
+    expect((merged[0].record.data as any).files[0].path).toBe("old.ts");
+    expect((merged[1].record.data as any).files[0].path).toBe("new.ts");
+  });
   it("keeps edits from different runs that reuse an activity id", () => {
     // Turn-scoped ids such as item_1:0 restart in every run.
     const merged = mergeActivityRecords(

@@ -1,3 +1,4 @@
+import { feedOrderSql } from "../../shared/feed-order.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -45,7 +46,7 @@ const pageStatement =
     EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
     ${replyScopeSql}
       AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))
-    ORDER BY p.created_at DESC,c.id DESC,p.message_id DESC LIMIT @limit`);
+    ORDER BY ${feedOrderSql({ at: "p.created_at", conversation: "c.id", card: "p.message_id" })} LIMIT @limit`);
 const pageRow = z.object({
   message_id: z.string(),
   created_at: z.number(),

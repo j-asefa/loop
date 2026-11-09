@@ -6,7 +6,8 @@ import { currentPull } from "./feed-card-details.js";
 import type { SourceRow } from "./feed-card-source.js";
 import type { StoredCard } from "./feed-projector.js";
 
-import type { FeedFilter, Scope } from "./sql/feed-cards.js";
+import type { Scope } from "./sql/feed-cards.js";
+import type { FeedFilter } from "../shared/feed-categories.js";
 type RecordRow = {
   payload: string;
   thread_payload: string;

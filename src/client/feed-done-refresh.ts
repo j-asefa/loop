@@ -1,18 +1,8 @@
-type DonePosition = {
-  conversation_id: string;
-  done_card_key?: string;
-  reply_card_key?: string;
-  last_activity_at: number;
-};
+import {
+  feedItemOrder,
+  type FeedPosition as DonePosition,
+} from "../shared/feed-order";
 export type DoneRefresh = { before: string; after: DonePosition };
-const descendingId = (a: string, b: string) => (a === b ? 0 : a < b ? 1 : -1);
-export const feedItemOrder = (a: DonePosition, b: DonePosition) =>
-  b.last_activity_at - a.last_activity_at ||
-  descendingId(a.conversation_id, b.conversation_id) ||
-  descendingId(
-    a.reply_card_key || a.done_card_key || "",
-    b.reply_card_key || b.done_card_key || "",
-  );
 const key = (item: DonePosition) =>
   JSON.stringify([
     item.conversation_id,

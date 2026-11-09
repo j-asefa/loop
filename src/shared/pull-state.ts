@@ -1,27 +1,28 @@
+import { z } from "zod";
 /**
  * A thread's pull request as its watch last observed it: which head GitHub
  * reported, what the checks concluded for which head, and when Loop last
  * looked. A card shows this as one line. It is what the watch read, as
  * fresh as its last poll; Loop never claims more than that.
  */
-export type PullState = {
-  repo_owner: string;
-  repo_name: string;
-  number: number;
-  /** watching: polled about once a minute; paused: needs Resume; stopped: merged, closed or stopped. */
-  watch: "watching" | "paused" | "stopped";
-  ended_reason: string | null;
-  /** The watch's last error, when paused or failing to read. */
-  error: string | null;
-  /** The head the watch last saw on GitHub. */
-  head_sha: string | null;
-  /** The last concluded checks: for which head, and how. */
-  ci: { sha: string; conclusion: "success" | "failure" } | null;
-  /** Checks for the current head had not all finished at the last read. */
-  pending: boolean;
-  /** When the watch last read GitHub successfully; null before its first read. */
-  checked_at: number | null;
-};
+export const PullStateSchema = z.object({
+  repo_owner: z.string(),
+  repo_name: z.string(),
+  number: z.number(),
+  watch: z.enum(["watching", "paused", "stopped"]),
+  ended_reason: z.string().nullable(),
+  error: z.string().nullable(),
+  head_sha: z.string().nullable(),
+  // Last concluded checks and the head they describe.
+  ci: z
+    .object({ sha: z.string(), conclusion: z.enum(["success", "failure"]) })
+    .nullable(),
+  // Checks for the current head had not all finished at the last read.
+  pending: z.boolean(),
+  // Last successful read; null before any successful read.
+  checked_at: z.number().nonnegative().nullable(),
+});
+export type PullState = z.infer<typeof PullStateSchema>;
 
 export type WatchRow = {
   repo_owner: string;

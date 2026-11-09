@@ -1,7 +1,8 @@
+import { FEED_FILTERS } from "./feed-categories.js";
 import type { TokenAdmission } from "./token-scopes.js";
 import { FeedEntities } from "./feed-projection.js";
 import { ConversationPulls } from "./conversation-pulls.js";
-import { ReplyContext, ReplyState } from "./steering-replies.js";
+import { SteeringReplyContext, ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import {
   ManagedHarness,
@@ -253,20 +254,9 @@ export const Bootstrap = z.object({
 });
 export type Bootstrap = z.infer<typeof Bootstrap>;
 
-export const FEED_FILTERS = [
-  "all",
-  "done",
-  "replies",
-  "needs",
-  "working",
-  "queued",
-  "later",
-  "outcomes",
-  "unfinished",
-] as const;
 export const FeedItem = DoneDisplaySchema.extend({
   reply_card_key: Text.optional(),
-  reply: ReplyContext.optional(),
+  reply: SteeringReplyContext.optional(),
   // Reply cards do not include pull-watch state.
   pull: DoneDisplaySchema.shape.pull.optional(),
   last_activity_at: Time,

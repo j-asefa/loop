@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { shellWords } from "./pr-command.js";
 
 /**
@@ -6,8 +7,8 @@ import { shellWords } from "./pr-command.js";
  * ran and the exit it saw; it never runs them itself. The classifier is
  * conservative: only literal commands it recognises, never expansions.
  */
-type VerificationKind = "test" | "typecheck" | "lint";
-export type VerificationStatus = "passed" | "failed" | "unknown";
+type VerificationKind = VerificationSummary["items"][number]["kind"];
+export type VerificationStatus = VerificationSummary["items"][number]["status"];
 export type VerificationItem = {
   id: string;
   kind: VerificationKind;
@@ -18,12 +19,20 @@ export type VerificationItem = {
   truncated: boolean;
   observed_at: number;
 };
-export type VerificationSummary = {
-  passed: number;
-  failed: number;
-  unknown: number;
-  items: Pick<VerificationItem, "id" | "kind" | "tools" | "status">[];
-};
+export const VerificationSummarySchema = z.object({
+  passed: z.number(),
+  failed: z.number(),
+  unknown: z.number(),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.enum(["test", "typecheck", "lint"]),
+      tools: z.array(z.string()),
+      status: z.enum(["passed", "failed", "unknown"]),
+    }),
+  ),
+});
+export type VerificationSummary = z.infer<typeof VerificationSummarySchema>;
 
 type Classified = { kind: VerificationKind; tool: string };
 const TEST_TOOLS = new Set([

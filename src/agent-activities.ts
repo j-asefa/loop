@@ -545,11 +545,19 @@ export function activityKey(
 ) {
   const session = SESSION_KINDS.includes(update.kind);
   if (!session && !turn) throw new Error("Turn activities require a turn.");
+  return activityRecordKey(update, turn);
+}
+
+// Presentation can include runless history; ingest still requires a turn above.
+export function activityRecordKey(
+  update: Pick<ActivityUpdate, "kind" | "id" | "source">,
+  turn?: string | null,
+) {
   return [
     update.kind,
     update.source.transport,
     update.source.origin,
-    session ? "session" : turn,
+    SESSION_KINDS.includes(update.kind) ? "session" : turn,
     update.id,
   ].join(":");
 }

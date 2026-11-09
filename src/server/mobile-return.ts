@@ -43,7 +43,8 @@ import {
 } from "./domain.js";
 import { projectFolders } from "./results.js";
 import { unreadCount } from "./news.js";
-import { FEED_FILTERS, type FeedPage } from "../shared/workspace-api.js";
+import type { FeedPage } from "../shared/workspace-api.js";
+import { FEED_FILTERS } from "../shared/feed-categories.js";
 import { projectFor, contains } from "./mobile-return/shared.js";
 
 // Keep the existing route and worker import surface stable.
@@ -80,7 +81,7 @@ export { forkConversation } from "./mobile-return/forking.js";
 
 // ---------------------------------------------------------------------------
 // 2. Feed
-export { FEED_FILTERS } from "../shared/workspace-api.js";
+export { FEED_FILTERS } from "../shared/feed-categories.js";
 function readFeed(
   owner: string,
   options: {
