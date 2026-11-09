@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { toResponseInputItem } from "openai/lib/responses/ResponseInputItems";
 import Anthropic from "@anthropic-ai/sdk";
 import type { Provider } from "../shared/types.js";
-export type ModelInfo = import("../shared/models.js").ModelOption & {
+type ModelInfo = import("../shared/models.js").ModelOption & {
   capabilities: string;
 };
 export type ToolCall = {
@@ -55,7 +55,7 @@ export type ChatInput = {
   /** Force one named tool for structured projections; omitted for ordinary chat. */
   toolChoice?: string;
 };
-export type Chunk = {
+type Chunk = {
   text?: string;
   usage?: unknown;
   externalId?: string;
@@ -107,7 +107,7 @@ export function anthropicToolSearch(model: string) {
     minor = Number(m[2] || 0);
   return major > 4 || (major === 4 && minor >= 5);
 }
-export interface ProviderAdapter {
+interface ProviderAdapter {
   models(secret: string): Promise<ModelInfo[]>;
   stream(secret: string, input: ChatInput): AsyncGenerator<Chunk>;
 }

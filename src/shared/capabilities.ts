@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { MachineId } from "./fleet.js";
-export const FleetSourceCapabilities = z.strictObject({
+const FleetSourceCapabilities = z.strictObject({
   version: z.literal(1),
   machineId: MachineId,
   reads: z.array(z.string().max(100)).max(100),

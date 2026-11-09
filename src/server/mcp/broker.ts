@@ -105,7 +105,7 @@ export function authorizeConnectionTool(
 }
 // A tool may make approval stricter, but its metadata cannot rename an
 // effect or claim GitHub provenance.
-export function loopHints(tool: any) {
+function loopHints(tool: any) {
   return { alwaysAsk: tool?._meta?.loop?.alwaysAsk === true };
 }
 export async function invokeTool(

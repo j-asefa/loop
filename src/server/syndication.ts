@@ -10,7 +10,7 @@ const MAX_STORIES = 50;
 const MAX_TITLE = 300;
 const MAX_SUMMARY = 280;
 
-export type ParsedFeed = {
+type ParsedFeed = {
   /** The feed's own title, such as "Hacker News" or a blog's name. */
   title: string | null;
   /** The site the feed belongs to. */

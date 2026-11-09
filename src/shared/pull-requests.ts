@@ -142,7 +142,7 @@ export const MAX_REVIEW_BODY = 20_000;
 // Viewing a file at the pull request's head commit
 
 /** How the file viewer shows a repository file, chosen by its name. */
-export type RepoFileKind = "markdown" | "image" | "video" | "text";
+type RepoFileKind = "markdown" | "image" | "video" | "text";
 
 // The only types served for display. Anything else is sent as plain text or
 // as a download, never as a document the browser would run.

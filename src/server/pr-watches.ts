@@ -34,9 +34,9 @@ import {
 // actions still follow the approval policy. Polling rather than webhooks: a
 // Quick Tunnel address changes on restart and webhooks need repository admin.
 
-export type PrWatch = QueryRow<"pr_watches">;
+type PrWatch = QueryRow<"pr_watches">;
 
-export const POLL_MS = 60_000;
+const POLL_MS = 60_000;
 const ERROR_POLL_MS = 5 * 60_000;
 // At most this many automatic turns per watch per hour; beyond that the watch
 // pauses until you resume it, so an agent cannot loop on its own pushes.
@@ -81,7 +81,7 @@ const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
 // ---------------------------------------------------------------------------
 // Watches
 
-export function watchesFor(owner: string, conversation?: string) {
+function watchesFor(owner: string, conversation?: string) {
   return watchQueries.list(
     db,
     owner,
@@ -192,7 +192,7 @@ export async function watchNativeCreatedPullRequest(
 }
 
 /** Read-only verification of a pull request the agent reported creating. */
-export async function verifyCreatedPullRequest(
+async function verifyCreatedPullRequest(
   run: Run,
   ref: PullRequestRef,
   current = () => true,
@@ -309,7 +309,7 @@ export function stopWatch(owner: string, watchId: string) {
   return { ok: true };
 }
 
-export function resumeWatch(owner: string, watchId: string) {
+function resumeWatch(owner: string, watchId: string) {
   return db
     .transaction(() => {
       const watch = ownedWatch(owner, watchId);
@@ -600,7 +600,7 @@ const who = (c: Comment) =>
   "@" + (c.user?.login || "someone") + (c.user?.type === "Bot" ? " (bot)" : "");
 
 /** The follow-up text for one batch of changes. */
-export function updateText(watch: PrWatch, update: Update) {
+function updateText(watch: PrWatch, update: Update) {
   const ref = `${watch.repo_owner}/${watch.repo_name}#${watch.number}`;
   const parts: string[] = [];
   if (update.ci) {

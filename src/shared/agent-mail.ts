@@ -56,7 +56,7 @@ export const PublicMailAgentReference = z.discriminatedUnion("kind", [
   }),
 ]);
 export type PublicMailAgentReference = z.infer<typeof PublicMailAgentReference>;
-export const PublicMailConversationReference = z.object({
+const PublicMailConversationReference = z.object({
   machineId: MachineId,
   conversationId: z.string().uuid(),
 });
@@ -80,7 +80,7 @@ export const PublicMailMessage = z.object({
   to_ref: PublicMailAgentReference.optional(),
   remote_conversation: PublicMailConversationReference.nullable().optional(),
 });
-export const PublicMailThread = z.object({
+const PublicMailThread = z.object({
   ...ThreadFields,
   id: Text,
   paused_at: z.number().nullable(),

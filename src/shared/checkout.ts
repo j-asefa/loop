@@ -75,7 +75,7 @@ export type CheckoutDetail = {
 };
 
 /** The card line. */
-export function checkoutParts(summary: CheckoutSummary) {
+function checkoutParts(summary: CheckoutSummary) {
   const parts: (
     string | { files: number; additions: number; deletions: number }
   )[] = [summary.branch];

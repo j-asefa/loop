@@ -31,7 +31,7 @@ export function linkCreatedPullRequest(run: Run, ref: PullRequestRef) {
 }
 
 /** Explicit references only: never guess from an agent's mutable checkout. */
-export function conversationPullRefs(owner: string, conversation: string) {
+function conversationPullRefs(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
   const refs = new Map<
     string,

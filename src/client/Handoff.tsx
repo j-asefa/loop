@@ -4,13 +4,7 @@ import QRCode from "qrcode-terminal/vendor/QRCode/index.js";
 import { Sheet } from "./components";
 
 /** Square SVG QR code. Medium error correction keeps phone scans reliable. */
-export function QrCode({
-  value,
-  size = 216,
-}: {
-  value: string;
-  size?: number;
-}) {
+function QrCode({ value, size = 216 }: { value: string; size?: number }) {
   const path = useMemo(() => {
     const code = new QRCode(-1, 0);
     code.addData(value);

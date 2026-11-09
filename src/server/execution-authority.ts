@@ -209,7 +209,7 @@ const handlers: Handlers = {
 
 /** The sole owner of live sessions, tool tickets, sign-ins, upgrades and the
  * scheduler. PR 8a invokes it in-process through the same validated wire data. */
-export class ExecutionAuthority {
+class ExecutionAuthority {
   readonly generation = executionGeneration() ?? randomUUID();
   private state: "starting" | "ready" | "stopping" | "disconnected" = "ready";
   private tools = new NativeToolBridge();

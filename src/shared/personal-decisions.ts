@@ -13,7 +13,7 @@ const jsonBytes = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value)).length;
 
 // A public display contract, independent of execution receipts and raw rows.
-export const PersonalDecisionSchema = z.strictObject({
+const PersonalDecisionSchema = z.strictObject({
   id: z.string(),
   cursor: z.string().min(1).max(512),
   kind: z.enum(["approval", "answer"]),

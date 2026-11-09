@@ -8,7 +8,7 @@ import type {
 type ThreadReadContract =
   | typeof workspaceApi.doneThreadListPage
   | typeof workspaceApi.doneThreadDetailPage;
-export type ThreadReadTransport = <C extends ThreadReadContract>(
+type ThreadReadTransport = <C extends ThreadReadContract>(
   contract: C,
   input: RouteInput<C>,
   signal?: AbortSignal,

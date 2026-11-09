@@ -20,7 +20,7 @@ const WATCH_CHANGE = "loop-pr-watch-change";
 // The thread's watches, kept current while a card shows them, with whether
 // the list is confirmed: an empty list while loading or after a failed
 // request is not "no watch".
-export function useWatchState(conversation: string | null | undefined) {
+function useWatchState(conversation: string | null | undefined) {
   const read = useProjectionRoute();
   const sourceId = useSourceId();
   const [watches, setWatches] = useState<Watch[]>([]);
@@ -57,7 +57,7 @@ export function useWatchState(conversation: string | null | undefined) {
   }, [conversation, sourceId]);
   return { watches, status };
 }
-export function useWatches(conversation: string | null | undefined) {
+function useWatches(conversation: string | null | undefined) {
   return useWatchState(conversation).watches;
 }
 

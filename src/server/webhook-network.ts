@@ -17,7 +17,7 @@ export function webhookPolicy() {
     local_receivers: true,
   };
 }
-export function webhookUrl(value: string) {
+function webhookUrl(value: string) {
   let url: URL;
   try {
     url = new URL(value);
@@ -33,7 +33,7 @@ export function webhookUrl(value: string) {
     throw new WebhookDestinationRefused();
   return url;
 }
-export function webhookAddress(url: URL, address: string) {
+function webhookAddress(url: URL, address: string) {
   let range: string;
   try {
     const parsed = ipaddr.process(address);

@@ -102,7 +102,7 @@ const characters = {
   swift: "flint",
 } as const;
 
-export type AgentCharacter = keyof typeof characters;
+type AgentCharacter = keyof typeof characters;
 const names = Object.keys(characters) as AgentCharacter[];
 const backdrops = [
   "#d8b544",

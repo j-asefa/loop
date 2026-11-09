@@ -49,9 +49,9 @@ import {
 // GitHub at the time it was read; Refresh reads it again.
 
 /** The page's address for one pull request: owner/repo/number. */
-export const pullKey = (ref: PullRequestRef) =>
+const pullKey = (ref: PullRequestRef) =>
   `${ref.owner}/${ref.repo}/${ref.number}` as const;
-export function pullFromKey(key: string): PullRequestRef | undefined {
+function pullFromKey(key: string): PullRequestRef | undefined {
   const match = key.match(
     /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})\/(\d{1,9})$/,
   );

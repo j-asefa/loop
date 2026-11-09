@@ -19,7 +19,7 @@ export const ProjectedMessage = z.object({
   run_verification: z.string().nullable().optional(),
 });
 export type ProjectedMessage = z.infer<typeof ProjectedMessage>;
-export type TranscriptRange = {
+type TranscriptRange = {
   from: ProjectedMessage["cursor"];
   before: ProjectedMessage["cursor"];
 };

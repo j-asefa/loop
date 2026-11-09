@@ -527,7 +527,7 @@ export const markRead = db.transaction(
 ).immediate;
 
 /** Removes stories from Social, or brings them back. Unknown ones are ignored. */
-export const dismissStories = db.transaction(
+const dismissStories = db.transaction(
   (owner: string, stories: string[], dismissed: boolean, at = now()) => {
     for (const value of stories) {
       let identity: ReturnType<typeof splitStoryId>;
@@ -547,7 +547,7 @@ export const dismissStories = db.transaction(
 ).immediate;
 
 /** Marks everything a feed has listed so far read, or every feed's. */
-export function markAllRead(owner: string, feed?: string, at = now()) {
+function markAllRead(owner: string, feed?: string, at = now()) {
   if (feed) ownerFeed(owner, feed);
   feedSubscriptionsQueries.markThrough(db, at, owner, feed);
   feedSourcesQueries.markThrough(db, at, owner, feed);
@@ -562,7 +562,7 @@ export function mutes(owner: string) {
   );
 }
 
-export function muteWords(owner: string, phrase: string) {
+function muteWords(owner: string, phrase: string) {
   const word = phrase.trim().slice(0, 80);
   if (!watchTerms(word).length)
     throw new Problem(400, "Enter a word or phrase to hide.");
@@ -582,7 +582,7 @@ function unmuteWords(owner: string, phrase: string) {
  * Reaches further back than the page does, which is the point of it: a story
  * from last week is no longer in the list but is still in the store.
  */
-export function searchStories(
+function searchStories(
   owner: string,
   ask: { q: string; feed?: string; unread?: boolean; limit?: number },
 ) {
@@ -633,7 +633,7 @@ function ftsQuery(query: string) {
 }
 
 /** Whether agents this owner asks may read the feeds they follow. */
-export function feedPreferences(owner: string) {
+function feedPreferences(owner: string) {
   const row = feedPreferencesQueries.owned(db, owner) as
     { agent_access: number; images: number } | undefined;
   return {
@@ -777,7 +777,7 @@ function feedHealth(owner: string) {
   });
 }
 
-export function addedFeeds(owner: string): string[] {
+function addedFeeds(owner: string): string[] {
   return (feedSubscriptionsQueries.feeds(db, owner) as { feed_id: string }[])
     .map((row) => row.feed_id)
     .filter((id) => feedById.has(id));

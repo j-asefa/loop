@@ -36,7 +36,7 @@ export const WorkspaceScope = z.discriminatedUnion("kind", [
 ]);
 export type WorkspaceScope = z.infer<typeof WorkspaceScope>;
 
-export const WORKSPACE_SUBJECTS = [
+const WORKSPACE_SUBJECTS = [
   "run",
   "conversation",
   "message",
@@ -411,7 +411,7 @@ export function invalidate(
 export function eventScopes(event: WorkspaceEvent): WorkspaceScope[] {
   return [event.scope, ...("scopes" in event ? (event.scopes ?? []) : [])];
 }
-export function eventScope(
+function eventScope(
   type: string,
   run: string | null,
   subject?: string | WorkspaceSubject,
@@ -524,7 +524,7 @@ export function historicalEvent(row: {
     return invalidate();
   }
 }
-export function parseWorkspaceEvent(value: unknown): WorkspaceEvent {
+function parseWorkspaceEvent(value: unknown): WorkspaceEvent {
   const parsed = WorkspaceEvent.safeParse(value);
   return parsed.success ? parsed.data : invalidate();
 }

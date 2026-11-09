@@ -7,7 +7,7 @@ export const PersonalFilesQuery = z.object({
   project: z.string().uuid().optional(),
   type: z.enum(["all", "image", "video", "html", "other"]).default("all"),
 });
-export const PersonalFile = z.object({
+const PersonalFile = z.object({
   id: z.string(),
   title: z.string(),
   metadata: z.string(),
@@ -24,5 +24,5 @@ export const PersonalFilesPage = z.object({
   agents: z.array(Choice),
   projects: z.array(Choice),
 });
-export type PersonalFile = z.infer<typeof PersonalFile>;
+type PersonalFile = z.infer<typeof PersonalFile>;
 export type PersonalFilesPage = z.infer<typeof PersonalFilesPage>;

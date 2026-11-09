@@ -21,7 +21,7 @@ const AGENT = "Loop/1.0 (feed reader)";
 // so a feed that lists hundreds is cut off rather than downloaded whole.
 const MAX_ITEMS = 100;
 /** The longest feed or page address Loop will take. */
-export const MAX_URL = 2048;
+const MAX_URL = 2048;
 /** A feed's picture, which Loop passes through rather than the browser. */
 const MAX_IMAGE_BYTES = 5_000_000;
 const IMAGE_TYPES = new Set([
@@ -92,7 +92,7 @@ export const unavailable = (
 ) => Object.assign(new Problem(400, message), { retryAfterMs });
 
 /** The seconds or HTTP-date in a Retry-After header, as milliseconds. */
-export function retryAfterOf(response: Response) {
+function retryAfterOf(response: Response) {
   const value = response.headers.get("retry-after")?.trim();
   if (!value) return null;
   const seconds = Number(value);
@@ -105,11 +105,7 @@ export function retryAfterOf(response: Response) {
  * Where a redirect leads, if it stays on the feed's own site: the same host
  * or one under it (www. aside), the same port, and never from https to http.
  */
-export function redirectTarget(
-  feed: FeedEntry,
-  from: string,
-  location: string,
-) {
+function redirectTarget(feed: FeedEntry, from: string, location: string) {
   const origin = new URL(feed.url);
   const site = origin.hostname.replace(/^www\./, "");
   let next: URL;
@@ -343,7 +339,7 @@ export async function pageText(url: string) {
 }
 
 /** What a feed answered: its stories, or that the copy on hand is still good. */
-export type Downloaded =
+type Downloaded =
   | { modified: false }
   | {
       modified: true;

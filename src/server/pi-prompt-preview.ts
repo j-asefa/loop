@@ -1,5 +1,5 @@
 /** Mirrors Pi 0.87.1 prompt-templates.ts argument parsing and substitutions. */
-export function parsePiArguments(input: string): string[] {
+function parsePiArguments(input: string): string[] {
   const args: string[] = [];
   let current = "";
   let quote: string | null = null;

@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { ownedImport, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
-export type ImportedMessage = {
+type ImportedMessage = {
   externalId: string;
   role: "user" | "assistant" | "system";
   content: string;
@@ -25,14 +25,14 @@ export type ImportedMessage = {
   parent?: string | null;
   active?: boolean;
 };
-export type ImportedConversation = {
+type ImportedConversation = {
   externalId: string;
   title: string;
   timestamp: number;
   messages: ImportedMessage[];
   raw: unknown;
 };
-export type ParsedImport = {
+type ParsedImport = {
   provider: "openai" | "anthropic";
   conversations: ImportedConversation[];
   warnings: string[];

@@ -21,7 +21,7 @@ import {
 const COMMAND_LIMIT = 1000;
 const TAIL_LIMIT = 1500;
 
-export type VerificationRow = {
+type VerificationRow = {
   id: string;
   owner_id: string;
   run_id: string;

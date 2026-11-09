@@ -74,7 +74,7 @@ export const PublicSocialStory = z.object({
   first_seen_at: Time,
   read: z.boolean(),
 });
-export const PublicFeedHealth = z.object({
+const PublicFeedHealth = z.object({
   id: Text,
   fetched_at: Time.nullable(),
   failed_at: Time.nullable(),

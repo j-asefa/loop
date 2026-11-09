@@ -122,7 +122,7 @@ export function tunnelUrl(text: string) {
     /https:\/\/[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com(?=[\s|]|$)/,
   )?.[0];
 }
-export const RECONNECT_MAX_DELAY_MS = 60000;
+const RECONNECT_MAX_DELAY_MS = 60000;
 type Connection = { start(): Promise<string>; stop(): Promise<void> };
 /**
  * Keeps a Quick Tunnel up for as long as the workspace runs: after a drop or a
@@ -187,7 +187,7 @@ export class TunnelSupervisor {
     });
   }
 }
-export async function namedTunnelConfig(
+async function namedTunnelConfig(
   root: string,
   port: number,
   named: { name: string; origin: string; config?: string },

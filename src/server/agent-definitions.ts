@@ -38,11 +38,7 @@ function detail(row: StoredDefinition): AgentDefinition {
   const { owner_id: _, ...data } = row;
   return { ...data, spec: parseDefinition(row.markdown) };
 }
-export function saveDefinition(
-  owner: string,
-  definitionId: string,
-  input: unknown,
-) {
+function saveDefinition(owner: string, definitionId: string, input: unknown) {
   z.uuid().parse(definitionId);
   const data = workspaceApi.definitionSave.body.parse(input);
   const spec = parseDefinition(data.markdown);
@@ -95,7 +91,7 @@ export function saveDefinition(
     .immediate();
 }
 
-export function createFromDefinition(
+function createFromDefinition(
   owner: string,
   definitionId: string,
   input: unknown,

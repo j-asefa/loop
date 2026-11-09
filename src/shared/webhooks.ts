@@ -2,9 +2,9 @@ import { z } from "zod";
 
 const Id = z.string().min(1).max(300);
 const Time = z.number().int().nonnegative();
-export const WebhookKind = z.literal("run.stopped");
-export const WebhookKinds = z.array(WebhookKind).max(1);
-export const WebhookState = z.enum([
+const WebhookKind = z.literal("run.stopped");
+const WebhookKinds = z.array(WebhookKind).max(1);
+const WebhookState = z.enum([
   "pending_activation",
   "active",
   "failed",
@@ -52,7 +52,7 @@ export const WebhookPing = z
     sent_at: Time,
   })
   .strict();
-export const WebhookOutcome = z.enum([
+const WebhookOutcome = z.enum([
   "unattempted",
   "sending",
   "accepted",
@@ -92,7 +92,7 @@ export const WebhookSubscription = z.object({
   activation: WebhookDelivery.nullable(),
   last_attempts: z.number().int().nonnegative(),
 });
-export const WebhookPolicy = z.object({
+const WebhookPolicy = z.object({
   installation: z.literal("companion"),
   local_receivers: z.boolean(),
 });

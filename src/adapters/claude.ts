@@ -29,7 +29,7 @@ const exec = promisify(execFile);
  * user's prompt on someone else's result loses their reply, while an ignored
  * result only stalls a turn the caller can still stop. Callers must report
  * every non-empty reason — nothing else explains a stalled turn. */
-export function foreignResult(m: any, active: boolean, session: string) {
+function foreignResult(m: any, active: boolean, session: string) {
   if (!active) return "no user turn is open";
   if (m.parent_tool_use_id) return "it belongs to a child tool session";
   if (m.session_id && m.session_id !== session)

@@ -85,7 +85,7 @@ export function filterSql(owner: string, filters: SearchFilters, at: number) {
   return { sql: clauses.join(" AND "), params };
 }
 /** Correlated to search_documents d, before either retrieval path ranks hits. */
-export function searchCategorySql(category: FeedCategory, agent: boolean) {
+function searchCategorySql(category: FeedCategory, agent: boolean) {
   const visible = agent ? "1" : "NOT t.hide_results";
   const thread = `t.owner_id=d.owner_id AND t.conversation_id=d.conversation_id AND t.kind='thread'`;
   if (category === "threads")

@@ -49,7 +49,7 @@ export const PrWatchInput = z.object({
 });
 
 const Checks = z.enum(["success", "failure", "pending"]);
-export const PublicPullItem = z.object({
+const PublicPullItem = z.object({
   owner: Text,
   repo: Text,
   number: z.number(),

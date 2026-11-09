@@ -22,7 +22,7 @@ export type StoredCard = {
   detail: FeedCardDetail;
   thread?: ThreadDetails;
 };
-export type CardKind = "thread" | "result" | "idle";
+type CardKind = "thread" | "result" | "idle";
 type Emit = (
   owner: string,
   subject: WorkspaceSubject,

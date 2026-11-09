@@ -23,7 +23,7 @@ const encodePath = (path: string) =>
   path.split("/").map(encodeURIComponent).join("/");
 
 /** The Loop address of a file at a commit, for fetch, <img> and <video>. */
-export const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
+const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
   routeUrl(
     workspaceApi.githubPullFile,
     { params: ref, query: { head, path } },
@@ -124,7 +124,7 @@ const slug = (text: string) =>
  * pointed at the same commit. Links to other files keep a data-path for the
  * viewer to open; external images become links, as Loop never loads them.
  */
-export function renderMarkdown(
+function renderMarkdown(
   source: string,
   from: string,
   url: (path: string) => string,

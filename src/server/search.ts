@@ -15,7 +15,7 @@ import { db, now } from "./db.js";
 import { unseal } from "./secrets.js";
 
 import { localEmbeddings, localModel } from "./local-embeddings.js";
-export type SearchDoc = {
+type SearchDoc = {
   id: string;
   owner_id: string;
   kind: string;
@@ -104,7 +104,7 @@ export function searchStatus(owner: string) {
               : "Preparing semantic search with the selected API account. Keyword search is available while your content is indexed.";
   return { enabled: true, state, ...counts, pending, detail };
 }
-export async function embed(c: EmbeddingConfig, text: string[]) {
+async function embed(c: EmbeddingConfig, text: string[]) {
   if (c.local) return localEmbeddings(text);
   const connection = ownedConnection(c.id, c.owner_id);
   if (c.embedding_model === localModel) return localEmbeddings(text);
@@ -118,7 +118,7 @@ export async function embed(c: EmbeddingConfig, text: string[]) {
   });
   return result.data.map((x) => x.embedding);
 }
-export function cosine(a: number[], b: number[]) {
+function cosine(a: number[], b: number[]) {
   if (a.length !== b.length) return 0;
   let dot = 0,
     aa = 0,

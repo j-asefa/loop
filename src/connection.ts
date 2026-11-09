@@ -46,7 +46,7 @@ function privateDirectory(path: string) {
  * socket. A state path too long for Unix sockets uses a per-user directory
  * under /tmp, keyed by the connection directory.
  */
-export function runDir(dir: string) {
+function runDir(dir: string) {
   const local = join(dir, "run");
   if (
     Buffer.byteLength(join(local, "app-0123456789abcdef.sock")) <=
@@ -163,7 +163,7 @@ export function readConnectionRecord(dir: string) {
   return parsed.data;
 }
 
-export class ControlError extends Error {
+class ControlError extends Error {
   constructor(
     message: string,
     readonly status?: number,

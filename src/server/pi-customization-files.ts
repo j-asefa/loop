@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-export type PiScope = "user" | "project";
+type PiScope = "user" | "project";
 export type PiPackageEntry = {
   source: string;
   scope: PiScope;
@@ -21,12 +21,7 @@ export type PiPackageEntry = {
     Record<"extensions" | "skills" | "prompts" | "themes", string[]>
   >;
 };
-export const resourceKinds = [
-  "extensions",
-  "skills",
-  "prompts",
-  "themes",
-] as const;
+const resourceKinds = ["extensions", "skills", "prompts", "themes"] as const;
 const protectedEntries = [
   "settings.json",
   ...resourceKinds,
@@ -44,7 +39,7 @@ export function piSettingsPath(
     : join(project, ".pi", "settings.json");
 }
 
-export function readPiSettings(path: string): Record<string, any> {
+function readPiSettings(path: string): Record<string, any> {
   if (!existsSync(path)) return {};
   const value = JSON.parse(readFileSync(path, "utf8"));
   if (!value || typeof value !== "object" || Array.isArray(value))

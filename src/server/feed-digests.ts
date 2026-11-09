@@ -43,7 +43,7 @@ function validZone(zone: string) {
   }
 }
 
-export function listDigests(owner: string) {
+function listDigests(owner: string) {
   return feedDigestsQueries.forOwner(db, owner) as FeedDigest[];
 }
 
@@ -87,7 +87,7 @@ export function saveDigest(owner: string, body: unknown, digestId?: string) {
   return feedDigestsQueries.owned(db, row.id, owner) as FeedDigest;
 }
 
-export function removeDigest(owner: string, digestId: string) {
+function removeDigest(owner: string, digestId: string) {
   const changed = feedDigestsQueries.remove(db, digestId, owner).changes;
   if (!changed) throw new Problem(404, "No such digest.");
 }

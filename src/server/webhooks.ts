@@ -426,11 +426,7 @@ export function webhookOutcome(
   return reached ? prior : "unattempted";
 }
 
-export function webhookSignature(
-  secret: string,
-  timestamp: string,
-  body: string,
-) {
+function webhookSignature(secret: string, timestamp: string, body: string) {
   return (
     "v1=" +
     createHmac("sha256", secret)

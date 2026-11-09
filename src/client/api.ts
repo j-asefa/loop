@@ -66,8 +66,7 @@ function retryDeadline(header: string | null) {
  */
 const restarting = (r: Response) =>
   r.status === 503 && r.headers.get("x-loop-unavailable") === "restarting";
-export const RECONNECTING =
-  "Loop is reconnecting… Work on your computer continues.";
+const RECONNECTING = "Loop is reconnecting… Work on your computer continues.";
 function reconnectingError() {
   window.dispatchEvent(new Event("loop-reconnecting"));
   return Object.assign(new Error(RECONNECTING), {

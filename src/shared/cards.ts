@@ -1,19 +1,19 @@
 import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
 
-export const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
+const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
   .string()
   .regex(/^[amd]:[^/\\?#\s]+$/)
   .max(160);
 const nullableText = z.string().nullable();
 const time = z.number().int().nonnegative();
-export const CardAgentSchema = z.object({
+const CardAgentSchema = z.object({
   id: nullableText,
   name: nullableText,
   provider: nullableText,
 });
-export const CardAttachmentSchema = z.object({
+const CardAttachmentSchema = z.object({
   id: z.string(),
   name: z.string(),
   mime: z.string(),

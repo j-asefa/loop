@@ -76,8 +76,7 @@ export function runTiming(
   return `${started} · last update ${relativeTime(run.updated_at, now).toLowerCase()}`;
 }
 
-export type RunTone =
-  "needs" | "working" | "queued" | "done" | "failed" | "idle";
+type RunTone = "needs" | "working" | "queued" | "done" | "failed" | "idle";
 
 /** One status vocabulary for Feed rows, thread headers and run cards. */
 export function runStatus(
@@ -110,7 +109,7 @@ export function runStatus(
 }
 
 /** An activity record with the run it was reported in (from trusted context). */
-export type RunActivity = { run: string | null; record: ActivityRecord };
+type RunActivity = { run: string | null; record: ActivityRecord };
 
 // The record's durable identity, as the server's activityKey(): session kinds
 // live for the whole conversation, every other kind within its own run, so
@@ -155,7 +154,7 @@ export function compactNumber(value: number) {
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export const preview = plainPreview;
 
-export type LaterChoice = {
+type LaterChoice = {
   id: string;
   label: string;
   hint?: string;
@@ -337,7 +336,7 @@ export function feedReplyQuote(item: {
 }
 
 /** Context for an editable follow-up on a captured Git diff. */
-export type ChangeContext = {
+type ChangeContext = {
   projectName?: string;
   runStartedAt?: number[];
 };

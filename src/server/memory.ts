@@ -150,7 +150,7 @@ export function captureMemory() {
         });
   }).immediate();
 }
-export function readMemory(
+function readMemory(
   owner: string,
   sourceId: string,
   revision?: number,

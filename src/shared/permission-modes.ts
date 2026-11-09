@@ -29,8 +29,8 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
   return PERMISSION_MODES.some((mode) => mode.value === value);
 }
 // Only these harnesses accept a permission mode at launch.
-export const PERMISSION_MODE_HARNESSES = ["claude"];
-export function supportsPermissionMode(harness?: string | null) {
+const PERMISSION_MODE_HARNESSES = ["claude"];
+function supportsPermissionMode(harness?: string | null) {
   return !!harness && PERMISSION_MODE_HARNESSES.includes(harness);
 }
 /**

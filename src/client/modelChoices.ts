@@ -73,7 +73,7 @@ export function agentModelName(
 }
 
 export type ExecutionLocation = "laptop" | "docker";
-export const executionLocationLabels: Record<ExecutionLocation, string> = {
+const executionLocationLabels: Record<ExecutionLocation, string> = {
   laptop: "This computer",
   docker: "Docker",
 };

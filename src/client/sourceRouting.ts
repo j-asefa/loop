@@ -36,7 +36,7 @@ export function routeSourceId(
     : "";
 }
 
-export type SourceApiPath<P extends string> =
+type SourceApiPath<P extends string> =
   | P
   | (P extends `/api/${infer Rest}`
       ? `/api/agent-sources/${string}/${Rest}`

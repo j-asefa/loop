@@ -22,7 +22,7 @@ import {
 // Server persistence and projection for shared agent activities. Every
 // producer (API runtime, native adapters, ACP) calls `applyActivity` with a
 // trusted scope; the update itself never chooses its owner, conversation or run.
-export type ActivityScope = {
+type ActivityScope = {
   owner: string;
   conversation?: string | null;
   run?: string | null;
@@ -30,10 +30,10 @@ export type ActivityScope = {
   // generation are stale and quarantined unless they are replayed history.
   generation?: string;
 };
-export type ActivityResult =
+type ActivityResult =
   | { applied: true; key: string; sequence: number; record: ActivityRecord }
   | { applied: false; key?: string; reason: string };
-export type CapabilitiesResult =
+type CapabilitiesResult =
   | { applied: true; key: string; sequence: number }
   | { applied: false; key?: string; reason: string };
 

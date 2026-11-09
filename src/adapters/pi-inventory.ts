@@ -1,7 +1,7 @@
 import type { NativeCommand } from "./types.js";
 
 type SourceInfo = NativeCommand["sourceInfo"];
-export type PiResource = {
+type PiResource = {
   name: string;
   description: string;
   kind: "skill" | "prompt" | "extension" | "tool";

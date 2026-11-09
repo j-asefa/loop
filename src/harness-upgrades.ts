@@ -13,9 +13,9 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 const exec = promisify(execFile);
-export type UpgradeHarness =
+type UpgradeHarness =
   "codex" | "claude" | "pi" | "opencode" | "antigravity" | "muse" | "grok";
-export type ReleaseCheck = {
+type ReleaseCheck = {
   installedVersion?: string;
   latestVersion?: string;
   updateAvailable?: boolean;
@@ -56,7 +56,7 @@ const READY =
 const CHECK =
   "Check the installation and package manager permissions on the computer before trying again.";
 
-export function compareVersions(a: string, b: string) {
+function compareVersions(a: string, b: string) {
   const parse = (v: string) => {
     const [core, pre] = v.split("+")[0].split(/-(.*)/);
     return { parts: core.split(".").map(Number), pre };
