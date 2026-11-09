@@ -79,13 +79,7 @@ export function createCardToken(owner: string, input: unknown) {
           409,
           "This token creation is already settled; use a new creation request",
         );
-      if (
-        cardTokenIdsQueries.digestExists(
-          db,
-          digest(options.secret),
-          digest(options.secret),
-        )
-      )
+      if (cardTokenIdsQueries.digestExists(db, digest(options.secret)))
         throw new Problem(409, "Use a new secret for a new token creation");
       const { n } = cardTokensQueries.activeCount(db, owner) as { n: number };
       if (n >= 50)
@@ -94,7 +88,7 @@ export function createCardToken(owner: string, input: unknown) {
           "Revoke an existing token before creating another (50 active tokens maximum)",
         );
       // Retain a bounded recent revocation history. Active credentials are never pruned.
-      cardTokensQueries.pruneRevoked(db, owner, owner);
+      cardTokensQueries.pruneRevoked(db, owner);
       cardTokenIdsQueries.insert(
         db,
         options.request_id,
@@ -136,14 +130,7 @@ export function revokeCardToken(owner: string, tokenId: string) {
 export function recordCardRead(owner: string, tokenId: string, ids: string[]) {
   db.transaction(() => {
     for (const id of ids)
-      cardTokenReadsQueries.insertActive(
-        db,
-        tokenId,
-        owner,
-        id,
-        tokenId,
-        owner,
-      );
+      cardTokenReadsQueries.insertActive(db, tokenId, owner, id);
   }).immediate();
 }
 
@@ -266,12 +253,9 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
         throw new Problem(401, "Invalid integration credential");
       const now = Date.now(),
         window = Math.floor(now / 60000);
-      const perToken = cardTokensQueries.charge(
-        db,
-        window,
-        window,
-        token.id,
-      ) as { n: number };
+      const perToken = cardTokensQueries.charge(db, window, token.id) as {
+        n: number;
+      };
       const perOwner = cardOwnerLimitsQueries.charge(db, OWNER, window) as {
         n: number;
       };
