@@ -100,14 +100,6 @@ function readBefore(
   }
 }
 
-// The canonical mapping gives nested projects their own identity and includes
-// the Workspace's null/unfiled folders. Only ordinary folders inherit a project.
-// SQLite lower() is ASCII-only. Normalize composed text and use the same
-// Unicode lowercase operation for both the query and every searched field.
-db.function("card_lower", { deterministic: true }, (value) =>
-  typeof value === "string" ? value.normalize("NFC").toLowerCase() : null,
-);
-
 function query(
   owner: string,
   options: Selection,

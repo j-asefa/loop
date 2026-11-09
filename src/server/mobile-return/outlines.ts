@@ -1,8 +1,9 @@
+import { collapse } from "../collapse.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { db } from "../db.js";
 import { ownedConversation } from "../domain.js";
-import { collapse, contains } from "./shared.js";
+import { contains } from "./shared.js";
 import { conversationReturnState } from "./reading-position.js";
 
 // ---------------------------------------------------------------------------

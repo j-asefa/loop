@@ -14,6 +14,10 @@ import {
   type WorkspaceSubject,
 } from "../shared/workspace-events.js";
 export const db: Database.Database = new Database(config.database);
+// SQLite lower() is ASCII-only; search fields and queries need the same Unicode normalization.
+db.function("card_lower", { deterministic: true }, (value) =>
+  typeof value === "string" ? value.normalize("NFC").toLowerCase() : null,
+);
 const subjects = eventSubjects(db);
 let wakeChanges = () => {};
 db.pragma("busy_timeout = 5000");

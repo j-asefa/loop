@@ -115,3 +115,25 @@ it("rejects pre-unification databases before migrating them", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 }, 20000);
+
+it("registers Unicode search normalization when the database opens", () => {
+  const dir = mkdtempSync(join(tmpdir(), "loop-search-startup-"));
+  try {
+    const output = execFileSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `const {db}=await import('./src/server/db.ts');
+       console.log(JSON.stringify(db.prepare('SELECT card_lower(?) value, card_lower(NULL) absent').get('CAFE\\u0301')));
+       db.close();`,
+      ],
+      { env: { ...process.env, LOOP_DATA_DIR: dir }, encoding: "utf8" },
+    );
+    expect(JSON.parse(output)).toEqual({ value: "café", absent: null });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 20000);
