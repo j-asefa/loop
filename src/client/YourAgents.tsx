@@ -1,3 +1,4 @@
+import { WORKING_RUN_DISPLAY_STATES } from "../shared/run-state";
 import { Plus } from "lucide-react";
 import { Avatar } from "./components";
 import { agentModelName } from "./modelChoices";
@@ -6,8 +7,6 @@ import type {
   EnvironmentConnection,
   EnvironmentRun,
 } from "./agentSources";
-
-const WORKING_STATES = ["running", "pausing", "waiting_children"];
 
 // Agents with a run currently in a working state lead the strip, most
 // recently launched first, so the agent someone just kicked off is the
@@ -22,7 +21,7 @@ function orderByActivity(
         (latest, run) =>
           run.agent_id === agent.id &&
           (run.sourceId || "") === (agent.sourceId || "") &&
-          WORKING_STATES.includes(run.state)
+          WORKING_RUN_DISPLAY_STATES.includes(run.state)
             ? Math.max(latest ?? -Infinity, run.created_at)
             : latest,
         null,
@@ -90,7 +89,9 @@ export function YourAgents({
             ),
           )
             ? "Needs you"
-            : activity.some((run) => WORKING_STATES.includes(run.state))
+            : activity.some((run) =>
+                  WORKING_RUN_DISPLAY_STATES.includes(run.state),
+                )
               ? "Working"
               : activity.some((run) => run.state === "queued")
                 ? "Queued"

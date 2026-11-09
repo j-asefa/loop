@@ -1,3 +1,4 @@
+import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { proseEntry } from "../textEntry";
 import { AutofillBoundary } from "../AutofillBoundary";
 import {
@@ -957,9 +958,7 @@ export function renderComposer({
                 ? "Follow-up accepted for"
                 : sentRun?.state === "queued"
                   ? "Queued for"
-                  : ["running", "pausing", "waiting_children"].includes(
-                        sentRun?.state || "",
-                      )
+                  : WORKING_RUN_DISPLAY_STATES.includes(sentRun?.state || "")
                     ? "Running with"
                     : "Message sent to"}{" "}
               <strong>@{sendNotice.agentName}</strong>
