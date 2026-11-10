@@ -187,6 +187,46 @@ test("the private control socket requires the record's token and refuses browser
       connectionControl({ ...record, token: "x".repeat(43) }, "hello"),
       /authentication required/,
     );
+    await assert.rejects(
+      connectionControl(
+        { ...record, token: "é".repeat(record.token.length) },
+        "hello",
+      ),
+      (error: any) =>
+        error.status === 403 && /authentication required/.test(error.message),
+    );
+    const raw = (body: string, path = "/v1/hello", method = "POST") =>
+      new Promise<number>((resolve, reject) => {
+        const req = request(
+          {
+            socketPath: record.control,
+            path,
+            method,
+            headers: { authorization: "Bearer " + record.token },
+          },
+          (res) => {
+            res.resume();
+            res.on("end", () => resolve(res.statusCode!));
+            res.on("error", reject);
+          },
+        );
+        req.on("error", reject);
+        req.end(body);
+      });
+    assert.equal(
+      await raw(""),
+      200,
+      "connection control accepts an empty body without a content-type header",
+    );
+    assert.equal(await raw(JSON.stringify("x".repeat(15998))), 200);
+    assert.equal(
+      await raw(JSON.stringify("é".repeat(8000))),
+      400,
+      "the limit counts bytes, not characters",
+    );
+    assert.equal(await raw("{"), 400);
+    assert.equal(await raw("{}", "/v1/unknown"), 404);
+    assert.equal(await raw("{}", "/v1/hello", "GET"), 403);
     const withOrigin = await new Promise<number>((resolve) => {
       const req = request(
         {

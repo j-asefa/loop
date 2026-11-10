@@ -1,4 +1,6 @@
-import { request } from "node:http";
+import { request, type IncomingMessage, type ServerResponse } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { Problem } from "./shared/problem.js";
 
 type Target = { socketPath: string } | { port: number };
 type RequestOptions = {
@@ -93,5 +95,112 @@ export function jsonClient(target: Target, token?: string) {
       req.on("error", reject);
       req.end(payload);
     });
+  };
+}
+
+export const BACKEND_PROBE = {
+  path: "/__loop/backend-probe",
+  header: "x-loop-probe",
+} as const;
+
+type BodyPolicy = {
+  maxBytes: number;
+  requireJson?: boolean;
+  allowEmpty?: boolean;
+};
+const HOST_BODY = { maxBytes: 100000, requireJson: true } as const;
+
+export async function readJsonBody(
+  req: IncomingMessage,
+  policy: BodyPolicy = HOST_BODY,
+) {
+  if (policy.requireJson && req.headers["content-type"] !== "application/json")
+    throw new Error("Expected application/json");
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > policy.maxBytes) throw new Error("Request too large");
+    chunks.push(buffer);
+  }
+  if (!bytes && policy.allowEmpty) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+export function equalSecret(a: string, b: string) {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export function jsonReply(
+  res: ServerResponse,
+  status: number,
+  value: unknown,
+  headers: Record<string, string> = {},
+) {
+  const body = JSON.stringify(value);
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    ...headers,
+  });
+  res.end(body);
+}
+
+export function problemReply(
+  res: ServerResponse,
+  error: unknown,
+  fallback: string,
+) {
+  if (res.headersSent) {
+    res.end();
+    return;
+  }
+  // Problem messages are explicitly safe for callers; diagnostics and arbitrary exceptions are not.
+  jsonReply(res, error instanceof Problem ? error.status : 400, {
+    error: error instanceof Problem ? error.message : fallback,
+  });
+}
+
+type Reply = [status: number, value: unknown, afterReply?: () => void];
+type Operation = (input: any) => Reply | Promise<Reply>;
+
+export function jsonServer(
+  operations: (path: string) => Operation | undefined,
+  options: {
+    token: () => string;
+    authMessage: string;
+    invalidMessage: string;
+    body?: BodyPolicy;
+    methodStatus?: 403 | 405;
+  },
+) {
+  return async (req: IncomingMessage, res: ServerResponse) => {
+    try {
+      if (
+        req.headers.origin ||
+        !equalSecret(
+          req.headers.authorization ?? "",
+          "Bearer " + options.token(),
+        )
+      )
+        return jsonReply(res, 403, { error: options.authMessage });
+      if (req.method !== "POST")
+        return options.methodStatus === 405
+          ? jsonReply(res, 405, {})
+          : jsonReply(res, 403, { error: options.authMessage });
+      const operation = operations(req.url ?? "");
+      if (!operation)
+        return jsonReply(res, 404, { error: "Unknown operation" });
+      const [status, value, afterReply] = await operation(
+        await readJsonBody(req, options.body),
+      );
+      jsonReply(res, status, value);
+      afterReply?.();
+    } catch (error) {
+      problemReply(res, error, options.invalidMessage);
+    }
   };
 }
