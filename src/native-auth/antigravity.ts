@@ -3,7 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import { own } from "../processes.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stop } from "./process.js";
+import { stopHarnessProcess } from "../native-spawn.js";
 
 // agy has no login command; its terminal UI signs in. Run it under script(1)
 // for a terminal wide enough to print Google's URL on one line, choose Google
@@ -30,7 +30,10 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
   // Sign-in checks end with their attempt, never overlapping the next one.
   const checks = new Set<ChildProcess>();
   const stopAll = () =>
-    Promise.all([stop(child), ...[...checks].map((check) => stop(check))]);
+    Promise.all([
+      stopHarnessProcess(child),
+      ...[...checks].map((check) => stopHarnessProcess(check)),
+    ]);
   const signedIn = () =>
     new Promise<boolean>((resolve) => {
       const check = spawn(options.executable, ["models"], {
@@ -41,7 +44,7 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
       });
       own(check);
       checks.add(check);
-      const timer = setTimeout(() => void stop(check), 20000);
+      const timer = setTimeout(() => void stopHarnessProcess(check), 20000);
       check.once("error", () => {
         checks.delete(check);
         resolve(false);

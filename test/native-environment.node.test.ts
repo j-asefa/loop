@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnNative } from "../src/native-spawn.js";
+import { spawnHarnessProcess } from "../src/native-spawn.js";
 
 for (const explicit of [false, true]) {
   test(`project code launched by a native harness cannot inherit the live database (${explicit ? "explicit" : "default"} environment)`, async () => {
@@ -44,11 +44,11 @@ for (const explicit of [false, true]) {
       Object.keys(injected).map((key) => [key, process.env[key]]),
     );
     const env = { ...process.env, ...injected };
-    let child: ReturnType<typeof spawnNative> | undefined;
+    let child: ReturnType<typeof spawnHarnessProcess> | undefined;
     try {
       Object.assign(process.env, injected);
       try {
-        child = spawnNative(
+        child = spawnHarnessProcess(
           process.execPath,
           [
             "--import",

@@ -36,6 +36,29 @@ test(
   },
 );
 
+test("native disposal allows graceful protocol shutdown and waits for exit", async () => {
+  const native = new Native(
+    process.execPath,
+    [
+      "-e",
+      `
+    process.on('SIGTERM', () => setTimeout(() => process.exit(0), 50));
+    setInterval(() => {}, 1000);
+    console.log(JSON.stringify({ready:true}));
+  `,
+    ],
+    process.cwd(),
+  );
+  try {
+    await once(native, "message");
+    await native.dispose();
+    assert.equal(native.child.exitCode, 0);
+    assert.equal(native.child.signalCode, null);
+  } finally {
+    await native.dispose();
+  }
+});
+
 test(
   "a host resource launcher preserves native RPC, metadata, PID, arguments and environment",
   { skip: process.platform === "win32" },
