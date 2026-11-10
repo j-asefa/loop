@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { runHarnessCommand } from "./harness-command.js";
 import {
   readFileSync,
   writeFileSync,
@@ -12,7 +11,6 @@ import {
   fsyncSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-const exec = promisify(execFile);
 import {
   harnesses,
   type RuntimeHarness as UpgradeHarness,
@@ -269,7 +267,7 @@ export class HarnessUpgrades {
     private file: string,
     private run: UpgradeRunner = async (command, args, { env, timeout }) =>
       (
-        await exec(command, args, {
+        await runHarnessCommand(command, args, {
           env,
           cwd: dirname(file),
           timeout,

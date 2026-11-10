@@ -36,8 +36,8 @@ const packages = {
   opencode: "opencode-ai",
 } as const;
 
-// Every upgrade test injects this runner, so no test spawns a package manager
-// or reaches a registry. `installed` is what `--version` reports.
+// Injected runners keep package-manager tests offline. `installed` is what
+// --version reports; the default-runner fixture only executes a local script.
 function fakeRunner(
   installed: { version?: string },
   install: (command: string, args: string[]) => void | Promise<void>,
@@ -610,4 +610,36 @@ test("Homebrew checks use the owning brew for formulae and casks, including Open
       ]);
     }
   }
+});
+
+test("the default upgrade runner preserves an interrupted installer hold after output overflow", async (t) => {
+  const dir = fixture(t);
+  const executable = join(dir, ".local/share/claude/versions/fixture");
+  const audit = join(dir, "calls");
+  script(
+    executable,
+    `
+    const fs = require('node:fs');
+    if (process.env.LOOP_DB) process.exit(91);
+    fs.appendFileSync(${JSON.stringify(audit)}, process.argv[2] + '\\n');
+    if (process.argv[2] === '--version') { console.log('2.1.282'); }
+    else { process.stdout.write('x'.repeat(1100000)); setInterval(()=>{},1000); }
+  `,
+  );
+  const manager = new HarnessUpgrades(join(dir, "upgrades.json"));
+  await manager.ready;
+  const commandId = randomUUID();
+  manager.start("claude", executable, commandId, {
+    ...process.env,
+    LOOP_DB: "/must-not-reach-installer.db",
+  });
+  await settled(manager, "claude");
+  assert.equal(manager.status("claude")?.state, "unconfirmed");
+  assert.equal(manager.busy("claude"), true);
+  assert.equal(readFileSync(audit, "utf8"), "--version\nupdate\n");
+  assert.equal(
+    manager.start("claude", executable, commandId).state,
+    "unconfirmed",
+  );
+  assert.equal(readFileSync(audit, "utf8"), "--version\nupdate\n");
 });

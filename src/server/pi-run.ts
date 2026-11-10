@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { ownedGroupAlive } from "../processes.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 
 /**
  * Runs a Pi package command (install, remove, update). Pi passes npm and git
@@ -12,36 +13,42 @@ export function runPi(
   options: { cwd: string; env?: NodeJS.ProcessEnv; timeout?: number },
 ) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(executable, args, {
+    const child = spawnHarnessProcess(executable, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ["ignore", "ignore", "pipe"],
     });
     let tail = "";
+    let timedOut = false;
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       tail = (tail + chunk).slice(-4096);
     });
-    const timer = setTimeout(
-      () => child.kill("SIGTERM"),
-      options.timeout ?? 120_000,
-    );
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void stopHarnessProcess(child);
+    }, options.timeout ?? 120_000);
     child.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });
     child.once("close", (code, signal) => {
       clearTimeout(timer);
-      if (code === 0) resolve();
-      else
-        reject(
-          new Error(
-            piErrorLine(tail) ||
-              (signal
-                ? `Pi stopped (${signal}).`
-                : `Pi exited with code ${code}.`),
-          ),
-        );
+      const survivors = ownedGroupAlive(child);
+      void stopHarnessProcess(child).then(() => {
+        if (code === 0 && !survivors && !timedOut) resolve();
+        else
+          reject(
+            new Error(
+              (timedOut ? "Pi command timed out." : piErrorLine(tail)) ||
+                (survivors
+                  ? "Pi left running subprocesses."
+                  : signal
+                    ? `Pi stopped (${signal}).`
+                    : `Pi exited with code ${code}.`),
+            ),
+          );
+      }, reject);
     });
   });
 }

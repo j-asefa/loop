@@ -1,3 +1,4 @@
+import { runHarnessCommand } from "../harness-command.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { claudeTokens } from "./usage.js";
 import { DirectControls } from "./direct-controls.js";
@@ -5,8 +6,6 @@ import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
 import { ClaudeSteering } from "../../runtime/claude-steering.ts";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
@@ -21,7 +20,6 @@ import {
 } from "./types.js";
 import type { Billing } from "../shared/protocol.js";
 import { NativeSetupError } from "./setup-error.js";
-const exec = promisify(execFile);
 
 /** Why a `result` message does not end this launch's user turn, or "" when it
  * does. Older CLIs leave `origin` absent, so only an explicit non-human kind
@@ -162,11 +160,15 @@ export class Claude implements Adapter {
       "CLAUDE_CODE_USE_VERTEX",
       "CLAUDE_CODE_USE_FOUNDRY",
     ]);
-    const result = await exec(this.options.executable, ["auth", "status"], {
-      cwd: this.options.project,
-      timeout: 20000,
-      maxBuffer: 100000,
-    }).catch((e) => {
+    const result = await runHarnessCommand(
+      this.options.executable,
+      ["auth", "status"],
+      {
+        cwd: this.options.project,
+        timeout: 20000,
+        maxBuffer: 100000,
+      },
+    ).catch((e) => {
       if (e.stdout) return { stdout: e.stdout };
       throw new Error(
         "Could not read native Claude auth status. Run claude auth status.",

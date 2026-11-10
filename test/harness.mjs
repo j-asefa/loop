@@ -38,7 +38,7 @@ if (process.argv.includes("auth")) {
       apiKeySource: process.env.LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE || "none",
     }),
   );
-  process.exit();
+  process.exit(process.env.LOOP_TEST_CLAUDE_AUTH_EXIT ? 1 : 0);
 }
 if (kind === "claude" && process.argv.includes("--print")) {
   if (process.env.LOOP_TEST_PROBE_AUDIT)
