@@ -1,9 +1,9 @@
 import { fileURLToPath } from "node:url";
 import type { Duplex } from "node:stream";
 import { Native } from "../native.js";
-import type { AuthDriver } from "../server/native-auth.js";
-import type { AuthOptions } from "../server/native-auth.js";
-import type { AuthInteraction } from "../server/native-auth.js";
+import type { AuthDriver } from "./types.js";
+import type { AuthOptions } from "./types.js";
+import type { AuthInteraction } from "./types.js";
 import type { AuthProvider } from "../shared/native-auth.js";
 
 export async function piDriver(options: AuthOptions): Promise<AuthDriver> {

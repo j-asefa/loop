@@ -10,6 +10,7 @@ const forbidden: Record<string, string[]> = {
   shared: ["client", "server", "root"],
   root: ["client"],
   adapters: ["client"],
+  "native-auth": ["client", "server", "adapters"],
 };
 
 const root = resolve(import.meta.dirname, "..");
@@ -88,6 +89,8 @@ it.each([
   ["src/shared/probe.ts", "../native.js"],
   ["src/probe.ts", "./client/api.js"],
   ["src/adapters/probe.ts", "../client/api.js"],
+  ["src/native-auth/probe.ts", "../server/native-auth.js"],
+  ["src/native-auth/probe.ts", "../adapters/muse.js"],
 ])("rejects the forbidden dependency from %s to %s", (file, target) => {
   expect(
     boundaryViolations(

@@ -1,7 +1,11 @@
+import type {
+  AuthDriver,
+  AuthInteraction,
+  AuthOptions,
+} from "../native-auth/types.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type {
-  AuthPrompt,
   AuthProvider,
   NativeAuthView,
   SignIn,
@@ -11,32 +15,6 @@ import { Problem } from "../shared/problem.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { NativeProvider } from "../shared/native-providers.js";
 
-export type AuthOptions = {
-  name: string;
-  executable: string;
-  project: string;
-  /** Complete runner environment; never merge with the host when supplied. */
-  env?: NodeJS.ProcessEnv;
-};
-export type AuthInteraction = {
-  signal: AbortSignal;
-  link(url: string, code?: string, instructions?: string): void;
-  prompt(prompt: Omit<AuthPrompt, "id">, signal?: AbortSignal): Promise<string>;
-};
-export type AuthDriver = {
-  readonly dead?: boolean;
-  providers(): Promise<AuthProvider[]>;
-  /** Optional prompt-free native model catalog; validated by the runner. */
-  models?(): Promise<unknown>;
-  /** Remove a provider credential through its native store API. */
-  logout?(provider: string): Promise<void>;
-  login(
-    provider: string,
-    method: string,
-    interaction: AuthInteraction,
-  ): Promise<void>;
-  dispose(): Promise<void>;
-};
 const identifier = z.string().min(1).max(200);
 const label = z.string().min(1).max(500);
 const providersSchema = z

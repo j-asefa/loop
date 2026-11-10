@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { own } from "../processes.js";
-import type { AuthDriver } from "../server/native-auth.js";
-import type { AuthOptions } from "../server/native-auth.js";
+import type { AuthDriver } from "./types.js";
+import type { AuthOptions } from "./types.js";
 import { stop } from "./process.js";
 
 // agy has no login command; its terminal UI signs in. Run it under script(1)
