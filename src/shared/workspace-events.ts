@@ -369,11 +369,11 @@ export const EmittedWorkspaceEvent = z.discriminatedUnion("type", [
 type EmittedWorkspaceEvent = z.infer<typeof EmittedWorkspaceEvent>;
 // A discriminated tuple correlates each durable event type with its payload.
 type DurableEmission = {
-  [K in Exclude<EmittedWorkspaceEvent["type"], "connection.status">]: [
+  [K in EmittedWorkspaceEvent["type"]]: [
     type: K,
     payload: Extract<EmittedWorkspaceEvent, { type: K }>["payload"],
   ];
-}[Exclude<EmittedWorkspaceEvent["type"], "connection.status">];
+}[EmittedWorkspaceEvent["type"]];
 export type WorkspaceEmission =
   | DurableEmission
   | [type: "invalidate", payload: z.infer<typeof Invalidation>]

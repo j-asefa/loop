@@ -43,3 +43,32 @@ export function bounds(db: Database.Database, owner: string) {
     ? undefined
     : parseRecord(boundsRow, row, "change_watermark");
 }
+
+const snapshotStatement = statement(
+  `SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
+   FROM change_log_identity c LEFT JOIN change_watermark w ON w.owner_id=? WHERE c.singleton=1`,
+);
+const snapshotRow = epochRow.extend({
+  cursor: QueryRecords.change_watermark.shape.last_event_id,
+});
+export function snapshot(db: Database.Database, owner: string) {
+  return parseRecord(
+    snapshotRow,
+    snapshotStatement(db).get(owner),
+    "change_watermark",
+  );
+}
+
+const ensureOwnerStatement = statement(
+  "INSERT OR IGNORE INTO change_watermark(owner_id,last_event_id,epoch) SELECT ?,0,epoch FROM change_log_identity WHERE singleton=1",
+);
+export function ensureOwner(db: Database.Database, owner: string): string {
+  const existing = epoch(db, owner);
+  if (existing) return existing.epoch;
+  return db
+    .transaction(() => {
+      ensureOwnerStatement(db).run(owner);
+      return epoch(db, owner)!.epoch;
+    })
+    .immediate();
+}

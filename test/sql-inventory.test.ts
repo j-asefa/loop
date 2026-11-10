@@ -16,7 +16,6 @@ const files = (directory: string): string[] =>
 
 // These infrastructure layers own bootstrap or projection SQL, not domain queries.
 const exemptions = new Map([
-  ["db.ts", "Initializes the connection and installs the projection boundary."],
   [
     "execution-ownership.ts",
     "Owns the separate process-ownership lock database.",

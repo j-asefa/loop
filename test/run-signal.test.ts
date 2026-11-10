@@ -6,7 +6,8 @@ import { historicalEvent } from "../src/shared/workspace-events";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-run-signal-"));
 process.env.LOOP_DATA_DIR = directory;
-const { db, changes, id } = await import("../src/server/db");
+const { db, changes, id, emit, workspaceClock, ensureWorkspaceOwner } =
+  await import("../src/server/db");
 const { enqueue, transition } = await import("../src/server/queue");
 const { watchRun } = await import("../src/server/run-signal");
 const runQueries = await import("../src/server/sql/runs");
@@ -140,4 +141,44 @@ it("rechecks a change that commits before a pending operation registers its wait
   } finally {
     watched.release();
   }
+});
+
+it("keeps connection emissions and owner watermark initialization isolated", () => {
+  const owner = id(),
+    other = id(),
+    connection = id();
+  const initial = workspaceClock(owner);
+  expect(initial.cursor).toBe(0);
+  expect(ensureWorkspaceOwner(owner)).toBe(initial.epoch);
+  expect(ensureWorkspaceOwner(owner)).toBe(initial.epoch);
+  expect(workspaceClock(other).cursor).toBe(0);
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture','private credential','connected',1)",
+  ).run(connection, owner);
+  const before = workspaceClock(owner).cursor;
+  expect(() =>
+    emit(other, { kind: "connection", id: connection }, "connection.status", {
+      status: "connected",
+    }),
+  ).toThrow(/not owned/);
+  expect(workspaceClock(owner).cursor).toBe(before);
+  const event = emit(
+    owner,
+    { kind: "connection", id: connection },
+    "connection.status",
+    { status: "connected" },
+  );
+  expect(workspaceClock(owner)).toMatchObject({
+    epoch: initial.epoch,
+    cursor: Number(event),
+  });
+  expect(workspaceClock(other).cursor).toBe(0);
+  const row = db
+    .prepare("SELECT run_id,subject_kind,subject_id FROM events WHERE id=?")
+    .get(event);
+  expect(row).toEqual({
+    run_id: null,
+    subject_kind: "connection",
+    subject_id: connection,
+  });
 });

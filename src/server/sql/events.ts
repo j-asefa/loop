@@ -4,17 +4,14 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
-const connectionStatusStatement = statement(
-  "INSERT INTO events(owner_id,run_id,subject_kind,subject_id,type,payload,created_at)\n        VALUES(?,NULL,'connection',?,'connection.status',?,?)",
+const insertStatement = statement(
+  "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(@owner_id,@run_id,@type,@payload,@created_at,@subject_kind,@subject_id)",
 );
-export function connectionStatus(
+export function insert(
   db: Database.Database,
-  owner: string,
-  id: string,
-  payload: string,
-  created: number,
+  event: Omit<z.infer<typeof QueryRecords.events>, "id">,
 ) {
-  return connectionStatusStatement(db).run(owner, id, payload, created);
+  return insertStatement(db).run(event).lastInsertRowid;
 }
 
 const pageStatement = statement(
