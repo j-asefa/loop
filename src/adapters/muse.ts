@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { museHost } from "../muse-host.js";
 import { supportsBilling } from "../shared/harnesses.js";
 import { createHash, randomBytes } from "node:crypto";
@@ -209,19 +210,7 @@ export class Muse extends DirectAdapter implements Adapter {
         "Muse Code did not grant session MCP, so Loop's workspace tools are unavailable in this session.";
     const config =
       this.options.workspaceTools && host.granted.has("sessionMcp")
-        ? {
-            mcpServers: {
-              // Optional: a workspace-tools outage must not fail the turn.
-              loop_workspace: {
-                transport: "streamableHttp",
-                mode: "optional",
-                url: this.options.workspaceTools.url,
-                headers: {
-                  Authorization: "Bearer " + this.options.workspaceTools.token,
-                },
-              },
-            },
-          }
+        ? workspaceMcp(this.options.workspaceTools).muse
         : undefined;
     const r = this.options.resume
       ? // Muse keeps the full context; Loop already persists display history.

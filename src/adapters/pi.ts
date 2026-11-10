@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { piActivities, directUpdates } from "./direct-activities.js";
@@ -249,10 +250,7 @@ export class Pi extends DirectAdapter implements Adapter {
         ...process.env,
         LOOP_BILLING_MODE: this.options.billing,
         ...(this.options.workspaceTools
-          ? {
-              LOOP_TOOLS_URL: this.options.workspaceTools.url,
-              LOOP_TOOLS_TOKEN: this.options.workspaceTools.token,
-            }
+          ? workspaceMcp(this.options.workspaceTools).pi
           : {}),
       },
     );

@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { runHarnessCommand } from "../harness-command.js";
 import { tokenCount, type Tokens } from "./usage.js";
 import { DirectAdapter } from "./direct-adapter.js";
@@ -207,18 +208,7 @@ export class Claude extends DirectAdapter implements Adapter {
         ...(this.options.workspaceTools
           ? [
               "--mcp-config",
-              JSON.stringify({
-                mcpServers: {
-                  loop_workspace: {
-                    type: "http",
-                    url: this.options.workspaceTools.url,
-                    headers: {
-                      Authorization:
-                        "Bearer " + this.options.workspaceTools.token,
-                    },
-                  },
-                },
-              }),
+              JSON.stringify(workspaceMcp(this.options.workspaceTools).claude),
             ]
           : []),
         ...(this.options.resume

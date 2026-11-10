@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { supportsBilling } from "../shared/harnesses.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
@@ -149,14 +150,7 @@ export class OpenCode extends DirectAdapter implements Adapter {
                   ...environmentConfig,
                   mcp: {
                     ...environmentConfig.mcp,
-                    loop_workspace: {
-                      type: "remote",
-                      url: this.options.workspaceTools.url,
-                      headers: {
-                        Authorization:
-                          "Bearer " + this.options.workspaceTools.token,
-                      },
-                    },
+                    ...workspaceMcp(this.options.workspaceTools).opencode,
                   },
                 }),
               }

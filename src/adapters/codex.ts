@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
@@ -273,14 +274,7 @@ export class Codex extends DirectAdapter implements Adapter {
         : {}),
       ...(this.options.workspaceTools
         ? {
-            config: {
-              "mcp_servers.loop_workspace": {
-                url: this.options.workspaceTools.url,
-                http_headers: {
-                  Authorization: "Bearer " + this.options.workspaceTools.token,
-                },
-              },
-            },
+            config: workspaceMcp(this.options.workspaceTools).codex,
           }
         : {}),
     };
