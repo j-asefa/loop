@@ -3,13 +3,6 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { LOOP_REPOSITORY } from "../src/shared/repository.ts";
-
-const repository = LOOP_REPOSITORY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const remotePattern = new RegExp(
-  `^(?:https://${repository}|git@${repository.replace("/", ":")}|ssh://git@${repository})(?:\\.git)?/?$`,
-  "i",
-);
 
 export async function buildSource(root) {
   const stamp = {
@@ -32,7 +25,9 @@ export async function buildSource(root) {
     const remote = git("config", "--get", "remote.origin.url");
     if (
       !/^[0-9a-f]{40}$/.test(commit) ||
-      !remotePattern.test(remote) ||
+      !/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)j-asefa\/loop(?:\.git)?\/?$/i.test(
+        remote,
+      ) ||
       git("status", "--porcelain")
     )
       return { directory: root, stamp, cleanup: async () => {} };
@@ -51,7 +46,7 @@ export async function buildSource(root) {
       "dir",
     );
     Object.assign(stamp, {
-      repository: LOOP_REPOSITORY,
+      repository: "github.com/j-asefa/loop",
       commit,
       clean: true,
       ancestors: git("rev-list", "--max-count=10000", commit)

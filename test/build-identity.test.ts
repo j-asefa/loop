@@ -13,8 +13,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import type { BuildStamp } from "../src/shared/build";
-import { LOOP_REPOSITORY } from "../src/shared/repository.js";
+import { LOOP_REPOSITORY, type BuildStamp } from "../src/shared/build";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-build-identity-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

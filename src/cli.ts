@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { testWait } from "./test-seams.js";
-import { LOOP_REPOSITORY } from "./shared/repository.js";
+import { LOOP_REPOSITORY } from "./shared/build.js";
 import {
   PROCESS_FILES,
   ProcessRecordError,

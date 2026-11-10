@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { LOOP_REPOSITORY } from "./repository.js";
+export const LOOP_REPOSITORY = "github.com/j-asefa/loop";
 export const Commit = z.string().regex(/^[0-9a-f]{40}$/);
 export const BuildIdentity = z.object({
   id: z.string().min(1).max(100),
