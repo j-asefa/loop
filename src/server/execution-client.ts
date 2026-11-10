@@ -26,23 +26,13 @@ function passiveInput<M extends ExecutionMethod>(
   owner = "local-workspace",
 ): ExecutionInput<M> {
   if (!passiveWorkspaceRead(owner)) return input;
-  if (
-    ![
-      "runtime.status",
-      "runtime.list",
-      "native.controls",
-      "native.catalog",
-    ].includes(method)
-  )
+  const policy = executionOperations[method].passive;
+  if (policy === "deny")
     throw new ExecutionRefused(
       403,
       "A workspace read cannot change native execution.",
     );
-  return method === "runtime.list" ||
-    method === "native.catalog" ||
-    method === "native.controls"
-    ? { ...input, cachedOnly: true }
-    : input;
+  return policy === "cached" ? { ...input, cachedOnly: true } : input;
 }
 
 export type ExecutionTransport = {

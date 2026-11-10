@@ -85,7 +85,9 @@ setExecutionTransport({
   async send(request) {
     sent.push({ method: request.method, input: request.input });
     let result;
-    if (request.method === "runtime.list")
+    if (request.method === "runtime.status")
+      result = { nativeProcesses: nativeSessions.count };
+    else if (request.method === "runtime.list")
       result = await runtimeList(
         request.input as Parameters<typeof runtimeList>[0],
       );
@@ -393,14 +395,33 @@ it.each([
   },
 );
 
+it("passive status reads reach transport without cached-only fields", async () => {
+  await withPassiveWorkspaceRead(owner, () =>
+    executionRequest("runtime.status", {}),
+  );
+  expect(sent.at(-1)).toEqual({ method: "runtime.status", input: {} });
+});
+
 it("passive inspection refuses native effects before transport even through the direct client", async () => {
   const before = sent.length;
   for (const invoke of [
     () => executionRequest("runtime.refresh", { connectionId: native }),
     () => executionClient.request("runtime.refresh", { connectionId: native }),
+    () =>
+      executionRequest(
+        "auth.cancel",
+        { name: "codex", attemptId: randomUUID() },
+        { commandId: randomUUID() },
+      ),
+    () =>
+      executionClient.request(
+        "auth.cancel",
+        { name: "codex", attemptId: randomUUID() },
+        { commandId: randomUUID() },
+      ),
   ])
-    await expect(withPassiveWorkspaceRead(owner, invoke)).rejects.toMatchObject(
-      { status: 403 },
-    );
+    await expect(
+      withPassiveWorkspaceRead<Promise<unknown>>(owner, invoke),
+    ).rejects.toMatchObject({ status: 403 });
   expect(sent.length).toBe(before);
 });
