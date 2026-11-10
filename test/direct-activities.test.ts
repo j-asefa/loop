@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Codex } from "../src/adapters/codex";
 import {
   codexActivities,
+  directUpdates,
   piActivities,
   openCodeActivities,
   claudeActivities,
@@ -187,4 +188,68 @@ it("sends Codex effort using the documented turn/start field", async () => {
     params: { effort: "medium" },
   });
   expect(calls[0].params).not.toHaveProperty("reasoningEffort");
+});
+
+it("keeps native tool IDs ending in digits while separating Codex file records", () => {
+  const id = "native-tool:7";
+  const codex = directUpdates(
+    "codex",
+    codexActivities("item/completed", {
+      item: {
+        id,
+        type: "fileChange",
+        status: "completed",
+        changes: [
+          { path: "one.ts", diff: "+one" },
+          { path: "two.ts", diff: "+two" },
+        ],
+      },
+    }),
+  );
+  expect(codex).toHaveLength(2);
+  expect(codex.map((update) => update.id)).toEqual([id + ":0", id + ":1"]);
+  for (const update of codex)
+    expect(update.patch).toMatchObject({ tool: id, state: "applied" });
+  const cases = [
+    [
+      "pi",
+      piActivities({
+        type: "tool_execution_end",
+        toolCallId: id,
+        toolName: "write",
+        args: { path: "one.ts", content: "one" },
+        result: {},
+      }),
+    ],
+    [
+      "claude",
+      claudeActivities(
+        { type: "tool_result", tool_use_id: id },
+        { name: "Write", input: { file_path: "one.ts", content: "one" } },
+      ),
+    ],
+    [
+      "opencode",
+      openCodeActivities("message.part.updated", {
+        part: {
+          id: "part",
+          callID: id,
+          type: "tool",
+          state: {
+            status: "completed",
+            metadata: { filediff: { file: "one.ts", patch: "+one" } },
+          },
+        },
+      }),
+    ],
+  ] as const;
+  for (const [harness, values] of cases) {
+    const updates = directUpdates(harness, values);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      id,
+      kind: "file_change",
+      patch: { tool: id, state: "applied" },
+    });
+  }
 });

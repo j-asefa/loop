@@ -1,5 +1,5 @@
 import { runHarnessCommand } from "../harness-command.js";
-import { claudeTokens } from "./usage.js";
+import { tokenCount, type Tokens } from "./usage.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
@@ -34,6 +34,18 @@ function foreignResult(m: any, active: boolean, session: string) {
   if (m.origin != null && m.origin.kind !== "human")
     return `origin.kind=${JSON.stringify(m.origin.kind)} is not human`;
   return "";
+}
+
+function claudeTokens(value: any): Tokens | undefined {
+  const input = tokenCount(value?.input_tokens);
+  const output = tokenCount(value?.output_tokens);
+  if (input === undefined || output === undefined) return;
+  const total =
+    input +
+    (tokenCount(value.cache_read_input_tokens) ?? 0) +
+    (tokenCount(value.cache_creation_input_tokens) ?? 0);
+  if (!Number.isSafeInteger(total)) return;
+  return { input_tokens: total, output_tokens: output };
 }
 
 export class Claude extends DirectAdapter implements Adapter {
