@@ -219,27 +219,49 @@ function recordedProcessDead(owner: Recorded) {
   );
 }
 
-const identities = new WeakMap<ChildProcess, string>();
+const identities = new WeakMap<
+  ChildProcess,
+  {
+    identity: string;
+    scope: "process" | "group";
+  }
+>();
 
-/** Only call for children launched detached by Loop: their process group is ours. */
+// A PID alone cannot authorize a signal: without a launch identity an exited
+// leader's surviving group cannot be distinguished from a replacement group.
 export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
-  if (!child.pid) return;
-  const recorded = identities.get(child),
-    live = identity(child.pid);
-  if (recorded && live && recorded !== live) return;
+  if (!child.pid) return false;
+  const recorded = identities.get(child);
+  if (!recorded) return false;
+  // Node retains the direct child's handle until exit; missing launch evidence
+  // must not promote that handle into authority over a whole process group.
+  if (!recorded.identity) {
+    if (child.exitCode !== null || child.signalCode !== null) return false;
+    return child.kill(signal);
+  }
+  const live = identity(child.pid);
+  if (live && recorded.identity !== live) return false;
+  if (recorded.scope === "process") {
+    if (child.exitCode !== null || child.signalCode !== null) return false;
+    return child.kill(signal);
+  }
   try {
-    process.kill(-child.pid, signal);
+    return process.kill(-child.pid, signal);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal);
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+      return child.kill(signal);
+    return false;
   }
 }
 
 export function ownedGroupAlive(child: ChildProcess) {
+  const recorded = identities.get(child);
   return (
+    recorded?.scope === "group" &&
     !!child.pid &&
     recordedGroupAlive({
       pid: child.pid,
-      identity: identities.get(child) ?? "",
+      identity: recorded.identity,
     })
   );
 }
@@ -263,19 +285,23 @@ export function recordOwnedProcesses(path: string) {
   registry = path;
   persist();
 }
-/** Records a child launched detached by Loop until it exits. */
-export function own(child: ChildProcess) {
+/** "group" records a detached leader and its descendants; "process" records
+ * an attached child such as cloudflared, without claiming its parent's group. */
+export function recordOwnedChild(
+  child: ChildProcess,
+  scope: "process" | "group",
+) {
   const pid = child.pid;
   if (!pid) return;
   const start = identity(pid) ?? "";
-  identities.set(child, start);
+  identities.set(child, { identity: start, scope });
   owned.set(pid, start);
   persist();
   child.once("exit", () => {
     // A detached leader can exit before its descendants. Retain that record
     // so recovery refuses an unidentifiable surviving group instead of
     // silently launching a second native writer.
-    if (!groupAlive(pid)) owned.delete(pid);
+    if (scope === "process" || !groupAlive(pid)) owned.delete(pid);
     persist();
   });
   if (stopping) {

@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { own, killOwned, groupAlive } from "../process-records.js";
+import { recordOwnedChild, killOwned, groupAlive } from "../process-records.js";
 import { ExecutionProblem, Problem } from "../shared/problem.js";
 import {
   FleetMailWorkerState,
@@ -243,7 +243,7 @@ export class ExecutionProcess
         child.once("exit", () => clearTimeout(kill));
       });
       try {
-        own(child);
+        recordOwnedChild(child, "group");
       } catch (error) {
         reject(error);
         this.invalidate(child);
