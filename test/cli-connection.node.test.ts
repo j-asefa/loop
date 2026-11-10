@@ -15,8 +15,8 @@ import {
 import { existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { alive } from "../src/daemon.js";
-import { identity, pidNamespace } from "../src/lifecycle.js";
+import { alive } from "../src/process-records.js";
+import { identity, pidNamespace } from "../src/process-records.js";
 import { ensureRunDir } from "../src/connection.js";
 import { killFixtureProcess, until } from "./helpers.js";
 import { gitProject } from "./git-project.js";

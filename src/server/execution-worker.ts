@@ -8,7 +8,8 @@ import {
   stopAttachedChildren,
   stopOwnedProcessLaunches,
 } from "../processes.js";
-import { groupAlive, terminateWorkspace } from "../daemon.js";
+import { terminateWorkspace } from "../daemon.js";
+import { groupAlive } from "../process-records.js";
 import {
   ExecutionParentMessage,
   ExecutionChildMessage,

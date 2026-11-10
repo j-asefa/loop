@@ -24,7 +24,7 @@ import {
 import { boundedExecutionJson } from "./execution-wire.js";
 import { config } from "./config.js";
 import { retireStoppedExecution } from "./execution-ownership.js";
-import { groupAlive } from "../daemon.js";
+import { groupAlive } from "../process-records.js";
 
 export type ExecutionLifecycle = {
   open(): Promise<void>;

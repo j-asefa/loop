@@ -16,12 +16,8 @@ import {
   type Hello,
   type TunnelMode,
 } from "./connection.js";
-import {
-  exited,
-  recordedChildren,
-  retireLog,
-  terminateWorkspace,
-} from "./daemon.js";
+import { recordedChildren, retireLog, terminateWorkspace } from "./daemon.js";
+import { exited } from "./process-records.js";
 
 const testWait = (name: string, fallback: number) => {
   const value = Number(process.env[name]);

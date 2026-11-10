@@ -1,12 +1,12 @@
 import type { ChildProcess } from "node:child_process";
-import { identity } from "./lifecycle.js";
 import { atomic } from "./state.js";
 import {
+  identity,
   groupAlive,
   groupMembers,
   processState,
   recordedGroupAlive,
-} from "./daemon.js";
+} from "./process-records.js";
 const identities = new WeakMap<ChildProcess, string>();
 
 /** Only call for children launched detached by Loop: their process group is ours. */

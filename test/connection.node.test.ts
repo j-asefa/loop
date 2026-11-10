@@ -15,7 +15,7 @@ import {
   readConnectionRecord,
   type ConnectionRecord,
 } from "../src/connection.js";
-import { alive } from "../src/daemon.js";
+import { alive } from "../src/process-records.js";
 import { until } from "./helpers.js";
 
 const FAKE = resolve("test/fixtures/fake-cloudflared.mjs");

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runHarnessCommand } from "../src/harness-command.js";
-import { groupAlive } from "../src/daemon.js";
+import { groupAlive } from "../src/process-records.js";
 
 test("harness command retains partial output and nonzero exit diagnostics", async () => {
   await assert.rejects(

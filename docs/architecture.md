@@ -652,6 +652,13 @@ eligible run, all within the claim transaction. PR watches and verifications
 observe completed native command output in the projector, with its generation
 and record context; they are not run-state transition subscribers.
 
+[Process records](../src/process-records.ts) owns process identity, PID namespace,
+liveness, zombie detection and process-group observation. Linux observations use
+one `/proc/<pid>/stat` parser, including names containing spaces and closing
+parentheses. Workspace lock recovery requires positive evidence of death or PID
+reuse; an inconclusive probe retains the lock. Process-group existence and live
+membership remain distinct: a group containing only zombies has no live members.
+
 The worker coalesces scheduling wakes from queue and run-state publications, with a two-second fallback. Releasing an execution slot wakes scheduling again because a terminal publication can precede slot release. An empty claim does not schedule itself again. Stale-run recovery stays in the scheduling tick; other maintenance schedules remain independent.
 
 The [maintenance scheduler](../src/server/worker-maintenance.ts) owns background delivery, feed, memory and search timers and their mail/artifact wakes. Delivery passes coalesce while one is active; digests and feed watches run only after a successful feed refresh. Failed background tasks report `background-task-failed` with a task name and sanitized error class/code facts, without the thrown message. The [run lease timing](../src/server/run-lease.ts) derives the stale threshold from six heartbeat intervals: the heartbeat remains ten seconds and the threshold one minute.
