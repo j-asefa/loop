@@ -520,6 +520,17 @@ test("malformed workspace records are reported and preserved instead of treated 
         );
       }
     }
+    const doctor = JSON.parse((await w.loop(["doctor"])).stdout);
+    assert.equal(doctor.workspace.state, "invalid");
+    assert.match(doctor.workspace.message, /Invalid local host record/);
+    assert(
+      Array.isArray(doctor.harnesses),
+      "doctor retains its other diagnostics",
+    );
+    assert.equal(
+      await readFile(join(w.dir, "control.json"), "utf8"),
+      JSON.stringify({ port: 0, token: "x" }),
+    );
     const control = JSON.stringify({ port: 1, token: "x" });
     await writeFile(join(w.dir, "control.json"), control);
     await writeFile(join(w.dir, "host.lock"), "{");

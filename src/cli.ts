@@ -844,9 +844,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
           stateRoot: root,
           logs: logPath,
           harnesses,
-          workspace: await control(dir, "status").catch(() => ({
-            state: "stopped",
-          })),
+          workspace: await (async () => {
+            const found = await inspectWorkspace(dir);
+            if (found.state === "invalid")
+              return { state: "invalid", message: found.error.message };
+            return found.state === "responding"
+              ? found.status
+              : workspaceDescription(found);
+          })(),
           connection: publicConnection(await inspectConnection(connection)),
           checks: [
             "No model request made.",
