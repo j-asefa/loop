@@ -52,6 +52,29 @@ export const pairedHostRoutes = [
   workspaceApi.workspaceRevoke,
 ] as const;
 
+function hasBody(req: IncomingMessage) {
+  return (
+    Number(req.headers["content-length"] ?? 0) > 0 ||
+    req.headers["transfer-encoding"] !== undefined
+  );
+}
+function overridesMethod(req: IncomingMessage) {
+  return (
+    req.headers["x-http-method-override"] !== undefined ||
+    req.headers["x-method-override"] !== undefined
+  );
+}
+function forbidUpgrade(
+  socket: import("node:stream").Duplex,
+  contentLength = false,
+) {
+  socket.end(
+    "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n" +
+      (contentLength ? "Content-Length: 0\r\n" : "") +
+      "\r\n",
+  );
+}
+
 type Device = TrustedDevice;
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
 const Pair = z
@@ -168,14 +191,8 @@ export class Host {
           "/api" + workspaceApi.channels.tokenEvents.path &&
         this.workspace.tokenEvents
       ) {
-        if (
-          !this.validHost(req) ||
-          (req.headers.origin && !this.validOrigin(req)) ||
-          req.headers["sec-fetch-site"] === "cross-site"
-        ) {
-          socket.end(
-            "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-          );
+        if (!this.validHost(req) || this.crossOrigin(req)) {
+          forbidUpgrade(socket, true);
           return;
         }
         // The owning handler validates the bearer before spending shared
@@ -193,7 +210,7 @@ export class Host {
         this.clients.size >= 256 ||
         [...this.clients.values()].filter((id) => id === device.id).length >= 32
       ) {
-        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        forbidUpgrade(socket);
         return;
       }
       let url: URL;
@@ -212,7 +229,7 @@ export class Host {
         url.pathname === workspaceApi.channels.events.pairedPath ||
         url.pathname === "/api" + workspaceApi.channels.events.path;
       if (!local && !multiplex && !(source && !this.workspace.isolated)) {
-        socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        forbidUpgrade(socket);
         return;
       }
       if (!this.admitSocket(socket, "browser")) return;
@@ -398,6 +415,12 @@ export class Host {
   private validOrigin(req: IncomingMessage) {
     return this.validHost(req) && req.headers.origin === this.origin;
   }
+  private crossOrigin(req: IncomingMessage) {
+    return (
+      (!!req.headers.origin && !this.validOrigin(req)) ||
+      req.headers["sec-fetch-site"] === "cross-site"
+    );
+  }
   private get cookieName() {
     const name = this.origin.startsWith("https:")
       ? "__Host-loop"
@@ -513,18 +536,11 @@ export class Host {
       // Select bearer authentication before cookies or URL normalization. This
       // application callback resolves the actual mounted contract before forwarding.
       if (req.headers.authorization !== undefined) {
-        if (
-          !this.workspace.authorizeToken ||
-          req.headers["x-http-method-override"] !== undefined ||
-          req.headers["x-method-override"] !== undefined
-        )
+        if (!this.workspace.authorizeToken || overridesMethod(req))
           return this.json(res, 403, {
             error: "Integration credentials permit declared token routes only.",
           });
-        if (
-          (req.headers.origin && !this.validOrigin(req)) ||
-          req.headers["sec-fetch-site"] === "cross-site"
-        )
+        if (this.crossOrigin(req))
           return this.json(res, 403, { error: "Origin rejected." });
         try {
           (
@@ -671,10 +687,7 @@ export class Host {
               this.revoke(input.id);
               output = { ok: true };
             } else {
-              const hasBody =
-                Number(req.headers["content-length"] ?? 0) > 0 ||
-                req.headers["transfer-encoding"] !== undefined;
-              contract.body.parse(hasBody ? {} : undefined);
+              contract.body.parse(hasBody(req) ? {} : undefined);
               output = this.deviceList().map(cleanDevice);
             }
             const projected = contract.response.safeParse(output);
@@ -689,11 +702,7 @@ export class Host {
           contract.query.parse(
             Object.fromEntries(new URL(req.url!, this.origin).searchParams),
           );
-          // Agent-source discovery accepts no body, including on previews.
-          const hasBody =
-            Number(req.headers["content-length"] ?? 0) > 0 ||
-            req.headers["transfer-encoding"] !== undefined;
-          contract.body.parse(hasBody ? {} : undefined);
+          contract.body.parse(hasBody(req) ? {} : undefined);
           let output: unknown = [];
           if (!this.workspace.isolated) {
             const current = this.delegateFleetRequest(req, res, device);
@@ -710,12 +719,7 @@ export class Host {
         if (path.startsWith("/api/agent-sources/")) {
           const match = /^\/api\/agent-sources\/([^/]+)\/(.+)$/.exec(path);
           if (!match) return this.json(res, 404, { error: "Not found" });
-          if (
-            (req.headers.origin && !this.validOrigin(req)) ||
-            req.headers["sec-fetch-site"] === "cross-site" ||
-            req.headers["x-http-method-override"] !== undefined ||
-            req.headers["x-method-override"] !== undefined
-          )
+          if (this.crossOrigin(req) || overridesMethod(req))
             return this.json(res, 403, {
               error: "Source authorization rejected.",
             });
