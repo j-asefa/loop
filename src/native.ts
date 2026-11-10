@@ -1,9 +1,9 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawnNative } from "./native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "./native-spawn.js";
 import { nativeMemoryFailure } from "./native-memory.js";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
-import { killOwned, own } from "./processes.js";
+import { killOwned } from "./processes.js";
 
 /** An explicit error response from the harness: it received and refused the request. */
 export class NativeRpcError extends Error {
@@ -63,14 +63,11 @@ export class Native extends EventEmitter {
     maxFrameBytes = 8 * 1024 * 1024,
   ) {
     super();
-    this.child = spawnNative(executable, args, {
+    this.child = spawnHarnessProcess(executable, args, {
       cwd,
       env,
       stdio: ["pipe", "pipe", "pipe", "pipe"],
-      shell: false,
-      detached: true,
     }) as ChildProcessWithoutNullStreams;
-    own(this.child);
     let metadata = "";
     let metadataBytes = 0;
     const metadataDecoder = new StringDecoder("utf8");
@@ -278,25 +275,7 @@ export class Native extends EventEmitter {
       p.reject(new Error("Stopped"));
     }
     this.pending.clear();
-    this.disposal = new Promise<void>((resolve) => {
-      if (
-        !this.child.pid ||
-        this.child.exitCode !== null ||
-        this.child.signalCode !== null
-      ) {
-        resolve();
-        return;
-      }
-      const timer = setTimeout(() => {
-        killOwned(this.child, "SIGKILL");
-      }, 2500);
-      this.child.once("exit", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      this.child.stdin.end();
-      killOwned(this.child, "SIGTERM");
-    });
+    this.disposal = stopHarnessProcess(this.child);
     return this.disposal;
   }
 }

@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { groupAlive, groupMembers } from "../src/daemon.js";
 import { Acp } from "../src/adapters/acp.js";
 import {
   reduceActivity,
@@ -861,3 +866,69 @@ test("ACP command output survives empty and non-text content replacement", async
     await adapter.dispose();
   }
 });
+
+test(
+  "ACP disposal kills surviving tools after the harness leader exits",
+  {
+    skip: process.platform !== "linux",
+    timeout: 12000,
+  },
+  async () => {
+    const directory = mkdtempSync(join(tmpdir(), "loop-acp-orphan-"));
+    const record = join(directory, "pids.json");
+    const wrapper = join(directory, "wrapper.mjs");
+    writeFileSync(
+      wrapper,
+      `
+    import { spawn } from 'node:child_process';
+    import { once } from 'node:events';
+    import { writeFileSync } from 'node:fs';
+    const tool = spawn(process.execPath, ['-e',
+      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); process.send('ready');"
+    ], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+    await once(tool, 'message');
+    writeFileSync(${JSON.stringify(record)}, JSON.stringify({leader: process.pid, tool: tool.pid}));
+    await import(${JSON.stringify(new URL("./fixtures/fake-acp.mjs", import.meta.url).href)});
+  `,
+    );
+    const adapter = new Acp(
+      {
+        harness: "acp",
+        executable: process.execPath,
+        args: [wrapper],
+        project: directory,
+        billing: "existing",
+        version: "fake",
+      },
+      () => {},
+    );
+    let leader: number | undefined;
+    const until = async (condition: () => boolean) => {
+      const deadline = Date.now() + 5000;
+      while (!condition()) {
+        assert(
+          Date.now() < deadline,
+          "process group did not reach expected state",
+        );
+        await delay(20);
+      }
+    };
+    try {
+      await adapter.start();
+      const pids = JSON.parse(readFileSync(record, "utf8")) as {
+        leader: number;
+        tool: number;
+      };
+      leader = pids.leader;
+      process.kill(leader, "SIGKILL");
+      await until(() => !groupMembers(pids.leader).includes(pids.leader));
+      assert(groupMembers(leader).includes(pids.tool));
+      await adapter.dispose();
+      assert.equal(groupAlive(pids.leader), false);
+    } finally {
+      if (leader && groupAlive(leader)) process.kill(-leader, "SIGKILL");
+      await adapter.dispose();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);

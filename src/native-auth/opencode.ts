@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { own } from "../processes.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stop } from "./process.js";
+import { stopHarnessProcess } from "../native-spawn.js";
 
 export async function openCodeDriver(
   options: AuthOptions,
@@ -49,7 +49,7 @@ export async function openCodeDriver(
       }
     });
   }).catch(async (error) => {
-    await stop(child);
+    await stopHarnessProcess(child);
     throw error;
   });
   const api = async (
@@ -184,7 +184,7 @@ export async function openCodeDriver(
         );
     },
     async dispose() {
-      await stop(child);
+      await stopHarnessProcess(child);
     },
   };
 }

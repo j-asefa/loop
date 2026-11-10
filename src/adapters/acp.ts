@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawnNative } from "../native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 import { nativeFailureDetail, nativeMemoryFailure } from "../native-memory.js";
 import { Readable, Writable } from "node:stream";
 import { randomUUID } from "node:crypto";
@@ -15,7 +15,6 @@ import {
   type SessionConfigOption,
   type SessionModeState,
 } from "@agentclientprotocol/sdk";
-import { killOwned, own } from "../processes.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import type { Billing, Item } from "../shared/protocol.js";
 import {
@@ -152,19 +151,17 @@ export class Acp implements Adapter {
   ) {}
 
   async start(): Promise<Billing> {
-    const child = spawnNative(
+    const child = spawnHarnessProcess(
       this.options.executable,
       this.options.args || [],
       {
         cwd: this.options.project,
         shell: false,
-        detached: true,
         stdio: ["pipe", "pipe", "pipe"],
         env: this.environment(),
       },
     );
     this.child = child;
-    own(child);
     child.once("error", () => {
       this.cancelPermissions();
       if (!this.closed && !this.terminalReported) {
@@ -464,13 +461,7 @@ export class Acp implements Adapter {
     this.modeConfirmation?.reject(new Error("ACP session closed"));
     this.modeConfirmation = undefined;
     this.cancelPermissions();
-    if (this.child) {
-      killOwned(this.child, "SIGTERM");
-      const child = this.child;
-      setTimeout(() => {
-        if (child.exitCode === null) killOwned(child, "SIGKILL");
-      }, 2000).unref();
-    }
+    await stopHarnessProcess(this.child);
   }
   private cancelPermissions() {
     for (const [id, pending] of this.permissions) {

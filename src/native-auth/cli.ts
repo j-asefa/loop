@@ -4,7 +4,7 @@ import { own } from "../processes.js";
 import { harnesses } from "../shared/harnesses.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stop } from "./process.js";
+import { stopHarnessProcess } from "../native-spawn.js";
 
 // Codex and Grok Build print a device-code URL and code; Claude Code prints a
 // URL and reads a pasted code. Credentials stay in each CLI's own store.
@@ -35,7 +35,7 @@ export function cliDriver(options: AuthOptions): AuthDriver {
       ];
     },
     async login(_provider, method, io) {
-      await stop(child);
+      await stopHarnessProcess(child);
       const process = (child = spawn(
         options.executable,
         device
@@ -62,7 +62,7 @@ export function cliDriver(options: AuthOptions): AuthDriver {
         let output = "",
           asked = false;
         const abort = () => {
-          void stop(process);
+          void stopHarnessProcess(process);
           reject(new Error("Sign-in cancelled"));
         };
         io.signal.addEventListener("abort", abort, { once: true });
@@ -118,7 +118,7 @@ export function cliDriver(options: AuthOptions): AuthDriver {
                 );
             }
           } catch {
-            void stop(process);
+            void stopHarnessProcess(process);
             reject(new Error("Unsupported sign-in response"));
           }
         };
@@ -138,7 +138,7 @@ export function cliDriver(options: AuthOptions): AuthDriver {
       });
     },
     async dispose() {
-      await stop(child);
+      await stopHarnessProcess(child);
     },
   };
 }

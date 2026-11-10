@@ -4,10 +4,9 @@ import { DirectControls } from "./direct-controls.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { openCodeActivities, directUpdates } from "./direct-activities.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawnNative } from "../native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 import { nativeFailureDetail, nativeMemoryFailure } from "../native-memory.js";
 import { secret } from "../state.js";
-import { killOwned, own } from "../processes.js";
 import {
   capabilities,
   type Adapter,
@@ -151,7 +150,7 @@ export class OpenCode implements Adapter {
     const environmentConfig = this.options.workspaceTools
       ? JSON.parse(process.env.OPENCODE_CONFIG_CONTENT || "{}")
       : undefined;
-    this.child = spawnNative(
+    this.child = spawnHarnessProcess(
       this.options.executable,
       ["serve", "--hostname", "127.0.0.1", "--port", "0"],
       {
@@ -181,10 +180,8 @@ export class OpenCode implements Adapter {
         },
         stdio: "pipe",
         shell: false,
-        detached: true,
       },
     );
-    own(this.child);
     this.child.stderr.resume();
     this.origin = await new Promise<string>((resolve, reject) => {
       let buffer = "";
@@ -713,8 +710,11 @@ export class OpenCode implements Adapter {
     this.controlState?.stop();
     clearTimeout(this.refresh);
     this.abort.abort();
-    if (this.child) killOwned(this.child, "SIGTERM");
-    await this.stream;
-    if (this.child?.exitCode === null) killOwned(this.child, "SIGKILL");
+    const stopped = stopHarnessProcess(this.child);
+    try {
+      await this.stream;
+    } finally {
+      await stopped;
+    }
   }
 }
