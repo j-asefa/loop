@@ -5,9 +5,11 @@ import { parseSync } from "rolldown/utils";
 
 // Source boundaries described in docs/architecture.md.
 const forbidden: Record<string, string[]> = {
-  client: ["server"],
+  client: ["server", "root"],
   server: ["client"],
-  shared: ["client", "server"],
+  shared: ["client", "server", "root"],
+  root: ["client"],
+  adapters: ["client"],
 };
 
 const root = resolve(import.meta.dirname, "..");
@@ -53,7 +55,10 @@ function specifiers(file: string, text: string) {
   return found;
 }
 
-const area = (path: string) => relative(join(root, "src"), path).split(sep)[0];
+const area = (path: string) => {
+  const parts = relative(join(root, "src"), path).split(sep);
+  return parts.length === 1 ? "root" : parts[0];
+};
 
 it("reads every import form and ignores imports in comments and strings", () => {
   const text = [
@@ -68,18 +73,58 @@ it("reads every import form and ignores imports in comments and strings", () => 
   );
 });
 
+function boundaryViolations(file: string, text: string) {
+  const from = area(file);
+  return specifiers(file, text)
+    .filter((specifier) => specifier.startsWith("."))
+    .filter((specifier) =>
+      forbidden[from]?.includes(area(resolve(dirname(file), specifier))),
+    )
+    .map((specifier) => `${relative(root, file)} imports ${specifier}`);
+}
+
+it.each([
+  ["src/client/probe.ts", "../host.js"],
+  ["src/shared/probe.ts", "../native.js"],
+  ["src/probe.ts", "./client/api.js"],
+  ["src/adapters/probe.ts", "../client/api.js"],
+])("rejects the forbidden dependency from %s to %s", (file, target) => {
+  expect(
+    boundaryViolations(
+      join(root, file),
+      `import type { Probe } from "${target}";`,
+    ),
+  ).toEqual([`${file} imports ${target}`]);
+});
+
+it.each(["src/probe.ts", "src/adapters/probe.ts", "src/client/probe.ts"])(
+  "permits shared contracts from %s",
+  (file) => {
+    const target =
+      file === "src/probe.ts"
+        ? "./shared/protocol.js"
+        : "../shared/protocol.js";
+    expect(
+      boundaryViolations(
+        join(root, file),
+        `export type { Item } from "${target}";`,
+      ),
+    ).toEqual([]);
+  },
+);
+
 // Parsing the full source tree can exceed Vitest’s 5s default on shared hosts.
-it("keeps client, server and shared code from importing across their boundary", () => {
+it("keeps client, server, shared, root and adapters within source boundaries", () => {
   const violations: string[] = [];
   let checked = 0;
   for (const file of source(join(root, "src"))) {
     const from = area(file);
-    for (const specifier of specifiers(file, readFileSync(file, "utf8"))) {
+    const text = readFileSync(file, "utf8");
+    violations.push(...boundaryViolations(file, text));
+    for (const specifier of specifiers(file, text)) {
       if (!specifier.startsWith(".")) continue;
       const to = area(resolve(dirname(file), specifier));
       if (from !== to) checked++;
-      if (forbidden[from]?.includes(to))
-        violations.push(`${relative(root, file)} imports ${specifier}`);
     }
   }
   expect(checked).toBeGreaterThan(100);

@@ -5,7 +5,7 @@ import {
   type SettingValue,
   type Setting,
   type CommandsData,
-} from "../agent-activities.js";
+} from "../shared/agent-activities.js";
 import type { Emit, NativeCommand } from "./types.js";
 
 /** Shared lifecycle for direct controls. Requests never overwrite confirmed values. */

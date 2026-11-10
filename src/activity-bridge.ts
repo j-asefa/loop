@@ -1,5 +1,5 @@
 import type { DirectActivity } from "./adapters/direct-activities.js";
-import type { ActivityUpdate } from "./agent-activities.js";
+import type { ActivityUpdate } from "./shared/agent-activities.js";
 
 // Converts the direct adapters' structured extractions into shared activity
 // updates. Adapters emit the result as `{ type: "activity", activity }`; the

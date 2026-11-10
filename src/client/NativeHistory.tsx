@@ -1,5 +1,5 @@
 import { ActivityRecords } from "./ActivityRecords";
-import type { ActivityRecord } from "../agent-activities";
+import type { ActivityRecord } from "../shared/agent-activities";
 import { useEffect, useRef, useState } from "react";
 import { FolderSearch, Info, TerminalSquare } from "lucide-react";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";

@@ -9,7 +9,7 @@ import {
 import { config } from "../config.js";
 import { realpathSync } from "node:fs";
 import { Problem } from "../domain.js";
-import { type Harness } from "../../protocol.js";
+import { type Harness } from "../../shared/protocol.js";
 import { OWNER, type Binding } from "./state.js";
 
 export function prepareWorkspace(...args: Parameters<typeof agentWorkspace>) {

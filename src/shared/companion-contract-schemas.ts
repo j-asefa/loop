@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ActivityKind, ActivityRecordSchema } from "../agent-activities.js";
-import { Harness, ItemSchema } from "../protocol.js";
+import { ActivityKind, ActivityRecordSchema } from "./agent-activities.js";
+import { Harness, ItemSchema } from "./protocol.js";
 import {
   AuthHarness,
   RuntimeHarness,

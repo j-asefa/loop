@@ -22,9 +22,9 @@ import { ownedConnection, ownedConversation, Problem } from "../domain.js";
 
 import { nativeStartupFailure } from "./startup-failure.js";
 import { type Adapter, type Options } from "../../adapters/types.js";
-import { type Billing, type Harness } from "../../protocol.js";
+import { type Billing, type Harness } from "../../shared/protocol.js";
 import type { Snapshot } from "../agent-runtime.js";
-import { undiscoveredCapabilities } from "../../agent-activities.js";
+import { undiscoveredCapabilities } from "../../shared/agent-activities.js";
 import { hostEnvironmentName, hostLocation } from "../execution-location.js";
 import type { PiCustomization } from "./pi-customization.js";
 import { OWNER, type Live, type Binding } from "./state.js";

@@ -3,7 +3,7 @@ import { directActivityUpdate } from "../activity-bridge.js";
 import {
   ActivityUpdate,
   type ActivityUpdate as Update,
-} from "../agent-activities.js";
+} from "../shared/agent-activities.js";
 /** Structured native display extraction. These values never authorize file or command execution. */
 export type DirectActivity =
   | {

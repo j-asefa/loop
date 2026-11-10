@@ -1,7 +1,7 @@
 import { supportsBilling } from "../shared/harnesses.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
-import type { Setting, SettingValue } from "../agent-activities.js";
+import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { openCodeActivities, directUpdates } from "./direct-activities.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnNative } from "../native-spawn.js";
@@ -15,7 +15,7 @@ import {
   type Emit,
   type Options,
 } from "./types.js";
-import type { Billing } from "../protocol.js";
+import type { Billing } from "../shared/protocol.js";
 
 /** Native HTTP/SSE stays on loopback; only normalized Loop WebSockets reach the phone. */
 export class OpenCode implements Adapter {

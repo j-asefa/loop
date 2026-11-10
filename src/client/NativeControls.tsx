@@ -15,7 +15,7 @@ import {
 } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse, clearAuthorization, isExecutionRefused } from "./api";
-import type { Request } from "../protocol";
+import type { Request } from "../shared/protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";
 import { Tools } from "./Tools";

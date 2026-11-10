@@ -17,7 +17,7 @@ import { Claude } from "../src/adapters/claude";
 import { Pi } from "../src/adapters/pi";
 import { OpenCode } from "../src/adapters/opencode";
 import { Acp } from "../src/adapters/acp";
-import type { AdapterEvent } from "../src/protocol";
+import type { AdapterEvent } from "../src/adapters/events";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {

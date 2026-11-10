@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ACTIVITY_FEATURES, type Setting } from "../agent-activities.js";
+import { ACTIVITY_FEATURES, type Setting } from "./agent-activities.js";
 
 const Value = z.union([z.string(), z.boolean(), z.number()]);
 // Public session controls include the full catalog, unlike bounded activity deltas.

@@ -1,5 +1,5 @@
 import type { Live } from "../src/server/native-sessions";
-import type { Request } from "../src/protocol";
+import type { Request } from "../src/shared/protocol";
 import { historicalEvent } from "../src/shared/workspace-events";
 import type { PermissionMode } from "../src/shared/permission-modes";
 import { Claude } from "../src/adapters/claude";

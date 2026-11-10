@@ -17,7 +17,7 @@ import {
   type ActivityCapabilities,
   type ActivityRecord,
   type ActivityUpdate,
-} from "../agent-activities.js";
+} from "../shared/agent-activities.js";
 
 // Server persistence and projection for shared agent activities. Every
 // producer (API runtime, native adapters, ACP) calls `applyActivity` with a

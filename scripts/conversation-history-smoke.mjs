@@ -15,7 +15,7 @@ import {
   collectionReadRecovery,
 } from "./helpers/browser-errors.mjs";
 import { conversationFilesSmoke } from "./helpers/conversation-files-smoke.mjs";
-import { undiscoveredCapabilities } from "../src/agent-activities.ts";
+import { undiscoveredCapabilities } from "../src/shared/agent-activities.ts";
 
 for (const engine of selectedEngines()) {
   await localRequestRefusal(engine);

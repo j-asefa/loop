@@ -22,7 +22,7 @@ import {
   PublicUpgradeView,
   PublicEnabledRuntime,
 } from "../src/shared/companion-contract-schemas.ts";
-import { ActivityRecordSchema } from "../src/agent-activities.ts";
+import { ActivityRecordSchema } from "../src/shared/agent-activities.ts";
 import { DoneDisplaySchema } from "../src/shared/done-card.ts";
 import { DoneThread, DoneThreadSummary } from "../src/shared/done-threads.ts";
 import { AgentThreadSummary } from "../src/shared/agent-thread-feed.ts";

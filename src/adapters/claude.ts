@@ -1,7 +1,7 @@
 import { directActivityEmitter } from "./direct-activities.js";
 import { claudeTokens } from "./usage.js";
 import { DirectControls } from "./direct-controls.js";
-import type { Setting, SettingValue } from "../agent-activities.js";
+import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
 import { ClaudeSteering } from "../../runtime/claude-steering.ts";
@@ -19,7 +19,7 @@ import {
   type Emit,
   type Options,
 } from "./types.js";
-import type { Billing } from "../protocol.js";
+import type { Billing } from "../shared/protocol.js";
 import { NativeSetupError } from "./setup-error.js";
 const exec = promisify(execFile);
 

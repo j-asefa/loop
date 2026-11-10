@@ -13,7 +13,7 @@ import {
   parseActivityUpdate,
   reduceActivities,
   type ActivityUpdate,
-} from "../src/agent-activities";
+} from "../src/shared/agent-activities";
 import {
   visibleActivities,
   mergeActivities,

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
-import type { Billing } from "../protocol.js";
+import type { Billing } from "../shared/protocol.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { tokenCount } from "./usage.js";

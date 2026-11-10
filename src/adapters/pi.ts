@@ -1,6 +1,6 @@
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
-import type { Setting, SettingValue } from "../agent-activities.js";
+import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { piActivities, directUpdates } from "./direct-activities.js";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -14,7 +14,7 @@ import {
   type Emit,
   type Options,
 } from "./types.js";
-import type { Billing } from "../protocol.js";
+import type { Billing } from "../shared/protocol.js";
 import type { ModelOption } from "../shared/models.js";
 import { NativeSetupError } from "./setup-error.js";
 import { piInventory } from "./pi-inventory.js";

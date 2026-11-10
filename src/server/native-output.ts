@@ -1,4 +1,4 @@
-import type { Item } from "../protocol.js";
+import type { Item } from "../shared/protocol.js";
 
 // Bound serialized UTF-8 bytes, including IDs/titles/metadata, across a turn.
 export const NATIVE_OUTPUT_BYTES = 4 * 1024 * 1024;

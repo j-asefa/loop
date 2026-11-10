@@ -1,6 +1,6 @@
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
-import type { Setting, SettingValue } from "../agent-activities.js";
+import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
 import { Native } from "../native.js";
@@ -9,7 +9,7 @@ import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
 import { codexApprovalDetail } from "./codex-approval-display.js";
 import { codexTokens, type Tokens } from "./usage.js";
-import type { Billing, Request } from "../protocol.js";
+import type { Billing, Request } from "../shared/protocol.js";
 import {
   capabilities,
   conflict,

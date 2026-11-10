@@ -1,6 +1,6 @@
 import { plainPreview } from "../shared/text";
-import { activityRecordKey } from "../agent-activities";
-import type { ActivityRecord } from "../agent-activities";
+import { activityRecordKey } from "../shared/agent-activities";
+import type { ActivityRecord } from "../shared/agent-activities";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

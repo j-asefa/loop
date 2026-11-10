@@ -10,10 +10,13 @@ import { nativeSessions, OWNER } from "./native-sessions.js";
 import { Problem } from "./domain.js";
 import { Codex } from "../adapters/codex.js";
 import { importSession, prepareImportSession } from "./migration.js";
-import type { Item } from "../protocol.js";
+import type { Item } from "../shared/protocol.js";
 import { codexActivities } from "../adapters/direct-activities.js";
 import { directActivityUpdate } from "../activity-bridge.js";
-import { reduceActivities, type ActivityUpdate } from "../agent-activities.js";
+import {
+  reduceActivities,
+  type ActivityUpdate,
+} from "../shared/agent-activities.js";
 import { applyActivity } from "./activities.js";
 const routes = registrar("nativeHistory");
 export const nativeHistory = routes.mount;

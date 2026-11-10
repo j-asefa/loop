@@ -14,7 +14,7 @@ import type {
   ActivityCapabilities,
   SettingValue,
   ActivityRecord,
-} from "../agent-activities";
+} from "../shared/agent-activities";
 import { Sheet } from "./components";
 type Controls = Pick<SessionControls, "state" | "settings" | "capabilities"> & {
   generation?: string | null;

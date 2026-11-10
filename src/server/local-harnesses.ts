@@ -4,7 +4,7 @@ import { executionRequest } from "./execution-client.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { discover } from "../host-control.js";
 import { setRuntimeSetupState } from "../runtime-setup.js";
-import type { Harness } from "../protocol.js";
+import type { Harness } from "../shared/protocol.js";
 import { db } from "./db.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
 

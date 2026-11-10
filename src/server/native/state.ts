@@ -2,7 +2,7 @@ import { NativeOutput } from "../native-output.js";
 
 import { type Run } from "../queue.js";
 import { type Adapter } from "../../adapters/types.js";
-import { type Harness, type Request } from "../../protocol.js";
+import { type Harness, type Request } from "../../shared/protocol.js";
 import { type PermissionMode } from "../../shared/permission-modes.js";
 export const OWNER = "local-workspace";
 

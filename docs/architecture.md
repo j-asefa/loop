@@ -30,7 +30,7 @@ Loop has one React UI, workspace API and SQLite migration set. The companion wor
 
 The feed reaches fleet authorization only through [effect-authority.ts](../src/server/effect-authority.ts), where fleet code registers its implementation, and the browser feed and composer reach fleet capability checks only through [sourceAvailability.ts](../src/client/sourceAvailability.ts); the [boundary test](../test/source-boundaries.test.ts) enforces this for the feed paths it names.
 
-Browser code in `src/client` and server code in `src/server` never import each other; anything both need lives in `src/shared`, which imports neither. The [boundary test](../test/source-boundaries.test.ts) enforces this. Root modules and adapters are not covered yet.
+Browser code in `src/client` and server code in `src/server` never import each other; anything both need lives in `src/shared`, which imports neither. The [boundary test](../test/source-boundaries.test.ts) enforces this. Root modules and adapters may import shared contracts but never client code. Client and shared modules never import root modules.
 
 Device pairing and trust are core ([device-pairing.ts](../src/server/device-pairing.ts)) and need no machine identity; fleet enrollment extends them in [fleet-pairing.ts](../src/server/fleet-pairing.ts).
 
@@ -661,7 +661,7 @@ Every v3 reset and events frame carries `serverNow` and nullable `nextDeadline`.
 
 ## Activities
 
-Plans, tool lifecycle, diffs, command output, settings and command catalogs share [agent-activities.ts](../src/agent-activities.ts). [server/activities.ts](../src/server/activities.ts) validates and persists trusted owner/conversation/run scope and serves paginated projections. [activity-bridge.ts](../src/activity-bridge.ts) supplies the shared mapping for native activity projections and historical records.
+Plans, tool lifecycle, diffs, command output, settings and command catalogs share [agent-activities.ts](../src/shared/agent-activities.ts). [server/activities.ts](../src/server/activities.ts) validates and persists trusted owner/conversation/run scope and serves paginated projections. [activity-bridge.ts](../src/activity-bridge.ts) supplies the shared mapping for native activity projections and historical records.
 
 The client uses [activityView.ts](../src/client/activityView.ts) to accumulate full snapshot pages and apply incremental updates. Native tool items and MCP calls persist durable activities when they arrive; activity reads do not synthesize records from execution traces. Conversation transcripts show human messages and public agent output, including progress updates. Tool calls, raw native events and activity records stay out of the transcript, except native failure and uncertain-delivery notices. Tool calls, command output and plan progress are available from the conversation's **Tool activity** option; saved tool traces are in the agent profile’s Traces tab. Session settings stay in **Session settings**. A link to a hidden row opens the conversation where that row was. Activities are display data: Loop never applies a reported diff or uses these records as native model context.
 

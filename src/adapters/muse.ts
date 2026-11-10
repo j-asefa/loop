@@ -2,11 +2,11 @@ import { supportsBilling } from "../shared/harnesses.js";
 import { createHash, randomBytes } from "node:crypto";
 import { directActivityEmitter } from "./direct-activities.js";
 import { DirectControls } from "./direct-controls.js";
-import type { Setting, SettingValue } from "../agent-activities.js";
+import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { Native, NativeRpcError } from "../native.js";
 import { nativeFailureDetail } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
-import type { Billing, Request } from "../protocol.js";
+import type { Billing, Request } from "../shared/protocol.js";
 import {
   capabilities,
   NotDelivered,

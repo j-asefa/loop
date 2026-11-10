@@ -1,5 +1,5 @@
 import type { Live } from "../src/server/native-sessions";
-import type { AdapterEvent } from "../src/protocol";
+import type { AdapterEvent } from "../src/adapters/events";
 import { Codex } from "../src/adapters/codex";
 import { Claude } from "../src/adapters/claude";
 import { DirectControls } from "../src/adapters/direct-controls";

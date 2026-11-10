@@ -2,7 +2,7 @@ import * as personalDecisionsQueries from "./sql/personal-decisions.js";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
-import type { Request } from "../protocol.js";
+import type { Request } from "../shared/protocol.js";
 import {
   PersonalDecisionsPageSchema,
   PersonalDecisionsQuery,
