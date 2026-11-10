@@ -16,8 +16,7 @@ import { db } from "./db.js";
 import { owned, Problem } from "./domain.js";
 import { nativeSessions } from "./native-sessions.js";
 import { OWNER } from "./workspace-identity.js";
-import { nativeSignIns } from "./native-auth.js";
-import { providerChangeInProgress } from "./native-provider-locks.js";
+import { harnessHolds } from "./harness-holds.js";
 import { harnessUpgrades as upgrades } from "./harness-upgrades.js";
 import {
   RuntimeHarness,
@@ -48,7 +47,6 @@ export async function authOptions({
   };
 }
 
-// Probes, sign-ins and upgrade holds now belong to the same authority as claims.
 const probes = new Map<
   string,
   { at: number; pending: boolean; probe: ReturnType<typeof discover> }
@@ -151,7 +149,7 @@ export async function upgradeStart(
     throw new Problem(409, (error as Error).message);
   }
   try {
-    if (nativeSignIns.inProgress(name) || providerChangeInProgress(name))
+    if (harnessHolds.first(name, ["sign-in", "provider-change"]))
       throw new Problem(409, "Finish or cancel sign-in before upgrading.");
     if (runsQueries.hasActive(db, OWNER))
       throw new Problem(
@@ -203,7 +201,7 @@ export function upgradeRecover(
 }
 export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
   const { name } = input;
-  if (nativeSignIns.inProgress(name) || providerChangeInProgress(name))
+  if (harnessHolds.first(name, ["sign-in", "provider-change"]))
     throw new ExecutionRefused(
       409,
       "Finish or cancel this runtime’s sign-in before enabling it.",

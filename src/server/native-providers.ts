@@ -19,8 +19,7 @@ import { OWNER } from "./workspace-identity.js";
 import { nativeSignIns } from "./native-auth.js";
 import type { AuthDriver } from "../native-auth/types.js";
 import { authOptions } from "./execution-runtime-actions.js";
-import { harnessUpgrades } from "./harness-upgrades.js";
-import { reserveProviderChange } from "./native-provider-locks.js";
+import { harnessHolds } from "./harness-holds.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { ExecutionProblem } from "../shared/problem.js";
 import { writeConnectionStatus } from "./connection-status.js";
@@ -49,7 +48,7 @@ const registration = (name: Target["name"]) =>
     : undefined;
 
 export function requireProviderIdle(name: ManagedHarness) {
-  if (harnessUpgrades.busy(name) || nativeSignIns.inProgress(name))
+  if (harnessHolds.first(name, ["upgrade", "sign-in"]))
     throw new ExecutionRefused(
       409,
       "Finish the harness upgrade or provider sign-in first.",
@@ -216,7 +215,7 @@ async function syncModels(
 export async function refreshProviders(
   input: ExecutionInput<"provider.refresh">,
 ) {
-  const release = reserveProviderChange(input.name);
+  const release = harnessHolds.reserveProviderChange(input.name);
   try {
     requireProviderIdle(input.name);
     await authOptions(input);
@@ -235,7 +234,7 @@ export async function completeProviderSignIn(
   // The sign-in remains active until this callback finishes, blocking both
   // credential changes and queued runs. Its durable auth command owns this
   // continuation; model probes never submit inference or repeat sign-in.
-  const release = reserveProviderChange(target.name);
+  const release = harnessHolds.reserveProviderChange(target.name);
   try {
     return await syncModels(target, false, signal);
   } finally {
@@ -246,7 +245,7 @@ export async function saveProviderKey(
   input: ExecutionInput<"provider.key">,
   commandId: string,
 ) {
-  const release = reserveProviderChange(input.name);
+  const release = harnessHolds.reserveProviderChange(input.name);
   let dispatched = false;
   try {
     requireProviderIdle(input.name);
@@ -312,7 +311,7 @@ export async function saveProviderKey(
   }
 }
 export async function removeProvider(input: ExecutionInput<"provider.remove">) {
-  const release = reserveProviderChange(input.name);
+  const release = harnessHolds.reserveProviderChange(input.name);
   let dispatched = false;
   try {
     requireProviderIdle(input.name);

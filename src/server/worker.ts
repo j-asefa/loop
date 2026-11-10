@@ -28,9 +28,7 @@ import {
 } from "./queue.js";
 import { RunDeferred } from "./run-deferred.js";
 import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
-import { harnessUpgrades } from "./harness-upgrades.js";
-import { providerChangeInProgress } from "./native-provider-locks.js";
-import { nativeSignIns } from "./native-auth.js";
+import { harnessHolds } from "./harness-holds.js";
 import { captureMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
 import { deliverNotifications } from "./notifications.js";
@@ -86,11 +84,7 @@ export async function tick(
         p.connectionId || "",
         "metadata",
       ).loopHarness || "";
-    return (
-      !harnessUpgrades.busy(harness) &&
-      !providerChangeInProgress(harness) &&
-      !nativeSignIns.inProgress(harness)
-    );
+    return !harnessHolds.first(harness);
   });
   if (!run) return false;
   const heartbeat = setInterval(

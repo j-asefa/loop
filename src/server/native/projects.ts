@@ -8,9 +8,7 @@ import * as companionSessionsQueries from "../sql/companion-sessions.js";
 import { ConnectionModels, ConnectionMetadata } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
 import { writeConnectionStatus } from "../connection-status.js";
-import { harnessUpgrades } from "../harness-upgrades.js";
-import { providerChangeInProgress } from "../native-provider-locks.js";
-import { nativeSignIns } from "../native-auth.js";
+import { harnessHolds } from "../harness-holds.js";
 import {
   verifyAgentWorkspace,
   type AgentWorkspace,
@@ -83,16 +81,16 @@ export class NativeProjects {
     return this.enabling.has(name);
   }
   enable(options: Options, providerChange = false, signal?: AbortSignal) {
-    if (
-      (providerChangeInProgress(options.harness) ||
-        nativeSignIns.inProgress(options.harness)) &&
-      !providerChange
-    )
+    const hold = harnessHolds.first(
+      options.harness,
+      providerChange ? ["upgrade"] : ["provider-change", "sign-in", "upgrade"],
+    );
+    if (hold && hold !== "upgrade")
       throw new ExecutionRefused(
         409,
         "Wait for this harness’s provider change to finish.",
       );
-    if (harnessUpgrades.busy(options.harness))
+    if (hold === "upgrade")
       throw new ExecutionRefused(
         409,
         "Wait for the runtime upgrade to finish before enabling a runtime.",

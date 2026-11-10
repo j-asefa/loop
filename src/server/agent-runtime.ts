@@ -67,8 +67,7 @@ import {
 import type { Agent } from "../shared/types.js";
 import type { Automation } from "../shared/agent-mail.js";
 import { nativeSessions } from "./native-sessions.js";
-import { nativeSignIns } from "./native-auth.js";
-import { providerChangeInProgress } from "./native-provider-locks.js";
+import { harnessHolds } from "./harness-holds.js";
 import { assertReviewIdentity, reviewContext } from "./review-access.js";
 import { assertTeamConnection } from "./team-eligibility.js";
 
@@ -464,7 +463,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   const harness = connection.metadata.loopHarness;
   if (
     harness &&
-    (providerChangeInProgress(harness) || nativeSignIns.inProgress(harness)) &&
+    harnessHolds.first(harness, ["provider-change", "sign-in"]) &&
     !nativeDispatchQueries.exists(db, run.id) &&
     !agentCheckpointsQueries.exists(db, run.id)
   )
