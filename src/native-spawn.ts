@@ -62,16 +62,19 @@ export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
       () => killOwned(child, "SIGKILL"),
       HARNESS_STOP_GRACE_MS,
     );
-    // Sending a signal is not confirmation that the native writer stopped.
-    const exited = () => {
-      // Descendants can outlive the leader and still write to the project.
-      if (!groupAlive(child.pid!)) clearTimeout(timer);
-      resolve();
+    // Neither a signal nor leader exit proves descendant writers stopped.
+    const confirmStopped = () => {
+      if (
+        (child.exitCode !== null || child.signalCode !== null) &&
+        !groupAlive(child.pid!)
+      ) {
+        clearTimeout(timer);
+        resolve();
+      } else setTimeout(confirmStopped, 25);
     };
-    if (child.exitCode !== null || child.signalCode !== null) exited();
-    else child.once("exit", exited);
     child.stdin?.end();
     killOwned(child, "SIGTERM");
+    confirmStopped();
   });
   stops.set(child, stopped);
   return stopped;

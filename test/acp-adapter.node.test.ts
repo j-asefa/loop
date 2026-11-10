@@ -924,7 +924,7 @@ test(
       await until(() => !groupMembers(pids.leader).includes(pids.leader));
       assert(groupMembers(leader).includes(pids.tool));
       await adapter.dispose();
-      await until(() => !groupAlive(pids.leader));
+      assert.equal(groupAlive(pids.leader), false);
     } finally {
       if (leader && groupAlive(leader)) process.kill(-leader, "SIGKILL");
       await adapter.dispose();
