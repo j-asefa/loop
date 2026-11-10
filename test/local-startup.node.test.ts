@@ -10,10 +10,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnReady } from "../src/local-startup.js";
 import { until, killFixtureProcess } from "./helpers.js";
-import { exited } from "../src/process-records.js";
+import { exited, processState, type Recorded } from "../src/process-records.js";
 
 const startup = new URL("../src/local-startup.ts", import.meta.url).href;
+const records = new URL("../src/process-records.ts", import.meta.url).href;
 const execArgv = ["--import", import.meta.resolve("tsx")];
+
+async function stopFixture(dir: string, signal: NodeJS.Signals = "SIGKILL") {
+  const file = join(dir, "owner.json");
+  if (!existsSync(file)) return;
+  const record: Recorded = JSON.parse(readFileSync(file, "utf8"));
+  const state = processState(record);
+  assert.notEqual(
+    state,
+    "unknown",
+    "fixture identity must be confirmed before signalling",
+  );
+  if (state === "running") {
+    if (signal === "SIGKILL") killFixtureProcess(record.pid);
+    else process.kill(record.pid, signal);
+    assert(
+      await exited(record.pid, 5000),
+      "fixture child exits during cleanup",
+    );
+  }
+  await rm(file);
+}
 
 async function fixture(t: TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "loop-ready-"));
@@ -23,14 +45,17 @@ async function fixture(t: TestContext) {
     entry,
     `
 import { reportReady, isEntrypoint } from ${JSON.stringify(startup)};
-import { writeFileSync } from "node:fs";
+import { writeFileSync, renameSync } from "node:fs";
+import { identity } from ${JSON.stringify(records)};
 if (isEntrypoint(import.meta.url)) {
   const [mode, dir] = process.argv.slice(2);
   const mark = (name, value) => writeFileSync(dir + "/" + name, String(value));
-  mark("pid", process.pid);
   console.log("fixture log");
   process.on("SIGTERM", () => { mark("terminated", "SIGTERM"); process.exit(0); });
   process.on("disconnect", () => mark("disconnected", "yes"));
+  const owner = JSON.stringify({ pid: process.pid, identity: identity(process.pid) });
+  writeFileSync(dir + "/owner.tmp", owner);
+  renameSync(dir + "/owner.tmp", dir + "/owner.json");
   if (mode === "exit") process.exit(7);
   if (mode === "error") reportReady({ error: "Fixture refused", code: "FIXTURE_BUSY" });
   else if (mode === "ready") reportReady({ ready: true, pid: process.pid, cwd: process.cwd(), marker: process.env.FIXTURE_READY_MARKER });
@@ -39,12 +64,7 @@ if (isEntrypoint(import.meta.url)) {
 `,
   );
   t.after(async () => {
-    const pidFile = join(dir, "pid");
-    if (existsSync(pidFile)) {
-      const pid = Number(readFileSync(pidFile, "utf8"));
-      killFixtureProcess(pid);
-      assert(await exited(pid, 5000), "fixture child exits during cleanup");
-    }
+    await stopFixture(dir);
     await rm(dir, { recursive: true, force: true });
   });
   const options = {
@@ -77,10 +97,8 @@ test("detached readiness preserves payload, log, environment and symlink entrypo
     true,
     "ready child stays alive after IPC disconnect",
   );
-  process.kill(ready.pid, "SIGTERM");
-  await until(() => existsSync(join(dir, "terminated")));
-  assert(await exited(ready.pid, 5000));
-  await rm(join(dir, "pid"));
+  await stopFixture(dir, "SIGTERM");
+  assert.equal(await readFile(join(dir, "terminated"), "utf8"), "SIGTERM");
   const imported = await promisify(execFile)(process.execPath, [
     ...execArgv,
     "--input-type=module",
@@ -89,7 +107,7 @@ test("detached readiness preserves payload, log, environment and symlink entrypo
   ]);
   assert.equal(imported.stdout, "");
   assert.equal(
-    existsSync(join(dir, "pid")),
+    existsSync(join(dir, "owner.json")),
     false,
     "importing the entry does not launch it",
   );
@@ -101,9 +119,7 @@ test("detached startup preserves rejection details and caller-decoded busy outco
     spawnReady(f.entry, ["error", f.dir], f.log, f.options),
     /Fixture refused/,
   );
-  const first = Number(await readFile(join(f.dir, "pid"), "utf8"));
-  killFixtureProcess(first);
-  assert(await exited(first, 5000));
+  await stopFixture(f.dir);
   const message = await spawnReady(f.entry, ["error", f.dir], f.log, {
     ...f.options,
     readMessage: (value: any) => value,
@@ -125,9 +141,7 @@ test("detached startup settles early exit and terminates a timed-out child", asy
     /Fixture startup timed out/,
   );
   await until(() => existsSync(join(f.dir, "terminated")));
-  assert(
-    await exited(Number(await readFile(join(f.dir, "pid"), "utf8")), 5000),
-  );
+  await stopFixture(f.dir);
 });
 
 test("a startup parent forwards interruption to its detached child", async (t) => {
@@ -157,7 +171,7 @@ try {
   parent.stdout.on("data", (chunk) => {
     output += chunk;
   });
-  await until(() => existsSync(join(dir, "pid")));
+  await until(() => existsSync(join(dir, "owner.json")));
   parent.kill("SIGINT");
   assert.equal((await exit)[0], 0);
   assert.match(output, /child exit 0/);
