@@ -60,6 +60,46 @@ test("native disposal allows graceful protocol shutdown and waits for exit", asy
 });
 
 test(
+  "native disposal does not wait on a replacement process identity",
+  {
+    skip: process.platform !== "linux",
+    timeout: 10000,
+  },
+  async () => {
+    const start = () =>
+      new Native(
+        process.execPath,
+        [
+          "-e",
+          "setInterval(() => {}, 1000); console.log(JSON.stringify({ready:true}));",
+        ],
+        process.cwd(),
+      );
+    const old = start();
+    let replacement: Native | undefined;
+    try {
+      await once(old, "message");
+      replacement = start();
+      await once(replacement, "message");
+      const exited = once(old.child, "exit");
+      old.child.kill("SIGTERM");
+      await exited;
+      // Simulate PID reuse without relying on kernel wraparound; ownership keeps
+      // the original spawn identity while probing this real unrelated process.
+      const replacementPid = replacement.child.pid!;
+      Object.defineProperty(old.child, "pid", { value: replacementPid });
+      await old.dispose();
+      assert.equal(replacement.child.exitCode, null);
+      assert.equal(replacement.child.signalCode, null);
+      assert.doesNotThrow(() => process.kill(replacementPid, 0));
+    } finally {
+      await replacement?.dispose();
+      await old.dispose();
+    }
+  },
+);
+
+test(
   "a host resource launcher preserves native RPC, metadata, PID, arguments and environment",
   { skip: process.platform === "win32" },
   async () => {

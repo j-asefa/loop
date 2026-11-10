@@ -1,7 +1,12 @@
 import type { ChildProcess } from "node:child_process";
 import { identity } from "./lifecycle.js";
 import { atomic } from "./state.js";
-import { groupAlive, groupMembers, processState } from "./daemon.js";
+import {
+  groupAlive,
+  groupMembers,
+  processState,
+  recordedGroupAlive,
+} from "./daemon.js";
 const identities = new WeakMap<ChildProcess, string>();
 
 /** Only call for children launched detached by Loop: their process group is ours. */
@@ -15,6 +20,16 @@ export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal);
   }
+}
+
+export function ownedGroupAlive(child: ChildProcess) {
+  return (
+    !!child.pid &&
+    recordedGroupAlive({
+      pid: child.pid,
+      identity: identities.get(child) ?? "",
+    })
+  );
 }
 
 // Detached children run in their own process groups and outlive a killed
