@@ -41,9 +41,9 @@ import Database from "better-sqlite3";
 test("service-worker activation retires earlier shell caches and fetch uses its own cache", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-worker-"));
   try {
-    mkdirSync(join(dir, "dist/client"), { recursive: true });
+    mkdirSync(join(dir, "dist/web"), { recursive: true });
     mkdirSync(join(dir, "public"));
-    writeFileSync(join(dir, "dist/client/index.html"), "fixture");
+    writeFileSync(join(dir, "dist/web/index.html"), "fixture");
     writeFileSync(join(dir, "public/push-events.js"), "");
     const stampFile = join(dir, "stamp.json");
     writeFileSync(
@@ -68,7 +68,7 @@ test("service-worker activation retires earlier shell caches and fetch uses its 
       ["unrelated-cache", new Map([["/offline.html", "foreign"]])],
     ]);
     let current = "";
-    runInNewContext(readFileSync(join(dir, "dist/client/sw.js"), "utf8"), {
+    runInNewContext(readFileSync(join(dir, "dist/web/sw.js"), "utf8"), {
       URL,
       self: {
         location: { origin: "https://fixture.test" },

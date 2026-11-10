@@ -3,7 +3,7 @@ import { readBuildStamp } from "./build-stamp.ts";
 const stamp = readBuildStamp();
 if (!stamp) throw new Error("Build stamp missing; run npm run build.");
 writeFileSync(
-  "dist/client/sw.js",
+  "dist/web/sw.js",
   `const CACHE=${JSON.stringify(`loop-shell-${stamp.id}`)};const PUBLIC=['/offline.html','/offline.css','/icon-192.png','/icon-512.png','/apple-touch-icon.png','/manifest.webmanifest'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(PUBLIC))));
 self.addEventListener('message',e=>{if(e.data?.type==='ACTIVATE')self.skipWaiting()});

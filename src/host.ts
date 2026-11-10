@@ -39,7 +39,7 @@ import { workspaceApi } from "./shared/workspace-api.js";
 import { assetCacheControl, compressResponse } from "./http-transfer.js";
 
 // The compiled client next to this module; when run from source (fixtures),
-// the build's copy, as the server entry does.
+// the build's copy.
 const compiledWeb = fileURLToPath(new URL("./web/", import.meta.url));
 const webRoot = existsSync(compiledWeb + "index.html")
   ? compiledWeb

@@ -24,7 +24,13 @@ try {
   const { stdout } = await exec("npm", ["pack", "--ignore-scripts", "--json"], {
     maxBuffer: 1000000,
   });
-  tarball = resolve(JSON.parse(stdout)[0].filename);
+  const packedFiles = JSON.parse(stdout)[0];
+  assert(packedFiles.files.some(({ path }) => path === "dist/web/index.html"));
+  assert(
+    !packedFiles.files.some(({ path }) => path.startsWith("dist/client/")),
+    "the package contains one UI tree",
+  );
+  tarball = resolve(packedFiles.filename);
   const target = join(base, "clean install é"),
     project = join(base, "project with spaces 漢字");
   await mkdir(target);
