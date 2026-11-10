@@ -29,14 +29,13 @@ import { discover, control } from "./host-control.js";
 import {
   installDaemonLog,
   retireLog,
-  exited,
   recordedWorkspace,
   forgetWorkspace,
   terminateWorkspace,
   recordedChildren,
   keepUnresolved,
-  type Recorded,
 } from "./daemon.js";
+import { exited, type Recorded } from "./process-records.js";
 import { recordOwnedProcesses } from "./processes.js";
 import { preview, publicPreview, designPreview } from "./preview-context.js";
 const PACKAGE = JSON.parse(

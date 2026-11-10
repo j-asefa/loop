@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { recordOwnedProcesses } from "../src/processes.js";
-import { identity } from "../src/lifecycle.js";
+import { identity } from "../src/process-records.js";
 
 function fixture() {
   const events: any[] = [];

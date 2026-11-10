@@ -8,8 +8,8 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
-import { pidNamespace } from "./lifecycle.js";
-import { processState } from "./daemon.js";
+import { pidNamespace } from "./process-records.js";
+import { processState } from "./process-records.js";
 
 /** Bumped only for incompatible control changes; see compatibility in docs/pairing.md. */
 export const CONNECTION_PROTOCOL = 1;

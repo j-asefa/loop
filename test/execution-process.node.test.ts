@@ -20,11 +20,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { identity } from "../src/lifecycle.js";
+import { identity } from "../src/process-records.js";
 import Database from "better-sqlite3";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
-import { alive, groupAlive, terminateWorkspace } from "../src/daemon.js";
+import { terminateWorkspace } from "../src/daemon.js";
+import { alive, groupAlive } from "../src/process-records.js";
 
 const owner = (dir: string) =>
   JSON.parse(readFileSync(join(dir, "execution/owner.json"), "utf8")) as {
@@ -436,7 +437,7 @@ test(
         "--input-type=module",
         "-e",
         `
-    import { identity } from ${JSON.stringify(pathToFileURL(resolve("dist/lifecycle.js")).href)};
+    import { identity } from ${JSON.stringify(pathToFileURL(resolve("dist/process-records.js")).href)};
     console.log(JSON.stringify({ pid: process.pid, identity: identity(process.pid) }));
     setInterval(() => {}, 1000);
   `,
@@ -631,7 +632,7 @@ test(
             "--input-type=module",
             "-e",
             `
-      import { identity } from ${JSON.stringify(pathToFileURL(resolve("dist/lifecycle.js")).href)};
+      import { identity } from ${JSON.stringify(pathToFileURL(resolve("dist/process-records.js")).href)};
       console.log(JSON.stringify({ pid: process.pid, identity: identity(process.pid) }));
     `,
           ],

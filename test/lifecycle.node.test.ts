@@ -13,7 +13,8 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { identity, workspaceLock } from "../src/lifecycle.js";
+import { workspaceLock } from "../src/lifecycle.js";
+import { identity } from "../src/process-records.js";
 
 // Records as the lock writes them; nonces are always randomUUID().
 const deadRecord = (nonce = randomUUID()) =>

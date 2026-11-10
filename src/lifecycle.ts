@@ -1,96 +1,16 @@
+import { identity, recordedProcessDead } from "./process-records.js";
 import {
   linkSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   renameSync,
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { atomic } from "./state.js";
 
-const DARWIN_IDENTITY = "darwin-utc:";
-function psIdentity(pid: number, normalized = false) {
-  try {
-    return (
-      execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
-        encoding: "utf8",
-        timeout: 3000,
-        env: normalized
-          ? { ...process.env, LC_ALL: "C", TZ: "UTC" }
-          : process.env,
-        stdio: ["ignore", "pipe", "ignore"],
-      }).trim() || undefined
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/** Boot and start time of a live process; undefined when it can't be read. */
-export function identity(pid: number): string | undefined {
-  if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
-  try {
-    if (process.platform === "linux") {
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      return (
-        readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() +
-        ":" +
-        stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]
-      );
-    }
-    const value = psIdentity(pid, process.platform === "darwin");
-    return (
-      value && (process.platform === "darwin" ? DARWIN_IDENTITY + value : value)
-    );
-  } catch {
-    return undefined;
-  }
-}
-export function processIdentityState(
-  pid: number,
-  expected: string,
-): "same" | "different" | "unknown" {
-  const live = identity(pid);
-  if (!live || !expected) return "unknown";
-  return live === expected ? "same" : "different";
-}
-/**
- * The PID namespace of this process. Records written in another namespace (a
- * sibling container) name PIDs that mean nothing here and are never signalled.
- */
-export function pidNamespace(): string | undefined {
-  if (process.platform !== "linux") return undefined;
-  try {
-    return readlinkSync("/proc/self/ns/pid");
-  } catch {
-    return undefined;
-  }
-}
 type Owner = { pid: number; identity: string; nonce: string };
-function dead(owner: Owner) {
-  try {
-    process.kill(owner.pid, 0);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
-    // EPERM: the PID is alive but belongs to another user, so it may have
-    // been reused after a crash or reboot. Its identity below decides.
-    if ((error as NodeJS.ErrnoException).code !== "EPERM") return false;
-  }
-  // A zombie has exited even if PID 1 has not reaped it yet.
-  if (process.platform === "linux") {
-    try {
-      const stat = readFileSync(`/proc/${owner.pid}/stat`, "utf8");
-      if (stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] === "Z")
-        return true;
-    } catch {
-      /* Identity verification below remains conservative. */
-    }
-  }
-  return processIdentityState(owner.pid, owner.identity) === "different";
-}
 const RECOVERING =
   "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.";
 const UNREADABLE =
@@ -150,7 +70,8 @@ function acquire(root: string, mine: Mine, busy: string): void {
       const current = ownerAt(path);
       if (current === "missing") continue;
       if (current === "invalid") throw new Error(UNREADABLE);
-      if (!dead(current)) throw new Error(path === root ? busy : RECOVERING);
+      if (!recordedProcessDead(current))
+        throw new Error(path === root ? busy : RECOVERING);
       stale = current;
       break;
     }
@@ -224,7 +145,11 @@ function removeLeftovers(path: string) {
       if (rest.startsWith("stale.")) unlinkSync(file);
       else if (NONCE.test(rest.replace(/\.new$/, ""))) {
         const owner = ownerAt(file);
-        if (owner !== "missing" && owner !== "invalid" && dead(owner))
+        if (
+          owner !== "missing" &&
+          owner !== "invalid" &&
+          recordedProcessDead(owner)
+        )
           unlinkSync(file);
       }
     } catch {

@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { groupAlive, groupMembers } from "../src/daemon.js";
+import { groupAlive, groupMembers } from "../src/process-records.js";
 import { Acp } from "../src/adapters/acp.js";
 import {
   reduceActivity,

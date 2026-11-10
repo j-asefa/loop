@@ -1,16 +1,15 @@
-import {
-  readFileSync,
-  readdirSync,
-  openSync,
-  closeSync,
-  writeSync,
-  renameSync,
-  fstatSync,
-} from "node:fs";
+import { openSync, closeSync, writeSync, renameSync, fstatSync } from "node:fs";
 import { stat, readFile, writeFile, chmod, rm, open } from "node:fs/promises";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
-import { identity, processIdentityState } from "./lifecycle.js";
+import {
+  identity,
+  alive,
+  processState,
+  groupMembers,
+  recordedGroupAlive,
+  leadsGroup,
+  type Recorded,
+} from "./process-records.js";
 import { atomic } from "./state.js";
 
 export const LOG_MAX_BYTES = 5 * 1024 * 1024;
@@ -110,32 +109,6 @@ export async function retireLog(path: string) {
   await rm(path, { force: true });
 }
 
-export function alive(pid: number) {
-  try {
-    process.kill(pid, 0);
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
-  // An exited daemon can linger as a zombie when no init process reaps orphans.
-  try {
-    return (
-      readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.[0] !== "Z"
-    );
-  } catch {
-    return true;
-  }
-}
-
-export async function exited(pid: number, ms: number) {
-  const end = Date.now() + ms;
-  while (alive(pid)) {
-    if (Date.now() > end) return false;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return true;
-}
-
-export type Recorded = { pid: number; identity: string };
 const valid = (r: unknown): r is Recorded =>
   !!r &&
   Number.isSafeInteger((r as Recorded).pid) &&
@@ -146,20 +119,6 @@ async function readJson(path: string): Promise<unknown> {
   return readFile(path, "utf8")
     .then(JSON.parse)
     .catch(() => undefined);
-}
-
-/**
- * Whether a recorded process is still that process. A live PID that can't be
- * identified is "unknown": never assume it is ours.
- */
-export function processState(r: Recorded): "running" | "exited" | "unknown" {
-  if (!alive(r.pid)) return "exited";
-  const state = processIdentityState(r.pid, r.identity);
-  return state === "same"
-    ? "running"
-    : state === "different"
-      ? "exited"
-      : "unknown";
 }
 
 /**
@@ -178,73 +137,6 @@ export async function recordedWorkspace(dir: string) {
     identity: owner.identity,
     state: processState(owner),
   };
-}
-
-// Live (non-zombie) members of a process group. Linux reads /proc so an
-// unreaped zombie can't keep a finished group looking alive.
-export function groupMembers(pgid: number): number[] {
-  if (process.platform !== "linux") {
-    try {
-      return (
-        execFileSync("ps", ["-A", "-o", "pid=,pgid="], {
-          encoding: "utf8",
-          timeout: 3000,
-        })
-          .trim()
-          .split("\n")
-          .map((line) => line.trim().split(/\s+/).map(Number))
-          .filter(([, group]) => group === pgid)
-          .map(([pid]) => pid)
-          // When inspecting our own group, ps itself appears in its output
-          // but has exited by the time execFileSync returns.
-          .filter(alive)
-      );
-    } catch {
-      return [];
-    }
-  }
-  const members: number[] = [];
-  for (const entry of readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    try {
-      const stat = readFileSync(`/proc/${entry}/stat`, "utf8");
-      const [state, , pgrp] = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      if (Number(pgrp) === pgid && state !== "Z") members.push(Number(entry));
-    } catch {
-      /* The process exited while listing. */
-    }
-  }
-  return members;
-}
-export function groupAlive(pgid: number) {
-  if (process.platform === "linux") return groupMembers(pgid).length > 0;
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-/** POSIX prevents reallocating a PID while that ID still names a process group.
- * A different readable identity proves that this record's old group is gone;
- * the replacement group must neither block recovery nor receive its signals. */
-export function recordedGroupAlive(record: Recorded) {
-  if (
-    (process.platform === "linux" || process.platform === "darwin") &&
-    record.identity
-  ) {
-    if (processIdentityState(record.pid, record.identity) === "different")
-      return false;
-  }
-  return groupAlive(record.pid);
-}
-function leadsGroup(pid: number) {
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
-  }
 }
 
 /**

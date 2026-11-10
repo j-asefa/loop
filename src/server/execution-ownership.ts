@@ -4,13 +4,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, unlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { identity, pidNamespace } from "../lifecycle.js";
-import {
-  recordedGroupAlive,
-  processState,
-  terminateWorkspace,
-  forgetWorkspace,
-} from "../daemon.js";
+import { identity, pidNamespace } from "../process-records.js";
+import { terminateWorkspace, forgetWorkspace } from "../daemon.js";
+import { recordedGroupAlive, processState } from "../process-records.js";
 import { atomic, privateDir } from "../state.js";
 
 const Owner = z.strictObject({

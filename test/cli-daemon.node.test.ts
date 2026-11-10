@@ -23,14 +23,10 @@ import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  retireLog,
-  alive,
-  terminateWorkspace,
-  LOG_MAX_BYTES,
-} from "../src/daemon.js";
+import { retireLog, terminateWorkspace, LOG_MAX_BYTES } from "../src/daemon.js";
+import { alive } from "../src/process-records.js";
 import { forceStop } from "../src/cli.js";
-import { identity } from "../src/lifecycle.js";
+import { identity } from "../src/process-records.js";
 import { killFixtureProcess, until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 
