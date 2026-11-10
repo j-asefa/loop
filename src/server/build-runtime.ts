@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { runningBuild, type BuildStamp } from "../shared/build.js";
+import { runningBuild, BuildStamp } from "../shared/build.js";
 let invalidated = false;
 
 /** The identity is compiled into the loaded module. An in-place installation
@@ -10,8 +10,10 @@ export function observedBuild(): BuildStamp {
   try {
     if (
       !invalidated &&
-      JSON.parse(
-        readFileSync(new URL("../build-id.json", import.meta.url), "utf8"),
+      BuildStamp.parse(
+        JSON.parse(
+          readFileSync(new URL("../build-id.json", import.meta.url), "utf8"),
+        ),
       ).id === runningBuild.id
     )
       return runningBuild;

@@ -7,7 +7,7 @@ COPY package*.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
-COPY scripts/build-connection.mjs ./scripts/
+COPY scripts/build-connection.mjs scripts/build-stamp.ts ./scripts/
 RUN node scripts/build-connection.mjs
 RUN node dist/connection-daemon.bundle.mjs --install-helper /opt/loop-tunnel
 

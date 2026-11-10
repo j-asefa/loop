@@ -44,10 +44,9 @@ import {
   tunnelModeFromFlags,
 } from "./connection.js";
 
-declare const __LOOP_RELEASE__: string | undefined;
+import { runningBuild } from "./shared/build.js";
 // Set by the bundle build; a source checkout reports "development".
-const RELEASE =
-  typeof __LOOP_RELEASE__ === "string" ? __LOOP_RELEASE__ : "development";
+const RELEASE = runningBuild.release;
 // A launch that stops heartbeating (hung or killed) stops receiving traffic.
 const LEASE_TIMEOUT_MS =
   Number(process.env.LOOP_TEST_LEASE_TIMEOUT_MS) || 15000;

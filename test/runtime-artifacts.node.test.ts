@@ -45,8 +45,22 @@ test("service-worker activation retires earlier shell caches and fetch uses its 
     mkdirSync(join(dir, "public"));
     writeFileSync(join(dir, "dist/client/index.html"), "fixture");
     writeFileSync(join(dir, "public/push-events.js"), "");
+    const stampFile = join(dir, "stamp.json");
+    writeFileSync(
+      stampFile,
+      JSON.stringify({
+        id: "fixture-build",
+        repository: null,
+        commit: null,
+        clean: false,
+        builtAt: 1,
+        ancestors: [],
+        release: "fixture-release",
+      }),
+    );
     execFileSync(process.execPath, [resolve("scripts/build-sw.mjs")], {
       cwd: dir,
+      env: { ...process.env, LOOP_BUILD_STAMP_FILE: stampFile },
     });
     const handlers = new Map<string, (event: any) => void>();
     const stores = new Map<string, Map<string, string>>([
@@ -101,6 +115,7 @@ test("service-worker activation retires earlier shell caches and fetch uses its 
     await work;
     assert(!stores.has("loop-shell-old"));
     assert(stores.has("unrelated-cache"));
+    assert.equal(current, "loop-shell-fixture-build");
     assert(stores.has(current));
     for (const [path, mode] of [
       ["/", "navigate"],

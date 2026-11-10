@@ -3,6 +3,8 @@
 // companion's connection container ships the same file.
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
+import { readBuildStamp } from "./build-stamp.ts";
+import { runningBuild } from "../src/shared/build.ts";
 const { version } = JSON.parse(readFileSync("package.json", "utf8"));
 await build({
   entryPoints: ["src/connection-daemon.ts"],
@@ -11,7 +13,11 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  define: { __LOOP_RELEASE__: JSON.stringify(version) },
+  define: {
+    __LOOP_BUILD__: JSON.stringify(
+      readBuildStamp() ?? { ...runningBuild, release: version },
+    ),
+  },
   banner: {
     js: 'import { createRequire as loopRequire } from "node:module"; const require = loopRequire(import.meta.url);',
   },

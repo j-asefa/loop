@@ -17,10 +17,9 @@ import { RegistrationOptions } from "./shared/execution-authority.js";
 import { connectWorkspaceEvents } from "./server/workspace-events.js";
 import { WorkspaceSelection } from "./shared/workspace-multiplex.js";
 import { fleetEventProjection } from "./shared/fleet-workspace-events.js";
-import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { preview, designPreview } from "./preview-context.js";
-import { publicBuild } from "./shared/build.js";
+import { publicBuild, runningBuild } from "./shared/build.js";
 import { observeProcess } from "./server/deployments.js";
 import { observedBuild } from "./server/build-runtime.js";
 import { authorizeIntegrationToken } from "./server/index.js";
@@ -58,18 +57,6 @@ import { AgentSources } from "./agent-sources.js";
 import { uploadFile } from "./server/uploads.js";
 import { seal, unseal } from "./server/secrets.js";
 
-// Identifies the browser assets this launch serves. A reconnecting page
-// compares it to offer a reload without discarding its draft.
-const BUILD = (() => {
-  try {
-    return createHash("sha256")
-      .update(readFileSync(new URL("./web/index.html", import.meta.url)))
-      .digest("hex")
-      .slice(0, 12);
-  } catch {
-    return "development";
-  }
-})();
 export class WorkspaceHost {
   gateway: Host;
   readonly fleet?: FleetAuthority;
@@ -301,7 +288,7 @@ export class WorkspaceHost {
               )
               .get(),
         agents: (db.prepare("SELECT count(*) n FROM agents").get() as any).n,
-        build: BUILD,
+        build: runningBuild.id,
         buildIdentity: publicBuild(observedBuild()),
         ...this.statusExtras(),
       }),
@@ -333,7 +320,7 @@ export class WorkspaceHost {
             url,
             OWNER,
             this.epoch,
-            BUILD,
+            runningBuild.id,
             undefined,
             selected
               ? (event) => fleetEventProjection(event, selected)
