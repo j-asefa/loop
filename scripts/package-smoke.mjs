@@ -128,6 +128,12 @@ try {
     (await exec(bin, ["--version"], { env })).stdout.trim(),
     JSON.parse(await readFile("package.json", "utf8")).version,
   );
+  assert(
+    (await exec(bin, ["--help"], { env })).stdout.includes(
+      `Node ${JSON.parse(await readFile("package.json", "utf8")).engines.node}.`,
+    ),
+    "installed CLI help reports the package Node requirement",
+  );
   // `loop codex` shows the pairing code, then returns while the workspace keeps
   // running in the background.
   const launch = async () => {

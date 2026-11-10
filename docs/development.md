@@ -63,6 +63,8 @@ For a Docker image with source provenance, use `npm run build:image -- -t loop-c
 
 `src/shared/build-assets.ts` lists runtime support inputs, preview inputs, published files and build outputs copied back from immutable archives. After changing published entries, run `node scripts/package-files.mjs --write` to update `package.json.files`; `npm run check` rejects drift.
 
+`package.json.engines.node` owns the minimum Node version used by the source installer and CLI help. The pre-install check uses only Node built-ins, so it runs before dependencies are installed.
+
 Runtime helpers live in their owning shared, adapter or server layer under `src/` and use the same TypeScript compilation as the rest of that graph. Their compiled modules retain those boundaries under `dist/`.
 
 ## Tests by boundary
