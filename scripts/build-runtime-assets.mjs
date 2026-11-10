@@ -4,7 +4,10 @@ import { cp, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { compileRuntime } from "./compile-runtime.mjs";
 
-const assets = ["runtime", "migrations", "deployment", "package.json"];
+import { BUILD_ASSETS } from "../src/shared/build-assets.ts";
+const assets = BUILD_ASSETS.filter((asset) =>
+  asset.uses.includes("support"),
+).map((asset) => asset.path);
 
 /** Keep module-relative runtime inputs inside the generated distribution.
  * The orchestrator invokes this in the same source archive as compilation. */
@@ -22,7 +25,7 @@ export async function stageRuntimeAssets(root, output) {
     });
   await compileRuntime(root, join(support, "runtime"));
   for (const file of globSync("**/*.{js,mjs}", { cwd: output })) {
-    if (/^(?:support|client|web)\//.test(file)) continue;
+    if (/^(?:support|web)\//.test(file)) continue;
     const path = join(output, file);
     const code = await readFile(path, "utf8");
     const parsed = parseSync(path, code, { sourceType: "module" });

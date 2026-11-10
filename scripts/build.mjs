@@ -3,6 +3,7 @@ import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSource } from "./build-source.mjs";
+import { BUILD_ASSETS } from "../src/shared/build-assets.ts";
 import { BuildStamp } from "../src/shared/build.ts";
 
 const root = process.cwd();
@@ -52,11 +53,14 @@ try {
     }
   }
   if (!process.exitCode && source.directory !== root) {
-    await rm(join(root, "dist"), { recursive: true, force: true });
-    for (const file of ["dist", "npm-shrinkwrap.json"])
+    for (const { path: file } of BUILD_ASSETS.filter((asset) =>
+      asset.uses.includes("copy-back"),
+    )) {
+      await rm(join(root, file), { recursive: true, force: true });
       await cp(join(source.directory, file), join(root, file), {
         recursive: true,
       });
+    }
   }
 } finally {
   await source.cleanup();

@@ -19,6 +19,7 @@ const tests = [
 ];
 const formatted = "{src,test,scripts}/**/*.{ts,tsx,js,jsx,mjs,cjs}";
 const steps = [
+  ["assets", ["scripts/package-files.mjs"]],
   ["format", ["node_modules/prettier/bin/prettier.cjs", "--check", formatted]],
   ["typecheck", ["scripts/typecheck.mjs"]],
   ["openapi", ["--import", "tsx", "scripts/openapi.mjs", "--check"]],

@@ -113,8 +113,7 @@
     "docs",
     "README.md",
     "npm-shrinkwrap.json",
-    "deployment",
-    "scripts/heavy-supervisor.py"
+    "deployment"
   ],
   "overrides": {
     "katex": "$katex"
