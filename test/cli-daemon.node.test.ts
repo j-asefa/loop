@@ -667,7 +667,7 @@ test("a retained native group and separate stop records survive registry replace
       "--input-type=module",
       "-e",
       `import { spawn } from "node:child_process";
-       import { recordOwnedProcesses, own } from ${JSON.stringify(resolve("src/process-records.ts"))};
+       import { recordOwnedProcesses, recordOwnedChild } from ${JSON.stringify(resolve("src/process-records.ts"))};
        recordOwnedProcesses(process.env.REGISTRY);
        const leader = spawn(process.execPath, ["-e", ${JSON.stringify(
          `const { spawn } = require("node:child_process");
@@ -675,7 +675,7 @@ test("a retained native group and separate stop records survive registry replace
           member.stdout.once("data", () => console.log(member.pid));
           setInterval(() => {}, 1e9);`,
        )}], { detached: true, stdio: ["ignore", "pipe", "ignore"] });
-       own(leader);
+       recordOwnedChild(leader, "group");
        leader.once("exit", () => console.log("registry-updated"));
        leader.stdout.once("data", (b) => console.log(leader.pid + " " + String(b).trim()));
        setInterval(() => {}, 1e9);`,

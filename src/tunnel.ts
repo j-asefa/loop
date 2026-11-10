@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { parse as parseYaml, stringify as yaml } from "yaml";
 import { createHash } from "node:crypto";
 import { privateDir, atomic } from "./state.js";
-import { own } from "./process-records.js";
+import { recordOwnedChild } from "./process-records.js";
 const exec = promisify(execFile);
 const RELEASE = "2026.9.3";
 // Release asset SHA-256 digests from cloudflare/cloudflared release 2026.9.3.
@@ -294,7 +294,7 @@ export class Tunnel {
       { stdio: "pipe", shell: false },
     );
     // Recorded so a full stop can still find it if the service itself crashed.
-    own(this.child);
+    recordOwnedChild(this.child, "process");
     return new Promise((resolve, reject) => {
       let buffer = "",
         ready = false;
