@@ -22,7 +22,7 @@ export {
   MemorySourceRecord,
 } from "./storage-schemas.js";
 import { z } from "zod";
-import { Harness } from "../shared/protocol.js";
+import { Billing, Harness } from "../shared/protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
 import { RunState } from "../shared/run-state.js";
 import { Problem } from "../shared/problem.js";
@@ -163,17 +163,7 @@ export const ConnectionMetadata = z.strictObject({
   plan: z.json().optional(),
   limits: z.json().optional(),
   checkedAt: z.number().optional(),
-  billing: z
-    .union([
-      z.string(),
-      z.strictObject({
-        mode: z.enum(["subscription", "existing"]),
-        description: z.string(),
-        provider: z.string().optional(),
-        model: z.string().nullable().optional(),
-      }),
-    ])
-    .optional(),
+  billing: z.union([z.string(), Billing]).optional(),
   capabilities: z.record(z.string(), z.json()).optional(),
 });
 export type ConnectionMetadata = z.infer<typeof ConnectionMetadata>;

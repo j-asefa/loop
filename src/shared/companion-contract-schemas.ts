@@ -159,9 +159,6 @@ export const PublicProject = z.union([
   }),
   CreatedProject,
 ]);
-const PublicNativeItem = ItemSchema.extend({
-  phase: z.enum(["commentary", "final_answer"]).optional(),
-});
 export const PublicNativeConversation = z.object({
   // Conversations without a native binding still have an empty display projection.
   binding: z
@@ -174,7 +171,7 @@ export const PublicNativeConversation = z.object({
     })
     .optional(),
   memoryIncluded: z.boolean(),
-  items: z.array(PublicNativeItem),
+  items: z.array(ItemSchema),
   projection: z.literal(true),
   note: Text,
 });
@@ -192,7 +189,7 @@ export const PublicNativeHistory = z.object({
   note: Text.optional(),
 });
 export const PublicNativeHistoryDetail = z.object({
-  items: z.array(PublicNativeItem),
+  items: z.array(ItemSchema),
   note: Text,
   activities: z.array(
     z.object({ key: Text, kind: ActivityKind, record: ActivityRecordSchema }),

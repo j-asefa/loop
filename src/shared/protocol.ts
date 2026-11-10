@@ -10,12 +10,14 @@ export type Status =
   | "interrupted"
   | "failed"
   | "stopped";
-export type Billing = {
-  mode: "subscription" | "existing";
-  description: string;
-  provider?: string;
-  model?: string;
-};
+export const Billing = z.strictObject({
+  mode: z.enum(["subscription", "existing"]),
+  description: z.string(),
+  provider: z.string().optional(),
+  // Codex config/read reports an unset default model as null.
+  model: z.string().nullish(),
+});
+export type Billing = z.infer<typeof Billing>;
 export type Capabilities = {
   approvals: boolean;
   questions: boolean;
@@ -41,21 +43,15 @@ export type Request = {
     secret?: boolean;
   }[];
 };
-export type Item = {
-  id: string;
-  kind: "user" | "assistant" | "tool" | "notice";
-  text: string;
-  title?: string;
-  status?: string;
-  phase?: "commentary" | "final_answer";
-};
 export const ItemSchema = z.object({
   id: z.string(),
   kind: z.enum(["user", "assistant", "tool", "notice"]),
   text: z.string(),
   title: z.string().optional(),
   status: z.string().optional(),
+  phase: z.enum(["commentary", "final_answer"]).optional(),
 });
+export type Item = z.infer<typeof ItemSchema>;
 export function validateAnswer(
   request: Request,
   answer: Record<string, unknown>,
