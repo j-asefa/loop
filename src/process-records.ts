@@ -7,7 +7,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { execFileSync, type ChildProcess } from "node:child_process";
-import { stat, readFile, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { atomic } from "./state.js";
@@ -527,28 +527,86 @@ const valid = (r: unknown): r is Recorded =>
   // Never 1: signalling -1 would reach every process we may signal.
   (r as Recorded).pid > 1 &&
   typeof (r as Recorded).identity === "string";
-async function readJson(path: string): Promise<unknown> {
-  return readFile(path, "utf8")
-    .then(JSON.parse)
-    .catch(() => undefined);
+export class ProcessRecordError extends Error {}
+
+type RecordRead<T> =
+  | { state: "absent" }
+  | { state: "invalid"; error: ProcessRecordError }
+  | { state: "present"; record: T };
+
+async function readRecord<T>(
+  path: string,
+  accepts: (value: unknown) => value is T,
+  description: string,
+): Promise<RecordRead<T>> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      return { state: "absent" };
+    return {
+      state: "invalid",
+      error: new ProcessRecordError(
+        `Unreadable ${description}. Preserve the state directory and inspect the record.`,
+      ),
+    };
+  }
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (accepts(value)) return { state: "present", record: value };
+  } catch {
+    /* malformed JSON */
+  }
+  return {
+    state: "invalid",
+    error: new ProcessRecordError(
+      `Invalid ${description}. Preserve the state directory and inspect the record.`,
+    ),
+  };
 }
 
-/**
- * The workspace process that has not cleaned up after itself: control.json is
- * removed on shutdown, and host.lock holds the process identity. A stale lock
- * alone is left for workspaceLock's own recovery.
- */
+type ControlRecord = { port: number; token: string };
+export function readControlRecord(dir: string) {
+  return readRecord(
+    join(dir, PROCESS_FILES.control),
+    (value): value is ControlRecord => {
+      if (!value || typeof value !== "object") return false;
+      const record = value as ControlRecord;
+      return (
+        Number.isInteger(record.port) &&
+        record.port > 0 &&
+        record.port <= 65535 &&
+        typeof record.token === "string"
+      );
+    },
+    "local host record",
+  );
+}
+
+/** A stale lock without a control record belongs to workspaceLock's recovery. */
 export async function recordedWorkspace(dir: string) {
-  const [control, owner] = await Promise.all([
-    stat(join(dir, PROCESS_FILES.control)).catch(() => undefined),
-    readJson(join(dir, PROCESS_FILES.lock)),
-  ]);
-  if (!control || !valid(owner)) return undefined;
-  return {
-    pid: owner.pid,
-    identity: owner.identity,
-    state: processState(owner),
-  };
+  const control = await readControlRecord(dir);
+  if (control.state !== "present") return control;
+  const owner = await readRecord(
+    join(dir, PROCESS_FILES.lock),
+    valid,
+    "workspace ownership record",
+  );
+  if (owner.state === "invalid") return owner;
+  if (owner.state === "absent") {
+    // Shutdown removes control before releasing the lock. The first control
+    // read may have completed just before those two removals.
+    const current = await readControlRecord(dir);
+    if (current.state !== "present") return current;
+    return {
+      state: "invalid" as const,
+      error: new ProcessRecordError(
+        "Missing workspace ownership record. Preserve the state directory and inspect the record.",
+      ),
+    };
+  }
+  return { ...owner.record, state: processState(owner.record) };
 }
 
 /**

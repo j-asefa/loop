@@ -371,6 +371,18 @@ startup carries its code over IPC and the launcher returns to service discovery.
 Recovery-claim conflicts remain errors, so they are not mistaken for an
 available service.
 
+### Workspace status and stop
+
+[Process records](../src/process-records.ts) distinguish an absent control record
+from an unreadable or malformed control/ownership record. A stale lock alone
+belongs to startup lock recovery. With valid records, [inspection](../src/host-control.ts)
+reports a responding host or the recorded process's running, exited or unknown
+identity state; a failed request rechecks the record before reporting that state.
+CLI status maps these to unresponsive, crashed and unknown. Invalid records fail
+explicitly and remain available for inspection; start, restart and stop do not
+silently treat them as an absent workspace. Stop returns stopped or absent to its
+callers, and unresolved child records still require forced-stop recovery.
+
 ### Harness upgrade
 
 These states describe records written by the current build. Earlier Loop
