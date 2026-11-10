@@ -76,7 +76,7 @@ export function nativeTokenDecision(fail: boolean) {
     conversation,
     live,
   );
-  nativeSessions.event(live, {
+  nativeSessions.projector.event(live, {
     type: "request",
     request: {
       id: id(),

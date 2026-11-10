@@ -109,9 +109,13 @@ function start(
   ).run(generation, conversation);
   // The direct adapters' real control publisher, wired to the ingress.
   const controls = new DirectControls("codex", (e: AdapterEvent) =>
-    sessions.event(live, e),
+    sessions.projector.event(live, e),
   );
-  return { live, controls, emit: (e: AdapterEvent) => sessions.event(live, e) };
+  return {
+    live,
+    controls,
+    emit: (e: AdapterEvent) => sessions.projector.event(live, e),
+  };
 }
 const events = () =>
   db

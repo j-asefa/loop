@@ -22,7 +22,7 @@ import { nativeStartupFailure } from "./startup-failure.js";
 import { type Adapter, type Options } from "../../adapters/types.js";
 import { type Billing, type Harness } from "../../shared/protocol.js";
 import type { Snapshot } from "../agent-runtime.js";
-import { undiscoveredCapabilities } from "../../shared/agent-activities.js";
+import { adapterCapabilities } from "./control-snapshot.js";
 import { hostEnvironmentName, hostLocation } from "../execution-location.js";
 import type { PiCustomization } from "./pi-customization.js";
 import { type Live, type Binding } from "./state.js";
@@ -349,11 +349,7 @@ export class NativeProjects {
             ? { inventory: live.adapter.customizationInventory }
             : {}),
           revision: live.adapter.commandCatalog.revision,
-          capabilities:
-            live.adapter.activityCapabilities ||
-            undiscoveredCapabilities(
-              "Native adapter has not reported activity support",
-            ),
+          capabilities: adapterCapabilities(live.adapter),
         };
       }
     }

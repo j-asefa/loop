@@ -1,3 +1,4 @@
+import { adapterControlSnapshot } from "./control-snapshot.js";
 import { harnesses } from "../../shared/harnesses.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as companionSessionsQueries from "../sql/companion-sessions.js";
@@ -36,7 +37,6 @@ import {
   type Adapter,
   type Options,
 } from "../../adapters/types.js";
-import type { AdapterEvent } from "../../adapters/events.js";
 import { type Harness } from "../../shared/protocol.js";
 import { replyPrompt } from "../../shared/replies.js";
 import { reviewContext } from "../review-access.js";
@@ -45,11 +45,7 @@ import {
   isPermissionMode,
   launchPermissionMode,
 } from "../../shared/permission-modes.js";
-import {
-  undiscoveredCapabilities,
-  type SettingValue,
-} from "../../shared/agent-activities.js";
-import { type PiPackageEntry } from "../pi-customization-files.js";
+import { type SettingValue } from "../../shared/agent-activities.js";
 import { type Live, type Binding } from "./state.js";
 import { classes } from "./adapters.js";
 import { prepareWorkspace, boundWorkspace } from "./workspace.js";
@@ -79,116 +75,41 @@ export class NativeSessions {
     generation: string,
   ) => { url: string; token: string };
   revokeTools?: (conversation: string, generation: string) => Promise<void>;
-  private readonly projects = new NativeProjects({
+  readonly projects = new NativeProjects({
     live: this.live,
     isStopped: () => this.stopped,
     projectTrust: (project) => this.pi.projectTrust(project),
   });
-  private readonly pi = new PiCustomization({
+  readonly pi = new PiCustomization({
     live: this.live,
     dispose: (live) => this.dispose(live),
-    clearProbes: () => this.clearProbes(),
-    catalog: (agent, conversation) => this.catalog(agent, conversation),
-    registration: (name) => this.registration(name),
+    clearProbes: () => this.projects.clearProbes(),
+    catalog: (agent, conversation) =>
+      this.projects.catalog(agent, conversation),
+    registration: (name) => this.projects.registration(name),
     project: (snapshot, options) => this.projects.project(snapshot, options),
   });
-  private readonly decisions = new NativeDecisions({
+  readonly decisions = new NativeDecisions({
     live: this.live,
     interrupt: (runId, reason) => this.interrupt(runId, reason),
     answer: (decisionId, commandId, answer) =>
-      this.answer(decisionId, commandId, answer),
+      this.decisions.answer(decisionId, commandId, answer),
   });
-  private readonly projector = new NativeProjector({
+  readonly projector = new NativeProjector({
     live: this.live,
     interrupt: (runId, reason) => this.interrupt(runId, reason),
     dispose: (live) => this.dispose(live),
     request: (live, run, event, allow) =>
       this.decisions.request(live, run, event, allow),
-    projectOutput: (live, partial) => this.projectOutput(live, partial),
+    projectOutput: (live, partial) =>
+      this.projector.projectOutput(live, partial),
   });
 
-  // Shared database/filesystem reads only; safe in the HTTP process.
-  piConfiguration(agent: any) {
-    return this.pi.piConfiguration(agent);
-  }
-  // Pi configuration changes invalidate probed catalogs, success or not.
-  piTrustDecision(agent: any, trusted: boolean, fingerprint: string) {
-    return this.pi.piTrustDecision(agent, trusted, fingerprint);
-  }
-  piPackageFilters(
-    agent: any,
-    source: string,
-    scope: "user" | "project",
-    filters: PiPackageEntry["filters"],
-    expectedHash: string,
-  ) {
-    return this.pi.piPackageFilters(
-      agent,
-      source,
-      scope,
-      filters,
-      expectedHash,
-    );
-  }
-  piPromptPreview(
-    agent: any,
-    name: string,
-    args: string,
-    conversation?: string,
-  ) {
-    return this.pi.piPromptPreview(agent, name, args, conversation);
-  }
-  piInspectPackage(agent: any, source: string) {
-    return this.pi.piInspectPackage(agent, source);
-  }
-  // Pi configuration changes invalidate probed catalogs, success or not.
-  piRollbackPackage(agent: any, source: string, scope: "user" | "project") {
-    return this.pi.piRollbackPackage(agent, source, scope);
-  }
-  piPackages(agent: any) {
-    return this.pi.piPackages(agent);
-  }
-  // Pi configuration changes invalidate probed catalogs, success or not.
-  piPackageAction(
-    agent: any,
-    action: "install" | "remove" | "update",
-    source: string,
-    scope: "user" | "project",
-  ) {
-    return this.pi.piPackageAction(agent, action, source, scope);
-  }
+  // The fleet workspace branch requires this entry point.
   registrations() {
     return this.projects.registrations();
   }
-  savedRegistration(name: Harness) {
-    return this.projects.savedRegistration(name);
-  }
-  registration(name: Harness): Options {
-    return this.projects.registration(name);
-  }
-  isEnabling(name: Harness) {
-    return this.projects.isEnabling(name);
-  }
-  enable(options: Options, providerChange = false, signal?: AbortSignal) {
-    return this.projects.enable(options, providerChange, signal);
-  }
-  directory(path: string) {
-    return this.projects.directory(path);
-  }
-  addProject(path: string, name?: string) {
-    return this.projects.addProject(path, name);
-  }
 
-  // Reports the catalog of the harness the conversation's next turn would
-  // use. session() rebinds a chat to the agent's current harness while
-  // keeping its project, so the catalog follows the same rule.
-  catalog(agent: any, conversation?: string, cachedOnly = false) {
-    return this.projects.catalog(agent, conversation, cachedOnly);
-  }
-  /** Forget probed catalogs after Pi configuration or trust changes. */
-  clearProbes() {
-    return this.projects.clearProbes();
-  }
   async resetProviderSessions(name: Harness) {
     const sessions = [...this.live.values()].filter(
       (live) => live.binding.harness === name,
@@ -207,23 +128,9 @@ export class NativeSessions {
         );
       await this.dispose(live);
     }
-    this.clearProbes();
+    this.projects.clearProbes();
   }
-  /** @internal Adapter event entry point. */
-  event(live: Live, input: AdapterEvent) {
-    return this.projector.event(live, input);
-  }
-  /** @internal Flush the retained display projection. */
-  projectOutput(live: Live, partial: boolean) {
-    return this.projector.projectOutput(live, partial);
-  }
-  answer(
-    decisionId: string,
-    commandId: string,
-    answer: Record<string, unknown>,
-  ) {
-    return this.decisions.answer(decisionId, commandId, answer);
-  }
+
   get waiting() {
     return [...this.live.values()].filter(
       (s) => s.run && (s.requests.size > 0 || s.bridgeWaiting > 0),
@@ -231,6 +138,12 @@ export class NativeSessions {
   }
   get count() {
     return this.live.size;
+  }
+  private scheduleIdle(live: Live, eligible: boolean) {
+    // Overlapping setting requests must not leave an untracked timer that can
+    // dispose a later active turn.
+    clearTimeout(live.idle);
+    if (eligible) live.idle = setTimeout(() => void this.dispose(live), 60_000);
   }
   controls(conversation: string, cachedOnly = false) {
     const binding = companionSessionsQueries.generationBinding(
@@ -252,12 +165,7 @@ export class NativeSessions {
       generation: live?.generation || binding.generation,
       state: live ? binding.state : "disconnected",
       settings: live?.adapter.settings || { options: [], revision: 0 },
-      commands: live?.adapter.commandCatalog || { commands: [], revision: 0 },
-      capabilities:
-        live?.adapter.activityCapabilities ||
-        undiscoveredCapabilities(
-          "Native adapter has not reported activity support",
-        ),
+      ...adapterControlSnapshot(live?.adapter),
     };
   }
   async setSetting(
@@ -359,12 +267,7 @@ export class NativeSessions {
       return {
         generation: live.generation,
         settings,
-        commands: live.adapter.commandCatalog || { commands: [], revision: 0 },
-        capabilities:
-          live.adapter.activityCapabilities ||
-          undiscoveredCapabilities(
-            "Native adapter has not reported activity support",
-          ),
+        ...adapterControlSnapshot(live.adapter),
       };
     } catch (error) {
       if (error instanceof ExecutionRefused) throw error;
@@ -373,11 +276,7 @@ export class NativeSessions {
         error instanceof Error ? error.message : "Native setting was rejected",
       );
     } finally {
-      // Replace, never add, the idle timer: overlapping requests must not
-      // leave an untracked timer that later disposes an active turn.
-      clearTimeout(live.idle);
-      if (isCurrent() && !live.run)
-        live.idle = setTimeout(() => void this.dispose(live), 60_000);
+      this.scheduleIdle(live, isCurrent() && !live.run);
     }
   }
   async session(run: Run): Promise<Live> {
@@ -389,7 +288,7 @@ export class NativeSessions {
     const snapshot = agentPayload(run);
     const connection = ownedConnection(snapshot.connectionId, run.owner_id);
     const harness = connection.metadata.loopHarness as Harness;
-    const registration = this.registration(harness);
+    const registration = this.projects.registration(harness);
     if (current?.closed) {
       await this.dispose(current);
       // Re-read the live session and binding after teardown; another caller
@@ -568,7 +467,7 @@ export class NativeSessions {
     const generation = id();
     const options: Options = {
       ...registration,
-      project: this.directory(binding.project),
+      project: this.projects.directory(binding.project),
       resume: binding.native_id || undefined,
       model: binding.model || undefined,
       effort: binding.effort || undefined,
@@ -581,7 +480,8 @@ export class NativeSessions {
         : undefined,
       projectTrust:
         harness === "pi"
-          ? this.pi.projectTrust(this.directory(binding.project)).override
+          ? this.pi.projectTrust(this.projects.directory(binding.project))
+              .override
           : undefined,
     };
     const live: Live = {
@@ -600,7 +500,7 @@ export class NativeSessions {
       sessionMode: binding.permission_mode || undefined,
     };
     live.adapter = new classes[harness](options, (event) =>
-      this.event(live, event),
+      this.projector.event(live, event),
     );
     this.live.set(conversation, live);
     companionSessionsQueries.markStarting(db, generation, now(), conversation);
@@ -711,8 +611,7 @@ export class NativeSessions {
       // Nothing was sent. Release the session so later turns, settings and
       // provider changes are not refused as "already running".
       live.run = undefined;
-      if (!live.closed)
-        live.idle = setTimeout(() => void this.dispose(live), 60_000);
+      this.scheduleIdle(live, !live.closed);
       throw error;
     }
     const complete = new Promise<string>((resolve) => {
@@ -809,7 +708,7 @@ export class NativeSessions {
       recaptureAfterStop(run);
       return false;
     } catch (error) {
-      this.projectOutput(live, true);
+      this.projector.projectOutput(live, true);
       if (error instanceof NotDelivered) {
         // Nothing was handed to the harness (for example a provider change
         // closed the live during start), so there is no uncertain external
@@ -858,8 +757,7 @@ export class NativeSessions {
       live.waiting = false;
       // An interrupt belongs to this turn; the idle session accepts settings.
       live.cancelling = false;
-      if (!live.closed)
-        live.idle = setTimeout(() => void this.dispose(live), 60_000);
+      this.scheduleIdle(live, !live.closed);
     }
   }
   async interrupt(runId: string, reason?: string) {
@@ -896,7 +794,7 @@ export class NativeSessions {
   }
   dispose(live: Live): Promise<void> {
     if (live.disposal) return live.disposal;
-    this.projectOutput(live, true);
+    this.projector.projectOutput(live, true);
     live.closed = true;
     clearTimeout(live.flush);
     clearTimeout(live.idle);

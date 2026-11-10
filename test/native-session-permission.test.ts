@@ -399,7 +399,7 @@ it("accepts setting changes once an interrupted turn has ended", async () => {
   const cancel = vi
     .spyOn(live.adapter, "cancel")
     .mockImplementation(async () => {
-      sessions.event(live, { type: "status", status: "interrupted" });
+      sessions.projector.event(live, { type: "status", status: "interrupted" });
     });
   try {
     const turn = sessions.execute(task);
@@ -463,9 +463,9 @@ it("keeps the first terminal status of a native turn", async () => {
     .spyOn(live.adapter, "prompt")
     .mockImplementation(async () => {
       queueMicrotask(() => {
-        sessions.event(live, { type: "status", status: "completed" });
+        sessions.projector.event(live, { type: "status", status: "completed" });
         // The harness process then fails while the turn winds down.
-        sessions.event(live, {
+        sessions.projector.event(live, {
           type: "status",
           status: "failed",
           detail: "Harness exited",
@@ -557,7 +557,7 @@ it.each(["ordinary", "oversized", "full"])(
             });
         }
         // The harness re-emits the already-resolved request in this generation.
-        sessions.event(live, {
+        sessions.projector.event(live, {
           type: "request",
           request: {
             id: "req-1",
@@ -572,7 +572,7 @@ it.each(["ordinary", "oversized", "full"])(
             .state,
         ).toBe("running");
         expect(live.waiting).toBe(false);
-        sessions.event(live, { type: "status", status: "completed" });
+        sessions.projector.event(live, { type: "status", status: "completed" });
       });
     try {
       // The turn still completes: the ignored re-emit never moved the run back
@@ -611,7 +611,7 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
     JSON.stringify(pending),
     Date.now(),
   );
-  const project = vi.spyOn(sessions, "projectOutput");
+  const project = vi.spyOn(sessions.projector, "projectOutput");
   const prompt = vi
     .spyOn(live.adapter, "prompt")
     .mockImplementation(async () => {
@@ -620,7 +620,10 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
           throw new Error("database is locked");
         });
         try {
-          sessions.event(live, { type: "status", status: "completed" });
+          sessions.projector.event(live, {
+            type: "status",
+            status: "completed",
+          });
         } catch {
           // The adapter's event callback surfaces the failure.
         }

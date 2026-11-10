@@ -402,14 +402,14 @@ export class WorkspaceHost {
     }
     // Pairing and the public gateway can be made available before runner startup.
     // Register the project first so a paired client can inspect its workspace.
-    nativeSessions.addProject(options.project);
+    nativeSessions.projects.addProject(options.project);
     await onListening?.();
     if (this.closing) throw new Error("Workspace is stopping");
     const account =
       (await prepare?.()) ??
       // A neutral launch discovers each harness independently.
       (runtimeNeutral || prepare
-        ? (nativeSessions.addProject(options.project),
+        ? (nativeSessions.projects.addProject(options.project),
           {
             billing: {
               description:

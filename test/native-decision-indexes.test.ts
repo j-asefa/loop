@@ -111,7 +111,10 @@ it("uses indexed cleanup at real turn, disposal and recovery boundaries without 
     return statement;
   });
   try {
-    target.sessions.event(target.live, { type: "status", status: "completed" });
+    target.sessions.projector.event(target.live, {
+      type: "status",
+      status: "completed",
+    });
     expect(target.live.finish).toHaveBeenCalledWith("completed");
     expect(state(pending)).toBe("expired");
     expect(state(deciding)).toBe("deciding");

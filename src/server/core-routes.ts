@@ -383,7 +383,7 @@ routes.on(workspaceApi.agentHarness, async (req, res) => {
 // Mutations belong to the authority; configuration readback uses shared files/DB.
 routes.on(workspaceApi.agentPiPackages, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
-  res.json(nativeSessions.piConfiguration(agent));
+  res.json(nativeSessions.pi.piConfiguration(agent));
 });
 routes.on(workspaceApi.agentPiTrust, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
@@ -393,7 +393,7 @@ routes.on(workspaceApi.agentPiTrust, async (req, res) => {
     { agentId: agent.id, trusted, fingerprint },
     { owner: res.locals.owner },
   );
-  res.json(nativeSessions.piConfiguration(agent));
+  res.json(nativeSessions.pi.piConfiguration(agent));
 });
 routes.on(workspaceApi.agentPiFilters, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
@@ -403,7 +403,7 @@ routes.on(workspaceApi.agentPiFilters, async (req, res) => {
     { agentId: agent.id, source, scope, filters, settingsHash },
     { owner: res.locals.owner },
   );
-  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
+  res.json({ ...result, ...nativeSessions.pi.piConfiguration(agent) });
 });
 routes.on(workspaceApi.agentPiPreview, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
@@ -440,7 +440,7 @@ routes.on(workspaceApi.agentPiRollback, async (req, res) => {
     { agentId: agent.id, source, scope },
     { owner: res.locals.owner },
   );
-  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
+  res.json({ ...result, ...nativeSessions.pi.piConfiguration(agent) });
 });
 routes.on(workspaceApi.agentPiAction, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
@@ -450,7 +450,7 @@ routes.on(workspaceApi.agentPiAction, async (req, res) => {
     { agentId: agent.id, ...input },
     { owner: res.locals.owner },
   );
-  res.json({ ...result, ...nativeSessions.piConfiguration(agent) });
+  res.json({ ...result, ...nativeSessions.pi.piConfiguration(agent) });
 });
 routes.on(workspaceApi.agentTraces, (req, res) => {
   const { before, run: runId, q } = req.query;

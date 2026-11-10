@@ -46,7 +46,7 @@ it.each([
     process.env.LOOP_TEST_AGY_MODE = mode;
     try {
       await expect(
-        sessions.enable({
+        sessions.projects.enable({
           harness: "antigravity",
           executable: resolve("test/fixtures/fake-antigravity.mjs"),
           version: "1.4.9",
@@ -99,7 +99,7 @@ function task(key: string) {
 }
 
 it("registers Antigravity with honest capabilities and owner isolation", async () => {
-  const registration = await sessions.enable({
+  const registration = await sessions.projects.enable({
     harness: "antigravity",
     executable: resolve("test/fixtures/fake-antigravity.mjs"),
     version: "1.4.9",
@@ -175,7 +175,7 @@ it("resumes only its saved native ID under a new generation without replaying ta
 });
 
 it("an explicit Grok-to-Antigravity switch retains the agent workspace and starts fresh native context", async () => {
-  await sessions.enable({
+  await sessions.projects.enable({
     harness: "grok",
     executable: resolve("test/fixtures/fake-grok.mjs"),
     version: "1.0.70",

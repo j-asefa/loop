@@ -131,7 +131,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         try {
           process.env.LOOP_COMPANION_CONTAINER = "1";
           process.env.LOOP_ENVIRONMENT_NAME = "research/loop-companion";
-          await nativeSessions.enable(options);
+          await nativeSessions.projects.enable(options);
           const named = await api("/bootstrap");
           const connection = named.connections.find(
             (c: any) => c.id === nativeConnection.id,
@@ -151,7 +151,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
             named.environmentName,
           );
           process.env.LOOP_ENVIRONMENT_NAME = "development";
-          await nativeSessions.enable(options);
+          await nativeSessions.projects.enable(options);
           const renamed = await api("/bootstrap");
           assert.equal(renamed.environmentName, "Docker · development");
           assert.equal(
@@ -166,7 +166,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           if (beforeName === undefined)
             delete process.env.LOOP_ENVIRONMENT_NAME;
           else process.env.LOOP_ENVIRONMENT_NAME = beforeName;
-          await nativeSessions.enable(options);
+          await nativeSessions.projects.enable(options);
         }
       },
     );
@@ -257,7 +257,10 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       ).status,
       409,
     );
-    assert.equal(nativeSessions.registration("codex").project, projectA);
+    assert.equal(
+      nativeSessions.projects.registration("codex").project,
+      projectA,
+    );
     assert.equal(
       (await api("/workspace/runtimes")).runtimes.find(
         (r: any) => r.name === "codex",

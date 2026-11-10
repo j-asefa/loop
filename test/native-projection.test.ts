@@ -85,15 +85,16 @@ it("flushes dirty native items and completes after exceeding the display window"
   // Register the session as NativeSessions.ensure does: events from a Live
   // that is not the conversation's current session are stale and dropped.
   (sessions as any).live.set("conversation", live);
-  const event = (item: Item) => sessions.event(live, { type: "item", item });
+  const event = (item: Item) =>
+    sessions.projector.event(live, { type: "item", item });
   try {
     event({ id: "one", kind: "assistant", text: "first" });
     event({ id: "two", kind: "assistant", text: "second" });
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     db.exec(
       "CREATE TEMP TABLE aggregate_writes(id TEXT); CREATE TEMP TRIGGER audit_message_updates AFTER UPDATE ON messages WHEN new.update_key IS NULL BEGIN INSERT INTO aggregate_writes VALUES(new.id); END;",
     );
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     expect(db.prepare("SELECT * FROM aggregate_writes").all()).toEqual([]);
     vi.useFakeTimers();
     event({ id: "two", kind: "assistant", text: "updated" });
@@ -137,14 +138,14 @@ it("flushes dirty native items and completes after exceeding the display window"
     ).toEqual({ content: "updated" });
     vi.useRealTimers();
     event({ id: "reclassified", kind: "assistant", text: "Interim display" });
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     const reclassified = db
       .prepare(
         "SELECT id FROM messages WHERE update_key='native-message:reclassified'",
       )
       .get() as { id: string };
     event({ id: "reclassified", kind: "tool", text: "Actually tool output" });
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     expect(
       db.prepare("SELECT id FROM messages WHERE id=?").get(reclassified.id),
     ).toBeUndefined();
@@ -156,7 +157,7 @@ it("flushes dirty native items and completes after exceeding the display window"
         .get(reclassified.id),
     ).toBeDefined();
     event({ id: "one", kind: "assistant", text: "first" });
-    sessions.projectOutput(live, false);
+    sessions.projector.projectOutput(live, false);
     expect(db.prepare("SELECT * FROM item_writes").all()).toEqual([
       { id: "two" },
       { id: "reclassified" },
@@ -184,7 +185,7 @@ it("flushes dirty native items and completes after exceeding the display window"
       }),
     });
     expect(interrupt).not.toHaveBeenCalled();
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     const preview = db
       .prepare("SELECT content FROM run_traces WHERE trace_key='large-command'")
       .get() as { content: string };
@@ -200,7 +201,7 @@ it("flushes dirty native items and completes after exceeding the display window"
       text: "display only",
     });
     expect(interrupt).not.toHaveBeenCalled();
-    sessions.event(live, {
+    sessions.projector.event(live, {
       type: "request",
       request: {
         id: "oversized-approval",
@@ -234,7 +235,11 @@ it("flushes dirty native items and completes after exceeding the display window"
         .get(),
     ).toEqual({ content: "Reviewing" });
     // A delta for an evicted item must recover its text and commentary phase.
-    sessions.event(live, { type: "delta", id: "stream", text: " continued" });
+    sessions.projector.event(live, {
+      type: "delta",
+      id: "stream",
+      text: " continued",
+    });
     expect(live.items.get("stream")).toMatchObject({
       text: "Reviewing continued",
       phase: "commentary",
@@ -246,7 +251,7 @@ it("flushes dirty native items and completes after exceeding the display window"
       text: "",
     });
     for (let i = 0; i < 10; i++)
-      sessions.event(live, {
+      sessions.projector.event(live, {
         type: "delta",
         id: "long-stream",
         text: "😀".repeat(10000),
@@ -257,7 +262,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     expect(live.items.get("long-stream")!.text).toContain(
       "Earlier native output omitted",
     );
-    sessions.projectOutput(live, true);
+    sessions.projector.projectOutput(live, true);
     expect(
       db
         .prepare(
@@ -291,7 +296,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     });
     const finish = vi.fn();
     live.finish = finish;
-    sessions.event(live, { type: "status", status: "completed" });
+    sessions.projector.event(live, { type: "status", status: "completed" });
     expect(interrupt).not.toHaveBeenCalled();
     expect(finish).toHaveBeenCalledWith("completed");
     expect(
@@ -327,7 +332,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     live.items.clear();
     live.run = run;
     event({ id: "follow-up", kind: "assistant", text: "Still usable" });
-    sessions.projectOutput(live, false);
+    sessions.projector.projectOutput(live, false);
     expect(
       db.prepare("SELECT content FROM messages WHERE id='message'").get(),
     ).toEqual({ content: "Still usable" });
@@ -394,11 +399,11 @@ it("drops item events from a superseded session generation", () => {
   const current = make("current");
   (sessions as any).live.set("superseded", current);
   try {
-    sessions.event(old, {
+    sessions.projector.event(old, {
       type: "item",
       item: { id: "late", kind: "assistant", text: "from the old process" },
     });
-    sessions.event(current, {
+    sessions.projector.event(current, {
       type: "item",
       item: { id: "fresh", kind: "assistant", text: "current" },
     });

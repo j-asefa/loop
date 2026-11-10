@@ -64,7 +64,7 @@ it("persists only fixed guidance for ACP prompt and setting failures", async () 
       billing: "existing",
       version: "fake",
     },
-    (event) => sessions.event(live, event),
+    (event) => sessions.projector.event(live, event),
   );
   live.adapter = adapter;
   (sessions as any).live.set("acp-errors", live);

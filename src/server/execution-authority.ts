@@ -90,13 +90,15 @@ const agent = (id: string) => ownedAgent(id, OWNER);
 const handlers: Handlers = {
   "runtime.status": () => ({ nativeProcesses: nativeSessions.count }),
   "runtime.list": runtimeList,
-  "runtime.register": ({ options }) => nativeSessions.enable(options),
+  "runtime.register": ({ options }) => nativeSessions.projects.enable(options),
   "runtime.enable": runtimeEnable,
   "runtime.refresh": ({ connectionId }) => {
     const connection = ownedConnection(connectionId, OWNER);
     const name = connection.metadata.loopHarness;
     if (!name) throw new Problem(409, "Connection has no native harness");
-    return nativeSessions.enable(nativeSessions.registration(name));
+    return nativeSessions.projects.enable(
+      nativeSessions.projects.registration(name),
+    );
   },
   "auth.catalog": async (input) =>
     nativeSignIns.catalog(await authOptions(input)),
@@ -167,7 +169,7 @@ const handlers: Handlers = {
       { conversation_id: string } | undefined;
     if (!decision) throw new Problem(404, "Native decision not found.");
     ownedConversation(decision.conversation_id, OWNER);
-    return nativeSessions.answer(decisionId, commandId, answer);
+    return nativeSessions.decisions.answer(decisionId, commandId, answer);
   },
   "native.controls": ({ conversationId, cachedOnly }) => {
     ownedConversation(conversationId, OWNER);
@@ -197,7 +199,7 @@ const handlers: Handlers = {
     const conversation =
       selected?.agent_id === agentId ? selected.id : undefined;
     const { connection } = nextTurnConnection(OWNER, selectedAgent);
-    return nativeSessions.catalog(
+    return nativeSessions.projects.catalog(
       {
         ...selectedAgent,
         connection_id: connection.id,
@@ -208,9 +210,9 @@ const handlers: Handlers = {
     );
   },
   "pi.trust": ({ agentId, trusted, fingerprint }) =>
-    nativeSessions.piTrustDecision(agent(agentId), trusted, fingerprint),
+    nativeSessions.pi.piTrustDecision(agent(agentId), trusted, fingerprint),
   "pi.filters": ({ agentId, source, scope, filters, settingsHash }) =>
-    nativeSessions.piPackageFilters(
+    nativeSessions.pi.piPackageFilters(
       agent(agentId),
       source,
       scope,
@@ -218,13 +220,18 @@ const handlers: Handlers = {
       settingsHash,
     ),
   "pi.preview": ({ agentId, name, args, conversationId }) =>
-    nativeSessions.piPromptPreview(agent(agentId), name, args, conversationId),
+    nativeSessions.pi.piPromptPreview(
+      agent(agentId),
+      name,
+      args,
+      conversationId,
+    ),
   "pi.inspect": ({ agentId, source }) =>
-    nativeSessions.piInspectPackage(agent(agentId), source),
+    nativeSessions.pi.piInspectPackage(agent(agentId), source),
   "pi.rollback": ({ agentId, source, scope }) =>
-    nativeSessions.piRollbackPackage(agent(agentId), source, scope),
+    nativeSessions.pi.piRollbackPackage(agent(agentId), source, scope),
   "pi.action": ({ agentId, action, source, scope }) =>
-    nativeSessions.piPackageAction(agent(agentId), action, source, scope),
+    nativeSessions.pi.piPackageAction(agent(agentId), action, source, scope),
 };
 
 /** The sole owner of live sessions, tool tickets, sign-ins, upgrades and the

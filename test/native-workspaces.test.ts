@@ -35,14 +35,14 @@ const { enqueue, transition } = await import("../src/server/queue.js");
 const { tick, execute } = await import("../src/server/worker.js");
 const { completeCheckout } = await import("../src/server/run-checkouts.js");
 
-await nativeSessions.enable({
+await nativeSessions.projects.enable({
   harness: "grok",
   executable: resolve("test/fixtures/fake-grok.mjs"),
   version: "1.0.70",
   project: chat,
   billing: "existing",
 });
-await nativeSessions.enable({
+await nativeSessions.projects.enable({
   harness: "acp",
   executable: process.execPath,
   version: "fixture",
@@ -92,7 +92,7 @@ function submit(
   } = {},
 ) {
   const { conversation = key, agent = key, harness = "grok" } = options;
-  const folder = nativeSessions.addProject(project) as { id: string };
+  const folder = nativeSessions.projects.addProject(project) as { id: string };
   db.prepare(
     "INSERT OR IGNORE INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,?,'native-default',0)",
   ).run(agent, OWNER, agent, agent, harness);
@@ -200,7 +200,7 @@ it("binds a fresh ordinary-folder import for catalogs, native resume and harness
     await import("../src/server/migration.js");
   const project = directory("import-" + kind);
   const nativeId = "imported-" + kind;
-  const options = { ...nativeSessions.registration("grok"), project };
+  const options = { ...nativeSessions.projects.registration("grok"), project };
   const prepared = await prepareImportSession(
     options,
     "desktop",
@@ -236,9 +236,9 @@ it("binds a fresh ordinary-folder import for catalogs, native resume and harness
   expect(saved.worktree_agent_id).toBe(agent.id);
   expect(saved.worktree_source).toBeNull();
   expect(saved.project).toBe(project);
-  expect((await nativeSessions.catalog(agent, conversation)).available).toBe(
-    true,
-  );
+  expect(
+    (await nativeSessions.projects.catalog(agent, conversation)).available,
+  ).toBe(true);
   const resumed = await run(project, "import-resume-" + kind, {
     conversation,
     agent: agent.id,
@@ -290,7 +290,7 @@ it("preserves directory-scoped native history instead of relocating it to a Git 
   for (const harness of ["grok", "claude", "pi", "opencode", "acp"] as const) {
     await expect(
       resumeFromDesktop(
-        { ...nativeSessions.registration("grok"), harness, project },
+        { ...nativeSessions.projects.registration("grok"), harness, project },
         "scoped-" + harness,
       ),
     ).rejects.toThrow(
@@ -314,7 +314,7 @@ it.each(["concurrent", "failed-insert"])(
     gitProject(project);
     const nativeId = "durable-handoff-" + mode;
     const options = {
-      ...nativeSessions.registration("grok"),
+      ...nativeSessions.projects.registration("grok"),
       harness: "codex" as const,
       project,
     };
@@ -388,7 +388,7 @@ it.each(["plain", "git"])(
     if (kind === "git") for (const project of projects) gitProject(project);
     const nativeId = "conflicting-handoff-" + kind;
     const options = {
-      ...nativeSessions.registration("grok"),
+      ...nativeSessions.projects.registration("grok"),
       harness: "codex" as const,
     };
     const outcomes = await Promise.allSettled(
@@ -442,7 +442,7 @@ it.each(["plain", "git"])(
     if (kind === "git") gitProject(project);
     const nativeId = "retry-binding-" + kind;
     const options = {
-      ...nativeSessions.registration("grok"),
+      ...nativeSessions.projects.registration("grok"),
       harness: "codex" as const,
       project,
     };
@@ -504,7 +504,7 @@ it("allows a new explicit handoff destination after preparation fails while reta
     join(root, "missing-import-remote"),
   ]);
   const options = {
-    ...nativeSessions.registration("grok"),
+    ...nativeSessions.projects.registration("grok"),
     harness: "codex" as const,
     project: firstProject,
   };
@@ -677,17 +677,21 @@ it.each(["live", "cached", "restarted"])(
     const first = await run(project, key);
     expect(result(first).state).toBe("completed");
     const agent = { id: key, connection_id: "native-grok" };
-    expect((await nativeSessions.catalog(agent, key)).available).toBe(true);
+    expect((await nativeSessions.projects.catalog(agent, key)).available).toBe(
+      true,
+    );
     const sessions = mode === "live" ? nativeSessions : new NativeSessions();
     try {
       if (mode !== "live")
         await nativeSessions.dispose(await nativeSessions.session(first));
       if (mode === "cached")
-        expect((await sessions.catalog(agent, key)).available).toBe(true);
+        expect((await sessions.projects.catalog(agent, key)).available).toBe(
+          true,
+        );
       const saved = binding(key);
       const before = requests().length;
       gitProject(project);
-      await expect(sessions.catalog(agent, key)).rejects.toThrow(
+      await expect(sessions.projects.catalog(agent, key)).rejects.toThrow(
         /Start a new conversation/,
       );
       expect(requests()).toHaveLength(before);
@@ -707,17 +711,21 @@ it.each(["live", "cached", "restarted"])(
     const first = await run(project, key);
     expect(result(first).state).toBe("completed");
     const agent = { id: key, connection_id: "native-grok" };
-    expect((await nativeSessions.catalog(agent, key)).available).toBe(true);
+    expect((await nativeSessions.projects.catalog(agent, key)).available).toBe(
+      true,
+    );
     const sessions = mode === "live" ? nativeSessions : new NativeSessions();
     try {
       if (mode !== "live")
         await nativeSessions.dispose(await nativeSessions.session(first));
       if (mode === "cached")
-        expect((await sessions.catalog(agent, key)).available).toBe(true);
+        expect((await sessions.projects.catalog(agent, key)).available).toBe(
+          true,
+        );
       const saved = binding(key);
       const before = requests().length;
       renameSync(join(project, ".git"), join(project, "saved-git"));
-      await expect(sessions.catalog(agent, key)).rejects.toThrow(
+      await expect(sessions.projects.catalog(agent, key)).rejects.toThrow(
         /worktree could not be verified/,
       );
       expect(requests()).toHaveLength(before);

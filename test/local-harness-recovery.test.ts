@@ -101,7 +101,7 @@ it("reconnects available accounts only after verification, preserving team threa
   mocks();
   const result = await prepareLocalHarnesses(root, ["codex", "claude", "pi"]);
   expect(result.billing.description).toContain("2 native harnesses ready");
-  expect(nativeSessions.registration("pi").billing).toBe("existing");
+  expect(nativeSessions.projects.registration("pi").billing).toBe("existing");
   expect(
     db.prepare("SELECT status FROM connections WHERE id='native-claude'").get(),
   ).toEqual({ status: "needs_sign_in" });
@@ -155,7 +155,9 @@ it("keeps other harnesses usable when discovery fails and never substitutes a bi
   expect(
     db.prepare("SELECT status FROM connections WHERE id='native-codex'").get(),
   ).toEqual({ status: "connected" });
-  expect(nativeSessions.registration("codex").billing).toBe("subscription");
+  expect(nativeSessions.projects.registration("codex").billing).toBe(
+    "subscription",
+  );
 });
 
 it("keeps an explicitly revoked damaged native connection disconnected on startup", async () => {

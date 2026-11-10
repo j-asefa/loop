@@ -126,7 +126,7 @@ async function closeConversation() {
 const results = [];
 try {
   await host.start(options);
-  await nativeSessions.enable(acp);
+  await nativeSessions.projects.enable(acp);
   browser = await chromium.launch({
     headless: true,
     executablePath: process.env.CHROMIUM_PATH || undefined,
@@ -478,7 +478,7 @@ try {
       path: `${evidence}/setup-error-${width}.png`,
       fullPage: true,
     });
-    await nativeSessions.enable(acp);
+    await nativeSessions.projects.enable(acp);
     await closeConversation();
     const savedOptions = db
       .prepare("SELECT options FROM harnesses WHERE name='acp'")

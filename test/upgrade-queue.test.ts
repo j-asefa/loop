@@ -237,12 +237,16 @@ it("a provider-owned enable still honors an upgrade hold, while ordinary enable 
     billing: "existing" as const,
   };
   try {
-    expect(() => nativeSessions.enable(options)).toThrow("provider change");
-    expect(() => nativeSessions.enable(options, true)).toThrow(
+    expect(() => nativeSessions.projects.enable(options)).toThrow(
+      "provider change",
+    );
+    expect(() => nativeSessions.projects.enable(options, true)).toThrow(
       "runtime upgrade",
     );
     releaseProvider();
-    expect(() => nativeSessions.enable(options)).toThrow("runtime upgrade");
+    expect(() => nativeSessions.projects.enable(options)).toThrow(
+      "runtime upgrade",
+    );
   } finally {
     releaseProvider();
     releaseUpgrade();

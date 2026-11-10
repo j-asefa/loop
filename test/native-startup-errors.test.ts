@@ -278,7 +278,9 @@ it("preserves safe subscription setup guidance through the real worker and trace
 it("also returns safe setup guidance when enabling Pi", async () => {
   process.env.LOOP_TEST_HARNESS = "pi";
   process.env.LOOP_TEST_PI_AUTH = "api";
-  await expect(nativeSessions.enable(options as any)).rejects.toMatchObject({
+  await expect(
+    nativeSessions.projects.enable(options as any),
+  ).rejects.toMatchObject({
     status: 422,
     diagnostic: { phase: "native startup", code: "native_billing_mismatch" },
   });

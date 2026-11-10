@@ -162,7 +162,7 @@ test(
       async () => {
         const { nativeSessions } =
           await import("../src/server/native-sessions.js");
-        const enable = nativeSessions.enable;
+        const enable = nativeSessions.projects.enable;
         let entered = false,
           calls = 0,
           release!: () => void;
@@ -170,7 +170,7 @@ test(
           release = resolve;
         });
         const before = countProbes();
-        nativeSessions.enable = async function (options) {
+        nativeSessions.projects.enable = async function (options) {
           await enable.call(this, options);
           entered = true;
           await held;
@@ -213,7 +213,7 @@ test(
           );
         } finally {
           release();
-          nativeSessions.enable = enable;
+          nativeSessions.projects.enable = enable;
           normal();
         }
       },
