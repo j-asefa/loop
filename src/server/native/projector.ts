@@ -1,3 +1,4 @@
+import { reportBackgroundFailure } from "../background-failure.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as companionSessionsQueries from "../sql/companion-sessions.js";
 import * as nativeItemsQueries from "../sql/native-items.js";
@@ -453,7 +454,7 @@ export class NativeProjector {
         .then(({ watchCompletedOutput }) =>
           watchCompletedOutput(run, data, stillCurrent),
         )
-        .catch(() => {});
+        .catch((error) => reportBackgroundFailure("pr-watches.output", error));
       // A test, type-check or lint the agent ran is recorded with the exit
       // Loop saw, whatever that exit was, right behind the activity commit.
       try {
@@ -464,7 +465,9 @@ export class NativeProjector {
           generation,
           applied.record.id,
         );
-      } catch {}
+      } catch (error) {
+        reportBackgroundFailure("verification.output", error);
+      }
     }
   }
   private retainItem(live: Live, item: Item) {
