@@ -1,3 +1,4 @@
+import { withoutBusyWait } from "./busy-wait.js";
 import * as deviceStoreQueries from "./sql/device-store.js";
 import * as pairingCeremoniesQueries from "./sql/pairing-ceremonies.js";
 import * as pairingClockQueries from "./sql/pairing-clock.js";
@@ -175,27 +176,25 @@ export class DevicePairing implements DeviceTrust {
     const { device, now } = checked;
     if (device.expires < Math.min(device.maxExpires, now + year - 86_400_000)) {
       const expires = Math.min(device.maxExpires, now + year);
-      const timeout = this.db.pragma("busy_timeout", {
-        simple: true,
-      }) as number;
-      try {
-        this.db.pragma("busy_timeout = 0");
-        const update = devicesQueries.renew(
-          this.db,
-          expires,
-          this.owner,
-          device.id,
-          digest,
-          now,
-        );
-        if (!update.changes) return;
-        device.expires = expires;
-      } catch (error) {
-        const code = (error as { code?: string }).code;
-        if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_")) return;
-      } finally {
-        this.db.pragma(`busy_timeout = ${timeout}`);
-      }
+      return withoutBusyWait(this.db, () => {
+        try {
+          const update = devicesQueries.renew(
+            this.db,
+            expires,
+            this.owner,
+            device.id,
+            digest,
+            now,
+          );
+          if (!update.changes) return;
+          device.expires = expires;
+        } catch (error) {
+          const code = (error as { code?: string }).code;
+          if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_"))
+            return;
+        }
+        return device;
+      });
     }
     return device;
   }
@@ -203,23 +202,21 @@ export class DevicePairing implements DeviceTrust {
     devicesQueries.remove(this.db, this.owner, id);
   }
   private retire(id: string, check: DeviceExpiryCheck, now: number) {
-    const timeout = this.db.pragma("busy_timeout", { simple: true }) as number;
-    try {
-      this.db.pragma("busy_timeout = 0");
-      this.db
-        .transaction(() => {
-          pairingClockQueries.observe(this.db, now);
-          devicesQueries.remove(this.db, this.owner, id);
-        })
-        .immediate();
-      this.checks.finish(check);
-      this.retirements.delete(id);
-    } catch {
-      // The intent was durable before observing expiry. Busy or damaged SQL
-      // storage cannot revive this device, even if the process dies now.
-    } finally {
-      this.db.pragma(`busy_timeout = ${timeout}`);
-    }
+    withoutBusyWait(this.db, () => {
+      try {
+        this.db
+          .transaction(() => {
+            pairingClockQueries.observe(this.db, now);
+            devicesQueries.remove(this.db, this.owner, id);
+          })
+          .immediate();
+        this.checks.finish(check);
+        this.retirements.delete(id);
+      } catch {
+        // The intent was durable before observing expiry. Busy or damaged SQL
+        // storage cannot revive this device, even if the process dies now.
+      }
+    });
   }
   /** Retry only durable local retirement; there is no external effect here. */
   expire() {
