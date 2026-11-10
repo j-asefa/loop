@@ -13,8 +13,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { workspaceLock } from "../src/lifecycle.js";
-import { identity } from "../src/process-records.js";
+import { workspaceLock, identity } from "../src/process-records.js";
 
 // Records as the lock writes them; nonces are always randomUUID().
 const deadRecord = (nonce = randomUUID()) =>
@@ -173,7 +172,7 @@ test("compiled macOS workspace lock preserves a live owner across a timezone cha
         import assert from "node:assert/strict";
         import { readFileSync, writeFileSync } from "node:fs";
         import { join } from "node:path";
-        import { workspaceLock } from ${JSON.stringify(pathToFileURL(resolve("dist/lifecycle.js")).href)};
+        import { workspaceLock } from ${JSON.stringify(pathToFileURL(resolve("dist/process-records.js")).href)};
         process.env.TZ = "UTC";
         const dir = ${JSON.stringify(dir)}, release = workspaceLock(dir), path = join(dir, "host.lock");
         try {

@@ -20,12 +20,15 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { identity } from "../src/process-records.js";
+import {
+  identity,
+  terminateWorkspace,
+  alive,
+  groupAlive,
+} from "../src/process-records.js";
 import Database from "better-sqlite3";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
-import { terminateWorkspace } from "../src/daemon.js";
-import { alive, groupAlive } from "../src/process-records.js";
 
 const owner = (dir: string) =>
   JSON.parse(readFileSync(join(dir, "execution/owner.json"), "utf8")) as {

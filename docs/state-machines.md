@@ -353,7 +353,7 @@ ignored, and replays below the cursor are refused.
 
 ### Workspace lock
 
-[`lifecycle.ts`](../src/lifecycle.ts): absent → held (`link`). A held lock whose
+[`process-records.ts`](../src/process-records.ts): absent → held (`link`). A held lock whose
 owner is proven dead (no such process, a zombie, or a different process
 identity, including a PID now owned by another user) is replaced only by the
 starter that links the claim named for that record's nonce

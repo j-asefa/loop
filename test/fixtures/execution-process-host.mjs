@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { WorkspaceHost } from "../../dist/workspace-host.js";
-import { recordOwnedProcesses } from "../../dist/processes.js";
+import { recordOwnedProcesses } from "../../dist/process-records.js";
 const dir = process.env.LOOP_DATA_DIR;
 recordOwnedProcesses(join(dir, "children.json"));
 const options = {

@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { own, killOwned } from "../processes.js";
+import { own, killOwned, groupAlive } from "../process-records.js";
 import { ExecutionProblem, Problem } from "../shared/problem.js";
 import {
   FleetMailWorkerState,
@@ -24,7 +24,6 @@ import {
 import { boundedExecutionJson } from "./execution-wire.js";
 import { config } from "./config.js";
 import { retireStoppedExecution } from "./execution-ownership.js";
-import { groupAlive } from "../process-records.js";
 
 export type ExecutionLifecycle = {
   open(): Promise<void>;

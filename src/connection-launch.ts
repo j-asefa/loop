@@ -1,3 +1,9 @@
+import {
+  PROCESS_FILES,
+  recordedChildren,
+  terminateWorkspace,
+  exited,
+} from "./process-records.js";
 /** CLI side of the connection service: find, start, converge on and stop it. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
@@ -16,8 +22,7 @@ import {
   type Hello,
   type TunnelMode,
 } from "./connection.js";
-import { recordedChildren, retireLog, terminateWorkspace } from "./daemon.js";
-import { exited } from "./process-records.js";
+import { retireLog } from "./daemon.js";
 
 const testWait = (name: string, fallback: number) => {
   const value = Number(process.env[name]);
@@ -81,7 +86,7 @@ async function spawnConnection(
   release: string,
 ) {
   privateDir(dir);
-  const log = join(dir, "daemon.log");
+  const log = join(dir, PROCESS_FILES.log);
   await retireLog(log);
   const entry = await serviceEntry(dir);
   const fd = openSync(log, "a", 0o600);
@@ -231,7 +236,7 @@ async function clearStaleConnection(dir: string) {
       `A previous connection service left process(es) ${[...survivors, ...unresolved.map((r) => r.pid)].join(", ")} that Loop can't stop safely. Check them with ps, then retry.`,
     );
   await Promise.all(
-    [CONNECTION_RECORD, "children.json", "stop-records.json"].map((f) =>
+    [CONNECTION_RECORD, PROCESS_FILES.children, PROCESS_FILES.stop].map((f) =>
       rm(join(dir, f), { force: true }),
     ),
   );

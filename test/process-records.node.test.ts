@@ -11,11 +11,10 @@ import {
   alive,
   identity,
   processState,
-  recordedProcessDead,
   groupMembers,
   recordedGroupAlive,
+  workspaceLock,
 } from "../src/process-records.js";
-import { workspaceLock } from "../src/lifecycle.js";
 
 test(
   "a live process whose name contains a closing parenthesis and Z retains its identity and lock",
@@ -53,7 +52,6 @@ sys.stdin.readline()
       assert.equal(identity(pid), start);
       assert.equal(alive(pid), true);
       assert.equal(processState(record), "running");
-      assert.equal(recordedProcessDead(record), false);
       assert.ok(groupMembers(pid).includes(pid));
       assert.equal(recordedGroupAlive(record), true);
       writeFileSync(

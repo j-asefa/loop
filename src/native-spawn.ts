@@ -6,7 +6,7 @@ import {
 } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { observeNativeMemory } from "./native-memory.js";
-import { own, killOwned, ownedGroupAlive } from "./processes.js";
+import { own, killOwned, ownedGroupAlive } from "./process-records.js";
 
 /** Optional host-owned resource launcher. It must exec the command with its
  * pipes, PID and process group intact; the browser cannot select this path. */

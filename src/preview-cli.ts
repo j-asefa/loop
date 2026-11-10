@@ -17,8 +17,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import { atomic } from "./state.js";
-import { workspaceLock } from "./lifecycle.js";
-import { recordedChildren } from "./daemon.js";
+import { workspaceLock, recordedChildren } from "./process-records.js";
+
 import { selectedHarnesses } from "./start-selection.js";
 import {
   previewManifest,

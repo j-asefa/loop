@@ -1,5 +1,5 @@
 import { spawnHarnessProcess, stopHarnessProcess } from "./native-spawn.js";
-import { killOwned, ownedGroupAlive } from "./processes.js";
+import { killOwned, ownedGroupAlive } from "./process-records.js";
 
 /** Bounded command output; failures retain stdout for native auth-status JSON. */
 export function runHarnessCommand(

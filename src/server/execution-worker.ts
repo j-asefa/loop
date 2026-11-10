@@ -1,15 +1,17 @@
+import {
+  PROCESS_FILES,
+  recordOwnedProcesses,
+  stopAttachedChildren,
+  stopOwnedProcessLaunches,
+  terminateWorkspace,
+  groupAlive,
+} from "../process-records.js";
 import { join, resolve } from "node:path";
 import {
   acquireExecutionOwnership,
   type ExecutionOwnership,
 } from "./execution-ownership.js";
-import {
-  recordOwnedProcesses,
-  stopAttachedChildren,
-  stopOwnedProcessLaunches,
-} from "../processes.js";
-import { terminateWorkspace } from "../daemon.js";
-import { groupAlive } from "../process-records.js";
+
 import {
   ExecutionParentMessage,
   ExecutionChildMessage,
@@ -90,7 +92,7 @@ const boot = (async () => {
     resolve(process.env.LOOP_DATA_DIR || "./data"),
   );
   if (stopping || !process.connected) return;
-  recordOwnedProcesses(join(ownership.directory, "children.json"));
+  recordOwnedProcesses(join(ownership.directory, PROCESS_FILES.children));
   // A host started with --fleet forks its worker with it. Scheduled and
   // queued effects delivered here keep their fleet authorization checks.
   // Without it, effects a peer authorized earlier are refused, never run.

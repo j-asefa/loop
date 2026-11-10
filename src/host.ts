@@ -1,3 +1,4 @@
+import { PROCESS_FILES } from "./process-records.js";
 import {
   createServer,
   type IncomingMessage,
@@ -301,7 +302,7 @@ export class Host {
       this.adminServer.once("error", reject);
       this.adminServer.listen(0, "127.0.0.1", resolve);
     });
-    atomic(join(this.dir, "control.json"), {
+    atomic(join(this.dir, PROCESS_FILES.control), {
       port: (this.adminServer.address() as { port: number }).port,
       token: this.adminToken,
     });
@@ -861,7 +862,7 @@ export class Host {
       new Promise<void>((r) => this.publicServer.close(() => r())),
       new Promise<void>((r) => this.adminServer.close(() => r())),
     ]);
-    await unlink(join(this.dir, "control.json")).catch(() => {});
+    await unlink(join(this.dir, PROCESS_FILES.control)).catch(() => {});
     if (this.socketPath) await rm(this.socketPath, { force: true });
   }
 }
