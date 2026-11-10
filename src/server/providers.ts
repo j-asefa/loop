@@ -1,4 +1,4 @@
-import { modelOptions } from "../../runtime/model-options.ts";
+import { modelOptions } from "../shared/model-options.js";
 import { Problem } from "./domain.js";
 import OpenAI from "openai";
 import { toResponseInputItem } from "openai/lib/responses/ResponseInputItems";

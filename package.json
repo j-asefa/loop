@@ -109,7 +109,6 @@
   "files": [
     "dist",
     "migrations",
-    "runtime",
     "docs",
     "README.md",
     "npm-shrinkwrap.json",

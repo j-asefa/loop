@@ -1,4 +1,4 @@
-import { redactValues } from "./redaction.ts";
+import { redactValues } from "./redaction.js";
 
 // Only error summaries cross this boundary, never stderr, stacks, request bodies,
 // or environment dumps. Redact before clipping so token prefixes cannot escape.

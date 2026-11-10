@@ -4,7 +4,7 @@ import {
   diagnosticText,
   errorSummary,
   errorFacts,
-} from "../../../runtime/diagnostics.ts";
+} from "../../shared/diagnostics.js";
 import { redactCredentials } from "./redaction.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";

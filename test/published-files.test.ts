@@ -17,7 +17,7 @@ import {
   readPublishedChunk,
   FILE_CHUNK_BYTES,
   MAX_PUBLISHED_BYTES,
-} from "../runtime/published-files.ts";
+} from "../src/server/published-file-io.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-published-"));
 const workspace = join(directory, "workspace");

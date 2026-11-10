@@ -109,8 +109,9 @@ async function fixture() {
     join(root, "src", "preview-context.ts"),
     join(source, "src", "preview-context.ts"),
   );
-  for (const path of ["migrations", "runtime"])
-    await cp(join(root, path), join(source, path), { recursive: true });
+  await cp(join(root, "migrations"), join(source, "migrations"), {
+    recursive: true,
+  });
   await writeFile(
     join(source, ".gitignore"),
     "node_modules\ndist\n.tmp\n.fail-build\n.hold-build\n.building\n",

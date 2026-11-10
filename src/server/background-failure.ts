@@ -1,4 +1,4 @@
-import { errorFacts } from "../../runtime/diagnostics.ts";
+import { errorFacts } from "../shared/diagnostics.js";
 
 export function reportBackgroundFailure(task: string, error: unknown) {
   console.warn(

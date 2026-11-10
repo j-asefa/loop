@@ -6,7 +6,6 @@ export const BUILD_ASSETS: readonly {
 }[] = [
   { path: "dist", uses: ["package", "preview", "copy-back"] },
   { path: "migrations", uses: ["support", "package", "preview"] },
-  { path: "runtime", uses: ["support", "package", "preview"] },
   { path: "docs", uses: ["package"] },
   { path: "README.md", uses: ["package"] },
   { path: "npm-shrinkwrap.json", uses: ["package", "copy-back"] },

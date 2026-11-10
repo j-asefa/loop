@@ -13,8 +13,8 @@ import * as runsQueries from "./sql/runs.js";
 import { ConnectionMetadata, readJson } from "./row-schemas.js";
 import { UNKNOWN_RUN_FAILURE } from "../shared/run-errors.js";
 
-import { errorFacts, errorSummary } from "../../runtime/diagnostics.ts";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
+import { errorFacts, errorSummary } from "../shared/diagnostics.js";
+import { MAX_CONCURRENT_RUNS } from "../shared/concurrency.js";
 import { recordTrace } from "./traces.js";
 import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";

@@ -4,6 +4,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { BUILD_ASSETS } from "../../src/shared/build-assets.js";
 
 /** Compile this checkout's server graph without using or replacing global dist. */
 export async function compiledServerFixture() {
@@ -15,7 +16,9 @@ export async function compiledServerFixture() {
     await symlink(resolve("node_modules"), join(root, "node_modules"), "dir");
     // Match the production graph's module-relative asset layout. The shared
     // staging compiler rewrites imports/resources into dist/support as usual.
-    for (const asset of ["runtime", "migrations", "deployment", "package.json"])
+    for (const { path: asset } of BUILD_ASSETS.filter((asset) =>
+      asset.uses.includes("support"),
+    ))
       await cp(join(project, asset), join(root, asset), {
         recursive: true,
         filter: (path) =>

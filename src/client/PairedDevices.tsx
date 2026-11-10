@@ -4,7 +4,7 @@ import { executionSourceId } from "./sourceRouting";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useProjectionRoute } from "./SourceContext";
 import { Sheet } from "./components";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
+import { MAX_CONCURRENT_RUNS } from "../shared/concurrency.js";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
   const read = useProjectionRoute();
   const [workspace, setWorkspace] =

@@ -10,7 +10,7 @@ import { workspaceApi } from "../shared/workspace-api.js";
 import { enabled as memoryEnabled } from "./memory.js";
 import { runtimeSetupState } from "../runtime-setup.js";
 import { nativeHistory } from "./native-history.js";
-import { MAX_CONCURRENT_RUNS } from "../../runtime/concurrency.ts";
+import { MAX_CONCURRENT_RUNS } from "../shared/concurrency.js";
 import { z } from "zod";
 import { db } from "./db.js";
 import { config } from "./config.js";
