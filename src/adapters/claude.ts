@@ -57,14 +57,6 @@ export class Claude extends DirectAdapter implements Adapter {
   commands: NativeCommand[] = [];
   private native!: Native;
   private requests = new Map<string, any>();
-  private controls = new Map<
-    string,
-    {
-      resolve: (x: any) => void;
-      reject: (e: Error) => void;
-      timer: NodeJS.Timeout;
-    }
-  >();
   private session: string;
   private messageIds = new Map<string, string>();
   private interrupted = false;
@@ -219,15 +211,6 @@ export class Claude extends DirectAdapter implements Adapter {
     );
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", (error) => {
-      for (const c of this.controls.values()) {
-        clearTimeout(c.timer);
-        c.reject(
-          error instanceof NativeMemoryError
-            ? error
-            : new Error("Claude exited"),
-        );
-      }
-      this.controls.clear();
       this.emit({
         type: "status",
         status: "failed",
@@ -296,20 +279,18 @@ export class Claude extends DirectAdapter implements Adapter {
   }
   private control(request: Record<string, unknown>): Promise<any> {
     const request_id = randomUUID();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.controls.delete(request_id);
-        reject(new Error("Claude control timed out; outcome unknown."));
-      }, 30000);
-      this.controls.set(request_id, { resolve, reject, timer });
-      void this.native
-        .write({ type: "control_request", request_id, request })
-        .catch((e) => {
-          clearTimeout(timer);
-          this.controls.delete(request_id);
-          reject(e);
-        });
-    });
+    return this.native.requestFrame(
+      request_id,
+      String(request.subtype),
+      { type: "control_request", request_id, request },
+      {
+        timeout: () => new Error("Claude control timed out; outcome unknown."),
+        failure: (error) =>
+          error instanceof NativeMemoryError
+            ? error
+            : new Error("Claude exited"),
+      },
+    );
   }
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
@@ -423,13 +404,13 @@ export class Claude extends DirectAdapter implements Adapter {
     }
     if (m.type === "result") this.activityInputs.clear();
     if (m.type === "control_response") {
-      const p = this.controls.get(m.response?.request_id);
-      if (!p) return;
-      clearTimeout(p.timer);
-      this.controls.delete(m.response.request_id);
-      if (m.response.subtype === "error")
-        p.reject(new Error(m.response.error ?? "Claude control failed"));
-      else p.resolve(m.response.response ?? {});
+      this.native.settleRequest(
+        m.response?.request_id,
+        m.response?.response ?? {},
+        m.response?.subtype === "error"
+          ? new Error(m.response.error ?? "Claude control failed")
+          : undefined,
+      );
       return;
     }
     if (m.type === "control_cancel_request") {
@@ -626,11 +607,6 @@ export class Claude extends DirectAdapter implements Adapter {
     }
   }
   async dispose() {
-    for (const p of this.controls.values()) {
-      clearTimeout(p.timer);
-      p.reject(new Error("Stopped"));
-    }
-    this.controls.clear();
     await this.native?.dispose();
   }
 }

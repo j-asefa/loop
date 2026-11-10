@@ -48,6 +48,8 @@ export class Native extends EventEmitter {
       reject: (e: Error) => void;
       timer: NodeJS.Timeout;
       method: string;
+      failure?: (error: Error) => Error;
+      nativeResponse: boolean;
     }
   >();
   private seq = 0;
@@ -135,15 +137,15 @@ export class Native extends EventEmitter {
         }
         const p = this.pending.get(String(m.id));
         if (
-          p &&
+          p?.nativeResponse &&
           (m.result !== undefined ||
             m.error !== undefined ||
             m.type === "response")
         ) {
-          this.pending.delete(String(m.id));
-          clearTimeout(p.timer);
           if (m.error || m.success === false)
-            p.reject(
+            this.settleRequest(
+              String(m.id),
+              undefined,
               typeof m.error === "object" && m.error
                 ? new NativeRpcError(
                     m.error.message || "Native command failed",
@@ -159,7 +161,11 @@ export class Native extends EventEmitter {
                       : "Native command failed",
                   ),
             );
-          else p.resolve(m.type === "response" ? m.data : m.result);
+          else
+            this.settleRequest(
+              String(m.id),
+              m.type === "response" ? m.data : m.result,
+            );
         } else {
           try {
             this.emit("message", m);
@@ -211,7 +217,7 @@ export class Native extends EventEmitter {
     this.closed = true;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(error);
+      p.reject(p.failure ? p.failure(error) : error);
     }
     this.pending.clear();
     this.emit("failure", error);
@@ -244,28 +250,59 @@ export class Native extends EventEmitter {
   }
   request(method: string, params: unknown = {}, rpc = true): Promise<any> {
     const id = `loop-${++this.seq}`;
+    return this.requestFrame(
+      id,
+      method,
+      rpc
+        ? { id, method, params }
+        : { id, type: method, ...(params as object) },
+      { nativeResponse: true },
+    );
+  }
+  requestFrame(
+    id: string,
+    method: string,
+    frame: unknown,
+    options: {
+      nativeResponse?: boolean;
+      timeout?: () => Error;
+      failure?: (error: Error) => Error;
+    } = {},
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          new NativeTransportError(
-            "native_request_timeout",
-            `Native ${method} timed out; outcome unknown.`,
-            { method, timeoutMs: 30000 },
-          ),
+        this.settleRequest(
+          id,
+          undefined,
+          options.timeout?.() ??
+            new NativeTransportError(
+              "native_request_timeout",
+              `Native ${method} timed out; outcome unknown.`,
+              { method, timeoutMs: 30000 },
+            ),
         );
       }, 30000);
-      this.pending.set(id, { resolve, reject, timer, method });
-      this.write(
-        rpc
-          ? { id, method, params }
-          : { id, type: method, ...(params as object) },
-      ).catch((e) => {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(e);
+      this.pending.set(id, {
+        resolve,
+        reject,
+        timer,
+        method,
+        failure: options.failure,
+        nativeResponse: options.nativeResponse === true,
       });
+      this.write(frame).catch((error) =>
+        this.settleRequest(id, undefined, error),
+      );
     });
+  }
+  /** Protocol adapters settle only responses to their own request envelope. */
+  settleRequest(id: string, result: unknown, error?: Error) {
+    const pending = this.pending.get(id);
+    if (!pending) return;
+    this.pending.delete(id);
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error);
+    else pending.resolve(result);
   }
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
