@@ -29,7 +29,6 @@ const installation = join(base, "installation");
 for (const file of [
   "dist",
   "src",
-  "runtime",
   "migrations",
   "deployment",
   "scripts",

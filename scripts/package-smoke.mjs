@@ -27,6 +27,13 @@ try {
   const packedFiles = JSON.parse(stdout)[0];
   assert(packedFiles.files.some(({ path }) => path === "dist/web/index.html"));
   assert(
+    !packedFiles.files.some(
+      ({ path }) =>
+        path.startsWith("runtime/") || path.startsWith("dist/support/runtime/"),
+    ),
+    "runtime helpers ship only in their compiled source layers",
+  );
+  assert(
     !packedFiles.files.some(({ path }) => path.startsWith("dist/client/")),
     "the package contains one UI tree",
   );

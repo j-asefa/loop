@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { modelOptions } from "../runtime/model-options.ts";
+import { modelOptions } from "../src/shared/model-options.js";
 import type { ChatInput } from "../src/server/providers";
 import type { Connection } from "../src/shared/types";
 const dir = mkdtempSync(join(tmpdir(), "loop-controls-"));

@@ -2,7 +2,7 @@ import { workspaceMcp } from "./workspace-mcp.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
-import { modelOptions } from "../../runtime/model-options.ts";
+import { modelOptions } from "../shared/model-options.js";
 import { Native } from "../native.js";
 import { nativeFailureDetail } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";

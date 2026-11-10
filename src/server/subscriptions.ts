@@ -2,7 +2,7 @@ import * as connectionsQueries from "./sql/connections.js";
 import { requireSealedSecret, type Connection } from "./row-schemas.js";
 
 import { writeConnectionStatus } from "./connection-status.js";
-import { errorSummary, errorFacts } from "../../runtime/diagnostics.ts";
+import { errorSummary, errorFacts } from "../shared/diagnostics.js";
 import { isNativeConnection } from "./native-connections.js";
 import { inlineAttachments } from "./uploads.js";
 

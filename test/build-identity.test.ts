@@ -164,122 +164,120 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
   ).toThrow(/inside the captured repository/);
 });
 
-it.each(["mjs", "ts"])(
-  "runs staged %s helpers, migrations and metadata from captured source after checkout edits",
-  async (extension) => {
-    const root = join(dir, `staged-assets-${extension}`);
-    for (const folder of [
-      "src/server",
-      "runtime",
-      "migrations",
-      "deployment",
-      "node_modules",
-    ])
-      mkdirSync(join(root, folder), { recursive: true });
-    writeFileSync(join(root, ".gitignore"), "node_modules\ndist\n");
-    writeFileSync(
-      join(root, "package.json"),
-      '{"type":"module","version":"captured-version"}',
-    );
-    writeFileSync(
-      join(root, `runtime/helper.${extension}`),
-      `export {value} from './sibling.${extension}';`,
-    );
-    writeFileSync(
-      join(root, `runtime/sibling.${extension}`),
-      `export const value${extension === "ts" ? ": string" : ""}="captured-runtime";`,
-    );
-    writeFileSync(join(root, "migrations/001.sql"), "captured-migration");
-    writeFileSync(join(root, "deployment/versions.json"), "{}");
-    writeFileSync(
-      join(root, "src/server/probe.ts"),
-      `
+it("runs compiled helpers, migrations and metadata from captured source after checkout edits", async () => {
+  const root = join(dir, "staged-assets");
+  for (const folder of [
+    "src/server",
+    "src/shared",
+    "migrations",
+    "deployment",
+    "node_modules",
+  ])
+    mkdirSync(join(root, folder), { recursive: true });
+  writeFileSync(join(root, ".gitignore"), "node_modules\ndist\n");
+  writeFileSync(
+    join(root, "package.json"),
+    '{"type":"module","version":"captured-version"}',
+  );
+  writeFileSync(
+    join(root, "src/shared/helper.ts"),
+    `export {value} from './sibling.js';`,
+  );
+  writeFileSync(
+    join(root, "src/shared/sibling.ts"),
+    `export const value: string="captured-runtime";`,
+  );
+  writeFileSync(join(root, "migrations/001.sql"), "captured-migration");
+  writeFileSync(join(root, "deployment/versions.json"), "{}");
+  writeFileSync(
+    join(root, "src/server/probe.ts"),
+    `
 import {readFileSync} from 'node:fs';
-import {value} from '../../runtime/helper.${extension}';
+import {value} from '../shared/helper.js';
 export {value};
 const migration='001.sql';
 export const sql=readFileSync(new URL('../../migrations/'+migration,import.meta.url),'utf8');
 export const version=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url),'utf8')).version;
-export const dynamic=(await import('../../runtime/helper.${extension}')).value;
+export const dynamic=(await import('../shared/helper.js')).value;
 `,
+  );
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      { stdio: "pipe" },
     );
-    const git = (...args: string[]) =>
+  git("init");
+  git("remote", "add", "origin", "https://github.com/j-asefa/loop.git");
+  git("add", ".");
+  git("commit", "-m", "runtime source");
+  const { buildSource } = await import(
+    pathToFileURL(resolve("scripts/build-source.mjs")).href
+  );
+  const { stageRuntimeAssets } = await import(
+    pathToFileURL(resolve("scripts/build-runtime-assets.mjs")).href
+  );
+  const source = await buildSource(root);
+  try {
+    expect(source.stamp.clean).toBe(true);
+    writeFileSync(
+      join(root, "src/shared/helper.ts"),
+      'throw new Error("mutable runtime loaded");',
+    );
+    writeFileSync(join(root, "migrations/001.sql"), "later-migration");
+    writeFileSync(
+      join(root, "package.json"),
+      '{"type":"module","version":"later-version"}',
+    );
+    await build({
+      entryPoints: [
+        "server/probe.ts",
+        "shared/helper.ts",
+        "shared/sibling.ts",
+      ].map((file) => join(source.directory, "src", file)),
+      outbase: join(source.directory, "src"),
+      outdir: join(source.directory, "dist"),
+      platform: "node",
+      format: "esm",
+    });
+    await stageRuntimeAssets(source.directory, join(source.directory, "dist"));
+    cpSync(join(source.directory, "dist"), join(root, "dist"), {
+      recursive: true,
+    });
+    const result = JSON.parse(
       execFileSync(
-        "git",
+        process.execPath,
         [
-          "-C",
-          root,
-          "-c",
-          "user.name=Fixture",
-          "-c",
-          "user.email=fixture@example.com",
-          "-c",
-          "commit.gpgsign=false",
-          ...args,
+          "--input-type=module",
+          "-e",
+          `console.log(JSON.stringify(await import(${JSON.stringify(pathToFileURL(join(root, "dist/server/probe.js")).href)})))`,
         ],
-        { stdio: "pipe" },
-      );
-    git("init");
-    git("remote", "add", "origin", "https://github.com/j-asefa/loop.git");
-    git("add", ".");
-    git("commit", "-m", "runtime source");
-    const { buildSource } = await import(
-      pathToFileURL(resolve("scripts/build-source.mjs")).href
+        { encoding: "utf8" },
+      ),
     );
-    const { stageRuntimeAssets } = await import(
-      pathToFileURL(resolve("scripts/build-runtime-assets.mjs")).href
+    expect(result).toEqual({
+      value: "captured-runtime",
+      sql: "captured-migration",
+      version: "captured-version",
+      dynamic: "captured-runtime",
+    });
+    expect(readFileSync(join(root, "migrations/001.sql"), "utf8")).toBe(
+      "later-migration",
     );
-    const source = await buildSource(root);
-    try {
-      expect(source.stamp.clean).toBe(true);
-      writeFileSync(
-        join(root, `runtime/helper.${extension}`),
-        'throw new Error("mutable runtime loaded");',
-      );
-      writeFileSync(join(root, "migrations/001.sql"), "later-migration");
-      writeFileSync(
-        join(root, "package.json"),
-        '{"type":"module","version":"later-version"}',
-      );
-      await build({
-        entryPoints: [join(source.directory, "src/server/probe.ts")],
-        outbase: join(source.directory, "src"),
-        outdir: join(source.directory, "dist"),
-        platform: "node",
-        format: "esm",
-      });
-      await stageRuntimeAssets(
-        source.directory,
-        join(source.directory, "dist"),
-      );
-      cpSync(join(source.directory, "dist"), join(root, "dist"), {
-        recursive: true,
-      });
-      const result = JSON.parse(
-        execFileSync(
-          process.execPath,
-          [
-            "--input-type=module",
-            "-e",
-            `console.log(JSON.stringify(await import(${JSON.stringify(pathToFileURL(join(root, "dist/server/probe.js")).href)})))`,
-          ],
-          { encoding: "utf8" },
-        ),
-      );
-      expect(result).toEqual({
-        value: "captured-runtime",
-        sql: "captured-migration",
-        version: "captured-version",
-        dynamic: "captured-runtime",
-      });
-      expect(readFileSync(join(root, "migrations/001.sql"), "utf8")).toBe(
-        "later-migration",
-      );
-    } finally {
-      await source.cleanup();
-    }
-  },
-);
+  } finally {
+    await source.cleanup();
+  }
+});
 
 it("keeps the loaded identity after files are replaced and revokes clean provenance", async () => {
   const folder = join(dir, "runtime");

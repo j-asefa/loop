@@ -29,7 +29,7 @@ import {
   MAX_PUBLISHED_BYTES,
   fileMime,
   readPublishedChunk,
-} from "../../runtime/published-files.ts";
+} from "./published-file-io.js";
 import type { Run } from "./queue.js";
 
 export const publishFileSchema = z
