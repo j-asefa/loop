@@ -398,7 +398,7 @@ function acquire(root: string, mine: Mine, busy: string): void {
       if (current === "missing") continue;
       if (current === "invalid") throw new Error(UNREADABLE);
       if (!recordedProcessDead(current))
-        throw new Error(path === root ? busy : RECOVERING);
+        throw path === root ? new LockBusyError(busy) : new Error(RECOVERING);
       stale = current;
       break;
     }
@@ -483,6 +483,11 @@ function removeLeftovers(path: string) {
       /* Best effort; never affects the lock we hold. */
     }
   }
+}
+
+export class LockBusyError extends Error {
+  static readonly code = "LOOP_LOCK_BUSY";
+  readonly code = LockBusyError.code;
 }
 
 const WORKSPACE_LOCK = {

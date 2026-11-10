@@ -13,7 +13,11 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { workspaceLock, identity } from "../src/process-records.js";
+import {
+  workspaceLock,
+  identity,
+  LockBusyError,
+} from "../src/process-records.js";
 
 // Records as the lock writes them; nonces are always randomUUID().
 const deadRecord = (nonce = randomUUID()) =>
@@ -34,7 +38,7 @@ test("workspace ownership is exclusive, recovers a proven stale owner, and never
   withDir("loop-lock-", (dir) => {
     const lock = join(dir, "host.lock");
     const release = workspaceLock(dir);
-    assert.throws(() => workspaceLock(dir), /starting or running/);
+    assert.throws(() => workspaceLock(dir), LockBusyError);
     release();
     assert(!existsSync(lock));
     writeFileSync(lock, deadRecord());

@@ -1,5 +1,7 @@
+import { testWait } from "./test-seams.js";
 import {
   PROCESS_FILES,
+  LockBusyError,
   recordedChildren,
   terminateWorkspace,
   exited,
@@ -23,11 +25,6 @@ import {
   type TunnelMode,
 } from "./connection.js";
 import { retireLog } from "./daemon.js";
-
-const testWait = (name: string, fallback: number) => {
-  const value = Number(process.env[name]);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
-};
 
 /**
  * The service runs from an immutable copy of its single-file bundle, so npm
@@ -113,18 +110,18 @@ async function spawnConnection(
     closeSync(fd);
   }
   try {
-    return await new Promise<string>((resolve, reject) => {
-      const timer = setTimeout(
-        () => {
-          // Its shutdown stops the cloudflared it started; nothing is left behind.
-          child.kill("SIGTERM");
-          reject(new Error("The tunnel did not start in time. See " + log));
-        },
-        testWait("LOOP_TEST_CONNECTION_START_MS", 120000),
-      );
+    return await new Promise<
+      { state: "ready"; origin: string } | { state: "busy" }
+    >((resolve, reject) => {
+      const timer = setTimeout(() => {
+        // Its shutdown stops the cloudflared it started; nothing is left behind.
+        child.kill("SIGTERM");
+        reject(new Error("The tunnel did not start in time. See " + log));
+      }, testWait("LOOP_TEST_CONNECTION_START_MS"));
       child.once("message", (m: any) => {
         clearTimeout(timer);
-        if (m?.ready) resolve(m.origin);
+        if (m?.ready) resolve({ state: "ready", origin: m.origin });
+        else if (m?.code === LockBusyError.code) resolve({ state: "busy" });
         else
           reject(new Error(m?.error || "Connection service failed to start."));
       });
@@ -168,8 +165,7 @@ export async function ensureConnection(options: {
   log?: (message: string) => void;
 }): Promise<Connection> {
   const { root, dir, mode, release, external } = options;
-  const deadline =
-    Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS", 180000);
+  const deadline = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS");
   let created = false;
   let waiting = "";
   for (;;) {
@@ -204,14 +200,12 @@ export async function ensureConnection(options: {
       );
     else {
       if (found.state === "exited") await clearStaleConnection(dir);
-      try {
-        await spawnConnection(root, dir, mode, release);
+      const started = await spawnConnection(root, dir, mode, release);
+      if (started.state === "ready") {
         created = true;
         continue;
-      } catch (error) {
-        // A concurrent start may own the lock; converge on that service.
-        if (!/starting or running/.test((error as Error).message)) throw error;
       }
+      // A concurrent start owns the lock; converge on that service.
     }
     if (reason && reason !== waiting) options.log?.((waiting = reason));
     if (Date.now() > deadline)
@@ -229,7 +223,7 @@ async function clearStaleConnection(dir: string) {
   const { unresolved, survivors } = await terminateWorkspace(
     dir,
     undefined,
-    testWait("LOOP_TEST_STOP_GRACE_MS", 5000),
+    testWait("LOOP_TEST_STOP_GRACE_MS"),
   );
   if (survivors.length || unresolved.length)
     throw new Error(
@@ -264,9 +258,7 @@ export async function stopConnection(
     );
   if (found.state === "running") {
     await connectionControl(found.record, "shutdown").catch(() => {});
-    if (
-      await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS", 15000))
-    ) {
+    if (await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS"))) {
       await clearStaleConnection(dir);
       return true;
     }
@@ -275,7 +267,7 @@ export async function stopConnection(
     const { unresolved, survivors } = await terminateWorkspace(
       dir,
       { pid: found.record.pid, identity: found.record.identity },
-      testWait("LOOP_TEST_STOP_GRACE_MS", 5000),
+      testWait("LOOP_TEST_STOP_GRACE_MS"),
     );
     if (survivors.length || unresolved.length)
       throw new Error(

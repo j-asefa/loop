@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { testWait } from "./test-seams.js";
 import {
   PROCESS_FILES,
   recordedWorkspace,
@@ -48,14 +49,10 @@ const names = Harness.options;
 const REMOTE_MAIN = `${String(PACKAGE.repository?.url ?? "https://github.com/j-asefa/loop.git").replace(/^git\+/, "")}#main`;
 // Native account discovery is bounded; pairing is available before discovery.
 const STARTUP_TIMEOUT_MS = 1800000;
-// Tests shorten these waits; they never change which stop path runs.
-const testWait = (name: string, fallback: number) => {
-  const value = Number(process.env[name]);
-  return Number.isInteger(value) && value > 0 ? value : fallback;
-};
-const STOP_WAIT_MS = testWait("LOOP_TEST_STOP_WAIT_MS", 20000);
+
+const STOP_WAIT_MS = testWait("LOOP_TEST_STOP_WAIT_MS");
 // How long a workspace that stopped answering gets to exit after SIGTERM.
-const stopGraceMs = () => testWait("LOOP_TEST_STOP_GRACE_MS", 5000);
+const stopGraceMs = () => testWait("LOOP_TEST_STOP_GRACE_MS");
 const LOG_POLL_MS = 500;
 // Set only on the detached workspace process spawned by `loop start` or `loop <harness>`.
 const daemonChild =
@@ -445,7 +442,7 @@ async function recoverConnection(
     external: externalConnection || !!running.supervisor,
     log: console.log,
   });
-  const end = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS", 120000);
+  const end = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS");
   for (;;) {
     const current = await control(dir, "status").catch(() => undefined);
     if (
