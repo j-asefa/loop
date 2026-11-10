@@ -6,7 +6,8 @@ import { registrar } from "./registrar.js";
 
 import { z } from "zod";
 import { db, id, now } from "./db.js";
-import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSessions } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { Problem } from "./domain.js";
 import { Codex } from "../adapters/codex.js";
 import { importSession, prepareImportSession } from "./migration.js";

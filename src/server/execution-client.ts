@@ -1,3 +1,4 @@
+import { OWNER } from "./workspace-identity.js";
 import { passiveWorkspaceRead } from "./workspace-read-context.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 import { randomUUID } from "node:crypto";
@@ -23,7 +24,7 @@ import {
 function passiveInput<M extends ExecutionMethod>(
   method: M,
   input: ExecutionInput<M>,
-  owner = "local-workspace",
+  owner = OWNER,
 ): ExecutionInput<M> {
   if (!passiveWorkspaceRead(owner)) return input;
   const policy = executionOperations[method].passive;
@@ -103,7 +104,7 @@ export class ExecutionClient {
           v: 1,
           requestId: randomUUID(),
           generation: connection.generation,
-          owner: options.owner ?? "local-workspace",
+          owner: options.owner ?? OWNER,
           fleet: fleet?.grant,
           method,
           commandId:

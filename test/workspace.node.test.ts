@@ -21,8 +21,8 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
 process.env.LOOP_TEST_AUDIT = join(dir, "audit");
 const { WorkspaceHost } = await import("../src/workspace-host.js");
-const { nativeSessions, OWNER } =
-  await import("../src/server/native-sessions.js");
+const { nativeSessions } = await import("../src/server/native-sessions.js");
+const { OWNER } = await import("../src/server/workspace-identity.js");
 const { db } = await import("../src/server/db.js");
 const { control } = await import("../src/host-control.js");
 import { until } from "./helpers.js";

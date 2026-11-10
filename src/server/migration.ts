@@ -8,11 +8,8 @@ import * as conversationsQueries from "./sql/conversations.js";
 import * as nativeItemsQueries from "./sql/native-items.js";
 import * as messagesQueries from "./sql/messages.js";
 import { db, id, now } from "./db.js";
-import {
-  nativeSessions,
-  OWNER,
-  prepareImportedWorkspace,
-} from "./native-sessions.js";
+import { nativeSessions, prepareImportedWorkspace } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import type { Options } from "../adapters/types.js";
 import { type Item } from "../shared/protocol.js";
 import { Problem } from "./domain.js";

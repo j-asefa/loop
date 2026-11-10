@@ -27,7 +27,8 @@ import type { Snapshot } from "../agent-runtime.js";
 import { undiscoveredCapabilities } from "../../shared/agent-activities.js";
 import { hostEnvironmentName, hostLocation } from "../execution-location.js";
 import type { PiCustomization } from "./pi-customization.js";
-import { OWNER, type Live, type Binding } from "./state.js";
+import { type Live, type Binding } from "./state.js";
+import { OWNER } from "../workspace-identity.js";
 import { classes, labels } from "./adapters.js";
 import { boundWorkspaceArgs, workspaceError } from "./workspace.js";
 

@@ -10,7 +10,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { NativeToolBridge } from "./native-tool-bridge.js";
-import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSessions } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { nativeSignIns } from "./native-auth.js";
 import {
   providerCatalog,

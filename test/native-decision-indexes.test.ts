@@ -9,7 +9,8 @@ const dir = mkdtempSync(join(tmpdir(), "loop-decision-indexes-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db, id } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
-const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { NativeSessions } = await import("../src/server/native-sessions");
+const { OWNER } = await import("../src/server/workspace-identity");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });

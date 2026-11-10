@@ -10,7 +10,7 @@ import { relative, sep } from "node:path";
 import { assetCacheControl, compressResponse } from "../http-transfer.js";
 import { workspaceCapabilities } from "../shared/capabilities.js";
 import { companion } from "./companion-routes.js";
-import { OWNER } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { listRuns } from "./run-attention.js";
 import { teams, teamFilter } from "./teams.js";
 import { agentDefinitions } from "./agent-definitions.js";
