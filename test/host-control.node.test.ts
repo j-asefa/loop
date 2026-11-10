@@ -67,6 +67,36 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
     return executable;
   };
 
+  await t.test(
+    "version probes scrub service settings and retain harness settings",
+    async () => {
+      const executable = join(dir, "isolated-grok");
+      await writeFile(
+        executable,
+        `#!/usr/bin/env node
+      if (process.env.LOOP_DB || process.env.LOOP_PROFILE) process.exit(91);
+      if (process.env.GROK_DISABLE_AUTOUPDATER !== "1") process.exit(92);
+      console.log("1.0.70");
+    `,
+        { mode: 0o755 },
+      );
+      const prior = {
+        LOOP_DB: process.env.LOOP_DB,
+        LOOP_PROFILE: process.env.LOOP_PROFILE,
+      };
+      try {
+        process.env.LOOP_DB = "/must-not-reach-version-probe.db";
+        process.env.LOOP_PROFILE = "must-not-reach-version-probe";
+        assert.equal((await discover("grok", executable)).supported, true);
+      } finally {
+        for (const key of ["LOOP_DB", "LOOP_PROFILE"] as const) {
+          if (prior[key] === undefined) delete process.env[key];
+          else process.env[key] = prior[key];
+        }
+      }
+    },
+  );
+
   for (const name of Object.keys(versions) as (keyof typeof versions)[]) {
     const { minimum, older, latest, format } = versions[name];
     await t.test(name, async () => {

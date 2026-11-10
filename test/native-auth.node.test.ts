@@ -218,7 +218,13 @@ for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
       name,
       executable,
       project,
-      env: { HOME: project, LOOP_TEST_CLEAN_ENV: "1" },
+      env: {
+        HOME: project,
+        LOOP_TEST_CLEAN_ENV: "1",
+        LOOP_PROFILE: "must-not-reach-harness",
+        LOOP_DB: "/must-not-reach-harness.db",
+        PROVIDER_FIXTURE_TOKEN: "fixture-provider-token",
+      },
     };
     const priorHostOnly = process.env.LOOP_TEST_HOST_ONLY;
     process.env.LOOP_TEST_HOST_ONLY = "must-not-reach-runner";
@@ -305,7 +311,7 @@ test("Pi rejects invalid prompts and lets the next sign-in start", async () => {
 });
 
 test("Antigravity signs in through agy's terminal sign-in and confirms with agy models", async () => {
-  const project = join(dir, "antigravity-sign-in");
+  const project = join(dir, "antigravity sign-in ' $literal");
   await mkdir(project);
   const executable = join(project, "agy");
   await writeFile(
@@ -315,7 +321,19 @@ test("Antigravity signs in through agy's terminal sign-in and confirms with agy 
   );
   setAntigravityExchangeWait(5000);
   const auth = new NativeSignIns(createAuthDriver);
-  const opts = { name: "antigravity", executable, project };
+  const opts = {
+    name: "antigravity",
+    executable,
+    project,
+    env: {
+      ...process.env,
+      HOME: project,
+      LOOP_TEST_CLEAN_ENV: "1",
+      LOOP_PROFILE: "must-not-reach-harness",
+      LOOP_DB: "/must-not-reach-harness.db",
+      PROVIDER_FIXTURE_TOKEN: "fixture-provider-token",
+    },
+  };
   try {
     await auth.start(opts, "google", "oauth", randomUUID());
     await until(() => !!auth.status("antigravity").attempt?.prompt);

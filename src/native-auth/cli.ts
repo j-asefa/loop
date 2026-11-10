@@ -1,10 +1,8 @@
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { own } from "../processes.js";
 import { harnesses } from "../shared/harnesses.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stopHarnessProcess } from "../native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 
 // Codex and Grok Build print a device-code URL and code; Claude Code prints a
 // URL and reads a pasted code. Credentials stay in each CLI's own store.
@@ -36,7 +34,7 @@ export function cliDriver(options: AuthOptions): AuthDriver {
     },
     async login(_provider, method, io) {
       await stopHarnessProcess(child);
-      const process = (child = spawn(
+      const process = (child = spawnHarnessProcess(
         options.executable,
         device
           ? ["login", "--device-auth"]
@@ -54,10 +52,8 @@ export function cliDriver(options: AuthOptions): AuthDriver {
             ...(grok ? harnesses.grok.environment : {}),
           },
           stdio: "pipe",
-          detached: true,
         },
       ));
-      own(process);
       await new Promise<void>((resolve, reject) => {
         let output = "",
           asked = false;

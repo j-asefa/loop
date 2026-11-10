@@ -12,7 +12,11 @@ import {
 const kind = process.env.LOOP_TEST_HARNESS;
 if (
   process.env.LOOP_TEST_CLEAN_ENV === "1" &&
-  (process.env.LOOP_TEST_HOST_ONLY || process.env.HOME !== process.cwd())
+  (process.env.LOOP_TEST_HOST_ONLY ||
+    process.env.LOOP_PROFILE ||
+    process.env.LOOP_DB ||
+    process.env.PROVIDER_FIXTURE_TOKEN !== "fixture-provider-token" ||
+    process.env.HOME !== process.cwd())
 ) {
   process.exit(91);
 }

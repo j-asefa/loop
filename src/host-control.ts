@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
+import { spawnHarnessProcess } from "./native-spawn.js";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
 import { harnesses, type Harness } from "./shared/harnesses.js";
-import { own, killOwned } from "./processes.js";
+import { killOwned } from "./processes.js";
 const versionProbes = new Map<string, Promise<string>>();
 
 // Settings, sign-in and installation checks can request the same executable
@@ -14,8 +14,7 @@ function versionOutput(name: Harness, executable: string) {
   const existing = versionProbes.get(key);
   if (existing) return existing;
   const probe = new Promise<string>((resolve, reject) => {
-    const child = spawn(executable, ["--version"], {
-      detached: true,
+    const child = spawnHarnessProcess(executable, ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
@@ -54,11 +53,6 @@ function versionOutput(name: Harness, executable: string) {
         reject(failure ?? new Error("Version probe failed"));
       else resolve(Buffer.concat(output).toString("utf8"));
     });
-    try {
-      own(child);
-    } catch (error) {
-      fail(error as Error);
-    }
   }).finally(() => {
     if (versionProbes.get(key) === probe) versionProbes.delete(key);
   });
