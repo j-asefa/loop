@@ -3,7 +3,7 @@ import { spawnHarnessProcess, stopHarnessProcess } from "./native-spawn.js";
 import { nativeMemoryFailure } from "./native-memory.js";
 import { EventEmitter } from "node:events";
 import { StringDecoder } from "node:string_decoder";
-import { killOwned } from "./processes.js";
+import { killOwned } from "./process-records.js";
 
 /** An explicit error response from the harness: it received and refused the request. */
 export class NativeRpcError extends Error {

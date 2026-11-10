@@ -653,7 +653,10 @@ observe completed native command output in the projector, with its generation
 and record context; they are not run-state transition subscribers.
 
 [Process records](../src/process-records.ts) owns process identity, PID namespace,
-liveness, zombie detection and process-group observation. Linux observations use
+liveness, zombie detection, process-group observation, workspace locks and child
+registries. It also owns forced termination, unresolved stop records and the
+state-file names shared by producers and recovery readers. Log rotation and
+redaction remain in [daemon.ts](../src/daemon.ts). Linux observations use
 one `/proc/<pid>/stat` parser, including names containing spaces and closing
 parentheses. Workspace lock recovery requires positive evidence of death or PID
 reuse; an inconclusive probe retains the lock. Process-group existence and live

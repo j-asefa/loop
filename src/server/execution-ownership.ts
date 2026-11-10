@@ -1,12 +1,19 @@
+import {
+  PROCESS_FILES,
+  identity,
+  pidNamespace,
+  terminateWorkspace,
+  forgetWorkspace,
+  recordedGroupAlive,
+  processState,
+} from "../process-records.js";
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, unlinkSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { identity, pidNamespace } from "../process-records.js";
-import { terminateWorkspace, forgetWorkspace } from "../daemon.js";
-import { recordedGroupAlive, processState } from "../process-records.js";
+
 import { atomic, privateDir } from "../state.js";
 
 const Owner = z.strictObject({
@@ -102,7 +109,12 @@ function lockDirectory(directory: string, lockWaitMs = 0) {
 export function recordedExecutionOwner(data: string) {
   try {
     return Owner.parse(
-      JSON.parse(readFileSync(join(data, "execution/owner.json"), "utf8")),
+      JSON.parse(
+        readFileSync(
+          join(data, PROCESS_FILES.execution, PROCESS_FILES.executionOwner),
+          "utf8",
+        ),
+      ),
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT")
@@ -120,7 +132,7 @@ export function recoverStoppedExecution(
   stoppedGeneration: string,
 ) {
   const generation = z.string().uuid().parse(stoppedGeneration);
-  const directory = join(data, "execution"),
+  const directory = join(data, PROCESS_FILES.execution),
     lock = lockDirectory(directory);
   try {
     const owner = recordedExecutionOwner(data);
@@ -137,7 +149,11 @@ export function recoverStoppedExecution(
     privateDir(archive);
     // Keep the blocking owner until every child record has been archived. An
     // interrupted recovery remains blocked and can repeat the same assertion.
-    for (const name of ["children.json", "stop-records.json", "owner.json"]) {
+    for (const name of [
+      PROCESS_FILES.children,
+      PROCESS_FILES.stop,
+      PROCESS_FILES.executionOwner,
+    ]) {
       try {
         renameSync(join(directory, name), join(archive, name));
       } catch (error) {
@@ -162,7 +178,7 @@ async function confirmStoppedExecution(data: string, directory: string) {
     );
   // Corrupt registries are uncertainty, never evidence that no children
   // remain. Keep them for inspection rather than overwriting them at boot.
-  for (const name of ["children.json", "stop-records.json"]) {
+  for (const name of [PROCESS_FILES.children, PROCESS_FILES.stop]) {
     try {
       z.array(
         z.object({ pid: z.number().int().min(2), identity: z.string() }),
@@ -191,14 +207,14 @@ export async function retireStoppedExecution(
     cleanupWorkspace?: () => Promise<void>;
   } = {},
 ) {
-  const directory = join(data, "execution"),
+  const directory = join(data, PROCESS_FILES.execution),
     lock = lockDirectory(directory, options.lockWaitMs);
   try {
     await confirmStoppedExecution(data, directory);
     await options.cleanupWorkspace?.();
     await forgetWorkspace(directory);
     try {
-      unlinkSync(join(directory, "owner.json"));
+      unlinkSync(join(directory, PROCESS_FILES.executionOwner));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -214,10 +230,10 @@ export async function acquireExecutionOwnership(
   data: string,
   options: { lockWaitMs?: number } = {},
 ): Promise<ExecutionOwnership> {
-  const directory = join(data, "execution");
+  const directory = join(data, PROCESS_FILES.execution);
   const lock = lockDirectory(directory, options.lockWaitMs);
   try {
-    const path = join(directory, "owner.json");
+    const path = join(directory, PROCESS_FILES.executionOwner);
     const location = await confirmStoppedExecution(data, directory);
     // Retire confirmed records before installing the next generation, so
     // crash replacement cannot accumulate stale process IDs indefinitely.

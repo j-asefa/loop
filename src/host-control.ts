@@ -1,10 +1,11 @@
+import { PROCESS_FILES, killOwned } from "./process-records.js";
 import { spawnHarnessProcess } from "./native-spawn.js";
 import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
 import { harnesses, type Harness } from "./shared/harnesses.js";
-import { killOwned } from "./processes.js";
+
 const versionProbes = new Map<string, Promise<string>>();
 
 // Settings, sign-in and installation checks can request the same executable
@@ -127,7 +128,9 @@ export async function control(
   action: string,
   data: unknown = {},
 ): Promise<any> {
-  const config = JSON.parse(await readFile(join(dir, "control.json"), "utf8"));
+  const config = JSON.parse(
+    await readFile(join(dir, PROCESS_FILES.control), "utf8"),
+  );
   if (
     !Number.isInteger(config.port) ||
     config.port < 1 ||

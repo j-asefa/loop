@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import {
+  PROCESS_FILES,
+  workspaceLock,
+  identity,
+  pidNamespace,
+  recordOwnedProcesses,
+} from "./process-records.js";
 /**
  * Loop's per-workspace connection service: owns Cloudflared, the stable relay
  * listener and the private control socket. It is bundled into one immutable
@@ -13,10 +20,9 @@ import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { atomic, privateDir, secret } from "./state.js";
-import { workspaceLock } from "./lifecycle.js";
-import { identity, pidNamespace } from "./process-records.js";
+
 import { installDaemonLog } from "./daemon.js";
-import { recordOwnedProcesses } from "./processes.js";
+
 import { Tunnel, TunnelSupervisor, helper } from "./tunnel.js";
 import { Relay } from "./relay.js";
 import {
@@ -103,7 +109,7 @@ export async function runConnectionService(
   if (!values.dir) throw new Error("--dir is required");
   const dir = resolve(values.dir);
   privateDir(dir);
-  if (values.log) installDaemonLog(join(dir, "daemon.log"));
+  if (values.log) installDaemonLog(join(dir, PROCESS_FILES.log));
   const root = resolve(values.root ?? dir);
   if (values["tunnel-name"] && !values["public-url"])
     throw new Error(
@@ -119,7 +125,7 @@ export async function runConnectionService(
     : { kind: "quick" };
   const releaseLock = workspaceLock(dir, CONNECTION_LOCK);
   // cloudflared is recorded so a full stop can find it after a crash here.
-  recordOwnedProcesses(join(dir, "children.json"));
+  recordOwnedProcesses(join(dir, PROCESS_FILES.children));
   const run = ensureRunDir(dir);
   const control = join(run, "control.sock");
   const token = secret();
@@ -311,7 +317,7 @@ export async function runConnectionService(
         /* Never remove a replacement owner's record. */
       }
       rmSync(control, { force: true });
-      rmSync(join(dir, "children.json"), { force: true });
+      rmSync(join(dir, PROCESS_FILES.children), { force: true });
       releaseLock();
       process.exit(code);
     }

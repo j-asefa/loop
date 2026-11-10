@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
-import { terminateWorkspace } from "../src/daemon.js";
+import { terminateWorkspace } from "../src/process-records.js";
 
 async function fixture(t: TestContext) {
   const dir = mkdtempSync(join(tmpdir(), "loop-supervision-"));

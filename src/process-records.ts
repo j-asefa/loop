@@ -1,5 +1,29 @@
-import { readFileSync, readdirSync, readlinkSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import {
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  linkSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
+import { execFileSync, type ChildProcess } from "node:child_process";
+import { stat, readFile, rm } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { atomic } from "./state.js";
+
+export const PROCESS_FILES = {
+  control: "control.json",
+  children: "children.json",
+  // Stop obligations must outlive replacement of a workspace child registry.
+  stop: "stop-records.json",
+  lock: "host.lock",
+  log: "daemon.log",
+  preferences: "preferences.json",
+  launch: "launch.json",
+  execution: "execution",
+  executionOwner: "owner.json",
+} as const;
 
 // Linux comm is parenthesized but may itself contain spaces and parentheses.
 // Only the last closing parenthesis ends it; field offsets start at state.
@@ -178,12 +202,12 @@ export function recordedGroupAlive(record: Recorded) {
   }
   return groupAlive(record.pid);
 }
-export function leadsGroup(pid: number) {
+function leadsGroup(pid: number) {
   const state = signalState(-pid);
   return state === "present" || state === "denied";
 }
 
-export function recordedProcessDead(owner: Recorded) {
+function recordedProcessDead(owner: Recorded) {
   const state = signalState(owner.pid);
   if (state === "absent") return true;
   // A lock is recovered only with positive evidence of death or PID reuse.
@@ -192,5 +216,459 @@ export function recordedProcessDead(owner: Recorded) {
   return (
     zombie(owner.pid) ||
     processIdentityState(owner.pid, owner.identity) === "different"
+  );
+}
+
+const identities = new WeakMap<ChildProcess, string>();
+
+/** Only call for children launched detached by Loop: their process group is ours. */
+export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
+  if (!child.pid) return;
+  const recorded = identities.get(child),
+    live = identity(child.pid);
+  if (recorded && live && recorded !== live) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill(signal);
+  }
+}
+
+export function ownedGroupAlive(child: ChildProcess) {
+  return (
+    !!child.pid &&
+    recordedGroupAlive({
+      pid: child.pid,
+      identity: identities.get(child) ?? "",
+    })
+  );
+}
+
+// Detached children run in their own process groups and outlive a killed
+// workspace, so the workspace records them for a forced `loop stop`.
+let registry: string | undefined;
+const owned = new Map<number, string>();
+let stopping = false;
+export function stopOwnedProcessLaunches() {
+  stopping = true;
+}
+function persist() {
+  if (registry)
+    atomic(
+      registry,
+      [...owned].map(([pid, id]) => ({ pid, identity: id })),
+    );
+}
+export function recordOwnedProcesses(path: string) {
+  registry = path;
+  persist();
+}
+/** Records a child launched detached by Loop until it exits. */
+export function own(child: ChildProcess) {
+  const pid = child.pid;
+  if (!pid) return;
+  const start = identity(pid) ?? "";
+  identities.set(child, start);
+  owned.set(pid, start);
+  persist();
+  child.once("exit", () => {
+    // A detached leader can exit before its descendants. Retain that record
+    // so recovery refuses an unidentifiable surviving group instead of
+    // silently launching a second native writer.
+    if (!groupAlive(pid)) owned.delete(pid);
+    persist();
+  });
+  if (stopping) {
+    killOwned(child, "SIGKILL");
+    throw new Error("Execution worker is stopping.");
+  }
+}
+
+/** The worker is a process-group leader. Stop its non-detached subprocesses
+ * while that leader still proves ownership; detached natives use the registry. */
+export async function stopAttachedChildren() {
+  const members = () =>
+    groupMembers(process.pid).filter((pid) => pid !== process.pid);
+  const end = Date.now() + 2000;
+  let signal: NodeJS.Signals = "SIGTERM";
+  while (members().length) {
+    for (const pid of members()) {
+      const recorded = { pid, identity: identity(pid) || "" };
+      if (processState(recorded) === "running" && members().includes(pid)) {
+        try {
+          process.kill(pid, signal);
+        } catch {
+          /* exited */
+        }
+      }
+    }
+    if (Date.now() >= end)
+      throw new Error(
+        "Worker subprocesses did not stop; ownership records are retained.",
+      );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    signal = "SIGKILL";
+  }
+}
+
+type Owner = Recorded & { nonce: string };
+const RECOVERING =
+  "Another process is recovering the workspace lock. Retry shortly; workspace data is preserved.";
+const UNREADABLE =
+  "Workspace ownership record is unreadable. Preserve the state directory and inspect the lock; do not uninstall to recover.";
+// randomUUID() nonces only: a nonce read from a file becomes part of a path.
+const NONCE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+type Mine = { temp: string; nonce: string };
+
+/** The complete owner record at `path`, or why there is none. */
+function ownerAt(path: string): Owner | "missing" | "invalid" {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? "missing"
+      : "invalid";
+  }
+  try {
+    const owner = JSON.parse(raw) as Owner;
+    if (
+      Number.isSafeInteger(owner?.pid) &&
+      typeof owner.identity === "string" &&
+      owner.identity &&
+      typeof owner.nonce === "string" &&
+      NONCE.test(owner.nonce)
+    )
+      return owner;
+  } catch {
+    /* Reported as invalid below. */
+  }
+  return "invalid";
+}
+
+/**
+ * Every dead record is replaced only while holding its nonce's exclusive
+ * claim. Claims share the root prefix, so repeated crashes grow neither paths
+ * nor the call stack. Unwind only after acquiring the deepest claim.
+ */
+function acquire(root: string, mine: Mine, busy: string): void {
+  const parents: { path: string; nonce: string }[] = [];
+  const visited = new Set<string>();
+  let path = root;
+  while (true) {
+    if (visited.has(path)) throw new Error(UNREADABLE);
+    visited.add(path);
+    let stale: Owner | undefined;
+    let acquired = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        linkSync(mine.temp, path);
+        acquired = true;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      const current = ownerAt(path);
+      if (current === "missing") continue;
+      if (current === "invalid") throw new Error(UNREADABLE);
+      if (!recordedProcessDead(current))
+        throw new Error(path === root ? busy : RECOVERING);
+      stale = current;
+      break;
+    }
+    if (acquired) break;
+    if (!stale) throw new Error(RECOVERING);
+    parents.push({ path, nonce: stale.nonce });
+    path = root + ".stale." + stale.nonce;
+  }
+
+  // `path` is the claim we own. At each step transfer ownership to its
+  // parent before releasing it. A killed starter leaves a recoverable record.
+  try {
+    while (parents.length) {
+      const parent = parents.pop()!;
+      const current = ownerAt(parent.path);
+      if (
+        current === "missing" ||
+        current === "invalid" ||
+        current.nonce !== parent.nonce
+      )
+        throw new Error(RECOVERING);
+      const next = root + "." + mine.nonce + ".new";
+      try {
+        linkSync(mine.temp, next);
+        renameSync(next, parent.path);
+      } finally {
+        try {
+          unlinkSync(next);
+        } catch {
+          /* Renamed into place, or never created. */
+        }
+      }
+      release(path, mine.nonce);
+      path = parent.path;
+    }
+  } catch (error) {
+    release(path, mine.nonce);
+    throw error;
+  }
+}
+
+/** Remove `path` only while it still holds our own record. */
+function release(path: string, nonce: string) {
+  const current = ownerAt(path);
+  if (current !== "missing" && current !== "invalid" && current.nonce === nonce)
+    try {
+      unlinkSync(path);
+    } catch {
+      /* Already gone. */
+    }
+}
+
+/**
+ * Once we hold `path`, markers from killed starters are dead weight: claims
+ * named for records `path` no longer holds can never matter again, and temp
+ * or rename files whose owner is dead have no one to finish them.
+ */
+function removeLeftovers(path: string) {
+  const dir = dirname(path),
+    prefix = basename(path) + ".";
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((name) => name.startsWith(prefix));
+  } catch {
+    return;
+  }
+  for (const name of names.slice(0, 64)) {
+    const rest = name.slice(prefix.length);
+    const file = join(dir, name);
+    try {
+      if (rest.startsWith("stale.")) unlinkSync(file);
+      else if (NONCE.test(rest.replace(/\.new$/, ""))) {
+        const owner = ownerAt(file);
+        if (
+          owner !== "missing" &&
+          owner !== "invalid" &&
+          recordedProcessDead(owner)
+        )
+          unlinkSync(file);
+      }
+    } catch {
+      /* Best effort; never affects the lock we hold. */
+    }
+  }
+}
+
+const WORKSPACE_LOCK = {
+  name: PROCESS_FILES.lock,
+  owner:
+    "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
+};
+/** Complete records are installed atomically; a dead owner's lock is replaced through an exclusive claim. */
+export function workspaceLock(
+  dir: string,
+  lock: { name: string; owner: string } = WORKSPACE_LOCK,
+): () => void {
+  const path = join(dir, lock.name);
+  const owner: Owner = {
+    pid: process.pid,
+    identity: identity(process.pid) || "",
+    nonce: randomUUID(),
+  };
+  if (!owner.identity)
+    throw new Error(
+      "Could not establish process identity for the workspace lock.",
+    );
+  const temp = path + "." + owner.nonce;
+  atomic(temp, owner);
+  try {
+    acquire(path, { temp, nonce: owner.nonce }, lock.owner);
+  } finally {
+    unlinkSync(temp);
+  }
+  removeLeftovers(path);
+  return () => release(path, owner.nonce);
+}
+
+const valid = (r: unknown): r is Recorded =>
+  !!r &&
+  Number.isSafeInteger((r as Recorded).pid) &&
+  // Never 1: signalling -1 would reach every process we may signal.
+  (r as Recorded).pid > 1 &&
+  typeof (r as Recorded).identity === "string";
+async function readJson(path: string): Promise<unknown> {
+  return readFile(path, "utf8")
+    .then(JSON.parse)
+    .catch(() => undefined);
+}
+
+/**
+ * The workspace process that has not cleaned up after itself: control.json is
+ * removed on shutdown, and host.lock holds the process identity. A stale lock
+ * alone is left for workspaceLock's own recovery.
+ */
+export async function recordedWorkspace(dir: string) {
+  const [control, owner] = await Promise.all([
+    stat(join(dir, PROCESS_FILES.control)).catch(() => undefined),
+    readJson(join(dir, PROCESS_FILES.lock)),
+  ]);
+  if (!control || !valid(owner)) return undefined;
+  return {
+    pid: owner.pid,
+    identity: owner.identity,
+    state: processState(owner),
+  };
+}
+
+/**
+ * Stops a workspace (if still running), its own process group including the
+ * tunnel, and the detached native process groups it recorded, even after the
+ * workspace itself crashed. Each target is confirmed by identity first. A
+ * confirmed group stays ours until it is empty, because its ID can't be reused
+ * while any member lives, so members that outlive their leader are still
+ * stopped and reported, and are recorded for any later attempt. A recorded
+ * group whose leader had already exited can't be confirmed, so it is left
+ * alone and reported as unresolved.
+ */
+export async function terminateWorkspace(
+  dir: string,
+  workspace: Recorded | undefined,
+  graceMs: number,
+  kill: (pid: number, signal: NodeJS.Signals) => void = process.kill,
+) {
+  const children = await recordedChildren(dir);
+  const targets = [...(workspace ? [workspace] : []), ...children]
+    .filter((t) => processState(t) === "running")
+    .map((t) => ({ ...t, group: leadsGroup(t.pid) }));
+  // A group is only known to be ours while its confirmed leader lives. Record
+  // its other members first, so a later attempt can still confirm and stop any
+  // that outlive the leader, even if this one is interrupted.
+  // They go in the stop's own file: a live workspace rewrites children.json
+  // whenever one of its children exits.
+  const members = targets
+    .filter((t) => t.group)
+    .flatMap((t) =>
+      groupMembers(t.pid)
+        .filter((pid) => pid !== t.pid)
+        .flatMap((pid) => {
+          // Read the identity, then check the PID is still in the group, so a
+          // PID recycled in between isn't recorded as ours.
+          const id = identity(pid);
+          return id &&
+            !children.some((c) => c.pid === pid && c.identity === id) &&
+            groupMembers(t.pid).includes(pid)
+            ? [{ pid, identity: id }]
+            : [];
+        }),
+    );
+  if (members.length) {
+    const kept = await readRecords(join(dir, PROCESS_FILES.stop));
+    atomic(join(dir, PROCESS_FILES.stop), [...kept, ...members]);
+  }
+  // Identity is confirmed right before each signal (a PID reused in the instant
+  // between that check and the signal can't be excluded) and for the final
+  // report; waiting in between only polls liveness (identity() runs ps on macOS).
+  const running = () =>
+    targets.filter((t) =>
+      t.group ? recordedGroupAlive(t) : processState(t) === "running",
+    );
+  const present = () =>
+    targets.some((t) => (t.group ? recordedGroupAlive(t) : alive(t.pid)));
+  const signal = (sig: NodeJS.Signals) => {
+    for (const t of running())
+      try {
+        kill(t.group ? -t.pid : t.pid, sig);
+      } catch {
+        /* Already gone. */
+      }
+  };
+  const settle = async () => {
+    const end = Date.now() + graceMs;
+    while (present() && Date.now() < end)
+      await new Promise((r) => setTimeout(r, 100));
+  };
+  signal("SIGTERM");
+  await settle();
+  signal("SIGKILL");
+  await settle();
+  // Records that can't be confirmed (or whose leader exited, leaving a group
+  // that can no longer be tied to it) were not signalled, and aren't finished.
+  const unresolved = children.filter((c) => {
+    const state = processState(c);
+    return state === "unknown" || (state === "exited" && recordedGroupAlive(c));
+  });
+  return { unresolved, survivors: running().map((t) => t.pid) };
+}
+
+async function readRecords(path: string) {
+  try {
+    const recorded: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (!Array.isArray(recorded) || !recorded.every(valid))
+      throw new Error("Invalid process record");
+    return recorded as Recorded[];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new Error(
+      `Process records are unreadable at ${path}. Preserve the file and inspect it before stopping or restarting.`,
+      { cause: error },
+    );
+  }
+}
+/** The workspace's recorded native processes plus any a stop still owes. */
+export async function recordedChildren(dir: string) {
+  const all = [
+    ...(await readRecords(join(dir, PROCESS_FILES.children))),
+    ...(await readRecords(join(dir, PROCESS_FILES.stop))),
+    // A companion worker owns detached native children in its own registry.
+    // Keep them reachable by loop stop even if both API and worker crashed.
+    ...(await readRecords(
+      join(dir, PROCESS_FILES.execution, PROCESS_FILES.children),
+    )),
+    ...(await readRecords(
+      join(dir, PROCESS_FILES.execution, PROCESS_FILES.stop),
+    )),
+  ];
+  const seen = new Set<string>();
+  return all.filter((record) => {
+    // Different lifetimes can share a PID. Retaining the stale identity must
+    // never hide a current process recorded by the execution owner.
+    const key = JSON.stringify([record.pid, record.identity]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** The workspace is gone, but these records stay for a later `loop stop`. */
+export async function keepUnresolved(dir: string, records: Recorded[]) {
+  atomic(join(dir, PROCESS_FILES.stop), records);
+  await Promise.all(
+    [PROCESS_FILES.control, PROCESS_FILES.children].map((f) =>
+      rm(join(dir, f), { force: true }),
+    ),
+  );
+}
+
+export async function forgetWorkspace(dir: string) {
+  // Revalidate after shutdown: a writer may have updated its registry while
+  // the first stop attempt was waiting. Never erase new or malformed evidence.
+  const records = await recordedChildren(dir);
+  if (
+    records.some(
+      (record) =>
+        processState(record) !== "exited" || recordedGroupAlive(record),
+    )
+  )
+    throw new Error(
+      "Recorded processes remain unconfirmed. Their records were kept; run loop stop again.",
+    );
+  await Promise.all(
+    [
+      PROCESS_FILES.control,
+      PROCESS_FILES.children,
+      PROCESS_FILES.stop,
+      join(PROCESS_FILES.execution, PROCESS_FILES.children),
+      join(PROCESS_FILES.execution, PROCESS_FILES.stop),
+    ].map((f) => rm(join(dir, f), { force: true })),
   );
 }

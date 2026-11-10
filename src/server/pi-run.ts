@@ -1,4 +1,4 @@
-import { ownedGroupAlive } from "../processes.js";
+import { ownedGroupAlive } from "../process-records.js";
 import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 
 /**

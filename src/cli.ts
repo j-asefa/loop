@@ -1,4 +1,15 @@
 #!/usr/bin/env node
+import {
+  PROCESS_FILES,
+  recordedWorkspace,
+  forgetWorkspace,
+  terminateWorkspace,
+  recordedChildren,
+  keepUnresolved,
+  exited,
+  type Recorded,
+  recordOwnedProcesses,
+} from "./process-records.js";
 import { harnesses, runtimeHarnessIds } from "./shared/harnesses.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
@@ -26,17 +37,8 @@ import {
 } from "./connection-launch.js";
 import type { Options } from "./adapters/types.js";
 import { discover, control } from "./host-control.js";
-import {
-  installDaemonLog,
-  retireLog,
-  recordedWorkspace,
-  forgetWorkspace,
-  terminateWorkspace,
-  recordedChildren,
-  keepUnresolved,
-} from "./daemon.js";
-import { exited, type Recorded } from "./process-records.js";
-import { recordOwnedProcesses } from "./processes.js";
+import { installDaemonLog, retireLog } from "./daemon.js";
+
 import { preview, publicPreview, designPreview } from "./preview-context.js";
 const PACKAGE = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -69,7 +71,6 @@ type Ready = {
 // Set by Loop's service definitions and the Docker companion: a service
 // manager or sibling container owns the connection service.
 const externalConnection = process.env.LOOP_CONNECTION_MANAGED === "external";
-const LAUNCH_RECORD = "launch.json";
 function showPair(pair: Pair) {
   console.log(
     "\nScan with your phone's camera to open Loop in your browser, then choose Pair and open Loop. Use Share → Add to Home Screen to install it. Scan a new code to reconnect after a tunnel address change. This single-use code expires in 2 minutes.",
@@ -160,7 +161,12 @@ async function stopWorkspace(dir: string) {
       // A previous stop may have left records it couldn't resolve.
       if (
         (await recordedChildren(dir)).length ||
-        existsSync(join(dir, "execution/owner.json"))
+        existsSync(
+          join(
+            dir,
+            join(PROCESS_FILES.execution, PROCESS_FILES.executionOwner),
+          ),
+        )
       )
         return forceStop(dir, undefined, "exited");
       throw new Error("No workspace is running.");
@@ -185,7 +191,9 @@ async function stopWorkspace(dir: string) {
   // Retry anything an earlier incomplete stop left on record.
   if (
     (await recordedChildren(dir)).length ||
-    existsSync(join(dir, "execution/owner.json"))
+    existsSync(
+      join(dir, join(PROCESS_FILES.execution, PROCESS_FILES.executionOwner)),
+    )
   )
     return forceStop(dir, undefined, "exited");
 }
@@ -224,7 +232,7 @@ async function stopAll(dir: string, connection: string) {
 const execFileAsync = promisify(execFile);
 /** The launch to repeat on restart; written by each application launch. */
 async function launchArgs(dir: string) {
-  const saved = await readFile(join(dir, LAUNCH_RECORD), "utf8")
+  const saved = await readFile(join(dir, PROCESS_FILES.launch), "utf8")
     .then(JSON.parse)
     .catch(() => undefined);
   if (
@@ -509,7 +517,7 @@ async function daemonize(
   args: string[],
   restart?: { restart: true; upgradedFrom?: string },
 ) {
-  const log = join(dir, "daemon.log");
+  const log = join(dir, PROCESS_FILES.log);
   await retireLog(log);
   const fd = openSync(log, "a", 0o600);
   let child: ChildProcess;
@@ -572,7 +580,7 @@ async function daemonize(
   }
 }
 async function logs(dir: string, follow: boolean) {
-  const path = join(dir, "daemon.log");
+  const path = join(dir, PROCESS_FILES.log);
   let handle = await open(path, "r").catch(() => undefined);
   if (!handle) {
     console.log("No workspace logs yet at " + path);
@@ -728,7 +736,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const dir = join(root, "workspace");
   privateDir(dir);
   const connection = connectionDir(root);
-  const logPath = join(dir, "daemon.log");
+  const logPath = join(dir, PROCESS_FILES.log);
   if (daemonChild) installDaemonLog(logPath);
   let project = await realpath(resolve(values.project ?? process.cwd()));
   const action = positionals[0] ?? "start";
@@ -856,10 +864,16 @@ Uninstall removes the package separately; workspace/native history is retained.`
     return;
   }
   if (action === "service") {
-    const preferences = await readFile(join(dir, "preferences.json"), "utf8")
+    const preferences = await readFile(
+      join(dir, PROCESS_FILES.preferences),
+      "utf8",
+    )
       .then(JSON.parse)
       .catch(() => ({}));
-    const launched = await readFile(join(dir, LAUNCH_RECORD), "utf8").then(
+    const launched = await readFile(
+      join(dir, PROCESS_FILES.launch),
+      "utf8",
+    ).then(
       () => true,
       () => false,
     );
@@ -1070,7 +1084,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw new Error(
       `Runtime options belong to loop ${runtimeHarnessIds.join("|")}|acp. Use loop start without a runtime, then choose it in the app.`,
     );
-  const preferencesPath = join(dir, "preferences.json");
+  const preferencesPath = join(dir, PROCESS_FILES.preferences);
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
@@ -1261,10 +1275,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
       ...launch,
       ...(values.resume ? ["--resume", values.resume] : []),
     ]);
-  const { workspaceLock } = await import("./lifecycle.js");
+  const { workspaceLock } = await import("./process-records.js");
   const release = workspaceLock(dir);
-  recordOwnedProcesses(join(dir, "children.json"));
-  atomic(join(dir, LAUNCH_RECORD), {
+  recordOwnedProcesses(join(dir, PROCESS_FILES.children));
+  atomic(join(dir, PROCESS_FILES.launch), {
     schema: 1,
     args: launch,
     version: VERSION,
