@@ -8,7 +8,14 @@ import { existsSync } from "node:fs";
 import { chmod, readFile, rm, stat, unlink } from "node:fs/promises";
 import { join, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { timingSafeEqual } from "node:crypto";
+import {
+  BACKEND_PROBE,
+  equalSecret as equal,
+  readJsonBody as body,
+  jsonReply,
+  problemReply,
+  jsonServer,
+} from "./local-control.js";
 import { AgentSources } from "./agent-sources.js";
 import type { EventSocket } from "./event-socket.js";
 import { WorkspaceMultiplex } from "./server/workspace-multiplex.js";
@@ -47,20 +54,6 @@ export const pairedHostRoutes = [
 
 type Device = TrustedDevice;
 const cleanDevice = ({ id, name, expires }: Device) => ({ id, name, expires });
-const equal = (a: string, b: string) =>
-  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-async function body(req: IncomingMessage) {
-  if (req.headers["content-type"] !== "application/json")
-    throw new Error("Expected application/json");
-  const chunks: Buffer[] = [];
-  let n = 0;
-  for await (const b of req) {
-    n += b.length;
-    if (n > 100000) throw new Error("Request too large");
-    chunks.push(b);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString());
-}
 const Pair = z
   .object({
     secret: z.string().min(40).max(60),
@@ -427,13 +420,7 @@ export class Host {
     return this.trust.authenticate(hash(token));
   }
 
-  private json(res: ServerResponse, status: number, value: unknown) {
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    });
-    res.end(JSON.stringify(value));
-  }
+  private json = jsonReply;
   private admitSocket(
     socket: import("node:stream").Duplex,
     kind: "browser" | "peer",
@@ -507,7 +494,7 @@ export class Host {
     res.once("close", () => this.active--);
     // Registration check from the connection service over the private socket.
     // The relay never forwards /__loop paths from the public listener.
-    if (this.probe && /^\/__loop\/backend-probe\?/.test(req.url ?? "")) {
+    if (this.probe && req.url?.startsWith(BACKEND_PROBE.path + "?")) {
       const nonce = new URL(req.url!, "http://probe").searchParams.get("nonce");
       if (req.method !== "GET" || !nonce || !/^[\w-]{16,100}$/.test(nonce))
         return this.json(res, 400, { error: "Invalid probe" });
@@ -792,52 +779,49 @@ export class Host {
       const content = await readFile(asset);
       res.setHeader("Content-Length", content.length);
       res.end(content);
-    } catch {
-      if (!res.headersSent)
-        this.json(res, 400, { error: "Invalid request or unavailable asset." });
-      else res.end();
+    } catch (error) {
+      problemReply(res, error, "Invalid request or unavailable asset.");
     }
   }
-  private async admin(req: IncomingMessage, res: ServerResponse) {
-    try {
-      if (
-        req.headers.origin ||
-        !equal(req.headers.authorization ?? "", "Bearer " + this.adminToken)
-      )
-        return this.json(res, 403, {
-          error: "Local control authentication required",
-        });
-      if (req.method !== "POST") return this.json(res, 405, {});
-      const input = await body(req);
-      switch (req.url) {
+  private admin = jsonServer(
+    (path) => {
+      switch (path) {
         case "/status":
-          return this.json(res, 200, this.status());
+          return () => [200, this.status()];
         case "/pair":
-          return this.json(res, 200, this.pair());
+          return () => [200, this.pair()];
         case "/devices":
-          return this.json(res, 200, this.deviceList().map(cleanDevice));
+          return () => [200, this.deviceList().map(cleanDevice)];
         case "/revoke":
-          // Revocation is idempotent and must remain possible even when an
-          // expiry/clock failure prevents this device from authenticating.
-          if (typeof input.id !== "string" || !input.id)
-            throw new Error("Unknown device");
-          this.revoke(input.id);
-          return this.json(res, 200, { revoked: true });
+          return (input) => {
+            // Revocation remains available when clock/expiry failures prevent authentication.
+            if (typeof input.id !== "string" || !input.id)
+              throw new Error("Unknown device");
+            this.revoke(input.id);
+            return [200, { revoked: true }];
+          };
         case "/stop":
-          this.json(res, 200, { stopping: true });
-          void this.onStop();
-          return;
-        default:
-          return this.json(
-            res,
+          return () => [
             200,
-            await this.workspace.admin(req.url || "", input),
-          );
+            { stopping: true },
+            () => {
+              void this.onStop();
+            },
+          ];
+        default:
+          return async (input) => [
+            200,
+            await this.workspace.admin(path, input),
+          ];
       }
-    } catch {
-      this.json(res, 400, { error: "Invalid control request" });
-    }
-  }
+    },
+    {
+      token: () => this.adminToken,
+      authMessage: "Local control authentication required",
+      invalidMessage: "Invalid control request",
+      methodStatus: 405,
+    },
+  );
   async close() {
     this.multiplex?.close();
     if (this.stopped) return;

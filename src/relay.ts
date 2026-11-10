@@ -8,6 +8,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { connect, type Socket } from "node:net";
+import { BACKEND_PROBE, jsonReply } from "./local-control.js";
 import type { Duplex } from "node:stream";
 
 type Backend = { generation: number; path: string };
@@ -25,7 +26,7 @@ const HOP = new Set([
   "transfer-encoding",
   "upgrade",
   "expect",
-  "x-loop-probe",
+  BACKEND_PROBE.header,
 ]);
 function forwardable(headers: IncomingHttpHeaders) {
   const named = new Set(
@@ -148,34 +149,38 @@ export class Relay {
       req.method === "GET" &&
       !req.url?.startsWith("/api/") &&
       /text\/html/.test(String(req.headers.accept ?? ""));
-    res.writeHead(503, {
-      "Content-Type": page ? "text/html; charset=utf-8" : "application/json",
-      "Cache-Control": "no-store",
+    const headers = {
       "Retry-After": "2",
       "X-Loop-Unavailable": "restarting",
       "Content-Security-Policy":
         "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       "Referrer-Policy": "no-referrer",
       "X-Content-Type-Options": "nosniff",
-    });
-    res.end(
-      page
-        ? PAGE
-        : JSON.stringify({
-            error: "Loop is restarting. Try again in a moment.",
-            reconnecting: true,
-          }),
-    );
+    };
+    if (page) {
+      res.writeHead(503, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        ...headers,
+      });
+      res.end(PAGE);
+    } else
+      jsonReply(
+        res,
+        503,
+        {
+          error: "Loop is restarting. Try again in a moment.",
+          reconnecting: true,
+        },
+        headers,
+      );
   }
+
   private http(req: IncomingMessage, res: ServerResponse) {
     const path = req.url ?? "";
     // Origin-form only; the private probe namespace never leaves the machine.
     if (!path.startsWith("/") || path.startsWith("/__loop")) {
-      res.writeHead(404, {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      });
-      res.end(JSON.stringify({ error: "Not found" }));
+      jsonReply(res, 404, { error: "Not found" });
       return;
     }
     const backend = this.current;
@@ -216,17 +221,15 @@ export class Relay {
       if (req.method === "GET" || req.method === "HEAD")
         return this.unavailable(req, res);
       // The application may have acted on it. Report uncertainty; never replay.
-      res.writeHead(502, {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-        "X-Loop-Outcome": "unknown",
-      });
-      res.end(
-        JSON.stringify({
+      jsonReply(
+        res,
+        502,
+        {
           error:
             "Loop restarted before confirming this request. Its outcome is unknown; check before trying again.",
           outcome: "unknown",
-        }),
+        },
+        { "X-Loop-Outcome": "unknown" },
       );
     });
     res.on("close", () => {
@@ -261,7 +264,7 @@ export class Relay {
       const lines = [`${req.method} ${path} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const name = req.rawHeaders[i];
-        if (name.toLowerCase() === "x-loop-probe") continue;
+        if (name.toLowerCase() === BACKEND_PROBE.header) continue;
         lines.push(`${name}: ${req.rawHeaders[i + 1]}`);
       }
       upstream.write(lines.join("\r\n") + "\r\n\r\n");

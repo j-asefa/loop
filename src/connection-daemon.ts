@@ -13,14 +13,19 @@ import {
  * file so a package upgrade cannot remove code it loads later. See
  * docs/pairing.md for the protocol and recovery rules.
  */
-import { createServer, type IncomingMessage } from "node:http";
-import { jsonClient } from "./local-control.js";
+import { createServer } from "node:http";
+import {
+  jsonClient,
+  jsonServer,
+  equalSecret as equal,
+  BACKEND_PROBE,
+} from "./local-control.js";
 import { chmodSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { realpathSync } from "node:fs";
-import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import { atomic, privateDir, secret } from "./state.js";
 
 import { installDaemonLog } from "./daemon.js";
@@ -47,30 +52,18 @@ const RELEASE =
 // A launch that stops heartbeating (hung or killed) stops receiving traffic.
 const LEASE_TIMEOUT_MS =
   Number(process.env.LOOP_TEST_LEASE_TIMEOUT_MS) || 15000;
-const equal = (a: string, b: string) =>
-  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-
 async function probe(path: string, nonce: string) {
   const value = await jsonClient({ socketPath: path })(
-    "/__loop/backend-probe?nonce=" + nonce,
+    BACKEND_PROBE.path + "?nonce=" + nonce,
     {
       method: "GET",
-      headers: { "x-loop-probe": "1" },
+      headers: { [BACKEND_PROBE.header]: "1" },
       timeout: 3000,
       maxBytes: 1000,
     },
   );
   return String(value?.proof ?? "");
 }
-async function body(req: IncomingMessage) {
-  let raw = "";
-  for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > 16000) throw new Error("Request too large");
-  }
-  return raw ? JSON.parse(raw) : {};
-}
-
 export async function runConnectionService(
   argv: string[],
   report: (
@@ -254,33 +247,22 @@ export async function runConnectionService(
       },
     };
 
-  const controlServer = createServer(async (req, res) => {
-    const reply = (status: number, value: unknown) => {
-      res.writeHead(status, {
-        "Content-Type": "application/json",
-        "Cache-Control": "no-store",
-      });
-      res.end(JSON.stringify(value));
-    };
-    try {
-      const match = /^\/v1\/([a-z]+)$/.exec(req.url ?? "");
-      if (
-        req.method !== "POST" ||
-        req.headers.origin ||
-        !equal(req.headers.authorization ?? "", "Bearer " + token)
-      )
-        return reply(403, {
-          error: "Connection control authentication required",
-        });
-      const operation =
-        match && Object.hasOwn(operations, match[1]) && operations[match[1]];
-      if (!operation) return reply(404, { error: "Unknown operation" });
-      const [status, value] = await operation(await body(req));
-      reply(status, value);
-    } catch {
-      reply(400, { error: "Invalid connection control request" });
-    }
-  });
+  const controlServer = createServer(
+    jsonServer(
+      (path) => {
+        const match = /^\/v1\/([a-z]+)$/.exec(path);
+        return match && Object.hasOwn(operations, match[1])
+          ? operations[match[1]]
+          : undefined;
+      },
+      {
+        token: () => token,
+        authMessage: "Connection control authentication required",
+        invalidMessage: "Invalid connection control request",
+        body: { maxBytes: 16000, allowEmpty: true },
+      },
+    ),
+  );
 
   async function shutdown(code: number) {
     if (stopping) return;
