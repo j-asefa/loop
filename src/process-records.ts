@@ -594,13 +594,18 @@ export async function recordedWorkspace(dir: string) {
     "workspace ownership record",
   );
   if (owner.state === "invalid") return owner;
-  if (owner.state === "absent")
+  if (owner.state === "absent") {
+    // Shutdown removes control before releasing the lock. The first control
+    // read may have completed just before those two removals.
+    const current = await readControlRecord(dir);
+    if (current.state !== "present") return current;
     return {
       state: "invalid" as const,
       error: new ProcessRecordError(
         "Missing workspace ownership record. Preserve the state directory and inspect the record.",
       ),
     };
+  }
   return { ...owner.record, state: processState(owner.record) };
 }
 

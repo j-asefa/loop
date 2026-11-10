@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import fs, { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -69,4 +70,42 @@ test("workspace inspection distinguishes records, responses and process state", 
   assert.equal(unreadable.state, "invalid");
   assert(unreadable.state === "invalid");
   assert.match(unreadable.error.message, /Unreadable local host record/);
+});
+
+test("inspection observes a normal shutdown between control and owner reads as absent", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-status-shutdown-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const controlPath = join(dir, "control.json");
+  const ownerPath = join(dir, "host.lock");
+  await writeFile(
+    controlPath,
+    JSON.stringify({ port: 1, token: "fixture-token" }),
+  );
+  await writeFile(
+    ownerPath,
+    JSON.stringify({ pid: process.pid, identity: identity(process.pid) }),
+  );
+  const read = fs.readFile;
+  let removed = false;
+  const intercepted = t.mock.method(
+    fs,
+    "readFile",
+    async (path: Parameters<typeof read>[0], options: any) => {
+      const contents = await read(path, options);
+      if (path === controlPath && !removed) {
+        removed = true;
+        await rm(controlPath);
+        await rm(ownerPath);
+      }
+      return contents;
+    },
+  );
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(await inspectWorkspace(dir), { state: "absent" });
+    assert.equal(removed, true, "shutdown happened after reading control");
+  } finally {
+    intercepted.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
