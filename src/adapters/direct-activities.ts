@@ -4,37 +4,7 @@ import {
   ActivityUpdate,
   type ActivityUpdate as Update,
 } from "../shared/agent-activities.js";
-/** Structured native display extraction. These values never authorize file or command execution. */
-export type DirectActivity =
-  | {
-      kind: "plan";
-      id: string;
-      steps: { id: string; text: string; status: string }[];
-      explanation?: string;
-    }
-  | {
-      kind: "file";
-      id: string;
-      path: string;
-      oldPath?: string;
-      operation?: "create" | "modify" | "delete" | "rename";
-      patch?: string;
-      before?: string | null;
-      after?: string | null;
-      state: string;
-      truncated?: boolean;
-    }
-  | {
-      kind: "output";
-      id: string;
-      command?: string;
-      cwd?: string;
-      text: string;
-      stream: "combined";
-      state: string;
-      exitCode?: number;
-      truncated?: boolean;
-    };
+import type { DirectActivity } from "./direct-activity-types.js";
 const LIMIT = 48_000;
 const str = (value: unknown): value is string => typeof value === "string";
 function text(value: unknown): string {
@@ -53,6 +23,17 @@ function state(value: unknown): string {
       : value === "declined"
         ? "declined"
         : "running";
+}
+function fileState(
+  status: unknown,
+  failure = "failed",
+  fallback: "unknown" | "declined" | "proposed" = "unknown",
+) {
+  return status === "completed"
+    ? "executed"
+    : status === failure
+      ? "failed"
+      : fallback;
 }
 function plan(
   id: string,
@@ -139,6 +120,7 @@ export function codexActivities(method: string, params: any): DirectActivity[] {
           {
             kind: "file",
             id: `${item.id}:${index}`,
+            tool: item.id,
             path: str(move) ? move : change.path,
             operation: str(move)
               ? "rename"
@@ -154,14 +136,11 @@ export function codexActivities(method: string, params: any): DirectActivity[] {
                   truncated: patch.length > LIMIT,
                 }
               : {}),
-            state:
-              item.status === "completed"
-                ? "executed"
-                : item.status === "failed"
-                  ? "failed"
-                  : item.status === "declined"
-                    ? "declined"
-                    : "proposed",
+            state: fileState(
+              item.status,
+              "failed",
+              item.status === "declined" ? "declined" : "proposed",
+            ),
           },
         ];
       });
@@ -207,7 +186,7 @@ export function piActivities(
         path: args.path,
         after: args.content.slice(0, LIMIT),
         truncated: args.content.length > LIMIT,
-        state: event.isError ? "failed" : "executed",
+        state: fileState(event.isError ? "failed" : "completed"),
       },
     ];
   if (
@@ -223,12 +202,7 @@ export function piActivities(
         path: args.path,
         patch: patch.slice(0, LIMIT),
         truncated: patch.length > LIMIT,
-        state:
-          status === "completed"
-            ? "executed"
-            : status === "failed"
-              ? "failed"
-              : "unknown",
+        state: fileState(status),
       },
     ];
   }
@@ -272,12 +246,7 @@ export function openCodeActivities(
         before: diff.before.slice(0, LIMIT),
         after: diff.after.slice(0, LIMIT),
         truncated: diff.before.length > LIMIT || diff.after.length > LIMIT,
-        state:
-          s.status === "completed"
-            ? "executed"
-            : s.status === "error"
-              ? "failed"
-              : "unknown",
+        state: fileState(s.status, "error"),
       },
     ];
   if (diff && str(diff.file) && str(diff.patch))
@@ -288,12 +257,7 @@ export function openCodeActivities(
         path: diff.file,
         patch: diff.patch.slice(0, LIMIT),
         truncated: diff.patch.length > LIMIT,
-        state:
-          s.status === "completed"
-            ? "executed"
-            : s.status === "error"
-              ? "failed"
-              : "unknown",
+        state: fileState(s.status, "error"),
       },
     ];
   if (str(s.metadata?.diff) && str(s.input?.filePath))
@@ -304,12 +268,7 @@ export function openCodeActivities(
         path: s.input.filePath,
         patch: s.metadata.diff.slice(0, LIMIT),
         truncated: s.metadata.diff.length > LIMIT,
-        state:
-          s.status === "completed"
-            ? "executed"
-            : s.status === "error"
-              ? "failed"
-              : "unknown",
+        state: fileState(s.status, "error"),
       },
     ];
   return [];
@@ -347,7 +306,7 @@ export function claudeActivities(
         path: invocation.input.file_path,
         after: invocation.input.content.slice(0, LIMIT),
         truncated: invocation.input.content.length > LIMIT,
-        state: block.is_error ? "failed" : "executed",
+        state: fileState(block.is_error ? "failed" : "completed"),
       },
     ];
   // SDK exposes tool_use_result as opaque structured data; only explicitly present before/after are used.
@@ -365,7 +324,7 @@ export function claudeActivities(
         path: invocation.input.file_path,
         before: invocation.input.old_string.slice(0, LIMIT),
         after: invocation.input.new_string.slice(0, LIMIT),
-        state: block.is_error ? "failed" : "executed",
+        state: fileState(block.is_error ? "failed" : "completed"),
         truncated:
           invocation.input.old_string.length > LIMIT ||
           invocation.input.new_string.length > LIMIT,

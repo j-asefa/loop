@@ -1,4 +1,4 @@
-import type { DirectActivity } from "./adapters/direct-activities.js";
+import type { DirectActivity } from "./adapters/direct-activity-types.js";
 import type { ActivityUpdate } from "./shared/agent-activities.js";
 
 // Converts the direct adapters' structured extractions into shared activity
@@ -52,8 +52,7 @@ export function directActivityUpdate(
         ...base,
         kind: "file_change",
         patch: {
-          // Codex splits one item into `<item>:<index>` records.
-          tool: activity.id.replace(/:\d+$/, "").slice(0, 300),
+          tool: (activity.tool ?? activity.id).slice(0, 300),
           state:
             activity.state === "executed"
               ? "applied"

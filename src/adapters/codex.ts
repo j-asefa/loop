@@ -7,7 +7,7 @@ import { nativeFailureDetail } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
 import { codexToolApproval } from "../shared/codex-approval.js";
 import { codexApprovalDetail } from "./codex-approval-display.js";
-import { codexTokens, type Tokens } from "./usage.js";
+import { tokenCount, type Tokens } from "./usage.js";
 import type { Billing, Request } from "../shared/protocol.js";
 import {
   capabilities,
@@ -32,6 +32,14 @@ function elicitationUrl(params: any): string | undefined {
     if (url.protocol === "https:" && !url.username && !url.password)
       return url.href;
   } catch {}
+}
+
+function codexTokens(value: any): Tokens | undefined {
+  const input = tokenCount(value?.inputTokens);
+  const output = tokenCount(value?.outputTokens);
+  // Cached input and reasoning output are already included in these totals.
+  if (input === undefined || output === undefined) return;
+  return { input_tokens: input, output_tokens: output };
 }
 
 export class Codex extends DirectAdapter implements Adapter {
