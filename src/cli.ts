@@ -249,7 +249,7 @@ async function stopAll(dir: string, connection: string) {
 }
 
 const execFileAsync = promisify(execFile);
-/** The launch to repeat on restart; written by each application launch. */
+/** The last ready launch to repeat on restart. */
 async function launchArgs(dir: string) {
   const saved = await readFile(join(dir, PROCESS_FILES.launch), "utf8")
     .then(JSON.parse)
@@ -1234,11 +1234,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const { workspaceLock } = await import("./process-records.js");
   const release = workspaceLock(dir);
   recordOwnedProcesses(join(dir, PROCESS_FILES.children));
-  atomic(join(dir, PROCESS_FILES.launch), {
-    schema: 1,
-    args: launch,
-    version: VERSION,
-  });
   const restarting = process.env.LOOP_LAUNCH_REASON === "restart";
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
   let lease: BackendLease | undefined,
@@ -1343,6 +1338,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
         url: gateway.origin,
         ...(quiet ? {} : { pair: gateway.pair() }),
       };
+      atomic(join(dir, PROCESS_FILES.launch), {
+        schema: 1,
+        args: launch,
+        version: VERSION,
+      });
       // Persist the project before returning pairing while preparation continues.
       // Automatic runtime choices remain ephemeral in remember().
       remember();

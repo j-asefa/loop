@@ -189,7 +189,7 @@ Use a dedicated tunnel. Loop generates ingress only for its authenticated gatewa
 
 `LOOP_HOME` defaults to `~/.local/state/loop`. Workspace state and its private encryption key live under `workspace/`. Stop Loop before backing up that complete directory; also preserve provider homes, project files and Docker companion volumes when applicable. Native history belongs to its harness.
 
-`workspace/launch.json` records the resolved application arguments used by restart and service installation. Startup also reads saved public URL, named-tunnel name and tunnel-config path from that launch when those flags are omitted; `--local-only` bypasses them. `workspace/preferences.json` holds managed-start project/provider defaults and per-harness billing choices, not tunnel settings. A one-off harness launch does not replace the managed-start defaults.
+`workspace/launch.json` records the resolved application arguments once the workspace is ready, for restart and service installation. Failed startup before readiness leaves the previous launch intact. Startup also reads saved public URL, named-tunnel name and tunnel-config path from that launch when those flags are omitted; `--local-only` bypasses them. `workspace/preferences.json` holds managed-start project/provider defaults and per-harness billing choices, not tunnel settings. A one-off harness launch does not replace the managed-start defaults.
 
 Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`; the connection service writes `connection/daemon.log`. Pairing codes are not logged. Keep the computer awake; phone disconnection does not stop work.
 

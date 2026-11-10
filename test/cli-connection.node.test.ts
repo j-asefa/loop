@@ -1170,6 +1170,22 @@ test("named tunnel startup and service installation repeat the saved launch with
     await w.loop(["stop"]);
     const dir = join(w.env.LOOP_HOME, "workspace");
     await rm(join(dir, "preferences.json"));
+    const savedLaunch = await readFile(join(dir, "launch.json"), "utf8");
+    await assert.rejects(
+      w.loop([
+        ...w.harness,
+        "--tunnel-name",
+        "broken",
+        "--tunnel-config",
+        join(w.base, "missing.yml"),
+      ]),
+      /ENOENT|no such file/i,
+    );
+    assert.equal(
+      await readFile(join(dir, "launch.json"), "utf8"),
+      savedLaunch,
+      "failed connection setup preserves the last ready launch",
+    );
     await w.loop(w.harness);
     assert.equal(
       (await w.status()).url,
