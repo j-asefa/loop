@@ -8,12 +8,19 @@ export abstract class DirectAdapter {
   constructor(
     private readonly controlHarness: string,
     emit: Emit,
-    private readonly controlOptions: { commands?: boolean } = {},
+    private readonly controlOptions: {
+      commands?: boolean;
+      plans?: boolean;
+    } = {},
   ) {
     this.emit = directActivityEmitter(emit);
   }
   protected createControls() {
-    return new DirectControls(this.controlHarness, this.emit);
+    return new DirectControls(
+      this.controlHarness,
+      this.emit,
+      this.controlOptions,
+    );
   }
   protected get displayControls() {
     return (this.controlState ||= this.createControls());

@@ -17,11 +17,12 @@ export class DirectControls {
   constructor(
     private harness: string,
     private emit: Emit,
+    options: { plans?: boolean } = {},
   ) {
     this.capabilities = undiscoveredCapabilities(`${harness} native protocol`);
     for (const feature of ["tools", "diffs", "output"] as const)
       this.capabilities[feature].state = "supported";
-    if (harness !== "pi") this.capabilities.plans.state = "supported";
+    if (options.plans !== false) this.capabilities.plans.state = "supported";
   }
   publish(options: Setting[], commands?: NativeCommand[]) {
     const remove = this.settings.options

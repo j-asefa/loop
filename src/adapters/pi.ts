@@ -85,7 +85,7 @@ export class Pi extends DirectAdapter implements Adapter {
     private options: Options,
     emit: Emit,
   ) {
-    super("pi", emit);
+    super("pi", emit, { plans: false });
   }
   private async readSettings(): Promise<Setting[]> {
     const state = await this.native.request("get_state", {}, false);

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Codex } from "../src/adapters/codex";
 import { Claude } from "../src/adapters/claude";
+import { Muse } from "../src/adapters/muse";
 import { Pi } from "../src/adapters/pi";
 import { OpenCode } from "../src/adapters/opencode";
 import {
@@ -477,4 +478,20 @@ it("pairs persisted controls with capabilities from the same harness and generat
     recordedSessionControls([{ kind: "settings", record: settings }] as any)
       .capabilities,
   ).toBeUndefined();
+});
+
+it("adapters declare their native plan display capability before discovery", () => {
+  for (const [Adapter, harness, state] of [
+    [Codex, "codex", "supported"],
+    [Claude, "claude", "supported"],
+    [OpenCode, "opencode", "supported"],
+    [Pi, "pi", "undiscovered"],
+    [Muse, "muse", "unsupported"],
+  ] as const) {
+    const adapter = new Adapter({ ...options, harness }, () => {});
+    expect(adapter.activityCapabilities.plans).toMatchObject({
+      state,
+      source: `${harness} native protocol`,
+    });
+  }
 });
