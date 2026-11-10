@@ -637,6 +637,21 @@ Thread and Done Feed pages, their activity counts and Done cards read `feed_card
 
 Saved Done groups use typed list and detail page routes, with at most 20 entries and 1,900,000 response bytes per page to fit the signed peer response envelope. List cursors bind the owner and selection; detail cursors also bind the group's ordered visible membership, so regrouping between pages returns an explicit refresh error. The [shared reader](../src/shared/done-thread-client.ts) keeps the source and cancellation lifetime across pages, rejects repeated cursors or incomplete membership, and retries the unpaged read only if the initial page endpoint returns 404, which a current missing source or group can produce. A single result exceeding the page budget returns an error directing the reader to its original conversation. These limits bound each wire response; group detail still reads up to 100 members on the owning server.
 
+The [queue composition](../src/server/queue.ts) supplies explicit lifecycle and
+claim-policy hooks to the [run state machine](../src/server/queue-machine.ts).
+The machine owns legal transitions, owner checks and lease transactions; it does
+not import checkout, webhook, mail or review implementations. In a transition's
+immediate transaction, the state changes, checkout capture is marked pending,
+the event is written, then webhook deliveries are enqueued. Capture starts after
+that inner transaction returns. A caller such as lease completion or claim
+cleanup can still hold an outer transaction at that point; this is not an
+after-commit callback. A failed transactional hook rolls back the transition
+and prevents the capture callback. Claim policy snapshots queued mail, cancels
+stopped review continuations, then refuses obsolete mail before selecting an
+eligible run, all within the claim transaction. PR watches and verifications
+observe completed native command output in the projector, with its generation
+and record context; they are not run-state transition subscribers.
+
 The worker coalesces scheduling wakes from queue and run-state publications, with a two-second fallback. Releasing an execution slot wakes scheduling again because a terminal publication can precede slot release. An empty claim does not schedule itself again. Stale-run recovery stays in the scheduling tick; other maintenance schedules remain independent.
 
 The [maintenance scheduler](../src/server/worker-maintenance.ts) owns background delivery, feed, memory and search timers and their mail/artifact wakes. Delivery passes coalesce while one is active; digests and feed watches run only after a successful feed refresh. Failed background tasks report `background-task-failed` with a task name and sanitized error class/code facts, without the thrown message. The [run lease timing](../src/server/run-lease.ts) derives the stale threshold from six heartbeat intervals: the heartbeat remains ten seconds and the threshold one minute.

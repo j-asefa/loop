@@ -18,7 +18,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db, id, now } from "./db.js";
-import type { Run } from "./queue.js";
+import type { Run } from "./row-schemas.js";
+import type { RunEventState } from "../shared/workspace-events.js";
 export type {
   CheckoutFile,
   CheckoutStat,
@@ -995,3 +996,16 @@ export function reconcileCheckouts(): Promise<void> {
   });
   return reconciling;
 }
+
+// The request must be durable before the transition event. Capture starts after
+// the inner transition transaction returns; a caller may still own an outer one.
+export const checkoutTransitions = {
+  beforeEvent(run: Pick<Run, "id" | "owner_id">, state: RunEventState) {
+    if (TERMINAL_RUN_STATES.includes(state))
+      runCheckoutsQueries.markPending(db, run.id);
+  },
+  afterTransition(run: Pick<Run, "id" | "owner_id">, state: RunEventState) {
+    if (TERMINAL_RUN_STATES.includes(state))
+      void completeCheckout(run.id).catch(() => {});
+  },
+};
