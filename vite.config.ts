@@ -1,9 +1,7 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import { readFileSync } from "node:fs";
-const stamp = process.env.LOOP_BUILD_STAMP_FILE
-  ? JSON.parse(readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8"))
-  : null;
+import { readBuildStamp } from "./scripts/build-stamp.ts";
+const stamp = readBuildStamp();
 export default defineConfig({
   plugins: [react()],
   define: {

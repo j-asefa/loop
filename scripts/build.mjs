@@ -3,6 +3,7 @@ import { cp, rm, mkdtemp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSource } from "./build-source.mjs";
+import { BuildStamp } from "../src/shared/build.ts";
 
 const root = process.cwd();
 const source = await buildSource(root);
@@ -26,7 +27,11 @@ try {
   }
   metadata = await mkdtemp(join(tmpdir(), "loop-build-stamp-"));
   const stampFile = join(metadata, "stamp.json");
-  await writeFile(stampFile, JSON.stringify(source.stamp));
+  const { version } = JSON.parse(
+    await readFile(join(source.directory, "package.json"), "utf8"),
+  );
+  const stamp = BuildStamp.parse({ ...source.stamp, release: version });
+  await writeFile(stampFile, JSON.stringify(stamp));
   const env = { ...process.env, LOOP_BUILD_STAMP_FILE: stampFile };
   for (const args of [
     ["scripts/typecheck.mjs"],

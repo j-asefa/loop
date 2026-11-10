@@ -12,6 +12,7 @@ export const BuildIdentity = z.object({
 export type BuildIdentity = z.infer<typeof BuildIdentity>;
 export const BuildStamp = BuildIdentity.extend({
   ancestors: z.array(Commit).max(10000),
+  release: z.string().min(1).max(100),
 });
 export type BuildStamp = z.infer<typeof BuildStamp>;
 
@@ -30,6 +31,7 @@ export const runningBuild: BuildStamp = Object.freeze(
         clean: false,
         builtAt: 0,
         ancestors: [],
+        release: "development",
       },
 );
 export function publicBuild(build: BuildIdentity): BuildIdentity {

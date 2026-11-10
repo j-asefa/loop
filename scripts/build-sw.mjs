@@ -1,12 +1,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
-const version = createHash("sha256")
-  .update(readFileSync("dist/client/index.html"))
-  .digest("hex")
-  .slice(0, 12);
+import { readBuildStamp } from "./build-stamp.ts";
+const stamp = readBuildStamp();
+if (!stamp) throw new Error("Build stamp missing; run npm run build.");
 writeFileSync(
   "dist/client/sw.js",
-  `const CACHE='loop-shell-${version}';const PUBLIC=['/offline.html','/offline.css','/icon-192.png','/icon-512.png','/apple-touch-icon.png','/manifest.webmanifest'];
+  `const CACHE=${JSON.stringify(`loop-shell-${stamp.id}`)};const PUBLIC=['/offline.html','/offline.css','/icon-192.png','/icon-512.png','/apple-touch-icon.png','/manifest.webmanifest'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(PUBLIC))));
 self.addEventListener('message',e=>{if(e.data?.type==='ACTIVATE')self.skipWaiting()});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('loop-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

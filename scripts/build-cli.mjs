@@ -1,7 +1,10 @@
-import { globSync, readdirSync, readFileSync } from "node:fs";
+import { globSync, readdirSync } from "node:fs";
 import { build } from "esbuild";
 import { cp, chmod, rm, writeFile } from "node:fs/promises";
+import { readBuildStamp } from "./build-stamp.ts";
 import { stageRuntimeAssets } from "./build-runtime-assets.mjs";
+const stamp = readBuildStamp();
+if (!stamp) throw new Error("Build stamp missing; run npm run build.");
 // Clear old server code while preserving the freshly built UI.
 for (const entry of readdirSync("dist")) {
   if (entry !== "client")
@@ -19,9 +22,7 @@ await build({
   target: "node22",
   packages: "external",
   define: {
-    __LOOP_BUILD__: process.env.LOOP_BUILD_STAMP_FILE
-      ? readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")
-      : "null",
+    __LOOP_BUILD__: JSON.stringify(stamp),
   },
 });
 await import("./build-connection.mjs");
@@ -31,14 +32,7 @@ await cp("src/pi-auth-extension.mjs", "dist/pi-auth-extension.mjs");
 await rm("dist/web", { recursive: true, force: true });
 await cp("dist/client", "dist/web", { recursive: true });
 await chmod("dist/cli.js", 0o755);
-await writeFile(
-  "dist/build-id.json",
-  JSON.stringify({
-    id: process.env.LOOP_BUILD_STAMP_FILE
-      ? JSON.parse(readFileSync(process.env.LOOP_BUILD_STAMP_FILE, "utf8")).id
-      : "development",
-  }),
-);
+await writeFile("dist/build-id.json", JSON.stringify(stamp));
 await stageRuntimeAssets(process.cwd(), "dist");
 
 // Install the CLI with the same dependency graph validated by npm ci.

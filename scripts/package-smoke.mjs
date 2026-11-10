@@ -86,6 +86,16 @@ try {
     JSON.parse(await readFile("dist/build-id.json", "utf8")).id,
   );
   assert.notEqual(identity.id, "development");
+  const stamp = JSON.parse(await readFile("dist/build-id.json", "utf8"));
+  assert.equal(
+    stamp.release,
+    JSON.parse(await readFile("package.json", "utf8")).version,
+  );
+  assert(
+    (await readFile("dist/web/sw.js", "utf8")).includes(
+      JSON.stringify(`loop-shell-${identity.id}`),
+    ),
+  );
   bin = join(target, "node_modules", ".bin", "loop");
   env = {
     ...process.env,
@@ -247,6 +257,7 @@ try {
   assert.equal(status.agents, 1);
   assert.equal(status.state, "ready");
   assert.deepEqual(status.buildIdentity, identity);
+  assert.equal(status.build, identity.id);
   assert(!JSON.stringify(status).includes(cookie.split("=")[1]));
   const repeated = await exec(
     bin,

@@ -286,6 +286,7 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
   mkdirSync(join(folder, "server"), { recursive: true });
   const old: BuildStamp = {
     id: "old-build",
+    release: "0.1.0",
     repository: LOOP_REPOSITORY,
     commit: "a".repeat(40),
     clean: true,
@@ -300,7 +301,7 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
     format: "esm",
     define: { __LOOP_BUILD__: JSON.stringify(old) },
   });
-  writeFileSync(join(folder, "build-id.json"), JSON.stringify({ id: old.id }));
+  writeFileSync(join(folder, "build-id.json"), JSON.stringify(old));
   const result = JSON.parse(
     execFileSync(
       process.execPath,
@@ -311,9 +312,9 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
     import {observedBuild} from ${JSON.stringify(pathToFileURL(join(folder, "server", "runtime.mjs")).href)};
     import {writeFileSync} from 'node:fs';
     const before=observedBuild();
-    writeFileSync(process.argv[1],JSON.stringify({id:'new-installation'}));
+    writeFileSync(process.argv[1],JSON.stringify({...before,id:'new-installation'}));
     const after=observedBuild();
-    writeFileSync(process.argv[1],JSON.stringify({id:'old-build'}));
+    writeFileSync(process.argv[1],JSON.stringify(before));
     console.log(JSON.stringify({before,after,restored:observedBuild()}));
   `,
         join(folder, "build-id.json"),
