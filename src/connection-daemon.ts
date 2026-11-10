@@ -13,7 +13,8 @@ import {
  * file so a package upgrade cannot remove code it loads later. See
  * docs/pairing.md for the protocol and recovery rules.
  */
-import { createServer, request, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
+import { jsonClient } from "./local-control.js";
 import { chmodSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -49,36 +50,17 @@ const LEASE_TIMEOUT_MS =
 const equal = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-function probe(path: string, nonce: string) {
-  return new Promise<string>((resolve, reject) => {
-    const req = request(
-      {
-        socketPath: path,
-        path: "/__loop/backend-probe?nonce=" + nonce,
-        method: "GET",
-        headers: { "x-loop-probe": "1" },
-        timeout: 3000,
-      },
-      (res) => {
-        let out = "";
-        res.setEncoding("utf8");
-        res.on("data", (b) => {
-          out += b;
-          if (out.length > 1000) req.destroy();
-        });
-        res.on("end", () => {
-          try {
-            resolve(String(JSON.parse(out).proof ?? ""));
-          } catch {
-            reject(new Error("Invalid probe response"));
-          }
-        });
-      },
-    );
-    req.on("timeout", () => req.destroy(new Error("Probe timed out")));
-    req.on("error", reject);
-    req.end();
-  });
+async function probe(path: string, nonce: string) {
+  const value = await jsonClient({ socketPath: path })(
+    "/__loop/backend-probe?nonce=" + nonce,
+    {
+      method: "GET",
+      headers: { "x-loop-probe": "1" },
+      timeout: 3000,
+      maxBytes: 1000,
+    },
+  );
+  return String(value?.proof ?? "");
 }
 async function body(req: IncomingMessage) {
   let raw = "";

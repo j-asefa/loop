@@ -3,7 +3,7 @@
  * service. The service owns Cloudflared and a stable local relay; the Loop
  * application registers behind it once per launch. See docs/pairing.md.
  */
-import { request } from "node:http";
+import { jsonClient, ControlError } from "./local-control.js";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -162,14 +162,6 @@ export function readConnectionRecord(dir: string) {
   return parsed.data;
 }
 
-class ControlError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
-    super(message);
-  }
-}
 /** One authenticated request on the connection service's private socket. */
 export function connectionControl<T = any>(
   record: Pick<ConnectionRecord, "control" | "token">,
@@ -177,51 +169,10 @@ export function connectionControl<T = any>(
   body: unknown = {},
   timeout = 5000,
 ): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const req = request(
-      {
-        socketPath: record.control,
-        path: "/v1/" + operation,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + record.token,
-        },
-        timeout,
-      },
-      (res) => {
-        let out = "";
-        res.setEncoding("utf8");
-        res.on("data", (chunk) => {
-          out += chunk;
-          if (out.length > 100000) req.destroy();
-        });
-        res.on("end", () => {
-          let value: any;
-          try {
-            value = JSON.parse(out);
-          } catch {
-            return reject(
-              new ControlError("Invalid connection service response"),
-            );
-          }
-          if (res.statusCode === 200) resolve(value);
-          else
-            reject(
-              new ControlError(
-                value?.error ?? "Connection service request failed",
-                res.statusCode,
-              ),
-            );
-        });
-      },
-    );
-    req.on("timeout", () =>
-      req.destroy(new ControlError("Connection service did not respond")),
-    );
-    req.on("error", reject);
-    req.end(JSON.stringify(body));
-  });
+  return jsonClient({ socketPath: record.control }, record.token)<T>(
+    "/v1/" + operation,
+    { body, timeout },
+  );
 }
 
 export type Inspection =
