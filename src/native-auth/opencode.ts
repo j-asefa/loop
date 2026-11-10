@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { own } from "../processes.js";
-import type { AuthDriver } from "../server/native-auth.js";
-import type { AuthOptions } from "../server/native-auth.js";
+import type { AuthDriver } from "./types.js";
+import type { AuthOptions } from "./types.js";
 import { stop } from "./process.js";
 
 export async function openCodeDriver(

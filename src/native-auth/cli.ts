@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { own } from "../processes.js";
 import { harnesses } from "../shared/harnesses.js";
-import type { AuthDriver } from "../server/native-auth.js";
-import type { AuthOptions } from "../server/native-auth.js";
+import type { AuthDriver } from "./types.js";
+import type { AuthOptions } from "./types.js";
 import { stop } from "./process.js";
 
 // Codex and Grok Build print a device-code URL and code; Claude Code prints a

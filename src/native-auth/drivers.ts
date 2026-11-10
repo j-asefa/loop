@@ -1,5 +1,5 @@
 import { RuntimeHarness } from "../shared/harnesses.js";
-import type { AuthDriver, AuthOptions } from "../server/native-auth.js";
+import type { AuthDriver, AuthOptions } from "./types.js";
 import { cliDriver } from "./cli.js";
 import { piDriver } from "./pi.js";
 import { openCodeDriver } from "./opencode.js";

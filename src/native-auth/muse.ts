@@ -1,6 +1,6 @@
-import { museHost } from "../adapters/muse.js";
-import type { AuthDriver } from "../server/native-auth.js";
-import type { AuthOptions } from "../server/native-auth.js";
+import { museHost } from "../muse-host.js";
+import type { AuthDriver } from "./types.js";
+import type { AuthOptions } from "./types.js";
 
 // Muse Code's MSP host owns sign-in: a device-code flow for a Meta account or
 // a stored API key. Credentials stay in Muse's own store.

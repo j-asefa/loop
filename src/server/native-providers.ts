@@ -15,7 +15,8 @@ import {
 import type { ExecutionInput } from "../shared/execution-authority.js";
 import { db, now } from "./db.js";
 import { nativeSessions, OWNER } from "./native-sessions.js";
-import { nativeSignIns, type AuthDriver } from "./native-auth.js";
+import { nativeSignIns } from "./native-auth.js";
+import type { AuthDriver } from "../native-auth/types.js";
 import { authOptions } from "./execution-runtime-actions.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { reserveProviderChange } from "./native-provider-locks.js";
