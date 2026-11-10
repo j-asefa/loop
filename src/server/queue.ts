@@ -1,3 +1,4 @@
+import { STALE_RUN_LEASE_MS } from "./run-lease.js";
 import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
 import * as runCheckoutsQueries from "./sql/run-checkouts.js";
 import * as mailQueries from "./sql/agent-mail.js";
@@ -210,7 +211,7 @@ export function completeLeased(
 export function recoverStale() {
   const stale = z
     .array(RunIdentity)
-    .parse(runsQueries.staleIdentities(db, now() - 60000));
+    .parse(runsQueries.staleIdentities(db, now() - STALE_RUN_LEASE_MS));
   for (const run of stale)
     transition(run, "interrupted", {
       message:

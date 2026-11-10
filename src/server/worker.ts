@@ -1,3 +1,9 @@
+import {
+  startMaintenance,
+  reconcileWorkerCheckouts,
+} from "./worker-maintenance.js";
+import { reportBackgroundFailure } from "./background-failure.js";
+import { RUN_HEARTBEAT_MS } from "./run-lease.js";
 import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
@@ -15,7 +21,6 @@ import { closeFinishedSessions } from "./mcp/sessions.js";
 import { Problem } from "./domain.js";
 import { db, changes, emit, id, now } from "./db.js";
 import { executeImport } from "./imports.js";
-import { indexPending } from "./search.js";
 import { executeAgent } from "./agent-runtime.js";
 import {
   claim,
@@ -29,17 +34,7 @@ import {
 import { RunDeferred } from "./run-deferred.js";
 import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
 import { harnessHolds } from "./harness-holds.js";
-import { captureMemory } from "./memory.js";
 import { nativeSessions } from "./native-sessions.js";
-import { deliverNotifications } from "./notifications.js";
-import { deliverWebhooks } from "./webhooks.js";
-import { deliverScheduledSends, surfaceLater } from "./mobile-return.js";
-import { pollWatches } from "./pr-watches.js";
-import { refreshDueFeeds } from "./news.js";
-import { runDueDigests } from "./feed-digests.js";
-import { matchWatches } from "./feed-watches.js";
-import { sweepAgentMail } from "./agent-mail.js";
-import { reconcileCheckouts } from "./run-checkouts.js";
 import { observeProcess } from "./deployments.js";
 import { heartbeatWrite } from "./heartbeat-write.js";
 import {
@@ -65,7 +60,7 @@ export async function tick(
   assertExecutionGeneration(workerId);
   recoverStale();
   recoverStuckRuns();
-  void reconcileCheckouts().catch(() => {});
+  reconcileWorkerCheckouts();
   const run = claim(workerId, (candidate) => {
     if (!accepting()) return false;
     assertExecutionGeneration(workerId);
@@ -92,7 +87,7 @@ export async function tick(
       heartbeatWrite("run", () =>
         runsQueries.heartbeatLease(db, now(), run.id, workerId),
       ),
-    10000,
+    RUN_HEARTBEAT_MS,
   );
   try {
     const complete = await execute(run);
@@ -179,98 +174,13 @@ export function startWorker() {
       workerHealthQueries.heartbeat(db, workerId, now()),
     );
   heartbeat();
-  const maintenanceTimers: ReturnType<typeof setInterval>[] = [];
-  const cleanupController = new AbortController();
-  let notifying = false;
-  let maintenanceWake: ReturnType<typeof setImmediate> | undefined;
-  let maintenanceDirty = false;
-  const maintain = () => {
-    if (stopping) return;
-    if (notifying) {
-      maintenanceDirty = true;
-      return;
-    }
-    notifying = true;
-    // Surface Later items and submit due scheduled messages before
-    // delivery, so their pushes go out in the same pass.
-    try {
-      surfaceLater();
-    } catch {}
-    try {
-      deliverScheduledSends();
-    } catch {}
-    // Results of background delegations, and team messages whose task
-    // ended before reading them.
-    try {
-      sweepAgentMail();
-    } catch {}
-    const delivery = Promise.allSettled([
-      deliverNotifications(),
-      deliverWebhooks(cleanupController.signal),
-    ])
-      .catch(() => {})
-      .finally(() => {
-        inflight.delete(delivery);
-        notifying = false;
-        if (maintenanceDirty) {
-          maintenanceDirty = false;
-          wakeMaintenance();
-        }
-      });
-    inflight.add(delivery);
-  };
-  const wakeMaintenance = () => {
-    if (stopping || maintenanceWake) return;
-    maintenanceWake = setImmediate(() => {
-      maintenanceWake = undefined;
-      maintain();
-    });
-  };
-  maintenanceTimers.push(setInterval(maintain, 3000));
-  // Watched pull requests; each one is read about once a minute.
-  maintenanceTimers.push(
-    setInterval(() => {
-      if (stopping) return;
-      for (const poll of [pollWatches]) {
-        const promise = poll()
-          .catch(() => {})
-          .finally(() => inflight.delete(promise));
-        inflight.add(promise);
-      }
-    }, 15_000),
-  );
-  // Social feeds. Reading them here rather than when a page asks means
-  // opening Social is served from the store, and stays fresh with the tab
-  // closed. Digests and watches run once the reads have settled, so they
-  // see what the pass brought in rather than what was there before it; the
-  // whole sequence is one tracked job, so stopping waits for all of it.
-  maintenanceTimers.push(
-    setInterval(() => {
-      if (stopping) return;
-      const promise = refreshDueFeeds()
-        .then(() => {
-          try {
-            runDueDigests();
-          } catch {}
-          try {
-            matchWatches();
-          } catch {}
-        })
-        .catch(() => {})
-        .finally(() => inflight.delete(promise));
-      inflight.add(promise);
-    }, 60_000),
-  );
-  maintenanceTimers.push(
-    setInterval(() => {
-      if (stopping) return;
-      try {
-        captureMemory();
-      } catch {}
-    }, 5000),
-  );
-  const health = setInterval(heartbeat, 5000);
-  const index = setInterval(() => void indexPending().catch(() => {}), 5000);
+  const stopMaintenance = startMaintenance((promise) => {
+    inflight.add(promise);
+    const settled = () => {
+      inflight.delete(promise);
+    };
+    void promise.then(settled, settled);
+  }, heartbeat);
   let scheduled: ReturnType<typeof setImmediate> | undefined;
   const wake = () => {
     if (stopping || scheduled) return;
@@ -283,7 +193,7 @@ export function startWorker() {
         .then((result) => {
           claimed = result;
         })
-        .catch(() => {})
+        .catch((error) => reportBackgroundFailure("worker.tick", error))
         .finally(() => {
           active--;
           inflight.delete(promise);
@@ -295,13 +205,6 @@ export function startWorker() {
     });
   };
   const unsubscribe = changes.subscribe(null, (events) => {
-    if (
-      events.some(
-        ({ type }) =>
-          type.startsWith("agent_mail.") || type === "artifact.published",
-      )
-    )
-      wakeMaintenance();
     if (
       events.some(
         ({ type }) =>
@@ -318,11 +221,7 @@ export function startWorker() {
     if (stopping) return;
     stopping = true;
     stopObservation();
-    cleanupController.abort();
-    maintenanceTimers.forEach(clearInterval);
-    if (maintenanceWake) clearImmediate(maintenanceWake);
-    clearInterval(health);
-    clearInterval(index);
+    stopMaintenance();
     clearInterval(scheduling);
     unsubscribe();
     if (scheduled) clearImmediate(scheduled);

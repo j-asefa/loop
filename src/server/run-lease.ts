@@ -1,0 +1,2 @@
+export const RUN_HEARTBEAT_MS = 10_000;
+export const STALE_RUN_LEASE_MS = 6 * RUN_HEARTBEAT_MS;
