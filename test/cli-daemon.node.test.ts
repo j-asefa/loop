@@ -1012,11 +1012,18 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
   try {
     await mkdir(w.dir, { recursive: true });
     await writeFile(
-      join(w.dir, "preferences.json"),
+      join(w.dir, "launch.json"),
       JSON.stringify({
-        publicUrl: "https://saved-tunnel.invalid",
-        tunnelName: "saved-tunnel",
-        tunnelConfig: "/nonexistent/tunnel.yml",
+        schema: 1,
+        args: [
+          "start",
+          "--public-url",
+          "https://saved-tunnel.invalid",
+          "--tunnel-name",
+          "saved-tunnel",
+          "--tunnel-config",
+          "/nonexistent/tunnel.yml",
+        ],
       }),
     );
     const started = await w.start();
