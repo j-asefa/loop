@@ -70,7 +70,7 @@ export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
       ) {
         clearTimeout(timer);
         resolve();
-      } else setTimeout(confirmStopped, 25);
+      } else setTimeout(confirmStopped, 1000);
     };
     child.stdin?.end();
     killOwned(child, "SIGTERM");
