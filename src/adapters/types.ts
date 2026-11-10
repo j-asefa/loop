@@ -1,3 +1,5 @@
+import type { NativeCommand } from "../shared/native-commands.js";
+export type { NativeCommand } from "../shared/native-commands.js";
 import type { AdapterEvent } from "./events.js";
 import type { Billing, Capabilities, Harness } from "../shared/protocol.js";
 import type {
@@ -23,21 +25,6 @@ export type Options = {
   projectTrust?: boolean;
   workspaceTools?: { url: string; token: string };
   args?: string[];
-};
-export type NativeCommand = {
-  name: string;
-  token: string;
-  kind: string;
-  description: string;
-  argumentHint?: string;
-  disabledReason?: string;
-  sourceInfo?: {
-    source?: string;
-    scope?: string;
-    origin?: string;
-    baseDir?: string;
-    path?: string;
-  };
 };
 export type Emit = (event: AdapterEvent) => void;
 // Live input that was certainly not handed to the harness (no turn to take

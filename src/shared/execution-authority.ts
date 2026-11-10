@@ -1,3 +1,4 @@
+import { NativeCommand } from "./native-commands.js";
 import { Billing } from "./protocol.js";
 import { z } from "zod";
 import { FleetGrantContext } from "./fleet.js";
@@ -48,24 +49,6 @@ const Model = z
     defaultEffort: z.string().optional(),
   })
   .catchall(z.json());
-const NativeCommand = z.strictObject({
-  name: z.string(),
-  token: z.string(),
-  kind: z.string(),
-  description: z.string(),
-  argumentHint: z.string().optional(),
-  disabledReason: z.string().optional(),
-  sourceInfo: z
-    .object({
-      source: z.string().optional(),
-      scope: z.string().optional(),
-      origin: z.string().optional(),
-      baseDir: z.string().optional(),
-      path: z.string().optional(),
-    })
-    .catchall(z.json())
-    .optional(),
-});
 const Catalog = z.strictObject({
   available: z.boolean(),
   runtime: z.string().optional(),
