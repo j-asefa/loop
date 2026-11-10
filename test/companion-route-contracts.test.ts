@@ -93,8 +93,8 @@ writeFileSync(
 );
 const { db } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
-const { nativeSessions, OWNER: owner } =
-  await import("../src/server/native-sessions");
+const { nativeSessions } = await import("../src/server/native-sessions");
+const { OWNER: owner } = await import("../src/server/workspace-identity");
 const { closeExecution } = await import("../src/server/execution-client");
 const { harnessUpgrades } = await import("../src/server/harness-upgrades");
 const { applyActivity, setActivityCapabilities, listActivities } =

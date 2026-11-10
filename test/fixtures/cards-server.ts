@@ -28,7 +28,7 @@ function observeTokenSocket(req: IncomingMessage, socket: Duplex) {
 }
 const { WorkspaceHost } = await import(source + "workspace-host.js");
 const { AgentSources } = await import(source + "agent-sources.js");
-const { OWNER } = await import(source + "server/native-sessions.js");
+const { OWNER } = await import(source + "server/workspace-identity.js");
 const host = new WorkspaceHost(config.data, {
   harness: "codex",
   version: "fixture",

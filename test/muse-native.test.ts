@@ -15,7 +15,8 @@ writeFileSync(
 );
 gitProject(dir);
 const { db } = await import("../src/server/db");
-const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { NativeSessions } = await import("../src/server/native-sessions");
+const { OWNER } = await import("../src/server/workspace-identity");
 const { createAgent, ownedConnection } = await import("../src/server/domain");
 const { enqueue, claim, transition } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");

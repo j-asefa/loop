@@ -28,8 +28,9 @@ process.env.LOOP_DATA_DIR = data;
 process.env.LOOP_TEST_GROK_AUTO = "1";
 process.env.LOOP_TEST_GROK_LOG = join(root, "requests");
 const { db } = await import("../src/server/db.js");
-const { nativeSessions, NativeSessions, OWNER } =
+const { nativeSessions, NativeSessions } =
   await import("../src/server/native-sessions.js");
+const { OWNER } = await import("../src/server/workspace-identity.js");
 const { enqueue, transition } = await import("../src/server/queue.js");
 const { tick, execute } = await import("../src/server/worker.js");
 const { completeCheckout } = await import("../src/server/run-checkouts.js");

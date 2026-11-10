@@ -15,7 +15,8 @@ import { z } from "zod";
 import { db } from "./db.js";
 import { config } from "./config.js";
 import { ownedFolder, ownedConversation, Problem } from "./domain.js";
-import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSessions } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { executionRequest } from "./execution-client.js";
 
 const routes = registrar("companion", { middleware: [[nativeHistory]] });

@@ -10,7 +10,8 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
-const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { NativeSessions } = await import("../src/server/native-sessions");
+const { OWNER } = await import("../src/server/workspace-identity");
 const { createAgent, ownedConnection, ownedRun } =
   await import("../src/server/domain");
 const { enqueue, claim } = await import("../src/server/queue");

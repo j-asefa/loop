@@ -22,7 +22,8 @@ import {
 import { MAX_NATIVE_REQUEST_BYTES } from "../../shared/workspace-events.js";
 import { transition, type Run } from "../queue.js";
 import type { AdapterEvent } from "../../adapters/events.js";
-import { OWNER, type Live } from "./state.js";
+import { type Live } from "./state.js";
+import { OWNER } from "../workspace-identity.js";
 
 type Context = {
   live: ReadonlyMap<string, Live>;

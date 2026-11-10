@@ -3,11 +3,8 @@ import express from "express";
 import Database from "better-sqlite3";
 import { db, id, now } from "../../src/server/db.js";
 import { enqueue, claim } from "../../src/server/queue.js";
-import {
-  nativeSessions,
-  OWNER,
-  type Live,
-} from "../../src/server/native-sessions.js";
+import { nativeSessions, type Live } from "../../src/server/native-sessions.js";
+import { OWNER } from "../../src/server/workspace-identity.js";
 import { NativeOutput } from "../../src/server/native-output.js";
 
 // Fault injection is IPC-only and installed in the isolated fixture process.

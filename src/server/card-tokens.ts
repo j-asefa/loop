@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import type { CardChanges, CardPage } from "../shared/cards.js";
 import type { IncomingMessage } from "node:http";
 import { db } from "./db.js";
-import { OWNER } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { Problem } from "./domain.js";
 import {
   CreateCardTokenSchema,

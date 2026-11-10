@@ -26,7 +26,7 @@ import {
 } from "../pi-package-inspect.js";
 import type { NativeProjects } from "./projects.js";
 import type { Live } from "./state.js";
-import { OWNER } from "./state.js";
+import { OWNER } from "../workspace-identity.js";
 
 type Context = {
   live: ReadonlyMap<string, Live>;

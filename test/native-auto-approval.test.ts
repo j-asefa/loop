@@ -21,7 +21,8 @@ const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
-const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { NativeSessions } = await import("../src/server/native-sessions");
+const { OWNER } = await import("../src/server/workspace-identity");
 const { personalDecisions } = await import("../src/server/personal-decisions");
 afterAll(() => {
   db.close();

@@ -16,8 +16,8 @@ const { config } = await import("../src/server/config");
 const { enqueue, transition } = await import("../src/server/queue");
 const { observeProcess } = await import("../src/server/deployments");
 const { closeExecution } = await import("../src/server/execution-client");
-const { nativeSessions, OWNER: owner } =
-  await import("../src/server/native-sessions");
+const { nativeSessions } = await import("../src/server/native-sessions");
+const { OWNER: owner } = await import("../src/server/workspace-identity");
 const { app } = await import("../src/server/index");
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));

@@ -6,7 +6,8 @@ import { discover } from "../host-control.js";
 import { setRuntimeSetupState } from "../runtime-setup.js";
 import type { Harness } from "../shared/protocol.js";
 import { db } from "./db.js";
-import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSessions } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 
 /** Discover and verify each harness independently. Never makes a model request. */
 export async function prepareLocalHarnesses(

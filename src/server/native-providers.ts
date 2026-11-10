@@ -14,7 +14,8 @@ import {
 } from "../shared/native-providers.js";
 import type { ExecutionInput } from "../shared/execution-authority.js";
 import { db, now } from "./db.js";
-import { nativeSessions, OWNER } from "./native-sessions.js";
+import { nativeSessions } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import { nativeSignIns } from "./native-auth.js";
 import type { AuthDriver } from "../native-auth/types.js";
 import { authOptions } from "./execution-runtime-actions.js";

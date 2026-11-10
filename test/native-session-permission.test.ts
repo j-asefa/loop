@@ -22,7 +22,8 @@ db.prepare(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
 ).run();
 const { enqueue } = await import("../src/server/queue");
-const { NativeSessions, OWNER } = await import("../src/server/native-sessions");
+const { NativeSessions } = await import("../src/server/native-sessions");
+const { OWNER } = await import("../src/server/workspace-identity");
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
 db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(

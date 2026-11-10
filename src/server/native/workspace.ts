@@ -10,7 +10,8 @@ import { config } from "../config.js";
 import { realpathSync } from "node:fs";
 import { Problem } from "../domain.js";
 import { type Harness } from "../../shared/protocol.js";
-import { OWNER, type Binding } from "./state.js";
+import { type Binding } from "./state.js";
+import { OWNER } from "../workspace-identity.js";
 
 export function prepareWorkspace(...args: Parameters<typeof agentWorkspace>) {
   try {

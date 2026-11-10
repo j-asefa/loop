@@ -15,7 +15,7 @@ import { writeConnectionStatus } from "./connection-status.js";
 import type { RequestHandler } from "express";
 import { designPreview } from "../preview-context.js";
 import { db, changes, emit, id, now } from "./db.js";
-import { OWNER } from "./native-sessions.js";
+import { OWNER } from "./workspace-identity.js";
 import {
   ownedConnection,
   ownedApproval,
