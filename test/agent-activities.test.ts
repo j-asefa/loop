@@ -1,7 +1,10 @@
+import { SessionControls } from "../src/shared/session-controls";
 import { describe, expect, it } from "vitest";
 import {
   ACTIVITY_LIMITS,
   activityKey,
+  parseActivityUpdate,
+  undiscoveredCapabilities,
   outputText,
   reduceActivities,
   reduceActivity,
@@ -329,6 +332,59 @@ describe("settings and commands", () => {
       patch,
       ...extra,
     }) as ActivityUpdate;
+  it("keeps full session choices while rejecting an oversized activity delta", () => {
+    const option = {
+      id: "model",
+      choices: Array.from({ length: 152 }, (_, i) => ({
+        value: String(i),
+        label: "model".repeat(101),
+      })),
+      confirmed: "0",
+    };
+    const controls = SessionControls.parse({
+      generation: "g1",
+      settings: { options: [option], revision: 1 },
+      commands: { commands: [], revision: 1 },
+      capabilities: undiscoveredCapabilities("fixture"),
+    });
+    expect(controls.settings.options[0].choices).toEqual(option.choices);
+    expect(() =>
+      parseActivityUpdate(settings({ options: [option] })),
+    ).toThrow();
+  });
+  it("rejects unknown setting fields at ingestion but strips them from full controls", () => {
+    const option = {
+      id: "model",
+      choices: [{ value: "a", label: "A", extra: true }],
+      extra: true,
+    };
+    expect(() =>
+      parseActivityUpdate(settings({ options: [option] })),
+    ).toThrow();
+    const controls = SessionControls.parse({
+      generation: "g1",
+      settings: { options: [option], revision: 1 },
+      commands: { commands: [], revision: 1 },
+      capabilities: undiscoveredCapabilities("fixture"),
+    });
+    expect(controls.settings.options).toEqual([
+      { id: "model", choices: [{ value: "a", label: "A" }] },
+    ]);
+    expect(() =>
+      parseActivityUpdate(
+        settings({ options: [{ id: "model", confirmed: "x".repeat(1001) }] }),
+      ),
+    ).toThrow();
+    expect(
+      parseActivityUpdate(
+        settings({
+          options: [{ id: "model", confirmed: null, requested: false }],
+        }),
+      ),
+    ).toMatchObject({
+      patch: { options: [{ confirmed: null, requested: false }] },
+    });
+  });
   it("keeps requested values separate from confirmed ones", () => {
     const r = fold([
       settings({

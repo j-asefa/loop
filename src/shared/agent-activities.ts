@@ -1,3 +1,7 @@
+import { settingSchema } from "./control-settings.js";
+import type { Setting } from "./control-settings.js";
+export type { Setting, SettingValue } from "./control-settings.js";
+import { NativeCommand } from "./native-commands.js";
 import { z } from "zod";
 
 // Shared agent activities: one versioned display model for native harnesses,
@@ -261,40 +265,7 @@ export type OutputData = {
   }[];
 };
 
-// ---- Session settings ---------------------------------------------------
-const SettingValue = z.union([z.string().max(1000), z.boolean(), z.number()]);
-export type SettingValue = z.infer<typeof SettingValue>;
-const Setting = z
-  .object({
-    id: Id,
-    label: z.string().max(ACTIVITY_LIMITS.title).optional(),
-    description: z.string().max(2000).nullable().optional(),
-    type: z.enum(["select", "boolean", "text"]).optional(),
-    choices: z
-      .array(
-        z
-          .object({
-            value: z.string().max(1000),
-            label: z.string().max(ACTIVITY_LIMITS.title),
-            description: z.string().max(1000).optional(),
-          })
-          .strict(),
-      )
-      .max(ACTIVITY_LIMITS.choices)
-      .nullable()
-      .optional(),
-    // The authoritative runtime confirmed this value. Never set from a request.
-    confirmed: SettingValue.nullable().optional(),
-    // A value Loop asked for that the runtime has not yet confirmed or rejected.
-    requested: SettingValue.nullable().optional(),
-    rejected: z.string().max(1000).nullable().optional(),
-    application: z.enum(["live", "next-turn", "new-session"]).optional(),
-    mutable: z.boolean().optional(),
-    reason: z.string().max(1000).nullable().optional(),
-    provenance: z.string().max(100).optional(),
-  })
-  .strict();
-export type Setting = z.infer<typeof Setting>;
+const Setting = settingSchema(ACTIVITY_LIMITS);
 const SettingsPatch = z
   .object({
     // Upsert by id; each option merges field-by-field.
@@ -309,19 +280,22 @@ export type SettingsData = {
   revision: number;
 };
 
-// ---- Command catalogs ---------------------------------------------------
-const CatalogCommand = z
-  .object({
-    id: Id,
-    token: z.string().min(1).max(200),
-    name: z.string().max(200),
-    description: z.string().max(2000).default(""),
-    argumentHint: z.string().max(500).optional(),
-    kind: z.string().max(40).optional(),
-    available: z.boolean().default(true),
-    reason: z.string().max(1000).optional(),
-  })
-  .strict();
+const CatalogCommand = NativeCommand.pick({
+  name: true,
+  token: true,
+  kind: true,
+  description: true,
+  argumentHint: true,
+}).extend({
+  id: Id,
+  token: NativeCommand.shape.token.min(1).max(200),
+  name: NativeCommand.shape.name.max(200),
+  description: NativeCommand.shape.description.max(2000).default(""),
+  argumentHint: NativeCommand.shape.argumentHint.unwrap().max(500).optional(),
+  kind: NativeCommand.shape.kind.max(40).optional(),
+  available: z.boolean().default(true),
+  reason: z.string().max(1000).optional(),
+});
 type CatalogCommand = z.infer<typeof CatalogCommand>;
 const CommandsPatch = z
   .object({
@@ -514,13 +488,6 @@ export const ActivityRecordSchema = z.discriminatedUnion("kind", [
   }),
 ]) satisfies z.ZodType<ActivityRecord>;
 
-type ActivityCapabilityState = "supported" | "unsupported" | "undiscovered";
-type ActivityCapability = {
-  state: ActivityCapabilityState;
-  // Where this answer came from: "loop", "codex app-server 0.x", "acp initialize", ...
-  source: string;
-  reason?: string;
-};
 export const ACTIVITY_FEATURES = [
   "plans",
   "tools",
@@ -529,8 +496,16 @@ export const ACTIVITY_FEATURES = [
   "settings",
   "commands",
 ] as const;
-type ActivityFeature = (typeof ACTIVITY_FEATURES)[number];
-export type ActivityCapabilities = Record<ActivityFeature, ActivityCapability>;
+export const ActivityCapabilities = z.record(
+  z.enum(ACTIVITY_FEATURES),
+  z.strictObject({
+    state: z.enum(["supported", "unsupported", "undiscovered"]),
+    // The harness or protocol that supplied this capability decision.
+    source: z.string(),
+    reason: z.string().optional(),
+  }),
+);
+export type ActivityCapabilities = z.infer<typeof ActivityCapabilities>;
 export function undiscoveredCapabilities(source: string): ActivityCapabilities {
   return Object.fromEntries(
     ACTIVITY_FEATURES.map((f) => [f, { state: "undiscovered", source }]),
