@@ -1150,3 +1150,64 @@ process.exit(91);
       await w.cleanup();
     }
   });
+
+test("named tunnel startup and service installation repeat the saved launch without preferences", async () => {
+  const w = await workspace();
+  try {
+    const config = join(w.base, "named.yml");
+    writeFileSync(config, "{}\n");
+    const origin = "https://named.fixture.example";
+    await w.loop([
+      ...w.harness,
+      "--tunnel-name",
+      "fixture",
+      "--public-url",
+      origin,
+      "--tunnel-config",
+      config,
+    ]);
+    assert.equal((await w.status()).url, origin);
+    await w.loop(["stop"]);
+    const dir = join(w.env.LOOP_HOME, "workspace");
+    await rm(join(dir, "preferences.json"));
+    await w.loop(w.harness);
+    assert.equal(
+      (await w.status()).url,
+      origin,
+      "startup repeats the saved named tunnel",
+    );
+    const preferences = JSON.parse(
+      await readFile(join(dir, "preferences.json"), "utf8"),
+    );
+    for (const key of ["publicUrl", "tunnelName", "tunnelConfig"])
+      assert.equal(
+        key in preferences,
+        false,
+        key + " is stored only in launch.json",
+      );
+    const home = join(w.base, "home");
+    const bin = join(home, "bin");
+    await mkdir(bin, { recursive: true });
+    for (const command of ["launchctl", "systemctl"])
+      writeFileSync(join(bin, command), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    Object.assign(w.env, { HOME: home, PATH: bin + ":" + process.env.PATH });
+    await w.loop(["service", "install"]);
+    const mac = process.platform === "darwin";
+    const { SERVICES } = await import("../src/service.js");
+    const names = mac ? SERVICES.darwin : SERVICES.linux;
+    const units = join(
+      home,
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    );
+    const definition = await readFile(
+      join(units, mac ? names.connection + ".plist" : names.connection),
+      "utf8",
+    );
+    assert.match(definition, /--tunnel-name/);
+    assert(definition.includes(origin));
+    assert(definition.includes(config));
+    await w.loop(["service", "uninstall"]);
+  } finally {
+    await w.cleanup();
+  }
+});

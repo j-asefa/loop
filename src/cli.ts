@@ -263,6 +263,11 @@ async function launchArgs(dir: string) {
   return ["start"];
 }
 
+function launchOption(args: string[], name: string) {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
 /**
  * Replaces the application with this CLI's installed build. The connection
  * service, its cloudflared and the public address stay; so do paired devices.
@@ -845,12 +850,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
     return;
   }
   if (action === "service") {
-    const preferences = await readFile(
-      join(dir, PROCESS_FILES.preferences),
-      "utf8",
-    )
-      .then(JSON.parse)
-      .catch(() => ({}));
     const launched = await readFile(
       join(dir, PROCESS_FILES.launch),
       "utf8",
@@ -858,24 +857,20 @@ Uninstall removes the package separately; workspace/native history is retained.`
       () => true,
       () => false,
     );
-    if (positionals[1] === "install" && !preferences.project && !launched)
+    if (positionals[1] === "install" && !launched)
       throw new Error("Run loop start once before installing the service.");
     // The service repeats the saved launch, as loop restart does.
     const launch = await launchArgs(dir);
-    const option = (name: string) => {
-      const i = launch.indexOf(name);
-      return i >= 0 ? launch[i + 1] : undefined;
-    };
-    const tunnelName = option("--tunnel-name") ?? preferences.tunnelName;
-    const publicUrl = option("--public-url") ?? preferences.publicUrl;
+    const option = (name: string) => launchOption(launch, name);
+    const tunnelName = option("--tunnel-name");
+    const publicUrl = option("--public-url");
     const mode =
       positionals[1] === "install"
         ? tunnelModeOf({
             "local-only": launch.includes("--local-only"),
             "public-url": publicUrl,
             "tunnel-name": tunnelName,
-            "tunnel-config":
-              option("--tunnel-config") ?? preferences.tunnelConfig,
+            "tunnel-config": option("--tunnel-config"),
           })
         : undefined;
     // Validate before stopping the current connection service for installation.
@@ -886,7 +881,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       positionals[1],
       fileURLToPath(import.meta.url),
       root,
-      option("--project") ?? preferences.project ?? project,
+      option("--project") ?? project,
       tunnel,
       launch,
     );
@@ -1068,10 +1063,11 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const providers = selectedHarnesses(
     values.providers ?? preferences.providers ?? "installed",
   );
+  const savedLaunch = await launchArgs(dir);
   if (!values["local-only"]) {
-    values["public-url"] ??= preferences.publicUrl;
-    values["tunnel-name"] ??= preferences.tunnelName;
-    values["tunnel-config"] ??= preferences.tunnelConfig;
+    values["public-url"] ??= launchOption(savedLaunch, "--public-url");
+    values["tunnel-name"] ??= launchOption(savedLaunch, "--tunnel-name");
+    values["tunnel-config"] ??= launchOption(savedLaunch, "--tunnel-config");
     // A path: resolved once, so a restart from another directory reads the same file.
     if (values["tunnel-config"])
       values["tunnel-config"] = resolve(values["tunnel-config"]);
@@ -1161,16 +1157,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
   };
   const remember = () =>
     atomic(preferencesPath, {
-      ...preferences,
-      ...(neutral ? { project } : {}),
-      ...(neutral
-        ? {
-            providers: values.providers ?? preferences.providers ?? "installed",
-          }
-        : {}),
-      publicUrl: values["public-url"],
-      tunnelName: values["tunnel-name"],
-      tunnelConfig: values["tunnel-config"],
+      project: neutral ? project : preferences.project,
+      providers: neutral
+        ? (values.providers ?? preferences.providers ?? "installed")
+        : preferences.providers,
       billing: neutral
         ? preferences.billing
         : { ...preferences.billing, [selected]: billing },
