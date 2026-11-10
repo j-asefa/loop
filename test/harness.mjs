@@ -10,6 +10,7 @@ let thinkingLevel = "medium";
 let elicitationChoice;
 let elicitationUrlMode;
 let mailBridge;
+let heldControl;
 const out = (x) => process.stdout.write(JSON.stringify(x) + "\n");
 let count = 0,
   active = "",
@@ -496,6 +497,17 @@ if (kind !== "opencode") {
     }
     if (type === "get_messages") return result({ messages: [] });
     if (type === "control_request") {
+      if (heldControl) {
+        out({
+          type: "control_response",
+          response: {
+            subtype: "success",
+            request_id: heldControl,
+            response: {},
+          },
+        });
+        heldControl = undefined;
+      }
       if (
         m.request.subtype === "set_permission_mode" &&
         process.env.LOOP_TEST_SETTING_AUDIT
@@ -506,6 +518,12 @@ if (kind !== "opencode") {
         );
         if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_DROP)
           process.exit(0);
+        if (m.request.mode === "plan" && process.env.LOOP_TEST_SETTING_HOLD) {
+          heldControl = m.request_id;
+          // A matching ID in another protocol envelope is not confirmation.
+          out({ id: m.request_id, result: {} });
+          return;
+        }
       }
       out({
         type: "control_response",
