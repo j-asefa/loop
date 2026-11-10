@@ -7,6 +7,7 @@ import {
 import { isAbsolute } from "node:path";
 import { observeNativeMemory } from "./native-memory.js";
 import { own, killOwned } from "./processes.js";
+import { groupAlive } from "./daemon.js";
 
 /** Optional host-owned resource launcher. It must exec the command with its
  * pipes, PID and process group intact; the browser cannot select this path. */
@@ -53,8 +54,7 @@ const HARNESS_STOP_GRACE_MS = 2500;
 const stops = new WeakMap<ChildProcess, Promise<void>>();
 
 export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null)
-    return Promise.resolve();
+  if (!child?.pid) return Promise.resolve();
   const pending = stops.get(child);
   if (pending) return pending;
   const stopped = new Promise<void>((resolve) => {
@@ -63,10 +63,13 @@ export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
       HARNESS_STOP_GRACE_MS,
     );
     // Sending a signal is not confirmation that the native writer stopped.
-    child.once("exit", () => {
-      clearTimeout(timer);
+    const exited = () => {
+      // Descendants can outlive the leader and still write to the project.
+      if (!groupAlive(child.pid!)) clearTimeout(timer);
       resolve();
-    });
+    };
+    if (child.exitCode !== null || child.signalCode !== null) exited();
+    else child.once("exit", exited);
     child.stdin?.end();
     killOwned(child, "SIGTERM");
   });
