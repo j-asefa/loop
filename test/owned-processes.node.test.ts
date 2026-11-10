@@ -15,25 +15,48 @@ import {
   recordedChildren,
 } from "../src/process-records.js";
 
-async function fixture(t: TestContext, detached: boolean) {
+async function fixture(t: TestContext, detached: boolean, descendant = false) {
   const dir = fs.mkdtempSync(join(tmpdir(), "loop-owned-process-"));
   recordOwnedProcesses(join(dir, "children.json"));
   const child = spawn(
     process.execPath,
-    ["-e", 'console.log("ready"); setInterval(() => {}, 1000)'],
+    [
+      "-e",
+      descendant
+        ? `
+      const {spawn}=require("node:child_process");
+      const member=spawn(process.execPath,["-e",'console.log("ready");setInterval(()=>{},1000)'],{stdio:["ignore","pipe","ignore"]});
+      member.stdout.once("data",()=>console.log(member.pid));
+      setInterval(()=>{},1000);
+    `
+        : 'console.log("ready"); setInterval(() => {}, 1000)',
+    ],
     {
       detached,
       stdio: ["ignore", "pipe", "ignore"],
     },
   );
   const ended = once(child, "exit");
+  let member: number | undefined;
   t.after(async () => {
     child.kill("SIGKILL");
     await ended;
+    if (member) {
+      try {
+        process.kill(member, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+      const deadline = Date.now() + 2000;
+      while (alive(member) && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(alive(member), false, "fixture descendant stopped");
+    }
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  await once(child.stdout, "data");
-  return { child, ended, dir };
+  const [ready] = await once(child.stdout, "data");
+  if (descendant) member = Number(String(ready).trim());
+  return { child, ended, dir, member };
 }
 
 test("an attached child is stopped individually and its record is retired", async (t) => {
@@ -63,10 +86,10 @@ test(
 );
 
 test(
-  "an unreadable launch identity is retained and cannot authorize a later group signal",
+  "an unreadable launch identity permits direct child termination but never a surviving group signal",
   { skip: process.platform !== "linux" },
   async (t) => {
-    const { child, dir } = await fixture(t, true);
+    const { child, ended, dir, member } = await fixture(t, true, true);
     const read = fs.readFileSync;
     const failure = t.mock.method(
       fs,
@@ -89,8 +112,11 @@ test(
     assert.deepEqual(await recordedChildren(dir), [
       { pid: child.pid, identity: "" },
     ]);
+    assert.equal(killOwned(child, "SIGKILL"), true);
+    await ended;
+    assert.equal(alive(child.pid!), false);
+    assert.equal(alive(member!), true);
     assert.equal(killOwned(child, "SIGKILL"), false);
-    assert.equal(alive(child.pid!), true);
     assert.equal(ownedGroupAlive(child), true);
     assert.deepEqual(await recordedChildren(dir), [
       { pid: child.pid, identity: "" },

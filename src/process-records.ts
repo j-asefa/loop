@@ -232,7 +232,13 @@ const identities = new WeakMap<
 export function killOwned(child: ChildProcess, signal: NodeJS.Signals) {
   if (!child.pid) return false;
   const recorded = identities.get(child);
-  if (!recorded?.identity) return false;
+  if (!recorded) return false;
+  // Node retains the direct child's handle until exit; missing launch evidence
+  // must not promote that handle into authority over a whole process group.
+  if (!recorded.identity) {
+    if (child.exitCode !== null || child.signalCode !== null) return false;
+    return child.kill(signal);
+  }
   const live = identity(child.pid);
   if (live && recorded.identity !== live) return false;
   if (recorded.scope === "process") {
