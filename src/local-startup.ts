@@ -2,14 +2,22 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, openSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export function isEntrypoint(url: string) {
+export function isEntrypoint(
+  url: string,
+  options: { unresolved?: "lexical" | "reject" } = {},
+) {
   try {
     return (
       !!process.argv[1] &&
       url === pathToFileURL(realpathSync(process.argv[1])).href
     );
   } catch {
-    return false;
+    // The CLI may already be loaded while an upgrade replaces its entry file.
+    return (
+      options.unresolved === "lexical" &&
+      !!process.argv[1] &&
+      url === pathToFileURL(process.argv[1]).href
+    );
   }
 }
 

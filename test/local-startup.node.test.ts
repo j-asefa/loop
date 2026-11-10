@@ -177,3 +177,27 @@ try {
   assert.match(output, /child exit 0/);
   assert.equal(await readFile(join(dir, "terminated"), "utf8"), "SIGTERM");
 });
+
+test("CLI entrypoint policy still runs a loaded entry after its path disappears", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "loop-removed-entry-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const entry = join(dir, "removed.mjs");
+  await writeFile(
+    entry,
+    `
+import { isEntrypoint } from ${JSON.stringify(startup)};
+import { unlinkSync } from "node:fs";
+unlinkSync(new URL(import.meta.url));
+console.log(JSON.stringify({
+  cli: isEntrypoint(import.meta.url, { unresolved: "lexical" }),
+  connection: isEntrypoint(import.meta.url),
+}));
+`,
+  );
+  const result = await promisify(execFile)(process.execPath, [
+    ...execArgv,
+    entry,
+  ]);
+  assert.deepEqual(JSON.parse(result.stdout), { cli: true, connection: false });
+  assert.equal(existsSync(entry), false);
+});

@@ -1415,7 +1415,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw error;
   }
 }
-if (isEntrypoint(import.meta.url)) {
+if (isEntrypoint(import.meta.url, { unresolved: "lexical" })) {
   process.stdout.on("error", (e: NodeJS.ErrnoException) => {
     if (e.code === "EPIPE") process.exit(process.exitCode ?? 0);
     throw e;
