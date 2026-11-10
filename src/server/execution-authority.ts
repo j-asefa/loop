@@ -67,6 +67,27 @@ type Handlers = {
     context: Context,
   ) => unknown | Promise<unknown>;
 };
+type ReconcileInputs = {
+  providerKey: ExecutionInput<"provider.key">;
+  authStart: ExecutionInput<"auth.start">;
+  authAttempt: ExecutionInput<"auth.input" | "auth.cancel">;
+};
+const reconcilers: {
+  [
+    K in NonNullable<(typeof executionOperations)[ExecutionMethod]["reconcile"]>
+  ]: (input: ReconcileInputs[K], commandId: string) => unknown;
+} = {
+  providerKey: (_input, commandId) => reconcileProviderKey(commandId),
+  authStart: (input, commandId) =>
+    nativeSignIns.reconcileStart(
+      input.name,
+      input.provider,
+      input.method,
+      commandId,
+    ),
+  authAttempt: (input) =>
+    nativeSignIns.reconcileAttempt(input.name, input.attemptId),
+};
 const agent = (id: string) => ownedAgent(id, OWNER);
 const handlers: Handlers = {
   "runtime.status": () => ({ nativeProcesses: nativeSessions.count }),
@@ -341,27 +362,14 @@ class ExecutionAuthority {
           ? await executionCommand(
               request,
               run,
-              operation.effect === "session"
-                ? () => {
-                    if (request.method === "provider.key")
-                      return reconcileProviderKey(request.commandId!);
-                    if (request.method === "auth.start") {
-                      const start = input as ExecutionInput<"auth.start">;
-                      return nativeSignIns.reconcileStart(
-                        start.name,
-                        start.provider,
-                        start.method,
-                        request.commandId!,
-                      );
-                    }
-                    const action = input as ExecutionInput<
-                      "auth.input" | "auth.cancel"
-                    >;
-                    return nativeSignIns.reconcileAttempt(
-                      action.name,
-                      action.attemptId,
-                    );
-                  }
+              operation.reconcile
+                ? () =>
+                    (
+                      reconcilers[operation.reconcile!] as (
+                        input: unknown,
+                        commandId: string,
+                      ) => unknown
+                    )(input, request.commandId!)
                 : undefined,
             )
           : await run();

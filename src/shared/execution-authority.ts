@@ -162,17 +162,40 @@ const Package = {
   scope: z.enum(["user", "project"]),
 };
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
+type OperationPolicy =
+  | {
+      effect: "session";
+      reconcile: "providerKey" | "authStart" | "authAttempt";
+      passive?: never;
+    }
+  | {
+      effect: "receipt" | "existing";
+      reconcile?: never;
+      passive?: never;
+    }
+  | {
+      effect?: "none";
+      reconcile?: never;
+      passive?: "read" | "cached";
+    };
 const method = <I extends z.ZodType, O extends z.ZodType>(
   input: I,
   output: O,
-  effect: "none" | "receipt" | "existing" | "session" = "none",
-) => ({ input, output, effect });
+  policy: OperationPolicy = {},
+) => ({
+  input,
+  output,
+  effect: policy.effect ?? "none",
+  passive: policy.passive ?? "deny",
+  reconcile: policy.reconcile,
+});
 
 /** Schemas for both sides of every operation, shared by in-process and IPC. */
 export const executionOperations = {
   "runtime.status": method(
     Empty,
     z.strictObject({ nativeProcesses: z.number().int().nonnegative() }),
+    { passive: "read" },
   ),
   "runtime.list": method(
     z.strictObject({ fresh: z.boolean(), cachedOnly: z.boolean().optional() }),
@@ -194,11 +217,12 @@ export const executionOperations = {
         }),
       ),
     }),
+    { passive: "cached" },
   ),
   "runtime.register": method(
     z.strictObject({ options: RegistrationOptions }),
     Enabled,
-    "receipt",
+    { effect: "receipt" },
   ),
   "runtime.enable": method(
     z.strictObject({
@@ -207,7 +231,7 @@ export const executionOperations = {
       billing: z.enum(["subscription", "existing"]),
     }),
     Enabled,
-    "receipt",
+    { effect: "receipt" },
   ),
   "runtime.refresh": method(z.strictObject({ connectionId: Id }), Enabled),
   "auth.catalog": method(
@@ -215,17 +239,16 @@ export const executionOperations = {
     SignIn,
   ),
   "provider.catalog": method(ProviderTarget.strict(), NativeProviderView),
-  "provider.key": method(ProviderKey.strict(), NativeProviderView, "session"),
-  "provider.remove": method(
-    ProviderRemove.strict(),
-    NativeProviderView,
-    "receipt",
-  ),
-  "provider.refresh": method(
-    ProviderRefresh.strict(),
-    NativeProviderView,
-    "receipt",
-  ),
+  "provider.key": method(ProviderKey.strict(), NativeProviderView, {
+    effect: "session",
+    reconcile: "providerKey",
+  }),
+  "provider.remove": method(ProviderRemove.strict(), NativeProviderView, {
+    effect: "receipt",
+  }),
+  "provider.refresh": method(ProviderRefresh.strict(), NativeProviderView, {
+    effect: "receipt",
+  }),
   "auth.status": method(z.strictObject({ name: AuthHarness }), SignIn),
   "auth.start": method(
     z.strictObject({
@@ -235,7 +258,7 @@ export const executionOperations = {
       method: z.string().min(1).max(100),
     }),
     SignIn,
-    "session",
+    { effect: "session", reconcile: "authStart" },
   ),
   "auth.input": method(
     z.strictObject({
@@ -249,12 +272,12 @@ export const executionOperations = {
         .regex(/^[^\r\n]+$/),
     }),
     SignIn,
-    "session",
+    { effect: "session", reconcile: "authAttempt" },
   ),
   "auth.cancel": method(
     z.strictObject({ name: AuthHarness, attemptId: z.uuid() }),
     SignIn,
-    "session",
+    { effect: "session", reconcile: "authAttempt" },
   ),
   "upgrade.status": method(
     z.strictObject({ name: RuntimeHarness, check: z.boolean().optional() }),
@@ -263,22 +286,22 @@ export const executionOperations = {
   "upgrade.start": method(
     z.strictObject({ name: RuntimeHarness }),
     UpgradeView,
-    "existing",
+    { effect: "existing" },
   ),
   "upgrade.dismiss": method(
     z.strictObject({ name: RuntimeHarness }),
     UpgradeView,
-    "existing",
+    { effect: "existing" },
   ),
   "upgrade.recover": method(
     z.strictObject({ name: RuntimeHarness, confirmedStopped: z.literal(true) }),
     UpgradeView,
-    "existing",
+    { effect: "existing" },
   ),
   "native.answer": method(
     z.strictObject({ decisionId: Id, answer: JsonObject }),
     z.strictObject({ state: z.string() }),
-    "existing",
+    { effect: "existing" },
   ),
   "native.controls": method(
     z.strictObject({
@@ -286,6 +309,7 @@ export const executionOperations = {
       cachedOnly: z.boolean().optional(),
     }),
     Controls,
+    { passive: "cached" },
   ),
   "native.setting": method(
     z.strictObject({
@@ -296,7 +320,7 @@ export const executionOperations = {
       generation: Id,
     }),
     Controls,
-    "receipt",
+    { effect: "receipt" },
   ),
   "native.catalog": method(
     z.strictObject({
@@ -305,16 +329,17 @@ export const executionOperations = {
       cachedOnly: z.boolean().optional(),
     }),
     Catalog,
+    { passive: "cached" },
   ),
   "pi.trust": method(
     z.strictObject({ ...Agent, trusted: z.boolean(), fingerprint: Hash }),
     Empty,
-    "receipt",
+    { effect: "receipt" },
   ),
   "pi.filters": method(
     z.strictObject({ ...Package, filters: Filters, settingsHash: Hash }),
     PiMutation,
-    "receipt",
+    { effect: "receipt" },
   ),
   "pi.preview": method(
     z.strictObject({
@@ -337,14 +362,16 @@ export const executionOperations = {
       note: z.string().optional(),
     }),
   ),
-  "pi.rollback": method(z.strictObject(Package), PiMutation, "receipt"),
+  "pi.rollback": method(z.strictObject(Package), PiMutation, {
+    effect: "receipt",
+  }),
   "pi.action": method(
     z.strictObject({
       ...Package,
       action: z.enum(["install", "remove", "update"]),
     }),
     PiMutation,
-    "receipt",
+    { effect: "receipt" },
   ),
 } as const;
 export type ExecutionMethod = keyof typeof executionOperations;
