@@ -10,8 +10,7 @@ const { enqueue, claim, deferUndispatched } =
 const { tick } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { harnessUpgrades } = await import("../src/server/harness-upgrades");
-const { reserveProviderChange } =
-  await import("../src/server/native-provider-locks");
+const { harnessHolds } = await import("../src/server/harness-holds");
 const { nativeSignIns } = await import("../src/server/native-auth");
 const { executeAgent } = await import("../src/server/agent-runtime");
 db.prepare(
@@ -120,7 +119,7 @@ it.each(["credential change", "provider sign-in"])(
     );
     const release =
       reason === "credential change"
-        ? reserveProviderChange("codex")
+        ? harnessHolds.reserveProviderChange("codex")
         : () => {};
     const signIn = vi
       .spyOn(nativeSignIns, "inProgress")
@@ -160,7 +159,7 @@ it("defers a claimed run before the disconnected-provider check during a credent
     },
   });
   await tick(async (run) => {
-    const release = reserveProviderChange("codex");
+    const release = harnessHolds.reserveProviderChange("codex");
     db.prepare(
       "UPDATE connections SET status='disconnected' WHERE id='codex'",
     ).run();
@@ -226,3 +225,26 @@ it.each([false, true])(
     db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(queued.id);
   },
 );
+
+it("a provider-owned enable still honors an upgrade hold, while ordinary enable reports its provider hold first", () => {
+  const releaseProvider = harnessHolds.reserveProviderChange("codex");
+  const releaseUpgrade = harnessUpgrades.reserve("codex");
+  const options = {
+    harness: "codex" as const,
+    executable: "unused-held-harness",
+    project: dir,
+    version: "fixture",
+    billing: "existing" as const,
+  };
+  try {
+    expect(() => nativeSessions.enable(options)).toThrow("provider change");
+    expect(() => nativeSessions.enable(options, true)).toThrow(
+      "runtime upgrade",
+    );
+    releaseProvider();
+    expect(() => nativeSessions.enable(options)).toThrow("runtime upgrade");
+  } finally {
+    releaseProvider();
+    releaseUpgrade();
+  }
+});

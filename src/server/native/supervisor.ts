@@ -11,10 +11,8 @@ import { enqueueStoppedWebhooks } from "../webhook-outbox.js";
 import { assertEffect, recordEffectEdit } from "../effect-authority.js";
 import { agentPayload } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
-import { providerChangeInProgress } from "../native-provider-locks.js";
-import { nativeSignIns } from "../native-auth.js";
+import { harnessHolds } from "../harness-holds.js";
 import { watchRun } from "../run-signal.js";
-import { harnessUpgrades } from "../harness-upgrades.js";
 import { type AgentWorkspace } from "../agent-worktree.js";
 import { completeCheckout, startCheckout } from "../run-checkouts.js";
 import { config } from "../config.js";
@@ -639,9 +637,7 @@ export class NativeSessions {
     ) as { metadata: string } | undefined;
     if (
       connection &&
-      (harnessUpgrades.busy(JSON.parse(connection.metadata).loopHarness) ||
-        providerChangeInProgress(JSON.parse(connection.metadata).loopHarness) ||
-        nativeSignIns.inProgress(JSON.parse(connection.metadata).loopHarness))
+      harnessHolds.first(JSON.parse(connection.metadata).loopHarness)
     )
       throw new RunDeferred(
         "Wait for the runtime upgrade or provider change to finish before starting a run.",

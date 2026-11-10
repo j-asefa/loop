@@ -23,10 +23,7 @@ import {
   invalidateProviderConnection,
   completeProviderSignIn,
 } from "./native-providers.js";
-import {
-  providerChangeInProgress,
-  reserveProviderChange,
-} from "./native-provider-locks.js";
+import { harnessHolds } from "./harness-holds.js";
 import { harnessUpgrades } from "./harness-upgrades.js";
 import { db } from "./db.js";
 import {
@@ -111,8 +108,10 @@ const handlers: Handlers = {
   "auth.start": async (input, { commandId }) => {
     const checkUpgrade = (ownsProviderChange = false) => {
       if (
-        harnessUpgrades.busy(input.name) ||
-        (!ownsProviderChange && providerChangeInProgress(input.name))
+        harnessHolds.first(
+          input.name,
+          ownsProviderChange ? ["upgrade"] : ["upgrade", "provider-change"],
+        )
       )
         throw new ExecutionRefused(
           409,
@@ -122,7 +121,7 @@ const handlers: Handlers = {
     checkUpgrade();
     if (isManagedHarness(input.name)) {
       const name = input.name;
-      const release = reserveProviderChange(input.name);
+      const release = harnessHolds.reserveProviderChange(input.name);
       try {
         requireProviderIdle(input.name);
         const options = await authOptions(input);
