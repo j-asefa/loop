@@ -16,7 +16,7 @@ export async function prepareLocalHarnesses(
   stopping: () => boolean = () => false,
 ) {
   setRuntimeSetupState("preparing");
-  const registered = nativeSessions.registrations();
+  const registered = nativeSessions.projects.registrations();
   // Custom ACP executables are never discovered from browser input. Restore only
   // an existing desktop registration.
   const selected = [
@@ -35,7 +35,7 @@ export async function prepareLocalHarnesses(
     ) as { status: string; metadata: string } | undefined;
     // An intentional disconnect is not an invitation to sign in again.
     if (connection?.status === "disconnected") continue;
-    const saved = nativeSessions.savedRegistration(name);
+    const saved = nativeSessions.projects.savedRegistration(name);
     try {
       const probe =
         name === "acp" && saved

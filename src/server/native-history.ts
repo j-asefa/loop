@@ -25,7 +25,7 @@ let inspecting = false;
 async function inspect<T>(fn: (native: Codex) => Promise<T>) {
   if (inspecting)
     throw new Problem(409, "Native history is busy; try again shortly.");
-  const options = nativeSessions.registration("codex");
+  const options = nativeSessions.projects.registration("codex");
   inspecting = true;
   const native = new Codex({ ...options, probeOnly: true }, () => {});
   try {
@@ -155,9 +155,12 @@ routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
       "Previous fork outcome is uncertain. Inspect native history before making a new fork.",
     );
   }
-  const project = nativeSessions.directory(record.project);
+  const project = nativeSessions.projects.directory(record.project);
   const conversation = await inspect(async (native) => {
-    const options = { ...nativeSessions.registration("codex"), project };
+    const options = {
+      ...nativeSessions.projects.registration("codex"),
+      project,
+    };
     const prepared = await prepareImportSession(
       options,
       "fork",

@@ -94,7 +94,7 @@ routes.on(workspaceApi.folderCreate, (req, res) => {
     d.parentId = null;
   if (foldersQueries.nameExists(db, res.locals.owner, d.parentId, d.name))
     throw new Problem(409, "A folder with that name already exists here");
-  const path = d.path ? nativeSessions.directory(d.path) : undefined;
+  const path = d.path ? nativeSessions.projects.directory(d.path) : undefined;
   if (path && projectPathsQueries.pathExists(db, path))
     throw new Problem(409, "That directory already belongs to a project.");
   const folderId = id();
@@ -149,7 +149,7 @@ routes.on(workspaceApi.folderUpdate, (req, res) => {
     )
   )
     throw new Problem(409, "That name already exists here");
-  const path = d.path ? nativeSessions.directory(d.path) : undefined;
+  const path = d.path ? nativeSessions.projects.directory(d.path) : undefined;
   if (path && projectPathsQueries.usedElsewhere(db, path, f.id))
     throw new Problem(409, "That directory already belongs to a project.");
   db.transaction(() => {

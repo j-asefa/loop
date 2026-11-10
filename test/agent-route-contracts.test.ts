@@ -133,7 +133,7 @@ async function agent(connectionId: string, model = "fixture") {
   valid(workspaceApi.agentCreate, result);
   return workspaceApi.agentCreate.response.parse(result.data);
 }
-await nativeSessions.enable({
+await nativeSessions.projects.enable({
   harness: "pi",
   executable: resolve("test/fixtures/contract-pi.mjs"),
   project,

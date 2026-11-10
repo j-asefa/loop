@@ -52,7 +52,7 @@ function session(
     },
     (event) => {
       if (event.type === "request" || event.type === "resolved")
-        sessions.event(live, event);
+        sessions.projector.event(live, event);
     },
   );
   const answer = vi.spyOn(adapter, "answer");
@@ -85,7 +85,7 @@ function session(
   };
   (sessions as any).live.set(name, live);
   const request = (request: Request) =>
-    sessions.event(live, { type: "request", request });
+    sessions.projector.event(live, { type: "request", request });
   const state = () =>
     (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any).state;
   return { live, answer, request, state, run, sessions };
@@ -170,7 +170,7 @@ it.each([
     expect(JSON.parse(decision.request)).toEqual(request);
 
     expect(() =>
-      f.sessions.event(f.live, { type: "resolved", id: request.id }),
+      f.sessions.projector.event(f.live, { type: "resolved", id: request.id }),
     ).not.toThrow();
     expect(f.state()).toBe("running");
     expect(
@@ -267,8 +267,8 @@ it.each([
         expect((live.adapter as any).requests.get("102").params).toMatchObject(
           original,
         );
-        await sessions.answer(stored.id, "file-decision", { choice });
-        await sessions.answer(stored.id, "file-decision", { choice });
+        await sessions.decisions.answer(stored.id, "file-decision", { choice });
+        await sessions.decisions.answer(stored.id, "file-decision", { choice });
       }
       await vi.waitFor(() => expect(decision().state).toBe("resolved"));
       expect(answer).toHaveBeenCalledExactlyOnceWith(
@@ -378,9 +378,13 @@ it.each([
         if (mode === "default") {
           expect(state()).toBe("awaiting_approval");
           expect(answer).not.toHaveBeenCalled();
-          await sessions.answer(decision().id, "manual-council-approval", {
-            choice: "accept",
-          });
+          await sessions.decisions.answer(
+            decision().id,
+            "manual-council-approval",
+            {
+              choice: "accept",
+            },
+          );
         }
         await vi.waitFor(() => expect(decision().state).toBe("resolved"));
         expect(answer).toHaveBeenCalledExactlyOnceWith(
@@ -454,7 +458,7 @@ it("Codex async questions persist as Needs you until the user answers, even afte
       project: dir,
       billing: "existing",
     },
-    (event) => sessions.event(live, event),
+    (event) => sessions.projector.event(live, event),
   );
   live.adapter = adapter;
   const request = vi
@@ -488,7 +492,9 @@ it("Codex async questions persist as Needs you until the user answers, even afte
     "Wait",
     "Restart",
   ]);
-  await sessions.answer(decisions[0].id, "answer-async", { "0": ["Wait"] });
+  await sessions.decisions.answer(decisions[0].id, "answer-async", {
+    "0": ["Wait"],
+  });
   expect(request).toHaveBeenCalledWith(
     "turn/start",
     expect.objectContaining({
@@ -500,7 +506,9 @@ it("Codex async questions persist as Needs you until the user answers, even afte
     }),
   );
   expect(state()).toBe("running");
-  await sessions.answer(decisions[0].id, "answer-async", { "0": ["Wait"] });
+  await sessions.decisions.answer(decisions[0].id, "answer-async", {
+    "0": ["Wait"],
+  });
   expect(request).toHaveBeenCalledTimes(1);
   clearTimeout(live.flush);
 });
@@ -539,7 +547,7 @@ it("a session's own permission mode outranks the workspace level", async () => {
   ).toEqual({ permission_mode: "plan" });
   clearTimeout(kept.live.idle);
   kept.live.run = run;
-  sessions.event(kept.live, { type: "request", request: approval });
+  sessions.projector.event(kept.live, { type: "request", request: approval });
   expect(kept.answer).not.toHaveBeenCalled();
   // A session set to bypass is answered even when the workspace asks.
   const bypass = session("session-bypass", "default");
@@ -634,8 +642,12 @@ it.each([
       if ((sessionMode ?? mode) !== "bypassPermissions") {
         expect(state()).toBe("awaiting_approval");
         expect(answer).not.toHaveBeenCalled();
-        await sessions.answer(stored.id, "github-decision", { choice });
-        await sessions.answer(stored.id, "github-decision", { choice });
+        await sessions.decisions.answer(stored.id, "github-decision", {
+          choice,
+        });
+        await sessions.decisions.answer(stored.id, "github-decision", {
+          choice,
+        });
       }
       await vi.waitFor(() => expect(decision()?.state).toBe("resolved"));
       expect(answer).toHaveBeenCalledExactlyOnceWith(
@@ -888,12 +900,12 @@ it("does not retry an uncertain automatic answer after abbreviating a large requ
   await vi.waitFor(() => expect(decision()?.state).toBe("unknown"));
   request(oversized);
   await expect(
-    sessions.answer(decision().id, "auto:" + decision().id, {
+    sessions.decisions.answer(decision().id, "auto:" + decision().id, {
       choice: "allow",
     }),
   ).resolves.toEqual({ state: "unknown" });
   await expect(
-    sessions.answer(decision().id, "retry", { choice: "allow" }),
+    sessions.decisions.answer(decision().id, "retry", { choice: "allow" }),
   ).rejects.toThrow();
   expect(answer).toHaveBeenCalledExactlyOnceWith(
     "bash",
@@ -915,14 +927,18 @@ it("keeps a confirmed answer resolved when the transport subsequently fails", as
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(run.id) as { id: string };
   answer.mockImplementation(async () => {
-    sessions.event(live, { type: "resolved", id: approval.id });
+    sessions.projector.event(live, { type: "resolved", id: approval.id });
     throw new Error("transport closed after confirmation");
   });
   await expect(
-    sessions.answer(decision.id, "confirmed-command", { choice: "allow" }),
+    sessions.decisions.answer(decision.id, "confirmed-command", {
+      choice: "allow",
+    }),
   ).resolves.toEqual({ state: "resolved" });
   await expect(
-    sessions.answer(decision.id, "confirmed-command", { choice: "allow" }),
+    sessions.decisions.answer(decision.id, "confirmed-command", {
+      choice: "allow",
+    }),
   ).resolves.toEqual({ state: "resolved" });
   expect(answer).toHaveBeenCalledExactlyOnceWith(
     approval.id,
@@ -966,7 +982,7 @@ it("records validated native answers once, hides secrets, and retains uncertain 
     extra: ["unsolicited-secret"],
   };
   await expect(
-    f.sessions.answer(decision.id, "bad-answer", {
+    f.sessions.decisions.answer(decision.id, "bad-answer", {
       target: "wrong",
       token: [],
     }),
@@ -978,10 +994,10 @@ it("records validated native answers once, hides secrets, and retains uncertain 
   ).toBeUndefined();
   f.answer.mockRejectedValue(new Error("Lost acknowledgement"));
   await expect(
-    f.sessions.answer(decision.id, "personal-answer", response),
+    f.sessions.decisions.answer(decision.id, "personal-answer", response),
   ).rejects.toThrow("unknown");
   await expect(
-    f.sessions.answer(decision.id, "personal-answer", response),
+    f.sessions.decisions.answer(decision.id, "personal-answer", response),
   ).resolves.toEqual({ state: "unknown" });
   expect(f.answer).toHaveBeenCalledExactlyOnceWith(
     "questions",
@@ -1050,8 +1066,16 @@ it("bounds saved answer previews without changing the complete answer delivered 
           ),
     ]),
   );
-  await f.sessions.answer(decision.id, "large-answer-command", response);
-  await f.sessions.answer(decision.id, "large-answer-command", response);
+  await f.sessions.decisions.answer(
+    decision.id,
+    "large-answer-command",
+    response,
+  );
+  await f.sessions.decisions.answer(
+    decision.id,
+    "large-answer-command",
+    response,
+  );
   expect(f.answer).toHaveBeenCalledExactlyOnceWith(
     "large-questions",
     response,
@@ -1101,7 +1125,7 @@ it("leaves automatic native approvals and externally resolved questions out of p
     detail: "",
     questions: [{ id: "q", title: "Which?" }],
   });
-  external.sessions.event(external.live, {
+  external.sessions.projector.event(external.live, {
     type: "resolved",
     id: "external-question",
   });
@@ -1122,9 +1146,13 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(f.run.id) as { id: string };
   await expect(
-    f.sessions.answer(decision.id, "11111111-1111-4111-8111-111111111111", {
-      choice: "allow",
-    }),
+    f.sessions.decisions.answer(
+      decision.id,
+      "11111111-1111-4111-8111-111111111111",
+      {
+        choice: "allow",
+      },
+    ),
   ).rejects.toThrow(/did not accept this decision\. Answer again/);
   expect(
     db
@@ -1137,7 +1165,7 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     ),
   ).toBeUndefined();
   expect(
-    await f.sessions.answer(
+    await f.sessions.decisions.answer(
       decision.id,
       "22222222-2222-4222-8222-222222222222",
       { choice: "allow" },
@@ -1157,9 +1185,13 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(g.run.id) as { id: string };
   await expect(
-    g.sessions.answer(uncertain.id, "33333333-3333-4333-8333-333333333333", {
-      choice: "allow",
-    }),
+    g.sessions.decisions.answer(
+      uncertain.id,
+      "33333333-3333-4333-8333-333333333333",
+      {
+        choice: "allow",
+      },
+    ),
   ).rejects.toThrow(/outcome is unknown/);
   expect(
     db
@@ -1184,9 +1216,13 @@ it("expires a refused decision when its run ended while the answer was in flight
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(f.run.id) as { id: string };
   await expect(
-    f.sessions.answer(decision.id, "44444444-4444-4444-8444-444444444444", {
-      choice: "allow",
-    }),
+    f.sessions.decisions.answer(
+      decision.id,
+      "44444444-4444-4444-8444-444444444444",
+      {
+        choice: "allow",
+      },
+    ),
   ).rejects.toThrow(/expired or was already handled/);
   expect(
     db
@@ -1204,14 +1240,14 @@ it("reports a refused decision as resolved when the harness resolved it meanwhil
   const f = session("refused-after-resolution", "default");
   f.request(approval);
   f.answer.mockImplementationOnce(async () => {
-    f.sessions.event(f.live, { type: "resolved", id: approval.id });
+    f.sessions.projector.event(f.live, { type: "resolved", id: approval.id });
     throw new NotDelivered("Muse Code did not accept this decision.");
   });
   const decision = db
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(f.run.id) as { id: string };
   expect(
-    await f.sessions.answer(
+    await f.sessions.decisions.answer(
       decision.id,
       "55555555-5555-4555-8555-555555555555",
       { choice: "allow" },

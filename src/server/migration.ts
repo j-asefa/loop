@@ -28,7 +28,7 @@ export async function prepareImportSession(
   importKey: string,
   source: string,
 ): Promise<PreparedImport> {
-  const project = nativeSessions.directory(options.project);
+  const project = nativeSessions.projects.directory(options.project);
   // Commit the identity before creating files. Retries and concurrent handoffs
   // reuse it, and an uncertain fork retains its workspace under the command ID.
   const row = db
@@ -154,7 +154,7 @@ export function importSession(
     name = "resumed-" + id().slice(0, 8);
   const project = prepared.project;
   const workspace = prepared.workspace;
-  const folder = nativeSessions.addProject(project) as any;
+  const folder = nativeSessions.projects.addProject(project) as any;
   const connection = connectionsQueries.id(
     db,
     nativeConnectionId(options.harness),
@@ -227,7 +227,7 @@ export async function resumeFromDesktop(options: Options, nativeId: string) {
         source: string;
       }
     | undefined;
-  const project = nativeSessions.directory(options.project);
+  const project = nativeSessions.projects.directory(options.project);
   if (existing) {
     if (existing.source !== project && existing.project !== project)
       throw new Problem(

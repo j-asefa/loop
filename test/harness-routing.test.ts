@@ -189,7 +189,7 @@ it("loads and reuses an ordinary-folder catalog despite inherited Git metadata",
       return {} as any;
     });
   vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  nativeSessions.clearProbes();
+  nativeSessions.projects.clearProbes();
   vi.stubEnv("GIT_DIR", join(dir, "missing-git"));
   try {
     for (let request = 0; request < 2; request++)
@@ -200,7 +200,7 @@ it("loads and reuses an ordinary-folder catalog despite inherited Git metadata",
     expect(start).toHaveBeenCalledOnce();
   } finally {
     vi.unstubAllEnvs();
-    nativeSessions.clearProbes();
+    nativeSessions.projects.clearProbes();
   }
 });
 
@@ -257,7 +257,7 @@ setTimeout(finish, 2000);
     return {} as any;
   });
   vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  nativeSessions.clearProbes();
+  nativeSessions.projects.clearProbes();
   const previousPath = process.env.PATH;
   process.env.PATH = bin + delimiter + (previousPath || "");
   const pending = [catalog(aid, cid), catalog(aid, cid)];
@@ -288,7 +288,7 @@ setTimeout(finish, 2000);
     await Promise.allSettled(pending);
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
-    nativeSessions.clearProbes();
+    nativeSessions.projects.clearProbes();
   }
 });
 
@@ -443,7 +443,10 @@ it("preserves both records when a fork result is handed off elsewhere before its
     .spyOn(Codex.prototype, "inspect")
     .mockImplementation(async () => {
       handoff = await resumeFromDesktop(
-        { ...nativeSessions.registration("codex"), project: destination },
+        {
+          ...nativeSessions.projects.registration("codex"),
+          project: destination,
+        },
         nativeId,
       );
       return { thread: { id: nativeId, turns: [] } };
@@ -540,7 +543,7 @@ it.each(["native-fork", "import-transaction"])(
       expect((await request()).status).toBe(409);
       expect(fork).toHaveBeenCalledOnce();
       const recovered = await prepareImportSession(
-        { ...nativeSessions.registration("codex"), project },
+        { ...nativeSessions.projects.registration("codex"), project },
         "fork",
         commandId,
         JSON.stringify([catalogId, "external-" + catalogId]),
@@ -602,7 +605,7 @@ it("uses the live chat catalog only while the agent stays on that harness", asyn
 it.each(["live", "cached"])(
   "serves a %s catalog while unrelated harness probes fill their capacity",
   async (mode) => {
-    nativeSessions.clearProbes();
+    nativeSessions.projects.clearProbes();
     const aid = agent(codexConnection),
       cid = directChat(aid);
     let release!: () => void;
@@ -659,7 +662,7 @@ it.each(["live", "cached"])(
       release();
       await Promise.allSettled(pending);
       live.delete(cid);
-      nativeSessions.clearProbes();
+      nativeSessions.projects.clearProbes();
     }
   },
 );

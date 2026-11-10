@@ -228,7 +228,7 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   // Discovery yields before a sign-in starts. An upgrade that reserves during
   // that probe must still prevent the authority from opening a login driver.
   const { nativeSessions } = await import("../src/server/native-sessions.js");
-  const project = nativeSessions.addProject(dir) as { id: string };
+  const project = nativeSessions.projects.addProject(dir) as { id: string };
   unlinkSync(entered);
   writeFileSync(gate, "hold sign-in discovery");
   const signInCommand = randomUUID();

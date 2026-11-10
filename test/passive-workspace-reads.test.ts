@@ -96,7 +96,7 @@ setExecutionTransport({
         cachedOnly?: boolean;
         conversationId?: string;
       };
-      result = await nativeSessions.catalog(
+      result = await nativeSessions.projects.catalog(
         { id: agent, connection_id: native, folder_id: null },
         input.conversationId,
         input.cachedOnly,

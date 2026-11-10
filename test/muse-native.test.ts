@@ -36,7 +36,7 @@ const requests = () =>
     .map((line) => JSON.parse(line));
 
 it("registers Muse Code as a live-input native connection and resumes its generation-bound session", async () => {
-  const registration = await sessions.enable({
+  const registration = await sessions.projects.enable({
     harness: "muse",
     executable: resolve("test/fixtures/fake-muse.mjs"),
     version: "1.4.12",

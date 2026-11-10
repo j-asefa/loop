@@ -254,7 +254,9 @@ afterAll(async () => {
 it("workspace projects registered harnesses and directories from production writers", async () => {
   const result = await request("/workspace");
   valid(workspaceApi.workspace, result);
-  expect(result.data.harnesses).toEqual(nativeSessions.registrations());
+  expect(result.data.harnesses).toEqual(
+    nativeSessions.projects.registrations(),
+  );
   expect(result.data.projectPaths).toEqual(
     db.prepare("SELECT * FROM project_paths").all(),
   );

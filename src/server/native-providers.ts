@@ -43,8 +43,8 @@ export function reconcileProviderKey(commandId: string) {
   return result;
 }
 const registration = (name: Target["name"]) =>
-  nativeSessions.registrations().some((r) => r.name === name)
-    ? nativeSessions.registration(name)
+  nativeSessions.projects.registrations().some((r) => r.name === name)
+    ? nativeSessions.projects.registration(name)
     : undefined;
 
 export function requireProviderIdle(name: ManagedHarness) {
@@ -53,7 +53,7 @@ export function requireProviderIdle(name: ManagedHarness) {
       409,
       "Finish the harness upgrade or provider sign-in first.",
     );
-  if (nativeSessions.isEnabling(name as Harness))
+  if (nativeSessions.projects.isEnabling(name as Harness))
     throw new ExecutionRefused(
       409,
       "Wait for the harness model refresh to finish.",
@@ -82,7 +82,7 @@ export function invalidateProviderConnection(name: ManagedHarness) {
       now(),
     ),
   );
-  nativeSessions.clearProbes();
+  nativeSessions.projects.clearProbes();
 }
 async function withDriver<T>(
   target: Target,
@@ -170,7 +170,7 @@ async function syncModels(
   try {
     const options = await authOptions(target);
     view = await providerCatalog(target);
-    await nativeSessions.enable(
+    await nativeSessions.projects.enable(
       {
         harness: target.name,
         executable: options.executable,

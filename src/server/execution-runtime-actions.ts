@@ -35,7 +35,7 @@ export async function authOptions({
       422,
       "Choose a project directory on this computer.",
     );
-  const saved = nativeSessions.savedRegistration(name);
+  const saved = nativeSessions.projects.savedRegistration(name);
   const probe = await discover(name, saved?.executable);
   if (!probe.installed || !probe.supported)
     throw new ExecutionRefused(409, probe.help);
@@ -74,11 +74,13 @@ export async function runtimeList({
   fresh,
   cachedOnly,
 }: ExecutionInput<"runtime.list">) {
-  const registered = nativeSessions.registrations();
+  const registered = nativeSessions.projects.registrations();
   const runtimes = await Promise.all(
     RuntimeHarness.options.map(async (name) => {
       const enabled = registered.find((r) => r.name === name);
-      const saved = enabled ? nativeSessions.registration(name) : undefined;
+      const saved = enabled
+        ? nativeSessions.projects.registration(name)
+        : undefined;
       const probe = cachedOnly
         ? {
             installed: !!saved,
@@ -117,7 +119,7 @@ export async function upgradeStatus({
 }: ExecutionInput<"upgrade.status">) {
   const probe = await discover(
     name,
-    nativeSessions.savedRegistration(name)?.executable,
+    nativeSessions.projects.savedRegistration(name)?.executable,
   );
   const release =
     check && probe.installed
@@ -156,7 +158,7 @@ export async function upgradeStart(
         409,
         "Finish or cancel active runs before upgrading runtimes.",
       );
-    const saved = nativeSessions.savedRegistration(name);
+    const saved = nativeSessions.projects.savedRegistration(name);
     const probe = await discover(name, saved?.executable);
     if (!probe.installed)
       throw new Problem(409, "Install this runtime on the computer first.");
@@ -214,7 +216,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       422,
       "Choose a project with a directory on this computer. Add one in Projects.",
     );
-  const saved = nativeSessions.savedRegistration(name);
+  const saved = nativeSessions.projects.savedRegistration(name);
   if (saved && input.billing !== saved.billing)
     throw new ExecutionRefused(
       409,
@@ -237,7 +239,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       "Install or repair " + name + " on this computer. " + probe.help,
     );
   try {
-    return await nativeSessions.enable({
+    return await nativeSessions.projects.enable({
       harness: name,
       executable: probe.executable!,
       version: probe.version,

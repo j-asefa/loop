@@ -107,7 +107,7 @@ routes.on(workspaceApi.runtimeAuthCancel, async (req, res) => {
 });
 routes.on(workspaceApi.workspace, async (_req, res) =>
   res.json({
-    harnesses: nativeSessions.registrations(),
+    harnesses: nativeSessions.projects.registrations(),
     ...(await executionRequest("runtime.status", {})),
     concurrency: MAX_CONCURRENT_RUNS,
     hostLifetime: "foreground",
@@ -172,7 +172,7 @@ routes.on(workspaceApi.workspaceProjectCreate, (req, res) => {
   res
     .status(201)
     .json(
-      nativeSessions.addProject(d.path, d.name) as z.input<
+      nativeSessions.projects.addProject(d.path, d.name) as z.input<
         typeof workspaceApi.workspaceProjectCreate.response
       >,
     );
@@ -182,7 +182,7 @@ routes.on(workspaceApi.workspaceProjectUpdate, (req, res) => {
   if (workspaceProjectsQueries.exists(db, OWNER, req.params.id))
     throw new Problem(400, "Choose a named project for a local directory.");
   const { path } = req.body;
-  const real = nativeSessions.directory(path);
+  const real = nativeSessions.projects.directory(path);
   if (projectPathsQueries.usedElsewhere(db, real, req.params.id))
     throw new Problem(
       409,
