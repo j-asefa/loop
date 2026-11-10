@@ -719,11 +719,11 @@ it("shares one recent probe across polls", async () => {
       return {} as any;
     });
   vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  (nativeSessions as any).clearProbes();
+  nativeSessions.projects.clearProbes();
   expect((await catalog(aid, cid)).status).toBe(200);
   expect((await catalog(aid, cid)).status).toBe(200);
   expect(start).toHaveBeenCalledOnce();
-  (nativeSessions as any).clearProbes();
+  nativeSessions.projects.clearProbes();
 });
 
 it("probes the folder the next turn uses, not the agent's newer folder", async () => {
@@ -744,7 +744,7 @@ it("probes the folder the next turn uses, not the agent's newer folder", async (
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'earlier','completed',?,'{}',?,?)",
   ).run(id(), OWNER, aid, cid, id(), now(), now());
   db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(folder, aid);
-  (nativeSessions as any).clearProbes();
+  nativeSessions.projects.clearProbes();
   const start = vi
     .spyOn(Codex.prototype, "start")
     .mockImplementation(async function (this: InstanceType<typeof Codex>) {
@@ -755,7 +755,7 @@ it("probes the folder the next turn uses, not the agent's newer folder", async (
   vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   expect((await catalog(aid, cid)).status).toBe(200);
   expect(start).toHaveBeenCalledOnce();
-  (nativeSessions as any).clearProbes();
+  nativeSessions.projects.clearProbes();
 });
 
 it("keeps discovery within the requested owner and agent", async () => {
