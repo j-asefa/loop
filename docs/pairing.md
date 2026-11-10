@@ -181,6 +181,8 @@ The managed launcher can supervise an existing locally managed named Cloudflare 
 loop start --tunnel-name YOUR-TUNNEL-ID --tunnel-config ~/.cloudflared/config.yml --public-url https://loop.example.com
 ```
 
+The public URL must be a bare HTTPS origin: no credentials, path, query or fragment. Named-tunnel startup validates the supplied URL before normalizing its hostname and port. The gateway, tunnel configuration, connection records and preview launcher share this rule.
+
 Use a dedicated tunnel. Loop generates ingress only for its authenticated gateway, reuses the credentials file and leaves the original configuration unchanged. Remote token-managed tunnels are not auto-enrolled. A named tunnel also runs in the connection service, so application restarts keep its connection up; its hostname never changes.
 
 ## Storage and recovery

@@ -31,6 +31,7 @@ import {
   connectionDir,
   inspectConnection,
   publicConnection,
+  tunnelModeFromFlags,
   type TunnelMode,
 } from "./connection.js";
 import {
@@ -420,14 +421,7 @@ function tunnelModeOf(values: {
 }): TunnelMode | undefined {
   if (values["local-only"] || (values["public-url"] && !values["tunnel-name"]))
     return undefined;
-  return values["tunnel-name"]
-    ? {
-        kind: "named",
-        name: values["tunnel-name"],
-        origin: new URL(values["public-url"]!).origin,
-        ...(values["tunnel-config"] ? { config: values["tunnel-config"] } : {}),
-      }
-    : { kind: "quick" };
+  return tunnelModeFromFlags(values);
 }
 
 /**
@@ -846,14 +840,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       root,
       "--release",
       VERSION,
-      ...(values["tunnel-name"]
-        ? tunnelArgs({
-            kind: "named",
-            name: values["tunnel-name"],
-            origin: values["public-url"] ?? "",
-            config: values["tunnel-config"],
-          })
-        : []),
+      ...tunnelArgs(tunnelModeFromFlags(values)),
     ]);
     return;
   }
@@ -884,17 +871,13 @@ Uninstall removes the package separately; workspace/native history is retained.`
     };
     const tunnelName = option("--tunnel-name") ?? preferences.tunnelName;
     const publicUrl = option("--public-url") ?? preferences.publicUrl;
-    const tunnel =
-      launch.includes("--local-only") || (publicUrl && !tunnelName)
-        ? null
-        : tunnelName
-          ? tunnelArgs({
-              kind: "named",
-              name: tunnelName,
-              origin: publicUrl,
-              config: option("--tunnel-config") ?? preferences.tunnelConfig,
-            })
-          : [];
+    const mode = tunnelModeOf({
+      "local-only": launch.includes("--local-only"),
+      "public-url": publicUrl,
+      "tunnel-name": tunnelName,
+      "tunnel-config": option("--tunnel-config") ?? preferences.tunnelConfig,
+    });
+    const tunnel = mode ? tunnelArgs(mode) : null;
     const { userService } = await import("./service.js");
     await userService(
       positionals[1],

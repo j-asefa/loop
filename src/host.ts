@@ -29,6 +29,7 @@ import {
   type CardAuthorization,
 } from "./shared/card-access.js";
 import { Problem } from "./shared/problem.js";
+import { bareHttpsOrigin } from "./shared/origin.js";
 import type { DeviceTrust, TrustedDevice } from "./device-trust.js";
 import {
   fleetDeviceAuthorization,
@@ -325,16 +326,7 @@ export class Host {
     }, 30000);
   }
   setOrigin(origin: string) {
-    const url = new URL(origin);
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname !== "/"
-    )
-      throw new Error("Public origin must be a bare HTTPS origin.");
+    const url = new URL(bareHttpsOrigin.parse(origin));
     if (this.origin !== url.origin) {
       this.originGeneration++;
       this.closeFleetRequests();
