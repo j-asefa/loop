@@ -249,7 +249,41 @@ it("Pi package timeout confirms a TERM-ignoring writer exited", async () => {
       ],
       { cwd: project, timeout: 500 },
     ),
-  ).rejects.toThrow("SIGKILL");
+  ).rejects.toThrow("timed out");
   const pid = Number(readFileSync(pidFile, "utf8"));
   expect(() => process.kill(pid, 0)).toThrow();
 }, 10000);
+
+it("Pi timeout rejects even when its SIGTERM handler exits successfully", async () => {
+  await expect(
+    runPi(
+      process.execPath,
+      [
+        "-e",
+        `
+    process.on('SIGTERM', () => process.exit(0));
+    setInterval(()=>{},1000);
+  `,
+      ],
+      { cwd: tmpdir(), timeout: 500 },
+    ),
+  ).rejects.toThrow("Pi command timed out.");
+});
+
+it("Pi timeout rejects when a successful leader leaves stderr open in a child", async () => {
+  await expect(
+    runPi(
+      process.execPath,
+      [
+        "-e",
+        `
+    const child = require('node:child_process').spawn(process.execPath,
+      ['-e', 'setInterval(()=>{},1000)'], {stdio:['ignore','ignore',2]});
+    child.unref();
+    process.exitCode = 0;
+  `,
+      ],
+      { cwd: tmpdir(), timeout: 500 },
+    ),
+  ).rejects.toThrow("Pi command timed out.");
+});

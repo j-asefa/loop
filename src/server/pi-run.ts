@@ -19,14 +19,15 @@ export function runPi(
       stdio: ["ignore", "ignore", "pipe"],
     });
     let tail = "";
+    let timedOut = false;
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       tail = (tail + chunk).slice(-4096);
     });
-    const timer = setTimeout(
-      () => void stopHarnessProcess(child),
-      options.timeout ?? 120_000,
-    );
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void stopHarnessProcess(child);
+    }, options.timeout ?? 120_000);
     child.once("error", (error) => {
       clearTimeout(timer);
       reject(error);
@@ -35,11 +36,11 @@ export function runPi(
       clearTimeout(timer);
       const survivors = ownedGroupAlive(child);
       void stopHarnessProcess(child).then(() => {
-        if (code === 0 && !survivors) resolve();
+        if (code === 0 && !survivors && !timedOut) resolve();
         else
           reject(
             new Error(
-              piErrorLine(tail) ||
+              (timedOut ? "Pi command timed out." : piErrorLine(tail)) ||
                 (survivors
                   ? "Pi left running subprocesses."
                   : signal
