@@ -1,5 +1,4 @@
-import { directActivityEmitter } from "./direct-activities.js";
-import { DirectControls } from "./direct-controls.js";
+import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { codexActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
@@ -35,7 +34,7 @@ function elicitationUrl(params: any): string | undefined {
   } catch {}
 }
 
-export class Codex implements Adapter {
+export class Codex extends DirectAdapter implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {
     initialize: "starting its native process",
     "account/read": "checking its sign-in",
@@ -45,16 +44,6 @@ export class Codex implements Adapter {
     "thread/resume": "reopening this conversation",
     "thread/start": "opening a new conversation",
   };
-  private controlState?: DirectControls;
-  private get displayControls() {
-    return (this.controlState ||= new DirectControls("codex", this.emit));
-  }
-  get settings() {
-    return this.displayControls.settings;
-  }
-  get commandCatalog() {
-    return this.displayControls.commands;
-  }
   refreshCommandCatalog() {
     if (this.native && this.thread) {
       this.displayControls.refresh(
@@ -84,9 +73,6 @@ export class Codex implements Adapter {
       );
     }
   }
-  get activityCapabilities() {
-    return this.displayControls.capabilities;
-  }
 
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
@@ -111,9 +97,9 @@ export class Codex implements Adapter {
   }
   constructor(
     private options: Options,
-    private emit: Emit,
+    emit: Emit,
   ) {
-    this.emit = directActivityEmitter(emit);
+    super("codex", emit);
   }
   private sessionOptions(model?: string): Setting[] {
     const selected = this.models.find(

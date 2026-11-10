@@ -1,6 +1,5 @@
 import { supportsBilling } from "../shared/harnesses.js";
-import { directActivityEmitter } from "./direct-activities.js";
-import { DirectControls } from "./direct-controls.js";
+import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { openCodeActivities, directUpdates } from "./direct-activities.js";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -17,18 +16,8 @@ import {
 import type { Billing } from "../shared/protocol.js";
 
 /** Native HTTP/SSE stays on loopback; only normalized Loop WebSockets reach the phone. */
-export class OpenCode implements Adapter {
+export class OpenCode extends DirectAdapter implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {};
-  private controlState?: DirectControls;
-  private get displayControls() {
-    return (this.controlState ||= new DirectControls("opencode", this.emit));
-  }
-  get settings() {
-    return this.displayControls.settings;
-  }
-  get commandCatalog() {
-    return this.displayControls.commands;
-  }
   refreshCommandCatalog() {
     if (this.origin && this.session) {
       this.displayControls.refresh(
@@ -46,9 +35,6 @@ export class OpenCode implements Adapter {
         },
       );
     }
-  }
-  get activityCapabilities() {
-    return this.displayControls.capabilities;
   }
 
   capabilities = { ...capabilities };
@@ -76,9 +62,9 @@ export class OpenCode implements Adapter {
   private finalRefresh = false;
   constructor(
     private options: Options,
-    private emit: Emit,
+    emit: Emit,
   ) {
-    this.emit = directActivityEmitter(emit);
+    super("opencode", emit);
   }
   private sessionOptions(model?: string): Setting[] {
     const selected = this.models.find(
