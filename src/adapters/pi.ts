@@ -1,5 +1,4 @@
-import { directActivityEmitter } from "./direct-activities.js";
-import { DirectControls } from "./direct-controls.js";
+import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { piActivities, directUpdates } from "./direct-activities.js";
 import { fileURLToPath } from "node:url";
@@ -19,21 +18,11 @@ import type { ModelOption } from "../shared/models.js";
 import { NativeSetupError } from "./setup-error.js";
 import { piInventory } from "./pi-inventory.js";
 
-export class Pi implements Adapter {
+export class Pi extends DirectAdapter implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {
     get_state: "loading its session",
     get_available_models: "loading available models",
   };
-  private controlState?: DirectControls;
-  private get displayControls() {
-    return (this.controlState ||= new DirectControls("pi", this.emit));
-  }
-  get settings() {
-    return this.displayControls.settings;
-  }
-  get commandCatalog() {
-    return this.displayControls.commands;
-  }
   refreshCommandCatalog() {
     if (this.native) {
       this.displayControls.refresh(
@@ -55,9 +44,6 @@ export class Pi implements Adapter {
         },
       );
     }
-  }
-  get activityCapabilities() {
-    return this.displayControls.capabilities;
   }
 
   capabilities = { ...capabilities };
@@ -97,9 +83,9 @@ export class Pi implements Adapter {
   private requests = new Map<string, { m: any; timer?: NodeJS.Timeout }>();
   constructor(
     private options: Options,
-    private emit: Emit,
+    emit: Emit,
   ) {
-    this.emit = directActivityEmitter(emit);
+    super("pi", emit);
   }
   private async readSettings(): Promise<Setting[]> {
     const state = await this.native.request("get_state", {}, false);

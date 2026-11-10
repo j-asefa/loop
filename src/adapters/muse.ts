@@ -1,8 +1,7 @@
 import { museHost } from "../muse-host.js";
 import { supportsBilling } from "../shared/harnesses.js";
 import { createHash, randomBytes } from "node:crypto";
-import { directActivityEmitter } from "./direct-activities.js";
-import { DirectControls } from "./direct-controls.js";
+import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { type Native, NativeRpcError } from "../native.js";
 import { nativeFailureDetail } from "../native-memory.js";
@@ -48,32 +47,23 @@ type Approval = {
 };
 
 /** Muse Code owns sign-in, billing and context; Loop speaks its native MSP API. */
-export class Muse implements Adapter {
+export class Muse extends DirectAdapter implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {
     initialize: "starting its native process",
     "account/read": "checking its sign-in",
     "model/list": "loading available models",
   };
-  private controlState?: DirectControls;
-  private get displayControls() {
-    if (!this.controlState) {
-      this.controlState = new DirectControls("muse", this.emit);
-      // Muse tool calls appear as native traces; Loop does not yet derive
-      // structured tool, output, diff or plan activities from MSP items.
-      for (const feature of ["tools", "output", "diffs", "plans"] as const)
-        this.controlState.capabilities[feature] = {
-          state: "unsupported",
-          source: "muse native protocol",
-          reason: "Shown as native tool traces",
-        };
-    }
-    return this.controlState;
-  }
-  get settings() {
-    return this.displayControls.settings;
-  }
-  get activityCapabilities() {
-    return this.displayControls.capabilities;
+  protected override createControls() {
+    const controls = super.createControls();
+    // Muse tool calls appear as native traces; Loop does not yet derive
+    // structured tool, output, diff or plan activities from MSP items.
+    for (const feature of ["tools", "output", "diffs", "plans"] as const)
+      controls.capabilities[feature] = {
+        state: "unsupported",
+        source: "muse native protocol",
+        reason: "Shown as native tool traces",
+      };
+    return controls;
   }
   capabilities = { ...capabilities };
   commands: NativeCommand[] = [];
@@ -98,9 +88,9 @@ export class Muse implements Adapter {
   private notice?: string;
   constructor(
     private options: Options,
-    private emit: Emit,
+    emit: Emit,
   ) {
-    this.emit = directActivityEmitter(emit);
+    super("muse", emit, { commands: false });
   }
   private sessionOptions(model?: string): Setting[] {
     const selected = this.models.find(

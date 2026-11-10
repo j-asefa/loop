@@ -1,7 +1,6 @@
 import { runHarnessCommand } from "../harness-command.js";
-import { directActivityEmitter } from "./direct-activities.js";
 import { claudeTokens } from "./usage.js";
-import { DirectControls } from "./direct-controls.js";
+import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../../runtime/model-options.ts";
@@ -37,21 +36,8 @@ function foreignResult(m: any, active: boolean, session: string) {
   return "";
 }
 
-export class Claude implements Adapter {
+export class Claude extends DirectAdapter implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {};
-  private controlState?: DirectControls;
-  private get displayControls() {
-    return (this.controlState ||= new DirectControls("claude", this.emit));
-  }
-  get settings() {
-    return this.displayControls.settings;
-  }
-  get commandCatalog() {
-    return this.displayControls.commands;
-  }
-  get activityCapabilities() {
-    return this.displayControls.capabilities;
-  }
 
   capabilities = { ...capabilities };
   models: { id: string; name: string }[] = [];
@@ -74,9 +60,9 @@ export class Claude implements Adapter {
   private billing!: Billing;
   constructor(
     private options: Options,
-    private emit: Emit,
+    emit: Emit,
   ) {
-    this.emit = directActivityEmitter(emit);
+    super("claude", emit);
     this.session = options.resume ?? randomUUID();
     this.permissionMode = options.permissionMode;
   }
