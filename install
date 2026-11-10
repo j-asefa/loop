@@ -5,13 +5,10 @@ repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$repo_dir"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "Loop needs Node.js 24 and npm. Install them, then run bash install again." >&2
+  echo "Loop needs Node.js and npm. Install the Node.js version required by package.json, then run bash install again." >&2
   exit 1
 fi
-if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 19) ? 0 : 1)'; then
-  echo "Loop needs Node.js 22.19 or newer (Node.js 24 recommended)." >&2
-  exit 1
-fi
+node scripts/check-node.cjs
 
 # The build copies package-lock.json to npm-shrinkwrap.json for packaging, and
 # npm ci prefers it. A copy from an earlier build misses newer dependencies.

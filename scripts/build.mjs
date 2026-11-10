@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSource } from "./build-source.mjs";
 import { BUILD_ASSETS } from "../src/shared/build-assets.ts";
-import { BuildStamp } from "../src/shared/build.ts";
+import { BuildStamp, LOOP_REPOSITORY } from "../src/shared/build.ts";
 
 const root = process.cwd();
 const source = await buildSource(root);
@@ -18,7 +18,7 @@ try {
     );
     if (
       !identity.clean ||
-      identity.repository !== "github.com/j-asefa/loop" ||
+      identity.repository !== LOOP_REPOSITORY ||
       !/^[0-9a-f]{40}$/.test(identity.commit) ||
       !Array.isArray(identity.ancestors) ||
       identity.ancestors.length > 10000

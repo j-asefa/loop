@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { testWait } from "./test-seams.js";
+import { LOOP_REPOSITORY } from "./shared/build.js";
 import {
   PROCESS_FILES,
   ProcessRecordError,
@@ -49,7 +50,7 @@ const PACKAGE = JSON.parse(
 );
 const { version: VERSION } = PACKAGE;
 const names = Harness.options;
-const REMOTE_MAIN = `${String(PACKAGE.repository?.url ?? "https://github.com/j-asefa/loop.git").replace(/^git\+/, "")}#main`;
+const REMOTE_MAIN = `${String(PACKAGE.repository?.url ?? `https://${LOOP_REPOSITORY}.git`).replace(/^git\+/, "")}#main`;
 // Native account discovery is bounded; pairing is available before discovery.
 const STARTUP_TIMEOUT_MS = 1800000;
 
@@ -708,7 +709,7 @@ OpenCode asks for consent. No API fallback.
 Native permissions, skills, plugins and project configuration are preserved.
 Quick Tunnel addresses change after loop stop, a reboot or a tunnel failure.
 When that happens, run loop pair and scan the code from the Loop app.
-Cloudflare terminates TLS. macOS/Linux, Node >=22.19.
+Cloudflare terminates TLS. macOS/Linux, Node ${PACKAGE.engines.node}.
 --foreground keeps the workspace attached to this terminal (for service
 managers and debugging).
 --resume is an explicit desktop handoff of a native session you have stopped

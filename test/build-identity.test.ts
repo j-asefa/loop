@@ -86,7 +86,10 @@ it("uses the captured Dockerfile for image builds and rejects external files", (
     bin = join(dir, "bin");
   mkdirSync(root);
   mkdirSync(bin);
-  mkdirSync(join(root, "node_modules"));
+  mkdirSync(join(root, "scripts"));
+  cpSync("src/shared", join(root, "src/shared"), { recursive: true });
+  for (const script of ["build-image.mjs", "build-source.mjs"])
+    cpSync(join("scripts", script), join(root, "scripts", script));
   const dockerfile = join(root, "Dockerfile.companion");
   writeFileSync(dockerfile, "FROM committed-source\n");
   writeFileSync(join(root, ".gitignore"), "node_modules\n");
@@ -128,7 +131,7 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
     PATH: bin + ":" + process.env.PATH,
     FIXTURE_DOCKERFILE: dockerfile,
   };
-  const wrapper = resolve("scripts/build-image.mjs");
+  const wrapper = join(root, "scripts/build-image.mjs");
   for (const args of [
     // The companion is the only image Loop ships, so it is the default.
     [],
@@ -327,4 +330,56 @@ it("keeps the loaded identity after files are replaced and revokes clean provena
     clean: false,
   });
   expect(result.restored).toMatchObject({ id: "old-build", clean: false });
+});
+
+it("verifies supported repository remote spellings and rejects lookalike origins", async () => {
+  const root = join(dir, "remote-origins");
+  mkdirSync(root);
+  mkdirSync(join(root, "node_modules"));
+  writeFileSync(join(root, ".gitignore"), "node_modules\n");
+  const git = (...args: string[]) =>
+    execFileSync(
+      "git",
+      [
+        "-C",
+        root,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
+      { stdio: "pipe" },
+    );
+  git("init");
+  git("add", ".");
+  git("commit", "-m", "fixture");
+  git("remote", "add", "origin", "https://example.com/placeholder");
+  const { buildSource } = await import(
+    pathToFileURL(resolve("scripts/build-source.mjs")).href
+  );
+  for (const [remote, verified] of [
+    ["https://github.com/j-asefa/loop.git", true],
+    ["git@github.com:j-asefa/loop.git", true],
+    ["ssh://git@github.com/j-asefa/loop.git/", true],
+    ["HTTPS://GITHUB.COM/J-ASEFA/LOOP", true],
+    ["https://githubXcom/j-asefa/loop.git", false],
+    ["https://github.com/j-asefa/loop-other", false],
+    ["https://example.com/j-asefa/loop.git", false],
+    ["github.com/j-asefa/loop", false],
+    ["https://github.com/j-asefa/loop.git?ref=main", false],
+  ] as const) {
+    git("remote", "set-url", "origin", remote);
+    const source = await buildSource(root);
+    try {
+      expect(source.stamp.clean, remote).toBe(verified);
+      expect(source.stamp.repository, remote).toBe(
+        verified ? LOOP_REPOSITORY : null,
+      );
+    } finally {
+      await source.cleanup();
+    }
+  }
 });
