@@ -1,3 +1,4 @@
+import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as nativeCallsQueries from "./sql/native-calls.js";
@@ -149,7 +150,7 @@ const schemas = {
   loop_reply: PublishReply,
   loop_handoff: handoff,
   loop_review_read: reviewReadSchema,
-  loop_publish_file: publishFileSchema,
+  [PUBLISH_FILE_TOOL]: publishFileSchema,
   loop_plan: plan,
   loop_read_file: z.object({
     fileId: z.string().uuid(),
@@ -192,7 +193,7 @@ export function nativeBindings(
   const descriptions: Record<string, string> = {
     loop_reply:
       "Publish a complete reply to a user message received while this task is running. Use the message ID from Loop's steering wrapper as replyTo and your answer as body. The reply appears in the user's Replies tab and remains until they archive it. Each call publishes a separate reply; ordinary text does not. Keep working on the task after replying unless the user redirects or stops it. Use your normal final answer for the task's result and loop_message for agent mail.",
-    loop_publish_file:
+    [PUBLISH_FILE_TOOL]:
       "Publish a generated file to the user's Loop workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files can be up to 25 MB; make larger ones smaller first, for example by compressing or splitting them. Files appear under Your profile > Files, in the agent's Files tab, and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
     ...(options.plans && {
       loop_plan:
@@ -315,7 +316,7 @@ export async function invokeNative(
           : error.message) +
         " Correct the arguments and call loop_reply again.";
     }
-  } else if (tool === "loop_publish_file") {
+  } else if (tool === PUBLISH_FILE_TOOL) {
     try {
       const published = await publishRunFile(
         run,

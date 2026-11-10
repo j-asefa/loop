@@ -1,3 +1,7 @@
+import {
+  WORKSPACE_MCP_SERVER,
+  PUBLISH_FILE_TOOL,
+} from "../shared/workspace-tools.js";
 import { createHash } from "node:crypto";
 import { codexToolApproval } from "../shared/codex-approval.js";
 
@@ -12,11 +16,11 @@ export function codexApprovalDetail(params: any): string {
   // Older Codex versions identify the tool only in this generated message.
   // Do not summarize arbitrary commands, forms, or other servers' arguments.
   const publish =
-    approval?.server === "loop_workspace" &&
+    approval?.server === WORKSPACE_MCP_SERVER &&
     approval.message ===
-      'Allow the loop_workspace MCP server to run tool "loop_publish_file"?' &&
-    (meta.tool_name === undefined || meta.tool_name === "loop_publish_file") &&
-    (meta.tool_title === undefined || meta.tool_title === "loop_publish_file");
+      `Allow the ${WORKSPACE_MCP_SERVER} MCP server to run tool "${PUBLISH_FILE_TOOL}"?` &&
+    (meta.tool_name === undefined || meta.tool_name === PUBLISH_FILE_TOOL) &&
+    (meta.tool_title === undefined || meta.tool_title === PUBLISH_FILE_TOOL);
   if (
     !publish ||
     !args ||

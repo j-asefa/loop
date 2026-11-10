@@ -1,3 +1,4 @@
+import { workspaceMcp } from "./workspace-mcp.js";
 import { z } from "zod";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
@@ -265,19 +266,7 @@ export class Acp implements Adapter {
       const mcpServers =
         this.options.workspaceTools &&
         init.agentCapabilities?.mcpCapabilities?.http
-          ? [
-              {
-                type: "http" as const,
-                name: "loop-workspace",
-                url: this.options.workspaceTools.url,
-                headers: [
-                  {
-                    name: "Authorization",
-                    value: `Bearer ${this.options.workspaceTools.token}`,
-                  },
-                ],
-              },
-            ]
+          ? workspaceMcp(this.options.workspaceTools).acp
           : [];
       if (this.options.resume) {
         if (!this.capabilities.resume)

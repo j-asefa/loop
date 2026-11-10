@@ -1,3 +1,4 @@
+import type { WorkspaceTools } from "../shared/workspace-tools.js";
 import type { NativeCommand } from "../shared/native-commands.js";
 export type { NativeCommand } from "../shared/native-commands.js";
 import type { AdapterEvent } from "./events.js";
@@ -23,7 +24,7 @@ export type Options = {
   instructions?: string;
   probeOnly?: boolean;
   projectTrust?: boolean;
-  workspaceTools?: { url: string; token: string };
+  workspaceTools?: WorkspaceTools;
   args?: string[];
 };
 export type Emit = (event: AdapterEvent) => void;
