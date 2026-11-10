@@ -16,6 +16,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { bareHttpsOrigin } from "./shared/origin.js";
 import { atomic } from "./state.js";
 import { workspaceLock, recordedChildren } from "./process-records.js";
 
@@ -29,24 +30,6 @@ import {
 } from "./preview-context.js";
 
 const exec = promisify(execFile);
-const publicOrigin = z
-  .string()
-  .url()
-  .refine((value) => {
-    try {
-      const url = new URL(value);
-      return (
-        url.protocol === "https:" &&
-        !url.username &&
-        !url.password &&
-        !url.search &&
-        !url.hash &&
-        url.pathname === "/"
-      );
-    } catch {
-      return false;
-    }
-  }, "Public origin must be a bare HTTPS origin.");
 const recordSchema = z
   .object({
     schema: z.literal(1),
@@ -55,7 +38,7 @@ const recordSchema = z
     source: z.string().min(1),
     mode: previewMode,
     localOnly: z.boolean(),
-    publicUrl: publicOrigin.optional(),
+    publicUrl: bareHttpsOrigin.optional(),
     providers: z.string().optional(),
     createdAt: z.string(),
     build: z.string().uuid().optional(),
@@ -440,7 +423,7 @@ export async function previewCli(args: string[]) {
   if (values["local-only"] && values["public-url"])
     throw new Error("Choose --local-only or --public-url.");
   if (values["public-url"] !== undefined)
-    publicOrigin.parse(values["public-url"]);
+    bareHttpsOrigin.parse(values["public-url"]);
   if (values.providers !== undefined) selectedHarnesses(values.providers);
   if (values.from && action !== "create")
     throw new Error("--from applies to preview create.");

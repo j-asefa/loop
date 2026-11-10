@@ -41,7 +41,7 @@ import {
   readConnectionRecord,
   connectionControl,
   type Hello,
-  type TunnelMode,
+  tunnelModeFromFlags,
 } from "./connection.js";
 
 declare const __LOOP_RELEASE__: string | undefined;
@@ -86,18 +86,7 @@ export async function runConnectionService(
   privateDir(dir);
   if (values.log) installDaemonLog(join(dir, PROCESS_FILES.log));
   const root = resolve(values.root ?? dir);
-  if (values["tunnel-name"] && !values["public-url"])
-    throw new Error(
-      "A named tunnel requires --public-url https://your-hostname.",
-    );
-  const mode: TunnelMode = values["tunnel-name"]
-    ? {
-        kind: "named",
-        name: values["tunnel-name"],
-        origin: new URL(values["public-url"]!).origin,
-        ...(values["tunnel-config"] ? { config: values["tunnel-config"] } : {}),
-      }
-    : { kind: "quick" };
+  const mode = tunnelModeFromFlags(values);
   const releaseLock = workspaceLock(dir, CONNECTION_LOCK);
   // cloudflared is recorded so a full stop can find it after a crash here.
   recordOwnedProcesses(join(dir, PROCESS_FILES.children));

@@ -31,6 +31,7 @@ import {
   connectionDir,
   inspectConnection,
   publicConnection,
+  tunnelModeFromFlags,
   type TunnelMode,
 } from "./connection.js";
 import {
@@ -420,14 +421,7 @@ function tunnelModeOf(values: {
 }): TunnelMode | undefined {
   if (values["local-only"] || (values["public-url"] && !values["tunnel-name"]))
     return undefined;
-  return values["tunnel-name"]
-    ? {
-        kind: "named",
-        name: values["tunnel-name"],
-        origin: new URL(values["public-url"]!).origin,
-        ...(values["tunnel-config"] ? { config: values["tunnel-config"] } : {}),
-      }
-    : { kind: "quick" };
+  return tunnelModeFromFlags(values);
 }
 
 /**
@@ -846,14 +840,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       root,
       "--release",
       VERSION,
-      ...(values["tunnel-name"]
-        ? tunnelArgs({
-            kind: "named",
-            name: values["tunnel-name"],
-            origin: values["public-url"] ?? "",
-            config: values["tunnel-config"],
-          })
-        : []),
+      ...tunnelArgs(tunnelModeFromFlags(values)),
     ]);
     return;
   }
@@ -873,9 +860,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
     );
     if (positionals[1] === "install" && !preferences.project && !launched)
       throw new Error("Run loop start once before installing the service.");
-    // The installed services own a new connection service, so the current
-    // one stops too; the Quick Tunnel address changes once.
-    if (positionals[1] === "install") await stopAll(dir, connection);
     // The service repeats the saved launch, as loop restart does.
     const launch = await launchArgs(dir);
     const option = (name: string) => {
@@ -884,17 +868,19 @@ Uninstall removes the package separately; workspace/native history is retained.`
     };
     const tunnelName = option("--tunnel-name") ?? preferences.tunnelName;
     const publicUrl = option("--public-url") ?? preferences.publicUrl;
-    const tunnel =
-      launch.includes("--local-only") || (publicUrl && !tunnelName)
-        ? null
-        : tunnelName
-          ? tunnelArgs({
-              kind: "named",
-              name: tunnelName,
-              origin: publicUrl,
-              config: option("--tunnel-config") ?? preferences.tunnelConfig,
-            })
-          : [];
+    const mode =
+      positionals[1] === "install"
+        ? tunnelModeOf({
+            "local-only": launch.includes("--local-only"),
+            "public-url": publicUrl,
+            "tunnel-name": tunnelName,
+            "tunnel-config":
+              option("--tunnel-config") ?? preferences.tunnelConfig,
+          })
+        : undefined;
+    // Validate before stopping the current connection service for installation.
+    if (positionals[1] === "install") await stopAll(dir, connection);
+    const tunnel = mode ? tunnelArgs(mode) : null;
     const { userService } = await import("./service.js");
     await userService(
       positionals[1],
@@ -1094,6 +1080,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw new Error(
       "A named tunnel requires --public-url https://your-hostname.",
     );
+  const tunnelMode = tunnelModeOf(values);
   if (selected === "acp" && !values.executable)
     throw new Error(
       "ACP setup requires --executable with an absolute local executable path.",
@@ -1189,13 +1176,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         : { ...preferences.billing, [selected]: billing },
     });
   if (running) {
-    await recoverConnection(
-      dir,
-      root,
-      connection,
-      running,
-      tunnelModeOf(values),
-    );
+    await recoverConnection(dir, root, connection, running, tunnelMode);
     // Fleets are a start option of the running launch, never a live change.
     if (values.fleet && !(await launchArgs(dir)).includes("--fleet"))
       throw new Error(
@@ -1268,7 +1249,6 @@ Uninstall removes the package separately; workspace/native history is retained.`
     args: launch,
     version: VERSION,
   });
-  const tunnelMode = tunnelModeOf(values);
   const restarting = process.env.LOOP_LAUNCH_REASON === "restart";
   let host: import("./workspace-host.js").WorkspaceHost | undefined;
   let lease: BackendLease | undefined,

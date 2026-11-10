@@ -8,6 +8,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
+import { bareHttpsOrigin } from "./shared/origin.js";
 import { pidNamespace, processState } from "./process-records.js";
 
 /** Bumped only for incompatible control changes; see compatibility in docs/pairing.md. */
@@ -79,18 +80,37 @@ export function backendSocket(run: string, name: unknown) {
   return path;
 }
 
+const NamedTunnelMode = z
+  .object({
+    kind: z.literal("named"),
+    name: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+    origin: bareHttpsOrigin,
+    config: z.string().max(4096).optional(),
+  })
+  .strict();
 export const TunnelMode = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("quick") }).strict(),
-  z
-    .object({
-      kind: z.literal("named"),
-      name: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-      origin: z.string().url(),
-      config: z.string().max(4096).optional(),
-    })
-    .strict(),
+  NamedTunnelMode,
 ]);
 export type TunnelMode = z.infer<typeof TunnelMode>;
+export function tunnelModeFromFlags(values: {
+  "tunnel-name"?: string;
+  "public-url"?: string;
+  "tunnel-config"?: string;
+}): TunnelMode {
+  if (!values["tunnel-name"]) return { kind: "quick" };
+  if (!values["public-url"])
+    throw new Error(
+      "A named tunnel requires --public-url https://your-hostname.",
+    );
+  const mode = NamedTunnelMode.parse({
+    kind: "named",
+    name: values["tunnel-name"],
+    origin: values["public-url"],
+    ...(values["tunnel-config"] ? { config: values["tunnel-config"] } : {}),
+  });
+  return { ...mode, origin: new URL(mode.origin).origin };
+}
 export const sameMode = (a: TunnelMode, b: TunnelMode) =>
   a.kind === b.kind &&
   (a.kind === "quick" ||

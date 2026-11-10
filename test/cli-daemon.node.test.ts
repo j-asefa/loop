@@ -1174,3 +1174,67 @@ test("bare loop restores a saved managed project from another directory", async 
     await w.cleanup();
   }
 });
+
+test("invalid named tunnel startup does not save a launch", async () => {
+  const w = await workspace();
+  try {
+    await assert.rejects(
+      w.loop([
+        ...w.harness,
+        "--tunnel-name",
+        "fixture",
+        "--public-url",
+        "https://fixture.example/path",
+      ]),
+      /bare HTTPS origin/,
+    );
+    assert.equal(existsSync(join(w.dir, "launch.json")), false);
+  } finally {
+    await w.cleanup();
+  }
+});
+
+test("service uninstall removes units even with invalid saved tunnel flags", async () => {
+  const w = await workspace();
+  try {
+    const home = join(w.env.LOOP_HOME, "fixture-home");
+    const bin = join(home, "bin");
+    const mac = process.platform === "darwin";
+    const units = join(
+      home,
+      mac ? "Library/LaunchAgents" : ".config/systemd/user",
+    );
+    await mkdir(bin, { recursive: true });
+    await mkdir(units, { recursive: true });
+    for (const command of ["systemctl", "launchctl"])
+      await writeFile(join(bin, command), "#!/bin/sh\nexit 0\n", {
+        mode: 0o755,
+      });
+    Object.assign(w.env, { HOME: home, PATH: bin + ":" + w.env.PATH });
+    const { SERVICES } = await import("../src/service.js");
+    const names = mac ? SERVICES.darwin : SERVICES.linux;
+    const files = [names.app, names.connection].map((name) =>
+      join(units, mac ? name + ".plist" : name),
+    );
+    for (const file of files) await writeFile(file, "fixture unit");
+    await mkdir(w.dir, { recursive: true });
+    await writeFile(
+      join(w.dir, "launch.json"),
+      JSON.stringify({
+        schema: 1,
+        args: [
+          "start",
+          "--tunnel-name",
+          "fixture",
+          "--public-url",
+          "https://fixture.example/path",
+        ],
+      }),
+    );
+    const result = await w.loop(["service", "uninstall"]);
+    assert.match(result.stdout, /uninstall complete/);
+    for (const file of files) assert.equal(existsSync(file), false);
+  } finally {
+    await w.cleanup();
+  }
+});

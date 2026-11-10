@@ -11,6 +11,7 @@ import { parse as parseYaml, stringify as yaml } from "yaml";
 import { createHash } from "node:crypto";
 import { privateDir, atomic } from "./state.js";
 import { recordOwnedChild } from "./process-records.js";
+import { bareHttpsOrigin } from "./shared/origin.js";
 const exec = promisify(execFile);
 const RELEASE = "2026.9.3";
 // Release asset SHA-256 digests from cloudflare/cloudflared release 2026.9.3.
@@ -253,16 +254,7 @@ export class Tunnel {
     if (this.stopped) throw new Error("Quick Tunnel startup cancelled.");
     let config = join(this.root, "quick-tunnel.yml");
     if (this.named) {
-      const url = new URL(this.named.origin);
-      if (
-        url.protocol !== "https:" ||
-        url.pathname !== "/" ||
-        url.username ||
-        url.password ||
-        url.search ||
-        url.hash
-      )
-        throw new Error("Named tunnel requires a bare HTTPS origin");
+      bareHttpsOrigin.parse(this.named.origin);
       if (!/^[a-zA-Z0-9_-]+$/.test(this.named.name))
         throw new Error("Invalid tunnel name or ID");
     }
