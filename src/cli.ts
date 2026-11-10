@@ -15,12 +15,13 @@ import {
 import { harnesses, runtimeHarnessIds } from "./shared/harnesses.js";
 import { parseArgs } from "node:util";
 import { realpath, readFile, open } from "node:fs/promises";
-import { openSync, closeSync, statSync, existsSync } from "node:fs";
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { statSync, existsSync } from "node:fs";
+import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join, resolve, isAbsolute } from "node:path";
 import { homedir } from "node:os";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
+import { spawnReady, reportReady, isEntrypoint } from "./local-startup.js";
 import { createInterface } from "node:readline/promises";
 import qr from "qrcode-terminal";
 import { Harness } from "./shared/protocol.js";
@@ -101,12 +102,7 @@ function showReady(ready: Ready, withCode = true) {
         : "Run loop pair to show a pairing code.",
     );
 }
-function report(message: Ready | { error: string }) {
-  if (!daemonChild || !process.connected) return;
-  process.send!(message, () => {
-    if (process.connected) process.disconnect?.();
-  });
-}
+const report = daemonChild ? reportReady : (_message: object) => {};
 // No terminal owns the background workspace, so `loop stop` escalates itself.
 // With no workspace (it crashed), this still stops its recorded native processes.
 export async function forceStop(
@@ -543,66 +539,35 @@ async function daemonize(
 ) {
   const log = join(dir, PROCESS_FILES.log);
   await retireLog(log);
-  const fd = openSync(log, "a", 0o600);
-  let child: ChildProcess;
-  try {
-    child = spawn(
-      process.execPath,
-      [...process.execArgv, fileURLToPath(import.meta.url), ...args],
-      {
-        detached: true,
-        stdio: ["ignore", fd, fd, "ipc"],
-        env: {
-          ...process.env,
-          LOOP_DAEMON_CHILD: "1",
-          ...(restart ? { LOOP_LAUNCH_REASON: "restart" } : {}),
-        },
+  const ready = await spawnReady<Ready>(
+    fileURLToPath(import.meta.url),
+    args,
+    log,
+    {
+      env: {
+        ...process.env,
+        LOOP_DAEMON_CHILD: "1",
+        ...(restart ? { LOOP_LAUNCH_REASON: "restart" } : {}),
       },
-    );
-  } finally {
-    closeSync(fd);
-  }
-  const abort = () => child.kill("SIGTERM");
-  process.once("SIGINT", abort);
-  process.once("SIGTERM", abort);
-  try {
-    const ready = await new Promise<Ready>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGTERM");
-        reject(new Error("Workspace startup timed out. See loop logs."));
-      }, STARTUP_TIMEOUT_MS);
-      child.once("message", (m: any) => {
-        clearTimeout(timer);
-        if (m?.ready) resolve(m);
-        else reject(new Error(m?.error || "Workspace failed to start."));
-      });
-      child.once("error", (e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-      child.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(
-          new Error(
-            `Workspace exited during startup${code ? ` (code ${code})` : ""}. See loop logs.`,
-          ),
-        );
-      });
-    });
-    if (restart?.upgradedFrom)
-      console.log(`Upgraded from Loop ${restart.upgradedFrom} to ${VERSION}.`);
-    showReady(ready);
-    console.log(
-      "Loop keeps running in the background; you can close this terminal. Logs: loop logs",
-    );
-  } finally {
-    process.off("SIGINT", abort);
-    process.off("SIGTERM", abort);
-    child.removeAllListeners();
-    if (child.connected) child.disconnect();
-    child.unref();
-  }
+      forwardSignals: true,
+      timeout: STARTUP_TIMEOUT_MS,
+      timeoutMessage: "Workspace startup timed out. See loop logs.",
+      exitMessage: (code) =>
+        `Workspace exited during startup${code ? ` (code ${code})` : ""}. See loop logs.`,
+      readMessage: (message) => {
+        if (message?.ready) return message;
+        throw new Error(message?.error || "Workspace failed to start.");
+      },
+    },
+  );
+  if (restart?.upgradedFrom)
+    console.log(`Upgraded from Loop ${restart.upgradedFrom} to ${VERSION}.`);
+  showReady(ready);
+  console.log(
+    "Loop keeps running in the background; you can close this terminal. Logs: loop logs",
+  );
 }
+
 async function logs(dir: string, follow: boolean) {
   const path = join(dir, PROCESS_FILES.log);
   let handle = await open(path, "r").catch(() => undefined);
@@ -1450,12 +1415,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     throw error;
   }
 }
-if (
-  process.argv[1] &&
-  import.meta.url ===
-    pathToFileURL(await realpath(process.argv[1]).catch(() => process.argv[1]))
-      .href
-) {
+if (isEntrypoint(import.meta.url)) {
   process.stdout.on("error", (e: NodeJS.ErrnoException) => {
     if (e.code === "EPIPE") process.exit(process.exitCode ?? 0);
     throw e;

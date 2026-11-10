@@ -7,8 +7,8 @@ import {
   exited,
 } from "./process-records.js";
 /** CLI side of the connection service: find, start, converge on and stop it. */
-import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { spawnReady } from "./local-startup.js";
 import { copyFile, chmod, rename, rm } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { extname, join } from "node:path";
@@ -51,15 +51,13 @@ async function serviceEntry(dir: string) {
       await chmod(temp, 0o500);
       await rename(temp, target);
     }
-    return { args: [target] };
+    return { entry: target, execArgv: [] };
   }
   return {
-    args: [
-      ...process.execArgv,
-      fileURLToPath(
-        new URL("./connection-daemon" + extname(here), import.meta.url),
-      ),
-    ],
+    entry: fileURLToPath(
+      new URL("./connection-daemon" + extname(here), import.meta.url),
+    ),
+    execArgv: process.execArgv,
   };
 }
 
@@ -86,63 +84,35 @@ async function spawnConnection(
   const log = join(dir, PROCESS_FILES.log);
   await retireLog(log);
   const entry = await serviceEntry(dir);
-  const fd = openSync(log, "a", 0o600);
-  let child: ChildProcess;
-  try {
-    child = spawn(
-      process.execPath,
-      [
-        ...entry.args,
-        "--dir",
-        dir,
-        "--root",
-        root,
-        "--release",
-        release,
-        "--log",
-        ...tunnelArgs(mode),
-      ],
-      // Detached: neither the application's process group nor its forced
-      // stop includes the service, so an application restart keeps it.
-      { detached: true, stdio: ["ignore", fd, fd, "ipc"], cwd: dir },
-    );
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    return await new Promise<
-      { state: "ready"; origin: string } | { state: "busy" }
-    >((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Its shutdown stops the cloudflared it started; nothing is left behind.
-        child.kill("SIGTERM");
-        reject(new Error("The tunnel did not start in time. See " + log));
-      }, testWait("LOOP_TEST_CONNECTION_START_MS"));
-      child.once("message", (m: any) => {
-        clearTimeout(timer);
-        if (m?.ready) resolve({ state: "ready", origin: m.origin });
-        else if (m?.code === LockBusyError.code) resolve({ state: "busy" });
-        else
-          reject(new Error(m?.error || "Connection service failed to start."));
-      });
-      child.once("error", (e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-      child.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(
-          new Error(
-            `Connection service exited during startup${code ? ` (code ${code})` : ""}. See ${log}.`,
-          ),
+  return spawnReady<{ state: "ready"; origin: string } | { state: "busy" }>(
+    entry.entry,
+    [
+      "--dir",
+      dir,
+      "--root",
+      root,
+      "--release",
+      release,
+      "--log",
+      ...tunnelArgs(mode),
+    ],
+    log,
+    {
+      execArgv: entry.execArgv,
+      cwd: dir,
+      timeout: testWait("LOOP_TEST_CONNECTION_START_MS"),
+      timeoutMessage: "The tunnel did not start in time. See " + log,
+      exitMessage: (code) =>
+        `Connection service exited during startup${code ? ` (code ${code})` : ""}. See ${log}.`,
+      readMessage: (message) => {
+        if (message?.ready) return { state: "ready", origin: message.origin };
+        if (message?.code === LockBusyError.code) return { state: "busy" };
+        throw new Error(
+          message?.error || "Connection service failed to start.",
         );
-      });
-    });
-  } finally {
-    child.removeAllListeners();
-    if (child.connected) child.disconnect();
-    child.unref();
-  }
+      },
+    },
+  );
 }
 
 export type Connection = {

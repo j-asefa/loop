@@ -23,8 +23,7 @@ import {
 import { chmodSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { pathToFileURL } from "node:url";
-import { realpathSync } from "node:fs";
+import { reportReady, isEntrypoint } from "./local-startup.js";
 import { randomUUID, randomBytes } from "node:crypto";
 import { atomic, privateDir, secret } from "./state.js";
 
@@ -363,30 +362,17 @@ async function installHelper(root: string) {
   await helper(resolve(root));
 }
 
-const self = (() => {
-  try {
-    return pathToFileURL(realpathSync(process.argv[1] ?? "")).href;
-  } catch {
-    return "";
-  }
-})();
-if (import.meta.url === self) {
+if (isEntrypoint(import.meta.url)) {
   const args = process.argv.slice(2);
-  const send = (message: object) => {
-    if (typeof process.send !== "function" || !process.connected) return;
-    process.send(message, () => {
-      if (process.connected) process.disconnect?.();
-    });
-  };
   const main =
     args[0] === "--install-helper"
       ? installHelper(args[1] ?? ".")
       : args[0] === "--health"
         ? health(args.slice(1))
-        : runConnectionService(args, send);
+        : runConnectionService(args, reportReady);
   main.catch((error) => {
     console.error("Loop connection service: " + (error as Error).message);
-    send({
+    reportReady({
       error: (error as Error).message,
       ...(error instanceof LockBusyError ? { code: error.code } : {}),
     });
