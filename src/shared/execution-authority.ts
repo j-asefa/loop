@@ -1,3 +1,4 @@
+import { Billing } from "./protocol.js";
 import { z } from "zod";
 import { FleetGrantContext } from "./fleet.js";
 import {
@@ -31,13 +32,6 @@ const Id = z.string().min(1).max(200);
 const Path = z.string().min(1).max(4096);
 const Empty = z.strictObject({});
 const JsonObject = z.record(z.string(), z.json());
-const Billing = z.strictObject({
-  mode: z.enum(["subscription", "existing"]),
-  description: z.string(),
-  provider: z.string().optional(),
-  // Codex config/read reports an unset default model as null.
-  model: z.string().nullish(),
-});
 const Model = z
   .object({
     id: z.string(),

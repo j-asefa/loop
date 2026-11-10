@@ -83,7 +83,7 @@ export class Claude implements Adapter {
     this.permissionMode = options.permissionMode;
   }
   private permissionMode?: string;
-  private sessionOptions(model?: string): Setting[] {
+  private sessionOptions(model?: string | null): Setting[] {
     return [
       {
         id: "model",
