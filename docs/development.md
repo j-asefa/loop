@@ -61,6 +61,8 @@ convert it outside Loop before the first start.
 
 For a Docker image with source provenance, use `npm run build:image -- -t loop-companion:local`; it builds `Dockerfile.companion` unless `-f` selects another Dockerfile. The wrapper gives Docker the same immutable source archive plus its build-time identity. Plain Docker/Compose builds remain supported with unknown Git provenance because `.git` is excluded from their context. The authenticated `/api/build` response describes the serving process and fresh API/worker observations without credentials or local paths. Processes report every five seconds; observations expire after twenty seconds without a heartbeat. The browser compares its embedded build with the authenticated origin on connection, reconnect and periodic checks; a mismatch offers a reload without submitting work. This signal is local to that browser.
 
+`src/shared/build-assets.ts` lists runtime support inputs, preview inputs, published files and build outputs copied back from immutable archives. After changing published entries, run `node scripts/package-files.mjs --write` to update `package.json.files`; `npm run check` rejects drift.
+
 Runtime helpers are compiled by `scripts/compile-runtime.mjs` into standalone
 `.mjs` modules. Package builds stage that graph in `dist/support/runtime`.
 TypeScript source imports are rewritten to the compiled siblings.

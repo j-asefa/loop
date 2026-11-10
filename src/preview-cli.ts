@@ -16,6 +16,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { BUILD_ASSETS } from "./shared/build-assets.js";
 import { bareHttpsOrigin } from "./shared/origin.js";
 import { atomic } from "./state.js";
 import { workspaceLock, recordedChildren } from "./process-records.js";
@@ -305,13 +306,9 @@ async function buildCheckout(dir: string, record: Record, source: string) {
     stage = join(dir, "builds", id);
   await privateDirectory(stage);
   try {
-    for (const entry of [
-      "dist",
-      "migrations",
-      "runtime",
-      "package.json",
-      "package-lock.json",
-    ])
+    for (const { path: entry } of BUILD_ASSETS.filter((asset) =>
+      asset.uses.includes("preview"),
+    ))
       await cp(join(source, entry), join(stage, entry), {
         recursive: true,
         mode: constants.COPYFILE_FICLONE,

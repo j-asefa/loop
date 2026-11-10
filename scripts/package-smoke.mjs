@@ -30,6 +30,12 @@ try {
     !packedFiles.files.some(({ path }) => path.startsWith("dist/client/")),
     "the package contains one UI tree",
   );
+  assert(
+    !packedFiles.files.some(
+      ({ path }) => path === "scripts/heavy-supervisor.py",
+    ),
+    "the development supervisor is not shipped",
+  );
   tarball = resolve(packedFiles.filename);
   const target = join(base, "clean install é"),
     project = join(base, "project with spaces 漢字");
