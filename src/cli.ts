@@ -2,6 +2,7 @@
 import { testWait } from "./test-seams.js";
 import {
   PROCESS_FILES,
+  ProcessRecordError,
   recordedWorkspace,
   forgetWorkspace,
   terminateWorkspace,
@@ -37,7 +38,7 @@ import {
   tunnelArgs,
 } from "./connection-launch.js";
 import type { Options } from "./adapters/types.js";
-import { discover, control } from "./host-control.js";
+import { discover, control, inspectWorkspace } from "./host-control.js";
 import { installDaemonLog, retireLog } from "./daemon.js";
 
 import { preview, publicPreview, designPreview } from "./preview-context.js";
@@ -146,53 +147,83 @@ export async function forceStop(
     cleanupWorkspace: () => forgetWorkspace(dir),
   });
 }
+async function workspaceStatus(dir: string) {
+  const found = await inspectWorkspace(dir);
+  if (found.state === "invalid") throw found.error;
+  return found.state === "responding" ? found : { ...found, status: undefined };
+}
+
+function workspaceDescription(
+  recorded: Exclude<
+    Awaited<ReturnType<typeof recordedWorkspace>>,
+    { state: "invalid" }
+  >,
+) {
+  switch (recorded.state) {
+    case "absent":
+      return {
+        state: "stopped",
+        message: "Run loop start to open this workspace.",
+      };
+    case "exited":
+      return {
+        state: "crashed",
+        message:
+          "The workspace exited unexpectedly. Check loop logs, then run loop start again.",
+      };
+    case "running":
+      return {
+        state: "unresponsive",
+        message:
+          "The workspace process is running but not responding. Run loop stop to terminate it.",
+      };
+    case "unknown":
+      return {
+        state: "unknown",
+        message: `Workspace process ${recorded.pid} is not responding, and Loop can't confirm that PID still belongs to the workspace. Check it with ps; no process was stopped.`,
+      };
+  }
+}
+
+async function stopRecordsRemain(dir: string) {
+  return (
+    (await recordedChildren(dir)).length > 0 ||
+    existsSync(join(dir, PROCESS_FILES.execution, PROCESS_FILES.executionOwner))
+  );
+}
+
 /** Stops the application, its runners and managed containers; never the connection service. */
-async function stopWorkspace(dir: string) {
+async function stopWorkspace(dir: string): Promise<"stopped" | "absent"> {
   const recorded = await recordedWorkspace(dir);
+  if (recorded.state === "invalid") throw recorded.error;
   const answered = await control(dir, "stop").then(
     () => true,
-    () => false,
+    (error) => {
+      if (error instanceof ProcessRecordError) throw error;
+      return false;
+    },
   );
-  if (!answered) {
-    if (!recorded) {
-      // A previous stop may have left records it couldn't resolve.
-      if (
-        (await recordedChildren(dir)).length ||
-        existsSync(
-          join(
-            dir,
-            join(PROCESS_FILES.execution, PROCESS_FILES.executionOwner),
-          ),
-        )
-      )
-        return forceStop(dir, undefined, "exited");
-      throw new Error("No workspace is running.");
-    }
-    if (recorded.state === "unknown")
-      throw new Error(
-        `Workspace process ${recorded.pid} is not responding, and Loop can't confirm that PID still belongs to the workspace, so nothing was stopped. Check it (for example with ps) and stop it yourself.`,
-      );
-    if (recorded.state === "running")
-      return forceStop(dir, recorded, "is not responding");
-    return forceStop(dir, undefined, "exited");
-  }
-  if (
-    recorded?.state === "running" &&
+  if (!answered && recorded.state === "unknown")
+    throw new Error(workspaceDescription(recorded).message);
+  if (!answered && recorded.state === "running") {
+    await forceStop(dir, recorded, "is not responding");
+  } else if (
+    answered &&
+    recorded.state === "running" &&
     !(await exited(recorded.pid, STOP_WAIT_MS))
-  )
-    return forceStop(
+  ) {
+    await forceStop(
       dir,
       recorded,
       `did not exit within ${STOP_WAIT_MS / 1000}s`,
     );
-  // Retry anything an earlier incomplete stop left on record.
-  if (
-    (await recordedChildren(dir)).length ||
-    existsSync(
-      join(dir, join(PROCESS_FILES.execution, PROCESS_FILES.executionOwner)),
-    )
-  )
-    return forceStop(dir, undefined, "exited");
+  } else if (
+    (!answered && recorded.state === "exited") ||
+    (await stopRecordsRemain(dir))
+  ) {
+    await forceStop(dir, undefined, "exited");
+  } else if (!answered && recorded.state === "absent") return "absent";
+  return "stopped";
 }
 function runCommand(command: string, args: string[], cwd: string) {
   return new Promise<void>((resolve, reject) => {
@@ -211,19 +242,13 @@ function runCommand(command: string, args: string[], cwd: string) {
 }
 /** Full shutdown: application, runners, then the connection service and tunnel. */
 async function stopAll(dir: string, connection: string) {
-  let stopped = false;
-  try {
-    await stopWorkspace(dir);
-    stopped = true;
-  } catch (error) {
-    if ((error as Error).message !== "No workspace is running.") throw error;
-  }
+  const stopped = (await stopWorkspace(dir)) === "stopped";
   const service = await stopConnection(connection);
   if (service === "external")
     console.error(
       "The connection service belongs to another container or service manager and was left running.",
     );
-  if (!stopped && !service) throw new Error("No workspace is running.");
+  return stopped || !!service;
 }
 
 const execFileAsync = promisify(execFile);
@@ -256,7 +281,8 @@ async function restartWorkspace(
     throw new Error(
       "In the Docker companion, restart the application container instead: docker compose -f compose.companion.yaml restart loop-companion",
     );
-  const status = await control(dir, "status").catch(() => undefined);
+  const found = await workspaceStatus(dir);
+  const status = found.status;
   const service = await inspectConnection(connection);
   let hung = false;
   // The application reports its own supervisor, which it cannot do once it is
@@ -270,11 +296,9 @@ async function restartWorkspace(
   // through the manager when that unit's LOOP_HOME matches the request.
   const supervisor = await installedSupervisor(root);
   if (!status) {
-    const recorded = await recordedWorkspace(dir);
-    if (recorded?.state === "unknown")
-      throw new Error(
-        `Workspace process ${recorded.pid} is not responding and can't be confirmed as Loop's. Check it with ps.`,
-      );
+    const recorded = found.state === "responding" ? found.record : found;
+    if (recorded.state === "unknown")
+      throw new Error(workspaceDescription(recorded).message);
     hung = recorded?.state === "running";
     if (hung && !force)
       throw new Error(
@@ -286,7 +310,10 @@ async function restartWorkspace(
       return restartService(
         dir,
         root,
-        { supervisor, pid: recorded?.pid },
+        {
+          supervisor,
+          pid: recorded.state === "absent" ? undefined : recorded.pid,
+        },
         upgradedFrom,
       );
     if (!hung)
@@ -352,7 +379,7 @@ async function restartService(
   const end = Date.now() + STARTUP_TIMEOUT_MS;
   let last: any;
   for (;;) {
-    const next = await control(dir, "status").catch(() => undefined);
+    const next = (await workspaceStatus(dir)).status;
     if (next) last = next;
     // Only a managed tunnel has a lease to register; local-only and
     // user-managed proxy launches are ready once the application is.
@@ -444,7 +471,7 @@ async function recoverConnection(
   });
   const end = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS");
   for (;;) {
-    const current = await control(dir, "status").catch(() => undefined);
+    const current = (await workspaceStatus(dir)).status;
     if (
       current?.connection?.registered &&
       current.url === service.hello.origin
@@ -475,7 +502,7 @@ async function upgradeWorkspace(
   source: string,
   force: boolean,
 ) {
-  const status = await control(dir, "status").catch(() => undefined);
+  const status = (await workspaceStatus(dir)).status;
   const active = Number(status?.activeRuns?.n ?? 0);
   if (active > 0 && !force)
     throw new Error(
@@ -878,11 +905,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       throw new Error("Run loop start once before installing the service.");
     // The installed services own a new connection service, so the current
     // one stops too; the Quick Tunnel address changes once.
-    if (positionals[1] === "install")
-      await stopAll(dir, connection).catch((error) => {
-        if ((error as Error).message !== "No workspace is running.")
-          throw error;
-      });
+    if (positionals[1] === "install") await stopAll(dir, connection);
     // The service repeats the saved launch, as loop restart does.
     const launch = await launchArgs(dir);
     const option = (name: string) => {
@@ -949,7 +972,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (["pair", "status", "devices", "stop", "uninstall"].includes(action)) {
     if (action === "uninstall") {
       if (
-        (await control(dir, "status").catch(() => undefined)) ||
+        (await workspaceStatus(dir)).status ||
         (await inspectConnection(connection)).state === "running"
       )
         throw new Error("Run loop stop first.");
@@ -967,7 +990,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
       // check loop pair hands out a link to a tunnel that no longer exists.
       // Local-only and user-managed proxy launches have no service to check.
       const service = await inspectConnection(connection);
-      const running = await control(dir, "status").catch(() => undefined);
+      const running = (await workspaceStatus(dir)).status;
       const managed = ["quick", "named"].includes(running?.connection?.mode);
       if (managed && service.state !== "running")
         throw new Error(
@@ -988,7 +1011,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
           )
             break;
           await new Promise((r) => setTimeout(r, 200));
-          current = await control(dir, "status").catch(() => undefined);
+          current = (await workspaceStatus(dir)).status;
         }
         if (
           managed &&
@@ -1004,52 +1027,47 @@ Uninstall removes the package separately; workspace/native history is retained.`
       }
     }
     if (action === "stop") {
-      await stopAll(dir, connection);
+      if (!(await stopAll(dir, connection)))
+        throw new Error("No workspace is running.");
       console.log(JSON.stringify({ stopped: true }, null, values.json ? 0 : 2));
       return;
     }
-    const output = await control(
-      dir,
-      action === "devices" && positionals[1] === "revoke" ? "revoke" : action,
-      { id: positionals[2] },
-    ).catch(async () => {
-      if (action === "status") {
-        const recorded = await recordedWorkspace(dir);
-        const service = publicConnection(await inspectConnection(connection));
-        const [state, message] = !recorded
-          ? ["stopped", "Run loop start to open this workspace."]
-          : recorded.state === "exited"
-            ? [
-                "crashed",
-                "The workspace exited unexpectedly. Check loop logs, then run loop start again.",
-              ]
-            : recorded.state === "running"
-              ? [
-                  "unresponsive",
-                  "The workspace process is running but not responding. Run loop stop to terminate it.",
-                ]
-              : [
-                  "unknown",
-                  "A process has the workspace's recorded PID, but Loop can't confirm it is the workspace.",
-                ];
-        // The tunnel can outlive the application: report its unchanged address.
-        const serving = service.state === "running";
-        return {
-          workspace: true,
-          state,
-          stateRoot: root,
-          logs: logPath,
-          message:
-            serving && state === "stopped"
-              ? "The application is stopped, but the connection service keeps its address. Run loop start or loop restart to serve it again."
-              : message,
-          ...(serving && "url" in service ? { url: service.url } : {}),
-          serverReady: false,
-          connection: service,
-        };
-      }
-      throw new Error("No responsive workspace host. Run loop start first.");
-    });
+    const output =
+      action === "status"
+        ? await (async () => {
+            const found = await workspaceStatus(dir);
+            if (found.state === "responding") return found.status;
+            const service = publicConnection(
+              await inspectConnection(connection),
+            );
+            const { state, message } = workspaceDescription(found);
+            const serving = service.state === "running";
+            return {
+              workspace: true,
+              state,
+              stateRoot: root,
+              logs: logPath,
+              message:
+                serving && state === "stopped"
+                  ? "The application is stopped, but the connection service keeps its address. Run loop start or loop restart to serve it again."
+                  : message,
+              ...(serving && "url" in service ? { url: service.url } : {}),
+              serverReady: false,
+              connection: service,
+            };
+          })()
+        : await control(
+            dir,
+            action === "devices" && positionals[1] === "revoke"
+              ? "revoke"
+              : action,
+            { id: positionals[2] },
+          ).catch((error) => {
+            if (error instanceof ProcessRecordError) throw error;
+            throw new Error(
+              "No responsive workspace host. Run loop start first.",
+            );
+          });
     if (
       action === "status" &&
       output.pid &&
@@ -1086,7 +1104,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
     .then(JSON.parse)
     .catch(() => ({}));
   const selected = (neutral ? "codex" : action) as Harness;
-  const running = await control(dir, "status").catch(() => undefined);
+  const running = (await workspaceStatus(dir)).status;
   if (neutral && !values.project && preferences.project)
     project = await realpath(preferences.project);
   const { selectedHarnesses, selectedBilling } =

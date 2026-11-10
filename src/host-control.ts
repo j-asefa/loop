@@ -1,6 +1,11 @@
-import { PROCESS_FILES, killOwned } from "./process-records.js";
+import {
+  readControlRecord,
+  recordedWorkspace,
+  ProcessRecordError,
+  killOwned,
+} from "./process-records.js";
 import { spawnHarnessProcess } from "./native-spawn.js";
-import { access, readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
 import { request } from "node:http";
@@ -128,16 +133,10 @@ export async function control(
   action: string,
   data: unknown = {},
 ): Promise<any> {
-  const config = JSON.parse(
-    await readFile(join(dir, PROCESS_FILES.control), "utf8"),
-  );
-  if (
-    !Number.isInteger(config.port) ||
-    config.port < 1 ||
-    config.port > 65535 ||
-    typeof config.token !== "string"
-  )
-    throw new Error("Invalid local host record");
+  const found = await readControlRecord(dir);
+  if (found.state === "invalid") throw found.error;
+  if (found.state === "absent") throw new Error("No local host record.");
+  const config = found.record;
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -173,4 +172,21 @@ export async function control(
     req.on("error", reject);
     req.end(JSON.stringify(data));
   });
+}
+
+export async function inspectWorkspace(dir: string) {
+  const recorded = await recordedWorkspace(dir);
+  if (recorded.state === "absent" || recorded.state === "invalid")
+    return recorded;
+  try {
+    return {
+      state: "responding" as const,
+      record: recorded,
+      status: await control(dir, "status"),
+    };
+  } catch (error) {
+    if (error instanceof ProcessRecordError)
+      return { state: "invalid" as const, error };
+    return recordedWorkspace(dir);
+  }
 }
