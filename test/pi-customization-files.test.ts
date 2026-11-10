@@ -207,3 +207,49 @@ it("inspects a local package without executing it and records an npm recovery pi
     "npm:review@1.2.3",
   );
 });
+
+it("Pi package launches scrub service settings and preserve credential homes", async () => {
+  await expect(
+    runPi(
+      process.execPath,
+      [
+        "-e",
+        `
+    if (process.env.LOOP_DB || process.env.LOOP_PROFILE ||
+        process.env.HOME !== process.cwd() || process.env.PROVIDER_FIXTURE_TOKEN !== 'retained') process.exit(91);
+  `,
+      ],
+      {
+        cwd: tmpdir(),
+        env: {
+          HOME: tmpdir(),
+          LOOP_DB: "/must-not-reach-pi.db",
+          LOOP_PROFILE: "must-not-reach-pi",
+          PROVIDER_FIXTURE_TOKEN: "retained",
+        },
+      },
+    ),
+  ).resolves.toBeUndefined();
+});
+
+it("Pi package timeout confirms a TERM-ignoring writer exited", async () => {
+  const { project } = fixture();
+  const pidFile = join(project, "pid");
+  await expect(
+    runPi(
+      process.execPath,
+      [
+        "-e",
+        `
+    process.on('SIGTERM', ()=>{});
+    require('node:fs').writeFileSync(process.argv[1], String(process.pid));
+    setInterval(()=>{},1000);
+  `,
+        pidFile,
+      ],
+      { cwd: project, timeout: 500 },
+    ),
+  ).rejects.toThrow("SIGKILL");
+  const pid = Number(readFileSync(pidFile, "utf8"));
+  expect(() => process.kill(pid, 0)).toThrow();
+}, 10000);

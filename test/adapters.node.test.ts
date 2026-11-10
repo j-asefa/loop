@@ -905,6 +905,7 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
     "LOOP_TEST_CLAUDE_PROVIDER",
     "LOOP_TEST_CLAUDE_KEY_SOURCE",
     "LOOP_TEST_CLAUDE_AUTH_KEY_SOURCE",
+    "LOOP_TEST_CLAUDE_AUTH_EXIT",
   ];
   const saved = new Map(variables.map((name) => [name, process.env[name]]));
   for (const name of variables) delete process.env[name];
@@ -912,6 +913,7 @@ test("Claude subscription mode accepts native OAuth and rejects API or unverifie
   try {
     for (const auth of ["oauth", "api", "none"]) {
       process.env.LOOP_TEST_CLAUDE_AUTH = auth;
+      process.env.LOOP_TEST_CLAUDE_AUTH_EXIT = "1";
       const adapter = new Claude(
         {
           harness: "claude",
