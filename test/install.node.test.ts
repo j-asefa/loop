@@ -9,6 +9,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +17,11 @@ import { join } from "node:path";
 
 for (const version of ["22.18.0", "22.19.0", "24.0.0"]) {
   test(`source installer checks package Node floor before installing (${version})`, () => {
-    const root = mkdtempSync(join(tmpdir(), "loop-install-contract-"));
+    const base = mkdtempSync(join(tmpdir(), "loop-install-contract-"));
+    const source = join(base, "source"),
+      root = join(base, "linked-source");
+    mkdirSync(source);
+    symlinkSync(source, root, "dir");
     try {
       const bin = join(root, "tools"),
         output = join(root, "installed");
@@ -72,11 +77,11 @@ if (process.argv[2] === 'run' && process.argv[3] === 'build') {
         assert.equal(readFileSync(npmLog, "utf8"), "ci\nrun build\n");
         assert.equal(
           realpathSync(join(output, "loop")),
-          join(root, "dist/cli.js"),
+          realpathSync(join(root, "dist/cli.js")),
         );
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(base, { recursive: true, force: true });
     }
   });
 }

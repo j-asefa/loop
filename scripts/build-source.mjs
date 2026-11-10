@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { LOOP_REPOSITORY } from "../src/shared/build.ts";
+import { LOOP_REPOSITORY } from "../src/shared/repository.ts";
 
 const repository = LOOP_REPOSITORY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const remotePattern = new RegExp(

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSource } from "./build-source.mjs";
 import { BUILD_ASSETS } from "../src/shared/build-assets.ts";
-import { BuildStamp, LOOP_REPOSITORY } from "../src/shared/build.ts";
+import { BuildStamp } from "../src/shared/build.ts";
+import { LOOP_REPOSITORY } from "../src/shared/repository.ts";
 
 const root = process.cwd();
 const source = await buildSource(root);

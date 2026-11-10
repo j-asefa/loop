@@ -13,7 +13,8 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import { LOOP_REPOSITORY, type BuildStamp } from "../src/shared/build";
+import type { BuildStamp } from "../src/shared/build";
+import { LOOP_REPOSITORY } from "../src/shared/repository.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-build-identity-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -86,7 +87,10 @@ it("uses the captured Dockerfile for image builds and rejects external files", (
     bin = join(dir, "bin");
   mkdirSync(root);
   mkdirSync(bin);
-  mkdirSync(join(root, "node_modules"));
+  mkdirSync(join(root, "scripts"));
+  cpSync("src/shared", join(root, "src/shared"), { recursive: true });
+  for (const script of ["build-image.mjs", "build-source.mjs"])
+    cpSync(join("scripts", script), join(root, "scripts", script));
   const dockerfile = join(root, "Dockerfile.companion");
   writeFileSync(dockerfile, "FROM committed-source\n");
   writeFileSync(join(root, ".gitignore"), "node_modules\n");
@@ -128,7 +132,7 @@ console.log(JSON.stringify({file:fs.readFileSync(file,'utf8'),stamp:JSON.parse(f
     PATH: bin + ":" + process.env.PATH,
     FIXTURE_DOCKERFILE: dockerfile,
   };
-  const wrapper = resolve("scripts/build-image.mjs");
+  const wrapper = join(root, "scripts/build-image.mjs");
   for (const args of [
     // The companion is the only image Loop ships, so it is the default.
     [],
