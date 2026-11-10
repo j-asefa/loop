@@ -366,7 +366,10 @@ file is ever removed after a separate check and two starters cannot both
 succeed. Nonces must be UUIDs before they are used in a path. Once the lock is
 held, claims for records it no longer holds and dead starters' temp and
 rename files are removed. Release removes the lock only when the nonce still
-matches.
+matches. A live owner at the root lock produces `LockBusyError`; connection
+startup carries its code over IPC and the launcher returns to service discovery.
+Recovery-claim conflicts remain errors, so they are not mistaken for an
+available service.
 
 ### Harness upgrade
 

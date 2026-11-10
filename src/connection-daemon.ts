@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {
   PROCESS_FILES,
+  LockBusyError,
   workspaceLock,
   identity,
   pidNamespace,
@@ -421,7 +422,10 @@ if (import.meta.url === self) {
         : runConnectionService(args, send);
   main.catch((error) => {
     console.error("Loop connection service: " + (error as Error).message);
-    send({ error: (error as Error).message });
+    send({
+      error: (error as Error).message,
+      ...(error instanceof LockBusyError ? { code: error.code } : {}),
+    });
     process.exitCode = 1;
   });
 }
