@@ -12,7 +12,7 @@ npm run build
 
 `npm run build` copies `package-lock.json` to the ignored `npm-shrinkwrap.json` for packaging, and `npm ci` prefers that copy. If `npm ci` reports packages missing from the lock file after a pull, delete `npm-shrinkwrap.json` and run it again; `bash install` does this itself.
 
-The root build typechecks, builds the Vite UI/service worker and bundles CLI/server modules.
+The root build typechecks, builds the Vite UI/service worker into `dist/web` and bundles CLI/server modules. The paired host serves that UI; the Express workspace app handles API requests only.
 
 Typechecking uses an incremental cache at `.tmp/typecheck.tsbuildinfo`, local to
 each checkout. Repeated `npm run typecheck` and `npm run check` invocations reuse

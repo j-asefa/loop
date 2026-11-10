@@ -7,7 +7,7 @@ const stamp = readBuildStamp();
 if (!stamp) throw new Error("Build stamp missing; run npm run build.");
 // Clear old server code while preserving the freshly built UI.
 for (const entry of readdirSync("dist")) {
-  if (entry !== "client")
+  if (entry !== "web")
     await rm(`dist/${entry}`, { recursive: true, force: true });
 }
 // Preserve module-relative paths used by native fixtures, migration and host assets.
@@ -28,9 +28,6 @@ await build({
 await import("./build-connection.mjs");
 await cp("src/pi-extension.mjs", "dist/pi-extension.mjs");
 await cp("src/pi-auth-extension.mjs", "dist/pi-auth-extension.mjs");
-// Remove stale hashed assets before copying the current UI into the package.
-await rm("dist/web", { recursive: true, force: true });
-await cp("dist/client", "dist/web", { recursive: true });
 await chmod("dist/cli.js", 0o755);
 await writeFile("dist/build-id.json", JSON.stringify(stamp));
 await stageRuntimeAssets(process.cwd(), "dist");

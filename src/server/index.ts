@@ -1,13 +1,10 @@
 import * as workerHealthQueries from "./sql/worker-health.js";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage } from "node:http";
 import type { z } from "zod";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, mountRoutes, mountedRoute } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
-import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
-import { relative, sep } from "node:path";
-import { assetCacheControl, compressResponse } from "../http-transfer.js";
+import { compressResponse } from "../http-transfer.js";
 import { workspaceCapabilities } from "../shared/capabilities.js";
 import { companion } from "./companion-routes.js";
 import { OWNER } from "./workspace-identity.js";
@@ -272,22 +269,5 @@ mountRoutes(app, mcp, "/api");
 mountRoutes(app, sharing, "/api");
 app.use("/api", (_req, res) =>
   res.status(404).json({ error: "Endpoint not found" }),
-);
-const compiledClient = fileURLToPath(new URL("../client/", import.meta.url));
-const clientRoot = existsSync(compiledClient + "index.html")
-  ? compiledClient
-  : fileURLToPath(new URL("../../dist/client/", import.meta.url));
-const staticOptions = {
-  setHeaders(res: ServerResponse, path: string) {
-    const publicPath = "/" + relative(clientRoot, path).split(sep).join("/");
-    res.setHeader("Cache-Control", assetCacheControl(publicPath));
-  },
-};
-app.use(express.static(clientRoot, staticOptions));
-app.get("/{*splat}", (_req, res) =>
-  res.sendFile("index.html", {
-    root: clientRoot,
-    headers: { "Cache-Control": "no-store" },
-  }),
 );
 app.use(errorHandler);
