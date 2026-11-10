@@ -8,7 +8,7 @@ import { spawnHarnessProcess } from "./native-spawn.js";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, delimiter, resolve } from "node:path";
-import { request } from "node:http";
+import { jsonClient } from "./local-control.js";
 import { harnesses, type Harness } from "./shared/harnesses.js";
 
 const versionProbes = new Map<string, Promise<string>>();
@@ -137,40 +137,10 @@ export async function control(
   if (found.state === "invalid") throw found.error;
   if (found.state === "absent") throw new Error("No local host record.");
   const config = found.record;
-  return new Promise((resolve, reject) => {
-    const req = request(
-      {
-        hostname: "127.0.0.1",
-        port: config.port,
-        path: "/" + action,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + config.token,
-        },
-        timeout: action === "enable" ? 60000 : 3000,
-      },
-      (res) => {
-        let out = "";
-        res.on("data", (b) => {
-          out += b;
-          if (out.length > 1000000) req.destroy();
-        });
-        res.on("end", () => {
-          try {
-            const value = JSON.parse(out);
-            res.statusCode === 200
-              ? resolve(value)
-              : reject(new Error(value.error ?? "Control failed"));
-          } catch {
-            reject(new Error("Invalid host response"));
-          }
-        });
-      },
-    );
-    req.on("timeout", () => req.destroy(new Error("Host did not respond")));
-    req.on("error", reject);
-    req.end(JSON.stringify(data));
+  return jsonClient({ port: config.port }, config.token)("/" + action, {
+    body: data,
+    timeout: action === "enable" ? 60000 : 3000,
+    maxBytes: 1000000,
   });
 }
 
