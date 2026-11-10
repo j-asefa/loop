@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { own } from "../processes.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stopHarnessProcess } from "../native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 
 // agy has no login command; its terminal UI signs in. Run it under script(1)
 // for a terminal wide enough to print Google's URL on one line, choose Google
@@ -25,7 +23,6 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
     // script(1) runs the command with $SHELL; keep its syntax predictable.
     SHELL: "/bin/sh",
     TERM: (options.env ?? process.env).TERM || "xterm-256color",
-    LOOP_AGY: options.executable,
   };
   // Sign-in checks end with their attempt, never overlapping the next one.
   const checks = new Set<ChildProcess>();
@@ -36,13 +33,11 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
     ]);
   const signedIn = () =>
     new Promise<boolean>((resolve) => {
-      const check = spawn(options.executable, ["models"], {
+      const check = spawnHarnessProcess(options.executable, ["models"], {
         cwd: options.project,
         env: options.env ?? process.env,
         stdio: "ignore",
-        detached: true,
       });
-      own(check);
       checks.add(check);
       const timer = setTimeout(() => void stopHarnessProcess(check), 20000);
       check.once("error", () => {
@@ -72,15 +67,16 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
       // A signed-in agy opens its chat screen instead of the sign-in menu.
       if (await signedIn()) return;
       if (io.signal.aborted) throw new Error("Sign-in cancelled");
-      const shell = 'stty cols 4000 rows 200 2>/dev/null; exec "$LOOP_AGY"';
-      const process = (child = spawn(
+      const executable =
+        "'" + options.executable.replaceAll("'", "'\\''") + "'";
+      const shell = `stty cols 4000 rows 200 2>/dev/null; exec ${executable}`;
+      const process = (child = spawnHarnessProcess(
         "script",
         globalThis.process.platform === "darwin"
           ? ["-q", "/dev/null", "/bin/sh", "-c", shell]
           : ["-qfec", shell, "/dev/null"],
-        { cwd: options.project, env, stdio: "pipe", detached: true },
+        { cwd: options.project, env, stdio: "pipe" },
       ));
-      own(process);
       try {
         await new Promise<void>((resolve, reject) => {
           let output = "",

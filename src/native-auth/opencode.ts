@@ -1,21 +1,18 @@
-import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { own } from "../processes.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
-import { stopHarnessProcess } from "../native-spawn.js";
+import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 
 export async function openCodeDriver(
   options: AuthOptions,
 ): Promise<AuthDriver> {
   const password = randomBytes(32).toString("hex");
   const authOverride = !!(options.env ?? process.env).OPENCODE_AUTH_CONTENT;
-  const child = spawn(
+  const child = spawnHarnessProcess(
     options.executable,
     ["serve", "--hostname", "127.0.0.1", "--port", "0"],
     {
       cwd: options.project,
-      detached: true,
       stdio: "pipe",
       env: {
         ...(options.env ?? process.env),
@@ -24,7 +21,6 @@ export async function openCodeDriver(
       },
     },
   );
-  own(child);
   child.stderr.resume();
   const origin = await new Promise<string>((resolve, reject) => {
     let buffer = "";
