@@ -62,16 +62,20 @@ export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
       () => killOwned(child, "SIGKILL"),
       HARNESS_STOP_GRACE_MS,
     );
+    let poll: ReturnType<typeof setTimeout> | undefined;
     // Neither a signal nor leader exit proves descendant writers stopped.
     const confirmStopped = () => {
+      clearTimeout(poll);
       if (
         (child.exitCode !== null || child.signalCode !== null) &&
         !groupAlive(child.pid!)
       ) {
         clearTimeout(timer);
+        child.removeListener("exit", confirmStopped);
         resolve();
-      } else setTimeout(confirmStopped, 1000);
+      } else poll = setTimeout(confirmStopped, 1000);
     };
+    child.once("exit", confirmStopped);
     child.stdin?.end();
     killOwned(child, "SIGTERM");
     confirmStopped();
