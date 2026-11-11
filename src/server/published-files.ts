@@ -1,4 +1,5 @@
 import { MAX_UPLOAD_LABEL } from "../shared/uploads.js";
+import { openVerified } from "./file-store.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
@@ -13,11 +14,6 @@ import {
   readFileSync,
   linkSync,
   unlinkSync,
-  constants,
-  openSync,
-  fstatSync,
-  readSync,
-  closeSync,
 } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
@@ -262,57 +258,8 @@ export function localArtifact(owner: string, artifactId: string) {
   ownedArtifact(artifactId, owner);
   const object = artifactObjectsQueries.owned(db, artifactId, owner);
   if (!object) throw new Problem(404, "Local file unavailable");
-  if (
-    !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(
-      object.object_key,
-    )
-  )
-    throw new Problem(409, "Invalid artifact identity");
-  if (
-    !Number.isSafeInteger(object.size) ||
-    object.size < 0 ||
-    object.size > MAX_PUBLISHED_BYTES
-  )
-    throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
-  let descriptor: number;
-  try {
-    descriptor = openSync(
-      join(config.data, object.object_key),
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      throw new Problem(404, "Local file unavailable");
-    if ((error as NodeJS.ErrnoException).code === "ELOOP")
-      throw new Problem(409, "Invalid artifact identity");
-    throw error;
-  }
-  try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.size !== object.size)
-      throw new Problem(409, "Artifact integrity check failed");
-    // A growing or replaced file cannot make a download allocate beyond the
-    // retained publication's bounded size. Check the same open descriptor.
-    const bytes = Buffer.alloc(object.size);
-    let offset = 0;
-    while (offset < bytes.length) {
-      const count = readSync(
-        descriptor,
-        bytes,
-        offset,
-        bytes.length - offset,
-        offset,
-      );
-      if (!count) throw new Problem(409, "Artifact integrity check failed");
-      offset += count;
-    }
-    if (
-      readSync(descriptor, Buffer.alloc(1), 0, 1, offset) ||
-      createHash("sha256").update(bytes).digest("base64") !== object.checksum
-    )
-      throw new Problem(409, "Artifact integrity check failed");
-    return { bytes, mime: object.mime };
-  } finally {
-    closeSync(descriptor);
-  }
+  return {
+    bytes: openVerified(object.object_key, object.size, object.checksum),
+    mime: object.mime,
+  };
 }

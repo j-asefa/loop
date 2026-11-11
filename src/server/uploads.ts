@@ -3,8 +3,8 @@ import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as messagesQueries from "./sql/messages.js";
 import { type Artifact } from "./row-schemas.js";
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { openVerified } from "./file-store.js";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { db, id, now } from "./db.js";
@@ -86,15 +86,9 @@ export function uploadFile(
 // A file an agent published (loop_publish_file), passed to a teammate with
 // loop_message. Its bytes live under the data directory, checked on read.
 function publishedFile(artifact: Artifact, owner: string) {
-  const row = artifactObjectsQueries.download(db, artifact.id, owner);
-  if (
-    !row ||
-    !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(row.object_key)
-  )
-    throw new Problem(404, "Uploaded file not found");
-  const bytes = readFileSync(join(config.data, row.object_key));
-  if (createHash("sha256").update(bytes).digest("base64") !== row.checksum)
-    throw new Problem(409, "File integrity check failed");
+  const row = artifactObjectsQueries.owned(db, artifact.id, owner);
+  if (!row) throw new Problem(404, "Uploaded file not found");
+  const bytes = openVerified(row.object_key, row.size, row.checksum);
   const meta = artifact.metadata;
   return {
     artifact,
