@@ -174,19 +174,18 @@ export async function invokeTool(
         ? ownedApproval(invocation.approval_id, run.owner_id)
         : null;
       if (!approval) {
-        approval = requestApproval(
-          run,
-          {
-            type: "mcp_tool",
-            connectionId: connection.id,
-            server: connection.name,
-            tool: binding.tool,
-            arguments: args,
-            message: `Allow @${run.payload.name || "agent"} to call ${binding.tool} on ${connection.name}?`,
-            callId,
-          },
-          automaticallyAllowed,
-        );
+        const request = {
+          type: "mcp_tool",
+          connectionId: connection.id,
+          server: connection.name,
+          tool: binding.tool,
+          arguments: args,
+          message: `Allow @${run.payload.name || "agent"} to call ${binding.tool} on ${connection.name}?`,
+          callId,
+        };
+        approval = automaticallyAllowed
+          ? approve(run.owner_id, { runId: run.id, request }, { by: "policy" })
+          : requestApproval(run, request);
         const invocationId = id();
         toolInvocationsQueries.insertPending(
           db,

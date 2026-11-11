@@ -102,3 +102,61 @@ it("user decisions still require a waiting run and reject expired approvals", ()
     state: "pending",
   });
 });
+
+it("creates policy approvals atomically without pending notifications or duplicate events", () => {
+  const owner = id();
+  const run = enqueue(owner, "Automatic fixture", id());
+  db.prepare("INSERT INTO push_subscriptions VALUES(?,?,?,?,?)").run(
+    id(),
+    owner,
+    "https://example.com/push",
+    "fixture",
+    1,
+  );
+  const target = {
+    runId: run.id,
+    request: { tool: "read", arguments: { private: "secret" } },
+  };
+  expect(() => approve(id(), target, { by: "policy" })).toThrow(
+    "Item not found",
+  );
+  expect(() =>
+    db
+      .transaction(() => {
+        approve(owner, target, { by: "policy" });
+        throw new Error("Outer rollback");
+      })
+      .immediate(),
+  ).toThrow("Outer rollback");
+  expect(
+    db.prepare("SELECT id FROM approvals WHERE run_id=?").all(run.id),
+  ).toEqual([]);
+  expect(
+    db
+      .prepare(
+        "SELECT id FROM events WHERE run_id=? AND type='approval.auto_approved'",
+      )
+      .all(run.id),
+  ).toEqual([]);
+  const approval = approve(owner, target, { by: "policy" });
+  expect(approval.state).toBe("approved");
+  expect(approve(owner, target, { by: "policy" }).id).toBe(approval.id);
+  expect(result(run.id, approval.id)).toEqual({
+    run: { state: "queued" },
+    approval: { state: "approved" },
+    automatic: [{ payload: JSON.stringify({ approvalId: approval.id }) }],
+    history: [],
+  });
+  expect(
+    db
+      .prepare("SELECT message_key FROM push_messages WHERE message_key=?")
+      .all("approval-" + approval.id),
+  ).toEqual([]);
+  expect(
+    db
+      .prepare(
+        "SELECT id FROM events WHERE run_id=? AND type='approval.requested'",
+      )
+      .all(run.id),
+  ).toEqual([]);
+});
