@@ -1097,6 +1097,7 @@ export function claimCandidates(
 
 const attentionStatements = statementVariants();
 const attentionRow = QueryRecords.runs.extend({
+  state: QueryRecords.runs.shape.state.or(z.literal("waiting_children")),
   queue_position: z.number(),
   preview: z.string().nullable(),
 });
