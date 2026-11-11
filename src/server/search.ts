@@ -1,3 +1,4 @@
+import { config } from "./config.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as searchFtsQueries from "./sql/search-fts.js";
 import * as preferencesQueries from "./sql/preferences.js";
@@ -30,8 +31,7 @@ type SearchDoc = {
   name?: string;
   provider?: string;
 };
-const modelDefault =
-  process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small";
+const modelDefault = config.embeddingModel;
 const hash = (d: SearchDoc) =>
   createHash("sha256")
     .update(d.title + "\n" + d.content)

@@ -153,7 +153,7 @@ export async function authorize(c: MCPConnection, code?: string) {
 }
 let testFactory: ((c: MCPConnection) => Promise<Client>) | undefined;
 export function withTestMcp(factory: (c: MCPConnection) => Promise<Client>) {
-  if (process.env.NODE_ENV !== "test") throw new Error("Test-only API");
+  if (config.environment !== "test") throw new Error("Test-only API");
   testFactory = factory;
   return () => {
     testFactory = undefined;

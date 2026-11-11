@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { config } from "./config.js";
 function key() {
   const path = join(config.data, "encryption-key");
-  let value = process.env.LOOP_ENCRYPTION_KEY;
+  let value = config.encryptionKey;
   if (!value) {
     try {
       value = readFileSync(path, "utf8");
