@@ -5,7 +5,7 @@ import {
   MessageRecord,
   ArtifactRecord,
   McpConnectionRecord,
-} from "./storage-schemas.js";
+} from "./sql/rows.js";
 export {
   AgentRecord,
   ConnectionRecord,
@@ -20,7 +20,7 @@ export {
   OperationRecord,
   TeamRecord,
   MemorySourceRecord,
-} from "./storage-schemas.js";
+} from "./sql/rows.js";
 import { z } from "zod";
 import { Billing, Harness } from "../shared/protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
