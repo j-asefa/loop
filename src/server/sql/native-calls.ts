@@ -6,12 +6,12 @@ import { statement } from "./statement.js";
 const getStatement = statement(
   "SELECT * FROM native_calls WHERE run_id=? AND call_id=?",
 );
-const getRow = QueryRecords.native_calls;
+
 export function get(db: Database.Database, run: string, call: string) {
   const row = getStatement(db).get(run, call);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "native_calls");
+    : parseRecord(QueryRecords.native_calls, row, "native_calls");
 }
 
 const insertStatement = statement(

@@ -379,11 +379,11 @@ export function pinned(db: Database.Database, id: string, owner: string) {
 const memoryCandidatesStatement = statement(
   "SELECT * FROM artifacts WHERE pinned=1 OR id IN (SELECT substr(scope,10) FROM memory_policy WHERE scope LIKE 'artifact:%' AND enabled=1)",
 );
-const memoryCandidatesRow = QueryRecords.artifacts;
+
 export function memoryCandidates(db: Database.Database) {
   return memoryCandidatesStatement(db)
     .all()
-    .map((row) => parseRecord(memoryCandidatesRow, row, "artifacts"));
+    .map((row) => parseRecord(QueryRecords.artifacts, row, "artifacts"));
 }
 
 const moveStatement = statement(

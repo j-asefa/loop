@@ -21,33 +21,47 @@ export function stoppedSubscribers(db: Database.Database, owner: string) {
 const ownedStatement = statement(
   "SELECT * FROM webhook_subscriptions WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.webhook_subscriptions;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "webhook_subscriptions");
+    : parseRecord(
+        QueryRecords.webhook_subscriptions,
+        row,
+        "webhook_subscriptions",
+      );
 }
 
 const forOwnerStatement = statement(
   "SELECT * FROM webhook_subscriptions WHERE owner_id=? ORDER BY created_at DESC,id DESC",
 );
-const forOwnerRow = QueryRecords.webhook_subscriptions;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "webhook_subscriptions"));
+    .map((row) =>
+      parseRecord(
+        QueryRecords.webhook_subscriptions,
+        row,
+        "webhook_subscriptions",
+      ),
+    );
 }
 
 const byIdStatement = statement(
   "SELECT * FROM webhook_subscriptions WHERE id=?",
 );
-const byIdRow = QueryRecords.webhook_subscriptions;
+
 export function byId(db: Database.Database, id: string) {
   const row = byIdStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(byIdRow, row, "webhook_subscriptions");
+    : parseRecord(
+        QueryRecords.webhook_subscriptions,
+        row,
+        "webhook_subscriptions",
+      );
 }
 
 const creationStatement = statement(

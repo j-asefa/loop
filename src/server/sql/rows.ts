@@ -258,7 +258,6 @@ export const QueryRecords = {
     created_at: z.number(),
     read_through_at: z.number().nullable(),
   }),
-
   search_documents: z.object({
     id: z.string(),
     owner_id: z.string(),
@@ -289,13 +288,6 @@ export const QueryRecords = {
     project_id: z.string(),
     folder_id: z.string().nullable(),
   }),
-  feed_revisions: z.object({
-    revision: z.number(),
-    entity: z.string(),
-    object_id: z.string(),
-    owner_id: z.string(),
-    cursor: z.number(),
-  }),
   agent_activities: z.object({
     owner_id: z.string(),
     scope: z.string(),
@@ -307,13 +299,6 @@ export const QueryRecords = {
     sequence: z.number(),
     created_at: z.number(),
     updated_at: z.number(),
-  }),
-  artifact_versions: z.object({
-    id: z.string(),
-    artifact_id: z.string(),
-    version: z.number(),
-    content: z.string(),
-    created_at: z.number(),
   }),
   mcp_connections: McpConnectionRecord,
   operations: OperationRecord,
@@ -403,7 +388,6 @@ export const QueryRecords = {
     command_id: z.string(),
     grant_context: z.string(),
   }),
-
   fleet_mail_outbox: z.object({
     owner_id: z.string(),
     message_id: z.string(),
@@ -457,7 +441,6 @@ export const QueryRecords = {
     offset: z.number(),
     bytes: z.instanceof(Buffer),
   }),
-
   fleet_command_receipts: z.object({
     owner_id: z.string(),
     peer_id: z.string(),
@@ -499,7 +482,6 @@ export const QueryRecords = {
     command_id: z.string(),
     grant_context: z.string(),
   }),
-
   fleet_credential_issuer: z.object({
     issuer_session: z.string(),
     singleton: z.number(),
@@ -555,7 +537,6 @@ export const QueryRecords = {
     result: z.string().nullable(),
     expires_at: z.number(),
   }),
-
   fleet_enrollments: z.object({
     owner_id: z.string(),
     operation_id: z.string(),
@@ -619,7 +600,6 @@ export const QueryRecords = {
     signed: z.string(),
     receipt: z.string(),
   }),
-
   fleet_directory_history: z.object({
     owner_id: z.string(),
     digest: z.string(),
@@ -687,7 +667,6 @@ export const QueryRecords = {
     digest: z.string(),
     parent_digest: z.string(),
   }),
-
   fleet_machine_identity: z.object({
     singleton: z.number(),
     machine_id: z.string(),
@@ -722,7 +701,6 @@ export const QueryRecords = {
     retry_at: z.number(),
     attempts: z.number(),
   }),
-
   agent_checkpoints: z.object({
     run_id: z.string(),
     message_id: z.string(),
@@ -789,19 +767,7 @@ export const QueryRecords = {
   }),
   folders: FolderRecord,
   imports: ImportRecord,
-  mcp_federation_calls: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    peer_id: z.string(),
-    run_key: z.string(),
-    request_key: z.string(),
-    tool_name: z.string(),
-    args: z.string(),
-    state: z.string(),
-    result: z.string().nullable(),
-    created_at: z.number(),
-    updated_at: z.number(),
-  }),
+
   memory_policy: z.object({
     owner_id: z.string(),
     scope: z.string(),
@@ -830,7 +796,6 @@ export const QueryRecords = {
     digest: z.string().nullable(),
     created_at: z.number(),
   }),
-
   oauth_states: z.object({
     state: z.string(),
     owner_id: z.string(),
@@ -938,24 +903,6 @@ export const QueryRecords = {
     message_id: z.string(),
     created_at: z.number(),
   }),
-  saved_labels: z.object({
-    owner_id: z.string(),
-    item_key: z.string(),
-    label: z.string(),
-    updated_at: z.number(),
-  }),
-  done_card_dismissals: z.object({
-    owner_id: z.string(),
-    conversation_id: z.string(),
-    card_key: z.string(),
-    created_at: z.number(),
-  }),
-  done_card_reads: z.object({
-    owner_id: z.string(),
-    conversation_id: z.string(),
-    card_key: z.string(),
-    read_at: z.number(),
-  }),
   later_items: z.object({
     id: z.string(),
     owner_id: z.string(),
@@ -986,26 +933,6 @@ export const QueryRecords = {
     error: z.string().nullable(),
     created_at: z.number(),
     reply_excerpt: z.string().nullable(),
-  }),
-  feed_cards: z.object({
-    owner_id: z.string(),
-    conversation_id: z.string(),
-    kind: z.string(),
-    card_key: z.string(),
-    folder_id: z.string().nullable(),
-    agent_id: z.string().nullable(),
-    team_id: z.string().nullable(),
-    sort_at: z.number(),
-    needs_run: z.number(),
-    approval_until: z.number().nullable(),
-    working: z.number(),
-    queued: z.number(),
-    snoozed: z.number(),
-    completed: z.number(),
-    hidden: z.number(),
-    hide_results: z.number(),
-    payload: z.string(),
-    unread: z.number(),
   }),
   conversation_positions: z.object({
     owner_id: z.string(),
@@ -1050,7 +977,6 @@ export const QueryRecords = {
     created_at: z.number(),
     updated_at: z.number(),
   }),
-  installation: z.object({ id: z.number(), owner_id: z.string() }),
   done_card_unread_versions: z.object({
     owner_id: z.string(),
     conversation_id: z.string(),
@@ -1084,16 +1010,6 @@ export const QueryRecords = {
     title: z.string(),
     content: z.string(),
     created_at: z.number(),
-  }),
-  artifact_publications: z.object({
-    sequence: z.number(),
-    artifact_id: z.string(),
-  }),
-  import_messages: z.object({
-    owner_id: z.string(),
-    provider: z.string(),
-    external_id: z.string(),
-    message_id: z.string(),
   }),
   run_checkouts: z.object({
     id: z.string(),
@@ -1224,48 +1140,10 @@ export const QueryRecords = {
     item: z.string(),
     updated_at: z.number(),
   }),
-
   mcp_preferences: z.object({
     owner_id: z.string(),
     approval_mode: z.enum(["ask", "allow"]),
     agent_permission_mode: z.string().nullable(),
-  }),
-  grants: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    agent_id: z.string(),
-    connection_id: z.string(),
-    tool: z.string(),
-    mode: z.enum(["ask", "allow"]),
-  }),
-  mcp_federation_peers: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    peer_id: z.string(),
-    secret: z.string(),
-    token_hash: z.string(),
-    created_at: z.number(),
-    revoked_at: z.number().nullable(),
-    revoke_synced_at: z.number().nullable(),
-  }),
-  mcp_reverse_catalog: z.object({
-    peer_id: z.string(),
-    owner_id: z.string(),
-    tools: z.string(),
-    updated_at: z.number(),
-  }),
-  mcp_reverse_calls: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    peer_id: z.string(),
-    run_key: z.string(),
-    request_key: z.string(),
-    tool_name: z.string(),
-    args: z.string(),
-    state: z.string(),
-    result: z.string().nullable(),
-    created_at: z.number(),
-    updated_at: z.number(),
   }),
   token_event_cursors: z.object({
     token_id: z.string(),
@@ -1337,12 +1215,6 @@ export const QueryRecords = {
     digest: z.string(),
     result_id: z.string().nullable(),
   }),
-  worker_health: z.object({ id: z.string(), heartbeat: z.number() }),
-  request_limits: z.object({
-    owner_id: z.string(),
-    window: z.number(),
-    count: z.number(),
-  }),
   feed_sources: z.object({
     id: z.string(),
     owner_id: z.string(),
@@ -1406,20 +1278,6 @@ export const QueryRecords = {
     subscription: z.string(),
     created_at: z.number(),
   }),
-  push_preferences: z.object({
-    subscription_id: z.string(),
-    needs_you: z.number(),
-    completed: z.number(),
-    reminders: z.number(),
-    social: z.number(),
-  }),
-  push_deliveries: z.object({
-    subscription_id: z.string(),
-    artifact_id: z.string(),
-    attempts: z.number(),
-    available_at: z.number(),
-    delivered_at: z.number().nullable(),
-  }),
   execution_commands: z.object({
     owner_id: z.string(),
     command_id: z.string(),
@@ -1447,23 +1305,10 @@ export const QueryRecords = {
     seen_at: z.number(),
     stopped_at: z.number().nullable(),
   }),
-  conversation_pull_links: z.object({
-    owner_id: z.string(),
-    conversation_id: z.string(),
-    repo_owner: z.string(),
-    repo_name: z.string(),
-    number: z.number(),
-    created_at: z.number(),
-  }),
   pr_watch_seen: z.object({
     watch_id: z.string(),
     kind: z.string(),
     item_id: z.number(),
-  }),
-  pr_watch_deliveries: z.object({
-    watch_id: z.string(),
-    run_id: z.string(),
-    created_at: z.number(),
   }),
   card_tokens: z.object({
     id: z.string(),
@@ -1477,20 +1322,10 @@ export const QueryRecords = {
     request_window: z.number(),
     request_count: z.number(),
   }),
-  card_token_ids: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    digest: z.string(),
-  }),
   card_token_reads: z.object({
     token_id: z.string(),
     owner_id: z.string(),
     card_id: z.string(),
-  }),
-  card_owner_limits: z.object({
-    owner_id: z.string(),
-    window: z.number(),
-    count: z.number(),
   }),
 } as const;
 export type QueryRow<T extends keyof typeof QueryRecords> = z.infer<

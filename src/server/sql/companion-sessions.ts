@@ -33,12 +33,12 @@ export function project(db: Database.Database, conversation: string | null) {
 const getStatement = statement(
   "SELECT * FROM companion_sessions WHERE conversation_id=?",
 );
-const getRow = QueryRecords.companion_sessions;
+
 export function get(db: Database.Database, conversation: string) {
   const row = getStatement(db).get(conversation);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "companion_sessions");
+    : parseRecord(QueryRecords.companion_sessions, row, "companion_sessions");
 }
 
 const historyListStatement = statement(

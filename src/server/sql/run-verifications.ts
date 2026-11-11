@@ -31,9 +31,11 @@ export function upsert(
 const forRunStatement = statement(
   "SELECT * FROM run_verifications WHERE owner_id=? AND run_id=? ORDER BY observed_at,rowid",
 );
-const forRunRow = QueryRecords.run_verifications;
+
 export function forRun(db: Database.Database, owner: string, run: string) {
   return forRunStatement(db)
     .all(owner, run)
-    .map((row) => parseRecord(forRunRow, row, "run_verifications"));
+    .map((row) =>
+      parseRecord(QueryRecords.run_verifications, row, "run_verifications"),
+    );
 }

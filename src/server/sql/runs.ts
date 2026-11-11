@@ -73,14 +73,16 @@ export function ownedPayload(
 const ownedStatement = statement(
   "SELECT * FROM runs WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.runs;
+
 export function owned(
   db: Database.Database,
   id: string | null,
   owner: string | null,
 ) {
   const row = ownedStatement(db).get(id, owner);
-  return row === undefined ? undefined : parseRecord(ownedRow, row, "runs");
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.runs, row, "runs");
 }
 
 const stateStatement = statement("SELECT state FROM runs WHERE id=?");
@@ -111,7 +113,7 @@ export function latestConversationPayload(
 const steerableForAgentStatement = statement(
   "SELECT r.* FROM runs r WHERE owner_id=? AND agent_id=? AND kind='agent' AND state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY created_at DESC",
 );
-const steerableForAgentRow = QueryRecords.runs;
+
 export function steerableForAgent(
   db: Database.Database,
   owner: string | null,
@@ -119,13 +121,13 @@ export function steerableForAgent(
 ) {
   return steerableForAgentStatement(db)
     .all(owner, agent)
-    .map((row) => parseRecord(steerableForAgentRow, row, "runs"));
+    .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
 const byIdempotencyStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND idempotency_key=?",
 );
-const byIdempotencyRow = QueryRecords.runs;
+
 export function byIdempotency(
   db: Database.Database,
   owner: string | null,
@@ -134,7 +136,7 @@ export function byIdempotency(
   const row = byIdempotencyStatement(db).get(owner, key);
   return row === undefined
     ? undefined
-    : parseRecord(byIdempotencyRow, row, "runs");
+    : parseRecord(QueryRecords.runs, row, "runs");
 }
 
 const latestConversationPayloadByRowidStatement = statement(
@@ -211,7 +213,7 @@ export function setError(
 const forAgentStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
 );
-const forAgentRow = QueryRecords.runs;
+
 export function forAgent(
   db: Database.Database,
   owner: string | null,
@@ -219,7 +221,7 @@ export function forAgent(
 ) {
   return forAgentStatement(db)
     .all(owner, agent)
-    .map((row) => parseRecord(forAgentRow, row, "runs"));
+    .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
 const completePreviewStatement =
@@ -257,31 +259,33 @@ export function insertPreview(
 }
 
 const getStatement = statement("SELECT * FROM runs WHERE id=?");
-const getRow = QueryRecords.runs;
+
 export function get(db: Database.Database, id: string | null) {
   const row = getStatement(db).get(id);
-  return row === undefined ? undefined : parseRecord(getRow, row, "runs");
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.runs, row, "runs");
 }
 
 const activePreviewsStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND state IN ('queued','running','awaiting_approval')",
 );
-const activePreviewsRow = QueryRecords.runs;
+
 export function activePreviews(db: Database.Database, owner: string | null) {
   return activePreviewsStatement(db)
     .all(owner)
-    .map((row) => parseRecord(activePreviewsRow, row, "runs"));
+    .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
 const steeredPreviewsStatement =
   statement(`SELECT * FROM runs WHERE owner_id=? AND state IN ('running','awaiting_approval')
             AND EXISTS(SELECT 1 FROM run_steering s WHERE s.owner_id=runs.owner_id AND s.run_id=runs.id AND s.state='pending')
             ORDER BY created_at LIMIT 10`);
-const steeredPreviewsRow = QueryRecords.runs;
+
 export function steeredPreviews(db: Database.Database, owner: string | null) {
   return steeredPreviewsStatement(db)
     .all(owner)
-    .map((row) => parseRecord(steeredPreviewsRow, row, "runs"));
+    .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
 const ownedControlStatement = statement(
@@ -317,7 +321,7 @@ export function hasActive(db: Database.Database, owner: string | null) {
 const queuedInConversationStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND conversation_id=? AND state='queued' ORDER BY COALESCE(queue_rank,created_at),rowid LIMIT 5",
 );
-const queuedInConversationRow = QueryRecords.runs;
+
 export function queuedInConversation(
   db: Database.Database,
   owner: string | null,
@@ -325,7 +329,7 @@ export function queuedInConversation(
 ) {
   return queuedInConversationStatement(db)
     .all(owner, conversation)
-    .map((row) => parseRecord(queuedInConversationRow, row, "runs"));
+    .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
 const agentFileAccessStatement = statement(
@@ -805,7 +809,7 @@ export function isStaleAwaitingApproval(
 const activeImportStatement = statement(
   "SELECT * FROM runs WHERE owner_id=? AND kind='import' AND json_extract(payload,'$.importId')=? AND state IN ('queued','running','pausing','paused')",
 );
-const activeImportRow = QueryRecords.runs;
+
 export function activeImport(
   db: Database.Database,
   owner: string | null,
@@ -814,7 +818,7 @@ export function activeImport(
   const row = activeImportStatement(db).get(owner, importId);
   return row === undefined
     ? undefined
-    : parseRecord(activeImportRow, row, "runs");
+    : parseRecord(QueryRecords.runs, row, "runs");
 }
 
 const importIdentitiesStatement = statement(

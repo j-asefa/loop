@@ -4,12 +4,12 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const ownedStatement = statement("SELECT * FROM preferences WHERE owner_id=?");
-const ownedRow = QueryRecords.preferences;
+
 export function owned(db: Database.Database, owner: string) {
   const row = ownedStatement(db).get(owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "preferences");
+    : parseRecord(QueryRecords.preferences, row, "preferences");
 }
 
 const upsertStatement = statement(

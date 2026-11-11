@@ -29,12 +29,12 @@ export function owned(db: Database.Database, id: string, owner: string) {
 const byDigestStatement = statement(
   "SELECT * FROM imports WHERE owner_id=? AND digest=?",
 );
-const byDigestRow = QueryRecords.imports;
+
 export function byDigest(db: Database.Database, owner: string, digest: string) {
   const row = byDigestStatement(db).get(owner, digest);
   return row === undefined
     ? undefined
-    : parseRecord(byDigestRow, row, "imports");
+    : parseRecord(QueryRecords.imports, row, "imports");
 }
 
 const insertPreviewStatement = statement(
@@ -108,11 +108,11 @@ export function failOwned(
 const forOwnerStatement = statement(
   "SELECT * FROM imports WHERE owner_id=? ORDER BY created_at DESC LIMIT 100",
 );
-const forOwnerRow = QueryRecords.imports;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "imports"));
+    .map((row) => parseRecord(QueryRecords.imports, row, "imports"));
 }
 
 const queueStatement = statement(

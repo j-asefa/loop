@@ -6,11 +6,17 @@ import { statement } from "./statement.js";
 const freshStatement = statement(
   "SELECT * FROM deployment_instances WHERE stopped_at IS NULL AND seen_at>=? ORDER BY id",
 );
-const freshRow = QueryRecords.deployment_instances;
+
 export function fresh(db: Database.Database, since: number) {
   return freshStatement(db)
     .all(since)
-    .map((row) => parseRecord(freshRow, row, "deployment_instances"));
+    .map((row) =>
+      parseRecord(
+        QueryRecords.deployment_instances,
+        row,
+        "deployment_instances",
+      ),
+    );
 }
 
 const pruneStatement = statement(

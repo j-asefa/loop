@@ -64,11 +64,11 @@ export function hasReviewAgent(
 const activeStatement = statement(
   "SELECT * FROM teams WHERE owner_id=? AND deleted_at IS NULL ORDER BY created_at DESC",
 );
-const activeRow = QueryRecords.teams;
+
 export function active(db: Database.Database, owner: string) {
   return activeStatement(db)
     .all(owner)
-    .map((row) => parseRecord(activeRow, row, "teams"));
+    .map((row) => parseRecord(QueryRecords.teams, row, "teams"));
 }
 
 const insertStatement = statement(
@@ -206,7 +206,7 @@ export function agentInCodeReview(
 const activeOwnedStatement = statement(
   "SELECT * FROM teams WHERE id=? AND owner_id=? AND deleted_at IS NULL",
 );
-const activeOwnedRow = QueryRecords.teams;
+
 export function activeOwned(
   db: Database.Database,
   id: string | null,
@@ -215,7 +215,7 @@ export function activeOwned(
   const row = activeOwnedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(activeOwnedRow, row, "teams");
+    : parseRecord(QueryRecords.teams, row, "teams");
 }
 
 const reviewCandidatesStatement = statement(

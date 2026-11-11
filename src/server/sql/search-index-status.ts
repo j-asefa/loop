@@ -13,7 +13,7 @@ export function removeOwner(db: Database.Database, owner: string) {
 const configuredStatement = statement(
   "SELECT * FROM search_index_status WHERE owner_id=? AND configuration=?",
 );
-const configuredRow = QueryRecords.search_index_status;
+
 export function configured(
   db: Database.Database,
   owner: string,
@@ -22,7 +22,7 @@ export function configured(
   const row = configuredStatement(db).get(owner, config);
   return row === undefined
     ? undefined
-    : parseRecord(configuredRow, row, "search_index_status");
+    : parseRecord(QueryRecords.search_index_status, row, "search_index_status");
 }
 
 const replaceStatement = statement(

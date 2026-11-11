@@ -18,7 +18,7 @@ export function summary(db: Database.Database, owner: string) {
 const byIdempotencyStatement = statement(
   "SELECT * FROM scheduled_sends WHERE owner_id=? AND idempotency_key=?",
 );
-const byIdempotencyRow = QueryRecords.scheduled_sends;
+
 export function byIdempotency(
   db: Database.Database,
   owner: string,
@@ -27,7 +27,7 @@ export function byIdempotency(
   const row = byIdempotencyStatement(db).get(owner, key);
   return row === undefined
     ? undefined
-    : parseRecord(byIdempotencyRow, row, "scheduled_sends");
+    : parseRecord(QueryRecords.scheduled_sends, row, "scheduled_sends");
 }
 
 const pendingCountStatement = statement(
@@ -80,12 +80,12 @@ export function insert(
 const ownedStatement = statement(
   "SELECT * FROM scheduled_sends WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.scheduled_sends;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "scheduled_sends");
+    : parseRecord(QueryRecords.scheduled_sends, row, "scheduled_sends");
 }
 
 const cancelStatement = statement(
@@ -135,12 +135,12 @@ export function dueIds(db: Database.Database, time: number) {
 const scheduledStatement = statement(
   "SELECT * FROM scheduled_sends WHERE id=? AND state='scheduled'",
 );
-const scheduledRow = QueryRecords.scheduled_sends;
+
 export function scheduled(db: Database.Database, id: string) {
   const row = scheduledStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(scheduledRow, row, "scheduled_sends");
+    : parseRecord(QueryRecords.scheduled_sends, row, "scheduled_sends");
 }
 
 const failStatement = statement(

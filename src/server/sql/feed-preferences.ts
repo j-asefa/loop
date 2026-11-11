@@ -6,12 +6,12 @@ import { statement } from "./statement.js";
 const ownedStatement = statement(
   "SELECT * FROM feed_preferences WHERE owner_id=?",
 );
-const ownedRow = QueryRecords.feed_preferences;
+
 export function owned(db: Database.Database, owner: string) {
   const row = ownedStatement(db).get(owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "feed_preferences");
+    : parseRecord(QueryRecords.feed_preferences, row, "feed_preferences");
 }
 
 const upsertStatement = statement(

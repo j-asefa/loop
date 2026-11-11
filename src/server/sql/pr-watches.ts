@@ -81,7 +81,7 @@ export function pullStatus(
 const latestForPullStatement = statement(
   "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? ORDER BY created_at DESC LIMIT 1",
 );
-const latestForPullRow = QueryRecords.pr_watches;
+
 export function latestForPull(
   db: Database.Database,
   owner: string,
@@ -99,7 +99,7 @@ export function latestForPull(
   );
   return row === undefined
     ? undefined
-    : parseRecord(latestForPullRow, row, "pr_watches");
+    : parseRecord(QueryRecords.pr_watches, row, "pr_watches");
 }
 
 const insertStatement = statement(
@@ -133,16 +133,18 @@ export function insert(
 }
 
 const getStatement = statement("SELECT * FROM pr_watches WHERE id=?");
-const getRow = QueryRecords.pr_watches;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
-  return row === undefined ? undefined : parseRecord(getRow, row, "pr_watches");
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.pr_watches, row, "pr_watches");
 }
 
 const activeForPullStatement = statement(
   "SELECT * FROM pr_watches WHERE owner_id=? AND conversation_id=? AND lower(repo_owner)=lower(?) AND lower(repo_name)=lower(?) AND number=? AND state IN ('watching','paused')",
 );
-const activeForPullRow = QueryRecords.pr_watches;
+
 export function activeForPull(
   db: Database.Database,
   owner: string,
@@ -160,18 +162,18 @@ export function activeForPull(
   );
   return row === undefined
     ? undefined
-    : parseRecord(activeForPullRow, row, "pr_watches");
+    : parseRecord(QueryRecords.pr_watches, row, "pr_watches");
 }
 
 const ownedStatement = statement(
   "SELECT * FROM pr_watches WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.pr_watches;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "pr_watches");
+    : parseRecord(QueryRecords.pr_watches, row, "pr_watches");
 }
 
 const resumeStatement = statement(
@@ -208,12 +210,12 @@ export function pause(
 const watchingStatement = statement(
   "SELECT * FROM pr_watches WHERE id=? AND state='watching'",
 );
-const watchingRow = QueryRecords.pr_watches;
+
 export function watching(db: Database.Database, id: string) {
   const row = watchingStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(watchingRow, row, "pr_watches");
+    : parseRecord(QueryRecords.pr_watches, row, "pr_watches");
 }
 
 const scheduleStatement = statement(

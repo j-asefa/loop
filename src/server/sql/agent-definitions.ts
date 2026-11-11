@@ -6,21 +6,21 @@ import { statement } from "./statement.js";
 const ownedStatement = statement(
   "SELECT * FROM agent_definitions WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.agent_definitions;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "agent_definitions");
+    : parseRecord(QueryRecords.agent_definitions, row, "agent_definitions");
 }
 
 const getStatement = statement("SELECT * FROM agent_definitions WHERE id=?");
-const getRow = QueryRecords.agent_definitions;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "agent_definitions");
+    : parseRecord(QueryRecords.agent_definitions, row, "agent_definitions");
 }
 
 const updateStatement = statement(

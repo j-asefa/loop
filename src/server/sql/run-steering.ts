@@ -24,7 +24,7 @@ export function replyTarget(
 const byIdempotencyStatement = statement(
   "SELECT * FROM run_steering WHERE owner_id=? AND idempotency_key=?",
 );
-const byIdempotencyRow = QueryRecords.run_steering;
+
 export function byIdempotency(
   db: Database.Database,
   owner: string,
@@ -33,7 +33,7 @@ export function byIdempotency(
   const row = byIdempotencyStatement(db).get(owner, key);
   return row === undefined
     ? undefined
-    : parseRecord(byIdempotencyRow, row, "run_steering");
+    : parseRecord(QueryRecords.run_steering, row, "run_steering");
 }
 
 const insertStatement = statement(

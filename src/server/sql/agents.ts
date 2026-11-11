@@ -96,11 +96,11 @@ export function retirement(
 const forOwnerStatement = statement(
   "SELECT * FROM agents WHERE owner_id=? ORDER BY created_at DESC",
 );
-const forOwnerRow = QueryRecords.agents;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "agents"));
+    .map((row) => parseRecord(QueryRecords.agents, row, "agents"));
 }
 
 const retireStatement = statement(
@@ -165,7 +165,7 @@ export function projectCounts(db: Database.Database, owner: string) {
 const routingSuggestionStatement = statement(
   "SELECT a.* FROM agents a JOIN connections c ON c.id=a.connection_id AND c.owner_id=a.owner_id WHERE a.owner_id=@owner AND a.retired_at IS NULL AND c.status='connected' ORDER BY COALESCE((SELECT max(r.created_at) FROM runs r WHERE r.agent_id=a.id AND (@project IS NULL OR json_extract(r.payload,'$.folderId')=@project)),0) DESC,a.created_at DESC LIMIT 1",
 );
-const routingSuggestionRow = QueryRecords.agents;
+
 export function routingSuggestion(
   db: Database.Database,
   owner: string,
@@ -174,7 +174,7 @@ export function routingSuggestion(
   const row = routingSuggestionStatement(db).get({ owner, project });
   return row === undefined
     ? undefined
-    : parseRecord(routingSuggestionRow, row, "agents");
+    : parseRecord(QueryRecords.agents, row, "agents");
 }
 
 const insertImportedStatement = statement(
@@ -273,7 +273,7 @@ export function mailTeamMembers(
 const mailDirectoryStatement = statement(
   "SELECT * FROM agents WHERE owner_id=@owner AND retired_at IS NULL AND id<>@self AND (@query='' OR instr(lower(name),lower(@query))>0) ORDER BY normalized_name,id LIMIT @limit OFFSET @offset",
 );
-const mailDirectoryRow = QueryRecords.agents;
+
 export function mailDirectory(
   db: Database.Database,
   owner: string,
@@ -284,7 +284,7 @@ export function mailDirectory(
 ) {
   return mailDirectoryStatement(db)
     .all({ owner, self, query, limit, offset })
-    .map((row) => parseRecord(mailDirectoryRow, row, "agents"));
+    .map((row) => parseRecord(QueryRecords.agents, row, "agents"));
 }
 
 const ownedNameStatement = statement(

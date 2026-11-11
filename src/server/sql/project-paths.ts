@@ -57,10 +57,10 @@ export function path(db: Database.Database, folder: string) {
 
 const allStatement = statement("SELECT * FROM project_paths");
 
-const allRow = QueryRecords.project_paths;
-
 export function all(db: Database.Database) {
   return allStatement(db)
     .all()
-    .map((row) => parseRecord(allRow, row, "project_paths"));
+    .map((row) =>
+      parseRecord(QueryRecords.project_paths, row, "project_paths"),
+    );
 }

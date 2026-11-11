@@ -338,7 +338,7 @@ const strandedStatement =
   statement(`SELECT m.* FROM agent_mail m JOIN run_steering s ON s.id=m.steering_id
        WHERE m.steering_id IS NOT NULL AND m.requeued_run_id IS NULL AND m.state='sent' AND s.state='failed' AND s.error=?
        ORDER BY m.created_at LIMIT 200`);
-const strandedRow = QueryRecords.agent_mail;
+
 const strandedIdentityRow = QueryRecords.agent_mail.pick({ id: true });
 export function stranded(
   db: Database.Database,
@@ -349,7 +349,7 @@ export function stranded(
     .all(error)
     .flatMap((row) => {
       try {
-        return [parseRecord(strandedRow, row, "agent_mail")];
+        return [parseRecord(QueryRecords.agent_mail, row, "agent_mail")];
       } catch (error) {
         if (!(error instanceof InvalidRow)) throw error;
         reject(parseRecord(strandedIdentityRow, row, "agent_mail").id, error);
@@ -371,10 +371,12 @@ export function pendingHeads(db: Database.Database, time: number) {
 const dueStatement = statement(
   "SELECT * FROM agent_mail WHERE id=? AND state='pending' AND retry_at<=?",
 );
-const dueRow = QueryRecords.agent_mail;
+
 export function due(db: Database.Database, id: string, time: number) {
   const row = dueStatement(db).get(id, time);
-  return row === undefined ? undefined : parseRecord(dueRow, row, "agent_mail");
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.agent_mail, row, "agent_mail");
 }
 
 const heldInThreadStatement = statement(

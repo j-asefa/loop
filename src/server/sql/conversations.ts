@@ -86,11 +86,13 @@ export function clearTeam(db: Database.Database, team: string, owner: string) {
 const forAgentStatement = statement(
   "SELECT * FROM conversations WHERE owner_id=? AND agent_id=? ORDER BY created_at DESC LIMIT 100",
 );
-const forAgentRow = QueryRecords.conversations;
+
 export function forAgent(db: Database.Database, owner: string, agent: string) {
   return forAgentStatement(db)
     .all(owner, agent)
-    .map((row) => parseRecord(forAgentRow, row, "conversations"));
+    .map((row) =>
+      parseRecord(QueryRecords.conversations, row, "conversations"),
+    );
 }
 
 const insertForkStatement = statement(
@@ -224,7 +226,7 @@ export function insertNativeImport(
 const ownedAgentConversationStatement = statement(
   "SELECT * FROM conversations WHERE id=? AND owner_id=? AND agent_id=?",
 );
-const ownedAgentConversationRow = QueryRecords.conversations;
+
 export function ownedAgentConversation(
   db: Database.Database,
   id: string,
@@ -234,7 +236,7 @@ export function ownedAgentConversation(
   const row = ownedAgentConversationStatement(db).get(id, owner, agent);
   return row === undefined
     ? undefined
-    : parseRecord(ownedAgentConversationRow, row, "conversations");
+    : parseRecord(QueryRecords.conversations, row, "conversations");
 }
 
 const mailTeamConversationStatement = statement(

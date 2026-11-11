@@ -52,7 +52,7 @@ export function insert(
 const activeStatement = statement(
   "SELECT * FROM oauth_states WHERE state=? AND owner_id=? AND expires_at>?",
 );
-const activeRow = QueryRecords.oauth_states;
+
 export function active(
   db: Database.Database,
   state: string,
@@ -62,7 +62,7 @@ export function active(
   const row = activeStatement(db).get(state, owner, time);
   return row === undefined
     ? undefined
-    : parseRecord(activeRow, row, "oauth_states");
+    : parseRecord(QueryRecords.oauth_states, row, "oauth_states");
 }
 
 const removeStatement = statement("DELETE FROM oauth_states WHERE state=?");

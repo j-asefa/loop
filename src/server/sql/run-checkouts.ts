@@ -14,7 +14,7 @@ export function clearPending(db: Database.Database, run: string) {
 const acquireCaptureStatement = statement(
   "UPDATE run_checkouts SET capture_token=?,capture_started_at=?,capture_pending=0 WHERE run_id=? AND (capture_token IS NULL OR capture_started_at<?) RETURNING *",
 );
-const acquireCaptureRow = QueryRecords.run_checkouts;
+
 export function acquireCapture(
   db: Database.Database,
   token: string,
@@ -25,7 +25,7 @@ export function acquireCapture(
   const row = acquireCaptureStatement(db).get(token, time, run, expired);
   return row === undefined
     ? undefined
-    : parseRecord(acquireCaptureRow, row, "run_checkouts");
+    : parseRecord(QueryRecords.run_checkouts, row, "run_checkouts");
 }
 
 const markPendingStatement = statement(

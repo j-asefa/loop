@@ -69,18 +69,18 @@ export function touch(db: Database.Database, updated: number, thread: string) {
 const ownedStatement = statement(
   "SELECT * FROM agent_threads WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.agent_threads;
+
 export function owned(db: Database.Database, thread: string, owner: string) {
   const row = ownedStatement(db).get(thread, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const memberStatement = statement(
   "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.id=? AND t.owner_id=?",
 );
-const memberRow = QueryRecords.agent_threads;
+
 export function member(
   db: Database.Database,
   agent: string | null,
@@ -90,13 +90,13 @@ export function member(
   const row = memberStatement(db).get(agent, thread, owner);
   return row === undefined
     ? undefined
-    : parseRecord(memberRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const ownerThreadStatement = statement(
   "SELECT * FROM agent_threads WHERE owner_id=? AND id=?",
 );
-const ownerThreadRow = QueryRecords.agent_threads;
+
 export function ownerThread(
   db: Database.Database,
   owner: string,
@@ -105,13 +105,13 @@ export function ownerThread(
   const row = ownerThreadStatement(db).get(owner, thread);
   return row === undefined
     ? undefined
-    : parseRecord(ownerThreadRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const memberScopeStatement = statement(
   "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.id=? AND t.owner_id=? AND (t.scope='direct' OR t.team_id=?)",
 );
-const memberScopeRow = QueryRecords.agent_threads;
+
 export function memberScope(
   db: Database.Database,
   agent: string | null,
@@ -122,13 +122,13 @@ export function memberScope(
   const row = memberScopeStatement(db).get(agent, thread, owner, team);
   return row === undefined
     ? undefined
-    : parseRecord(memberScopeRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const recentMemberScopeStatement = statement(
   "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id AND m.agent_id=? WHERE t.owner_id=? AND (t.scope='direct' OR t.team_id=?) ORDER BY t.updated_at DESC LIMIT 10",
 );
-const recentMemberScopeRow = QueryRecords.agent_threads;
+
 export function recentMemberScope(
   db: Database.Database,
   agent: string | null,
@@ -137,22 +137,24 @@ export function recentMemberScope(
 ) {
   return recentMemberScopeStatement(db)
     .all(agent, owner, team)
-    .map((row) => parseRecord(recentMemberScopeRow, row, "agent_threads"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_threads, row, "agent_threads"),
+    );
 }
 
 const getStatement = statement("SELECT * FROM agent_threads WHERE id=?");
-const getRow = QueryRecords.agent_threads;
+
 export function get(db: Database.Database, thread: string) {
   const row = getStatement(db).get(thread);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const ownedTeamStatement = statement(
   "SELECT * FROM agent_threads WHERE id=@thread AND owner_id=@owner AND (@team IS NULL OR team_id=@team)",
 );
-const ownedTeamRow = QueryRecords.agent_threads;
+
 export function ownedTeam(
   db: Database.Database,
   thread: string,
@@ -162,7 +164,7 @@ export function ownedTeam(
   const row = ownedTeamStatement(db).get({ thread, owner, team });
   return row === undefined
     ? undefined
-    : parseRecord(ownedTeamRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const resumeStatement = statement(
@@ -198,7 +200,7 @@ export function pauseAfterResume(
 const teamThreadsStatement = statement(
   "SELECT * FROM agent_threads WHERE owner_id=? AND team_id=? ORDER BY paused_at IS NULL,updated_at DESC LIMIT 30",
 );
-const teamThreadsRow = QueryRecords.agent_threads;
+
 export function teamThreads(
   db: Database.Database,
   owner: string,
@@ -206,13 +208,15 @@ export function teamThreads(
 ) {
   return teamThreadsStatement(db)
     .all(owner, team)
-    .map((row) => parseRecord(teamThreadsRow, row, "agent_threads"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_threads, row, "agent_threads"),
+    );
 }
 
 const memberThreadsStatement = statement(
   "SELECT t.* FROM agent_threads t JOIN agent_thread_members m ON m.thread_id=t.id WHERE t.owner_id=? AND m.agent_id=? ORDER BY t.paused_at IS NULL,t.updated_at DESC,t.rowid DESC LIMIT 30",
 );
-const memberThreadsRow = QueryRecords.agent_threads;
+
 export function memberThreads(
   db: Database.Database,
   owner: string,
@@ -220,7 +224,9 @@ export function memberThreads(
 ) {
   return memberThreadsStatement(db)
     .all(owner, agent)
-    .map((row) => parseRecord(memberThreadsRow, row, "agent_threads"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_threads, row, "agent_threads"),
+    );
 }
 
 const hasMemberStatement = statement(
@@ -290,7 +296,7 @@ export function feed(
 const visibleOwnedStatement = statement(
   "SELECT * FROM agent_threads WHERE owner_id=@owner AND id=@thread AND EXISTS(SELECT 1 FROM agent_mail WHERE owner_id=@owner AND thread_id=@thread)",
 );
-const visibleOwnedRow = QueryRecords.agent_threads;
+
 export function visibleOwned(
   db: Database.Database,
   owner: string,
@@ -299,7 +305,7 @@ export function visibleOwned(
   const row = visibleOwnedStatement(db).get({ owner, thread });
   return row === undefined
     ? undefined
-    : parseRecord(visibleOwnedRow, row, "agent_threads");
+    : parseRecord(QueryRecords.agent_threads, row, "agent_threads");
 }
 
 const mailScopeStatement = statement(

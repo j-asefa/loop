@@ -6,22 +6,22 @@ import { statement } from "./statement.js";
 const forOwnerStatement = statement(
   "SELECT * FROM feed_digests WHERE owner_id=? ORDER BY created_at",
 );
-const forOwnerRow = QueryRecords.feed_digests;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "feed_digests"));
+    .map((row) => parseRecord(QueryRecords.feed_digests, row, "feed_digests"));
 }
 
 const ownedStatement = statement(
   "SELECT * FROM feed_digests WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.feed_digests;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "feed_digests");
+    : parseRecord(QueryRecords.feed_digests, row, "feed_digests");
 }
 
 const updateStatement = statement(
@@ -76,11 +76,11 @@ export function remove(db: Database.Database, id: string, owner: string) {
 const enabledStatement = statement(
   "SELECT * FROM feed_digests WHERE enabled=1",
 );
-const enabledRow = QueryRecords.feed_digests;
+
 export function enabled(db: Database.Database) {
   return enabledStatement(db)
     .all()
-    .map((row) => parseRecord(enabledRow, row, "feed_digests"));
+    .map((row) => parseRecord(QueryRecords.feed_digests, row, "feed_digests"));
 }
 
 const deliveredStatement = statement(

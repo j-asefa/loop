@@ -7,22 +7,22 @@ import { statement, statementVariants } from "./statement.js";
 const forOwnerStatement = statement(
   "SELECT * FROM feed_sources WHERE owner_id=? ORDER BY created_at, id",
 );
-const forOwnerRow = QueryRecords.feed_sources;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "feed_sources"));
+    .map((row) => parseRecord(QueryRecords.feed_sources, row, "feed_sources"));
 }
 
 const ownedStatement = statement(
   "SELECT * FROM feed_sources WHERE owner_id=? AND id=?",
 );
-const ownedRow = QueryRecords.feed_sources;
+
 export function owned(db: Database.Database, owner: string, id: string) {
   const row = ownedStatement(db).get(owner, id);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "feed_sources");
+    : parseRecord(QueryRecords.feed_sources, row, "feed_sources");
 }
 
 const countStatement = statement(

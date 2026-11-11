@@ -111,22 +111,22 @@ export function restore(db: Database.Database, id: string, owner: string) {
 const ownedStatement = statement(
   "SELECT * FROM later_items WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.later_items;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "later_items");
+    : parseRecord(QueryRecords.later_items, row, "later_items");
 }
 
 const openStatement = statement(
   "SELECT * FROM later_items WHERE owner_id=? AND done_at IS NULL ORDER BY COALESCE(surfaced_at,due_at,created_at),created_at LIMIT 400",
 );
-const openRow = QueryRecords.later_items;
+
 export function open(db: Database.Database, owner: string) {
   return openStatement(db)
     .all(owner)
-    .map((row) => parseRecord(openRow, row, "later_items"));
+    .map((row) => parseRecord(QueryRecords.later_items, row, "later_items"));
 }
 
 const finishStatement = statement(
@@ -169,9 +169,9 @@ const dueStatement =
               WHEN 'message' THEN (SELECT m.conversation_id FROM messages m WHERE m.id=l.target_id AND m.owner_id=l.owner_id)
               ELSE (SELECT COALESCE(a.conversation_id,(SELECT ar.conversation_id FROM runs ar WHERE ar.id=a.run_id)) FROM artifacts a WHERE a.id=l.target_id AND a.owner_id=l.owner_id) END))))
           ORDER BY l.created_at LIMIT 100`);
-const dueRow = QueryRecords.later_items;
+
 export function due(db: Database.Database, params: { now: number }) {
   return dueStatement(db)
     .all(params)
-    .map((row) => parseRecord(dueRow, row, "later-items"));
+    .map((row) => parseRecord(QueryRecords.later_items, row, "later-items"));
 }
