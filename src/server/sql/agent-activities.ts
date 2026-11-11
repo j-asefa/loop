@@ -64,7 +64,7 @@ export function upsert(
 const recentKindStatement = statement(
   "SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND kind=?\n           ORDER BY sequence DESC LIMIT 16",
 );
-const recentKindRow = QueryRecords.agent_activities;
+
 export function recentKind(
   db: Database.Database,
   owner: string,
@@ -73,13 +73,15 @@ export function recentKind(
 ) {
   return recentKindStatement(db)
     .all(owner, scope, kind)
-    .map((row) => parseRecord(recentKindRow, row, "agent_activities"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
+    );
 }
 
 const controlUpdatesStatement = statement(
   "SELECT * FROM agent_activities WHERE owner_id=? AND scope=?\n          AND kind IN ('settings','commands','capabilities','file_change') AND sequence>?\n          ORDER BY sequence LIMIT 501",
 );
-const controlUpdatesRow = QueryRecords.agent_activities;
+
 export function controlUpdates(
   db: Database.Database,
   owner: string,
@@ -88,7 +90,9 @@ export function controlUpdates(
 ) {
   return controlUpdatesStatement(db)
     .all(owner, scope, after)
-    .map((row) => parseRecord(controlUpdatesRow, row, "agent_activities"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
+    );
 }
 
 const cursorStatement = statement(
@@ -105,7 +109,7 @@ export function cursor(db: Database.Database, owner: string, scope: string) {
 const beforeStatement = statement(
   "SELECT * FROM agent_activities\n      WHERE owner_id=? AND scope=? AND sequence<? ORDER BY sequence DESC LIMIT 101",
 );
-const beforeRow = QueryRecords.agent_activities;
+
 export function before(
   db: Database.Database,
   owner: string,
@@ -114,7 +118,9 @@ export function before(
 ) {
   return beforeStatement(db)
     .all(owner, scope, before)
-    .map((row) => parseRecord(beforeRow, row, "agent_activities"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
+    );
 }
 
 const hasEarlierToolsStatement = statement(
@@ -136,7 +142,7 @@ export function hasEarlierTools(
 const updatesStatement = statement(
   "SELECT * FROM agent_activities WHERE owner_id=@owner AND scope=@scope AND sequence>@after\n      AND (@run IS NULL OR run_id IS NULL OR run_id=@run) ORDER BY sequence LIMIT 501",
 );
-const updatesRow = QueryRecords.agent_activities;
+
 export function updates(
   db: Database.Database,
   owner: string,
@@ -146,7 +152,9 @@ export function updates(
 ) {
   return updatesStatement(db)
     .all({ owner, scope, after, run })
-    .map((row) => parseRecord(updatesRow, row, "agent_activities"));
+    .map((row) =>
+      parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
+    );
 }
 
 const fileUpdatesStatement = statementVariants();

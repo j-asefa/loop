@@ -4,18 +4,20 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
 const allStatement = statement("SELECT * FROM harnesses ORDER BY name");
-const allRow = QueryRecords.harnesses;
+
 export function all(db: Database.Database) {
   return allStatement(db)
     .all()
-    .map((row) => parseRecord(allRow, row, "harnesses"));
+    .map((row) => parseRecord(QueryRecords.harnesses, row, "harnesses"));
 }
 
 const getStatement = statement("SELECT * FROM harnesses WHERE name=?");
-const getRow = QueryRecords.harnesses;
+
 export function get(db: Database.Database, name: string) {
   const row = getStatement(db).get(name);
-  return row === undefined ? undefined : parseRecord(getRow, row, "harnesses");
+  return row === undefined
+    ? undefined
+    : parseRecord(QueryRecords.harnesses, row, "harnesses");
 }
 
 const acpOptionsStatement = statement(

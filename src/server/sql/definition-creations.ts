@@ -6,12 +6,16 @@ import { statement } from "./statement.js";
 const byRequestStatement = statement(
   "SELECT * FROM definition_creations WHERE owner_id=? AND request_key=?",
 );
-const byRequestRow = QueryRecords.definition_creations;
+
 export function byRequest(db: Database.Database, owner: string, key: string) {
   const row = byRequestStatement(db).get(owner, key);
   return row === undefined
     ? undefined
-    : parseRecord(byRequestRow, row, "definition_creations");
+    : parseRecord(
+        QueryRecords.definition_creations,
+        row,
+        "definition_creations",
+      );
 }
 
 const insertStatement = statement(

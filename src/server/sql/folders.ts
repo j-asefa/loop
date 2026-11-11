@@ -88,7 +88,7 @@ export function projectFor(
 const namedChildrenStatement = statement(
   "SELECT * FROM folders WHERE owner_id=? AND parent_id IS ? AND lower(name)=lower(?)",
 );
-const namedChildrenRow = QueryRecords.folders;
+
 export function namedChildren(
   db: Database.Database,
   owner: string,
@@ -97,7 +97,7 @@ export function namedChildren(
 ) {
   return namedChildrenStatement(db)
     .all(owner, parent, name)
-    .map((row) => parseRecord(namedChildrenRow, row, "folders"));
+    .map((row) => parseRecord(QueryRecords.folders, row, "folders"));
 }
 
 const insertWorkspaceStatement = statement(

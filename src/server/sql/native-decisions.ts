@@ -56,12 +56,12 @@ export function byRequest(
 }
 
 const getStatement = statement("SELECT * FROM native_decisions WHERE id=?");
-const getRow = QueryRecords.native_decisions;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "native_decisions");
+    : parseRecord(QueryRecords.native_decisions, row, "native_decisions");
 }
 
 const beginAnswerStatement = statement(

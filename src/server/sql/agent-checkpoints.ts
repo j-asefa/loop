@@ -18,12 +18,12 @@ export function exists(db: Database.Database, run: string) {
 const getStatement = statement(
   "SELECT * FROM agent_checkpoints WHERE run_id=?",
 );
-const getRow = QueryRecords.agent_checkpoints;
+
 export function get(db: Database.Database, run: string) {
   const row = getStatement(db).get(run);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "agent_checkpoints");
+    : parseRecord(QueryRecords.agent_checkpoints, row, "agent_checkpoints");
 }
 
 const insertStatement = statement(

@@ -25,33 +25,35 @@ export function enqueueStopped(
 }
 
 const byIdStatement = statement("SELECT * FROM webhook_deliveries WHERE id=?");
-const byIdRow = QueryRecords.webhook_deliveries;
+
 export function byId(db: Database.Database, id: string) {
   const row = byIdStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(byIdRow, row, "webhook_deliveries");
+    : parseRecord(QueryRecords.webhook_deliveries, row, "webhook_deliveries");
 }
 
 const activationStatement = statement(
   "SELECT * FROM webhook_deliveries WHERE subscription_id=? AND purpose='activation'",
 );
-const activationRow = QueryRecords.webhook_deliveries;
+
 export function activation(db: Database.Database, subscription: string) {
   const row = activationStatement(db).get(subscription);
   return row === undefined
     ? undefined
-    : parseRecord(activationRow, row, "webhook_deliveries");
+    : parseRecord(QueryRecords.webhook_deliveries, row, "webhook_deliveries");
 }
 
 const historyStatement = statement(
   "SELECT * FROM webhook_deliveries WHERE subscription_id=? ORDER BY created_at DESC,id DESC LIMIT 50",
 );
-const historyRow = QueryRecords.webhook_deliveries;
+
 export function history(db: Database.Database, subscription: string) {
   return historyStatement(db)
     .all(subscription)
-    .map((row) => parseRecord(historyRow, row, "webhook_deliveries"));
+    .map((row) =>
+      parseRecord(QueryRecords.webhook_deliveries, row, "webhook_deliveries"),
+    );
 }
 
 const insertControlStatement = statement(
@@ -128,7 +130,7 @@ export function exhaust(
 const dueStatement = statement(
   "SELECT d.* FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id\n      WHERE d.delivered_at IS NULL AND d.exhausted=0 AND d.available_at<=@time AND (d.leased_until IS NULL OR d.leased_until<=@leaseTime)\n      AND (@only IS NULL OR d.id=@only) AND (s.state='active' OR (s.state='pending_activation' AND d.purpose='activation') OR (s.state='failed' AND d.purpose='test'))\n      ORDER BY d.available_at,d.id LIMIT 4",
 );
-const dueRow = QueryRecords.webhook_deliveries;
+
 export function due(
   db: Database.Database,
   time: number,
@@ -137,7 +139,9 @@ export function due(
 ) {
   return dueStatement(db)
     .all({ time, leaseTime, only })
-    .map((row) => parseRecord(dueRow, row, "webhook_deliveries"));
+    .map((row) =>
+      parseRecord(QueryRecords.webhook_deliveries, row, "webhook_deliveries"),
+    );
 }
 
 const uncertainStatement = statement(

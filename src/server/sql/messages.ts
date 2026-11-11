@@ -50,7 +50,7 @@ export function insert(
 const agentHistoryStatement = statement(
   `SELECT m.* FROM messages m LEFT JOIN runs r ON r.id=m.run_id WHERE m.conversation_id=@conversation AND m.owner_id=@owner AND m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (m.run_id IS NULL OR r.rowid <= (SELECT rowid FROM runs WHERE id=@run)) AND NOT EXISTS(SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND (s.run_id=@run OR s.state<>'delivered')) ORDER BY COALESCE(r.created_at,m.created_at),r.rowid,CASE m.role WHEN 'user' THEN 0 ELSE 1 END,m.rowid`,
 );
-const agentHistoryRow = QueryRecords.messages;
+
 export function agentHistory(
   db: Database.Database,
   conversation: string | null,
@@ -59,7 +59,7 @@ export function agentHistory(
 ) {
   return agentHistoryStatement(db)
     .all({ conversation, owner, run })
-    .map((row) => parseRecord(agentHistoryRow, row, "messages"));
+    .map((row) => parseRecord(QueryRecords.messages, row, "messages"));
 }
 
 const insertAssistantPlaceholderStatement = statement(
@@ -154,7 +154,7 @@ export function continuationPositions(
 const searchStatement = statement(
   "SELECT * FROM messages WHERE owner_id=? AND instr(lower(content),lower(?))>0 ORDER BY created_at DESC LIMIT 50",
 );
-const searchRow = QueryRecords.messages;
+
 export function search(
   db: Database.Database,
   owner: string | null,
@@ -162,7 +162,7 @@ export function search(
 ) {
   return searchStatement(db)
     .all(owner, query)
-    .map((row) => parseRecord(searchRow, row, "messages"));
+    .map((row) => parseRecord(QueryRecords.messages, row, "messages"));
 }
 
 const insertWithDefaultMetadataStatement = statement(
@@ -294,7 +294,7 @@ const forkHistoryStatement =
   statement(`SELECT * FROM messages WHERE owner_id=@owner AND conversation_id=@conversation
           AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
           AND (created_at<@at OR (created_at=@at AND rowid<=@seq)) ORDER BY created_at,rowid`);
-const forkHistoryRow = QueryRecords.messages;
+
 export function forkHistory(
   db: Database.Database,
   owner: string | null,
@@ -304,7 +304,7 @@ export function forkHistory(
 ) {
   return forkHistoryStatement(db)
     .all({ owner, conversation, at, seq })
-    .map((row) => parseRecord(forkHistoryRow, row, "messages"));
+    .map((row) => parseRecord(QueryRecords.messages, row, "messages"));
 }
 
 const latestContentStatement = statement(

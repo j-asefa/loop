@@ -6,12 +6,12 @@ import { statement } from "./statement.js";
 const priorStatement = statement(
   "SELECT * FROM webhook_requests WHERE owner_id=? AND request_id=?",
 );
-const priorRow = QueryRecords.webhook_requests;
+
 export function prior(db: Database.Database, owner: string, request: string) {
   const row = priorStatement(db).get(owner, request);
   return row === undefined
     ? undefined
-    : parseRecord(priorRow, row, "webhook_requests");
+    : parseRecord(QueryRecords.webhook_requests, row, "webhook_requests");
 }
 
 const insertStatement = statement(

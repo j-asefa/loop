@@ -39,7 +39,7 @@ export function complete(
 const byDigestStatement = statement(
   "SELECT * FROM approvals WHERE owner_id=? AND run_id=? AND digest=?",
 );
-const byDigestRow = QueryRecords.approvals;
+
 export function byDigest(
   db: Database.Database,
   owner: string,
@@ -49,7 +49,7 @@ export function byDigest(
   const row = byDigestStatement(db).get(owner, run, digest);
   return row === undefined
     ? undefined
-    : parseRecord(byDigestRow, row, "approvals");
+    : parseRecord(QueryRecords.approvals, row, "approvals");
 }
 
 const insertStatement = statement(

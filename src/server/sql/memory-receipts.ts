@@ -18,10 +18,10 @@ export function conversationRuns(
 }
 
 const getStatement = statement("SELECT * FROM memory_receipts WHERE run_id=?");
-const getRow = QueryRecords.memory_receipts;
+
 export function get(db: Database.Database, run: string) {
   const row = getStatement(db).get(run);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "memory_receipts");
+    : parseRecord(QueryRecords.memory_receipts, row, "memory_receipts");
 }

@@ -16,7 +16,7 @@ export function owned(db: Database.Database, id: string, owner: string) {
 const byCatalogStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.catalogId')=? ORDER BY created_at LIMIT 1",
 );
-const byCatalogRow = QueryRecords.mcp_connections;
+
 export function byCatalog(
   db: Database.Database,
   owner: string,
@@ -25,13 +25,13 @@ export function byCatalog(
   const row = byCatalogStatement(db).get(owner, catalog);
   return row === undefined
     ? undefined
-    : parseRecord(byCatalogRow, row, "mcp_connections");
+    : parseRecord(QueryRecords.mcp_connections, row, "mcp_connections");
 }
 
 const uncataloguedUrlStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND rtrim(url,'/')=rtrim(?,'/') AND json_extract(metadata,'$.catalogId') IS NULL ORDER BY CASE status WHEN 'connected' THEN 0 ELSE 1 END, created_at LIMIT 1",
 );
-const uncataloguedUrlRow = QueryRecords.mcp_connections;
+
 export function uncataloguedUrl(
   db: Database.Database,
   owner: string,
@@ -40,7 +40,7 @@ export function uncataloguedUrl(
   const row = uncataloguedUrlStatement(db).get(owner, url);
   return row === undefined
     ? undefined
-    : parseRecord(uncataloguedUrlRow, row, "mcp_connections");
+    : parseRecord(QueryRecords.mcp_connections, row, "mcp_connections");
 }
 
 const setMetadataStatement = statement(
@@ -140,7 +140,7 @@ export function disable(db: Database.Database, id: string) {
 const byInstallFingerprintStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND json_extract(metadata,'$.installFingerprint')=? AND status<>'disconnected'",
 );
-const byInstallFingerprintRow = QueryRecords.mcp_connections;
+
 export function byInstallFingerprint(
   db: Database.Database,
   owner: string,
@@ -149,17 +149,19 @@ export function byInstallFingerprint(
   const row = byInstallFingerprintStatement(db).get(owner, fingerprint);
   return row === undefined
     ? undefined
-    : parseRecord(byInstallFingerprintRow, row, "mcp_connections");
+    : parseRecord(QueryRecords.mcp_connections, row, "mcp_connections");
 }
 
 const forOwnerStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? ORDER BY created_at DESC",
 );
-const forOwnerRow = QueryRecords.mcp_connections;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "mcp_connections"));
+    .map((row) =>
+      parseRecord(QueryRecords.mcp_connections, row, "mcp_connections"),
+    );
 }
 
 const insertStatement = statement(
@@ -199,10 +201,10 @@ const githubCandidatesStatement = statement(
   "SELECT * FROM mcp_connections WHERE owner_id=? AND status='connected' ORDER BY created_at,rowid",
 );
 
-const githubCandidatesRow = QueryRecords.mcp_connections;
-
 export function githubCandidates(db: Database.Database, owner: string) {
   return githubCandidatesStatement(db)
     .all(owner)
-    .map((row) => parseRecord(githubCandidatesRow, row, "mcp_connections"));
+    .map((row) =>
+      parseRecord(QueryRecords.mcp_connections, row, "mcp_connections"),
+    );
 }

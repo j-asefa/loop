@@ -34,10 +34,10 @@ export function codexSummary(db: Database.Database, native: string) {
 }
 
 const getStatement = statement("SELECT * FROM native_catalog WHERE id=?");
-const getRow = QueryRecords.native_catalog;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "native_catalog");
+    : parseRecord(QueryRecords.native_catalog, row, "native_catalog");
 }

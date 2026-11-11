@@ -15,7 +15,7 @@ export const NATIVE_CONNECTION_SQL =
 const ownerConnectionStatement = statement(
   "SELECT * FROM connections WHERE owner_id=? AND id=?",
 );
-const ownerConnectionRow = QueryRecords.connections;
+
 export function ownerConnection(
   db: Database.Database,
   owner: string,
@@ -24,7 +24,7 @@ export function ownerConnection(
   const row = ownerConnectionStatement(db).get(owner, connection);
   return row === undefined
     ? undefined
-    : parseRecord(ownerConnectionRow, row, "connections");
+    : parseRecord(QueryRecords.connections, row, "connections");
 }
 
 const existsOwnedStatement = statement(

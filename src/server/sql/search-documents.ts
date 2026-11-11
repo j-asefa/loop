@@ -10,12 +10,12 @@ import { statement } from "./statement.js";
 const ownedStatement = statement(
   "SELECT * FROM search_documents WHERE id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.search_documents;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "search_documents");
+    : parseRecord(QueryRecords.search_documents, row, "search_documents");
 }
 
 export type SearchFilters = {

@@ -67,12 +67,12 @@ export function forCall(
 const ownedStatement = statement(
   "SELECT * FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
 );
-const ownedRow = QueryRecords.artifact_objects;
+
 export function owned(db: Database.Database, id: string, owner: string) {
   const row = ownedStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(ownedRow, row, "artifact_objects");
+    : parseRecord(QueryRecords.artifact_objects, row, "artifact_objects");
 }
 
 const downloadStatement = statement(

@@ -18,12 +18,12 @@ export function isUnknown(db: Database.Database, run: string, call: string) {
 const byCallStatement = statement(
   "SELECT * FROM tool_invocations WHERE run_id=? AND call_id=?",
 );
-const byCallRow = QueryRecords.tool_invocations;
+
 export function byCall(db: Database.Database, run: string, call: string) {
   const row = byCallStatement(db).get(run, call);
   return row === undefined
     ? undefined
-    : parseRecord(byCallRow, row, "tool_invocations");
+    : parseRecord(QueryRecords.tool_invocations, row, "tool_invocations");
 }
 
 const insertPendingStatement = statement(
@@ -57,12 +57,12 @@ export function insertPending(
 }
 
 const byIdStatement = statement("SELECT * FROM tool_invocations WHERE id=?");
-const byIdRow = QueryRecords.tool_invocations;
+
 export function byId(db: Database.Database, id: string) {
   const row = byIdStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(byIdRow, row, "tool_invocations");
+    : parseRecord(QueryRecords.tool_invocations, row, "tool_invocations");
 }
 
 const startPendingStatement = statement(

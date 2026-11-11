@@ -14,12 +14,12 @@ export function owned(db: Database.Database, id: string, owner: string) {
 }
 
 const getStatement = statement("SELECT * FROM memory_sources WHERE id=?");
-const getRow = QueryRecords.memory_sources;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "memory_sources");
+    : parseRecord(QueryRecords.memory_sources, row, "memory_sources");
 }
 
 const upsertStatement = statement(
@@ -98,11 +98,13 @@ export function summaries(db: Database.Database, owner: string) {
 const forOwnerStatement = statement(
   "SELECT * FROM memory_sources WHERE owner_id=?",
 );
-const forOwnerRow = QueryRecords.memory_sources;
+
 export function forOwner(db: Database.Database, owner: string) {
   return forOwnerStatement(db)
     .all(owner)
-    .map((row) => parseRecord(forOwnerRow, row, "memory_sources"));
+    .map((row) =>
+      parseRecord(QueryRecords.memory_sources, row, "memory_sources"),
+    );
 }
 
 const advanceRevisionStatement = statement(

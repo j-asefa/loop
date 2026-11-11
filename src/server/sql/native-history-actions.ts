@@ -6,12 +6,16 @@ import { statement } from "./statement.js";
 const getStatement = statement(
   "SELECT * FROM native_history_actions WHERE id=?",
 );
-const getRow = QueryRecords.native_history_actions;
+
 export function get(db: Database.Database, id: string) {
   const row = getStatement(db).get(id);
   return row === undefined
     ? undefined
-    : parseRecord(getRow, row, "native_history_actions");
+    : parseRecord(
+        QueryRecords.native_history_actions,
+        row,
+        "native_history_actions",
+      );
 }
 
 const insertUnknownStatement = statement(
