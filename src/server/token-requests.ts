@@ -1,6 +1,6 @@
 import { InvalidRow } from "./row-schemas.js";
 import * as tokenRequestsQueries from "./sql/token-requests.js";
-import { createHash } from "node:crypto";
+import { requestHash } from "./request-receipts.js";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
@@ -39,25 +39,6 @@ const Receipt = z.object({
 });
 const RETAIN_RESULT_MS = 24 * 60 * 60 * 1000;
 
-// JSON objects are insensitive to field order; array order remains significant.
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value !== null && typeof value === "object")
-    return (
-      "{" +
-      Object.entries(value)
-        .filter(([, item]) => item !== undefined)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, item]) => JSON.stringify(key) + ":" + canonical(item))
-        .join(",") +
-      "}"
-    );
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined)
-    throw new Problem(400, "The request identity input is invalid.");
-  return encoded;
-}
-
 type Reserved =
   | { kind: "new"; prepared: unknown }
   | { kind: "replay"; result: TokenResult }
@@ -65,9 +46,7 @@ type Reserved =
 
 function reserve(request: TokenRequest, policy: TokenWritePolicy): Reserved {
   const key = [request.owner, request.tokenId, request.identity] as const;
-  const hash = createHash("sha256")
-    .update(canonical(request.input))
-    .digest("hex");
+  const hash = requestHash(request.input);
   // Keep the primary-key marker. Old keys must never become new requests, even
   // after the response data expires or a client retries after a long outage.
   tokenRequestsQueries.expireResults(

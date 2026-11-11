@@ -19,7 +19,7 @@ import {
   createAgent,
   Problem,
 } from "./domain.js";
-import { createHash } from "node:crypto";
+import { withCreationReceipt } from "./request-receipts.js";
 import { suggestAgentName } from "./agent-names.js";
 import { TEAM_PRESETS } from "../shared/team-presets.js";
 import { startCodeReview, reviewStatus } from "./code-reviews.js";
@@ -93,73 +93,67 @@ export function createTeam(owner: string, input: unknown) {
 export function createPresetTeam(owner: string, input: unknown) {
   const d = workspaceApi.teamFromPreset.body.parse(input);
   const { idempotencyKey, ...details } = d;
-  const hash = createHash("sha256")
-    .update(
-      JSON.stringify({
-        ...details,
-        roles: Object.fromEntries(Object.entries(d.roles).sort()),
-      }),
-    )
-    .digest("hex");
-  return db
-    .transaction(() => {
-      const prior = teamCreationsQueries.get(db, owner, idempotencyKey);
-      if (prior) {
-        if (prior.request_hash !== hash)
-          throw new Problem(
-            409,
-            "This request key belongs to different team details",
-          );
+  return withCreationReceipt(
+    db,
+    { owner, key: idempotencyKey, input: details },
+    {
+      read: (owner, key) => teamCreationsQueries.get(db, owner, key),
+      conflict: "This request key belongs to different team details",
+      recover: (prior) => {
         const team = listTeams(owner).find((t) => t.id === prior.team_id);
         if (!team)
           throw new Problem(409, "This team was deleted; start a new creation");
         return team;
-      }
-      const preset = TEAM_PRESETS.find((p) => p.id === d.presetId);
-      if (!preset) throw new Problem(400, "Choose an available team preset");
-      if (
-        Object.keys(d.roles).some(
-          (role) => !preset.roles.some((r) => r.id === role),
+      },
+      create: () => {
+        const preset = TEAM_PRESETS.find((p) => p.id === d.presetId);
+        if (!preset) throw new Problem(400, "Choose an available team preset");
+        if (
+          Object.keys(d.roles).some(
+            (role) => !preset.roles.some((r) => r.id === role),
+          )
         )
-      )
-        throw new Problem(400, "Unknown preset role");
-      ownedFolder(d.folderId, owner);
-      const agents = preset.roles.map((role) => {
-        const chosen = d.roles[role.id] || d.selection;
-        ownedConnection(chosen.connectionId, owner);
-        return {
-          role: role.id,
-          agent: createAgent(owner, {
-            ...chosen,
-            name: suggestAgentName(),
-            folderId: d.folderId,
-            instructions: role.instructions,
+          throw new Problem(400, "Unknown preset role");
+        ownedFolder(d.folderId, owner);
+        const agents = preset.roles.map((role) => {
+          const chosen = d.roles[role.id] || d.selection;
+          ownedConnection(chosen.connectionId, owner);
+          return {
+            role: role.id,
+            agent: createAgent(owner, {
+              ...chosen,
+              name: suggestAgentName(),
+              folderId: d.folderId,
+              instructions: role.instructions,
+            }),
+          };
+        });
+        const team = createTeam(owner, {
+          name: d.name,
+          managerId: agents[0].agent.id,
+          members: agents.slice(1).map((a) => a.agent.id),
+        });
+        teamsQueries.preset(
+          db,
+          preset.id,
+          preset.version,
+          JSON.stringify({
+            ...preset,
+            assignments: agents.map((a) => ({
+              role: a.role,
+              agentId: a.agent.id,
+            })),
           }),
-        };
-      });
-      const team = createTeam(owner, {
-        name: d.name,
-        managerId: agents[0].agent.id,
-        members: agents.slice(1).map((a) => a.agent.id),
-      });
-      teamsQueries.preset(
-        db,
-        preset.id,
-        preset.version,
-        JSON.stringify({
-          ...preset,
-          assignments: agents.map((a) => ({
-            role: a.role,
-            agentId: a.agent.id,
-          })),
-        }),
-        d.folderId,
-        team.id,
-      );
-      teamCreationsQueries.insert(db, owner, idempotencyKey, hash, team.id);
-      return listTeams(owner).find((t) => t.id === team.id)!;
-    })
-    .immediate();
+          d.folderId,
+          team.id,
+        );
+        return listTeams(owner).find((t) => t.id === team.id)!;
+      },
+      record: (owner, key, hash, team) => {
+        teamCreationsQueries.insert(db, owner, key, hash, team.id);
+      },
+    },
+  );
 }
 export function addTeamMember(owner: string, teamId: string, input: unknown) {
   const { agentId } = workspaceApi.teamMemberAdd.body.parse(input);

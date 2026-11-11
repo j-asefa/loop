@@ -4,7 +4,7 @@ import * as teamsQueries from "./sql/teams.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar } from "./registrar.js";
-import { createHash } from "node:crypto";
+import { withCreationReceipt } from "./request-receipts.js";
 
 import { z } from "zod";
 import { db, now } from "./db.js";
@@ -94,142 +94,134 @@ function createFromDefinition(
 ) {
   const { idempotencyKey, ...data } =
     workspaceApi.definitionCreate.body.parse(input);
-  const hash = createHash("sha256")
-    .update(
-      JSON.stringify({
-        definitionId,
-        ...data,
-        roles: Object.fromEntries(Object.entries(data.roles).sort()),
-      }),
-    )
-    .digest("hex");
-  return db
-    .transaction(() => {
-      const prior = definitionCreationsQueries.byRequest(
-        db,
-        owner,
-        idempotencyKey,
-      );
-      const result = (agentId?: string | null, teamId?: string | null) => {
-        const team = teamId
-          ? listTeams(owner).find((t) => t.id === teamId)
-          : undefined;
-        // A worker survives its team's deletion; its committed receipt must
-        // still recover the agent without creating or attaching anything.
-        if (teamId && !team && !agentId)
-          throw new Problem(409, "This team was deleted; start a new creation");
-        return agentId
-          ? { agent: ownedAgent(agentId, owner), ...(team ? { team } : {}) }
-          : { team: team! };
-      };
-      if (prior) {
-        if (prior.request_hash !== hash)
+  const result = (agentId?: string | null, teamId?: string | null) => {
+    const team = teamId
+      ? listTeams(owner).find((t) => t.id === teamId)
+      : undefined;
+    // A worker survives its team's deletion; its committed receipt must
+    // still recover the agent without creating or attaching anything.
+    if (teamId && !team && !agentId)
+      throw new Problem(409, "This team was deleted; start a new creation");
+    return agentId
+      ? { agent: ownedAgent(agentId, owner), ...(team ? { team } : {}) }
+      : { team: team! };
+  };
+  return withCreationReceipt(
+    db,
+    {
+      owner,
+      key: idempotencyKey,
+      input: { definitionId, ...data },
+    },
+    {
+      read: (owner, key) =>
+        definitionCreationsQueries.byRequest(db, owner, key),
+      conflict: "This request key belongs to different creation details",
+      recover: (prior) => result(prior.agent_id, prior.team_id),
+      create: () => {
+        const definition = stored(owner, definitionId);
+        if (definition.version !== data.version)
           throw new Problem(
             409,
-            "This request key belongs to different creation details",
+            "This definition changed. Reopen it before creating.",
           );
-        return result(prior.agent_id, prior.team_id);
-      }
-      const definition = stored(owner, definitionId);
-      if (definition.version !== data.version)
-        throw new Problem(
-          409,
-          "This definition changed. Reopen it before creating.",
-        );
-      const spec = parseDefinition(definition.markdown);
-      if (spec.kind === "team" && data.teamId)
-        throw new Problem(400, "Choose an agent definition to add a worker");
-      const roles =
-        spec.kind === "agent" ? [spec] : [spec.manager, ...spec.members];
-      if (
-        Object.keys(data.roles).some(
-          (key) => !roles.some((role) => role.name === key),
-        )
-      )
-        throw new Problem(400, "Unknown definition role");
-      let folderId = data.folderId;
-      if (data.teamId) {
-        const team = ownedTeam(data.teamId, owner);
-        if (team.deleted_at != null)
-          throw new Problem(404, "Team no longer exists");
-        if (folderId === undefined) folderId = team.folder_id || undefined;
-      }
-      const makeAgent = (role: DefinitionRole) => {
-        const override = Object.hasOwn(data.roles, role.name)
-          ? data.roles[role.name]
-          : undefined;
-        const settings = {
-          name:
-            override?.name ??
-            (spec.kind === "agent" ? data.name : undefined) ??
-            role.name,
-          connectionId: override?.connectionId ?? data.selection.connectionId,
-          model:
-            override?.model ??
-            (role.model === "inherit" ? undefined : role.model) ??
-            data.selection.model,
-          effort:
-            override?.effort !== undefined
-              ? override.effort
-              : role.effort !== undefined
-                ? role.effort
-                : data.selection.effort,
-          instructions: role.instructions,
-          folderId: folderId || undefined,
-        };
-        const connection = ownedConnection(settings.connectionId, owner);
-        if (settings.effort) {
-          const catalog = connection.models;
-          const model = catalog.find((model) => model.id === settings.model);
-          if (!model)
-            throw new Problem(
-              400,
-              "Choose an available model from this connection",
-            );
-          if (
-            !model.effortLevels?.some(
-              (level) => level.value === settings.effort,
-            )
+        const spec = parseDefinition(definition.markdown);
+        if (spec.kind === "team" && data.teamId)
+          throw new Problem(400, "Choose an agent definition to add a worker");
+        const roles =
+          spec.kind === "agent" ? [spec] : [spec.manager, ...spec.members];
+        if (
+          Object.keys(data.roles).some(
+            (key) => !roles.some((role) => role.name === key),
           )
-            throw new Problem(
-              400,
-              "Choose an effort level reported by this model, or the runtime default",
-            );
+        )
+          throw new Problem(400, "Unknown definition role");
+        let folderId = data.folderId;
+        if (data.teamId) {
+          const team = ownedTeam(data.teamId, owner);
+          if (team.deleted_at != null)
+            throw new Problem(404, "Team no longer exists");
+          if (folderId === undefined) folderId = team.folder_id || undefined;
         }
-        return createAgent(owner, settings);
-      };
-      let agentId: string | undefined,
-        teamId = data.teamId;
-      if (spec.kind === "agent") {
-        agentId = makeAgent(spec).id;
-        if (teamId) addTeamMember(owner, teamId, { agentId });
-      } else {
-        const manager = makeAgent(spec.manager);
-        const members = spec.members.map((member) => makeAgent(member).id);
-        const team = createTeam(owner, {
-          name: data.name ?? spec.name,
-          managerId: manager.id,
-          members,
-        });
-        teamId = team.id;
-        teamsQueries.setFolder(db, folderId || null, teamId);
-        conversationsQueries.setProject(
+        const makeAgent = (role: DefinitionRole) => {
+          const override = Object.hasOwn(data.roles, role.name)
+            ? data.roles[role.name]
+            : undefined;
+          const settings = {
+            name:
+              override?.name ??
+              (spec.kind === "agent" ? data.name : undefined) ??
+              role.name,
+            connectionId: override?.connectionId ?? data.selection.connectionId,
+            model:
+              override?.model ??
+              (role.model === "inherit" ? undefined : role.model) ??
+              data.selection.model,
+            effort:
+              override?.effort !== undefined
+                ? override.effort
+                : role.effort !== undefined
+                  ? role.effort
+                  : data.selection.effort,
+            instructions: role.instructions,
+            folderId: folderId || undefined,
+          };
+          const connection = ownedConnection(settings.connectionId, owner);
+          if (settings.effort) {
+            const catalog = connection.models;
+            const model = catalog.find((model) => model.id === settings.model);
+            if (!model)
+              throw new Problem(
+                400,
+                "Choose an available model from this connection",
+              );
+            if (
+              !model.effortLevels?.some(
+                (level) => level.value === settings.effort,
+              )
+            )
+              throw new Problem(
+                400,
+                "Choose an effort level reported by this model, or the runtime default",
+              );
+          }
+          return createAgent(owner, settings);
+        };
+        let agentId: string | undefined,
+          teamId = data.teamId;
+        if (spec.kind === "agent") {
+          agentId = makeAgent(spec).id;
+          if (teamId) addTeamMember(owner, teamId, { agentId });
+        } else {
+          const manager = makeAgent(spec.manager);
+          const members = spec.members.map((member) => makeAgent(member).id);
+          const team = createTeam(owner, {
+            name: data.name ?? spec.name,
+            managerId: manager.id,
+            members,
+          });
+          teamId = team.id;
+          teamsQueries.setFolder(db, folderId || null, teamId);
+          conversationsQueries.setProject(
+            db,
+            folderId || null,
+            team.conversation_id,
+          );
+        }
+        return result(agentId, teamId);
+      },
+      record: (owner, key, hash, created) => {
+        definitionCreationsQueries.insert(
           db,
-          folderId || null,
-          team.conversation_id,
+          owner,
+          key,
+          hash,
+          "agent" in created ? created.agent.id : null,
+          created.team?.id || null,
         );
-      }
-      definitionCreationsQueries.insert(
-        db,
-        owner,
-        idempotencyKey,
-        hash,
-        agentId || null,
-        teamId || null,
-      );
-      return result(agentId, teamId);
-    })
-    .immediate();
+      },
+    },
+  );
 }
 
 const routes = registrar("agentDefinitions");
