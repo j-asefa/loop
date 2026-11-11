@@ -1,6 +1,16 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { join } from "node:path";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+  mkdirSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { join, dirname } from "node:path";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { Problem } from "../shared/problem.js";
 import { config } from "./config.js";
@@ -10,7 +20,7 @@ export function openVerified(
   size: number,
   checksum: string,
 ): Buffer {
-  if (!/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(key))
+  if (key.length > 300 || !/^objects(?:\/[a-f0-9-]+)+$/.test(key))
     throw new Problem(409, "Invalid artifact identity");
   if (!Number.isSafeInteger(size) || size < 0 || size > MAX_UPLOAD_BYTES)
     throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
@@ -48,11 +58,39 @@ export function openVerified(
     }
     if (
       readSync(descriptor, Buffer.alloc(1), 0, 1, offset) ||
-      createHash("sha256").update(bytes).digest("base64") !== checksum
+      fileChecksum(bytes) !== checksum
     )
       throw new Problem(409, "Artifact integrity check failed");
     return bytes;
   } finally {
     closeSync(descriptor);
   }
+}
+
+export function fileChecksum(bytes: Buffer) {
+  return createHash("sha256").update(bytes).digest("base64");
+}
+
+export function storeFile(owner: string, bytes: Buffer) {
+  if (bytes.length > MAX_UPLOAD_BYTES)
+    throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
+  const checksum = fileChecksum(bytes);
+  const digest = Buffer.from(checksum, "base64");
+  const key = `objects/${createHash("sha256").update(owner).digest("hex")}/${digest.toString("hex")}`;
+  const path = join(config.data, key);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
+    // Replace atomically so valid new bytes also repair a corrupt shared object.
+    renameSync(temporary, path);
+  } finally {
+    try {
+      unlinkSync(temporary);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  openVerified(key, bytes.length, checksum);
+  return { key, size: bytes.length, checksum };
 }

@@ -1,5 +1,5 @@
 import { MAX_UPLOAD_LABEL } from "../shared/uploads.js";
-import { openVerified } from "./file-store.js";
+import { openVerified, storeFile, fileChecksum } from "./file-store.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
@@ -7,18 +7,9 @@ import * as companionSessionsQueries from "./sql/companion-sessions.js";
 
 import { agentPayload } from "./row-schemas.js";
 
-import { createHash, randomUUID } from "node:crypto";
-import {
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  linkSync,
-  unlinkSync,
-} from "node:fs";
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import { z } from "zod";
 import { db, emit } from "./db.js";
-import { config } from "./config.js";
 import { ownedArtifact, ownedConnection, ownedRun, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
 import {
@@ -57,40 +48,6 @@ export function storePublishedFile(
   if (file.bytes.length > MAX_PUBLISHED_BYTES)
     throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
   const snapshot = agentPayload(run);
-  const checksum = createHash("sha256").update(file.bytes).digest("base64");
-  const key =
-    "objects/" +
-    createHash("sha256").update(run.owner_id).digest("hex") +
-    "/" +
-    run.id +
-    "/" +
-    createHash("sha256").update(callId).digest("hex");
-  const path = join(config.data, key);
-  mkdirSync(join(path, ".."), { recursive: true, mode: 0o700 });
-  const temporary = path + "." + randomUUID() + ".tmp";
-  try {
-    writeFileSync(temporary, file.bytes, { flag: "wx", mode: 0o600 });
-    // Commit complete bytes without replacing an earlier publication on retry.
-    try {
-      linkSync(temporary, path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  } finally {
-    try {
-      unlinkSync(temporary);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  if (
-    createHash("sha256").update(readFileSync(path)).digest("base64") !==
-    checksum
-  )
-    throw new Problem(
-      409,
-      "File publication identity was reused with different contents",
-    );
   return db
     .transaction(() => {
       const live = ownedRun(run.id, run.owner_id);
@@ -102,6 +59,16 @@ export function storePublishedFile(
         callId,
         run.owner_id,
       );
+      if (
+        prior &&
+        (prior.checksum !== fileChecksum(file.bytes) ||
+          prior.size !== file.bytes.length)
+      )
+        throw new Problem(
+          409,
+          "File publication identity was reused with different contents",
+        );
+      const { key, checksum } = storeFile(run.owner_id, file.bytes);
       const name =
         basename(file.name.replaceAll("\\", "/"))
           .replace(/[\x00-\x1f\x7f]/g, "")

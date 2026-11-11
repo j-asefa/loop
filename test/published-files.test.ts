@@ -1,6 +1,7 @@
 import { afterAll, expect, it } from "vitest";
 import {
   mkdtempSync,
+  readdirSync,
   mkdirSync,
   writeFileSync,
   rmSync,
@@ -31,7 +32,8 @@ const { seal } = await import("../src/server/secrets");
 const { submit } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
-const { publishRunFile } = await import("../src/server/published-files");
+const { publishRunFile, storePublishedFile } =
+  await import("../src/server/published-files");
 const { core } = await import("../src/server/core-routes");
 const { workspace: routes } = await import("../src/server/workspace-routes");
 const { resultsRevision, resultsUpdates } =
@@ -566,4 +568,59 @@ it("publishes video MIME types for playback and library filtering", async () => 
       "content-type",
     ),
   ).toContain("video/mp4");
+});
+
+it("shares verified content without sharing publication identities", async () => {
+  const f = fixture();
+  const bytes = Buffer.from("Shared publication content");
+  const file = {
+    name: "shared.txt",
+    title: "Shared",
+    mime: "text/plain",
+    bytes,
+  };
+  const call = id();
+  const first = storePublishedFile(f.run, call, file);
+  const second = storePublishedFile(f.run, id(), file);
+  expect(second.artifactId).not.toBe(first.artifactId);
+  const rows = db
+    .prepare(
+      "SELECT object_key,checksum FROM artifact_objects WHERE artifact_id IN (?,?)",
+    )
+    .all(first.artifactId, second.artifactId) as {
+    object_key: string;
+    checksum: string;
+  }[];
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toEqual(rows[1]);
+  expect(storePublishedFile(f.run, call, file).artifactId).toBe(
+    first.artifactId,
+  );
+  const storedDirectory = join(directory, "data", rows[0].object_key, "..");
+  const beforeRejected = readdirSync(storedDirectory).sort();
+  expect(() =>
+    storePublishedFile(f.run, call, {
+      ...file,
+      bytes: Buffer.from("Different publication"),
+    }),
+  ).toThrow("identity was reused with different contents");
+  expect(readdirSync(storedDirectory).sort()).toEqual(beforeRejected);
+  expect(
+    await (await request(`/artifacts/${first.artifactId}/file`)).text(),
+  ).toBe(bytes.toString());
+  expect(
+    (await request(`/artifacts/${second.artifactId}/file`, "bob")).status,
+  ).toBe(404);
+  const path = join(directory, "data", rows[0].object_key);
+  writeFileSync(path, Buffer.alloc(bytes.length));
+  const repaired = storePublishedFile(f.run, id(), file);
+  for (const artifactId of [
+    first.artifactId,
+    second.artifactId,
+    repaired.artifactId,
+  ]) {
+    const response = await request(`/artifacts/${artifactId}/file`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(bytes.toString());
+  }
 });
