@@ -286,6 +286,40 @@ it("supports HTML upload previews without treating other file types as active do
   }
 });
 
+it("protects uploaded-object downloads and HEAD responses with one file policy", async () => {
+  const { uploadFile } = await import("../src/server/uploads");
+  const bytes = Buffer.from(
+    "<script>parent.document.body.textContent='unsafe'</script>",
+  );
+  const saved = uploadFile("alice", {
+    originalname: "résumé's(1)*.html",
+    mimetype: "text/html",
+    buffer: bytes,
+  });
+  const url = `${base}/api/objects/${saved.objectId}`;
+  for (const method of ["GET", "HEAD"]) {
+    const response = await fetch(url, { method });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      "application/octet-stream",
+    );
+    expect(response.headers.get("content-disposition")).toBe(
+      "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9%27s%281%29%2A.html",
+    );
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; sandbox",
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(
+      method === "HEAD" ? Buffer.alloc(0) : bytes,
+    );
+  }
+  expect((await fetch(url, { headers: { "x-owner": "bob" } })).status).toBe(
+    404,
+  );
+});
+
 it("does not publish a workspace file once its run stops executing", async () => {
   const f = fixture();
   writeFileSync(
