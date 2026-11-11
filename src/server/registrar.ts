@@ -91,6 +91,11 @@ type Input<C extends RouteContract> = {
   ? { file: Express.Multer.File | undefined }
   : {});
 
+export type RouteHandler<C extends RouteContract> = (
+  input: Input<C>,
+  response: Response<ResponseBody<C>>,
+) => unknown;
+
 /** The same projection can run before bookkeeping that depends on valid output. */
 export function projectResponse<C extends RouteContract>(
   contract: C,
@@ -112,7 +117,7 @@ const RequestIdentity = z.string().min(8).max(150);
  * a generic 500, never a request error or a dump of private data. */
 function route<C extends RouteContract>(
   contract: C,
-  handler: (input: Input<C>, response: Response<ResponseBody<C>>) => unknown,
+  handler: RouteHandler<C>,
   identity?: { operation: string; run: TokenWrite },
 ): RequestHandler<Record<string, string>> {
   return (req, res) => {

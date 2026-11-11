@@ -93,6 +93,17 @@ writeFileSync(
 );
 const { db } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
+const { executionRoute } = await import("../src/server/execution-routes");
+
+function executionRouteTypes() {
+  executionRoute(
+    workspaceApi.runtimeAuthStatus,
+    // @ts-expect-error Upgrade output cannot satisfy an auth-status response.
+    "upgrade.status",
+    (req) => ({ input: { name: req.params.name } }),
+  );
+}
+void executionRouteTypes;
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { OWNER: owner } = await import("../src/server/workspace-identity");
 const { closeExecution } = await import("../src/server/execution-client");
@@ -112,6 +123,7 @@ async function request(
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  expect(response.headers.get("cache-control")).toBe("no-store");
   return { status: response.status, data: await response.json() };
 }
 async function invalid(path: string, method = "GET") {

@@ -1,3 +1,4 @@
+import { executionRoute } from "./execution-routes.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as workspaceProjectsQueries from "./sql/workspace-projects.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
@@ -21,90 +22,118 @@ import { executionRequest } from "./execution-client.js";
 
 const routes = registrar("companion", { middleware: [[nativeHistory]] });
 export const companion = routes.mount;
-routes.on(workspaceApi.runtimeProviders, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(
-    await executionRequest("provider.catalog", {
-      name: req.params.name,
-      projectId: req.query.projectId,
-    }),
-  );
-});
-routes.on(workspaceApi.runtimeProviderKey, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const { commandId, ...input } = req.body;
-  res.json(
-    await executionRequest(
-      "provider.key",
-      { ...input, name: req.params.name },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeProviderRemove, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const { commandId, ...input } = req.body;
-  res.json(
-    await executionRequest(
-      "provider.remove",
-      { ...input, name: req.params.name },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeProviderRefresh, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const { commandId, ...input } = req.body;
-  res.json(
-    await executionRequest(
-      "provider.refresh",
-      { ...input, name: req.params.name },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeAuthProviders, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(
-    await executionRequest("auth.catalog", {
-      name: req.params.name,
-      projectId: req.query.projectId,
-    }),
-  );
-});
-routes.on(workspaceApi.runtimeAuthStatus, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(await executionRequest("auth.status", { name: req.params.name }));
-});
-routes.on(workspaceApi.runtimeAuthStart, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  const { commandId, ...input } = req.body;
-  res.json(
-    await executionRequest(
-      "auth.start",
-      { ...input, name: req.params.name },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeAuthInput, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(
-    await executionRequest("auth.input", {
-      ...req.body,
-      name: req.params.name,
-    }),
-  );
-});
-routes.on(workspaceApi.runtimeAuthCancel, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(
-    await executionRequest("auth.cancel", {
-      ...req.body,
-      name: req.params.name,
-    }),
-  );
-});
+const executionRoutes = [
+  executionRoute(workspaceApi.runtimeProviders, "provider.catalog", (req) => {
+    return {
+      input: {
+        name: req.params.name,
+        projectId: req.query.projectId,
+      },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeProviderKey, "provider.key", (req) => {
+    const { commandId, ...input } = req.body;
+    return {
+      input: { ...input, name: req.params.name },
+      options: { commandId },
+    };
+  }),
+  executionRoute(
+    workspaceApi.runtimeProviderRemove,
+    "provider.remove",
+    (req) => {
+      const { commandId, ...input } = req.body;
+      return {
+        input: { ...input, name: req.params.name },
+        options: { commandId },
+      };
+    },
+  ),
+  executionRoute(
+    workspaceApi.runtimeProviderRefresh,
+    "provider.refresh",
+    (req) => {
+      const { commandId, ...input } = req.body;
+      return {
+        input: { ...input, name: req.params.name },
+        options: { commandId },
+      };
+    },
+  ),
+  executionRoute(workspaceApi.runtimeAuthProviders, "auth.catalog", (req) => {
+    return {
+      input: {
+        name: req.params.name,
+        projectId: req.query.projectId,
+      },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeAuthStatus, "auth.status", (req) => {
+    return { input: { name: req.params.name } };
+  }),
+  executionRoute(workspaceApi.runtimeAuthStart, "auth.start", (req) => {
+    const { commandId, ...input } = req.body;
+    return {
+      input: { ...input, name: req.params.name },
+      options: { commandId },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeAuthInput, "auth.input", (req) => {
+    return {
+      input: {
+        ...req.body,
+        name: req.params.name,
+      },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeAuthCancel, "auth.cancel", (req) => {
+    return {
+      input: {
+        ...req.body,
+        name: req.params.name,
+      },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeUpgrade, "upgrade.status", (req) => {
+    return {
+      input: {
+        name: req.params.name,
+        check: req.query.check === "1",
+      },
+    };
+  }),
+  executionRoute(workspaceApi.runtimeUpgradeStart, "upgrade.start", (req) => {
+    const { commandId } = req.body;
+    return { input: { name: req.params.name }, options: { commandId } };
+  }),
+  executionRoute(
+    workspaceApi.runtimeUpgradeDismiss,
+    "upgrade.dismiss",
+    (req) => {
+      return { input: { name: req.params.name } };
+    },
+  ),
+  executionRoute(
+    workspaceApi.runtimeUpgradeRecover,
+    "upgrade.recover",
+    (req) => {
+      const { commandId, confirmedStopped } = req.body;
+      return {
+        input: { name: req.params.name, confirmedStopped },
+        options: { commandId },
+      };
+    },
+  ),
+  executionRoute(workspaceApi.runtimeEnable, "runtime.enable", (req) => {
+    const { commandId, ...input } = req.body;
+    return {
+      input: { ...input, name: req.params.name },
+      options: { commandId },
+    };
+  }),
+];
+for (const register of executionRoutes) register(routes);
+
 routes.on(workspaceApi.workspace, async (_req, res) =>
   res.json({
     harnesses: nativeSessions.projects.registrations(),
@@ -121,50 +150,7 @@ routes.on(workspaceApi.runtimeList, async (req, res) => {
   });
   res.json({ ...runtimes, setup: runtimeSetupState() });
 });
-routes.on(workspaceApi.runtimeUpgrade, async (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-  res.json(
-    await executionRequest("upgrade.status", {
-      name: req.params.name,
-      check: req.query.check === "1",
-    }),
-  );
-});
-routes.on(workspaceApi.runtimeUpgradeStart, async (req, res) => {
-  const { commandId } = req.body;
-  res.json(
-    await executionRequest(
-      "upgrade.start",
-      { name: req.params.name },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeUpgradeDismiss, async (req, res) => {
-  res.json(
-    await executionRequest("upgrade.dismiss", { name: req.params.name }),
-  );
-});
-routes.on(workspaceApi.runtimeUpgradeRecover, async (req, res) => {
-  const { commandId, confirmedStopped } = req.body;
-  res.json(
-    await executionRequest(
-      "upgrade.recover",
-      { name: req.params.name, confirmedStopped },
-      { commandId },
-    ),
-  );
-});
-routes.on(workspaceApi.runtimeEnable, async (req, res) => {
-  const { commandId, ...input } = req.body;
-  res.json(
-    await executionRequest(
-      "runtime.enable",
-      { ...input, name: req.params.name },
-      { commandId },
-    ),
-  );
-});
+
 routes.on(workspaceApi.workspaceProjectCreate, (req, res) => {
   const d = req.body;
   res
