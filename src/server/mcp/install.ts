@@ -75,7 +75,6 @@ export async function installConfig(
   owner: string,
   input: unknown,
   agentId?: string,
-  requestKey = "",
 ) {
   const entries = parseMcpConfig(input);
   if (agentId) ownedAgent(agentId, owner);
@@ -110,7 +109,6 @@ export async function installConfig(
         JSON.stringify({
           transport: stdio ? "stdio" : "http",
           installFingerprint: fingerprint,
-          requestKey,
         }),
         now(),
       );

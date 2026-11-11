@@ -428,7 +428,6 @@ export async function invokeNative(
       run.owner_id,
       d.config,
       run.agent_id!,
-      run.id + ":" + callId,
     );
     text = JSON.stringify(installed);
     approvalsQueries.complete(db, text, approval.id);
