@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import express from "express";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-agent-creation-"));
@@ -272,33 +272,20 @@ it("rejects missing, foreign, excessive or promptless attachments without creati
   }
 });
 
-it("retains creation receipts from before initial attachments were supported", async () => {
-  const owner = "old-creation";
+it("replays a current creation receipt with omitted or empty attachments", async () => {
+  const owner = "empty-attachments";
   const input = {
-    name: "old-creation-agent",
+    name: "empty-attachments-agent",
     connectionId: connection(owner),
     model: "fixture",
     instructions: "Be concise.",
+    idempotencyKey: id(),
   };
-  const agent = createAgent(owner, input);
-  const key = id();
-  const hash = createHash("sha256")
-    .update(JSON.stringify({ ...input, initialPrompt: "", folderId: null }))
-    .digest("hex");
-  db.prepare("INSERT INTO agent_creations VALUES(?,?,?,?,?,?)").run(
-    owner,
-    key,
-    hash,
-    agent.id,
-    null,
-    now(),
-  );
-  const retry = await create(
-    { ...input, attachmentIds: [], idempotencyKey: key },
-    owner,
-  );
+  const first = await create(input, owner);
+  expect(first.status).toBe(201);
+  const retry = await create({ ...input, attachmentIds: [] }, owner);
   expect(retry.status).toBe(201);
-  expect(retry.data.id).toBe(agent.id);
+  expect(retry.data.id).toBe(first.data.id);
   expect(counts(owner)).toMatchObject({ agents: 1, runs: 0 });
 });
 
