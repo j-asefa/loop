@@ -953,3 +953,62 @@ it("rejects invalid webhook secret prefixes and replays current creation receipt
   const replay = await createReplay(f, request);
   expect(replay.subscription.id).toBe(created.subscription.id);
 }, 30000);
+
+it("rolls back webhook creation when its receipt fails and binds retries to the subscription, operation and input", async () => {
+  const { f, sink, destination } = await fixture();
+  const request = webhookRequest(destination, ["run.stopped"]);
+  f.db
+    .exec(`CREATE TRIGGER reject_webhook_receipt BEFORE INSERT ON webhook_requests
+    BEGIN SELECT RAISE(ABORT, 'Fixture receipt failure'); END`);
+  const failed = await f.request("/api/webhooks", {
+    headers: f.browser,
+    body: request,
+  });
+  expect(failed.status).toBe(500);
+  expect((await list(f)).subscriptions).toEqual([]);
+  expect(
+    f.db.prepare("SELECT count(*) n FROM webhook_deliveries").get(),
+  ).toEqual({ n: 0 });
+  expect(f.db.prepare("SELECT count(*) n FROM webhook_requests").get()).toEqual(
+    { n: 0 },
+  );
+  expect(sink.received).toHaveLength(0);
+  f.db.exec("DROP TRIGGER reject_webhook_receipt");
+  const first = await createReplay(f, request);
+  const reordered = Object.fromEntries(Object.entries(request).reverse());
+  const replay = await f.request("/api/webhooks", {
+    headers: f.browser,
+    body: reordered,
+  });
+  expect(replay.status).toBe(201);
+  expect(WebhookCreated.parse(await replay.json()).subscription.id).toBe(
+    first.subscription.id,
+  );
+  expect(sink.received).toHaveLength(1);
+  const second = await create(f, destination);
+  const key = randomUUID();
+  const update = (id: string, kinds: "run.stopped"[]) =>
+    f.request(`/api/webhooks/${id}`, {
+      headers: f.browser,
+      method: "PATCH",
+      body: { request_id: key, kinds },
+    });
+  expect((await update(first.subscription.id, [])).status).toBe(200);
+  expect((await update(first.subscription.id, ["run.stopped"])).status).toBe(
+    409,
+  );
+  expect((await update(second.subscription.id, [])).status).toBe(409);
+  expect((await action(f, first.subscription.id, "revoke", key)).status).toBe(
+    409,
+  );
+  await f.restart();
+  expect((await update(first.subscription.id, [])).status).toBe(200);
+  const subscriptions = (await list(f)).subscriptions;
+  expect(
+    subscriptions.find((row) => row.id === first.subscription.id),
+  ).toMatchObject({ state: "active", kinds: [] });
+  expect(
+    subscriptions.find((row) => row.id === second.subscription.id),
+  ).toMatchObject({ state: "active", kinds: ["run.stopped"] });
+  expect(sink.received).toHaveLength(2);
+}, 90000);

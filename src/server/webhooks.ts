@@ -1,7 +1,12 @@
 import * as webhookSubscriptionsQueries from "./sql/webhook-subscriptions.js";
 import * as webhookDeliveriesQueries from "./sql/webhook-deliveries.js";
 import * as webhookRequestsQueries from "./sql/webhook-requests.js";
-import { createHash, createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import {
+  findRequestReceipt,
+  requestHash,
+  withCreationReceipt,
+} from "./request-receipts.js";
 import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
 import { seal, unseal } from "./secrets.js";
@@ -59,8 +64,6 @@ type DeliveryRow = {
 };
 const RETRY_MS = [30000, 60000, 300000, 900000, 3600000];
 const LEASE_MS = 60000;
-const digest = (input: unknown) =>
-  createHash("sha256").update(JSON.stringify(input)).digest("hex");
 function owned(owner: string, id: string) {
   const row = webhookSubscriptionsQueries.owned(db, id, owner);
   if (!row) throw new Problem(404, "Webhook not found");
@@ -121,40 +124,68 @@ function pendingPing(
   );
   return payload.id;
 }
-function priorRequest(
+function webhookRequest(
   owner: string,
   id: string,
   request: string,
-  action: string,
+  action: "create" | "update" | "revoke" | "test" | "retry",
   input: unknown,
 ) {
-  const row = webhookRequestsQueries.prior(db, owner, request);
-  if (
-    row &&
-    (row.subscription_id !== id ||
-      row.action !== action ||
-      row.digest !== digest(input))
-  )
-    throw new Problem(409, "Request ID belongs to another webhook operation");
-  return row;
-}
-function remember(
-  owner: string,
-  id: string,
-  request: string,
-  action: string,
-  input: unknown,
-  result: string | null = null,
-) {
-  webhookRequestsQueries.insert(
-    db,
+  const identity = {
     owner,
-    request,
-    id,
-    action,
-    digest(input),
-    result,
-  );
+    key: request,
+    input: { subscriptionId: id, action, input },
+  };
+  const lookup = {
+    read: (owner: string, key: string) => {
+      if (action === "create") {
+        const collision = webhookSubscriptionsQueries.creation(db, id);
+        if (
+          collision &&
+          (collision.owner_id !== owner ||
+            collision.creation_digest !== requestHash(input))
+        )
+          throw new Problem(
+            409,
+            "Request ID belongs to another webhook creation",
+          );
+      } else {
+        owned(owner, id);
+      }
+      const row = webhookRequestsQueries.prior(db, owner, key);
+      return row && { ...row, request_hash: row.digest };
+    },
+    conflict: "Request ID belongs to another webhook operation",
+  };
+  return {
+    prior: () =>
+      findRequestReceipt(
+        { ...identity, hash: requestHash(identity.input) },
+        lookup,
+      ),
+    run<Result>(
+      create: () => Result,
+      recover: (row: NonNullable<ReturnType<typeof lookup.read>>) => Result,
+      resultId: (result: Result) => string | null = () => null,
+    ): Result {
+      return withCreationReceipt(db, identity, {
+        ...lookup,
+        create,
+        recover,
+        record: (owner, key, hash, result) => {
+          webhookRequestsQueries.insert(
+            db,
+            owner,
+            key,
+            id,
+            action,
+            hash,
+            resultId(result),
+          );
+        },
+      });
+    },
+  };
 }
 export async function createWebhook(owner: string, input: unknown) {
   const parsed = WebhookCreate.parse(input);
@@ -163,7 +194,7 @@ export async function createWebhook(owner: string, input: unknown) {
   if (existing) {
     if (
       existing.owner_id !== owner ||
-      existing.creation_digest !== digest(options)
+      existing.creation_digest !== requestHash(options)
     )
       throw new Problem(409, "Request ID belongs to another webhook creation");
     return {
@@ -172,29 +203,15 @@ export async function createWebhook(owner: string, input: unknown) {
     };
   }
   const destination = await webhookDestination(options.url);
-  const control = db
-    .transaction(() => {
-      const collision = webhookSubscriptionsQueries.creation(
-        db,
-        options.request_id,
-      );
-      if (
-        collision &&
-        (collision.owner_id !== owner ||
-          collision.creation_digest !== digest(options))
-      )
-        throw new Problem(
-          409,
-          "Request ID belongs to another webhook creation",
-        );
-      const raced = priorRequest(
-        owner,
-        options.request_id,
-        options.request_id,
-        "create",
-        options,
-      );
-      if (raced) return raced.result_id!;
+  const receipt = webhookRequest(
+    owner,
+    options.request_id,
+    options.request_id,
+    "create",
+    options,
+  );
+  const control = receipt.run(
+    () => {
       const count = webhookSubscriptionsQueries.activeCount(db, owner)!;
       if (count.n >= 50)
         throw new Problem(429, "Revoke a webhook before creating another");
@@ -204,27 +221,16 @@ export async function createWebhook(owner: string, input: unknown) {
         owner,
         destination.url.href,
         seal(options.secret, "webhook:" + owner + ":" + options.request_id),
-        digest(options),
+        requestHash(options),
         JSON.stringify(options.kinds),
         destination.local ? 1 : 0,
         now(),
       );
-      const ping = pendingPing(
-        options.request_id,
-        options.request_id,
-        "activation",
-      );
-      remember(
-        owner,
-        options.request_id,
-        options.request_id,
-        "create",
-        options,
-        ping,
-      );
-      return ping;
-    })
-    .immediate();
+      return pendingPing(options.request_id, options.request_id, "activation");
+    },
+    (prior) => prior.result_id!,
+    (ping) => ping,
+  );
   // Persistence precedes all receiver IO. A disconnect or process death leaves
   // the ordinary worker claim able to finish the same activation delivery.
   await deliverWebhooks(undefined, control);
@@ -240,37 +246,32 @@ export function updateWebhook(
   kinds: "run.stopped"[],
 ) {
   const input = [...new Set(kinds)].sort();
-  return db
-    .transaction(() => {
-      const row = owned(owner, id);
-      if (priorRequest(owner, id, request, "update", input))
-        return publicSubscription(row);
-      if (row.state === "revoked")
+  return webhookRequest(owner, id, request, "update", input).run(
+    () => {
+      if (owned(owner, id).state === "revoked")
         throw new Problem(409, "This webhook is revoked");
       webhookSubscriptionsQueries.setKinds(db, JSON.stringify(input), id);
-      remember(owner, id, request, "update", input);
       return publicSubscription(owned(owner, id));
-    })
-    .immediate();
+    },
+    () => publicSubscription(owned(owner, id)),
+  );
 }
 export function revokeWebhook(owner: string, id: string, request: string) {
-  return db
-    .transaction(() => {
-      const row = owned(owner, id);
-      if (priorRequest(owner, id, request, "revoke", null))
-        return publicSubscription(row);
+  return webhookRequest(owner, id, request, "revoke", null).run(
+    () => {
       webhookSubscriptionsQueries.revoke(db, now(), id);
       // A claim that has not started dispatch may be cancelled truthfully. An
       // in-flight send retains its lease and its eventual observed outcome.
       webhookDeliveriesQueries.revokeSubscription(db, id);
-      remember(owner, id, request, "revoke", null);
       return publicSubscription(owned(owner, id));
-    })
-    .immediate();
+    },
+    () => publicSubscription(owned(owner, id)),
+  );
 }
 export async function testWebhook(owner: string, id: string, request: string) {
   const row = owned(owner, id),
-    previous = priorRequest(owner, id, request, "test", null);
+    receipt = webhookRequest(owner, id, request, "test", null),
+    previous = receipt.prior();
   if (previous)
     return {
       subscription: publicSubscription(row),
@@ -279,18 +280,16 @@ export async function testWebhook(owner: string, id: string, request: string) {
   if (row.state === "revoked" || row.state === "pending_activation")
     throw new Problem(409, "Retry activation before testing this webhook");
   await webhookDestination(row.url);
-  const control = db
-    .transaction(() => {
-      const current = owned(owner, id),
-        raced = priorRequest(owner, id, request, "test", null);
-      if (raced) return raced.result_id!;
+  const control = receipt.run(
+    () => {
+      const current = owned(owner, id);
       if (current.state === "revoked" || current.state === "pending_activation")
         throw new Problem(409, "Webhook cannot be tested in this state");
-      const ping = pendingPing(id, request, "test");
-      remember(owner, id, request, "test", null, ping);
-      return ping;
-    })
-    .immediate();
+      return pendingPing(id, request, "test");
+    },
+    (prior) => prior.result_id!,
+    (ping) => ping,
+  );
   await deliverWebhooks(undefined, control);
   return {
     subscription: publicSubscription(owned(owner, id)),
@@ -299,16 +298,14 @@ export async function testWebhook(owner: string, id: string, request: string) {
 }
 export async function retryWebhook(owner: string, id: string, request: string) {
   const row = owned(owner, id);
-  if (priorRequest(owner, id, request, "retry", null))
-    return publicSubscription(row);
+  const receipt = webhookRequest(owner, id, request, "retry", null);
+  if (receipt.prior()) return publicSubscription(row);
   if (row.state === "revoked")
     throw new Problem(409, "This webhook is revoked");
   await webhookDestination(row.url);
-  return db
-    .transaction(() => {
+  return receipt.run(
+    () => {
       const current = owned(owner, id);
-      if (priorRequest(owner, id, request, "retry", null))
-        return publicSubscription(current);
       if (current.state === "revoked")
         throw new Problem(409, "This webhook is revoked");
       if (webhookDeliveriesQueries.leased(db, id, now()))
@@ -319,11 +316,11 @@ export async function retryWebhook(owner: string, id: string, request: string) {
       if (current.state === "failed")
         webhookSubscriptionsQueries.activate(db, id);
       webhookDeliveriesQueries.reset(db, now(), id, current.state);
-      remember(owner, id, request, "retry", null);
       // Merely re-arms the same rows. Only an accepted activation ping can activate.
       return publicSubscription(owned(owner, id));
-    })
-    .immediate();
+    },
+    () => publicSubscription(owned(owner, id)),
+  );
 }
 
 function eligible(subscription: SubscriptionRow, job: DeliveryRow) {
