@@ -7,7 +7,7 @@ import * as pushMessagesQueries from "../sql/push-messages.js";
 import * as messagesQueries from "../sql/messages.js";
 import { LaterInput as laterInput } from "../../shared/mobile-contract-schemas.js";
 import { db, id, now } from "../db.js";
-import { ownedFolder, owned, Problem } from "../domain.js";
+import { ownedFolder, Problem, requireOwned } from "../domain.js";
 import { resultUrl } from "../results.js";
 import { savedStory } from "../news.js";
 import { feedCardTitle } from "../feed-card-display.js";
@@ -166,14 +166,12 @@ export function createLater(owner: string, body: unknown) {
         if (!savedStory(owner, d.targetId))
           throw new Problem(404, "Item not found");
       } else
-        owned(
+        requireOwned(
           {
-            conversation: "conversations",
-            artifact: "artifacts",
-            message: "messages",
-          }[d.kind],
-          d.targetId,
-          owner,
+            conversation: conversationsQueries.owned,
+            artifact: artifactsQueries.owned,
+            message: messagesQueries.owned,
+          }[d.kind](db, d.targetId, owner),
         );
       if (d.projectId) ownedFolder(d.projectId, owner);
       const replaced = laterItemsQueries.openId(

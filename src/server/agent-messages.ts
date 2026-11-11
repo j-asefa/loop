@@ -1,10 +1,10 @@
 import * as messagesQueries from "./sql/messages.js";
 import { db } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { Problem, ownedAgent } from "./domain.js";
 import { z } from "zod";
 
 export function agentMessages(owner: string, agent: string, before?: string) {
-  owned("agents", agent, owner);
+  ownedAgent(agent, owner);
   let cursor: [number, number, string] = [Number.MAX_SAFE_INTEGER, 2, ""];
   if (before) {
     try {

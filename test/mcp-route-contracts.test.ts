@@ -291,6 +291,20 @@ it("projects real connection rows, drops sealed credentials and preserves the cr
   );
   await invalid(`/mcp/${c.id}`, { action: "credentials" }, "PATCH");
   await invalid(`/mcp/${c.id}`, { action: "invented" }, "PATCH");
+  db.prepare(
+    "UPDATE mcp_connections SET secret='damaged',owner_id=? WHERE id=?",
+  ).run("other-owner", c.id);
+  expect(
+    (await request(`/mcp/${c.id}`, { action: "disconnect" }, "PATCH")).status,
+  ).toBe(404);
+  expect(
+    db.prepare("SELECT secret FROM mcp_connections WHERE id=?").get(c.id),
+  ).toEqual({ secret: "damaged" });
+  db.prepare("UPDATE mcp_connections SET owner_id=? WHERE id=?").run(
+    owner,
+    c.id,
+  );
+  expect(() => ownedMcpConnection(c.id, owner)).toThrow("invalid secret");
   const disconnected = valid(
     workspaceApi.mcpUpdate,
     await request(`/mcp/${c.id}`, { action: "disconnect" }, "PATCH"),

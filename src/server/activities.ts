@@ -6,7 +6,7 @@ import type { Run } from "./queue.js";
 
 import { z } from "zod";
 import { db, emit, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { Problem, ownedConversation } from "./domain.js";
 import {
   ACTIVITY_FEATURES,
   ACTIVITY_LIMITS,
@@ -328,7 +328,7 @@ export function listActivities(
     runs?: string[];
   } = {},
 ) {
-  owned("conversations", conversation, owner);
+  ownedConversation(conversation, owner);
   // Conversation chrome needs controls and file summaries, never tool history
   // Tool activity has its own lazy snapshot/cursor.
   if (

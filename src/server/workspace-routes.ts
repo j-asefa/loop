@@ -23,12 +23,13 @@ import multer from "multer";
 import { z } from "zod";
 import { db, id, now } from "./db.js";
 import {
-  owned,
   ownedFolder,
   ownedArtifact,
   ownedConnection,
   ownedImport,
   Problem,
+  ownedAgent,
+  requireOwned,
 } from "./domain.js";
 import { projectFolders } from "./results.js";
 import {
@@ -90,7 +91,7 @@ routes.on(workspaceApi.folderList, (_req, res) => {
 });
 routes.on(workspaceApi.folderCreate, (req, res) => {
   const d = req.body;
-  if (d.parentId) owned("folders", d.parentId, res.locals.owner);
+  if (d.parentId) ownedFolder(d.parentId, res.locals.owner);
   if (d.parentId && isWorkspaceProject(res.locals.owner, d.parentId))
     d.parentId = null;
   if (foldersQueries.nameExists(db, res.locals.owner, d.parentId, d.name))
@@ -162,9 +163,8 @@ routes.on(workspaceApi.folderUpdate, (req, res) => {
 routes.on(workspaceApi.artifactList, (req, res) => {
   const folder = req.query.folder ? String(req.query.folder) : undefined;
   const agent = req.query.agent ? String(req.query.agent) : undefined;
-  if (folder && folder !== "unfiled")
-    owned("folders", folder, res.locals.owner);
-  if (agent) owned("agents", agent, res.locals.owner);
+  if (folder && folder !== "unfiled") ownedFolder(folder, res.locals.owner);
+  if (agent) ownedAgent(agent, res.locals.owner);
   const items = artifactsQueries.workspaceList(db, res.locals.owner, {
     folder,
     workspace:
@@ -191,7 +191,7 @@ routes.on(workspaceApi.artifactList, (req, res) => {
 // The checkout Loop observed for a run: branch, commits, files and the patch
 // stored at capture time. Read-only; there is nothing to apply from here.
 routes.on(workspaceApi.runCheckout, (req, res) => {
-  owned("runs", req.params.id, res.locals.owner);
+  requireOwned(runsQueries.owned(db, req.params.id, res.locals.owner));
   const detail = checkoutDetail(res.locals.owner, req.params.id);
   if (!detail) throw new Problem(404, "This run has no checkout record.");
   res.json(detail);
@@ -199,11 +199,11 @@ routes.on(workspaceApi.runCheckout, (req, res) => {
 // The verification commands Loop observed for a run, with their exits and
 // output tails. Observations of what the agent ran, not what tests exist.
 routes.on(workspaceApi.runVerifications, (req, res) => {
-  owned("runs", req.params.id, res.locals.owner);
+  requireOwned(runsQueries.owned(db, req.params.id, res.locals.owner));
   res.json(runVerifications(res.locals.owner, req.params.id));
 });
 routes.on(workspaceApi.runFiles, (req, res) => {
-  owned("runs", req.params.id, res.locals.owner);
+  requireOwned(runsQueries.owned(db, req.params.id, res.locals.owner));
   res.json(
     artifactsQueries.runFiles(db, res.locals.owner, req.params.id) as z.input<
       typeof workspaceApi.runFiles.response
@@ -227,7 +227,7 @@ routes.on(workspaceApi.artifactDetail, (req, res) => {
 });
 routes.on(workspaceApi.artifactCreate, (req, res) => {
   const d = req.body;
-  if (d.folder) owned("folders", d.folder, res.locals.owner);
+  if (d.folder) ownedFolder(d.folder, res.locals.owner);
   res.status(201).json({ id: saveArtifact(res.locals.owner, d) });
 });
 routes.on(workspaceApi.artifactUpdate, (req, res) => {
@@ -290,7 +290,7 @@ routes.on(workspaceApi.search, async (req, res) => {
         typeof req.query.folder === "string" ? req.query.folder : undefined,
       folders:
         typeof req.query.project === "string"
-          ? (owned("folders", req.query.project, res.locals.owner),
+          ? (ownedFolder(req.query.project, res.locals.owner),
             projectFolders(res.locals.owner, req.query.project))
           : undefined,
       kind: typeof req.query.kind === "string" ? req.query.kind : undefined,

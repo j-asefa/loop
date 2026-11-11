@@ -59,7 +59,6 @@ import { isSubscription } from "./subscriptions.js";
 import { z } from "zod";
 import { db, emit, id, now } from "./db.js";
 import {
-  owned,
   ownedAgent,
   ownedApproval,
   ownedConversation,
@@ -71,6 +70,8 @@ import {
   Problem,
   agentInput,
   validateEffort,
+  ownedFolder,
+  requireOwned,
 } from "./domain.js";
 import { createWithPrompt } from "./agent-creation.js";
 import { suggestAgentName } from "./agent-names.js";
@@ -292,7 +293,7 @@ routes.on(workspaceApi.agentUpdate, (req, res) => {
       }
       if (req.body.folderId !== undefined) {
         const folderId = z.string().min(1).nullable().parse(req.body.folderId);
-        if (folderId) owned("folders", folderId, owner);
+        if (folderId) ownedFolder(folderId, owner);
         agentsQueries.folder(db, folderId, agent.id, owner);
       }
       if (req.body.name !== undefined)
@@ -581,8 +582,8 @@ routes.on(
   workspaceApi.resultUpdates,
   (req, res) => {
     const options = { ...req.query, saved: req.query.saved === "1" };
-    if (options.agent) owned("agents", options.agent, res.locals.owner);
-    if (options.folder) owned("folders", options.folder, res.locals.owner);
+    if (options.agent) ownedAgent(options.agent, res.locals.owner);
+    if (options.folder) ownedFolder(options.folder, res.locals.owner);
     const teams = teamFilter(req.query.teams, res.locals.owner);
     res.json(
       tokenResultPage(
@@ -612,7 +613,7 @@ routes.on(
       params.push(res.locals.owner, ...teams);
     }
     if (req.query.folder) {
-      owned("folders", String(req.query.folder), res.locals.owner);
+      ownedFolder(String(req.query.folder), res.locals.owner);
       params.push(
         JSON.stringify(
           projectFolders(res.locals.owner, String(req.query.folder)),
@@ -620,7 +621,7 @@ routes.on(
       );
     }
     if (req.query.agent) {
-      owned("agents", String(req.query.agent), res.locals.owner);
+      ownedAgent(String(req.query.agent), res.locals.owner);
       params.push(req.query.agent);
     }
     if (cursor) {
@@ -823,7 +824,7 @@ routes.on(workspaceApi.artifactFile, (req, res) => {
 });
 
 routes.on(workspaceApi.artifactDownload, (req, res) => {
-  owned("artifacts", req.params.id, res.locals.owner);
+  requireOwned(artifactsQueries.owned(db, req.params.id, res.locals.owner));
   if (res.locals.bearer && res.req.method !== "HEAD")
     recordCardRead(res.locals.owner, res.locals.bearer.tokenId, [
       "a:" + req.params.id,

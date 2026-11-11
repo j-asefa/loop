@@ -13,7 +13,7 @@ import { discover } from "../host-control.js";
 import { upgradeLauncher } from "../harness-upgrades.js";
 import { hostEnvironmentName } from "./execution-location.js";
 import { db } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { Problem, ownedFolder } from "./domain.js";
 import { nativeSessions } from "./native-sessions.js";
 import { OWNER } from "./workspace-identity.js";
 import { harnessHolds } from "./harness-holds.js";
@@ -27,7 +27,7 @@ export async function authOptions({
   name,
   projectId,
 }: ExecutionInput<"auth.catalog">) {
-  owned("folders", projectId, OWNER);
+  ownedFolder(projectId, OWNER);
   const project = projectPathsQueries.path(db, projectId) as
     { path: string } | undefined;
   if (!project)
@@ -208,7 +208,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       409,
       "Finish or cancel this runtime’s sign-in before enabling it.",
     );
-  owned("folders", input.projectId, OWNER);
+  ownedFolder(input.projectId, OWNER);
   const project = projectPathsQueries.path(db, input.projectId) as
     { path: string } | undefined;
   if (!project)

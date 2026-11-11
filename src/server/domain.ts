@@ -23,43 +23,23 @@ import { db, id, now } from "./db.js";
 
 import { Problem } from "../shared/problem.js";
 export { Problem } from "../shared/problem.js";
-const ownedQueries = {
-  agents: agentsQueries.owned,
-  connections: connectionsQueries.owned,
-  conversations: conversationsQueries.owned,
-  runs: runsQueries.owned,
-  messages: messagesQueries.owned,
-  artifacts: artifactsQueries.owned,
-  objects: objectsQueries.owned,
-  folders: foldersQueries.owned,
-  imports: importsQueries.owned,
-  mcp_connections: mcpConnectionsQueries.owned,
-  approvals: approvalsQueries.owned,
-  operations: operationsQueries.owned,
-  teams: teamsQueries.owned,
-  memory_sources: memorySourcesQueries.owned,
-};
-export function owned(table: string, recordId: string, owner: string): unknown {
-  if (!Object.hasOwn(ownedQueries, table)) throw new Error("Invalid resource");
-  const record = ownedQueries[table as keyof typeof ownedQueries](
-    db,
-    recordId,
-    owner,
-  );
-  if (!record) throw new Problem(404, "Item not found");
+// Callers supply an owner-scoped query result; foreign and missing rows share a 404.
+export function requireOwned<T extends object>(record: T | undefined): T {
+  if (record === undefined) throw new Problem(404, "Item not found");
   return record;
 }
+
 export {
   AgentHandle as handle,
   AgentInput as agentInput,
 } from "../shared/agent-contract-schemas.js";
 export function createAgent(owner: string, value: unknown) {
   const data = agentInput.parse(value);
-  if (data.folderId) owned("folders", data.folderId, owner);
+  if (data.folderId) ownedFolder(data.folderId, owner);
   const connection = ownedConnection(data.connectionId, owner);
   if (connection.status !== "connected")
     throw new Problem(409, "Reconnect this provider first");
-  const models = connection.models as { id: string }[];
+  const models = connection.models;
   if (!models.some((m) => m.id === data.model))
     throw new Problem(400, "Choose an available model from this connection");
   validateEffort(connection, data.model, data.effort);
@@ -91,9 +71,7 @@ export function validateEffort(
   model: string,
   effort?: string | null,
 ) {
-  const selected = (
-    connection.models as import("../shared/models.js").ModelOption[]
-  ).find((option) => option.id === model);
+  const selected = connection.models.find((option) => option.id === model);
   if (
     effort &&
     selected?.effortLevels &&
@@ -106,8 +84,7 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
   const agent = ownedAgent(agentId, owner);
   return db
     .transaction(() => {
-      const occupied = handlesQueries.agent(db, normalized) as
-        { agent_id: string } | undefined;
+      const occupied = handlesQueries.agent(db, normalized);
       if (occupied && occupied.agent_id !== agentId)
         throw new Problem(409, "That name is taken or reserved");
       handlesQueries.reserve(db, normalized, agentId, now());
@@ -118,103 +95,75 @@ export function renameAgent(owner: string, agentId: string, name: unknown) {
 }
 
 export function ownedRun(recordId: string, owner: string) {
-  return rows.parseRun(owned("runs", recordId, owner));
+  return rows.parseRun(requireOwned(runsQueries.owned(db, recordId, owner)));
 }
 export function ownedRunNotice(recordId: string, owner: string) {
-  const record = runsQueries.ownedNotice(db, recordId, owner);
-  if (!record) throw new Problem(404, "Item not found");
-  return rows.parseRecord(rows.RunNotice, record, "runs");
+  return requireOwned(runsQueries.ownedNotice(db, recordId, owner));
 }
 export function ownedRunControl(recordId: string, owner: string) {
-  const record = runsQueries.ownedControl(db, recordId, owner);
-  if (!record) throw new Problem(404, "Item not found");
-  return rows.parseRecord(rows.RunControl, record, "runs");
+  return requireOwned(runsQueries.ownedControl(db, recordId, owner));
 }
 
 export function ownedAgent(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.AgentRecord,
-    owned("agents", recordId, owner),
-    "agents",
-  );
+  return requireOwned(agentsQueries.owned(db, recordId, owner));
 }
 
 export function ownedConnection(recordId: string, owner: string) {
-  return rows.parseConnection(owned("connections", recordId, owner));
+  return rows.parseConnection(
+    requireOwned(connectionsQueries.owned(db, recordId, owner)),
+  );
 }
 
 export function ownedConversation(recordId: string, owner: string) {
   return rows.parseRecord(
     rows.ConversationRecord,
-    owned("conversations", recordId, owner),
+    requireOwned(conversationsQueries.owned(db, recordId, owner)),
     "conversations",
   );
 }
 
 export function ownedMessage(recordId: string, owner: string) {
-  return rows.parseMessage(owned("messages", recordId, owner));
+  return rows.parseMessage(
+    requireOwned(messagesQueries.owned(db, recordId, owner)),
+  );
 }
 
 export function ownedArtifact(recordId: string, owner: string) {
-  return rows.parseArtifact(owned("artifacts", recordId, owner));
+  return rows.parseArtifact(
+    requireOwned(artifactsQueries.owned(db, recordId, owner)),
+  );
 }
 
 export function ownedObject(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.ObjectRecord,
-    owned("objects", recordId, owner),
-    "objects",
-  );
+  return requireOwned(objectsQueries.owned(db, recordId, owner));
 }
 
 export function ownedFolder(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.FolderRecord,
-    owned("folders", recordId, owner),
-    "folders",
-  );
+  return requireOwned(foldersQueries.owned(db, recordId, owner));
 }
 
 export function ownedImport(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.ImportRecord,
-    owned("imports", recordId, owner),
-    "imports",
-  );
+  return requireOwned(importsQueries.owned(db, recordId, owner));
 }
 
 export function ownedMcpConnection(recordId: string, owner: string) {
-  return rows.parseMcpConnection(owned("mcp_connections", recordId, owner));
+  return rows.parseMcpConnection(
+    requireOwned(mcpConnectionsQueries.owned(db, recordId, owner)),
+  );
 }
 
 export function ownedApproval(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.ApprovalRecord,
-    owned("approvals", recordId, owner),
-    "approvals",
-  );
+  return requireOwned(approvalsQueries.owned(db, recordId, owner));
 }
 
 export function ownedOperation(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.OperationRecord,
-    owned("operations", recordId, owner),
-    "operations",
-  );
+  return requireOwned(operationsQueries.owned(db, recordId, owner));
 }
 
 export function ownedTeam(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.TeamRecord,
-    owned("teams", recordId, owner),
-    "teams",
-  );
+  return requireOwned(teamsQueries.owned(db, recordId, owner));
 }
 
 export function ownedMemorySource(recordId: string, owner: string) {
-  return rows.parseRecord(
-    rows.MemorySourceRecord,
-    owned("memory_sources", recordId, owner),
-    "memory_sources",
-  );
+  return requireOwned(memorySourcesQueries.owned(db, recordId, owner));
 }
