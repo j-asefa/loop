@@ -10,7 +10,7 @@ import * as agentsQueries from "./sql/agents.js";
 
 import { InvalidRow, requireSealedSecret } from "./row-schemas.js";
 import { ownedConnection } from "./domain.js";
-import { searchExcerpt } from "../shared/search-excerpt.js";
+import { ftsQuery, searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
 import { db, now } from "./db.js";
@@ -219,12 +219,8 @@ export async function indexPending() {
   }
 }
 export function lexical(owner: string, q: string, filters: SearchFilters = {}) {
-  const terms = q.match(/[\p{L}\p{N}]+/gu) || [];
-  if (!terms.length) return [] as (SearchDoc & { rank: number })[];
-  const match = terms
-    .slice(0, 20)
-    .map((t) => '"' + t + '"')
-    .join(" OR ");
+  const match = ftsQuery(q);
+  if (!match) return [] as (SearchDoc & { rank: number })[];
   return searchFtsQueries.lexical(db, owner, match, filters, now());
 }
 export type { SearchFilters } from "./sql/search-documents.js";

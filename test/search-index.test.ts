@@ -107,11 +107,17 @@ it("returns the matching passage through the search service", async () => {
       "Background context. ".repeat(40) +
       "Use web_fetch_exa to retrieve the release notes.",
   });
+  saveArtifact(owner, { title: "Other report", content: "The web is useful." });
   const result = await search(owner, "web_fetch_exa");
   expect(
     result.items.find((item) => item.id === "artifact:" + artifact)?.snippet,
   ).toContain("web_fetch_exa");
   expect(result.items[0].snippet).not.toContain("Integration report");
+  expect(result.items.map((item) => item.id)).toEqual(["artifact:" + artifact]);
+  const repeated = await search(owner, "noise ".repeat(25) + "web_fetch_exa");
+  expect(repeated.items.map((item) => item.id)).toEqual([
+    "artifact:" + artifact,
+  ]);
 });
 
 it("exposes a sanitized indexing failure, keeps keyword results, and recovers on a later retry", async () => {

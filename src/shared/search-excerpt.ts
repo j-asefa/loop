@@ -1,7 +1,26 @@
-export function searchTerms(query: string) {
-  return [
-    ...new Set(query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || []),
-  ].slice(0, 20);
+type SearchTermOptions = { limit?: number; exclude?: ReadonlySet<string> };
+export function searchTerms(
+  query: string,
+  { limit = 20, exclude }: SearchTermOptions = {},
+) {
+  return [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])]
+    .filter((term) => !exclude?.has(term))
+    .slice(0, limit);
+}
+export function ftsQuery(
+  query: string,
+  {
+    operator = "OR",
+    prefix = false,
+    ...terms
+  }: SearchTermOptions & { operator?: "OR" | "AND"; prefix?: boolean } = {},
+) {
+  const words = searchTerms(query, terms);
+  return words.length
+    ? words
+        .map((word) => `"${word.replaceAll('"', '""')}"${prefix ? "*" : ""}`)
+        .join(` ${operator} `)
+    : null;
 }
 
 export function searchExcerpt(

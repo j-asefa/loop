@@ -1,3 +1,4 @@
+import { ftsQuery } from "../shared/search-excerpt.js";
 import * as conversationTranscriptQueries from "./sql/conversation-transcript.js";
 import * as runTracesQueries from "./sql/run-traces.js";
 import * as runsQueries from "./sql/runs.js";
@@ -32,18 +33,6 @@ export function recordTrace(
   );
 }
 
-// Every term must match, as a prefix, in the trace or its linked tool result.
-// Linked results live in artifacts, which the workspace index already covers.
-function traceMatch(q: string) {
-  const terms = q.match(/[\p{L}\p{N}]+/gu) || [];
-  return terms.length
-    ? terms
-        .slice(0, 20)
-        .map((t) => '"' + t + '"*')
-        .join(" ")
-    : null;
-}
-
 export function agentTraces(
   owner: string,
   agent: string,
@@ -52,7 +41,7 @@ export function agentTraces(
   q?: string,
 ) {
   ownedAgent(agent, owner);
-  const match = q ? traceMatch(q) : null;
+  const match = q ? ftsQuery(q, { operator: "AND", prefix: true }) : null;
   if (q && !match) return { items: [], next: null };
   const items = runTracesQueries.agentPage(
     db,
