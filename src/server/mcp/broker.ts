@@ -24,7 +24,7 @@ import {
 } from "../domain.js";
 import { type Run, transition } from "../queue.js";
 
-import { requestApproval } from "../approvals.js";
+import { approve, requestApproval } from "../approvals.js";
 import { saveArtifact } from "../artifacts.js";
 import { readSecret } from "./client.js";
 import { normalizeResult, toolErrorMessage } from "./results.js";
@@ -210,17 +210,11 @@ export async function invokeTool(
         automaticallyAllowed &&
         approval.expires_at > now()
       ) {
-        const approved = approvalsQueries.approveUnexpired(
-          db,
-          approval.id,
-          now(),
-        );
+        approve(run.owner_id, approval.id, {
+          by: "policy",
+          execution: "inline",
+        });
         approval = ownedApproval(approval.id, run.owner_id);
-        if (approved.changes) {
-          emit(run.owner_id, run.id, "approval.auto_approved", {
-            approvalId: approval.id,
-          });
-        }
       }
       if (approval.state === "pending") {
         recordTrace(run, "tool:" + callId, {

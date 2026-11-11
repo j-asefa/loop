@@ -133,17 +133,6 @@ export function pendingMcpCalls(
     .map((row) => parseRecord(pendingMcpCallsRow, row, "approvals"));
 }
 
-const approveUnexpiredStatement = statement(
-  "UPDATE approvals SET state='approved' WHERE id=? AND state='pending' AND expires_at>?",
-);
-export function approveUnexpired(
-  db: Database.Database,
-  id: string,
-  time: number,
-) {
-  return approveUnexpiredStatement(db).run(id, time);
-}
-
 const startApprovedStatement = statement(
   "UPDATE approvals SET state='executing' WHERE id=? AND state='approved'",
 );

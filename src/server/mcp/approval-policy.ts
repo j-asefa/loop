@@ -1,7 +1,7 @@
 import * as mcpPreferencesQueries from "../sql/mcp-preferences.js";
 import * as approvalsQueries from "../sql/approvals.js";
-import { db, emit, now } from "../db.js";
-import { decide } from "../approvals.js";
+import { db, now } from "../db.js";
+import { approve } from "../approvals.js";
 import { Problem } from "../domain.js";
 import {
   DEFAULT_PERMISSION_MODE,
@@ -49,10 +49,7 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
           }
           if (alwaysAsk) continue;
           try {
-            decide(owner, approval.id, "approve", true);
-            emit(owner, approval.run_id, "approval.auto_approved", {
-              approvalId: approval.id,
-            });
+            approve(owner, approval.id, { by: "policy" });
             resumed++;
           } catch (error) {
             if (!(error instanceof Problem && error.status === 409))
