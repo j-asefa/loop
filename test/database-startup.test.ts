@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDatabase } from "../src/server/database-startup.js";
+import { assertEffect } from "../src/server/effect-authority.js";
 
 it("importing the initializer does not create a database or data files", () => {
   const directory = mkdtempSync(join(tmpdir(), "loop-startup-import-"));
@@ -28,7 +29,7 @@ it("importing the initializer does not create a database or data files", () => {
   }
 });
 
-it("initializes each connection once without replaying migrations or wrapping projection again", () => {
+it("initializes the process connection once and refuses authority replacement", () => {
   const db = new Database(":memory:");
   try {
     startDatabase(db, () => {});
@@ -53,6 +54,29 @@ it("initializes each connection once without replaying migrations or wrapping pr
       db.prepare("SELECT * FROM schema_migrations ORDER BY name").all(),
     ).toEqual(records);
     expect(db.prepare("SELECT total_changes() n").get()).toEqual(changes);
+    db.prepare("INSERT INTO fleet_effect_authorizations VALUES(?,?,?,?,?)").run(
+      "alice",
+      "run",
+      "protected",
+      "command",
+      "{}",
+    );
+    expect(() => assertEffect("alice", "run", "protected")).toThrow(
+      /authorized through a fleet/,
+    );
+    const other = new Database(":memory:");
+    try {
+      expect(() => startDatabase(other, () => {})).toThrow(
+        /already initialized/,
+      );
+      expect(other.prepare("SELECT name FROM sqlite_master").all()).toEqual([]);
+    } finally {
+      other.close();
+    }
+    expect(() => assertEffect("alice", "run", "protected")).toThrow(
+      /authorized through a fleet/,
+    );
+    expect(() => assertEffect("alice", "run", "unrecorded")).not.toThrow();
   } finally {
     db.close();
   }

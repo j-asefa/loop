@@ -5,13 +5,17 @@ import { installProjectionBoundary } from "./projected-database.js";
 import { installLocalEffectAuthority } from "./effect-authority.js";
 import { refuseRecordedEffects } from "./recorded-effects.js";
 
-const initialized = new WeakSet<Database.Database>();
+let initialized: Database.Database | undefined;
 
 export function startDatabase(
   db: Database.Database,
   emit: Parameters<typeof projectFeed>[1],
 ) {
-  if (initialized.has(db)) return;
+  if (initialized) {
+    if (initialized !== db)
+      throw new Error("The process database is already initialized");
+    return;
+  }
   // SQLite lower() is ASCII-only; search fields and queries need the same Unicode normalization.
   db.function("card_lower", { deterministic: true }, (value) =>
     typeof value === "string" ? value.normalize("NFC").toLowerCase() : null,
@@ -49,5 +53,5 @@ export function startDatabase(
   installProjectionBoundary(db, () => projectFeed(db, emit));
   installLocalEffectAuthority(refuseRecordedEffects(db));
   db.pragma("busy_timeout = 5000");
-  initialized.add(db);
+  initialized = db;
 }

@@ -41,7 +41,8 @@ provides no upgrade or archival path for those records.
 
 [startDatabase](../src/server/database-startup.ts) owns SQL function registration,
 WAL and timeout setup, migrations, initial Feed projection, the projection boundary
-and local effect authority. It initializes a supplied connection once. Importing
+and local effect authority. It initializes the process connection once and refuses
+a different connection so the process-wide effect guard cannot be redirected. Importing
 that module does not open or initialize a database. `db.ts` currently calls it when
 opening the process connection; importing `db.ts` still initializes that database.
 
