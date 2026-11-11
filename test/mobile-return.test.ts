@@ -37,7 +37,7 @@ const { workspace } = await import("../src/server/workspace-routes");
 const { teams } = await import("../src/server/teams");
 const { sharing } = await import("../src/server/sharing");
 const { transition } = await import("../src/server/queue");
-const { requestApproval } = await import("../src/server/approvals");
+const { approve, requestApproval } = await import("../src/server/approvals");
 const { seal } = await import("../src/server/secrets");
 const { ensureWorkspaceProject } =
   await import("../src/server/workspace-project");
@@ -3079,7 +3079,7 @@ it("pushes approval requests without their arguments and delivers app messages",
   });
   expect(JSON.stringify(rows)).not.toContain("secret-token");
   // Auto-approved requests do not notify.
-  requestApproval({ id: r, owner_id: w.owner } as any, { tool: "read" }, true);
+  approve(w.owner, { runId: r, request: { tool: "read" } }, { by: "policy" });
   expect(
     db
       .prepare(
@@ -3367,10 +3367,10 @@ it("pages your explicit approvals through the profile API without mixing owners 
       })
     ).status,
   ).toBe(409);
-  const auto = requestApproval(
-    ownedRun(rid, w.owner),
-    { type: "mcp_tool", tool: "automatic" },
-    true,
+  const auto = approve(
+    w.owner,
+    { runId: rid, request: { type: "mcp_tool", tool: "automatic" } },
+    { by: "policy" },
   );
   const expired = requestApproval(ownedRun(rid, w.owner), {
     type: "mcp_tool",

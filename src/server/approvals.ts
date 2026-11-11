@@ -9,10 +9,15 @@ import { ownedApproval, ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { transition, type Run } from "./queue.js";
 import { recordPersonalDecision } from "./personal-decisions.js";
 import { assertEffect, recordEffectEdit } from "./effect-authority.js";
-export function requestApproval(
+export function requestApproval(run: Run, request: unknown) {
+  return db
+    .transaction(() => createApproval(run, request, "pending"))
+    .immediate();
+}
+function createApproval(
   run: Run,
   request: unknown,
-  autoApproved = false,
+  state: "pending" | "approved",
 ) {
   const encoded = JSON.stringify(request),
     digest = createHash("sha256").update(encoded).digest("hex");
@@ -20,26 +25,24 @@ export function requestApproval(
   if (prior) return ApprovalRecord.parse(prior);
   const approvalId = id();
   const createdAt = now();
-  db.transaction(() => {
-    approvalsQueries.insert(
-      db,
-      approvalId,
-      run.owner_id,
-      run.id,
-      digest,
-      encoded,
-      autoApproved ? "approved" : "pending",
-      createdAt,
-      now() + 24 * 60 * 60 * 1000,
-    );
-  }).immediate();
-  emit(
+  approvalsQueries.insert(
+    db,
+    approvalId,
     run.owner_id,
     run.id,
-    autoApproved ? "approval.auto_approved" : "approval.requested",
-    { approvalId, request },
+    digest,
+    encoded,
+    state,
+    createdAt,
+    createdAt + 24 * 60 * 60 * 1000,
   );
+  if (state === "pending")
+    emit(run.owner_id, run.id, "approval.requested", { approvalId, request });
+  else emitPolicyApproval(run.owner_id, run.id, approvalId);
   return ownedApproval(approvalId, run.owner_id);
+}
+function emitPolicyApproval(owner: string, run: string, approvalId: string) {
+  emit(owner, run, "approval.auto_approved", { approvalId });
 }
 export function decide(
   owner: string,
@@ -56,8 +59,28 @@ export function approve(
   owner: string,
   approvalId: string,
   source: ApprovalSource,
+): { ok: boolean };
+export function approve(
+  owner: string,
+  request: { runId: string; request: unknown },
+  source: { by: "policy" },
+): ReturnType<typeof requestApproval>;
+export function approve(
+  owner: string,
+  input: string | { runId: string; request: unknown },
+  source: ApprovalSource,
 ) {
-  return decideApproval(owner, approvalId, "approve", source);
+  if (typeof input === "string")
+    return decideApproval(owner, input, "approve", source);
+  if (source.by !== "policy")
+    throw new Error("New approvals require a policy decision");
+  return db
+    .transaction(() => {
+      const run = ownedRun(input.runId, owner);
+      // Starting approved avoids the pending-insert notification trigger.
+      return createApproval(run, input.request, "approved");
+    })
+    .immediate();
 }
 function decideApproval(
   owner: string,
@@ -123,8 +146,7 @@ function decideApproval(
         runsQueries.setError(db, "Approval was rejected.", run.id);
         transition(run, "failed", { approvalId, reason: "Approval rejected" });
       }
-      if (source.by === "policy")
-        emit(owner, run.id, "approval.auto_approved", { approvalId });
+      if (source.by === "policy") emitPolicyApproval(owner, run.id, approvalId);
       return { ok: true };
     })
     .immediate();

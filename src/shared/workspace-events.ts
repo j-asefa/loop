@@ -207,7 +207,7 @@ const NativeEvent = z
   );
 const Empty = z.strictObject({});
 const Approval = z.union([
-  z.strictObject({ approvalId: Id, request: Json.optional() }),
+  z.strictObject({ approvalId: Id }),
   z.strictObject({ decisionId: Id, title: Text }),
 ]);
 const Message = z.strictObject({ messageId: Id });
