@@ -1,5 +1,10 @@
 import type Database from "better-sqlite3";
 import type { createChangeBus } from "./changes.js";
+import type { emit } from "./db.js";
+import type {
+  WorkspaceCollection,
+  WorkspaceScope,
+} from "../shared/workspace-events.js";
 
 const MAX_DELAY = 2_147_483_647;
 
@@ -16,14 +21,12 @@ export function changeClock(db: Database.Database, owner: string) {
 export function createDeadlineScheduler(
   db: Database.Database,
   changes: ReturnType<typeof createChangeBus>,
+  emitEvent: typeof emit,
 ) {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const pending = new Set<string>();
   let scheduled: ReturnType<typeof setImmediate> | undefined;
   let stopped = false;
-  const insert =
-    db.prepare(`INSERT INTO events(owner_id,run_id,subject_kind,subject_id,type,payload,created_at)
-    VALUES(?,NULL,'collection',?,?,?,?)`);
   const inspect = db.transaction((owner: string) => {
     const clock = changeClock(db, owner);
     const prior = db
@@ -58,17 +61,17 @@ export function createDeadlineScheduler(
       // fail a run or replay an external effect. Watch expiry hides its display.
       // The persisted processed bit makes the notification restart-safe while
       // leaving both source timestamps and their existing consequences intact.
-      const affected = new Set(["feed", "results"]);
+      const affected = new Set<WorkspaceCollection>(["feed", "results"]);
       for (const row of due)
         affected.add(row.kind === "approval" ? "approvals" : "pulls");
-      const scopes = [...affected].map((id) => ({ kind: "collection", id }));
-      insert.run(
-        owner,
-        "feed",
-        "invalidate",
-        JSON.stringify({ scope: scopes[0], scopes: scopes.slice(1) }),
-        clock.serverNow,
-      );
+      const scopes: WorkspaceScope[] = [...affected].map((id) => ({
+        kind: "collection",
+        id,
+      }));
+      emitEvent(owner, { kind: "collection", id: "feed" }, "invalidate", {
+        scope: scopes[0],
+        scopes: scopes.slice(1),
+      });
       clock.nextDeadline = changeClock(db, owner).nextDeadline;
     }
     const prior = db
@@ -82,14 +85,7 @@ export function createDeadlineScheduler(
       db.prepare(
         "INSERT INTO change_deadlines VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET next_deadline=excluded.next_deadline",
       ).run(owner, clock.nextDeadline);
-      insert.run(
-        owner,
-        "all",
-        "deadline",
-        JSON.stringify(clock),
-        clock.serverNow,
-      );
-      changes.wake();
+      emitEvent(owner, { kind: "collection", id: "all" }, "deadline", clock);
     }
     return clock;
   });

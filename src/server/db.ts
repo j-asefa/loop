@@ -23,7 +23,7 @@ export function id() {
 }
 export const changes = createChangeBus(db, { pollMs: config.changePollMs });
 wakeChanges = changes.wake;
-export const deadlines = createDeadlineScheduler(db, changes);
+export const deadlines = createDeadlineScheduler(db, changes, emit);
 export function workspaceClock(owner: string) {
   return { ...changeClock(db, owner), ...watermarkQueries.snapshot(db, owner) };
 }
