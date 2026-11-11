@@ -454,7 +454,8 @@ it("waits out a GitHub rate limit instead of pausing", async () => {
   ).toMatchObject({
     state: "watching",
     next_poll_at: reset * 1000,
-    error: expect.stringMatching(/rate limit/),
+    error:
+      "GitHub's rate limit was reached; watching continues after it resets.",
   });
 });
 
@@ -529,7 +530,9 @@ it("pauses with a reconnect message when GitHub rejects the token, and can be st
   github.status = 200;
   const [watch] = (await api("/pr-watches", "GET", undefined, "bob")).data
     .watches;
-  expect(watch.error).toMatch(/Reconnect GitHub/);
+  expect(watch.error).toBe(
+    "GitHub rejected the connection. Reconnect GitHub to keep watching.",
+  );
   expect(
     (await api(`/pr-watches/${watch.id}`, "DELETE", undefined, "alice")).status,
   ).toBe(404);

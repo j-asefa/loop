@@ -1,3 +1,4 @@
+import { GithubError } from "./github-errors.js";
 import * as prWatchDeliveriesQueries from "./sql/pr-watch-deliveries.js";
 import * as prWatchSeenQueries from "./sql/pr-watch-seen.js";
 import type { QueryRow } from "./query-records.js";
@@ -16,7 +17,6 @@ import { submit } from "./agent-runtime.js";
 import type { Run } from "./queue.js";
 import type { OutputData } from "../shared/agent-activities.js";
 import {
-  GithubError,
   githubRest,
   githubToken,
   githubRepoPath,
@@ -52,28 +52,8 @@ const UPDATE_CHARS = 12_000;
 export { withGithubFixture };
 
 async function github<T>(token: string, path: string): Promise<T> {
-  return (await githubPage<T>(token, path)).data;
+  return (await githubRest<T>(token, path, { context: "watch" })).data;
 }
-async function githubPage<T>(token: string, path: string) {
-  try {
-    return await githubRest<T>(token, path);
-  } catch (error) {
-    if (!(error instanceof GithubError)) throw error;
-    // A watch explains what happens to watching, not to one request.
-    throw new GithubError(
-      error.retryAt
-        ? "GitHub's rate limit was reached; watching continues after it resets."
-        : error.status === 401
-          ? "GitHub rejected the connection. Reconnect GitHub to keep watching."
-          : error.status === 404
-            ? "GitHub could not find this pull request with your connection."
-            : `GitHub returned ${error.status}.`,
-      error.status,
-      error.retryAt,
-    );
-  }
-}
-
 function watchesFor(owner: string, conversation?: string) {
   return watchQueries.list(
     db,
@@ -398,13 +378,15 @@ async function pages<T extends { id: number }>(
 ) {
   const url = (page: number) =>
     `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`;
-  const first = await githubPage<T[]>(token, url(1));
+  const first = await githubRest<T[]>(token, url(1), { context: "watch" });
   const last = Number(
     first.link.match(/[?&]page=(\d+)[^>]*>;\s*rel="last"/)?.[1] || 1,
   );
   const later: T[] = [];
   for (let page = last; page >= 2 && last - page < max; page--) {
-    const { data } = await githubPage<T[]>(token, url(page));
+    const { data } = await githubRest<T[]>(token, url(page), {
+      context: "watch",
+    });
     later.unshift(...data);
     if (data.some(old)) return later;
   }
@@ -657,8 +639,7 @@ export async function pollWatch(watchId: string, time = now()) {
     // else is retried later.
     if (
       error instanceof GithubError &&
-      !error.retryAt &&
-      [401, 403, 404].includes(error.status)
+      ["authentication", "forbidden", "missing"].includes(error.reason)
     ) {
       pause(watch, message);
       return "paused";

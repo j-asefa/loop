@@ -1,3 +1,4 @@
+import { GithubError, type GithubErrorContext } from "./github-errors.js";
 import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
@@ -96,17 +97,6 @@ function githubHeaders(token: string, accept = "application/vnd.github+json") {
   };
 }
 
-export class GithubError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    // Set when GitHub rate-limited the request: when to try again.
-    readonly retryAt?: number,
-  ) {
-    super(message);
-  }
-}
-
 /** When a rate-limited response may be retried, or undefined if it wasn't one. */
 function rateLimitRetry(response: Response, time = now()) {
   const after = Number(response.headers.get("retry-after"));
@@ -142,13 +132,17 @@ async function githubReason(response: Response) {
     .slice(0, 300);
 }
 
-async function refused(response: Response) {
+async function refused(
+  response: Response,
+  context: GithubErrorContext = "request",
+) {
   const retryAt = rateLimitRetry(response);
   if (retryAt)
     throw new GithubError(
       "GitHub's rate limit was reached. Try again after it resets.",
       response.status,
       retryAt,
+      context,
     );
   if (!response.ok) {
     const reason = await githubReason(response);
@@ -157,6 +151,8 @@ async function refused(response: Response) {
         ? "GitHub rejected the connection. Reconnect GitHub in Tools."
         : reason || `GitHub returned ${response.status}.`,
       response.status,
+      undefined,
+      context,
     );
   }
 }
@@ -164,7 +160,7 @@ async function refused(response: Response) {
 export async function githubRest<T>(
   token: string,
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; context?: GithubErrorContext } = {},
 ) {
   const response = await githubFetch(githubApi + path, {
     method: init.method || "GET",
@@ -177,7 +173,7 @@ export async function githubRest<T>(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
     signal: AbortSignal.timeout(20_000),
   });
-  await refused(response);
+  await refused(response, init.context);
   return {
     data: (response.status === 204 ? null : await response.json()) as T,
     link: response.headers.get("link") || "",
