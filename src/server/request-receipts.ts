@@ -88,6 +88,19 @@ export function withRequestReceipt<Result>(
   return replay(outcome);
 }
 
+export function findRequestReceipt<Row extends { request_hash: string }>(
+  request: { owner: string; key: string; hash: string },
+  policy: {
+    read: (owner: string, key: string) => Row | undefined;
+    conflict: string;
+  },
+): Row | undefined {
+  const prior = policy.read(request.owner, request.key);
+  if (prior && prior.request_hash !== request.hash)
+    throw new Problem(409, policy.conflict);
+  return prior;
+}
+
 /** The immediate transaction reserves the identity against concurrent local
  * creators. No effect or receipt becomes visible unless both commit. */
 export function withCreationReceipt<
@@ -108,10 +121,8 @@ export function withCreationReceipt<
   return withRequestReceipt(database, {
     mode: "local",
     reserve: () => {
-      const prior = policy.read(request.owner, request.key);
+      const prior = findRequestReceipt({ ...request, hash }, policy);
       if (!prior) return { kind: "new", prepared: undefined };
-      if (prior.request_hash !== hash)
-        return { kind: "refused", message: policy.conflict };
       return { kind: "replay", result: policy.recover(prior) };
     },
     effect: policy.create,

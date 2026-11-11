@@ -258,6 +258,21 @@ returned.
 ∅ → pending (tx) → complete (sql; 409 if already complete) → expired marker
 (operation and hash cleared). A pending identity refuses every replay.
 
+### Webhook request receipts
+
+Webhook create, update, revoke, test and retry requests use the same local
+receipt transaction helper. Their canonical hash binds the subscription,
+operation and normalized input within the owner's request-key namespace.
+Creation also checks the global subscription ID and its canonical creation
+hash, so another owner cannot claim that ID. Earlier-build digest formats are
+outside the fresh-install policy.
+
+A control request commits its receipt and activation/test delivery together
+before receiver IO. A replay recovers that delivery ID; delivery leases,
+uncertain outcomes and explicit backlog retry stay owned by the webhook worker.
+Receipt completion means the local request was recorded, not that the receiver
+accepted the delivery.
+
 ### Push deliveries (implicit)
 
 due → claimed (`available_at` = now + 60 s, attempts+1, tx) → delivered /
