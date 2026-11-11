@@ -1,3 +1,4 @@
+import { MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
@@ -58,7 +59,7 @@ export function storePublishedFile(
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   if (file.bytes.length > MAX_PUBLISHED_BYTES)
-    throw new Problem(413, "Published files can be up to 25 MB");
+    throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
   const snapshot = agentPayload(run);
   const checksum = createHash("sha256").update(file.bytes).digest("base64");
   const key =
@@ -272,7 +273,7 @@ export function localArtifact(owner: string, artifactId: string) {
     object.size < 0 ||
     object.size > MAX_PUBLISHED_BYTES
   )
-    throw new Problem(413, "Published files can be up to 25 MB");
+    throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
   let descriptor: number;
   try {
     descriptor = openSync(

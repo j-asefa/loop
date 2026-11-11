@@ -19,7 +19,11 @@ import { saveArtifact } from "./artifacts.js";
 import { assertFleetAction } from "./fleet-action-context.js";
 
 import type { ChatMessage } from "./providers.js";
-import { MAX_UPLOAD_BYTES, type UploadedFile } from "../shared/uploads.js";
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  type UploadedFile,
+} from "../shared/uploads.js";
 
 import { AttachmentIds as attachmentIds } from "../shared/uploads.js";
 export { attachmentIds };
@@ -30,7 +34,7 @@ export function uploadFile(
 ): UploadedFile {
   assertFleetAction(owner);
   if (file.buffer.length > MAX_UPLOAD_BYTES)
-    throw new Problem(413, "Files can be up to 25 MB each");
+    throw new Problem(413, `Files can be up to ${MAX_UPLOAD_LABEL} each`);
   if (options.folderId) ownedFolder(options.folderId, owner);
   if (options.agentId) ownedAgent(options.agentId, owner);
   const name =

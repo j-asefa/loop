@@ -540,7 +540,9 @@ export class Host {
           )[cardAuthorization] = this.workspace.authorizeToken(req);
         } catch (error) {
           const status = error instanceof Problem ? error.status : 500;
-          if (status === 429) res.setHeader("Retry-After", "60");
+          if (error instanceof Problem && error.headers)
+            for (const [name, value] of Object.entries(error.headers))
+              res.setHeader(name, value);
           return this.json(res, status, {
             error:
               error instanceof Problem

@@ -4,7 +4,9 @@ import { once } from "node:events";
 import { MulterError } from "multer";
 import { z } from "zod";
 import { errorHandler } from "../src/server/error-handler";
-import { Problem } from "../src/shared/problem";
+import { Problem, ExecutionProblem } from "../src/shared/problem";
+
+import { ExecutionRefused } from "../src/server/execution-refusal";
 
 const app = express();
 app.use(express.json({ limit: 32 }));
@@ -18,6 +20,27 @@ app.get("/problem", () => {
 });
 app.get("/multipart", () => {
   throw new MulterError("LIMIT_UNEXPECTED_FILE");
+});
+app.get("/limited", () => {
+  throw new Problem(
+    429,
+    "Wait",
+    { private: "diagnostic" },
+    {
+      headers: { "Retry-After": "17" },
+    },
+  );
+});
+app.get("/execution/:outcome", (req) => {
+  if (req.params.outcome === "local-refused")
+    throw new ExecutionRefused(409, "No dispatch");
+  const outcome = z
+    .enum(["refused", "unknown", "completed"])
+    .parse(req.params.outcome);
+  throw new ExecutionProblem(409, "Execution failed", outcome);
+});
+app.get("/oversized", () => {
+  throw new MulterError("LIMIT_FILE_SIZE");
 });
 app.use(errorHandler);
 const server = app.listen(0, "127.0.0.1");
@@ -66,4 +89,28 @@ it("keeps validation, upload and domain failures as client errors", async () => 
     ["/problem", 409],
   ] as const)
     expect((await fetch(origin + path)).status).toBe(status);
+});
+
+it("carries safe problem headers without exposing diagnostics", async () => {
+  const response = await fetch(origin + "/limited");
+  expect(response.status).toBe(429);
+  expect(response.headers.get("retry-after")).toBe("17");
+  expect(await response.json()).toEqual({ error: "Wait" });
+});
+it("preserves execution outcomes from local guards and execution replies", async () => {
+  for (const outcome of ["refused", "unknown", "completed", "local-refused"]) {
+    const response = await fetch(origin + "/execution/" + outcome);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: outcome === "local-refused" ? "No dispatch" : "Execution failed",
+      executionOutcome: outcome === "local-refused" ? "refused" : outcome,
+    });
+  }
+});
+it("reports a multipart size limit as 413", async () => {
+  const response = await fetch(origin + "/oversized");
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual({
+    error: "Request could not be completed. Please try again.",
+  });
 });
