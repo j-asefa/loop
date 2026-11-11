@@ -1,6 +1,7 @@
 import {
   ACTIVE_RUN_DISPLAY_STATES_SQL,
   ACTIVE_RUN_STATES_SQL,
+  EXECUTING_RUN_STATES_SQL,
   TERMINAL_RUN_STATES_SQL,
   publicRunStateSql,
 } from "../../shared/run-state.js";
@@ -305,7 +306,7 @@ export function ownedControl(
 }
 
 const hasActiveStatement = statement(
-  "SELECT 1 FROM runs WHERE owner_id=? AND state IN ('running','pausing','awaiting_approval') LIMIT 1",
+  `SELECT 1 FROM runs WHERE owner_id=? AND state IN ${EXECUTING_RUN_STATES_SQL} LIMIT 1`,
 );
 const hasActiveRow = z.object({ "1": z.number() });
 export function hasActive(db: Database.Database, owner: string | null) {
@@ -1262,5 +1263,16 @@ export function conversationWorking(
       conversationWorkingStatement(db).get(owner, conversation),
       "runs",
     ).working !== 0
+  );
+}
+
+const executingCountStatement = statement(
+  `SELECT count(*) n FROM runs WHERE owner_id=? AND state IN ${EXECUTING_RUN_STATES_SQL}`,
+);
+export function executingCount(db: Database.Database, owner: string) {
+  return parseRecord(
+    pendingCountRow,
+    executingCountStatement(db).get(owner),
+    "runs",
   );
 }

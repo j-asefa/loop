@@ -1,3 +1,6 @@
+import * as agentsQueries from "./server/sql/agents.js";
+import * as runsQueries from "./server/sql/runs.js";
+import * as connectionsQueries from "./server/sql/connections.js";
 import {
   executionClient,
   executionRequest,
@@ -274,20 +277,12 @@ export class WorkspaceHost {
         serverReady: true,
         executionReady:
           executionClient.connected &&
-          !!db
-            .prepare(
-              "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL",
-            )
-            .get(OWNER),
+          connectionsQueries.connectedHarnessExists(db, OWNER),
         harnesses: nativeSessions.registrations(),
         activeRuns: designPreview
           ? { n: 0 }
-          : db
-              .prepare(
-                "SELECT count(*) n FROM runs WHERE state IN ('running','pausing','awaiting_approval')",
-              )
-              .get(),
-        agents: (db.prepare("SELECT count(*) n FROM agents").get() as any).n,
+          : runsQueries.executingCount(db, OWNER),
+        agents: agentsQueries.ownerCount(db, OWNER),
         build: runningBuild.id,
         buildIdentity: publicBuild(observedBuild()),
         ...this.statusExtras(),

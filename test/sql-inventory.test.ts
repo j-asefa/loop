@@ -161,7 +161,11 @@ it("counts SQL calls and aliases without counting comments, strings or regular e
 
 it("keeps direct SQL in the shrinking named file allowance", () => {
   const actual = new Set<string>();
-  for (const file of files(join(root, "src/server")).sort()) {
+  const serverFiles = files(join(root, "src/server"));
+  const hostFiles = readdirSync(join(root, "src"))
+    .filter((name) => name.endsWith(".ts"))
+    .map((name) => join(root, "src", name));
+  for (const file of [...serverFiles, ...hostFiles].sort()) {
     const path = relative(join(root, "src/server"), file);
     if (path.startsWith("sql/") || exemptions.has(path)) continue;
     if (inventory(file, readFileSync(file, "utf8"))) actual.add(path);

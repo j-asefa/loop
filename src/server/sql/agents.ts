@@ -350,3 +350,14 @@ export function searchIdentity(
     ? undefined
     : parseRecord(searchIdentityRow, row, "agents");
 }
+
+const ownerCountStatement = statement(
+  "SELECT count(*) n FROM agents WHERE owner_id=?",
+);
+export function ownerCount(db: Database.Database, owner: string) {
+  return parseRecord(
+    activeProfileCountRow,
+    ownerCountStatement(db).get(owner),
+    "agents",
+  ).n;
+}
