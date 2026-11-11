@@ -13,10 +13,17 @@ const { db, id } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { seal } = await import("../src/server/secrets");
 const { errorHandler } = await import("../src/server/error-handler");
-const { withGithubFixture } = await import("../src/server/github-api");
-const { watchCreatedPullRequest, watchNativeCreatedPullRequest } =
-  await import("../src/server/pr-watches");
+const { createGithubClient, withGithubClient } =
+  await import("../src/server/github-api");
+const {
+  watchCreatedPullRequest,
+  watchNativeCreatedPullRequest: unscopedWatchNative,
+} = await import("../src/server/pr-watches");
+const watchNativeCreatedPullRequest = (
+  ...args: Parameters<typeof unscopedWatchNative>
+) => withGithubClient(githubClient, () => unscopedWatchNative(...args));
 const app = express();
+app.use((_req, _res, next) => withGithubClient(githubClient, next));
 app.use((req, res, next) => {
   res.locals.owner = req.get("x-owner");
   next();
@@ -91,60 +98,65 @@ beforeEach(() => {
   failureStatus = 503;
   retryAfter = 0;
 });
-const restore = withGithubFixture(async (_url, init) => {
-  reads++;
-  tokens.push((init.headers as Record<string, string>).authorization);
-  const request = JSON.parse(String(init.body));
-  expect(request.query).toContain("query ConversationPull");
-  expect(request.query).not.toContain("statusCheckRollup");
-  return new Response(
-    JSON.stringify(
-      fail
-        ? { message: "Unavailable" }
-        : {
-            data: {
-              repository: {
-                pullRequest: {
-                  number: request.variables.number,
-                  title: "Small PR",
-                  url: `https://github.com/${request.variables.owner}/${request.variables.name}/pull/${request.variables.number}`,
-                  state,
-                  isDraft: false,
-                  headRefOid: head,
-                  changedFiles: 3,
-                  additions: 212,
-                  deletions: 9,
-                  reviewDecision: decision,
-                  reviewRequests: {
-                    nodes: [
-                      {
-                        requestedReviewer: { __typename: "User", login: "lee" },
-                      },
-                    ],
-                  },
-                  latestReviews: {
-                    nodes: [
-                      {
-                        author: { login: "kim" },
-                        state: "APPROVED",
-                        commit: { oid: firstHead },
-                      },
-                    ],
-                    pageInfo: { hasNextPage: false },
+const githubClient = createGithubClient({
+  fetch: async (_url, init) => {
+    reads++;
+    tokens.push((init.headers as Record<string, string>).authorization);
+    const request = JSON.parse(String(init.body));
+    expect(request.query).toContain("query ConversationPull");
+    expect(request.query).not.toContain("statusCheckRollup");
+    return new Response(
+      JSON.stringify(
+        fail
+          ? { message: "Unavailable" }
+          : {
+              data: {
+                repository: {
+                  pullRequest: {
+                    number: request.variables.number,
+                    title: "Small PR",
+                    url: `https://github.com/${request.variables.owner}/${request.variables.name}/pull/${request.variables.number}`,
+                    state,
+                    isDraft: false,
+                    headRefOid: head,
+                    changedFiles: 3,
+                    additions: 212,
+                    deletions: 9,
+                    reviewDecision: decision,
+                    reviewRequests: {
+                      nodes: [
+                        {
+                          requestedReviewer: {
+                            __typename: "User",
+                            login: "lee",
+                          },
+                        },
+                      ],
+                    },
+                    latestReviews: {
+                      nodes: [
+                        {
+                          author: { login: "kim" },
+                          state: "APPROVED",
+                          commit: { oid: firstHead },
+                        },
+                      ],
+                      pageInfo: { hasNextPage: false },
+                    },
                   },
                 },
               },
             },
-          },
-    ),
-    {
-      status: fail ? failureStatus : 200,
-      headers: retryAfter ? { "retry-after": String(retryAfter) } : undefined,
-    },
-  );
+      ),
+      {
+        status: fail ? failureStatus : 200,
+        headers: retryAfter ? { "retry-after": String(retryAfter) } : undefined,
+      },
+    );
+  },
+  base: undefined,
 });
 afterAll(async () => {
-  restore();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
   rmSync(dir, { recursive: true, force: true });

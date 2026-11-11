@@ -15,7 +15,7 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { Agent, setGlobalDispatcher } = await import("undici");
 setGlobalDispatcher(new Agent());
 const { db } = await import("../src/server/db");
-const { githubRest, withGithubFixture } =
+const { githubRest, createGithubClient, withGithubClient } =
   await import("../src/server/github-api");
 afterAll(() => {
   db.close();
@@ -58,14 +58,14 @@ it("decodes GitHub's gzipped HTTP/2 responses with the production fetch", async 
     stream.end(gzipSync(JSON.stringify([{ filename: "src/limit.ts" }])));
   });
   await new Promise<void>((resolve) => github.listen(0, "127.0.0.1", resolve));
-  const restore = withGithubFixture(
-    undefined,
-    `https://127.0.0.1:${(github.address() as any).port}`,
-  );
+  const githubClient = createGithubClient({
+    fetch: undefined,
+    base: `https://127.0.0.1:${(github.address() as any).port}`,
+  });
   const verify = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   try {
-    const { data } = await githubRest<any[]>(
+    const { data } = await githubClient.rest<any[]>(
       "token",
       "/repos/acme/api/pulls/42/files",
     );
@@ -73,7 +73,58 @@ it("decodes GitHub's gzipped HTTP/2 responses with the production fetch", async 
   } finally {
     if (verify === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     else process.env.NODE_TLS_REJECT_UNAUTHORIZED = verify;
-    restore();
     await new Promise<void>((resolve) => github.close(() => resolve()));
   }
+});
+
+it("isolates overlapping client scopes and restores the outer client after failure", async () => {
+  const client = (base: string) =>
+    createGithubClient({
+      base,
+      fetch: async (url, init) => {
+        await Promise.resolve();
+        return Response.json({
+          url,
+          authorization: new Headers(init.headers).get("authorization"),
+        });
+      },
+    });
+  const first = client("https://first.test");
+  const second = client("https://second.test");
+  let release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const [a, b] = await Promise.all([
+    withGithubClient(first, async () => {
+      await ready;
+      return (await githubRest("first-token", "/user")).data;
+    }),
+    withGithubClient(second, async () => {
+      release();
+      await Promise.resolve();
+      return (await githubRest("second-token", "/user")).data;
+    }),
+  ]);
+  expect(a).toEqual({
+    url: "https://first.test/user",
+    authorization: "Bearer first-token",
+  });
+  expect(b).toEqual({
+    url: "https://second.test/user",
+    authorization: "Bearer second-token",
+  });
+  await withGithubClient(first, async () => {
+    await expect(
+      withGithubClient(second, async () => {
+        expect(
+          (await githubRest<{ url: string }>("nested", "/user")).data.url,
+        ).toBe("https://second.test/user");
+        throw new Error("fixture failure");
+      }),
+    ).rejects.toThrow("fixture failure");
+    expect((await githubRest<{ url: string }>("outer", "/user")).data.url).toBe(
+      "https://first.test/user",
+    );
+  });
 });

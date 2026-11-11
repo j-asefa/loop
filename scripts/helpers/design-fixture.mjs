@@ -23,7 +23,12 @@ export async function designFixture({ githubApi } = {}) {
   // over HTTP like a phone; it reports its loopback origin once listening.
   const server = spawn(
     process.execPath,
-    ["--import", "tsx", "scripts/fixture-companion.ts"],
+    [
+      "--import",
+      "tsx",
+      "scripts/fixture-companion.ts",
+      githubApi || "http://127.0.0.1:9",
+    ],
     {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
@@ -34,8 +39,6 @@ export async function designFixture({ githubApi } = {}) {
         LOOP_ENCRYPTION_KEY: key,
         // Never discover the developer's own Docker workspaces.
         DOCKER_HOST: "unix:///nonexistent/loop-fixture-docker.sock",
-        // Watched pull requests poll here and fail fast: no real GitHub.
-        LOOP_GITHUB_API_URL: githubApi || "http://127.0.0.1:9",
       },
     },
   );

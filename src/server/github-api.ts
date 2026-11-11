@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { GithubError, type GithubErrorContext } from "./github-errors.js";
 import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import { fetch as undiciFetch } from "undici";
@@ -15,24 +16,11 @@ type GithubFetch = (url: string, init: RequestInit) => Promise<Response>;
 // undici's own fetch, not the global one: once the undici package is loaded
 // (the MCP network layer loads it) it becomes the global dispatcher, and
 // Node's built-in fetch then returns GitHub's gzipped responses undecoded.
-let githubFetch: GithubFetch = (url, init) =>
+const defaultFetch: GithubFetch = (url, init) =>
   undiciFetch(
     url,
     init as Parameters<typeof undiciFetch>[1],
   ) as unknown as Promise<Response>;
-// Browser fixtures point this at a dead local address, never at GitHub.
-let githubApi = process.env.LOOP_GITHUB_API_URL || "https://api.github.com";
-/** Tests swap GitHub for a fixture (or only its address); returns a restore function. */
-export function withGithubFixture(
-  fetcher: GithubFetch | undefined,
-  base = githubApi,
-) {
-  const previous = { githubFetch, githubApi };
-  if (fetcher) githubFetch = fetcher;
-  githubApi = base;
-  return () => ({ githubFetch, githubApi } = previous);
-}
-
 /**
  * The distinct tokens of the owner's connected official GitHub integrations,
  * oldest connection first. Never inferred from a connection's display name.
@@ -157,91 +145,122 @@ async function refused(
   }
 }
 
-export async function githubRest<T>(
-  token: string,
-  path: string,
-  init: { method?: string; body?: unknown; context?: GithubErrorContext } = {},
-) {
-  const response = await githubFetch(githubApi + path, {
-    method: init.method || "GET",
-    headers: {
-      ...githubHeaders(token),
-      ...(init.body === undefined
-        ? {}
-        : { "content-type": "application/json" }),
-    },
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    signal: AbortSignal.timeout(20_000),
-  });
-  await refused(response, init.context);
-  return {
-    data: (response.status === 204 ? null : await response.json()) as T,
-    link: response.headers.get("link") || "",
-  };
-}
-
-/**
- * A GitHub GraphQL query. A response without data is thrown like a REST
- * failure; partial data (an organization's SSO hiding some results) is
- * returned with those fields null, for the caller to check.
- */
-export async function githubGraphql<T>(
-  token: string,
-  query: string,
-  variables: Record<string, unknown> = {},
-) {
-  const { data } = await githubRest<{
-    data?: T | null;
-    errors?: { type?: string; message?: string }[];
-  }>(token, "/graphql", { method: "POST", body: { query, variables } });
-  const error = data?.errors?.[0];
-  if (!data?.data) {
-    const missing = error?.type === "NOT_FOUND";
-    throw new GithubError(
-      missing
-        ? "GitHub could not find this with your connection."
-        : error?.type === "RATE_LIMITED"
-          ? "GitHub's rate limit was reached. Try again after it resets."
-          : (error?.message || "GitHub returned no data.").slice(0, 300),
-      missing ? 404 : error?.type === "FORBIDDEN" ? 403 : 502,
-      error?.type === "RATE_LIMITED" ? now() + 60_000 : undefined,
-    );
+export function createGithubClient({
+  fetch: fetcher = defaultFetch,
+  base = "https://api.github.com",
+}: { fetch?: GithubFetch; base?: string } = {}) {
+  async function rest<T>(
+    token: string,
+    path: string,
+    init: {
+      method?: string;
+      body?: unknown;
+      context?: GithubErrorContext;
+    } = {},
+  ) {
+    const response = await fetcher(base + path, {
+      method: init.method || "GET",
+      headers: {
+        ...githubHeaders(token),
+        ...(init.body === undefined
+          ? {}
+          : { "content-type": "application/json" }),
+      },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      signal: AbortSignal.timeout(20_000),
+    });
+    await refused(response, init.context);
+    return {
+      data: (response.status === 204 ? null : await response.json()) as T,
+      link: response.headers.get("link") || "",
+    };
   }
-  return data.data;
-}
 
-/**
- * A file's bytes from GitHub's REST API (the raw media type), refused once
- * it is larger than `maxBytes` rather than read whole into memory.
- */
-export async function githubRaw(token: string, path: string, maxBytes: number) {
-  const response = await githubFetch(githubApi + path, {
-    method: "GET",
-    headers: githubHeaders(token, "application/vnd.github.raw+json"),
-    signal: AbortSignal.timeout(60_000),
-  });
-  await refused(response);
-  const tooLarge = () =>
-    new GithubError(
-      "This file is too large to show here. Open it on GitHub.",
-      413,
-    );
-  if (Number(response.headers.get("content-length")) > maxBytes) {
-    await response.body?.cancel();
-    throw tooLarge();
+  /**
+   * A GitHub GraphQL query. A response without data is thrown like a REST
+   * failure; partial data (an organization's SSO hiding some results) is
+   * returned with those fields null, for the caller to check.
+   */
+  async function graphql<T>(
+    token: string,
+    query: string,
+    variables: Record<string, unknown> = {},
+  ) {
+    const { data } = await rest<{
+      data?: T | null;
+      errors?: { type?: string; message?: string }[];
+    }>(token, "/graphql", { method: "POST", body: { query, variables } });
+    const error = data?.errors?.[0];
+    if (!data?.data) {
+      const missing = error?.type === "NOT_FOUND";
+      throw new GithubError(
+        missing
+          ? "GitHub could not find this with your connection."
+          : error?.type === "RATE_LIMITED"
+            ? "GitHub's rate limit was reached. Try again after it resets."
+            : (error?.message || "GitHub returned no data.").slice(0, 300),
+        missing ? 404 : error?.type === "FORBIDDEN" ? 403 : 502,
+        error?.type === "RATE_LIMITED" ? now() + 60_000 : undefined,
+      );
+    }
+    return data.data;
   }
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  const reader = response.body?.getReader();
-  for (;;) {
-    const next = await reader?.read();
-    if (!next || next.done) break;
-    size += next.value.byteLength;
-    if (size > maxBytes) {
-      await reader!.cancel();
+
+  /**
+   * A file's bytes from GitHub's REST API (the raw media type), refused once
+   * it is larger than `maxBytes` rather than read whole into memory.
+   */
+  async function raw(token: string, path: string, maxBytes: number) {
+    const response = await fetcher(base + path, {
+      method: "GET",
+      headers: githubHeaders(token, "application/vnd.github.raw+json"),
+      signal: AbortSignal.timeout(60_000),
+    });
+    await refused(response);
+    const tooLarge = () =>
+      new GithubError(
+        "This file is too large to show here. Open it on GitHub.",
+        413,
+      );
+    if (Number(response.headers.get("content-length")) > maxBytes) {
+      await response.body?.cancel();
       throw tooLarge();
     }
-    chunks.push(next.value);
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const reader = response.body?.getReader();
+    for (;;) {
+      const next = await reader?.read();
+      if (!next || next.done) break;
+      size += next.value.byteLength;
+      if (size > maxBytes) {
+        await reader!.cancel();
+        throw tooLarge();
+      }
+      chunks.push(next.value);
+    }
+    return Buffer.concat(chunks);
   }
-  return Buffer.concat(chunks);
+
+  return Object.freeze({ rest, graphql, raw });
+}
+
+type GithubClient = ReturnType<typeof createGithubClient>;
+const defaultClient = createGithubClient();
+const clientScope = new AsyncLocalStorage<GithubClient>();
+const currentClient = () => clientScope.getStore() ?? defaultClient;
+
+// A scoped dependency follows asynchronous work without changing other callers.
+export function withGithubClient<T>(client: GithubClient, work: () => T): T {
+  return clientScope.run(client, work);
+}
+
+export function githubRest<T>(...args: Parameters<GithubClient["rest"]>) {
+  return currentClient().rest<T>(...args);
+}
+export function githubGraphql<T>(...args: Parameters<GithubClient["graphql"]>) {
+  return currentClient().graphql<T>(...args);
+}
+export function githubRaw(...args: Parameters<GithubClient["raw"]>) {
+  return currentClient().raw(...args);
 }

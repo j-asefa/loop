@@ -5,28 +5,35 @@
 // once listening; the caller pairs and seeds connections and data itself.
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-await import("../test/helpers/install");
-const { WorkspaceHost } = await import("../src/workspace-host");
-const dir = process.env.LOOP_DATA_DIR;
-if (!dir) throw new Error("LOOP_DATA_DIR is required");
-const options = {
-  harness: "codex" as const,
-  version: "fixture",
-  project: join(dir, "fixture"),
-  executable: resolve("test/harness.mjs"),
-  billing: "existing" as const,
-};
-mkdirSync(options.project, { recursive: true });
-const inert = {
-  open: async () => {},
-  schedule: async () => {},
-  close: async () => {},
-};
-const host = new WorkspaceHost(dir, options, inert);
-await host.start(options, undefined, undefined, true);
-console.log(JSON.stringify({ origin: host.origin, pair: host.pair().url }));
-const stop = () => {
-  void host.close().finally(() => process.exit(0));
-};
-process.once("SIGTERM", stop);
-process.once("SIGINT", stop);
+const { createGithubClient, withGithubClient } =
+  await import("../src/server/github-api");
+await withGithubClient(
+  createGithubClient({ base: process.argv[2] || "http://127.0.0.1:9" }),
+  async () => {
+    await import("../test/helpers/install");
+    const { WorkspaceHost } = await import("../src/workspace-host");
+    const dir = process.env.LOOP_DATA_DIR;
+    if (!dir) throw new Error("LOOP_DATA_DIR is required");
+    const options = {
+      harness: "codex" as const,
+      version: "fixture",
+      project: join(dir, "fixture"),
+      executable: resolve("test/harness.mjs"),
+      billing: "existing" as const,
+    };
+    mkdirSync(options.project, { recursive: true });
+    const inert = {
+      open: async () => {},
+      schedule: async () => {},
+      close: async () => {},
+    };
+    const host = new WorkspaceHost(dir, options, inert);
+    await host.start(options, undefined, undefined, true);
+    console.log(JSON.stringify({ origin: host.origin, pair: host.pair().url }));
+    const stop = () => {
+      void host.close().finally(() => process.exit(0));
+    };
+    process.once("SIGTERM", stop);
+    process.once("SIGINT", stop);
+  },
+);

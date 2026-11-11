@@ -293,7 +293,8 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
     const { id, now } = await import("../src/server/db");
     const { seal } = await import("../src/server/secrets");
     const { createAgent } = await import("../src/server/domain");
-    const { withGithubFixture } = await import("../src/server/pr-watches");
+    const { createGithubClient, withGithubClient } =
+      await import("../src/server/github-api");
     const connection = id();
     db.prepare(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'owner','openai','Fixture','','connected','[{\"id\":\"fixture\"}]','{}',?)",
@@ -335,8 +336,8 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
     live.run = run;
     const number =
       50 + ["codex", "claude", "pi", "opencode", "acp"].indexOf(harness);
-    const restore = withGithubFixture(
-      async () =>
+    const githubClient = createGithubClient({
+      fetch: async () =>
         new Response(
           JSON.stringify({
             state: "open",
@@ -344,7 +345,8 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
             head: { sha: "a".repeat(40) },
           }),
         ),
-    );
+      base: undefined,
+    });
     const source = {
       transport: harness === "acp" ? ("acp" as const) : ("native" as const),
       harness,
@@ -356,7 +358,7 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
       id: "create",
       source,
     };
-    try {
+    await withGithubClient(githubClient, async () => {
       emit({
         type: "activity",
         activity: {
@@ -397,9 +399,7 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
             .get(number),
         )
         .toEqual({ agent_id: agent.id, state: "watching" });
-    } finally {
-      restore();
-    }
+    });
   },
 );
 
