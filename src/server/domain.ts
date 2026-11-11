@@ -37,12 +37,7 @@ export function createAgent(owner: string, value: unknown) {
   const data = agentInput.parse(value);
   if (data.folderId) ownedFolder(data.folderId, owner);
   const connection = ownedConnection(data.connectionId, owner);
-  if (connection.status !== "connected")
-    throw new Problem(409, "Reconnect this provider first");
-  const models = connection.models;
-  if (!models.some((m) => m.id === data.model))
-    throw new Problem(400, "Choose an available model from this connection");
-  validateEffort(connection, data.model, data.effort);
+  validateAgentSelection(connection, () => data);
   return db
     .transaction(() => {
       if (handlesQueries.exists(db, data.name))
@@ -66,18 +61,27 @@ export function createAgent(owner: string, value: unknown) {
     })
     .immediate();
 }
-export function validateEffort(
+export function validateAgentSelection<
+  T extends { model: string; effort?: string | null },
+>(
   connection: Connection,
-  model: string,
-  effort?: string | null,
-) {
-  const selected = connection.models.find((option) => option.id === model);
+  select: () => T,
+  unavailableModel = "Choose an available model from this connection",
+): T {
+  if (connection.status !== "connected")
+    throw new Problem(409, "Reconnect this provider first");
+  const selection = select();
+  const model = connection.models.find(
+    (option) => option.id === selection.model,
+  );
+  if (!model) throw new Problem(400, unavailableModel);
   if (
-    effort &&
-    selected?.effortLevels &&
-    !selected.effortLevels.some((option) => option.value === effort)
+    selection.effort &&
+    model.effortLevels &&
+    !model.effortLevels.some((option) => option.value === selection.effort)
   )
     throw new Problem(400, "Choose an effort level reported by this model");
+  return selection;
 }
 export function renameAgent(owner: string, agentId: string, name: unknown) {
   const normalized = handle.parse(name);
