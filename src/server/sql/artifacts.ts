@@ -1,6 +1,9 @@
 import type { CardSelection } from "../../shared/cards.js";
 import { FOLDER_PROJECT } from "./folders.js";
-import { ArtifactKindSchema } from "../../shared/artifact-kind.js";
+import {
+  ArtifactKindSchema,
+  type ArtifactKind,
+} from "../../shared/artifact-kind.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -81,7 +84,7 @@ export function insert(
   conversation: string | null,
   run: string | null,
   title: string,
-  kind: string,
+  kind: ArtifactKind,
   content: string,
   metadata: string,
   folder: string | null,
