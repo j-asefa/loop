@@ -6,7 +6,7 @@ import * as conversationsQueries from "./sql/conversations.js";
 import * as teamCreationsQueries from "./sql/team-creations.js";
 import * as runsQueries from "./sql/runs.js";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar } from "./registrar.js";
 
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -246,27 +246,19 @@ routes.on(workspaceApi.teamFromPreset, (req, res) =>
 routes.on(workspaceApi.teamReview, (req, res) =>
   res
     .status(201)
-    .json(
-      projectResponse(
-        workspaceApi.teamReview,
-        startCodeReview(res.locals.owner, req.params.id, req.body),
-      ),
-    ),
+    .json(startCodeReview(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.reviewStatus, (req, res) => {
   ownedConversation(req.params.id, res.locals.owner);
   const run = runsQueries.latestReview(db, req.params.id, res.locals.owner);
   res.json(
-    projectResponse(
-      workspaceApi.reviewStatus,
-      run?.reviewId
-        ? reviewStatus(
-            res.locals.owner,
-            run.reviewId,
-            req.query.freshness === "true",
-          )
-        : null,
-    ),
+    run?.reviewId
+      ? reviewStatus(
+          res.locals.owner,
+          run.reviewId,
+          req.query.freshness === "true",
+        )
+      : null,
   );
 });
 routes.on(workspaceApi.teamCreate, (req, res) =>

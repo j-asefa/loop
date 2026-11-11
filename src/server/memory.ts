@@ -6,7 +6,7 @@ import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import type { QueryRow } from "./query-records.js";
 
@@ -248,12 +248,10 @@ routes.on(workspaceApi.conversationMemory, (req, res) => {
 });
 routes.on(workspaceApi.memoryStatus, (_req, res) => {
   const owner = res.locals.owner;
-  res.json(
-    projectResponse(workspaceApi.memoryStatus, {
-      policies: memoryPolicyQueries.forOwner(db, owner),
-      sources: memorySourcesQueries.summaries(db, owner),
-    }),
-  );
+  res.json({
+    policies: memoryPolicyQueries.forOwner(db, owner),
+    sources: memorySourcesQueries.summaries(db, owner),
+  });
 });
 routes.on(workspaceApi.memoryPolicy, (req, res) => {
   const { scope, enabled: value } = req.body,
@@ -283,15 +281,8 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
 routes.on(workspaceApi.memorySource, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind === "note" && !s.tombstone)
-    return res.json(
-      projectResponse(workspaceApi.memorySource, { ...s, truncated: false }),
-    );
-  res.json(
-    projectResponse(
-      workspaceApi.memorySource,
-      readMemory(res.locals.owner, req.params.id),
-    ),
-  );
+    return res.json({ ...s, kind: s.kind, truncated: false });
+  res.json(readMemory(res.locals.owner, req.params.id));
 });
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
@@ -323,14 +314,11 @@ routes.on(workspaceApi.memoryNoteCreate, (req, res) => {
 routes.on(workspaceApi.runMemory, (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
-    projectResponse(
-      workspaceApi.runMemory,
-      memoryReceiptsQueries.get(db, req.params.id) || {
-        mode: "not-used",
-        sources: "[]",
-        tokens: 0,
-      },
-    ),
+    memoryReceiptsQueries.get(db, req.params.id) || {
+      mode: "not-used",
+      sources: "[]",
+      tokens: 0,
+    },
   );
 });
 
@@ -348,10 +336,5 @@ routes.on(workspaceApi.memoryNoteVersions, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind !== "note" || s.tombstone)
     throw new Problem(404, "Note unavailable");
-  res.json(
-    projectResponse(
-      workspaceApi.memoryNoteVersions,
-      memoryNoteVersionsQueries.history(db, s.id),
-    ),
-  );
+  res.json(memoryNoteVersionsQueries.history(db, s.id));
 });

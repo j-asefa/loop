@@ -250,6 +250,25 @@ it("teamReview captures a real repository and retains exact review identity on r
     await request(path, { ...reviewInput, scope: "invalid" }),
   ).toMatchObject(bad);
 });
+it("teamReview rejects a stored result without its required conversation", async () => {
+  db.prepare(
+    "UPDATE runs SET conversation_id=NULL WHERE id=(SELECT run_id FROM code_reviews WHERE id=?)",
+  ).run(review.data.id);
+  try {
+    expect(
+      await request(`/teams/${preset.data.id}/reviews`, reviewInput),
+    ).toEqual({
+      status: 500,
+      data: {
+        error: "The workspace response is unavailable. Please try again.",
+      },
+    });
+  } finally {
+    db.prepare(
+      "UPDATE runs SET conversation_id=? WHERE id=(SELECT run_id FROM code_reviews WHERE id=?)",
+    ).run(review.data.conversationId, review.data.id);
+  }
+});
 it("reviewStatus retains HTTP id, fingerprint and lead conversationId, including freshness and null", async () => {
   const path = `/reviews/conversation/${review.data.conversationId}`;
   const result = await request(path);
@@ -391,6 +410,27 @@ it("definitionCreate returns agent, team and combined branches with durable rece
   valid(workspaceApi.definitionCreate, combined);
   expect(combined.data.team.members).toContain(combined.data.agent.id);
   expect(await request(path, { ...input, version: 0 })).toMatchObject(bad);
+});
+it("definitionCreate rejects an empty stored result without repeating creation", async () => {
+  const input = {
+    version: 1,
+    name: "invalid-receipt-fixture",
+    selection: { connectionId: connection, model: "fixture" },
+    idempotencyKey: id(),
+  };
+  const path = definitionPath + "/create";
+  valid(workspaceApi.definitionCreate, await request(path, input));
+  const count = () =>
+    db.prepare("SELECT count(*) AS n FROM agents WHERE owner_id=?").get(owner);
+  const before = count();
+  db.prepare(
+    "UPDATE definition_creations SET agent_id=NULL,team_id=NULL WHERE owner_id=? AND request_key=?",
+  ).run(owner, input.idempotencyKey);
+  expect(await request(path, input)).toEqual({
+    status: 500,
+    data: { error: "The workspace response is unavailable. Please try again." },
+  });
+  expect(count()).toEqual(before);
 });
 it("definitionDelete checks the current version", async () => {
   const path = "/agent-definitions/" + id();

@@ -1,6 +1,7 @@
 import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import type { PublicMcpInstall } from "../../shared/mcp-contract-schemas.js";
 import { db, id, now } from "../db.js";
 import { ownedAgent, ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
@@ -78,7 +79,7 @@ export async function installConfig(
 ) {
   const entries = parseMcpConfig(input);
   if (agentId) ownedAgent(agentId, owner);
-  const results = [];
+  const results: z.input<typeof PublicMcpInstall> = [];
   for (const [name, entry] of entries) {
     const fingerprint = createHash("sha256")
       .update(JSON.stringify([name, entry]))

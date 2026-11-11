@@ -72,6 +72,12 @@ integration-write receipts. Their admission remains separate.
 
 ## Responses are projections
 
+The registrar projects every JSON response. Send final response data directly to
+`res.json`; do not repeat the same `projectResponse` immediately before it. Keep an
+explicit projection when later bookkeeping depends on validated public output
+(for example token disclosures or event-page byte limits), or when a helper must
+validate a narrower shape than the final response union.
+
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.
 - Unknown fields are removed by the schema. This is the mechanism that keeps an accidental column out of the browser. If a handler emits a field the schema does not declare, decide: declare it (it is public) or drop it (it should not have been public). Record every drop in the PR body; a dropped field that a client reads is a behaviour change and must instead be declared.
 - Opaque JSON columns the browser parses itself (`payload`, `metadata`, `models`, `preset_config`, `request`) stay `Text`. Do not parse or re-validate stored JSON at the HTTP boundary; row validation belongs to the [saved-row readers](architecture.md#saved-rows).

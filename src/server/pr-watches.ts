@@ -4,7 +4,7 @@ import type { QueryRow } from "./query-records.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { PrWatchInput } from "../shared/github-contract-schemas.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar } from "./registrar.js";
 import { createdPullRequest } from "../shared/pr-command.js";
 import { linkCreatedPullRequest } from "./conversation-pulls.js";
 import { pullStateFromWatch, type PullState } from "../shared/pull-state.js";
@@ -814,17 +814,12 @@ export async function pollWatches(time = now()) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Routes
-
 const routes = registrar("prWatches");
 export const prWatches = routes.mount;
 routes.on(workspaceApi.prWatchList, (req, res) => {
-  res.json(
-    projectResponse(workspaceApi.prWatchList, {
-      watches: watchesFor(res.locals.owner, req.query.conversation),
-    }),
-  );
+  res.json({
+    watches: watchesFor(res.locals.owner, req.query.conversation),
+  });
 });
 routes.on(workspaceApi.prWatchCreate, (req, res) =>
   res.status(201).json(startWatch(res.locals.owner, req.body)),
