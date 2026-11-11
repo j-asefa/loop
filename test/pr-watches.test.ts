@@ -636,6 +636,49 @@ it("delivers a review submitted after a later-started one", async () => {
   expect(await pollWatch(w.id)).toBe("quiet");
 });
 
+it("finds newly submitted draft reviews across pages containing older submissions", async () => {
+  const w = await freshWatch("dana-paged");
+  github.reviews = Array.from({ length: 250 }, (_, i) => ({
+    id: i + 1,
+    user: { login: "alex" },
+    state: "COMMENTED",
+    body: "Old review.",
+    submitted_at: "2020-01-01T00:00:00Z",
+  }));
+  for (const index of [4, 104])
+    github.reviews[index] = {
+      id: index + 1,
+      user: { login: "sam" },
+      state: "PENDING",
+      body: "Draft on page " + (index < 100 ? 1 : 2),
+    };
+  github.reviews[249] = {
+    id: 250,
+    user: { login: "alex" },
+    state: "CHANGES_REQUESTED",
+    body: "Newest submitted review.",
+  };
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const first = deliveries(w.conversation).at(-1)!;
+  expect(first.content).toContain("Newest submitted review.");
+  expect(first.content).not.toContain("Draft on page");
+  finish(first.id);
+  for (const index of [4, 104])
+    github.reviews[index] = {
+      ...github.reviews[index],
+      state: "APPROVED",
+      body: "Submitted on page " + (index < 100 ? 1 : 2),
+    };
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const update = deliveries(w.conversation).at(-1)!;
+  expect(update.content).toContain("Submitted on page 1");
+  expect(update.content).toContain("Submitted on page 2");
+  expect(update.content).not.toContain("Old review.");
+  expect(update.content).not.toContain("Newest submitted review.");
+  finish(update.id);
+  expect(await pollWatch(w.id)).toBe("quiet");
+});
+
 it("quotes only accounts with a role in the repository, bots included, and counts others", async () => {
   const w = await freshWatch("erin");
   github.comments = [

@@ -361,12 +361,6 @@ const FAILED = new Set([
   "stale",
 ]);
 
-/**
- * The items of an oldest-first GitHub list that may be new. New items are on
- * the last pages, so after the first page this reads back from the last one
- * until a page reaches items that are already `old`: a long list never hides
- * them.
- */
 async function pages<T extends { id: number }>(
   token: string,
   path: string,
@@ -505,7 +499,13 @@ async function read(watch: PrWatch, token: string) {
   );
   const reviews = fresh(
     "review",
-    await pages<Comment>(token, `${base}/pulls/${watch.number}/reviews`, old),
+    // Review IDs are allocated before submission, so an old submission on a
+    // later page cannot bound the submission dates on preceding pages.
+    await pages<Comment>(
+      token,
+      `${base}/pulls/${watch.number}/reviews`,
+      () => false,
+    ),
   );
   const others = (list: Comment[]) => list.filter((c) => !mine(c));
   const quoted = (list: Comment[]) => others(list).filter(trusted);
