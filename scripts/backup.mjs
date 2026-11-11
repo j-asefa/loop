@@ -1,11 +1,15 @@
 import Database from "better-sqlite3";
-import { join, resolve } from "node:path";
-import { mkdirSync, chmodSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  workspaceDataDirectory,
+  workspaceDatabasePath,
+} from "../src/server/data-directory.ts";
+import { chmodSync } from "node:fs";
 const target = process.argv[2];
 if (!target)
   throw new Error("Supply a backup filename outside the live data directory");
 const db = new Database(
-  join(resolve(process.env.LOOP_DATA_DIR || "data"), "loop.db"),
+  workspaceDatabasePath(workspaceDataDirectory(process.env.LOOP_DATA_DIR)),
   { readonly: true, fileMustExist: true },
 );
 await db.backup(resolve(target));

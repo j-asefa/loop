@@ -6,7 +6,8 @@ import {
   terminateWorkspace,
   groupAlive,
 } from "../process-records.js";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { workspaceDataDirectory } from "./data-directory.js";
 import {
   acquireExecutionOwnership,
   type ExecutionOwnership,
@@ -89,7 +90,7 @@ function shutdown() {
 }
 const boot = (async () => {
   ownership = await acquireExecutionOwnership(
-    resolve(process.env.LOOP_DATA_DIR || "./data"),
+    workspaceDataDirectory(process.env.LOOP_DATA_DIR),
   );
   if (stopping || !process.connected) return;
   recordOwnedProcesses(join(ownership.directory, PROCESS_FILES.children));
