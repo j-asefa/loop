@@ -1,3 +1,8 @@
+import {
+  GithubError,
+  githubProblem,
+  GITHUB_PULL_MISSING,
+} from "./github-errors.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import {
   PullReviewInput,
@@ -23,7 +28,6 @@ import { config } from "./config.js";
 import { now } from "./db.js";
 import { Problem } from "./domain.js";
 import {
-  GithubError,
   githubGraphql,
   githubRaw,
   githubRest,
@@ -66,35 +70,6 @@ const COMMIT_MESSAGE_CHARS = 4_000;
 const PATCH_CHARS = 100_000;
 const MAX_FILES = 300;
 const MAX_THREADS = 500;
-
-/** GitHub failures as Loop problems; never a 401, which signs you out of Loop. */
-function problem(error: unknown, write = false): never {
-  if (error instanceof Problem) throw error;
-  if (error instanceof GithubError)
-    throw new Problem(
-      error.retryAt
-        ? 429
-        : error.status === 401
-          ? 409
-          : [403, 404, 405, 409, 413, 422].includes(error.status)
-            ? error.status === 405
-              ? 409
-              : error.status
-            : 502,
-      error.message,
-    );
-  if (
-    (error as Error)?.name === "TimeoutError" ||
-    (error as Error)?.name === "AbortError"
-  )
-    throw new Problem(
-      504,
-      write
-        ? "GitHub didn't answer in time. Refresh to see whether it went through before trying again."
-        : "GitHub didn't answer in time. Try again.",
-    );
-  throw new Problem(502, "Could not reach GitHub. Try again.");
-}
 
 const ITEM = `
   number title url state isDraft createdAt updatedAt
@@ -224,7 +199,7 @@ export async function pullSummary(
   // manual refresh. Other failures back off automatic reads for one minute.
   for (const failureKey of refresh ? [connection] : [connection, key]) {
     const failure = summaryFailures.get(failureKey);
-    if (failure && failure.retryAt > now()) problem(failure.error);
+    if (failure && failure.retryAt > now()) githubProblem(failure.error);
     summaryFailures.delete(failureKey);
   }
   const cached = summaries.get(key);
@@ -250,10 +225,7 @@ export async function pullSummary(
     const item = listItem(node, ref);
     const headSha = text(node?.headRefOid, 40);
     if (!item || !headSha || !SHA.test(headSha))
-      throw new Problem(
-        404,
-        "GitHub could not find this pull request with your connection.",
-      );
+      throw new Problem(404, GITHUB_PULL_MISSING);
     const result: ConversationPull = {
       ...ref,
       title: item.title,
@@ -316,7 +288,7 @@ export async function pullSummary(
       });
       if (summaryFailures.size > 500)
         summaryFailures.delete(summaryFailures.keys().next().value!);
-      problem(error);
+      githubProblem(error);
     })
     .finally(() => {
       summaryReads.delete(key);
@@ -369,7 +341,7 @@ export async function inbox(
       },
     );
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   const pulls = (Array.isArray(data?.results?.nodes) ? data.results.nodes : [])
     .map((node: any) => listItem(node))
@@ -502,17 +474,14 @@ export async function detail(
       { owner: ref.owner, name: ref.repo, number: ref.number },
     );
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   const repository = data?.repository;
   const node = repository?.pullRequest;
   const item = node ? listItem(node, ref) : undefined;
   const headSha = text(node?.headRefOid, 40);
   if (!item || !headSha || !SHA.test(headSha))
-    throw new Problem(
-      404,
-      "GitHub could not find this pull request with your connection.",
-    );
+    throw new Problem(404, GITHUB_PULL_MISSING);
   // Later pages of review threads, so an unresolved thread past the first
   // page still shows; past MAX_THREADS the page says how many it left out.
   const threadNodes = [...nodes(node.reviewThreads)];
@@ -543,7 +512,7 @@ export async function detail(
       pageInfo = connection.pageInfo;
     }
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   const viewerLogin = login(data.viewer) || "";
   const methods: MergeMethod[] = [];
@@ -699,7 +668,7 @@ export async function files(
     }
     if ((await headOf(token, ref)) !== headSha.toLowerCase()) throw moved();
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   return { files: list.slice(0, MAX_FILES), headSha, fetchedAt: now() };
 }
@@ -736,7 +705,7 @@ export async function commitFiles(
       if (!hasMore || !data.files.length || list.length >= MAX_FILES) break;
     }
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   return {
     files: list.slice(0, MAX_FILES),
@@ -823,7 +792,7 @@ async function fileAt(
       VIEW_BYTES,
     );
   } catch (error) {
-    problem(error);
+    githubProblem(error);
   }
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -917,7 +886,7 @@ export async function review(
     );
     return { ok: true, url: githubLink(data?.html_url) };
   } catch (error) {
-    problem(error, true);
+    githubProblem(error, true);
   }
 }
 
@@ -937,7 +906,7 @@ async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
     );
     return { ok: true, url: githubLink(data?.html_url) };
   } catch (error) {
-    problem(error, true);
+    githubProblem(error, true);
   }
 }
 
@@ -969,7 +938,7 @@ export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
         409,
         "New commits were pushed after you opened this pull request. Refresh and look at them before merging.",
       );
-    problem(error, true);
+    githubProblem(error, true);
   }
 }
 
