@@ -247,7 +247,11 @@ external effect is implied by an absent local receipt. Recovery still applies
 the domain's owner checks and deleted-result rules.
 
 Request hashing sorts object keys and preserves array order. Token writes use
-the same encoder, but retain their explicit pending state before external IO.
+the same encoder. Both use `withRequestReceipt` for transaction boundaries:
+local effects commit with their receipts, while external token writes commit
+a pending reservation before IO and complete in a second transaction. Refused
+replays never execute the effect; expiry markers commit before a refusal is
+returned.
 
 ### `token_requests.state`
 

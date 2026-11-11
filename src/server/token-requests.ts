@@ -1,6 +1,10 @@
 import { InvalidRow } from "./row-schemas.js";
 import * as tokenRequestsQueries from "./sql/token-requests.js";
-import { requestHash } from "./request-receipts.js";
+import {
+  requestHash,
+  withRequestReceipt,
+  type ReceiptReservation,
+} from "./request-receipts.js";
 import { z } from "zod";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
@@ -39,12 +43,10 @@ const Receipt = z.object({
 });
 const RETAIN_RESULT_MS = 24 * 60 * 60 * 1000;
 
-type Reserved =
-  | { kind: "new"; prepared: unknown }
-  | { kind: "replay"; result: TokenResult }
-  | { kind: "refused"; message: string };
-
-function reserve(request: TokenRequest, policy: TokenWritePolicy): Reserved {
+function reserve(
+  request: TokenRequest,
+  policy: TokenWritePolicy,
+): ReceiptReservation<TokenResult> {
   const key = [request.owner, request.tokenId, request.identity] as const;
   const hash = requestHash(request.input);
   // Keep the primary-key marker. Old keys must never become new requests, even
@@ -137,46 +139,13 @@ function complete(
   return result;
 }
 
-function replay(reserved: Exclude<Reserved, { kind: "new" }>): TokenResult {
-  if (reserved.kind === "refused") throw new Problem(409, reserved.message);
-  return reserved.result;
-}
-
-/** Local effects and receipts share one immediate transaction. External effects
- * start only after pending commits, and any failure leaves that identity pending. */
 export function tokenWrite(policy: TokenWritePolicy): TokenWrite {
-  return (request, effect) => {
-    if (policy.mode === "external") {
-      const reserved = db
-        .transaction(() => reserve(request, policy))
-        .immediate();
-      if (reserved.kind !== "new") return replay(reserved);
-      return Promise.resolve()
-        .then(effect)
-        .then((result) =>
-          db
-            .transaction(() =>
-              complete(request, policy, result, reserved.prepared),
-            )
-            .immediate(),
-        );
-    }
-    const outcome = db
-      .transaction(() => {
-        const reserved = reserve(request, policy);
-        if (reserved.kind !== "new") return reserved;
-        const result = effect();
-        if (result instanceof Promise) {
-          void result.catch(() => {});
-          throw new Error("A local token write must complete synchronously");
-        }
-        return {
-          kind: "replay" as const,
-          result: complete(request, policy, result, reserved.prepared),
-        };
-      })
-      .immediate();
-    // Refusals follow the transaction so expired-result markers commit too.
-    return replay(outcome);
-  };
+  return (request, effect) =>
+    withRequestReceipt(db, {
+      mode: policy.mode,
+      reserve: () => reserve(request, policy),
+      effect,
+      complete: (result, prepared) =>
+        complete(request, policy, result, prepared),
+    });
 }

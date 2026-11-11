@@ -25,6 +25,69 @@ export function requestHash(input: unknown): string {
   return createHash("sha256").update(canonical(input)).digest("hex");
 }
 
+export type ReceiptReservation<Result> =
+  | { kind: "new"; prepared: unknown }
+  | { kind: "replay"; result: Result }
+  | { kind: "refused"; message: string };
+
+type ReceiptPolicy<Result> = {
+  mode: "local" | "external";
+  reserve: () => ReceiptReservation<Result>;
+  effect: () => Result | Promise<Result>;
+  complete: (result: Result, prepared: unknown) => Result;
+};
+
+function replay<Result>(
+  reserved: Exclude<ReceiptReservation<Result>, { kind: "new" }>,
+): Result {
+  if (reserved.kind === "refused") throw new Problem(409, reserved.message);
+  return reserved.result;
+}
+
+export function withRequestReceipt<Result>(
+  database: Database.Database,
+  policy: ReceiptPolicy<Result> & { mode: "local" },
+): Result;
+export function withRequestReceipt<Result>(
+  database: Database.Database,
+  policy: ReceiptPolicy<Result>,
+): Result | Promise<Result>;
+/** Local effects and receipts commit together. External effects start only
+ * after reservation commits; a failed effect or completion leaves it pending. */
+export function withRequestReceipt<Result>(
+  database: Database.Database,
+  policy: ReceiptPolicy<Result>,
+): Result | Promise<Result> {
+  if (policy.mode === "external") {
+    const reserved = database.transaction(policy.reserve).immediate();
+    if (reserved.kind !== "new") return replay(reserved);
+    return Promise.resolve()
+      .then(policy.effect)
+      .then((result) =>
+        database
+          .transaction(() => policy.complete(result, reserved.prepared))
+          .immediate(),
+      );
+  }
+  const outcome = database
+    .transaction(() => {
+      const reserved = policy.reserve();
+      if (reserved.kind !== "new") return reserved;
+      const result = policy.effect();
+      if (result instanceof Promise) {
+        void result.catch(() => {});
+        throw new Error("A local receipt effect must complete synchronously");
+      }
+      return {
+        kind: "replay" as const,
+        result: policy.complete(result, reserved.prepared),
+      };
+    })
+    .immediate();
+  // Refusals follow the transaction so expired-result markers commit too.
+  return replay(outcome);
+}
+
 /** The immediate transaction reserves the identity against concurrent local
  * creators. No effect or receipt becomes visible unless both commit. */
 export function withCreationReceipt<
@@ -42,21 +105,19 @@ export function withCreationReceipt<
   },
 ): Result {
   const hash = requestHash(request.input);
-  return database
-    .transaction(() => {
+  return withRequestReceipt(database, {
+    mode: "local",
+    reserve: () => {
       const prior = policy.read(request.owner, request.key);
-      if (prior) {
-        if (prior.request_hash !== hash)
-          throw new Problem(409, policy.conflict);
-        return policy.recover(prior);
-      }
-      const result = policy.create();
-      if (result instanceof Promise) {
-        void result.catch(() => {});
-        throw new Error("A local creation must complete synchronously");
-      }
+      if (!prior) return { kind: "new", prepared: undefined };
+      if (prior.request_hash !== hash)
+        return { kind: "refused", message: policy.conflict };
+      return { kind: "replay", result: policy.recover(prior) };
+    },
+    effect: policy.create,
+    complete: (result) => {
       policy.record(request.owner, request.key, hash, result);
       return result;
-    })
-    .immediate();
+    },
+  });
 }
