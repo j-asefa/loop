@@ -1,6 +1,7 @@
 import { afterAll, expect, it } from "vitest";
 import {
   mkdtempSync,
+  readdirSync,
   mkdirSync,
   writeFileSync,
   rmSync,
@@ -595,12 +596,15 @@ it("shares verified content without sharing publication identities", async () =>
   expect(storePublishedFile(f.run, call, file).artifactId).toBe(
     first.artifactId,
   );
+  const storedDirectory = join(directory, "data", rows[0].object_key, "..");
+  const beforeRejected = readdirSync(storedDirectory).sort();
   expect(() =>
     storePublishedFile(f.run, call, {
       ...file,
       bytes: Buffer.from("Different publication"),
     }),
   ).toThrow("identity was reused with different contents");
+  expect(readdirSync(storedDirectory).sort()).toEqual(beforeRejected);
   expect(
     await (await request(`/artifacts/${first.artifactId}/file`)).text(),
   ).toBe(bytes.toString());
@@ -609,15 +613,14 @@ it("shares verified content without sharing publication identities", async () =>
   ).toBe(404);
   const path = join(directory, "data", rows[0].object_key);
   writeFileSync(path, Buffer.alloc(bytes.length));
-  const failedCall = id();
-  expect(() => storePublishedFile(f.run, failedCall, file)).toThrow(
-    "integrity check failed",
-  );
-  expect(
-    db
-      .prepare("SELECT 1 FROM artifact_objects WHERE run_id=? AND call_id=?")
-      .get(f.run.id, failedCall),
-  ).toBeUndefined();
-  writeFileSync(path, bytes);
-  expect(storePublishedFile(f.run, failedCall, file).artifactId).toBeTruthy();
+  const repaired = storePublishedFile(f.run, id(), file);
+  for (const artifactId of [
+    first.artifactId,
+    second.artifactId,
+    repaired.artifactId,
+  ]) {
+    const response = await request(`/artifacts/${artifactId}/file`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(bytes.toString());
+  }
 });

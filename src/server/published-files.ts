@@ -1,5 +1,5 @@
 import { MAX_UPLOAD_LABEL } from "../shared/uploads.js";
-import { openVerified, storeFile } from "./file-store.js";
+import { openVerified, storeFile, fileChecksum } from "./file-store.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
@@ -48,7 +48,6 @@ export function storePublishedFile(
   if (file.bytes.length > MAX_PUBLISHED_BYTES)
     throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
   const snapshot = agentPayload(run);
-  const { key, checksum } = storeFile(run.owner_id, file.bytes);
   return db
     .transaction(() => {
       const live = ownedRun(run.id, run.owner_id);
@@ -62,12 +61,14 @@ export function storePublishedFile(
       );
       if (
         prior &&
-        (prior.checksum !== checksum || prior.size !== file.bytes.length)
+        (prior.checksum !== fileChecksum(file.bytes) ||
+          prior.size !== file.bytes.length)
       )
         throw new Problem(
           409,
           "File publication identity was reused with different contents",
         );
+      const { key, checksum } = storeFile(run.owner_id, file.bytes);
       const name =
         basename(file.name.replaceAll("\\", "/"))
           .replace(/[\x00-\x1f\x7f]/g, "")

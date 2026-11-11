@@ -6,7 +6,7 @@ import {
   readSync,
   mkdirSync,
   writeFileSync,
-  linkSync,
+  renameSync,
   unlinkSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -58,7 +58,7 @@ export function openVerified(
     }
     if (
       readSync(descriptor, Buffer.alloc(1), 0, 1, offset) ||
-      createHash("sha256").update(bytes).digest("base64") !== checksum
+      fileChecksum(bytes) !== checksum
     )
       throw new Problem(409, "Artifact integrity check failed");
     return bytes;
@@ -67,22 +67,23 @@ export function openVerified(
   }
 }
 
+export function fileChecksum(bytes: Buffer) {
+  return createHash("sha256").update(bytes).digest("base64");
+}
+
 export function storeFile(owner: string, bytes: Buffer) {
   if (bytes.length > MAX_UPLOAD_BYTES)
     throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
-  const digest = createHash("sha256").update(bytes).digest();
-  const checksum = digest.toString("base64");
+  const checksum = fileChecksum(bytes);
+  const digest = Buffer.from(checksum, "base64");
   const key = `objects/${createHash("sha256").update(owner).digest("hex")}/${digest.toString("hex")}`;
   const path = join(config.data, key);
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
-    try {
-      linkSync(temporary, path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
+    // Replace atomically so valid new bytes also repair a corrupt shared object.
+    renameSync(temporary, path);
   } finally {
     try {
       unlinkSync(temporary);
@@ -90,7 +91,6 @@ export function storeFile(owner: string, bytes: Buffer) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  // Existing content is verified too: a corrupt object is never silently reused.
   openVerified(key, bytes.length, checksum);
   return { key, size: bytes.length, checksum };
 }
