@@ -10,6 +10,7 @@ import {
   utimesSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
@@ -339,6 +340,75 @@ it("does not publish a workspace file once its run stops executing", async () =>
       .prepare("SELECT count(*) n FROM artifact_objects WHERE run_id=?")
       .get(f.run.id),
   ).toEqual({ n: 0 });
+});
+
+it("checks stored publication identity and bounded size for downloads and new attachments", async () => {
+  const f = fixture();
+  const content = "Verified attachment";
+  const saved = await publish(f, { title: "verified.txt", content });
+  const row = db
+    .prepare("SELECT object_key,size FROM artifact_objects WHERE artifact_id=?")
+    .get(saved.artifactId) as { object_key: string; size: number };
+  const path = join(directory, "data", row.object_key);
+  const outside = join(directory, "same-content.txt");
+  writeFileSync(outside, content);
+  const attach = () =>
+    fetch(base + "/api/agents", {
+      signal: AbortSignal.timeout(2000),
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "attachment-" + id().slice(0, 8),
+        connectionId: f.connection.id,
+        model: "gpt-6-astra",
+        initialPrompt: "Read the file",
+        attachmentIds: [saved.artifactId],
+        idempotencyKey: id(),
+      }),
+    });
+  expect((await request(`/artifacts/${saved.artifactId}/file`)).status).toBe(
+    200,
+  );
+  expect((await attach()).status).toBe(201);
+  rmSync(path);
+  symlinkSync(outside, path);
+  expect((await request(`/artifacts/${saved.artifactId}/file`)).status).toBe(
+    409,
+  );
+  expect((await attach()).status).toBe(409);
+  rmSync(path);
+  execFileSync("mkfifo", [path]);
+  expect(
+    (
+      await fetch(base + `/api/artifacts/${saved.artifactId}/file`, {
+        signal: AbortSignal.timeout(2000),
+      })
+    ).status,
+  ).toBe(409);
+  expect((await attach()).status).toBe(409);
+  rmSync(path);
+  writeFileSync(path, content);
+  for (const [size, status] of [
+    [row.size + 1, 409],
+    [MAX_PUBLISHED_BYTES + 1, 413],
+  ] as const) {
+    db.prepare("UPDATE artifact_objects SET size=? WHERE artifact_id=?").run(
+      size,
+      saved.artifactId,
+    );
+    expect((await request(`/artifacts/${saved.artifactId}/file`)).status).toBe(
+      status,
+    );
+    expect((await attach()).status).toBe(status);
+  }
+  db.prepare("UPDATE artifact_objects SET size=? WHERE artifact_id=?").run(
+    row.size,
+    saved.artifactId,
+  );
+  expect((await attach()).status).toBe(201);
+  expect(
+    (await request(`/artifacts/${saved.artifactId}/file`, "bob")).status,
+  ).toBe(404);
 });
 
 it("tells the agent why a workspace file was refused", async () => {

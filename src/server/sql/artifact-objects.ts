@@ -75,21 +75,6 @@ export function owned(db: Database.Database, id: string, owner: string) {
     : parseRecord(QueryRecords.artifact_objects, row, "artifact_objects");
 }
 
-const downloadStatement = statement(
-  "SELECT object_key,mime,checksum FROM artifact_objects WHERE artifact_id=? AND owner_id=?",
-);
-const downloadRow = QueryRecords.artifact_objects.pick({
-  object_key: true,
-  mime: true,
-  checksum: true,
-});
-export function download(db: Database.Database, id: string, owner: string) {
-  const row = downloadStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(downloadRow, row, "artifact_objects");
-}
-
 const libraryStatements = statementVariants();
 const libraryRow = z.object({
   id: z.string(),
