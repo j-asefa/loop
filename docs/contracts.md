@@ -50,6 +50,14 @@ directly, never the registry. Shared workspace projections live in
 `workspace-contract-schemas.ts`; route types, defaults and scalar schemas live in
 `route-contract.ts`.
 
+Direct execution-authority forwards use `executionRoute` in
+`src/server/execution-routes.ts`. Each table entry declares its contract, operation
+and preparation of authority input and options. Keep owner checks and durable
+command IDs in that preparation. Routes that enrich a result or apply additional
+domain behavior remain explicit handlers. The registrar still validates the HTTP
+response; the `/api` middleware in `src/server/index.ts` owns `Cache-Control:
+no-store`.
+
 ## Operation identities
 
 Each workspace endpoint declares an explicit `operation` string. It identifies durable

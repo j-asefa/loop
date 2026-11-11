@@ -1,3 +1,4 @@
+import { executionRoute } from "./execution-routes.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as foldersQueries from "./sql/folders.js";
@@ -394,33 +395,31 @@ routes.on(workspaceApi.agentPiFilters, async (req, res) => {
   );
   res.json({ ...result, ...nativeSessions.pi.piConfiguration(agent) });
 });
-routes.on(workspaceApi.agentPiPreview, async (req, res) => {
-  const agent = ownedAgent(req.params.id, res.locals.owner);
-  const input = req.body;
-  res.json(
-    await executionRequest(
-      "pi.preview",
-      {
+const executionRoutes = [
+  executionRoute(workspaceApi.agentPiPreview, "pi.preview", (req, res) => {
+    const agent = ownedAgent(req.params.id, res.locals.owner);
+    const input = req.body;
+    return {
+      input: {
         agentId: agent.id,
         name: input.name,
         args: input.args,
         conversationId: input.conversation,
       },
-      { owner: res.locals.owner },
-    ),
-  );
-});
-routes.on(workspaceApi.agentPiInspect, async (req, res) => {
-  const agent = ownedAgent(req.params.id, res.locals.owner);
-  const { source } = req.body;
-  res.json(
-    await executionRequest(
-      "pi.inspect",
-      { agentId: agent.id, source },
-      { owner: res.locals.owner },
-    ),
-  );
-});
+      options: { owner: res.locals.owner },
+    };
+  }),
+  executionRoute(workspaceApi.agentPiInspect, "pi.inspect", (req, res) => {
+    const agent = ownedAgent(req.params.id, res.locals.owner);
+    const { source } = req.body;
+    return {
+      input: { agentId: agent.id, source },
+      options: { owner: res.locals.owner },
+    };
+  }),
+];
+for (const register of executionRoutes) register(routes);
+
 routes.on(workspaceApi.agentPiRollback, async (req, res) => {
   const agent = ownedAgent(req.params.id, res.locals.owner);
   const { source, scope } = req.body;
