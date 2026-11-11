@@ -1,5 +1,6 @@
 import {
   RowId as Id,
+  RunRecord,
   Provider,
   ConnectionRecord,
   MessageRecord,
@@ -24,7 +25,6 @@ export {
 import { z } from "zod";
 import { Billing, Harness } from "../shared/protocol.js";
 import { PERMISSION_MODES } from "../shared/permission-modes.js";
-import { RunState } from "../shared/run-state.js";
 import { Problem } from "../shared/problem.js";
 
 const PermissionMode = z.enum(PERMISSION_MODES.map((mode) => mode.value));
@@ -234,27 +234,7 @@ export function parseRecord<T extends z.ZodType>(
     "row",
   );
 }
-const Identity = { id: Id, owner_id: Id };
-const RunRow = z.object({
-  ...Identity,
-  agent_id: Id.nullable(),
-  conversation_id: Id.nullable(),
-  kind: z.string(),
-  input: z.string(),
-  state: RunState,
-  idempotency_key: z.string().optional(),
-  payload: RunPayload,
-  result: z.string().nullable(),
-  error: z.string().nullable(),
-  created_at: z.number(),
-  updated_at: z.number(),
-  queue_rank: z.number().nullable().optional(),
-  worker_id: Id.nullable().optional(),
-  heartbeat: z.number().nullable().optional(),
-  active_ms: z.number().optional(),
-  active_since: z.number().nullable().optional(),
-  attention_dismissed_at: z.number().nullable().optional(),
-});
+const RunRow = RunRecord.extend({ payload: RunPayload });
 export type Run = z.infer<typeof RunRow>;
 // Stopping or dismissing a record must not make its execution payload readable
 // or executable. Control paths use only these owner-checked scalar fields.
@@ -285,7 +265,7 @@ export function maybeRunNotice(value: unknown) {
 }
 export function parseRun(value: unknown): Run {
   const raw = parseRecord(
-    z.object({ id: Id, payload: z.unknown() }),
+    RunRecord.pick({ id: true, payload: true }),
     value,
     "runs",
   );

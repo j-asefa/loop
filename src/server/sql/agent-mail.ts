@@ -567,9 +567,7 @@ export function queuedRuns(
     .all()
     .flatMap((value) => {
       try {
-        const run = parseRun(value);
-        parseRecord(QueryRecords.runs, value, "runs");
-        return [run];
+        return [parseRun(value)];
       } catch (error) {
         if (!(error instanceof InvalidRow)) throw error;
         reject(RunIdentity.parse(value), error);
