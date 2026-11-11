@@ -1,6 +1,6 @@
 import * as codeReviewsQueries from "./sql/code-reviews.js";
 import * as delegationsQueries from "./sql/delegations.js";
-import { execFileSync } from "node:child_process";
+import { reviewGit, MAX_REVIEW_FILE_BYTES } from "./review-git.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db } from "./db.js";
@@ -139,24 +139,9 @@ function readContextBlob(
   try {
     if (!repository || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(hash))
       throw new Error();
-    const data = execFileSync(
-      "git",
-      ["--no-replace-objects", "cat-file", "blob", hash],
-      {
-        cwd: repository,
-        timeout: 10000,
-        maxBuffer: 512_000,
-        env: {
-          ...process.env,
-          GIT_OPTIONAL_LOCKS: "0",
-          GIT_CONFIG_COUNT: "0",
-          GIT_ALLOW_PROTOCOL: "",
-          GIT_NO_LAZY_FETCH: "1",
-          GIT_NO_REPLACE_OBJECTS: "1",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
+    const data = reviewGit(repository, ["cat-file", "blob", hash], {
+      maxBuffer: MAX_REVIEW_FILE_BYTES,
+    });
     const actual = createHash(hash.length === 40 ? "sha1" : "sha256")
       .update(`blob ${data.length}\0`)
       .update(data)
