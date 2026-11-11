@@ -427,3 +427,10 @@ export function insertPreview(
 ) {
   return insertPreviewStatement(db).run(id, owner, secret, models, created);
 }
+
+const connectedHarnessExistsStatement = statement(
+  "SELECT 1 FROM connections WHERE owner_id=? AND status='connected' AND json_extract(metadata,'$.loopHarness') IS NOT NULL LIMIT 1",
+);
+export function connectedHarnessExists(db: Database.Database, owner: string) {
+  return connectedHarnessExistsStatement(db).get(owner) !== undefined;
+}

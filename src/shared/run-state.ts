@@ -86,6 +86,9 @@ export const ACTIVE_RUN_DISPLAY_STATES_SQL = sqlStates(
   ACTIVE_RUN_DISPLAY_STATES,
 );
 export const ACTIVE_RUN_STATES_SQL = sqlStates(ACTIVE_RUN_STATES);
+export const EXECUTING_RUN_STATES_SQL = sqlStates(
+  STARTED_RUN_STATES.filter((state) => state !== "paused"),
+);
 export const TERMINAL_RUN_STATES_SQL = sqlStates(TERMINAL_RUN_STATES);
 export const WORKING_RUN_DISPLAY_STATES_SQL = sqlStates(
   WORKING_RUN_DISPLAY_STATES,
