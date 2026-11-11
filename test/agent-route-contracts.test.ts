@@ -526,3 +526,120 @@ it("agentPiAction returns the configuration written by the isolated Pi CLI", asy
     ),
   ).toBe(true);
 });
+
+it("validates create and update selections before persisting agent changes", async () => {
+  const connections = await import("../src/server/sql/connections");
+  const targetConnection = await apiConnection();
+  const target = await agent(targetConnection);
+  const catalog = JSON.stringify([
+    { id: "fixture", name: "Fixture", effortLevels: [{ value: "low" }] },
+    { id: "other", name: "Other", effortLevels: [{ value: "high" }] },
+    { id: "unrestricted", name: "Unrestricted" },
+  ]);
+  const foreignConnection = id();
+  connections.insert(
+    db,
+    foreignConnection,
+    "another-owner",
+    "openai",
+    "Foreign",
+    "",
+    "connected",
+    catalog,
+    "{}",
+    now(),
+  );
+  const count = () => db.prepare("SELECT count(*) n FROM agents").get();
+  const before = count();
+  const saved = () =>
+    db.prepare("SELECT * FROM agents WHERE id=?").get(target.id);
+  const original = saved();
+  for (const scenario of [
+    {
+      connectionId: targetConnection,
+      disconnected: true,
+      model: "missing",
+      effort: "invalid",
+      status: 409,
+      createError: "Reconnect this provider first",
+      updateError: "Reconnect this provider first",
+    },
+    {
+      connectionId: foreignConnection,
+      disconnected: false,
+      model: "fixture",
+      effort: "low",
+      status: 404,
+      createError: "Item not found",
+      updateError: "Item not found",
+    },
+    {
+      connectionId: targetConnection,
+      disconnected: false,
+      model: "missing",
+      effort: "invalid",
+      status: 400,
+      createError: "Choose an available model from this connection",
+      updateError: "Model unavailable on this connection",
+    },
+    {
+      connectionId: targetConnection,
+      disconnected: false,
+      model: "fixture",
+      effort: "invalid",
+      status: 400,
+      createError: "Choose an effort level reported by this model",
+      updateError: "Choose an effort level reported by this model",
+    },
+  ]) {
+    connections.connectedModels(db, catalog, targetConnection);
+    if (scenario.disconnected) connections.needsReconnect(db, targetConnection);
+    const selection = {
+      connectionId: scenario.connectionId,
+      model: scenario.model,
+      effort: scenario.effort,
+    };
+    expect(
+      await request("/agents", {
+        name: "rejected-" + id().slice(0, 8),
+        ...selection,
+      }),
+    ).toMatchObject({
+      status: scenario.status,
+      data: { error: scenario.createError },
+    });
+    expect(
+      await request(
+        `/agents/${target.id}`,
+        { instructions: "Must roll back", ...selection },
+        "PATCH",
+      ),
+    ).toMatchObject({
+      status: scenario.status,
+      data: { error: scenario.updateError },
+    });
+    expect(count()).toEqual(before);
+    expect(saved()).toEqual(original);
+  }
+  connections.connectedModels(db, catalog, targetConnection);
+  const created = await request("/agents", {
+    name: "selected-" + id().slice(0, 8),
+    connectionId: targetConnection,
+    model: "fixture",
+    effort: "low",
+  });
+  valid(workspaceApi.agentCreate, created);
+  expect(created.data.effort).toBe("low");
+  for (const [patch, effort] of [
+    [{ model: "fixture", effort: "low" }, "low"],
+    [{ model: "fixture" }, "low"],
+    [{ model: "other" }, null],
+    [{ effort: "high" }, "high"],
+    [{ effort: null }, null],
+    [{ model: "unrestricted", effort: "custom" }, "custom"],
+  ] as const) {
+    const updated = await request(`/agents/${target.id}`, patch, "PATCH");
+    valid(workspaceApi.agentUpdate, updated);
+    expect(updated.data.effort).toBe(effort);
+  }
+});

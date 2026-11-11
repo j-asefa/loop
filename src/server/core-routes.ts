@@ -63,7 +63,7 @@ import {
   renameAgent,
   Problem,
   agentInput,
-  validateEffort,
+  validateAgentSelection,
   ownedFolder,
   requireOwned,
 } from "./domain.js";
@@ -302,24 +302,26 @@ routes.on(workspaceApi.agentUpdate, (req, res) => {
           z.string().parse(req.body.connectionId ?? agent.connection_id ?? ""),
           owner,
         );
-        if (c.status !== "connected")
-          throw new Problem(409, "Reconnect this provider first");
-        assertTeamConnectionChange(owner, agent.id, c);
-        const model = z
-          .string()
-          .min(1)
-          .max(200)
-          .parse(req.body.model ?? agent.model);
-        const effort = agentInput.shape.effort.parse(
-          req.body.effort === undefined
-            ? model === agent.model && c.id === agent.connection_id
-              ? agent.effort
-              : null
-            : req.body.effort,
+        const { model, effort } = validateAgentSelection(
+          c,
+          () => {
+            assertTeamConnectionChange(owner, agent.id, c);
+            const model = z
+              .string()
+              .min(1)
+              .max(200)
+              .parse(req.body.model ?? agent.model);
+            const effort = agentInput.shape.effort.parse(
+              req.body.effort === undefined
+                ? model === agent.model && c.id === agent.connection_id
+                  ? agent.effort
+                  : null
+                : req.body.effort,
+            );
+            return { model, effort };
+          },
+          "Model unavailable on this connection",
         );
-        if (!c.models.some((m: { id: string }) => m.id === model))
-          throw new Problem(400, "Model unavailable on this connection");
-        validateEffort(c, model, effort);
         agentsQueries.configure(
           db,
           c.id,
