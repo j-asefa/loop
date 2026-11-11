@@ -2,6 +2,10 @@ import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
 import { ProviderSchema } from "./provider-schema.js";
 import { feedCategories } from "./feed-categories.js";
+import {
+  DefaultArtifactKind,
+  OwnerArtifactKindSchema,
+} from "./artifact-kind.js";
 
 const Text = z.string(),
   MaybeText = Text.nullable(),
@@ -27,9 +31,7 @@ export const FolderUpdateInput = z.object({
 });
 export const ArtifactCreateInput = z.object({
   title: Text.min(1).max(180),
-  kind: z
-    .enum(["markdown", "code", "table", "diagram", "file"])
-    .default("markdown"),
+  kind: OwnerArtifactKindSchema.default(DefaultArtifactKind),
   content: Text.max(200000),
   folder: Text.optional(),
   metadata: z

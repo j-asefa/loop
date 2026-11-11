@@ -57,74 +57,85 @@ function ResultContent({
 }: {
   item: Pick<Artifact, "id" | "conversation_id" | "kind" | "title" | "content">;
 }) {
-  if (item.kind === "image") {
-    const value = parse<any>(item.content, null);
-    if (
-      value &&
-      ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
-        value.mimeType,
-      ) &&
-      typeof value.data === "string"
-    )
-      return (
-        <img
-          className="native-image"
-          src={"data:" + value.mimeType + ";base64," + value.data}
-          alt={item.title}
-        />
-      );
-    return <p>Image source is available by download.</p>;
-  }
-  if (item.kind === "chart") return <Chart content={item.content} />;
-  if (item.kind === "github_pr") {
-    const card = pullRequestCardData(item.content);
-    if (card)
-      return (
-        <PullRequestCards
-          card={card}
-          artifactId={item.id}
-          conversationId={item.conversation_id}
-        />
-      );
-  }
-  if (item.kind === "diagram") return <Diagram source={item.content} />;
-  if (item.kind === "code")
-    return (
-      <pre className="code-artifact">
-        <code>{item.content}</code>
-      </pre>
-    );
-  if (item.kind === "table") {
-    const d = parse<any>(item.content, null);
-    if (d && Array.isArray(d.columns) && Array.isArray(d.rows))
-      return (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                {d.columns.map((c: any, i: number) => (
-                  <th key={i}>{String(c)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {d.rows.slice(0, 1000).map((row: any[], i: number) => (
-                <tr key={i}>
-                  {row.map((v, j) => (
-                    <td key={j}>
-                      {typeof v === "object"
-                        ? JSON.stringify(v)
-                        : String(v ?? "")}
-                    </td>
+  // Exhaustive over the artifact kind enum: adding a kind without a rendering
+  // branch makes the never assertion below fail typecheck (D1).
+  switch (item.kind) {
+    case "image": {
+      const value = parse<any>(item.content, null);
+      if (
+        value &&
+        ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+          value.mimeType,
+        ) &&
+        typeof value.data === "string"
+      )
+        return (
+          <img
+            className="native-image"
+            src={"data:" + value.mimeType + ";base64," + value.data}
+            alt={item.title}
+          />
+        );
+      return <p>Image source is available by download.</p>;
+    }
+    case "chart":
+      return <Chart content={item.content} />;
+    case "github_pr": {
+      const card = pullRequestCardData(item.content);
+      if (card)
+        return (
+          <PullRequestCards
+            card={card}
+            artifactId={item.id}
+            conversationId={item.conversation_id}
+          />
+        );
+      return <RichText content={item.content} />;
+    }
+    case "diagram":
+      return <Diagram source={item.content} />;
+    case "table": {
+      const d = parse<any>(item.content, null);
+      if (d && Array.isArray(d.columns) && Array.isArray(d.rows))
+        return (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  {d.columns.map((c: any, i: number) => (
+                    <th key={i}>{String(c)}</th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+              </thead>
+              <tbody>
+                {d.rows.slice(0, 1000).map((row: any[], i: number) => (
+                  <tr key={i}>
+                    {row.map((v, j) => (
+                      <td key={j}>
+                        {typeof v === "object"
+                          ? JSON.stringify(v)
+                          : String(v ?? "")}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      return <RichText content={item.content} />;
+    }
+    case "markdown":
+    case "file":
+    case "conversation":
+      return <RichText content={item.content} />;
+    default: {
+      // Unknown kinds cannot be stored (D1), so this branch stays unreachable.
+      const exhaustive: never = item.kind;
+      void exhaustive;
+      return <RichText content={item.content} />;
+    }
   }
-  return <RichText content={item.content} />;
 }
 export function ArtifactViewer({
   item,

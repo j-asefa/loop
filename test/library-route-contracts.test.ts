@@ -299,6 +299,25 @@ it("artifactCreate keeps its id-only receipt and rejects private client metadata
   valid(workspaceApi.artifactCreate, result);
   expect(ownedArtifact(result.data.id, owner).metadata.snippet).toBe(true);
 });
+it("artifactCreate rejects kinds outside the owner-creatable set", async () => {
+  for (const kind of ["code", "github_pr", "image", "conversation"]) {
+    expect(
+      await request("/artifacts", {
+        title: "Bad kind",
+        content: "Text",
+        kind,
+      }),
+      kind,
+    ).toMatchObject(bad);
+  }
+  const created = await request("/artifacts", {
+    title: "Owner diagram",
+    content: "```mermaid\nflowchart LR\na-->b\n```",
+    kind: "diagram",
+  });
+  valid(workspaceApi.artifactCreate, created);
+  expect(ownedArtifact(created.data.id, owner).kind).toBe("diagram");
+});
 it("artifactUpdate preserves version checks and returns the updated artifact", async () => {
   const path = `/artifacts/${artifact.id}`,
     before = currentArtifact();

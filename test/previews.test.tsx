@@ -63,16 +63,13 @@ it("renders the reported Playwright JSON result as readable linked entries and n
   expect(html).not.toContain("await page.evaluate");
   expect(safePreviewLink("data:text/html,unsafe")).toBeUndefined();
 });
-it("renders table, code and image previews in their native forms without mutating the full content", () => {
+it("renders table and image previews in their native forms without mutating the full content", () => {
   expect(
     card(
       JSON.stringify({ columns: ["Name", "Count"], rows: [["Apples", 3]] }),
       "table",
     ),
   ).toContain("<td>Apples</td>");
-  const html = card("# This is code\nconst x = '<script>';", "code");
-  expect(html).toContain("&lt;script&gt;");
-  expect(html).not.toContain("<h1>");
   expect(
     card(JSON.stringify({ mimeType: "image/png", data: "aGVsbG8=" }), "image"),
   ).toContain("data:image/png;base64,aGVsbG8=");
@@ -199,7 +196,7 @@ it.each([
       id: "a:presentation",
       type: "result",
       title: title!,
-      kind: kind!,
+      kind: kind! as ResultCard["kind"],
       content: JSON.stringify({
         results: [
           { title: "Example", url: "https://example.com", text: "An excerpt." },

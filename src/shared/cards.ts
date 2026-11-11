@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
+import { ArtifactKindSchema } from "./artifact-kind.js";
 
 const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
@@ -57,7 +58,7 @@ export const ResultCardSchema = z.object({
   ...common,
   type: z.literal("result"),
   title: z.string(),
-  kind: z.string(),
+  kind: ArtifactKindSchema,
   version: z.number().int().positive(),
   hidden: z.boolean(),
   display: z.object({

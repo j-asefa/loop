@@ -94,9 +94,9 @@ it("moves partial draft search scope and undo immediately without indexing strea
     lexical("alice", "searchable", { folder: oldFolder }).map((r) => r.id),
   ).toEqual(["artifact:" + artifact]);
   expect(lexical("alice", "searchable", { folders: [newFolder] })).toEqual([]);
-  db.prepare("UPDATE artifacts SET kind='code' WHERE id=?").run(artifact);
+  db.prepare("UPDATE artifacts SET kind='diagram' WHERE id=?").run(artifact);
   expect(
-    lexical("alice", "searchable", { kind: "code" }).map((r) => r.id),
+    lexical("alice", "searchable", { kind: "diagram" }).map((r) => r.id),
   ).toContain("artifact:" + artifact);
 });
 

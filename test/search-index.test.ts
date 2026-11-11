@@ -190,7 +190,7 @@ it("applies the same folder, kind, date and owner filters to keyword and semanti
     title: "Travel",
     content: "A car",
     folder,
-    kind: "text",
+    kind: "diagram",
   });
   saveArtifact(id(), { title: "Travel", content: "A car", kind: "markdown" });
   const filters = { folder, kind: "markdown", from: now() - 1, to: now() + 1 };

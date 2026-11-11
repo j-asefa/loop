@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { pullRequestCard } from "../../shared/github.js";
 import { chartPoint, chartSchema } from "../../shared/chart.js";
+import type { ArtifactKind } from "../../shared/artifact-kind.js";
+
+// A normalised tool result: the artifact kind is a declared enum value so the
+// stored row always draws with a known renderer (D1).
+export type NormalizedResult = {
+  kind: ArtifactKind;
+  title: string;
+  content: string;
+};
 // Callers pass a credential-redacted result. The complete response remains in
 // its saved artifact; traces and run failures use this bounded explanation.
 export function toolErrorMessage(result: any) {
@@ -25,7 +34,7 @@ export function normalizeResult(
     fixture?: boolean;
     github?: boolean;
   },
-) {
+): NormalizedResult {
   let data = result.structuredContent;
   const text = (result.content || [])
     .filter((x: any) => x.type === "text")

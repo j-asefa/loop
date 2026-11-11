@@ -217,16 +217,16 @@ it("applies project and type filters before the lexical candidate cap", () => {
   const target = saveArtifact("filter-user", {
     title: "routine searchable task",
     content: "routine searchable task",
-    kind: "code",
+    kind: "diagram",
     folder,
   });
   const result = lexical("filter-user", "routine", {
     folder,
-    kind: "code",
+    kind: "diagram",
   });
   expect(result.map((r) => r.id)).toEqual(["artifact:" + target]);
   expect(
-    lexical("other-user", "routine", { folder, kind: "code" }),
+    lexical("other-user", "routine", { folder, kind: "diagram" }),
   ).toHaveLength(0);
 });
 

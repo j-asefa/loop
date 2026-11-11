@@ -524,14 +524,6 @@ function ArtifactPreview({
         />
       );
   }
-  if (item.kind === "code")
-    return (
-      <pre className="code-preview">
-        <code>
-          {item.content.split("\n").slice(0, 8).join("\n").slice(0, 4000)}
-        </code>
-      </pre>
-    );
   if (item.kind === "image") {
     const bitmap = parse<any>(item.content, null);
     return bitmap &&

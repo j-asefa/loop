@@ -2,11 +2,15 @@ import * as artifactsQueries from "./sql/artifacts.js";
 import * as artifactVersionsQueries from "./sql/artifact-versions.js";
 import { ArtifactMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
+import {
+  DefaultArtifactKind,
+  type ArtifactKind,
+} from "../shared/artifact-kind.js";
 export function saveArtifact(
   owner: string,
   data: {
     title: string;
-    kind?: string;
+    kind?: ArtifactKind;
     content: string;
     agent?: string | null;
     conversation?: string | null;
@@ -25,7 +29,7 @@ export function saveArtifact(
     data.conversation || null,
     data.run || null,
     data.title,
-    data.kind || "markdown",
+    data.kind || DefaultArtifactKind,
     data.content,
     JSON.stringify(
       ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata),
