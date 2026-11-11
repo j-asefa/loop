@@ -13,7 +13,7 @@ import { Host } from "./host.js";
 import type { Options } from "./adapters/types.js";
 import { app } from "./server/index.js";
 import { db } from "./server/db.js";
-import { config } from "./server/config.js";
+import { setWorkspaceUrl } from "./server/config.js";
 import { nativeSessions } from "./server/native-sessions.js";
 import { OWNER } from "./server/workspace-identity.js";
 import { RegistrationOptions } from "./shared/execution-authority.js";
@@ -297,7 +297,7 @@ export class WorkspaceHost {
         throw new Error("Unknown workspace control command");
       },
       originChanged: (origin) => {
-        config.url = origin;
+        setWorkspaceUrl(origin);
         this.execution.setOrigin?.(origin);
       },
       connect: (socket, url) => {

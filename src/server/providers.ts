@@ -1,3 +1,4 @@
+import { config } from "./config.js";
 import { modelOptions } from "../shared/model-options.js";
 import { Problem } from "./domain.js";
 import OpenAI from "openai";
@@ -488,7 +489,7 @@ export function adapter(provider: Provider) {
   return value;
 }
 export function withTestAdapter(provider: Provider, value: ProviderAdapter) {
-  if (process.env.NODE_ENV !== "test") throw new Error("Test-only API");
+  if (config.environment !== "test") throw new Error("Test-only API");
   const previous = adapters[provider];
   adapters[provider] = value;
   return () => {

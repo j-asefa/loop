@@ -1,3 +1,4 @@
+import { config } from "./config.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as artifactsQueries from "./sql/artifacts.js";
@@ -323,9 +324,7 @@ routes.on(workspaceApi.preferencesUpdate, (req, res) => {
     db,
     res.locals.owner,
     d.connectionId,
-    d.connectionId
-      ? process.env.LOOP_EMBEDDING_MODEL || "text-embedding-3-small"
-      : localModel,
+    d.connectionId ? config.embeddingModel : localModel,
     Number(d.embeddingEnabled),
   );
   if (!d.embeddingEnabled) embeddingsQueries.removeOwner(db, res.locals.owner);

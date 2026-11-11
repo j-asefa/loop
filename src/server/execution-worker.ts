@@ -188,7 +188,7 @@ process.on("message", (raw) => {
       if (message.action === "schedule") authority!.schedule();
       else if (message.action === "origin") {
         if (!message.origin) throw new Error("Origin is required.");
-        (await import("./config.js")).config.url = message.origin;
+        (await import("./config.js")).setWorkspaceUrl(message.origin);
       }
       ok = true;
     } catch {

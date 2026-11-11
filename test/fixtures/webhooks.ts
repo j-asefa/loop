@@ -7,7 +7,7 @@ import { claimWebhooks, deliverWebhooks } from "../../src/server/webhooks.js";
 import { nativeSessions } from "../../src/server/native-sessions.js";
 import { RunState } from "../../src/shared/run-state.js";
 import { startWorker } from "../../src/server/worker.js";
-import { config } from "../../src/server/config.js";
+import { config, setWorkspaceUrl } from "../../src/server/config.js";
 
 let stopWorker: ReturnType<typeof startWorker> | undefined;
 
@@ -78,7 +78,7 @@ export async function webhookFixture(
     let changed = false;
     const publicUrl = config.url;
     try {
-      if (input.publicUrl) config.url = String(input.publicUrl);
+      if (input.publicUrl) setWorkspaceUrl(String(input.publicUrl));
       db.transaction(() => {
         changed = transition(run, RunState.parse(input.to));
         if (input.rollback) throw new Error("Fixture rollback");
@@ -86,7 +86,7 @@ export async function webhookFixture(
     } catch (error) {
       if (!input.rollback) throw error;
     } finally {
-      config.url = publicUrl;
+      setWorkspaceUrl(publicUrl);
     }
     return {
       run: run.id,

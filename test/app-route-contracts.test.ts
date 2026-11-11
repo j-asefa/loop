@@ -12,7 +12,7 @@ process.env.LOOP_DATA_DIR = directory;
 process.env.LOOP_URL = "http://127.0.0.1";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
-const { config } = await import("../src/server/config");
+const { config, setWorkspaceUrl } = await import("../src/server/config");
 const { enqueue, transition } = await import("../src/server/queue");
 const { observeProcess } = await import("../src/server/deployments");
 const { closeExecution } = await import("../src/server/execution-client");
@@ -22,7 +22,8 @@ const { app } = await import("../src/server/index");
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 config.port = (server.address() as AddressInfo).port;
-const origin = (config.url = "http://127.0.0.1:" + config.port);
+const origin = "http://127.0.0.1:" + config.port;
+setWorkspaceUrl(origin);
 const stopObservation = observeProcess("api");
 
 afterAll(async () => {

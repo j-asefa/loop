@@ -50,7 +50,7 @@ process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_URL = "http://127.0.0.1";
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
-const { config } = await import("../src/server/config");
+const { config, setWorkspaceUrl } = await import("../src/server/config");
 const { withTestMcp, oauthProvider, readSecret } =
   await import("../src/server/mcp/client");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -110,7 +110,8 @@ native.authorize.mockImplementation(async (connection, code) => {
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 config.port = (server.address() as AddressInfo).port;
-const origin = (config.url = "http://127.0.0.1:" + config.port);
+const origin = "http://127.0.0.1:" + config.port;
+setWorkspaceUrl(origin);
 
 afterAll(async () => {
   resetMcp();
