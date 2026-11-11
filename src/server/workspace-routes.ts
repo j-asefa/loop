@@ -38,7 +38,7 @@ import {
 import { moveArtifact, undoMove, naturalDestination } from "./filing.js";
 import { saveArtifact } from "./artifacts.js";
 import { uploadFile } from "./uploads.js";
-import { sendHtmlPreview } from "./file-preview.js";
+import { sendFile } from "./file-preview.js";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
@@ -267,13 +267,14 @@ routes.on(workspaceApi.operationUndo, (req, res) =>
 routes.on(workspaceApi.objectFile, (req, res) => {
   const o = objectsQueries.owned(db, req.params.id, res.locals.owner);
   if (!o) throw new Problem(404, "File not found");
-  if (sendHtmlPreview(res, req.query.preview, o)) return;
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader(
-    "Content-Disposition",
-    `attachment; filename*=UTF-8''${encodeURIComponent(o.name.split("/").at(-1)!)}`,
+  sendFile(
+    res,
+    req.query.preview,
+    { ...o, name: o.name.split("/").at(-1)! },
+    {
+      downloadMime: "application/octet-stream",
+    },
   );
-  res.send(o.bytes);
 });
 routes.on(workspaceApi.search, async (req, res) => {
   const q = req.query.q;

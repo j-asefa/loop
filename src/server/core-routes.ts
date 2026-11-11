@@ -29,7 +29,7 @@ import {
 import { projectionSnapshot } from "./projection-snapshot.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import { localArtifact } from "./published-files.js";
-import { FILE_DOWNLOAD_POLICY, sendHtmlPreview } from "./file-preview.js";
+import { sendFile } from "./file-preview.js";
 import { isNativeConnection } from "./native-connections.js";
 import { executionRequest } from "./execution-client.js";
 import { nativeSessions } from "./native-sessions.js";
@@ -783,23 +783,7 @@ routes.on(workspaceApi.artifactFile, (req, res) => {
       "a:" + artifact.id,
     ]);
   const name = artifact.metadata.name || artifact.title;
-  if (sendHtmlPreview(res, req.query.preview, { ...file, name })) return;
-  const inline =
-    req.query.preview === "1" &&
-    ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.mime);
-  res.setHeader("Content-Type", file.mime);
-  const filename = encodeURIComponent(name).replace(
-    /['()*]/g,
-    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-  res.setHeader(
-    "Content-Disposition",
-    `${inline ? "inline" : "attachment"}; filename*=UTF-8''${filename}`,
-  );
-  res.setHeader("Cache-Control", "private, no-store");
-  res.setHeader("Content-Security-Policy", FILE_DOWNLOAD_POLICY);
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.send(file.bytes);
+  sendFile(res, req.query.preview, { ...file, name }, { inlineImages: true });
 });
 
 routes.on(workspaceApi.artifactDownload, (req, res) => {
