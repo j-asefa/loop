@@ -151,6 +151,7 @@ export const PublicTeam = z.object({
   preset_config: MaybeText.optional(),
   folder_id: MaybeText.optional(),
   hide_results_from_feed: z.number().optional(),
+  // Message threads between its agents that hit a limit and await Resume.
   paused_threads: z.number().optional(),
 });
 export const PublicMessage = z.object({
@@ -167,7 +168,9 @@ export const PublicMessage = z.object({
   transcript_ordinal: z.number().nullable().optional(),
   run_state: MaybeText.optional(),
   run_error: MaybeText.optional(),
+  /** JSON checkout summary Loop observed for the run, when it has one. */
   run_checkout: MaybeText.optional(),
+  /** JSON list of verification commands Loop observed for the run. */
   run_verification: MaybeText.optional(),
 });
 export const PublicArtifact = z.object({
