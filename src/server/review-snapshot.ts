@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { reviewGit, MAX_REVIEW_FILE_BYTES } from "./review-git.js";
 import { readFileSync, realpathSync, lstatSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
@@ -16,8 +16,7 @@ export type ReviewSnapshot = {
   changed: string[];
   omitted: string[];
 };
-const MAX_FILE = 512_000,
-  MAX_TOTAL = 16_000_000,
+const MAX_TOTAL = 16_000_000,
   MAX_CONTEXT_FILES = 20_000,
   MAX_OMITTED_PATHS = 2_000,
   MAX_OMITTED_BYTES = 128_000;
@@ -42,43 +41,9 @@ export function captureSnapshot(
   base = "main",
 ): ReviewSnapshot {
   const root = realpathSync(directory);
-  const gitBytes = (args: string[], maxBuffer = 5_000_000, input?: string) => {
+  const gitBytes = (args: string[], maxBuffer?: number, input?: string) => {
     try {
-      return execFileSync(
-        "git",
-        [
-          "--no-replace-objects",
-          "--literal-pathspecs",
-          "-c",
-          "core.quotePath=false",
-          "-c",
-          "core.fsmonitor=false",
-          "-c",
-          "core.trustctime=true",
-          "-c",
-          "core.checkStat=default",
-          "-c",
-          "core.ignorestat=false",
-          ...args,
-        ],
-        {
-          cwd: root,
-          encoding: null,
-          input,
-          timeout: 10000,
-          maxBuffer,
-          env: {
-            ...process.env,
-            GIT_OPTIONAL_LOCKS: "0",
-            GIT_EXTERNAL_DIFF: "",
-            GIT_CONFIG_COUNT: "0",
-            GIT_ALLOW_PROTOCOL: "",
-            GIT_NO_LAZY_FETCH: "1",
-            GIT_NO_REPLACE_OBJECTS: "1",
-          },
-          stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
-        },
-      );
+      return reviewGit(root, args, { maxBuffer, input });
     } catch {
       throw new Problem(
         422,
@@ -86,7 +51,7 @@ export function captureSnapshot(
       );
     }
   };
-  const git = (args: string[], maxBuffer = 5_000_000, input?: string) =>
+  const git = (args: string[], maxBuffer?: number, input?: string) =>
     gitBytes(args, maxBuffer, input).toString("utf8");
   if (realpathSync(git(["rev-parse", "--show-toplevel"]).trim()) !== root)
     throw new Problem(
@@ -209,7 +174,10 @@ export function captureSnapshot(
   changes.filter(excluded).forEach(omit);
   let total = 0;
   const text = (value: string, path: string) => {
-    if (value.includes("\0") || Buffer.byteLength(value) > MAX_FILE) {
+    if (
+      value.includes("\0") ||
+      Buffer.byteLength(value) > MAX_REVIEW_FILE_BYTES
+    ) {
       omit(path);
       return undefined;
     }
@@ -252,7 +220,7 @@ export function captureSnapshot(
         const [hash, kind, size] = checks[index].split(" ");
         if (hash !== entry.hash || kind !== "blob" || !/^\d+$/.test(size))
           throw invalid();
-        if (Number(size) > MAX_FILE) {
+        if (Number(size) > MAX_REVIEW_FILE_BYTES) {
           omit(entry.path);
           return false;
         }
@@ -265,7 +233,7 @@ export function captureSnapshot(
       }
       const data = gitBytes(
         ["cat-file", "--batch"],
-        MAX_FILE * selected.length + 32_000,
+        MAX_REVIEW_FILE_BYTES * selected.length + 32_000,
         selected.map((entry) => entry.hash).join("\n") + "\n",
       );
       let cursor = 0;
@@ -280,7 +248,7 @@ export function captureSnapshot(
           hash !== entry.hash ||
           kind !== "blob" ||
           !/^\d+$/.test(bytes) ||
-          size > MAX_FILE
+          size > MAX_REVIEW_FILE_BYTES
         )
           throw invalid();
         const end = newline + 1 + size;
@@ -359,7 +327,7 @@ export function captureSnapshot(
           omit(e.path);
           continue;
         }
-        if (lstatSync(path).size > MAX_FILE) {
+        if (lstatSync(path).size > MAX_REVIEW_FILE_BYTES) {
           omit(e.path);
           continue;
         }
