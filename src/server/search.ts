@@ -343,7 +343,7 @@ export async function search(
               { message_id: string } | undefined
           )?.message_id;
       const agent = d.agent_id
-        ? agentsQueries.searchIdentity(db, d.agent_id, owner)
+        ? agentsQueries.ownedDisplay(db, d.agent_id, owner)
         : {};
       return {
         ...d,

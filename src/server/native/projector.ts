@@ -544,7 +544,7 @@ export class NativeProjector {
           now(),
           checkpoint.artifact_id,
         );
-        artifactVersionsQueries.updateNativeOutput(
+        artifactVersionsQueries.updateInitialContent(
           db,
           output,
           checkpoint.artifact_id,

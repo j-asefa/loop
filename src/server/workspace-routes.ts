@@ -247,7 +247,7 @@ routes.on(workspaceApi.artifactUpdate, (req, res) => {
     );
     if (d.content !== undefined) {
       artifactsQueries.markEdited(db, a.id);
-      artifactVersionsQueries.insertValues(
+      artifactVersionsQueries.insert(
         db,
         id(),
         a.id,

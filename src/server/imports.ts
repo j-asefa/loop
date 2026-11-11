@@ -384,7 +384,7 @@ export async function executeImport(run: Run) {
       ) as { id: string } | undefined;
       if (!conversation) {
         conversation = { id: id() };
-        conversationsQueries.insertImported(
+        conversationsQueries.insertExternal(
           db,
           conversation.id,
           run.owner_id,

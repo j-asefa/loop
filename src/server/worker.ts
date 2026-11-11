@@ -65,7 +65,7 @@ export async function tick(
     if (!accepting()) return false;
     assertExecutionGeneration(workerId);
     const p = candidate.payload;
-    const c = connectionsQueries.workerMetadata(
+    const c = connectionsQueries.metadata(
       db,
       p.connectionId || "",
       candidate.owner_id,

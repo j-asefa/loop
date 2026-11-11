@@ -346,21 +346,6 @@ export function status(
     : parseRecord(statusRow, row, "connections");
 }
 
-const workerMetadataStatement = statement(
-  "SELECT metadata FROM connections WHERE id=? AND owner_id=?",
-);
-const workerMetadataRow = QueryRecords.connections.pick({ metadata: true });
-export function workerMetadata(
-  db: Database.Database,
-  id: string,
-  owner: string,
-) {
-  const row = workerMetadataStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(workerMetadataRow, row, "connections");
-}
-
 const subscriptionNeedsReconnectStatement = statement(
   "UPDATE connections SET status='needs_reconnect' WHERE id=? AND owner_id=? AND status='connected'",
 );
