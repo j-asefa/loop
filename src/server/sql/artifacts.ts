@@ -1,5 +1,6 @@
 import type { CardSelection } from "../../shared/cards.js";
 import { FOLDER_PROJECT } from "./folders.js";
+import { ArtifactKindSchema } from "../../shared/artifact-kind.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -155,7 +156,7 @@ export function page(
   if (options.cursor) where += " AND p.sequence<?";
   if (saved) where += ` AND ${fileArtifactSql}`;
   else if (options.files)
-    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','code','table','diagram','chart')`;
+    where += ` AND ${fileArtifactSql} AND a.kind IN ('file','image','table','diagram','chart')`;
   else where += ` AND ${resultOutputSql}`;
   return pageStatement(
     `SELECT a.*,r.state run_state,r.error run_error,json_remove(a.metadata,'$.appResource.html','$.toolResult') AS metadata,p.sequence AS cursor,g.name,g.provider,(SELECT team_id FROM conversations WHERE id=a.conversation_id) team_id FROM artifacts a JOIN ${saved ? "artifact_bookmarks" : "artifact_publications"} p ON p.artifact_id=a.id LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id LEFT JOIN agents g ON g.id=a.agent_id WHERE ${where} ORDER BY p.sequence DESC LIMIT ?`,
@@ -553,7 +554,7 @@ export const cardRow = z.object({
   created_at: z.number(),
   updated_at: z.number().nullable(),
   title: z.string().nullable(),
-  kind: z.string().nullable(),
+  kind: ArtifactKindSchema.nullable(),
   version: z.number().nullable(),
   role: z.string().nullable(),
   conversation_id: z.string().nullable(),

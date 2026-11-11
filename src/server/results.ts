@@ -49,14 +49,7 @@ export function resultsUpdates(
   ) as any[];
   const items = [],
     removed: string[] = [];
-  const fileKinds = new Set([
-    "file",
-    "image",
-    "code",
-    "table",
-    "diagram",
-    "chart",
-  ]);
+  const fileKinds = new Set(["file", "image", "table", "diagram", "chart"]);
   for (const row of rows) {
     const {
       change_revision: _revision,
