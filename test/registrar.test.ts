@@ -36,7 +36,7 @@ routes.on({ ...contract, path: "/async-error" }, async () => {
 const app = express();
 app.use(
   express.json(),
-  (req, res, next) => {
+  (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.path === "/runs/fixture-run/reorder") {
       res.locals.owner = "registrar-owner";
       res.locals.bearer = { tokenId: "registrar-token", admission: ["write"] };
