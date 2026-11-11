@@ -1,3 +1,5 @@
+import * as eventQueries from "./sql/events.js";
+import * as watermarkQueries from "./sql/change-watermark.js";
 import { installLocalEffectAuthority } from "./effect-authority.js";
 import { refuseRecordedEffects } from "./recorded-effects.js";
 import { projectFeed } from "./feed-projector.js";
@@ -63,31 +65,10 @@ export const changes = createChangeBus(db, { pollMs: config.changePollMs });
 wakeChanges = changes.wake;
 export const deadlines = createDeadlineScheduler(db, changes);
 export function workspaceClock(owner: string) {
-  const identity = db
-    .prepare(
-      `SELECT COALESCE(w.epoch,c.epoch) epoch,COALESCE(w.last_event_id,0) cursor
-    FROM change_log_identity c LEFT JOIN change_watermark w ON w.owner_id=? WHERE c.singleton=1`,
-    )
-    .get(owner) as { epoch: string; cursor: number };
-  return { ...changeClock(db, owner), ...identity };
+  return { ...changeClock(db, owner), ...watermarkQueries.snapshot(db, owner) };
 }
 export function ensureWorkspaceOwner(owner: string): string {
-  const existing = db
-    .prepare("SELECT epoch FROM change_watermark WHERE owner_id=?")
-    .get(owner) as { epoch: string } | undefined;
-  if (existing) return existing.epoch;
-  return db
-    .transaction(() => {
-      db.prepare(
-        "INSERT OR IGNORE INTO change_watermark(owner_id,last_event_id,epoch) SELECT ?,0,epoch FROM change_log_identity WHERE singleton=1",
-      ).run(owner);
-      return (
-        db
-          .prepare("SELECT epoch FROM change_watermark WHERE owner_id=?")
-          .get(owner) as { epoch: string }
-      ).epoch;
-    })
-    .immediate();
+  return watermarkQueries.ensureOwner(db, owner);
 }
 // Capture before deleting a subject, inside the deletion transaction.
 export function emit(
@@ -101,19 +82,15 @@ export function emit(
       const run = subject.kind === "run" ? subject.id : null;
       if (type === "tombstone") subjects.resolve(owner, payload.removed);
       parseEmission(run, type, payload, subject);
-      const row = db
-        .prepare(
-          "INSERT INTO events(owner_id,run_id,type,payload,created_at,subject_kind,subject_id) VALUES(?,?,?,?,?,?,?)",
-        )
-        .run(
-          owner,
-          run,
-          type,
-          JSON.stringify(payload),
-          now(),
-          subject.kind,
-          subject.id,
-        ).lastInsertRowid;
+      const row = eventQueries.insert(db, {
+        owner_id: owner,
+        run_id: run,
+        type,
+        payload: JSON.stringify(payload),
+        created_at: now(),
+        subject_kind: subject.kind,
+        subject_id: subject.id,
+      });
       wakeChanges();
       return row;
     })
