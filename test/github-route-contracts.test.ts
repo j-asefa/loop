@@ -1,3 +1,4 @@
+import express from "express";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ const directory = mkdtempSync(join(tmpdir(), "loop-github-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
-const { app } = await import("../src/server/index");
+const { app: productionApp } = await import("../src/server/index");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { OWNER: owner } = await import("../src/server/workspace-identity");
 const { closeExecution } = await import("../src/server/execution-client");
@@ -24,7 +25,8 @@ const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { seal } = await import("../src/server/secrets");
-const { withGithubFixture } = await import("../src/server/github-api");
+const { createGithubClient, withGithubClient } =
+  await import("../src/server/github-api");
 const { watchCreatedPullRequest } = await import("../src/server/pr-watches");
 const { fakeGithub, FIRST_HEAD } = await import(
   resolve("scripts/helpers/fake-github.mjs")
@@ -48,19 +50,25 @@ function privateFields(value: unknown): unknown {
   }
   return value;
 }
-const restoreGithub = withGithubFixture(async (url, init) => {
-  if (init.method && init.method !== "GET" && !url.endsWith("/graphql")) {
-    attemptedWrites++;
-    if (failWrite) throw new TypeError("fixture disconnect after dispatch");
-  }
-  const response = await fetch(url, init);
-  if (!response.headers.get("content-type")?.includes("application/json"))
-    return response;
-  return Response.json(privateFields(await response.json()), {
-    status: response.status,
-    headers: response.headers,
-  });
-}, github.base);
+const githubClient = createGithubClient({
+  fetch: async (url, init) => {
+    if (init.method && init.method !== "GET" && !url.endsWith("/graphql")) {
+      attemptedWrites++;
+      if (failWrite) throw new TypeError("fixture disconnect after dispatch");
+    }
+    const response = await fetch(url, init);
+    if (!response.headers.get("content-type")?.includes("application/json"))
+      return response;
+    return Response.json(privateFields(await response.json()), {
+      status: response.status,
+      headers: response.headers,
+    });
+  },
+  base: github.base,
+});
+const app = express();
+app.use((_req, _res, next) => withGithubClient(githubClient, next));
+app.use(productionApp);
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
@@ -196,7 +204,6 @@ db.exec("ALTER TABLE pr_watches ADD COLUMN private_column TEXT;");
 db.prepare("UPDATE pr_watches SET private_column='private-column-value'").run();
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  restoreGithub();
   await github.close();
   await closeExecution();
   await nativeSessions.close();

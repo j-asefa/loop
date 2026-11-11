@@ -9,6 +9,9 @@ const dir = mkdtempSync(join(tmpdir(), "loop-pr-watch-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { createGithubClient, withGithubClient } =
+  await import("../src/server/github-api");
+
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
 const { submit } = await import("../src/server/agent-runtime");
@@ -16,16 +19,26 @@ const { transition } = await import("../src/server/queue");
 const { feed } = await import("../src/server/mobile-return");
 const {
   prWatches,
-  pollWatch,
-  pollWatches,
+  pollWatch: unscopedPollWatch,
+  pollWatches: unscopedPollWatches,
   stopWatch,
   watchCreatedPullRequest,
-  watchNativeCreatedPullRequest,
-  withGithubFixture,
+  watchNativeCreatedPullRequest: unscopedWatchNativeCreatedPullRequest,
   TURNS_PER_HOUR,
 } = await import("../src/server/pr-watches");
 
+const pollWatch = (...args: Parameters<typeof unscopedPollWatch>) =>
+  withGithubClient(githubClient, () => unscopedPollWatch(...args));
+const pollWatches = (...args: Parameters<typeof unscopedPollWatches>) =>
+  withGithubClient(githubClient, () => unscopedPollWatches(...args));
+const watchNativeCreatedPullRequest = (
+  ...args: Parameters<typeof unscopedWatchNativeCreatedPullRequest>
+) =>
+  withGithubClient(githubClient, () =>
+    unscopedWatchNativeCreatedPullRequest(...args),
+  );
 const app = express();
+app.use((_req, _res, next) => withGithubClient(githubClient, next));
 app.use(express.json(), (req, res, next) => {
   res.locals.owner = req.get("x-owner") || "alice";
   next();
@@ -53,7 +66,6 @@ async function api(
   return { status: response.status, data: await response.json() };
 }
 afterAll(async () => {
-  restoreGithub();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -75,63 +87,67 @@ const github = {
   onPull: undefined as (() => void) | undefined,
   requests: [] as { url: string; authorization: string }[],
 };
-const restoreGithub = withGithubFixture(async (url, init) => {
-  const headers = init.headers as Record<string, string>;
-  github.requests.push({ url, authorization: headers.authorization });
-  const { pathname: path, searchParams } = new URL(url);
-  const json = (value: unknown, status = github.status) =>
-    new Response(JSON.stringify(value), { status, headers: github.headers });
-  if (path === "/user") return json({ login: "loop-bot" });
-  if (path === "/repos/acme/api/pulls/42") {
-    github.onPull?.();
-    return json(github.pull);
-  }
-  if (path.endsWith("/check-suites"))
-    return json({ check_suites: github.suites });
-  if (path.startsWith("/repos/acme/api/commits/")) {
-    const page = Number(searchParams.get("page") || 1);
-    return json({
-      total_count: github.checks.length,
-      check_runs: github.checks.slice((page - 1) * 100, page * 100),
-    });
-  }
-  // Lists page like GitHub's: 100 a page, with a Link to the last page.
-  // Items get what GitHub always sends: the author's role in the repository
-  // (a member unless a test says otherwise) and when they were posted.
-  const posted = new Date().toISOString();
-  const list = (raw: any[]) => {
-    const items = raw.map((item) => ({
-      author_association: "MEMBER",
-      created_at: posted,
-      ...(path.endsWith("/reviews") && item.state !== "PENDING"
-        ? { submitted_at: posted }
-        : {}),
-      ...item,
-    }));
-    const page = Number(searchParams.get("page") || 1);
-    const last = Math.max(1, Math.ceil(items.length / 100));
-    return new Response(
-      JSON.stringify(items.slice((page - 1) * 100, page * 100)),
-      {
-        status: github.status,
-        headers: {
-          ...github.headers,
-          ...(last > 1
-            ? {
-                link: `<${url.replace(/([?&])page=\d+/, "$1page=" + last)}>; rel="last"`,
-              }
-            : {}),
+const githubClient = createGithubClient({
+  fetch: async (url, init) => {
+    const headers = init.headers as Record<string, string>;
+    github.requests.push({ url, authorization: headers.authorization });
+    const { pathname: path, searchParams } = new URL(url);
+    const json = (value: unknown, status = github.status) =>
+      new Response(JSON.stringify(value), { status, headers: github.headers });
+    if (path === "/user") return json({ login: "loop-bot" });
+    if (path === "/repos/acme/api/pulls/42") {
+      github.onPull?.();
+      return json(github.pull);
+    }
+    if (path.endsWith("/check-suites"))
+      return json({ check_suites: github.suites });
+    if (path.startsWith("/repos/acme/api/commits/")) {
+      const page = Number(searchParams.get("page") || 1);
+      return json({
+        total_count: github.checks.length,
+        check_runs: github.checks.slice((page - 1) * 100, page * 100),
+      });
+    }
+    // Lists page like GitHub's: 100 a page, with a Link to the last page.
+    // Items get what GitHub always sends: the author's role in the repository
+    // (a member unless a test says otherwise) and when they were posted.
+    const posted = new Date().toISOString();
+    const list = (raw: any[]) => {
+      const items = raw.map((item) => ({
+        author_association: "MEMBER",
+        created_at: posted,
+        ...(path.endsWith("/reviews") && item.state !== "PENDING"
+          ? { submitted_at: posted }
+          : {}),
+        ...item,
+      }));
+      const page = Number(searchParams.get("page") || 1);
+      const last = Math.max(1, Math.ceil(items.length / 100));
+      return new Response(
+        JSON.stringify(items.slice((page - 1) * 100, page * 100)),
+        {
+          status: github.status,
+          headers: {
+            ...github.headers,
+            ...(last > 1
+              ? {
+                  link: `<${url.replace(/([?&])page=\d+/, "$1page=" + last)}>; rel="last"`,
+                }
+              : {}),
+          },
         },
-      },
-    );
-  };
-  if (path === "/repos/acme/api/issues/42/comments")
-    return list(github.comments);
-  if (path === "/repos/acme/api/pulls/42/comments")
-    return list(github.reviewComments);
-  if (path === "/repos/acme/api/pulls/42/reviews") return list(github.reviews);
-  return json({ message: "Not Found" }, 404);
-}, "https://github.test");
+      );
+    };
+    if (path === "/repos/acme/api/issues/42/comments")
+      return list(github.comments);
+    if (path === "/repos/acme/api/pulls/42/comments")
+      return list(github.reviewComments);
+    if (path === "/repos/acme/api/pulls/42/reviews")
+      return list(github.reviews);
+    return json({ message: "Not Found" }, 404);
+  },
+  base: "https://github.test",
+});
 
 function setup(owner = "alice", fetchedAt = now()) {
   const account = id();

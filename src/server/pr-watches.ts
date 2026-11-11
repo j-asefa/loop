@@ -21,7 +21,6 @@ import {
   githubToken,
   githubRepoPath,
   githubPullPath,
-  withGithubFixture,
 } from "./github-api.js";
 import {
   pullRequestKey,
@@ -48,8 +47,6 @@ const UPDATE_CHARS = 12_000;
 
 // GitHub access. Read-only REST calls with the owner's official GitHub
 // connection token; the token never reaches the model or the browser.
-
-export { withGithubFixture };
 
 async function github<T>(token: string, path: string): Promise<T> {
   return (await githubRest<T>(token, path, { context: "watch" })).data;
