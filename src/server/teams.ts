@@ -7,7 +7,6 @@ import * as teamCreationsQueries from "./sql/team-creations.js";
 import * as runsQueries from "./sql/runs.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { registrar, projectResponse } from "./registrar.js";
-import type { QueryRow } from "./query-records.js";
 
 import { z } from "zod";
 import { db, id, now } from "./db.js";
@@ -27,14 +26,9 @@ import { startCodeReview, reviewStatus } from "./code-reviews.js";
 import { assertTeamConnection } from "./team-eligibility.js";
 
 export function listTeams(owner: string) {
-  return (teamsQueries.active(db, owner) as QueryRow<"teams">[]).map((t) => ({
+  return teamsQueries.active(db, owner).map((t) => ({
     ...t,
-    members: (
-      teamMembersQueries.agents(db, t.id) as Pick<
-        QueryRow<"team_members">,
-        "agent_id"
-      >[]
-    ).map((m) => m.agent_id),
+    members: teamMembersQueries.agents(db, t.id).map((m) => m.agent_id),
     paused_threads: (
       agentThreadsQueries.pausedCount(db, owner, t.id) as { n: number }
     ).n,
@@ -111,8 +105,7 @@ export function createPresetTeam(owner: string, input: unknown) {
     .digest("hex");
   return db
     .transaction(() => {
-      const prior = teamCreationsQueries.get(db, owner, idempotencyKey) as
-        QueryRow<"team_creations"> | undefined;
+      const prior = teamCreationsQueries.get(db, owner, idempotencyKey);
       if (prior) {
         if (prior.request_hash !== hash)
           throw new Problem(
@@ -211,8 +204,7 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
 }
 // Called inside the agent PATCH transaction, before clearing retired_at.
 export function assertTeamRestoreCapacity(owner: string, agentId: string) {
-  const full = teamsQueries.fullForRestoredAgent(db, owner, agentId) as
-    { name: string } | undefined;
+  const full = teamsQueries.fullForRestoredAgent(db, owner, agentId);
   if (full)
     throw new Problem(
       409,
@@ -267,8 +259,7 @@ routes.on(workspaceApi.teamReview, (req, res) =>
 );
 routes.on(workspaceApi.reviewStatus, (req, res) => {
   ownedConversation(req.params.id, res.locals.owner);
-  const run = runsQueries.latestReview(db, req.params.id, res.locals.owner) as
-    { reviewId: string | null } | undefined;
+  const run = runsQueries.latestReview(db, req.params.id, res.locals.owner);
   res.json(
     projectResponse(
       workspaceApi.reviewStatus,

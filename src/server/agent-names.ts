@@ -72,9 +72,7 @@ const words =
   wren yarrow yellowhammer yew yucca zephyr zinnia zircon`.split(/\s+/);
 
 export function suggestAgentName() {
-  const occupied = new Set(
-    (handlesQueries.names(db) as { name: string }[]).map((row) => row.name),
-  );
+  const occupied = new Set(handlesQueries.names(db).map((row) => row.name));
   const available = words.filter(
     (name) => !occupied.has(name) && handle.safeParse(name).success,
   );

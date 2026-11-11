@@ -17,7 +17,7 @@ export function attachmentDescriptors(
     db,
     owner,
     JSON.stringify(ids),
-  ) as UploadedFile[];
+  );
   return ids.flatMap((fileId) => rows.filter((row) => row.id === fileId));
 }
 
@@ -28,8 +28,7 @@ export function attachmentDescriptors(
 // unassigned work and ordinary folders outside an explicit project.
 export function projectFor(owner: string, folder: string | null | undefined) {
   return (
-    (foldersQueries.projectFor(db, { owner, folder: folder ?? null }) as
-      { id: string; name: string } | undefined) || null
+    foldersQueries.projectFor(db, { owner, folder: folder ?? null }) || null
   );
 }
 // A LIKE pattern that matches the text literally.

@@ -15,14 +15,7 @@ import {
 import * as approvalsQueries from "./sql/approvals.js";
 import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
-import {
-  workspaceApi,
-  PublicAgent,
-  PublicConnection,
-  PublicFolder,
-  PublicMessage,
-  ResultItem,
-} from "../shared/workspace-api.js";
+import { workspaceApi, PublicFolder } from "../shared/workspace-api.js";
 
 import {
   InvalidRow,
@@ -97,13 +90,8 @@ routes.on(workspaceApi.bootstrap, (_req, res) => {
     ...(publicPreview ? { preview: publicPreview } : {}),
     environmentName: hostEnvironmentName(),
     teams: listTeams(res.locals.owner),
-    agents: agentsQueries.forOwner(db, res.locals.owner) as z.input<
-      typeof PublicAgent
-    >[],
-    connections: connectionsQueries.publicCatalog(
-      db,
-      res.locals.owner,
-    ) as z.input<typeof PublicConnection>[],
+    agents: agentsQueries.forOwner(db, res.locals.owner),
+    connections: connectionsQueries.publicCatalog(db, res.locals.owner),
     folders: foldersQueries.withProjects(db, res.locals.owner) as z.input<
       typeof PublicFolder
     >[],
@@ -654,7 +642,7 @@ routes.on(
           cursor: !!cursor,
         },
         values,
-      ) as z.input<typeof ResultItem>[];
+      );
       res.json(
         tokenResultPage(
           res.locals.owner,
@@ -682,7 +670,7 @@ routes.on(
       },
       params,
       limit,
-    ) as z.input<typeof ResultItem>[];
+    );
     res.json(
       tokenResultPage(
         res.locals.owner,
@@ -789,11 +777,7 @@ routes.on(workspaceApi.messageDetail, (req, res) =>
 );
 routes.on(workspaceApi.messageSearch, (req, res) => {
   const { q } = req.query;
-  res.json(
-    messagesQueries.search(db, res.locals.owner, q) as z.input<
-      typeof PublicMessage
-    >[],
-  );
+  res.json(messagesQueries.search(db, res.locals.owner, q));
 });
 
 routes.on(workspaceApi.artifactFile, (req, res) => {

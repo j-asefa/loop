@@ -35,9 +35,7 @@ export function continueConversation(
         db,
         owner,
         data.start.idempotencyKey,
-      ) as
-        | { request: string; conversation_id: string; run_id: string }
-        | undefined;
+      );
       if (previous) {
         if (previous.request !== request)
           throw new Problem(
@@ -69,17 +67,14 @@ export function continueConversation(
         throw new Problem(400, "Choose messages from this conversation only");
       // Resolve equal timestamps in source order, independent of checkbox order.
       const order = new Map(
-        (
-          messagesQueries.continuationPositions(
+        messagesQueries
+          .continuationPositions(
             db,
             owner,
             source.id,
             JSON.stringify(messageIds),
-          ) as {
-            id: string;
-            seq: number;
-          }[]
-        ).map((m) => [m.id, m.seq]),
+          )
+          .map((m) => [m.id, m.seq]),
       );
       messages.sort(
         (a, b) =>

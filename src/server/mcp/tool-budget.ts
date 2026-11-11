@@ -27,7 +27,7 @@ export function workspaceToolBindings(
   owner: string,
   candidate?: Catalog,
 ): ToolBinding[] {
-  const rows = mcpConnectionsQueries.connectedCatalog(db, owner) as Catalog[];
+  const rows = mcpConnectionsQueries.connectedCatalog(db, owner);
   const catalogs = candidate
     ? [...rows.filter((row) => row.id !== candidate.id), candidate].sort(
         (a, b) => a.id.localeCompare(b.id),

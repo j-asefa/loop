@@ -4,13 +4,7 @@ import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
 import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
-import {
-  authorize,
-  discover,
-  readSecret,
-  type AuthSecret,
-  type MCPConnection,
-} from "./client.js";
+import { authorize, discover, readSecret, type AuthSecret } from "./client.js";
 import { catalog, type CatalogDefinition } from "./catalog-data.js";
 import type { CatalogInstallResult } from "../../shared/mcp-catalog.js";
 import { ToolBudgetError } from "./tool-budget.js";
@@ -64,15 +58,14 @@ async function install(
   // One catalog installation per workspace, independent of the requesting agent.
   const c = db
     .transaction(() => {
-      let existing = mcpConnectionsQueries.byCatalog(db, owner, entry.id) as
-        MCPConnection | undefined;
+      let existing = mcpConnectionsQueries.byCatalog(db, owner, entry.id);
       // Reuse a manually configured hosted connection, including earlier Datadog installs.
       if (!existing && entry.serverUrl)
         existing = mcpConnectionsQueries.uncataloguedUrl(
           db,
           owner,
           entry.serverUrl,
-        ) as MCPConnection | undefined;
+        );
       const metadata = existing ? JSON.parse(existing.metadata) : {};
       if (existing?.status === "connected" && !Object.keys(values).length) {
         mcpConnectionsQueries.setMetadata(

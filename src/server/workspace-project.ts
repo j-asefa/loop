@@ -8,11 +8,7 @@ export function isWorkspaceProject(owner: string, project: string) {
 
 /** Materialize the default project once per owner without refiling work. */
 export function ensureWorkspaceProject(owner: string): string {
-  const read = () =>
-    (
-      workspaceProjectsQueries.forOwner(db, owner) as
-        { project_id: string } | undefined
-    )?.project_id;
+  const read = () => workspaceProjectsQueries.forOwner(db, owner)?.project_id;
   const existing = read();
   if (existing) return existing;
   return db

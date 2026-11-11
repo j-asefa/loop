@@ -5,7 +5,7 @@ import * as runsQueries from "../sql/runs.js";
 import { workspaceApi } from "../../shared/workspace-api.js";
 import { McpToolCallInput } from "../../shared/mcp-contract-schemas.js";
 import { registrar, projectResponse } from "../registrar.js";
-import type { QueryRow } from "../query-records.js";
+
 import { InvalidRow, runResponse } from "../row-schemas.js";
 
 import { z } from "zod";
@@ -215,12 +215,7 @@ routes.on(workspaceApi.mcpOauthCallback, async (req, res) => {
     code = String(req.query.code || "");
   const saved = db
     .transaction(() => {
-      const row = oauthStatesQueries.active(
-        db,
-        state,
-        res.locals.owner,
-        now(),
-      ) as QueryRow<"oauth_states"> | undefined;
+      const row = oauthStatesQueries.active(db, state, res.locals.owner, now());
       if (!row)
         throw new Problem(
           403,

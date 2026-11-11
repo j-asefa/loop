@@ -123,7 +123,7 @@ export function applyActivity(
         scope.owner,
         scopeOf(scope),
         key,
-      ) as { record: string } | undefined;
+      );
       const stored = row
         ? (JSON.parse(row.record) as ActivityRecord)
         : undefined;
@@ -184,9 +184,9 @@ type NativeLive = {
 // Owner of a native conversation, checked against the run(s) the live
 // session claims. A run bound to another conversation or owner is rejected.
 function nativeOwner(live: NativeLive) {
-  const owner = (
-    conversationsQueries.owner(db, live.binding.conversation_id) as
-      { owner_id: string } | undefined
+  const owner = conversationsQueries.owner(
+    db,
+    live.binding.conversation_id,
   )?.owner_id;
   if (!owner) return;
   if (
@@ -299,7 +299,7 @@ export function setActivityCapabilities(
         scope.owner,
         scopeOf(scope),
         key,
-      ) as { record: string } | undefined;
+      );
       if (row?.record === JSON.stringify(record))
         return { applied: false, key, reason: "no change" };
       const sequence = write(scope, key, "capabilities", record, true);
@@ -337,21 +337,15 @@ export function listActivities(
   ) {
     const initial = options.view === "recent";
     const rows = initial
-      ? ["settings", "commands", "capabilities"].flatMap(
-          (kind) =>
-            agentActivitiesQueries.recentKind(
-              db,
-              owner,
-              conversation,
-              kind,
-            ) as Row[],
+      ? ["settings", "commands", "capabilities"].flatMap((kind) =>
+          agentActivitiesQueries.recentKind(db, owner, conversation, kind),
         )
-      : (agentActivitiesQueries.controlUpdates(
+      : agentActivitiesQueries.controlUpdates(
           db,
           owner,
           conversation,
           options.after ?? 0,
-        ) as Row[]);
+        );
     const more = !initial && rows.length > 500;
     if (more) rows.pop();
     const cursor = initial
@@ -375,7 +369,7 @@ export function listActivities(
       owner,
       conversation,
       options.before ?? Number.MAX_SAFE_INTEGER,
-    ) as Row[];
+    );
     const more = rows.length > 100;
     if (more) rows.pop();
     const next = more ? rows.at(-1)!.sequence : null;
@@ -391,14 +385,8 @@ export function listActivities(
     // even if hundreds of newer tool updates put them outside the recent page.
     const controls =
       options.before === undefined
-        ? ["settings", "commands", "capabilities"].flatMap(
-            (kind) =>
-              agentActivitiesQueries.recentKind(
-                db,
-                owner,
-                conversation,
-                kind,
-              ) as Row[],
+        ? ["settings", "commands", "capabilities"].flatMap((kind) =>
+            agentActivitiesQueries.recentKind(db, owner, conversation, kind),
           )
         : [];
     const byKey = new Map(
@@ -423,7 +411,7 @@ export function listActivities(
       conversation,
       runs,
       options.after ?? 0,
-    ) as Row[];
+    );
     const more = rows.length > 500;
     if (more) rows.pop();
     return {
@@ -439,7 +427,7 @@ export function listActivities(
     conversation,
     options.after || 0,
     options.run || null,
-  ) as Row[];
+  );
   const more = rows.length > 500;
   if (more) rows.pop();
   const items = rows.map(activityItem);

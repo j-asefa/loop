@@ -1,7 +1,7 @@
 import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
-import { readSecret, type MCPConnection } from "./mcp/client.js";
+import { readSecret } from "./mcp/client.js";
 import { isGithubMcpUrl } from "../shared/github.js";
 
 // Server-side GitHub access with the owner's official GitHub connection
@@ -36,10 +36,7 @@ export function withGithubFixture(
  * oldest connection first. Never inferred from a connection's display name.
  */
 export function githubTokens(owner: string) {
-  const connections = mcpConnectionsQueries.githubCandidates(
-    db,
-    owner,
-  ) as MCPConnection[];
+  const connections = mcpConnectionsQueries.githubCandidates(db, owner);
   const tokens = new Set<string>();
   for (const connection of connections) {
     if (!isGithubMcpUrl(connection.url)) continue;

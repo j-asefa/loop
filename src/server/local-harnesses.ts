@@ -32,7 +32,7 @@ export async function prepareLocalHarnesses(
       db,
       nativeConnectionId(name),
       OWNER,
-    ) as { status: string; metadata: string } | undefined;
+    );
     // An intentional disconnect is not an invitation to sign in again.
     if (connection?.status === "disconnected") continue;
     const saved = nativeSessions.projects.savedRegistration(name);

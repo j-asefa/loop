@@ -1,7 +1,7 @@
 import * as toolInvocationsQueries from "../sql/tool-invocations.js";
 import * as approvalsQueries from "../sql/approvals.js";
 import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
-import { QueryRecords, type QueryRow } from "../query-records.js";
+import { QueryRecords } from "../query-records.js";
 
 import { watchRun } from "../run-signal.js";
 import { assertEffect } from "../effect-authority.js";
@@ -139,8 +139,7 @@ export async function invokeTool(
     binding.tool,
     args,
   );
-  let invocation = toolInvocationsQueries.byCall(db, run.id, callId) as
-    QueryRow<"tool_invocations"> | undefined;
+  let invocation = toolInvocationsQueries.byCall(db, run.id, callId);
   if (
     invocation &&
     (invocation.connection_id !== connection.id ||
@@ -326,10 +325,7 @@ export async function invokeTool(
           run: run.id,
           folder: run.payload.folderId,
           metadata: {
-            messageId: (
-              agentCheckpointsQueries.message(db, run.id) as
-                QueryRow<"agent_checkpoints"> | undefined
-            )?.message_id,
+            messageId: agentCheckpointsQueries.message(db, run.id)?.message_id,
             connectionId: connection.id,
             tool: binding.tool,
             arguments: args,

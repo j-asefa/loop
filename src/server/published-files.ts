@@ -2,7 +2,7 @@ import { workspaceLink } from "../shared/workspace-links.js";
 import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 import * as artifactPublicationsQueries from "./sql/artifact-publications.js";
 import * as companionSessionsQueries from "./sql/companion-sessions.js";
-import type { QueryRow } from "./query-records.js";
+
 import { agentPayload } from "./row-schemas.js";
 
 import { createHash, randomUUID } from "node:crypto";
@@ -104,7 +104,7 @@ export function storePublishedFile(
         run.id,
         callId,
         run.owner_id,
-      ) as { artifact_id: string } | undefined;
+      );
       const name =
         basename(file.name.replaceAll("\\", "/"))
           .replace(/[\x00-\x1f\x7f]/g, "")
@@ -175,15 +175,7 @@ export async function publishRunFile(
     run.id,
     callId,
     run.owner_id,
-  ) as
-    | {
-        id: string;
-        title: string;
-        metadata: string;
-        mime: string;
-        size: number;
-      }
-    | undefined;
+  );
   if (prior)
     return {
       artifactId: prior.id,
@@ -209,8 +201,7 @@ export async function publishRunFile(
   const connection = ownedConnection(snapshot.connectionId, run.owner_id);
   const metadata = connection.metadata;
   const binding = metadata.loopHarness
-    ? (companionSessionsQueries.project(db, run.conversation_id) as
-        { project: string } | undefined)
+    ? companionSessionsQueries.project(db, run.conversation_id)
     : undefined;
   if (metadata.loopHarness && !binding)
     throw new Problem(409, "Native workspace unavailable");
@@ -268,8 +259,7 @@ export async function publishRunFile(
 
 export function localArtifact(owner: string, artifactId: string) {
   ownedArtifact(artifactId, owner);
-  const object = artifactObjectsQueries.owned(db, artifactId, owner) as
-    QueryRow<"artifact_objects"> | undefined;
+  const object = artifactObjectsQueries.owned(db, artifactId, owner);
   if (!object) throw new Problem(404, "Local file unavailable");
   if (
     !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(

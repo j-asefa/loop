@@ -3,19 +3,6 @@ import { db } from "./db.js";
 import { Problem } from "./domain.js";
 import { z } from "zod";
 
-type HistoryRow = {
-  id: string;
-  content: string;
-  created_at: number;
-  conversation_id: string;
-  attachments: string | null;
-  conversation_title: string;
-  agent_name: string | null;
-  provider: string | null;
-  agent_id: string | null;
-  project_name: string | null;
-};
-
 export { personalMessageSql } from "./sql/messages.js";
 
 // The owner is supplied by authentication, never by query parameters. Projects
@@ -39,7 +26,7 @@ export function personalHistory(owner: string, before?: string, q?: string) {
     owner,
     q || null,
     ...cursor,
-  ) as HistoryRow[];
+  );
   const more = items.length > 50;
   if (more) items.pop();
   const last = items.at(-1);

@@ -63,7 +63,7 @@ export function createScheduledSend(owner: string, body: unknown) {
         db,
         owner,
         d.idempotencyKey,
-      ) as ScheduledSend | undefined;
+      );
       if (prior) {
         const same =
           prior.agent_id === d.agentId &&
@@ -137,8 +137,7 @@ export function createScheduledSend(owner: string, body: unknown) {
 }
 
 function scheduledSend(owner: string, sendId: string) {
-  return scheduledSendsQueries.owned(db, sendId, owner) as
-    ScheduledSend | undefined;
+  return scheduledSendsQueries.owned(db, sendId, owner);
 }
 
 /**
@@ -170,7 +169,7 @@ export function listScheduledSends(
     created: cursor?.created ?? null,
     id: cursor?.id ?? null,
     limit: FAILED_PAGE + 1,
-  }) as ScheduledSend[];
+  });
   const more = failed.length > FAILED_PAGE;
   if (more) failed.pop();
   const last = failed.at(-1);
@@ -322,12 +321,11 @@ export function retryScheduledSend(owner: string, sendId: string) {
 // definite refusal marks a message failed; any other error rolls back and the
 // message is tried again on the next pass.
 export function deliverScheduledSends(time = now()) {
-  const due = scheduledSendsQueries.dueIds(db, time) as { id: string }[];
+  const due = scheduledSendsQueries.dueIds(db, time);
   let submitted = 0;
   for (const { id: sendId } of due)
     db.transaction(() => {
-      const row = scheduledSendsQueries.scheduled(db, sendId) as
-        ScheduledSend | undefined;
+      const row = scheduledSendsQueries.scheduled(db, sendId);
       if (!row) return;
       try {
         submitScheduled(row);

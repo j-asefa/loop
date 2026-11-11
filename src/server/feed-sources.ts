@@ -76,11 +76,11 @@ type SourceRow = {
 
 /** The feeds this owner added by URL, oldest first. */
 export function ownSources(owner: string): FeedEntry[] {
-  return (feedSourcesQueries.forOwner(db, owner) as SourceRow[]).map(asEntry);
+  return feedSourcesQueries.forOwner(db, owner).map(asEntry);
 }
 
 export function ownSource(owner: string, id: string) {
-  const row = feedSourcesQueries.owned(db, owner, id) as SourceRow | undefined;
+  const row = feedSourcesQueries.owned(db, owner, id);
   return row ? asEntry(row) : null;
 }
 
@@ -279,13 +279,7 @@ export function importOpml(owner: string, document: unknown) {
   const added: string[] = [];
   const skipped: { url: string; reason: string }[] = [];
   const found = outlines(text);
-  const have = new Set(
-    (
-      feedSourcesQueries.ids(db, owner) as {
-        id: string;
-      }[]
-    ).map((row) => row.id),
-  );
+  const have = new Set(feedSourcesQueries.ids(db, owner).map((row) => row.id));
   for (const attrs of found) {
     const address = attribute(attrs, "xmlUrl");
     if (!address) continue;

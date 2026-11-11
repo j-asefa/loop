@@ -26,12 +26,7 @@ export function forkConversation(
       const agent = ownedAgent(agentId, owner);
       if (!agent.connection_id)
         throw new Problem(409, "Choose an agent with a connected model");
-      const target = messagesQueries.forkPosition(
-        db,
-        d.messageId,
-        owner,
-        c.id,
-      ) as { seq: number; created_at: number } | undefined;
+      const target = messagesQueries.forkPosition(db, d.messageId, owner, c.id);
       if (!target)
         throw new Problem(404, "Message not found in this conversation");
       const messages = parseMessages(

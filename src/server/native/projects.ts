@@ -112,8 +112,7 @@ export class NativeProjects {
     if (this.context.isStopped())
       throw new ExecutionRefused(409, "Workspace is stopping");
     if (options.harness === "acp") {
-      const existing = harnessesQueries.acpOptions(db) as
-        { options: string } | undefined;
+      const existing = harnessesQueries.acpOptions(db);
       if (existing) {
         const saved = JSON.parse(existing.options) as Options;
         if (
@@ -178,12 +177,10 @@ export class NativeProjects {
     // their last native-default run reported (see NativeProjector).
     const observed = native.defaultModelOption
       ? undefined
-      : (
-          connectionsQueries.resolvedNativeModel(
-            db,
-            nativeConnectionId(options.harness),
-            OWNER,
-          ) as { model: string | null } | undefined
+      : connectionsQueries.resolvedNativeModel(
+          db,
+          nativeConnectionId(options.harness),
+          OWNER,
         )?.model;
     const models = [
       native.defaultModelOption || {
@@ -286,8 +283,7 @@ export class NativeProjects {
     const seen = new Set<string>();
     while (folder && !seen.has(folder)) {
       seen.add(folder);
-      const row = foldersQueries.parentProjectPath(db, folder, OWNER) as
-        { parent_id: string | null; path: string | null } | undefined;
+      const row = foldersQueries.parentProjectPath(db, folder, OWNER);
       if (row?.path) return this.directory(row.path);
       folder = row?.parent_id ?? null;
     }

@@ -23,20 +23,8 @@ export function conversationOutline(
   ownedConversation(conversation, owner);
   if (q?.trim())
     return { items: [], matches: threadMatches(owner, conversation, q.trim()) };
-  const messages = messagesQueries.outline(db, owner, conversation) as {
-    id: string;
-    run_id: string | null;
-    role: string;
-    content: string;
-    created_at: number;
-    seq: number;
-  }[];
-  const runs = runsQueries.outline(db, owner, conversation) as {
-    id: string;
-    state: string;
-    error: string | null;
-    approvals: number;
-  }[];
+  const messages = messagesQueries.outline(db, owner, conversation);
+  const runs = runsQueries.outline(db, owner, conversation);
   const saved = new Set(conversationReturnState(owner, conversation).saved);
   const order = new Map(messages.map((m) => [m.id, m.seq]));
   const items: OutlineItem[] = [];
@@ -106,18 +94,7 @@ function threadMatches(owner: string, conversation: string, q: string) {
     owner,
     conversation,
     q: pattern,
-  }) as {
-    id: string;
-    role: string;
-    run_id: string | null;
-    content: string;
-    created_at: number;
-    progress: number;
-    run_state: string | null;
-    run_error: string | null;
-    final: number;
-    last: number;
-  }[];
+  });
   const saved = new Set(conversationReturnState(owner, conversation).saved);
   const needle = q.toLowerCase();
   const matches: ThreadMatch[] = [];

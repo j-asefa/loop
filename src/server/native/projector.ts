@@ -11,7 +11,7 @@ import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
 import { MessageMetadata, agentPayload } from "../row-schemas.js";
-import type { QueryRow } from "../query-records.js";
+
 import { observeCompletedOutput } from "../run-verifications.js";
 
 import { createHash } from "node:crypto";
@@ -70,7 +70,7 @@ export class NativeProjector {
       const current = companionSessionsQueries.generation(
         db,
         live.binding.conversation_id,
-      ) as { generation: string } | undefined;
+      );
       const usage = input.usage;
       if (
         !run ||
@@ -159,7 +159,7 @@ export class NativeProjector {
       const current = companionSessionsQueries.generation(
         db,
         live.binding.conversation_id,
-      ) as { generation: string } | undefined;
+      );
       if (
         model &&
         model.length <= 200 &&
@@ -211,7 +211,7 @@ export class NativeProjector {
           live.binding.conversation_id,
           run.id,
           event.id,
-        ) as { item: string } | undefined;
+        );
         if (stored) previous = JSON.parse(stored.item) as Item;
       }
       const item = {
@@ -403,7 +403,7 @@ export class NativeProjector {
     const current = companionSessionsQueries.generation(
       db,
       live.binding.conversation_id,
-    ) as { generation: string | null } | undefined;
+    );
     if (current?.generation !== live.generation) return;
     const transport = ["acp", "grok"].includes(live.binding.harness)
       ? "acp"
@@ -446,7 +446,7 @@ export class NativeProjector {
         const current = companionSessionsQueries.generation(
           db,
           run.conversation_id,
-        ) as { generation: string } | undefined;
+        );
         return current?.generation === generation;
       };
       void import("../pr-watches.js")
@@ -485,8 +485,7 @@ export class NativeProjector {
     if (!run) return;
     clearTimeout(live.flush);
     live.flush = undefined;
-    const checkpoint = agentCheckpointsQueries.get(db, run.id) as
-      QueryRow<"agent_checkpoints"> | undefined;
+    const checkpoint = agentCheckpointsQueries.get(db, run.id);
     if (!checkpoint) return;
     let finalItem = !partial
       ? [...live.items.values()].findLast(

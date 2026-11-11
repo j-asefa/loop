@@ -499,12 +499,9 @@ async function read(watch: PrWatch, token: string) {
   const postedAt = (c: Comment) =>
     Date.parse(c.submitted_at || c.created_at || "");
   const seen = new Set(
-    (
-      prWatchSeenQueries.forWatch(db, watch.id) as {
-        kind: string;
-        item_id: number;
-      }[]
-    ).map((s) => s.kind + ":" + s.item_id),
+    prWatchSeenQueries
+      .forWatch(db, watch.id)
+      .map((s) => s.kind + ":" + s.item_id),
   );
   // Ids up to a watch's cursor were handled before ids were tracked.
   const floor: Record<Kind, number> = {

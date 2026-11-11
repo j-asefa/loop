@@ -69,7 +69,7 @@ export async function tick(
       db,
       p.connectionId || "",
       candidate.owner_id,
-    ) as { metadata: string } | undefined;
+    );
     if (!c) return true;
     const harness =
       readJson(
@@ -95,8 +95,7 @@ export async function tick(
   } catch (error) {
     if (error instanceof RunDeferred && deferUndispatched(run, workerId))
       return true;
-    const checkpoint = agentCheckpointsQueries.workerStage(db, run.id) as
-      { stage: string; round: number } | undefined;
+    const checkpoint = agentCheckpointsQueries.workerStage(db, run.id);
     const phase =
       checkpoint?.stage === "tools"
         ? "tool execution"

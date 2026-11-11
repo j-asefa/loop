@@ -6,13 +6,6 @@ import { Problem } from "./domain.js";
 import { ExecutionProblem } from "../shared/problem.js";
 import type { ExecutionRequest } from "../shared/execution-authority.js";
 
-type Receipt = {
-  method: string;
-  digest: string;
-  generation: string;
-  state: string;
-  result: string | null;
-};
 const inflight = new Map<string, Promise<unknown>>();
 // Short sign-in codes must not be recoverable by guessing against a saved
 // digest. This key exists only in the authority that can reconcile the session.
@@ -21,10 +14,7 @@ const sessionDigestKey = randomBytes(32);
 // Response bodies are a bounded cache; a compacted success remains a success
 // tombstone and requires the caller to inspect current state instead of rerun.
 function compactResults(owner: string, current: string) {
-  const rows = executionCommandsQueries.resultSizes(db, owner, current) as {
-    command_id: string;
-    bytes: number;
-  }[];
+  const rows = executionCommandsQueries.resultSizes(db, owner, current);
   let count = 0,
     bytes = 0;
   for (const row of rows) {
@@ -62,7 +52,7 @@ export async function executionCommand(
         db,
         request.owner,
         commandId,
-      ) as Receipt | undefined;
+      );
       if (row) return row;
       executionCommandsQueries.start(
         db,

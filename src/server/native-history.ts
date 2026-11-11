@@ -98,10 +98,7 @@ routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
       (result.data || [])
         .map((t: any) => {
           if (!t.id || typeof t.cwd !== "string") return null;
-          const existing = companionSessionsQueries.codexConversation(
-            db,
-            t.id,
-          ) as any;
+          const existing = companionSessionsQueries.codexConversation(db, t.id);
           if (existing) return null;
           nativeCatalogQueries.upsertCodex(
             db,
@@ -124,7 +121,7 @@ routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
   });
 });
 routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
-  const record = nativeCatalogQueries.get(db, req.params.id) as any;
+  const record = nativeCatalogQueries.get(db, req.params.id);
   if (!record) throw new Problem(404, "Native history entry not found");
   const data = await inspect((native) =>
     native.inspect("thread/read", {
@@ -140,9 +137,9 @@ routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
 });
 routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
   const { commandId } = req.body;
-  const record = nativeCatalogQueries.get(db, req.params.id) as any;
+  const record = nativeCatalogQueries.get(db, req.params.id);
   if (!record) throw new Problem(404, "Native history entry not found");
-  const old = nativeHistoryActionsQueries.get(db, commandId) as any;
+  const old = nativeHistoryActionsQueries.get(db, commandId);
   if (old) {
     if (old.catalog_id !== record.id)
       throw new Problem(

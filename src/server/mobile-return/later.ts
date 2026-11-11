@@ -48,18 +48,9 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
     };
   }
   if (kind === "conversation") {
-    const c = conversationsQueries.laterTarget(db, target, owner) as
-      | {
-          id: string;
-          title: string;
-          folder_id: string | null;
-          agent_name: string | null;
-          provider: string | null;
-        }
-      | undefined;
+    const c = conversationsQueries.laterTarget(db, target, owner);
     if (!c) return null;
-    const last = messagesQueries.latestContent(db, owner, c.id) as
-      { content: string } | undefined;
+    const last = messagesQueries.latestContent(db, owner, c.id);
     return {
       title: c.title as string,
       preview: collapse(last?.content, 200),
@@ -73,18 +64,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
     };
   }
   if (kind === "message") {
-    const m = messagesQueries.laterTarget(db, target, owner) as
-      | ({
-          id: string;
-          title: string;
-          card_run_input: string | null;
-          card_run_state: string | null;
-          reply_prompt: string | null;
-          folder_id: string | null;
-          agent_name: string | null;
-          provider: string | null;
-        } & { content: string; conversation_id: string })
-      | undefined;
+    const m = messagesQueries.laterTarget(db, target, owner);
     if (!m) return null;
     return {
       title: feedCardTitle({
@@ -101,19 +81,7 @@ function laterTarget(owner: string, kind: LaterItem["kind"], target: string) {
       url: workspaceLink({ conversation: m.conversation_id, message: m.id }),
     };
   }
-  const a = artifactsQueries.laterTarget(db, target, owner) as
-    | ({
-        id: string;
-        title: string;
-        folder_id: string | null;
-        agent_name: string | null;
-        provider: string | null;
-      } & {
-        content: string;
-        conversation_id: string | null;
-        message_id: string | null;
-      })
-    | undefined;
+  const a = artifactsQueries.laterTarget(db, target, owner);
   if (!a) return null;
   return {
     title: a.title as string,
@@ -174,12 +142,7 @@ export function createLater(owner: string, body: unknown) {
           }[d.kind](db, d.targetId, owner),
         );
       if (d.projectId) ownedFolder(d.projectId, owner);
-      const replaced = laterItemsQueries.openId(
-        db,
-        owner,
-        d.kind,
-        d.targetId,
-      ) as { id: string } | undefined;
+      const replaced = laterItemsQueries.openId(db, owner, d.kind, d.targetId);
       laterItemsQueries.finishTarget(db, time, owner, d.kind, d.targetId);
       const itemId = id();
       laterItemsQueries.insert(

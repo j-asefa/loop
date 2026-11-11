@@ -22,7 +22,7 @@ export function publishReply(run: Run, callId: string, input: unknown) {
         current.owner_id,
         current.id,
         key,
-      ) as { id: string; content: string; reply_to: string } | undefined;
+      );
       if (prior) {
         if (prior.content !== args.body || prior.reply_to !== args.replyTo)
           throw new Problem(409, "Reply publication identity was reused");
@@ -36,7 +36,7 @@ export function publishReply(run: Run, callId: string, input: unknown) {
         current.id,
         args.replyTo,
         current.conversation_id,
-      ) as { id: string } | undefined;
+      );
       if (!target)
         throw new Problem(404, "Steered user message not found in this task");
       const message = recordConversationUpdate(current, key, {

@@ -98,11 +98,7 @@ class TokenEventConnection extends EventEmitter {
   }
 
   current() {
-    const row = tokenEventCursorsQueries.current(
-      db,
-      this.tokenId,
-      this.owner,
-    ) as Pick<Checkpoint, "connection_id"> | undefined;
+    const row = tokenEventCursorsQueries.current(db, this.tokenId, this.owner);
     return (
       row?.connection_id === this.connection &&
       activeIntegrationToken(this.owner, this.tokenId, "read")
@@ -151,8 +147,7 @@ class TokenEventConnection extends EventEmitter {
     if (!offered || offered.epoch !== query.epoch)
       throw new Error("This connection did not offer that checkpoint");
     db.transaction(() => {
-      const clock = changeWatermarkQueries.clock(db, this.owner) as
-        { epoch: string; last_event_id: number } | undefined;
+      const clock = changeWatermarkQueries.clock(db, this.owner);
       if (
         !this.current() ||
         clock?.epoch !== query.epoch ||
@@ -260,8 +255,7 @@ export function createTokenEventSockets(
             if (checkpoint.epoch)
               replay.searchParams.set("epoch", checkpoint.epoch);
             else if (query.data.after !== undefined) {
-              const clock = changeWatermarkQueries.epoch(db, owner) as
-                { epoch: string } | undefined;
+              const clock = changeWatermarkQueries.epoch(db, owner);
               if (clock) replay.searchParams.set("epoch", clock.epoch);
             }
             connectWorkspaceEvents(stream, replay, owner, "");

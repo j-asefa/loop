@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, id, now } from "../db.js";
 import { ownedAgent, ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
-import { discover, type MCPConnection } from "./client.js";
+import { discover } from "./client.js";
 import { safeUrl } from "./network.js";
 import { privateMcpUrl } from "./credentials.js";
 import { ToolBudgetError } from "./tool-budget.js";
@@ -83,11 +83,7 @@ export async function installConfig(
     const fingerprint = createHash("sha256")
       .update(JSON.stringify([name, entry]))
       .digest("hex");
-    let c = mcpConnectionsQueries.byInstallFingerprint(
-      db,
-      owner,
-      fingerprint,
-    ) as MCPConnection | undefined;
+    let c = mcpConnectionsQueries.byInstallFingerprint(db, owner, fingerprint);
     if (!c) {
       const connection = id(),
         stdio = "command" in entry;

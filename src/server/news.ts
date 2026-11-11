@@ -135,18 +135,14 @@ type FeedState = {
   stories: number;
 };
 
-const feedState = (id: string) =>
-  feedStateQueries.byFeed(db, id) as FeedState | undefined;
+const feedState = (id: string) => feedStateQueries.byFeed(db, id);
 
 /** The stories a feed last gave, or null if it has never been read. */
 function stored(id: string, state = feedState(id)): Shown | null {
   if (!state?.fetched_at) return null;
   const warm = hot.get(id);
   if (warm && warm.fetched_at === state.fetched_at) return warm;
-  const rows = feedStoriesQueries.recent(db, id, KEEP_PER_FEED) as {
-    story: string;
-    first_seen_at: number;
-  }[];
+  const rows = feedStoriesQueries.recent(db, id, KEEP_PER_FEED);
   const shown = {
     stories: rows.map((row) => ({
       ...(JSON.parse(row.story) as NewsStory),
@@ -331,12 +327,8 @@ export async function feedStories(
 
 /** Feeds someone follows that are due to be read, oldest copy first. */
 function dueFeeds(at: number, limit = PER_PASS) {
-  return (
-    feedSubscriptionsQueries.due(db, { stale: at - FRESH_MS, at, limit }) as {
-      owner_id: string;
-      feed_id: string;
-    }[]
-  )
+  return feedSubscriptionsQueries
+    .due(db, { stale: at - FRESH_MS, at, limit })
     .map(
       (row) =>
         feedById.get(row.feed_id) || ownSource(row.owner_id, row.feed_id),
@@ -368,9 +360,7 @@ export async function refreshDueFeeds(at = Date.now()) {
 
 /** Stories of feeds nobody follows any more, a month after the last read. */
 export function forgetAbandoned(at = Date.now()) {
-  const gone = feedStateQueries.abandoned(db, at - ABANDONED_MS) as {
-    feed_id: string;
-  }[];
+  const gone = feedStateQueries.abandoned(db, at - ABANDONED_MS);
   for (const { feed_id } of gone)
     db.transaction(() => {
       feedReadsQueries.removeFeed(db, feed_id);
@@ -395,21 +385,14 @@ function catalogFeed(id: string) {
 /** Which of a feed's stories this owner has read, for the list it is building. */
 function readMarks(owner: string) {
   const through = new Map(
-    (
-      feedSubscriptionsQueries.readThrough(db, owner) as {
-        feed_id: string;
-        read_through_at: number | null;
-      }[]
-    ).map((row) => [row.feed_id, row.read_through_at ?? 0]),
+    feedSubscriptionsQueries
+      .readThrough(db, owner)
+      .map((row) => [row.feed_id, row.read_through_at ?? 0]),
   );
   const marks = new Map(
-    (
-      feedReadsQueries.marks(db, owner) as {
-        feed_id: string;
-        story_id: string;
-        is_read: number;
-      }[]
-    ).map((row) => [`${row.feed_id}:${row.story_id}`, !!row.is_read] as const),
+    feedReadsQueries
+      .marks(db, owner)
+      .map((row) => [`${row.feed_id}:${row.story_id}`, !!row.is_read] as const),
   );
   return (feed: string, story: StoredStory) => {
     // Marking one story read or unread outlives a "mark all read".
@@ -424,12 +407,9 @@ function readMarks(owner: string) {
 /** Whether this owner swiped a story away, as "<feed>:<story>" lookups. */
 function dismissals(owner: string) {
   const gone = new Set(
-    (
-      feedDismissalsQueries.marks(db, owner) as {
-        feed_id: string;
-        story_id: string;
-      }[]
-    ).map((row) => `${row.feed_id}:${row.story_id}`),
+    feedDismissalsQueries
+      .marks(db, owner)
+      .map((row) => `${row.feed_id}:${row.story_id}`),
   );
   return (feed: string, story: { id: string }) =>
     gone.has(`${feed}:${story.id}`);
@@ -479,8 +459,7 @@ function splitStoryId(owner: string, value: string) {
 /** A stored story of a feed this owner follows, or 404. */
 function ownedStory(owner: string, storyId: string) {
   const { feed, story } = splitStoryId(owner, storyId);
-  const row = feedStoriesQueries.owned(db, owner, feed, story) as
-    { story: string; first_seen_at: number } | undefined;
+  const row = feedStoriesQueries.owned(db, owner, feed, story);
   if (!row) throw new Problem(404, "No such story.");
   return {
     feed,
@@ -556,9 +535,7 @@ function markAllRead(owner: string, feed?: string, at = now()) {
 
 /** Words this owner never wants to see in Social. */
 export function mutes(owner: string) {
-  return (feedMutesQueries.phrases(db, owner) as { phrase: string }[]).map(
-    (row) => row.phrase,
-  );
+  return feedMutesQueries.phrases(db, owner).map((row) => row.phrase);
 }
 
 function muteWords(owner: string, phrase: string) {
@@ -592,12 +569,7 @@ function searchStories(
   if (!feeds.length) return { stories: [] };
   const wasRead = readMarks(owner);
   const wasDismissed = dismissals(owner);
-  const rows = feedSearchQueries.search(db, ftsQuery(query), feeds, 200) as {
-    feed_id: string;
-    story_id: string;
-    story: string;
-    first_seen_at: number;
-  }[];
+  const rows = feedSearchQueries.search(db, ftsQuery(query), feeds, 200);
   const stories: SocialStory[] = [];
   for (const row of rows) {
     const story = {
@@ -633,8 +605,7 @@ function ftsQuery(query: string) {
 
 /** Whether agents this owner asks may read the feeds they follow. */
 function feedPreferences(owner: string) {
-  const row = feedPreferencesQueries.owned(db, owner) as
-    { agent_access: number; images: number } | undefined;
+  const row = feedPreferencesQueries.owned(db, owner);
   return {
     agent_access: !!row?.agent_access,
     images: !!row?.images,
@@ -777,7 +748,8 @@ function feedHealth(owner: string) {
 }
 
 function addedFeeds(owner: string): string[] {
-  return (feedSubscriptionsQueries.feeds(db, owner) as { feed_id: string }[])
+  return feedSubscriptionsQueries
+    .feeds(db, owner)
     .map((row) => row.feed_id)
     .filter((id) => feedById.has(id));
 }

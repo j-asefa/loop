@@ -150,8 +150,7 @@ export function createRunQueue(hooks: QueueHooks) {
   ) {
     return db
       .transaction(() => {
-        const current = runsQueries.ownedState(db, run.id, run.owner_id) as
-          { state: string } | undefined;
+        const current = runsQueries.ownedState(db, run.id, run.owner_id);
         if (
           !current ||
           !legalRunTransition(RunState.parse(current.state), state)

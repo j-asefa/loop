@@ -8,7 +8,7 @@ import {
   ownedOperation,
   Problem,
 } from "./domain.js";
-import type { Folder } from "../shared/types.js";
+
 export function moveArtifact(
   owner: string,
   artifactId: string,
@@ -68,12 +68,7 @@ export function naturalDestination(owner: string, command: string) {
     .filter(Boolean);
   let parent: string | null = null;
   for (const part of path) {
-    const found = foldersQueries.namedChildren(
-      db,
-      owner,
-      parent,
-      part,
-    ) as Folder[];
+    const found = foldersQueries.namedChildren(db, owner, parent, part);
     if (found.length !== 1)
       throw new Problem(
         422,

@@ -19,20 +19,7 @@ export function agentMessages(owner: string, agent: string, before?: string) {
       throw new Problem(400, "Invalid message cursor");
     }
   }
-  const items = messagesQueries.agentOutputPage(
-    db,
-    owner,
-    agent,
-    ...cursor,
-  ) as {
-    id: string;
-    content: string;
-    created_at: number;
-    conversation_id: string | null;
-    run_id: string | null;
-    final: number;
-    model: string | null;
-  }[];
+  const items = messagesQueries.agentOutputPage(db, owner, agent, ...cursor);
   const hasMore = items.length > 50;
   if (hasMore) items.pop();
   const last = items.at(-1);

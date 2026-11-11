@@ -48,7 +48,7 @@ function publicToken(row: TokenRow): CardToken {
 const digest = (secret: string) =>
   createHash("sha256").update(secret).digest("hex");
 export function listCardTokens(owner: string): CardToken[] {
-  const rows = cardTokensQueries.publicList(db, owner) as TokenRow[];
+  const rows = cardTokensQueries.publicList(db, owner);
   return rows.map(publicToken);
 }
 export function createCardToken(owner: string, input: unknown) {
@@ -57,8 +57,7 @@ export function createCardToken(owner: string, input: unknown) {
   const stored = JSON.stringify(admission);
   return db
     .transaction(() => {
-      const existing = cardTokensQueries.byId(db, options.request_id) as
-        (TokenRow & { owner_id: string; digest: string }) | undefined;
+      const existing = cardTokensQueries.byId(db, options.request_id);
       if (existing) {
         if (
           existing.owner_id !== owner ||
@@ -179,16 +178,9 @@ export function tokenCardPage<T extends CardChanges | CardPage>(
     .transaction(() => {
       if ("removed" in page && page.removed.length) {
         const known = new Set(
-          (
-            cardTokenReadsQueries.knownPage(
-              db,
-              tokenId,
-              owner,
-              JSON.stringify(page.removed),
-            ) as {
-              card_id: string;
-            }[]
-          ).map((row) => row.card_id),
+          cardTokenReadsQueries
+            .knownPage(db, tokenId, owner, JSON.stringify(page.removed))
+            .map((row) => row.card_id),
         );
         page.removed = page.removed.filter((id) => known.has(id));
       }

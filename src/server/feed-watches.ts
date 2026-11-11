@@ -38,7 +38,7 @@ export type FeedWatch = {
 };
 
 export const listWatches = (owner: string) =>
-  feedWatchesQueries.forOwner(db, owner) as FeedWatch[];
+  feedWatchesQueries.forOwner(db, owner);
 
 function checked(owner: string, body: unknown) {
   const d = watchInput.parse(body);
@@ -134,7 +134,7 @@ const pushedSince = (watchId: string, owner: string, at: number) =>
  */
 export function matchWatches(at = now()) {
   let pushed = 0;
-  const watches = feedWatchesQueries.enabled(db) as FeedWatch[];
+  const watches = feedWatchesQueries.enabled(db);
   for (const watch of watches) {
     const terms = watchTerms(watch.query);
     const feeds: string[] | null = watch.feeds ? JSON.parse(watch.feeds) : null;
@@ -202,12 +202,9 @@ export function matchWatches(at = now()) {
 /** Every story this watch has already announced, as "<feed>:<story>". */
 const announced = (watchId: string) =>
   new Set(
-    (
-      feedWatchHitsQueries.announced(db, watchId) as {
-        feed_id: string;
-        story_id: string;
-      }[]
-    ).map((row) => `${row.feed_id}:${row.story_id}`),
+    feedWatchHitsQueries
+      .announced(db, watchId)
+      .map((row) => `${row.feed_id}:${row.story_id}`),
   );
 
 const routes = registrar("feedWatches");

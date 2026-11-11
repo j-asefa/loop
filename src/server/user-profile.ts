@@ -6,16 +6,10 @@ import { db, now } from "./db.js";
 import { Problem } from "./domain.js";
 import { personalPromptCount } from "./personal-history.js";
 
-type ProfileRow = {
-  display_name: string | null;
-  handle: string | null;
-  bio: string | null;
-};
-
 // The owner comes from authentication; a profile is only ever read or
 // written for that owner.
 export function readProfile(owner: string) {
-  const row = userProfilesQueries.profile(db, owner) as ProfileRow | undefined;
+  const row = userProfilesQueries.profile(db, owner);
   return {
     display_name: row?.display_name ?? null,
     handle: row?.handle ?? null,

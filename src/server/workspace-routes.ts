@@ -15,7 +15,6 @@ import { recordCardRead, tokenResultPage } from "./card-tokens.js";
 import { registrar, projectResponse } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
 import { artifactResponse, runResponse } from "./row-schemas.js";
-import type { QueryRow } from "./query-records.js";
 
 import { nativeSessions } from "./native-sessions.js";
 
@@ -270,8 +269,7 @@ routes.on(workspaceApi.operationUndo, (req, res) =>
   res.json(undoMove(res.locals.owner, req.params.id)),
 );
 routes.on(workspaceApi.objectFile, (req, res) => {
-  const o = objectsQueries.owned(db, req.params.id, res.locals.owner) as
-    QueryRow<"objects"> | undefined;
+  const o = objectsQueries.owned(db, req.params.id, res.locals.owner);
   if (!o) throw new Problem(404, "File not found");
   if (sendHtmlPreview(res, req.query.preview, o)) return;
   res.setHeader("Content-Type", "application/octet-stream");
@@ -307,8 +305,7 @@ routes.on(workspaceApi.searchStatus, (_req, res) =>
 );
 routes.on(workspaceApi.preferences, (_req, res) =>
   res.json(
-    (preferencesQueries.owned(db, res.locals.owner) as
-      z.input<typeof workspaceApi.preferences.response> | undefined) || {
+    preferencesQueries.owned(db, res.locals.owner) || {
       embedding_enabled: 0,
     },
   ),

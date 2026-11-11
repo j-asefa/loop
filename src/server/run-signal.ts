@@ -30,9 +30,7 @@ function subscribe(run: Identity) {
     }
   };
   function check() {
-    const row = runsQueries.signalState(db, run.id, run.owner_id) as
-      | { state: string; connection_id: string | null; status: string | null }
-      | undefined;
+    const row = runsQueries.signalState(db, run.id, run.owner_id);
     state = row?.state;
     if (!row || ["cancelled", "interrupted", "failed"].includes(row.state))
       controller.abort(

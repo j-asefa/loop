@@ -29,8 +29,7 @@ type StoredDefinition = DefinitionSummary & {
   markdown: string;
 };
 function stored(owner: string, definitionId: string): StoredDefinition {
-  const row = agentDefinitionsQueries.owned(db, definitionId, owner) as
-    StoredDefinition | undefined;
+  const row = agentDefinitionsQueries.owned(db, definitionId, owner);
   if (!row) throw new Problem(404, "Definition not found");
   return row;
 }
@@ -46,8 +45,7 @@ function saveDefinition(owner: string, definitionId: string, input: unknown) {
     throw new Problem(400, `Choose a ${data.kind} definition for this library`);
   return db
     .transaction(() => {
-      const prior = agentDefinitionsQueries.get(db, definitionId) as
-        StoredDefinition | undefined;
+      const prior = agentDefinitionsQueries.get(db, definitionId);
       if (prior && prior.owner_id !== owner)
         throw new Problem(404, "Definition not found");
       // A lost save response can be retried without another version or duplicate.
@@ -112,13 +110,7 @@ function createFromDefinition(
         db,
         owner,
         idempotencyKey,
-      ) as
-        | {
-            request_hash: string;
-            agent_id: string | null;
-            team_id: string | null;
-          }
-        | undefined;
+      );
       const result = (
         agentId?: string | null,
         teamId?: string | null,
@@ -248,12 +240,7 @@ function createFromDefinition(
 const routes = registrar("agentDefinitions");
 export const agentDefinitions = routes.mount;
 routes.on(workspaceApi.definitionList, (_req, res) => {
-  res.json(
-    agentDefinitionsQueries.summaries(
-      db,
-      res.locals.owner,
-    ) as DefinitionSummary[],
-  );
+  res.json(agentDefinitionsQueries.summaries(db, res.locals.owner));
 });
 routes.on(workspaceApi.definitionRead, (req, res) =>
   res.json(detail(stored(res.locals.owner, req.params.id))),
