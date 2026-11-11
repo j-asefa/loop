@@ -34,7 +34,6 @@ type QueueHooks = {
   beforeClaim: (actions: ClaimActions) => void;
   ready: (run: Run) => boolean;
   beforeEvent: (run: Identity, state: RunEventState) => void;
-  afterEvent: (event: number | bigint) => void;
   afterTransition: (run: Identity, state: RunEventState) => void;
 };
 
@@ -163,8 +162,7 @@ export function createRunQueue(hooks: QueueHooks) {
         runsQueries.transitionState(db, state, time, run.id);
         if (state === "queued") runsQueries.clearLease(db, run.id);
         hooks.beforeEvent(run, state);
-        const event = emit(run.owner_id, run.id, state, payload);
-        hooks.afterEvent(event);
+        emit(run.owner_id, run.id, state, payload);
         return true;
       })
       .immediate();

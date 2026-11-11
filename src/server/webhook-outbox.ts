@@ -28,8 +28,7 @@ const reasons: Readonly<
   paused: "paused",
   awaiting_approval: "needs_input",
 };
-/** Called by the transition producer, before its transaction commits. Replaying
- * the same committed event for another projection cannot create another row. */
+/** Replaying the same committed event for another projection cannot create another row. */
 export function enqueueStoppedWebhooks(
   db: Database.Database,
   eventId: number | bigint,
