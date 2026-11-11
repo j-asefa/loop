@@ -69,7 +69,7 @@ export function createRunQueue(hooks: QueueHooks) {
             );
           return prior;
         }
-        const pending = runsQueries.pendingCount(db, owner) as { n: number };
+        const pending = runsQueries.pendingCount(db, owner)!;
         if (pending.n >= 100)
           throw new Problem(
             429,

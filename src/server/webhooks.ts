@@ -195,9 +195,7 @@ export async function createWebhook(owner: string, input: unknown) {
         options,
       );
       if (raced) return raced.result_id!;
-      const count = webhookSubscriptionsQueries.activeCount(db, owner) as {
-        n: number;
-      };
+      const count = webhookSubscriptionsQueries.activeCount(db, owner)!;
       if (count.n >= 50)
         throw new Problem(429, "Revoke a webhook before creating another");
       webhookSubscriptionsQueries.insert(
@@ -375,7 +373,7 @@ export function claimWebhooks(only?: string) {
           const subscription = webhookSubscriptionsQueries.byId(
             db,
             job.subscription_id,
-          ) as SubscriptionRow;
+          )!;
           exhaust(
             subscription,
             job,
@@ -428,7 +426,7 @@ async function deliverClaim(
   const subscription = webhookSubscriptionsQueries.byId(
     db,
     initial.subscription_id,
-  ) as SubscriptionRow;
+  )!;
   const signal = AbortSignal.any([
     AbortSignal.timeout(10000),
     ...(stopped ? [stopped] : []),

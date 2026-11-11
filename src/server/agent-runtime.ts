@@ -603,11 +603,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
     ).length;
     for (;;) {
       signal.throwIfAborted();
-      const boundary = (
-        runsQueries.state(db, run.id) as {
-          state: string;
-        }
-      ).state;
+      const boundary = runsQueries.state(db, run.id)!.state;
       if (boundary === "cancelled") {
         persist(true);
         return false;
@@ -782,11 +778,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         cp.pending = "[]";
         agentCheckpointsQueries.modelStage(db, run.id);
       }
-      const state = (
-        runsQueries.state(db, run.id) as {
-          state: string;
-        }
-      ).state;
+      const state = runsQueries.state(db, run.id)!.state;
       if (state === "cancelled") {
         persist(true);
         return false;
@@ -1005,11 +997,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
           })
           .immediate();
         if (continuing) continue;
-        const current = (
-          runsQueries.state(db, run.id) as {
-            state: string;
-          }
-        ).state;
+        const current = runsQueries.state(db, run.id)!.state;
         if (current === "pausing") {
           transition(run, "paused", {
             message:

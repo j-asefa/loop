@@ -203,16 +203,12 @@ routes.on(workspaceApi.runVerifications, (req, res) => {
 });
 routes.on(workspaceApi.runFiles, (req, res) => {
   requireOwned(runsQueries.owned(db, req.params.id, res.locals.owner));
-  res.json(
-    artifactsQueries.runFiles(db, res.locals.owner, req.params.id) as z.input<
-      typeof workspaceApi.runFiles.response
-    >,
-  );
+  res.json(artifactsQueries.runFiles(db, res.locals.owner, req.params.id));
 });
 routes.on(workspaceApi.artifactDetail, (req, res) => {
   const a = ownedArtifact(req.params.id, res.locals.owner);
   const agent = a.agent_id
-    ? (agentsQueries.ownedDisplay(db, a.agent_id, res.locals.owner) as object)
+    ? agentsQueries.ownedDisplay(db, a.agent_id, res.locals.owner)
     : undefined;
   const projected = projectResponse(workspaceApi.artifactDetail, {
     ...artifactResponse(a),
@@ -347,11 +343,7 @@ routes.on(
   { middleware: [upload.single("file")] },
 );
 routes.on(workspaceApi.importList, (_req, res) =>
-  res.json(
-    importsQueries.forOwner(db, res.locals.owner) as z.input<
-      typeof workspaceApi.importList.response
-    >,
-  ),
+  res.json(importsQueries.forOwner(db, res.locals.owner)),
 );
 routes.on(workspaceApi.importStart, (req, res) => {
   const job = ownedImport(req.params.id, res.locals.owner);

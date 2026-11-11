@@ -38,9 +38,7 @@ export type ThreadDetails = {
 };
 
 function queueDetails(db: Database.Database, owner: string, run: QueueRun) {
-  const position = runsQueries.queuePosition(db, run.id, owner) as {
-    position: number;
-  };
+  const position = runsQueries.queuePosition(db, run.id, owner)!;
   const peers = runsQueries.queuePeers(db, run.id, owner);
   const index = peers.findIndex((p) => p.id === run.id);
   return {

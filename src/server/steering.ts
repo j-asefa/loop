@@ -34,15 +34,14 @@ export function activeRun(owner: string, conversation: string, agent?: string) {
     owner,
     conversation,
     agent ?? null,
-  ) as (Run & { live_input: number }) | undefined;
+  );
   if (!run) return;
   const { live_input, ...active } = run;
   return { run: parseRun(active), liveInput: live_input === 1 };
 }
 
 export function steeringReceipt(owner: string, key: string, request: string) {
-  const prior = runSteeringQueries.byIdempotency(db, owner, key) as
-    { request: string; run_id: string; id: string } | undefined;
+  const prior = runSteeringQueries.byIdempotency(db, owner, key);
   if (!prior) return;
   if (prior.request !== request)
     throw new Problem(409, "This request key belongs to different work");
@@ -117,7 +116,7 @@ export class SteeringInbox {
     private replyToolAvailable = false,
   ) {}
   private pending() {
-    return runSteeringQueries.pendingMessages(db, this.run.id) as Input[];
+    return runSteeringQueries.pendingMessages(db, this.run.id);
   }
   // Returns whether the row actually took this state. A run that ended while
   // a delivery was in flight is failed by the run-end trigger, so a late

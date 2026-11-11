@@ -500,9 +500,7 @@ export class NativeProjector {
         db,
         live.binding.conversation_id,
         run.id,
-      ) as Iterable<{
-        item: string;
-      }>;
+      );
       for (const row of stored) {
         const item = JSON.parse(row.item) as Item;
         // A pending in-memory replacement may have cleared this saved reply

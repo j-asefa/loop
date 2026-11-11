@@ -46,5 +46,5 @@ export function personalHistory(owner: string, before?: string, q?: string) {
 
 /** How many prompts the owner has sent: the same set the list pages through. */
 export function personalPromptCount(owner: string) {
-  return (messagesQueries.personalCount(db, owner) as { n: number }).n;
+  return messagesQueries.personalCount(db, owner)!.n;
 }

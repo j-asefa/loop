@@ -730,7 +730,7 @@ export async function pollWatch(watchId: string, time = now()) {
         db,
         watch.id,
         time - 3600_000,
-      ) as { n: number };
+      )!;
       if (recent.n >= TURNS_PER_HOUR) {
         // Record what this read observed (the head, its result, whether its
         // checks had finished, and when) apart from the delivered result and

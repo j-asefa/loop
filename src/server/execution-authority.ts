@@ -165,8 +165,7 @@ const handlers: Handlers = {
   "upgrade.dismiss": upgradeDismiss,
   "upgrade.recover": (input, { commandId }) => upgradeRecover(input, commandId),
   "native.answer": ({ decisionId, answer }, { commandId }) => {
-    const decision = nativeDecisionsQueries.conversation(db, decisionId) as
-      { conversation_id: string } | undefined;
+    const decision = nativeDecisionsQueries.conversation(db, decisionId);
     if (!decision) throw new Problem(404, "Native decision not found.");
     ownedConversation(decision.conversation_id, OWNER);
     return nativeSessions.decisions.answer(decisionId, commandId, answer);

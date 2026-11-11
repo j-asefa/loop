@@ -29,16 +29,16 @@ import type {
   DoneThreadDetailPage,
 } from "../shared/done-threads.js";
 
-type ThreadRow = { id: string; title: string; created_at: number };
+type ThreadRow = NonNullable<ReturnType<typeof doneThreadsQueries.owned>>;
 function owned(owner: string, id: string): ThreadRow {
-  const row = doneThreadsQueries.owned(db, owner, id) as ThreadRow | undefined;
+  const row = doneThreadsQueries.owned(db, owner, id);
   if (!row) throw new Problem(404, "Thread not found");
   return row;
 }
 function cardIds(owner: string, id: string) {
-  return (
-    doneThreadMembersQueries.cards(db, owner, id) as { card_id: string }[]
-  ).map((row) => row.card_id);
+  return doneThreadMembersQueries
+    .cards(db, owner, id)
+    .map((row) => row.card_id);
 }
 function cards(
   owner: string,
@@ -120,12 +120,10 @@ export function listDoneThreads(
 ): DoneThreadSummary[] {
   return db.transaction(() => {
     const selected = selection(owner, query);
-    return (doneThreadsQueries.forOwner(db, owner) as ThreadRow[]).flatMap(
-      (row) => {
-        const value = summary(owner, row, selected);
-        return value ? [value] : [];
-      },
-    );
+    return doneThreadsQueries.forOwner(db, owner).flatMap((row) => {
+      const value = summary(owner, row, selected);
+      return value ? [value] : [];
+    });
   })();
 }
 
@@ -179,7 +177,7 @@ export function listDoneThreadPage(
       cursor?.at ?? null,
       cursor?.id ?? "",
       DONE_THREAD_PAGE_ITEMS + 1,
-    ) as ThreadRow[];
+    );
     const threads: DoneThreadSummary[] = [];
     let bytes = 2048,
       consumed = 0;
@@ -276,11 +274,7 @@ export function setDoneThreadRead(
     .transaction(() => {
       assertFleetAction(owner);
       owned(owner, id);
-      const results = doneThreadMembersQueries.results(db, owner, id) as {
-        card_id: string;
-        conversation_id: string;
-        card_key: string;
-      }[];
+      const results = doneThreadMembersQueries.results(db, owner, id);
       const unreadVersions: Record<string, number> = {};
       const time = now();
       for (const card of results) {
@@ -358,8 +352,7 @@ export function createDoneThread(
     .transaction(() => {
       assertFleetAction(owner);
       // A lost response recovers this grouping without moving its cards again.
-      const prior = doneThreadCreationsQueries.owner(db, input.id) as
-        { owner_id: string } | undefined;
+      const prior = doneThreadCreationsQueries.owner(db, input.id);
       if (prior)
         return describe(owned(owner, input.id), cardIds(owner, input.id));
       doneThreadCreationsQueries.insert(db, input.id, owner);

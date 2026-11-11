@@ -185,7 +185,7 @@ async function syncModels(
       db,
       nativeConnectionId(target.name),
       OWNER,
-    ) as { models: string };
+    )!;
     syncErrors.delete(target.name);
     return {
       ...view,

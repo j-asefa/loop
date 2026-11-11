@@ -4,11 +4,12 @@ import * as transcriptQueries from "./sql/conversation-transcript.js";
 import { z } from "zod";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
-import type { Message } from "../shared/types.js";
 
 type Position = [number, number, number];
-type Entry = Message & { position: number; phase: number; ordinal: number };
-const position = (item: Entry): Position => [
+type TranscriptPosition = NonNullable<
+  ReturnType<typeof transcriptQueries.anchor>
+>;
+const position = (item: TranscriptPosition): Position => [
   item.position,
   item.phase,
   item.ordinal,
@@ -39,13 +40,11 @@ export function conversationMessages(
   }
 
   if (anchor) {
-    const entry = transcriptQueries.anchor(db, owner, conversation, anchor) as
-      Entry | undefined;
+    const entry = transcriptQueries.anchor(db, owner, conversation, anchor);
     // Saved/search links to hidden native rows still open where that row was.
     const hidden = entry
       ? undefined
-      : (transcriptQueries.hiddenAnchor(db, owner, conversation, anchor) as
-          Entry | undefined);
+      : transcriptQueries.hiddenAnchor(db, owner, conversation, anchor);
     const target = entry || hidden;
     if (!target) throw new Problem(404, "Message not found");
     cursor = position(target);
@@ -57,7 +56,7 @@ export function conversationMessages(
     conversation,
     ...cursor,
     TRANSCRIPT_PAGE_ITEMS + 1,
-  ) as Entry[];
+  );
   const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
   if (hasMore) items.pop();
   return {

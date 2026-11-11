@@ -149,9 +149,7 @@ export class NativeSessions {
     const binding = companionSessionsQueries.generationBinding(
       db,
       conversation,
-    ) as
-      | { generation: string | null; state: string; harness: Harness }
-      | undefined;
+    );
     if (!binding) throw new Problem(404, "Native session has not started");
     const candidate = this.live.get(conversation);
     const live =
@@ -183,8 +181,7 @@ export class NativeSessions {
       );
     await live.ready;
     const isCurrent = () => {
-      const binding = companionSessionsQueries.generation(db, conversation) as
-        { generation: string | null } | undefined;
+      const binding = companionSessionsQueries.generation(db, conversation);
       return (
         this.live.get(conversation) === live &&
         !live.closed &&
@@ -350,10 +347,7 @@ export class NativeSessions {
       const transfer = selectedContext(conversation);
       const earlier = transfer
         ? []
-        : (messagesQueries.nativeTransferHistory(db, conversation, run.id) as {
-            role: string;
-            content: string;
-          }[]);
+        : messagesQueries.nativeTransferHistory(db, conversation, run.id);
       while (earlier.length > 1 && JSON.stringify(earlier).length > 100000)
         earlier.shift();
       const context = transfer
@@ -534,7 +528,7 @@ export class NativeSessions {
       db,
       agentPayload(run).connectionId,
       run.owner_id,
-    ) as { metadata: string } | undefined;
+    );
     if (
       connection &&
       harnessHolds.first(JSON.parse(connection.metadata).loopHarness)
@@ -815,10 +809,7 @@ export class NativeSessions {
   }
   recover() {
     db.transaction(() => {
-      const runs = runsQueries.orphanedNative(db) as Pick<
-        Run,
-        "id" | "owner_id"
-      >[];
+      const runs = runsQueries.orphanedNative(db);
       for (const run of runs) {
         runsQueries.interruptOrphanedNative(
           db,

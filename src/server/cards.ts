@@ -263,8 +263,7 @@ export function listCards(owner: string, input: unknown) {
   // the watermark before resolving them so a concurrent move is replayed.
   const revision =
     options.view === "done"
-      ? (doneCardRevisionsQueries.revision(db, owner) as { revision: number })
-          .revision
+      ? doneCardRevisionsQueries.revision(db, owner)!.revision
       : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);
@@ -334,8 +333,7 @@ export function cardChanges(owner: string, input: unknown) {
     throw new Problem(400, "through is a Results publication bound only");
   const revision =
     options.view === "done"
-      ? (doneCardRevisionsQueries.revision(db, owner) as { revision: number })
-          .revision
+      ? doneCardRevisionsQueries.revision(db, owner)!.revision
       : resultsRevision(owner);
   const selected = selection(owner, options),
     scope = fingerprint(owner, selected);

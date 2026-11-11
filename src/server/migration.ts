@@ -68,10 +68,7 @@ export async function prepareImportSession(
         OWNER,
         kind,
         importKey,
-      ) as {
-        agent_id: string;
-        workspace: string | null;
-      };
+      )!;
       return saved;
     })
     .immediate();

@@ -70,7 +70,7 @@ export function createCardToken(owner: string, input: unknown) {
             409,
             "This token creation is already settled; use a new creation request",
           );
-        const token = cardTokensQueries.publicById(db, existing.id) as TokenRow;
+        const token = cardTokensQueries.publicById(db, existing.id)!;
         return { token: publicToken(token), secret: options.secret };
       }
       if (cardTokenIdsQueries.exists(db, options.request_id))
@@ -80,7 +80,7 @@ export function createCardToken(owner: string, input: unknown) {
         );
       if (cardTokenIdsQueries.digestExists(db, digest(options.secret)))
         throw new Problem(409, "Use a new secret for a new token creation");
-      const { n } = cardTokensQueries.activeCount(db, owner) as { n: number };
+      const { n } = cardTokensQueries.activeCount(db, owner)!;
       if (n >= 50)
         throw new Problem(
           409,
@@ -245,12 +245,8 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
         throw new Problem(401, "Invalid integration credential");
       const now = Date.now(),
         window = Math.floor(now / 60000);
-      const perToken = cardTokensQueries.charge(db, window, token.id) as {
-        n: number;
-      };
-      const perOwner = cardOwnerLimitsQueries.charge(db, OWNER, window) as {
-        n: number;
-      };
+      const perToken = cardTokensQueries.charge(db, window, token.id)!;
+      const perOwner = cardOwnerLimitsQueries.charge(db, OWNER, window)!;
       if (perToken.n > 120 || perOwner.n > 600)
         throw new Problem(
           429,

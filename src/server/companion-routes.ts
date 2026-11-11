@@ -112,9 +112,7 @@ routes.on(workspaceApi.workspace, async (_req, res) =>
     concurrency: MAX_CONCURRENT_RUNS,
     hostLifetime: "foreground",
     tunnelOrigin: config.url,
-    projectPaths: projectPathsQueries.all(db) as z.input<
-      typeof workspaceApi.workspace.response
-    >["projectPaths"],
+    projectPaths: projectPathsQueries.all(db),
   }),
 );
 routes.on(workspaceApi.runtimeList, async (req, res) => {

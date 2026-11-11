@@ -358,11 +358,7 @@ export async function executeImport(run: Run) {
     }).immediate();
   }
   for (let index = 0; index < parsed.conversations.length; index++) {
-    const state = (
-      runsQueries.state(db, run.id) as {
-        state: string;
-      }
-    ).state;
+    const state = runsQueries.state(db, run.id)!.state;
     if (state === "pausing") {
       importsQueries.markPaused(db, importId);
       transition(run, "paused");

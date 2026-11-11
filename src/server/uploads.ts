@@ -82,8 +82,7 @@ export function uploadFile(
 // A file an agent published (loop_publish_file), passed to a teammate with
 // loop_message. Its bytes live under the data directory, checked on read.
 function publishedFile(artifact: Artifact, owner: string) {
-  const row = artifactObjectsQueries.download(db, artifact.id, owner) as
-    { object_key: string; mime: string; checksum: string } | undefined;
+  const row = artifactObjectsQueries.download(db, artifact.id, owner);
   if (
     !row ||
     !/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(row.object_key)

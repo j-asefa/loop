@@ -87,11 +87,11 @@ routes.on(workspaceApi.routingPreview, (req, res) => {
   let agent = routeHandle(res.locals.owner, d.input);
   if (!agent)
     agent =
-      (agentsQueries.routingSuggestion(
+      agentsQueries.routingSuggestion(
         db,
         res.locals.owner,
         d.folderId || null,
-      ) as Agent) || null;
+      )! || null;
   res.json({
     agent,
     reason: agent

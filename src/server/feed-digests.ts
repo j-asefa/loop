@@ -84,7 +84,7 @@ export function saveDigest(owner: string, body: unknown, digestId?: string) {
       throw new Problem(400, `You can have ${PER_OWNER} digests.`);
     feedDigestsQueries.insert(db, row);
   }
-  return feedDigestsQueries.owned(db, row.id, owner) as FeedDigest;
+  return feedDigestsQueries.owned(db, row.id, owner)!;
 }
 
 function removeDigest(owner: string, digestId: string) {
