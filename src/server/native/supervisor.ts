@@ -8,7 +8,6 @@ import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
-import { enqueueStoppedWebhooks } from "../webhook-outbox.js";
 import { assertEffect, recordEffectEdit } from "../effect-authority.js";
 import { agentPayload } from "../row-schemas.js";
 import { ExecutionRefused } from "../execution-refusal.js";
@@ -817,10 +816,9 @@ export class NativeSessions {
           now(),
           run.id,
         );
-        const event = emit(run.owner_id, run.id, "interrupted", {
+        emit(run.owner_id, run.id, "interrupted", {
           native: true,
         });
-        enqueueStoppedWebhooks(db, event);
       }
       companionSessionsQueries.disconnectAll(db);
       nativeDecisionsQueries.finishPending(db, "expired");

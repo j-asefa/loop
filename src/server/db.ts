@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { changeClock, createDeadlineScheduler } from "./change-deadlines.js";
 import { createChangeBus } from "./changes.js";
 import { eventSubjects } from "./event-subjects.js";
+import { enqueueStoppedWebhooks } from "./webhook-outbox.js";
 import {
   parseEmission,
   type WorkspaceEmission,
@@ -51,6 +52,7 @@ export function emit(
         subject_kind: subject.kind,
         subject_id: subject.id,
       });
+      enqueueStoppedWebhooks(db, row);
       wakeChanges();
       return row;
     })
