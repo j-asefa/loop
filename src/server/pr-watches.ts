@@ -474,16 +474,10 @@ async function read(watch: PrWatch, token: string) {
       .forWatch(db, watch.id)
       .map((s) => s.kind + ":" + s.item_id),
   );
-  // Ids up to a watch's cursor were handled before ids were tracked.
-  const floor: Record<Kind, number> = {
-    comment: watch.comment_cursor,
-    review_comment: watch.review_comment_cursor,
-    review: watch.review_cursor,
-  };
   const fresh = (kind: Kind, list: Comment[]) =>
     list
       .filter((c) => {
-        if (!Number.isSafeInteger(c.id) || c.id <= floor[kind]) return false;
+        if (!Number.isSafeInteger(c.id) || c.id <= 0) return false;
         if (seen.has(kind + ":" + c.id)) return false;
         // A draft review waits until it is submitted.
         if (kind === "review" && (c.state === "PENDING" || !c.submitted_at))

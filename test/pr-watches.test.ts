@@ -421,13 +421,10 @@ it("reads every page of check runs", async () => {
 
 it("finds new reviews past the first 300", async () => {
   db.prepare("DELETE FROM pr_watch_deliveries WHERE watch_id=?").run(watchId);
-  const { review_cursor: cursor } = db
-    .prepare("SELECT review_cursor FROM pr_watches WHERE id=?")
-    .get(watchId) as { review_cursor: number };
   // 350 reviews already delivered (or skipped), then one new one at the end.
   github.reviews = [
     ...Array.from({ length: 350 }, (_, i) => ({
-      id: cursor - 350 + i,
+      id: 1000 + i,
       user: { login: "alex" },
       state: "COMMENTED",
       body: "Seen " + i,
@@ -435,7 +432,7 @@ it("finds new reviews past the first 300", async () => {
       submitted_at: "2020-01-01T00:00:00Z",
     })),
     {
-      id: cursor + 1,
+      id: 1350,
       user: { login: "alex" },
       state: "APPROVED",
       body: "Ship it.",
@@ -746,13 +743,21 @@ it("waits for every check suite with runs before reporting CI", async () => {
   finish(update.id);
 });
 
-it("never redelivers what a watch handled before ids were tracked", async () => {
+it("deduplicates delivered comments while accepting later lower ids", async () => {
   const w = await freshWatch("hana");
-  // An earlier watch's cursor: everything up to 80 was delivered.
-  db.prepare("UPDATE pr_watches SET comment_cursor=80 WHERE id=?").run(w.id);
+  const delivered = {
+    id: 81,
+    user: { login: "alex" },
+    body: "Delivered before.",
+  };
+  github.comments = [delivered];
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const first = deliveries(w.conversation).at(-1)!;
+  expect(first.content).toContain("> Delivered before.");
+  finish(first.id);
   github.comments = [
-    { id: 79, user: { login: "alex" }, body: "Delivered before." },
-    { id: 81, user: { login: "alex" }, body: "New." },
+    { id: 79, user: { login: "alex" }, body: "New." },
+    delivered,
   ];
   expect(await pollWatch(w.id)).toBe("delivered");
   const update = deliveries(w.conversation).at(-1)!;
