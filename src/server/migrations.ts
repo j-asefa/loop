@@ -2,38 +2,6 @@ import type Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { historicalMigrationNames } from "./historical-migration-names.js";
-
-const historicalNames = new Set(historicalMigrationNames.values());
-
-// Tokenize comments and quoted identifiers too: whitespace, OR IGNORE and
-// main."schema_version" must not hide an accidental legacy completion write.
-function writesLedger(sql: string, names: ReadonlySet<string>) {
-  const tokens = [
-    ...sql.matchAll(
-      /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|[a-z_][a-z_0-9]*|[^\s]/gi,
-    ),
-  ]
-    .filter(([raw]) => !raw.startsWith("--") && !raw.startsWith("/*"))
-    .map(([raw]) => ({
-      raw: raw.toLowerCase(),
-      value: raw.replace(/^['"`\[]|['"`\]]$/g, "").toLowerCase(),
-    }));
-  return tokens.some((token, i) => {
-    let table = i + 1;
-    if (token.raw === "insert" || token.raw === "replace") {
-      if (tokens[table]?.raw === "or") table += 2;
-      if (tokens[table]?.raw !== "into") return false;
-      table++;
-    } else if (token.raw === "update") {
-      if (tokens[table]?.raw === "or") table += 2;
-    } else if (token.raw === "delete" && tokens[table]?.raw === "from") table++;
-    else return false;
-    if (tokens[table + 1]?.raw === ".") table += 2;
-    return names.has(tokens[table]?.value);
-  });
-}
-
 /** The same immediate migration boundary is used by API and worker startup. */
 export function applyMigrations(
   db: Database.Database,
@@ -55,12 +23,6 @@ export function applyMigrations(
       if (names.has(name)) throw new Error(`Duplicate migration name: ${name}`);
       names.add(name);
       const sql = readFileSync(join(path, file), "utf8");
-      const ownedLedgers = new Set(["schema_migrations"]);
-      if (!historicalNames.has(name)) ownedLedgers.add("schema_version");
-      if (writesLedger(sql, ownedLedgers))
-        throw new Error(
-          `Migration ${file} writes a completion ledger (schema_version/schema_migrations); the runner records completion by name.`,
-        );
       return { name, prefix: Number(prefix), sql };
     })
     .sort(

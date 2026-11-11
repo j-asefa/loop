@@ -41,11 +41,12 @@ provides no upgrade or archival path for those records.
 
 The API and worker use the same immediate startup transaction. The runner records
 successful files in `schema_migrations(name,prefix,applied_at)`; new SQL must not
-write completion records, including `schema_version`. Duplicate names and new
-files that write a completion ledger fail startup. If any file fails, all changes
+write completion records, including `schema_version`. Duplicate names fail startup.
+The migration-policy test in `npm run check` rejects checked-in files that write
+completion ledgers. If any file fails, all changes
 in that startup transaction roll back before another process can migrate.
 
-Historical SQL remains unchanged. `historical-migration-names.ts` lists the
+Historical SQL remains unchanged. [The historical migration fixture](../test/fixtures/historical-migration-names.ts) lists the
 files through prefix121 that write `schema_version`; only those immutable files
 may write that ledger. New installs execute the whole chain and record every
 completion in `schema_migrations`. Restarts consult only that named ledger.
