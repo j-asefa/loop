@@ -14,8 +14,8 @@ const { observeCompletedOutput, runVerifications } =
   await import("../src/server/run-verifications");
 const { classifyVerification, summarize } =
   await import("../src/shared/verification");
-const { shellWords, createdPullRequest } =
-  await import("../src/shared/pr-command");
+const { createdPullRequest } = await import("../src/shared/pr-command");
+const { shellWords } = await import("../src/shared/shell-words");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/shared/agent-activities";
 
