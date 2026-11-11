@@ -128,3 +128,53 @@ it("isolates overlapping client scopes and restores the outer client after failu
     );
   });
 });
+
+it("keeps the injected client while a POST body arrives in delayed chunks", async () => {
+  const { default: express } = await import("express");
+  const { request } = await import("node:http");
+  const client = (base: string) =>
+    createGithubClient({
+      base,
+      fetch: async (url) => Response.json({ url }),
+    });
+  const injected = client("https://injected.test");
+  const fallback = client("https://fallback.test");
+  const app = express();
+  app.use((_req, _res, next) => withGithubClient(injected, next));
+  app.use(express.json());
+  app.post("/", async (_req, res, next) => {
+    try {
+      res.json((await githubRest("fixture", "/user")).data);
+    } catch (error) {
+      next(error);
+    }
+  });
+  const server = withGithubClient(fallback, () => app.listen(0, "127.0.0.1"));
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  try {
+    const result = await new Promise<string>((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: (server.address() as { port: number }).port,
+          method: "POST",
+          headers: { "content-type": "application/json" },
+        },
+        (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => {
+            body += chunk;
+          });
+          res.on("end", () => resolve(body));
+        },
+      );
+      req.on("error", reject);
+      req.write('{"delayed":');
+      setTimeout(() => req.end("true}"), 25);
+    });
+    expect(JSON.parse(result)).toEqual({ url: "https://injected.test/user" });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
