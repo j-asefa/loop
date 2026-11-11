@@ -5,9 +5,13 @@ import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
 
 const forCallIdStatement = statement(
-  "SELECT artifact_id FROM artifact_objects WHERE run_id=? AND call_id=? AND owner_id=?",
+  "SELECT artifact_id,size,checksum FROM artifact_objects WHERE run_id=? AND call_id=? AND owner_id=?",
 );
-const forCallIdRow = QueryRecords.artifact_objects.pick({ artifact_id: true });
+const forCallIdRow = QueryRecords.artifact_objects.pick({
+  artifact_id: true,
+  size: true,
+  checksum: true,
+});
 export function forCallId(
   db: Database.Database,
   run: string,

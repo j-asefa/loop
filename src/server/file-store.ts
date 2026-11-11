@@ -1,6 +1,16 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { join } from "node:path";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+  mkdirSync,
+  writeFileSync,
+  linkSync,
+  unlinkSync,
+} from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { join, dirname } from "node:path";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { Problem } from "../shared/problem.js";
 import { config } from "./config.js";
@@ -10,7 +20,7 @@ export function openVerified(
   size: number,
   checksum: string,
 ): Buffer {
-  if (!/^objects\/[a-f0-9]{64}\/[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(key))
+  if (key.length > 300 || !/^objects(?:\/[a-f0-9-]+)+$/.test(key))
     throw new Problem(409, "Invalid artifact identity");
   if (!Number.isSafeInteger(size) || size < 0 || size > MAX_UPLOAD_BYTES)
     throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
@@ -55,4 +65,32 @@ export function openVerified(
   } finally {
     closeSync(descriptor);
   }
+}
+
+export function storeFile(owner: string, bytes: Buffer) {
+  if (bytes.length > MAX_UPLOAD_BYTES)
+    throw new Problem(413, `Published files can be up to ${MAX_UPLOAD_LABEL}`);
+  const digest = createHash("sha256").update(bytes).digest();
+  const checksum = digest.toString("base64");
+  const key = `objects/${createHash("sha256").update(owner).digest("hex")}/${digest.toString("hex")}`;
+  const path = join(config.data, key);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, bytes, { flag: "wx", mode: 0o600 });
+    try {
+      linkSync(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  } finally {
+    try {
+      unlinkSync(temporary);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  // Existing content is verified too: a corrupt object is never silently reused.
+  openVerified(key, bytes.length, checksum);
+  return { key, size: bytes.length, checksum };
 }
