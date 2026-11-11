@@ -51,7 +51,7 @@ const scopeOf = (s: ActivityScope) =>
   s.conversation || (s.run ? "run:" + s.run : null);
 
 function nextSequence(owner: string) {
-  return (agentActivitiesQueries.maxSequence(db, owner) as { n: number }).n + 1;
+  return agentActivitiesQueries.maxSequence(db, owner)!.n + 1;
 }
 
 function write(
@@ -349,11 +349,7 @@ export function listActivities(
     const more = !initial && rows.length > 500;
     if (more) rows.pop();
     const cursor = initial
-      ? ((
-          agentActivitiesQueries.cursor(db, owner, conversation) as {
-            cursor: number | null;
-          }
-        ).cursor ?? 0)
+      ? (agentActivitiesQueries.cursor(db, owner, conversation)!.cursor ?? 0)
       : (rows.at(-1)?.sequence ?? options.after ?? 0);
     return {
       version: ACTIVITY_VERSION,

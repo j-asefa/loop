@@ -97,7 +97,7 @@ export async function addSource(owner: string, body: unknown) {
   if (feedById.has(id)) throw new Problem(409, "That feed is in the catalog.");
   const existing = ownSource(owner, id);
   if (existing) return existing;
-  const count = feedSourcesQueries.count(db, owner) as { n: number };
+  const count = feedSourcesQueries.count(db, owner)!;
   if (count.n >= PER_OWNER)
     throw new Problem(
       400,
@@ -133,7 +133,7 @@ export async function addSource(owner: string, body: unknown) {
       // Recheck after downloading: another request may have followed this feed.
       const existing = ownSource(owner, id);
       if (existing) return existing;
-      const count = feedSourcesQueries.count(db, owner) as { n: number };
+      const count = feedSourcesQueries.count(db, owner)!;
       if (count.n >= PER_OWNER)
         throw new Problem(
           400,

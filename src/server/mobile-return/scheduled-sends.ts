@@ -105,9 +105,7 @@ export function createScheduledSend(owner: string, body: unknown) {
           d.replyToMessageId,
           d.replyExcerpt,
         );
-      const pending = scheduledSendsQueries.pendingCount(db, owner) as {
-        n: number;
-      };
+      const pending = scheduledSendsQueries.pendingCount(db, owner)!;
       if (pending.n >= MAX_PENDING_SENDS)
         throw new Problem(
           429,
@@ -230,9 +228,7 @@ export function editScheduledSend(
         if (d.sendAt === undefined)
           throw new Problem(400, "Choose a new time to send it");
         if (row.run_id) throw new Problem(409, "This message was already sent");
-        const pending = scheduledSendsQueries.pendingCount(db, owner) as {
-          n: number;
-        };
+        const pending = scheduledSendsQueries.pendingCount(db, owner)!;
         if (pending.n >= MAX_PENDING_SENDS)
           throw new Problem(
             429,

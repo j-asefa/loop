@@ -18,9 +18,6 @@ export function advanceDoneUnreadVersion(
   conversation: string,
   key: string,
 ) {
-  return (
-    doneCardUnreadVersionsQueries.advance(db, owner, conversation, key) as {
-      version: number;
-    }
-  ).version;
+  return doneCardUnreadVersionsQueries.advance(db, owner, conversation, key)!
+    .version;
 }

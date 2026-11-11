@@ -70,8 +70,7 @@ export class DevicePairing implements DeviceTrust {
     privateDir(directory);
     this.checks = new DeviceExpiryChecks(directory, owner);
     db.transaction(() => {
-      const store = deviceStoreQueries.owner(db) as
-        { owner_id: string } | undefined;
+      const store = deviceStoreQueries.owner(db);
       if (store) {
         if (store.owner_id !== owner)
           throw new Problem(403, "Device trust belongs to another owner.");
@@ -96,8 +95,7 @@ export class DevicePairing implements DeviceTrust {
         409,
         "Device expiry could not be persisted. Repair local storage and restart Loop.",
       );
-    const prior = pairingClockQueries.current(this.db) as
-      { observed_at: number } | undefined;
+    const prior = pairingClockQueries.current(this.db);
     const value = Math.floor(this.wall());
     if (
       !Number.isSafeInteger(value) ||
@@ -341,9 +339,7 @@ export class DevicePairing implements DeviceTrust {
         )
           throw rejected();
         devicesQueries.expire(this.db, this.owner, now);
-        const count = devicesQueries.count(this.db, this.owner) as {
-          n: number;
-        };
+        const count = devicesQueries.count(this.db, this.owner)!;
         if (count.n >= 10)
           throw new Problem(
             409,

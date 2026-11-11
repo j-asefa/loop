@@ -544,7 +544,7 @@ export async function invokeNative(
         throw new Problem(403, "Delegate only to this team's workers");
     const children = db
       .transaction(() => {
-        const existing = delegationsQueries.count(db, run.id) as { n: number };
+        const existing = delegationsQueries.count(db, run.id)!;
         const prior = delegationsQueries.callChildren(
           db,
           run.id,

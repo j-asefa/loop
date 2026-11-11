@@ -45,12 +45,6 @@ export function eventPage(owner: string, after: number, bearer: boolean) {
   return page;
 }
 
-type Checkpoint = {
-  epoch: string | null;
-  cursor: number;
-  connection_id: string;
-};
-
 /** GET/HEAD without an upgrade checks admission but never opens a connection. */
 export function requireTokenEventUpgrade(res: Response) {
   const tokenId: string | undefined = res.locals.bearer?.tokenId;
@@ -241,7 +235,7 @@ export function createTokenEventSockets(
                   tokenId,
                   owner,
                   stream.connection,
-                ) as Checkpoint;
+                )!;
               })
               .immediate();
             streams.get(tokenId)?.close();

@@ -192,7 +192,7 @@ app.use(express.json({ limit: "12mb" }));
 const appHealth = registrar("app", { prefix: "/api", automaticOptions: false });
 mountRoutes(app, appHealth.mount);
 appHealth.on(workspaceApi.health, (_req, res) => {
-  const worker = workerHealthQueries.latest(db) as { last: number | null };
+  const worker = workerHealthQueries.latest(db)!;
   const ready = !!worker.last && Date.now() - worker.last < 15000;
   res.status(ready ? 200 : 503).json({
     ok: ready,

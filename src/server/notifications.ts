@@ -73,10 +73,7 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
         409,
         "This device is subscribed to a different workspace. Disable its notifications first.",
       );
-    if (
-      !existing &&
-      (pushSubscriptionsQueries.count(db, owner) as { n: number }).n >= 20
-    )
+    if (!existing && pushSubscriptionsQueries.count(db, owner)!.n >= 20)
       throw new Problem(
         409,
         "Too many notification devices for this workspace",
@@ -94,7 +91,7 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
         db,
         subscription.endpoint,
         owner,
-      ) as { id: string };
+      )!;
       pushPreferencesQueries.upsert(
         db,
         device.id,

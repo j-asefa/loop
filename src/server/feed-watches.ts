@@ -76,7 +76,7 @@ export function saveWatch(owner: string, body: unknown, watchId?: string) {
       d.enabled ? 1 : 0,
     );
   }
-  return feedWatchesQueries.owned(db, watchId, owner) as FeedWatch;
+  return feedWatchesQueries.owned(db, watchId, owner)!;
 }
 
 export function removeWatch(owner: string, watchId: string) {

@@ -29,9 +29,7 @@ export function listTeams(owner: string) {
   return teamsQueries.active(db, owner).map((t) => ({
     ...t,
     members: teamMembersQueries.agents(db, t.id).map((m) => m.agent_id),
-    paused_threads: (
-      agentThreadsQueries.pausedCount(db, owner, t.id) as { n: number }
-    ).n,
+    paused_threads: agentThreadsQueries.pausedCount(db, owner, t.id)!.n,
   }));
 }
 export function teamFilter(value: unknown, owner: string) {
@@ -188,9 +186,7 @@ export function addTeamMember(owner: string, teamId: string, input: unknown) {
       assertTeamConnection(ownedConnection(agent.connection_id, owner));
       const existing = teamMembersQueries.exists(db, teamId, agentId);
       if (!existing) {
-        const count = (
-          teamMembersQueries.activeCount(db, teamId) as { n: number }
-        ).n;
+        const count = teamMembersQueries.activeCount(db, teamId)!.n;
         if (count >= MAX_TEAM_WORKERS)
           throw new Problem(
             409,

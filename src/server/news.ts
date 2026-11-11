@@ -188,7 +188,7 @@ const keep = db.transaction(
     feedReadsQueries.pruneMissing(db, feed.id);
     feedDismissalsQueries.pruneMissing(db, feed.id);
     feedWatchHitsQueries.pruneMissing(db, feed.id);
-    const count = feedStoriesQueries.count(db, feed.id) as { n: number };
+    const count = feedStoriesQueries.count(db, feed.id)!;
     feedStateQueries.received(db, {
       feed: feed.id,
       title: answer.title,

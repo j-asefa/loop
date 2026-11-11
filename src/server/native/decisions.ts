@@ -8,7 +8,6 @@ import {
   recordEffectEdit,
   discardEffectEdit,
 } from "../effect-authority.js";
-import type { QueryRow } from "../query-records.js";
 import { recordPersonalDecision } from "../personal-decisions.js";
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "../db.js";
@@ -137,8 +136,7 @@ export class NativeDecisions {
     commandId: string,
     answer: Record<string, unknown>,
   ) {
-    const d = nativeDecisionsQueries.get(db, decisionId) as
-      QueryRow<"native_decisions"> | undefined;
+    const d = nativeDecisionsQueries.get(db, decisionId);
     if (!d) throw new Problem(404, "Native decision not found.");
     const digest = createHash("sha256")
       .update(JSON.stringify(answer))
@@ -193,15 +191,7 @@ export class NativeDecisions {
       .immediate();
     try {
       await live.adapter.answer(d.native_id, answer, () => {
-        const current = nativeDecisionsQueries.decisionReceipt(
-          db,
-          decisionId,
-        ) as
-          | Pick<
-              QueryRow<"native_decisions">,
-              "state" | "command_id" | "digest"
-            >
-          | undefined;
+        const current = nativeDecisionsQueries.decisionReceipt(db, decisionId);
         if (
           this.context.live.get(d.conversation_id) !== live ||
           live.closed ||
@@ -238,9 +228,7 @@ export class NativeDecisions {
         const outcome = db
           .transaction(() => {
             const current = this.context.live.get(d.conversation_id);
-            const runState = (
-              runsQueries.state(db, d.run_id) as { state: string } | undefined
-            )?.state;
+            const runState = runsQueries.state(db, d.run_id)?.state;
             let reopened = 0;
             if (
               current === live &&
@@ -256,8 +244,7 @@ export class NativeDecisions {
                 "expired",
                 decisionId,
               );
-            const stored = nativeDecisionsQueries.state(db, decisionId) as
-              { state: string } | undefined;
+            const stored = nativeDecisionsQueries.state(db, decisionId);
             // Definitive non-delivery is not an answer, even if the run ended.
             // Preserve only a response the harness already confirmed meanwhile.
             if (stored?.state !== "resolved") {
@@ -280,8 +267,7 @@ export class NativeDecisions {
       // A later transport failure must not undo that confirmation or record it
       // a second time. An unconfirmed answer stays uncertain and is not replayed.
       nativeDecisionsQueries.finishDecidingById(db, "unknown", decisionId);
-      const current = nativeDecisionsQueries.state(db, decisionId) as
-        { state: string } | undefined;
+      const current = nativeDecisionsQueries.state(db, decisionId);
       if (current?.state === "resolved") return { state: "resolved" };
       throw new Problem(
         409,

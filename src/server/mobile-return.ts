@@ -136,12 +136,9 @@ function readFeed(
   const more = page.length > FEED_PAGE_ITEMS;
   if (more) page.pop();
   const rows = page.map((item) => item.row);
-  const laterDue = laterItemsQueries.dueCount(db, owner) as { n: number };
+  const laterDue = laterItemsQueries.dueCount(db, owner)!;
   // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
-  const scheduled = scheduledSendsQueries.summary(db, owner) as {
-    failed: number;
-    pending: number;
-  };
+  const scheduled = scheduledSendsQueries.summary(db, owner)!;
   const last = rows.at(-1);
   return {
     items: replyPage ? replyPage.items : page.map((item) => item.display),
@@ -169,7 +166,7 @@ function readFeed(
 }
 
 function replyUnread(scope: ReplyScope) {
-  return (steeringRepliesQueries.unread(db, scope) as { n: number }).n;
+  return steeringRepliesQueries.unread(db, scope)!.n;
 }
 
 function readReplyFeed(

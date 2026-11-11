@@ -477,14 +477,8 @@ routes.on(workspaceApi.agentDetail, (req, res) => {
   const a = ownedAgent(req.params.id, res.locals.owner);
   res.json({
     agent: a,
-    runs: runsQueries.forAgent(db, res.locals.owner, a.id) as z.input<
-      typeof workspaceApi.agentDetail.response
-    >["runs"],
-    conversations: conversationsQueries.forAgent(
-      db,
-      res.locals.owner,
-      a.id,
-    ) as z.input<typeof workspaceApi.agentDetail.response>["conversations"],
+    runs: runsQueries.forAgent(db, res.locals.owner, a.id),
+    conversations: conversationsQueries.forAgent(db, res.locals.owner, a.id),
   });
 });
 routes.on(

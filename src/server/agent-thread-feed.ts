@@ -44,9 +44,7 @@ function summary(owner: string, thread: Thread): AgentThreadSummary {
     paused_at: thread.paused_at,
     paused_reason: thread.paused_reason,
     updated_at: latest.created_at,
-    message_count: (
-      mailQueries.ownedThreadCount(db, owner, thread.id) as { n: number }
-    ).n,
+    message_count: mailQueries.ownedThreadCount(db, owner, thread.id)!.n,
     participants: agentMailQueries
       .participants(db, { owner, thread: thread.id })
       .map((person) => {

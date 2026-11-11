@@ -45,11 +45,7 @@ export function connectWorkspaceEvents(
   let stopped = false;
   let scheduled: ReturnType<typeof setImmediate> | undefined;
   const read = db.transaction(() => {
-    const bounds = changeWatermarkQueries.bounds(db, owner) as {
-      first: number | null;
-      last: number;
-      epoch: string;
-    };
+    const bounds = changeWatermarkQueries.bounds(db, owner)!;
     let reset =
       (!initial && bounds.epoch !== epoch) ||
       (initial &&
