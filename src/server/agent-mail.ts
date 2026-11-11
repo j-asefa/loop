@@ -162,14 +162,13 @@ const firstLine = (text: string) =>
 const mailByKey = (owner: string, key: string) =>
   mailQueries.byIdempotency(db, owner, key) as Mail | undefined;
 const agentRow = (owner: string, agentId: string) =>
-  agentsQueries.owned(db, agentId, owner) as Agent | undefined;
+  agentsQueries.owned(db, agentId, owner);
 
 /** The run's team, if it is still active and the run's agent belongs to it. */
 export function teamOf(run: Pick<Run, "payload" | "owner_id" | "agent_id">) {
   const teamId = run.payload.teamId;
   if (typeof teamId !== "string" || !run.agent_id) return;
-  const team = teamsQueries.activeOwned(db, teamId, run.owner_id) as
-    Team | undefined;
+  const team = teamsQueries.activeOwned(db, teamId, run.owner_id);
   return team && memberRole(team, run.agent_id) ? team : undefined;
 }
 
@@ -199,13 +198,8 @@ function runtimeOf(owner: string, connectionId: string | null | undefined) {
 
 /** Teammates an agent can message, for the loop_message description. */
 export function teamRoster(team: Team, owner: string, self: string) {
-  return (
-    agentsQueries.mailTeamMembers(db, owner, team.manager_id, team.id) as {
-      id: string;
-      name: string;
-      connection_id: string | null;
-    }[]
-  )
+  return agentsQueries
+    .mailTeamMembers(db, owner, team.manager_id, team.id)
     .filter((agent) => agent.id !== self)
     .map((agent) => ({
       agentId: agent.id,
@@ -397,22 +391,18 @@ function validConversation(
   conversation: string | null | undefined,
 ) {
   if (!conversation) return;
-  return (
-    conversationsQueries.mailTeamConversation(
-      db,
-      conversation,
-      team.owner_id,
-      agentId,
-      team.id,
-    ) as { id: string } | undefined
+  return conversationsQueries.mailTeamConversation(
+    db,
+    conversation,
+    team.owner_id,
+    agentId,
+    team.id,
   )?.id;
 }
 // The team conversation the agent is working in (or has work queued in).
 const workingIn = (team: Team, agentId: string) =>
-  (
-    runsQueries.activeTeamConversation(db, team.owner_id, agentId, team.id) as
-      { conversation_id: string } | undefined
-  )?.conversation_id;
+  runsQueries.activeTeamConversation(db, team.owner_id, agentId, team.id)
+    ?.conversation_id;
 const activeIn = (team: Team, agentId: string, conversation: string) =>
   !!runsQueries.hasActiveAgentConversation(
     db,
@@ -437,13 +427,8 @@ function route(
   preferParent: boolean,
 ) {
   const parent = senderRun
-    ? (
-        delegationsQueries.mailParentConversation(
-          db,
-          senderRun.id,
-          recipient,
-        ) as { conversation_id: string } | undefined
-      )?.conversation_id
+    ? delegationsQueries.mailParentConversation(db, senderRun.id, recipient)
+        ?.conversation_id
     : undefined;
   if (preferParent) {
     const conversation = validConversation(team, recipient, parent);
@@ -455,18 +440,17 @@ function route(
   }
   const active = workingIn(team, recipient);
   if (active) return { conversationId: active, active: true };
-  const member = (
-    agentThreadMembersQueries.conversation(db, thread.id, recipient) as
-      { conversation_id: string | null } | undefined
+  const member = agentThreadMembersQueries.conversation(
+    db,
+    thread.id,
+    recipient,
   )?.conversation_id;
   const delegated = senderRun?.conversation_id
-    ? (
-        delegationsQueries.mailChildConversation(
-          db,
-          team.owner_id,
-          senderRun.conversation_id,
-          recipient,
-        ) as { conversation_id: string } | undefined
+    ? delegationsQueries.mailChildConversation(
+        db,
+        team.owner_id,
+        senderRun.conversation_id,
+        recipient,
       )?.conversation_id
     : undefined;
   for (const candidate of [
@@ -493,10 +477,8 @@ function steerable(owner: string, conversation: string, recipient: string) {
 // Resolve direct interrupts when accepting the message, before holding or
 // dispatching it. Recovery must keep that destination if the active task changes.
 function currentConversation(owner: string, recipient: string) {
-  return (
-    runsQueries.currentMailConversation(db, owner, recipient) as
-      { conversation_id: string } | undefined
-  )?.conversation_id;
+  return runsQueries.currentMailConversation(db, owner, recipient)
+    ?.conversation_id;
 }
 
 // What the recipient's model reads. Agent input is never the user's.
@@ -540,8 +522,7 @@ function wrap(
     : "agent";
   const recipient = agentRow(mail.owner_id, mail.recipient_agent_id);
   const senderRun = mail.sender_run_id
-    ? (runsQueries.ownedPayload(db, mail.sender_run_id, mail.owner_id) as
-        { id: string; payload: string } | undefined)
+    ? runsQueries.ownedPayload(db, mail.sender_run_id, mail.owner_id)
     : undefined;
   let from =
     sender.kind === "remote" ? "machine:" + sender.machineId : "unknown";
@@ -627,11 +608,12 @@ function limitReason(thread: Thread, mail: Mail) {
   const [a, b] = [mail.sender_agent_id, mail.recipient_agent_id];
   // Resuming any thread between the two gives the pair a fresh allowance;
   // the held messages it releases don't count against it.
-  const resumed = (
-    agentThreadsQueries.pairResumeOrder(db, mail.owner_id, a, b) as {
-      at: number | null;
-    }
-  ).at;
+  const resumed = agentThreadsQueries.pairResumeOrder(
+    db,
+    mail.owner_id,
+    a,
+    b,
+  )!.at;
   if (
     mailQueries.pairMessageCount(
       db,
@@ -675,7 +657,7 @@ function dispatch(
     db,
     thread.id,
     recipient.id,
-  ) as { conversation_id: string | null };
+  )!;
   const destination = mail.recipient_conversation_id ?? binding.conversation_id;
   if (thread.scope === "direct" && destination)
     mailConversation(mail.owner_id, recipient.id, destination);
@@ -859,8 +841,7 @@ function dispatchPending(mail: Mail, thread: Thread, time = now()) {
       refuse(mail, error);
       return;
     }
-    const attempts =
-      (mailQueries.attempts(db, mail.id) as { attempts: number }).attempts + 1;
+    const attempts = mailQueries.attempts(db, mail.id)!.attempts + 1;
     const reason =
       error instanceof Error
         ? error.message.slice(0, 500)
@@ -1036,7 +1017,7 @@ export function sendMail(run: Run, callId: string, input: unknown) {
             db,
             thread.id,
             recipientId,
-          ) as { conversation_id: string | null } | undefined;
+          );
           if (
             thread.scope !== "direct" ||
             (!args.interrupt && bound?.conversation_id !== args.conversationId)
@@ -1091,11 +1072,11 @@ export function sendMail(run: Run, callId: string, input: unknown) {
         join(thread.id, run.agent_id!, run.conversation_id);
         join(thread.id, recipientId, null);
       }
-      let destination = (
-        agentThreadMembersQueries.conversation(db, thread.id, recipientId) as {
-          conversation_id: string | null;
-        }
-      ).conversation_id;
+      let destination = agentThreadMembersQueries.conversation(
+        db,
+        thread.id,
+        recipientId,
+      )!.conversation_id;
       if (remote)
         destination =
           args.conversationId ?? (args.interrupt ? null : destination);
@@ -1159,19 +1140,16 @@ function statusOf(mail: Mail): MailStatus {
   if (mail.state === "held") return "held";
   if (mail.state === "refused") return "not_delivered";
   if (mail.steering_id && !mail.requeued_run_id) {
-    const steering = (
-      runSteeringQueries.state(db, mail.steering_id) as
-        { state: string } | undefined
-    )?.state;
+    const steering = runSteeringQueries.state(db, mail.steering_id)?.state;
     return steering === "delivered"
       ? "steered"
       : steering === "failed"
         ? "unconfirmed"
         : "steering";
   }
-  const state = (
-    runsQueries.state(db, mail.requeued_run_id ?? mail.run_id) as
-      { state: string } | undefined
+  const state = runsQueries.state(
+    db,
+    mail.requeued_run_id ?? mail.run_id,
   )?.state;
   if (
     state === "interrupted" &&
@@ -1551,18 +1529,7 @@ const CANCELLED =
 // restarted by its unread messages.
 function requeue(mail: Mail) {
   db.transaction(() => {
-    const message = runSteeringQueries.failedMail(
-      db,
-      mail.steering_id,
-      UNSENT,
-    ) as
-      | {
-          content: string;
-          conversation_id: string;
-          metadata: string;
-          run_state: string;
-        }
-      | undefined;
+    const message = runSteeringQueries.failedMail(db, mail.steering_id, UNSENT);
     if (!message) return;
     const note = (text: string) =>
       runSteeringQueries.setError(db, text, mail.steering_id);
@@ -1637,9 +1604,7 @@ function attempt(key: string, time: number, work: () => void) {
 /** Worker pass: deliver background delegation results, requeue stranded steering. */
 export function sweepAgentMail(time = now()) {
   // Snapshot reviews are retrieved through loop_review_status, not team mail.
-  const finished = delegationsQueries.finishedMailResults(db) as Parameters<
-    typeof deliverResult
-  >[0][];
+  const finished = delegationsQueries.finishedMailResults(db);
   for (const row of finished)
     attempt(`result:${row.child_run_id}:${row.state}`, time, () =>
       deliverResult(row),
@@ -1653,7 +1618,7 @@ export function sweepAgentMail(time = now()) {
   ) as Mail[];
   for (const mail of stranded)
     attempt("requeue:" + mail.id, time, () => requeue(mail));
-  const pending = mailQueries.pendingHeads(db, time) as { id: string }[];
+  const pending = mailQueries.pendingHeads(db, time);
   for (const item of pending)
     db.transaction(() => {
       let mail: Mail | undefined;
@@ -1703,11 +1668,8 @@ export function resumeThread(
         paused_at: null,
         paused_reason: null,
         resumed_at: time,
-        resumed_order: (
-          agentThreadsQueries.resumeOrder(db, thread.id) as {
-            resumed_order: number;
-          }
-        ).resumed_order,
+        resumed_order: agentThreadsQueries.resumeOrder(db, thread.id)!
+          .resumed_order,
       });
       const held = mailQueries.heldInThread(db, thread.id) as Mail[];
       let released = 0,
@@ -1836,11 +1798,9 @@ function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
       paused_at: thread.paused_at,
       paused_reason: thread.paused_reason,
       updated_at: thread.updated_at,
-      participants: (
-        agentThreadMembersQueries.orderedAgents(db, thread.id) as {
-          agent_id: string;
-        }[]
-      ).map((m) => m.agent_id),
+      participants: agentThreadMembersQueries
+        .orderedAgents(db, thread.id)
+        .map((m) => m.agent_id),
       ...(fleetMailThreadsQueries.exists(db, thread.owner_id, thread.id)
         ? {
             participant_refs: (
