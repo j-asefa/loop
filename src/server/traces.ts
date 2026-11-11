@@ -41,7 +41,9 @@ export function agentTraces(
   q?: string,
 ) {
   ownedAgent(agent, owner);
-  const match = q ? ftsQuery(q, { operator: "AND", prefix: true }) : null;
+  const match = q
+    ? ftsQuery(q, { operator: "AND", prefix: true, splitIdentifiers: true })
+    : null;
   if (q && !match) return { items: [], next: null };
   const items = runTracesQueries.agentPage(
     db,

@@ -608,6 +608,8 @@ it("filters traces by every term, including linked tool results, within the owne
   expect(keys("-- __")).toEqual([]);
   expect(keys("harbour")).toEqual(["tool:search"]);
   expect(keys("web_sea")).toEqual(["tool:search"]);
+  expect(keys("we_sea")).toEqual(["tool:search"]);
+  expect(keys("npm-zep")).toEqual(["tool:npm"]);
   expect(keys("npm ".repeat(25) + "zep")).toEqual(["tool:npm"]);
   expect(keys("zeppelin", foreign.id, "bob")).toEqual(["tool:npm"]);
   expect(() => keys("zeppelin", a.id, "bob")).toThrow("Item not found");

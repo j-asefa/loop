@@ -1,9 +1,14 @@
-type SearchTermOptions = { limit?: number; exclude?: ReadonlySet<string> };
+type SearchTermOptions = {
+  limit?: number;
+  exclude?: ReadonlySet<string>;
+  splitIdentifiers?: boolean;
+};
 export function searchTerms(
   query: string,
-  { limit = 20, exclude }: SearchTermOptions = {},
+  { limit = 20, exclude, splitIdentifiers = false }: SearchTermOptions = {},
 ) {
-  return [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])]
+  const pattern = splitIdentifiers ? /[\p{L}\p{N}]+/gu : /[\p{L}\p{N}_-]+/gu;
+  return [...new Set(query.toLowerCase().match(pattern) || [])]
     .filter((term) => /[\p{L}\p{N}]/u.test(term) && !exclude?.has(term))
     .slice(0, limit);
 }
