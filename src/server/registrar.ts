@@ -16,6 +16,10 @@ import {
 import { admitsToken, isTokenMutation } from "../shared/token-scopes.js";
 import type { TokenResult, TokenWrite } from "./token-requests.js";
 
+const registeredContracts = new Set<RouteContract>(
+  Object.values(workspaceRoutes),
+);
+
 type MatchedRoute = { contract: RouteContract; params: unknown };
 const probes = new WeakMap<
   object,
@@ -252,13 +256,12 @@ export function registrar(_name: string, options: Options = {}) {
     ) {
       let identity: { operation: string; run: TokenWrite } | undefined;
       if (isTokenMutation(contract)) {
-        const operation = Object.entries(workspaceRoutes).find(([, route]) =>
-          Object.is(route, contract),
-        )?.[0];
+        const operation = contract.operation;
         if (
           !contract.identity ||
           !options.tokenWrite ||
           !operation ||
+          !registeredContracts.has(contract) ||
           contract.kind === "stream"
         )
           throw new Error(

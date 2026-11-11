@@ -453,6 +453,8 @@ type PeerAccess =
   | "peer:workspace";
 type SessionAccess = "session" | PeerAccess | "device:fleet";
 export type RouteContract = {
+  // Workspace endpoints require a stable operation; peer contracts do not use token receipts.
+  operation?: string;
   path: string;
   params: z.ZodType;
   query: z.ZodType;
@@ -495,7 +497,9 @@ export type FleetRouteContract = RouteContract & {
   access: PeerAccess | "device:fleet";
 };
 export type ClientRouteContract = RouteContract;
-const endpoint = <const C extends RouteContract>(contract: C) => contract;
+const endpoint = <const C extends RouteContract & { operation: string }>(
+  contract: C,
+) => contract;
 const base = {
   params: Empty,
   query: Empty,
@@ -505,6 +509,7 @@ const base = {
 export const workspaceRoutes = {
   conversationMemory: endpoint({
     ...base,
+    operation: "conversationMemory",
     method: "GET",
     path: "/conversations/:id/memory",
     params: Id,
@@ -512,12 +517,14 @@ export const workspaceRoutes = {
   }),
   memoryStatus: endpoint({
     ...base,
+    operation: "memoryStatus",
     method: "GET",
     path: "/memory",
     response: memory.PublicMemoryStatus,
   }),
   memoryPolicy: endpoint({
     ...base,
+    operation: "memoryPolicy",
     method: "PUT",
     path: "/memory/policy",
     body: memory.MemoryPolicyInput,
@@ -525,6 +532,7 @@ export const workspaceRoutes = {
   }),
   memorySource: endpoint({
     ...base,
+    operation: "memorySource",
     method: "GET",
     path: "/memory/sources/:id",
     params: Id,
@@ -532,6 +540,7 @@ export const workspaceRoutes = {
   }),
   memorySourceDelete: endpoint({
     ...base,
+    operation: "memorySourceDelete",
     method: "DELETE",
     path: "/memory/sources/:id",
     params: Id,
@@ -540,6 +549,7 @@ export const workspaceRoutes = {
   }),
   memoryNoteCreate: endpoint({
     ...base,
+    operation: "memoryNoteCreate",
     method: "POST",
     path: "/memory/notes",
     body: memory.MemoryNoteInput,
@@ -547,6 +557,7 @@ export const workspaceRoutes = {
   }),
   memoryNoteUpdate: endpoint({
     ...base,
+    operation: "memoryNoteUpdate",
     method: "PATCH",
     path: "/memory/notes/:id",
     params: Id,
@@ -555,6 +566,7 @@ export const workspaceRoutes = {
   }),
   memoryNoteVersions: endpoint({
     ...base,
+    operation: "memoryNoteVersions",
     method: "GET",
     path: "/memory/notes/:id/versions",
     params: Id,
@@ -562,6 +574,7 @@ export const workspaceRoutes = {
   }),
   runMemory: endpoint({
     ...base,
+    operation: "runMemory",
     method: "GET",
     path: "/runs/:id/memory",
     params: Id,
@@ -569,6 +582,7 @@ export const workspaceRoutes = {
   }),
   agentSources: endpoint({
     ...base,
+    operation: "agentSources",
     method: "GET",
     path: "/agent-sources",
     security: "paired-device",
@@ -576,6 +590,7 @@ export const workspaceRoutes = {
   }),
   workspaceDevices: endpoint({
     ...base,
+    operation: "workspaceDevices",
     method: "GET",
     path: "/workspace/devices",
     security: "paired-device",
@@ -583,6 +598,7 @@ export const workspaceRoutes = {
   }),
   workspaceRevoke: endpoint({
     ...base,
+    operation: "workspaceRevoke",
     method: "POST",
     path: "/workspace/revoke",
     security: "paired-device",
@@ -591,12 +607,14 @@ export const workspaceRoutes = {
   }),
   mcpPreferences: endpoint({
     ...base,
+    operation: "mcpPreferences",
     method: "GET",
     path: "/mcp/preferences",
     response: mcp.PublicMcpPreferences,
   }),
   mcpPreferencesUpdate: endpoint({
     ...base,
+    operation: "mcpPreferencesUpdate",
     method: "PUT",
     path: "/mcp/preferences",
     body: mcp.McpPreferencesInput,
@@ -604,18 +622,21 @@ export const workspaceRoutes = {
   }),
   mcpCatalog: endpoint({
     ...base,
+    operation: "mcpCatalog",
     method: "GET",
     path: "/mcp/catalog",
     response: mcp.PublicMcpCatalog,
   }),
   mcpNativeCandidates: endpoint({
     ...base,
+    operation: "mcpNativeCandidates",
     method: "GET",
     path: "/mcp/native-candidates",
     response: mcp.PublicMcpCandidates,
   }),
   mcpNativeImport: endpoint({
     ...base,
+    operation: "mcpNativeImport",
     method: "POST",
     path: "/mcp/native-candidates/:id/import",
     params: Id,
@@ -625,6 +646,7 @@ export const workspaceRoutes = {
   }),
   mcpCatalogInstall: endpoint({
     ...base,
+    operation: "mcpCatalogInstall",
     method: "POST",
     path: "/mcp/catalog/:id/install",
     params: Id,
@@ -633,6 +655,7 @@ export const workspaceRoutes = {
   }),
   mcpInstall: endpoint({
     ...base,
+    operation: "mcpInstall",
     method: "POST",
     path: "/mcp/install",
     body: mcp.McpInstallInput,
@@ -641,12 +664,14 @@ export const workspaceRoutes = {
   }),
   mcpList: endpoint({
     ...base,
+    operation: "mcpList",
     method: "GET",
     path: "/mcp",
     response: z.array(mcp.PublicMcpConnection),
   }),
   mcpCreate: endpoint({
     ...base,
+    operation: "mcpCreate",
     method: "POST",
     path: "/mcp",
     body: mcp.McpCreateInput,
@@ -655,6 +680,7 @@ export const workspaceRoutes = {
   }),
   mcpTest: endpoint({
     ...base,
+    operation: "mcpTest",
     method: "POST",
     path: "/mcp/:id/test",
     params: Id,
@@ -663,6 +689,7 @@ export const workspaceRoutes = {
   }),
   mcpUpdate: endpoint({
     ...base,
+    operation: "mcpUpdate",
     method: "PATCH",
     path: "/mcp/:id",
     params: Id,
@@ -671,6 +698,7 @@ export const workspaceRoutes = {
   }),
   mcpOauthCallback: endpoint({
     ...base,
+    operation: "mcpOauthCallback",
     method: "GET",
     path: "/mcp/oauth/callback",
     query: z.object({
@@ -683,6 +711,7 @@ export const workspaceRoutes = {
   }),
   agentTools: endpoint({
     ...base,
+    operation: "agentTools",
     method: "GET",
     path: "/agents/:id/tools",
     params: Id,
@@ -690,6 +719,7 @@ export const workspaceRoutes = {
   }),
   agentToolsUpdate: endpoint({
     ...base,
+    operation: "agentToolsUpdate",
     method: "PUT",
     path: "/agents/:id/tools",
     params: Id,
@@ -699,6 +729,7 @@ export const workspaceRoutes = {
   }),
   artifactToolCall: endpoint({
     ...base,
+    operation: "artifactToolCall",
     method: "POST",
     path: "/artifacts/:id/tool-call",
     params: Id,
@@ -707,6 +738,7 @@ export const workspaceRoutes = {
   }),
   artifactRefresh: endpoint({
     ...base,
+    operation: "artifactRefresh",
     method: "POST",
     path: "/artifacts/:id/refresh",
     params: Id,
@@ -715,6 +747,7 @@ export const workspaceRoutes = {
   }),
   artifactApp: endpoint({
     ...base,
+    operation: "artifactApp",
     method: "GET",
     path: "/artifacts/:id/app",
     params: Id,
@@ -724,6 +757,7 @@ export const workspaceRoutes = {
   }),
   capabilities: endpoint({
     ...base,
+    operation: "capabilities",
     security: "public",
     method: "GET",
     path: "/capabilities",
@@ -731,6 +765,7 @@ export const workspaceRoutes = {
   }),
   health: endpoint({
     ...base,
+    operation: "health",
     security: "public",
     method: "GET",
     path: "/health",
@@ -739,12 +774,14 @@ export const workspaceRoutes = {
   }),
   build: endpoint({
     ...base,
+    operation: "build",
     method: "GET",
     path: "/build",
     response: app.PublicBuild,
   }),
   diagnostic: endpoint({
     ...base,
+    operation: "diagnostic",
     method: "POST",
     path: "/diagnostic",
     body: app.DiagnosticInput,
@@ -752,6 +789,7 @@ export const workspaceRoutes = {
   }),
   events: endpoint({
     ...base,
+    operation: "events",
     access: { admits: ["read"] },
     method: "GET",
     path: "/events",
@@ -760,6 +798,7 @@ export const workspaceRoutes = {
   }),
   tokenEvents: endpoint({
     ...base,
+    operation: "tokenEvents",
     access: { admits: ["read"] },
     security: "integration-token",
     method: "GET",
@@ -777,6 +816,7 @@ export const workspaceRoutes = {
   }),
   authSession: endpoint({
     ...base,
+    operation: "authSession",
     security: "optional-session",
     method: "GET",
     path: "/auth/get-session",
@@ -784,6 +824,7 @@ export const workspaceRoutes = {
   }),
   prWatchList: endpoint({
     ...base,
+    operation: "prWatchList",
     method: "GET",
     path: "/pr-watches",
     query: z.object({ conversation: Text.max(150).optional() }),
@@ -791,6 +832,7 @@ export const workspaceRoutes = {
   }),
   prWatchCreate: endpoint({
     ...base,
+    operation: "prWatchCreate",
     method: "POST",
     path: "/pr-watches",
     body: github.PrWatchInput,
@@ -799,6 +841,7 @@ export const workspaceRoutes = {
   }),
   prWatchResume: endpoint({
     ...base,
+    operation: "prWatchResume",
     method: "POST",
     path: "/pr-watches/:id/resume",
     params: Id,
@@ -807,6 +850,7 @@ export const workspaceRoutes = {
   }),
   prWatchDelete: endpoint({
     ...base,
+    operation: "prWatchDelete",
     method: "DELETE",
     path: "/pr-watches/:id",
     params: Id,
@@ -815,6 +859,7 @@ export const workspaceRoutes = {
   }),
   githubPullList: endpoint({
     ...base,
+    operation: "githubPullList",
     method: "GET",
     path: "/github/pulls",
     query: github.PullQuery,
@@ -822,6 +867,7 @@ export const workspaceRoutes = {
   }),
   githubPullDetail: endpoint({
     ...base,
+    operation: "githubPullDetail",
     method: "GET",
     path: "/github/pulls/:owner/:repo/:number",
     params: github.PullParams,
@@ -829,6 +875,7 @@ export const workspaceRoutes = {
   }),
   githubPullFiles: endpoint({
     ...base,
+    operation: "githubPullFiles",
     method: "GET",
     path: "/github/pulls/:owner/:repo/:number/files",
     params: github.PullParams,
@@ -837,6 +884,7 @@ export const workspaceRoutes = {
   }),
   githubPullCommitFiles: endpoint({
     ...base,
+    operation: "githubPullCommitFiles",
     method: "GET",
     path: "/github/pulls/:owner/:repo/:number/commits/:sha/files",
     params: github.PullParams.extend({ sha: github.CommitSha }),
@@ -844,6 +892,7 @@ export const workspaceRoutes = {
   }),
   githubPullFile: endpoint({
     ...base,
+    operation: "githubPullFile",
     method: "GET",
     path: "/github/pulls/:owner/:repo/:number/file",
     params: github.PullParams,
@@ -853,6 +902,7 @@ export const workspaceRoutes = {
   }),
   githubPullReview: endpoint({
     ...base,
+    operation: "githubPullReview",
     method: "POST",
     path: "/github/pulls/:owner/:repo/:number/reviews",
     params: github.PullParams,
@@ -862,6 +912,7 @@ export const workspaceRoutes = {
   }),
   githubPullComment: endpoint({
     ...base,
+    operation: "githubPullComment",
     method: "POST",
     path: "/github/pulls/:owner/:repo/:number/comments",
     params: github.PullParams,
@@ -871,6 +922,7 @@ export const workspaceRoutes = {
   }),
   githubPullMerge: endpoint({
     ...base,
+    operation: "githubPullMerge",
     method: "POST",
     path: "/github/pulls/:owner/:repo/:number/merge",
     params: github.PullParams,
@@ -879,12 +931,14 @@ export const workspaceRoutes = {
   }),
   socialUnread: endpoint({
     ...base,
+    operation: "socialUnread",
     method: "GET",
     path: "/social/unread",
     response: z.object({ unread: z.number() }),
   }),
   socialList: endpoint({
     ...base,
+    operation: "socialList",
     method: "GET",
     path: "/social",
     query: social.SocialQuery,
@@ -892,6 +946,7 @@ export const workspaceRoutes = {
   }),
   socialSearch: endpoint({
     ...base,
+    operation: "socialSearch",
     method: "GET",
     path: "/social/search",
     query: social.SocialSearchQuery,
@@ -899,6 +954,7 @@ export const workspaceRoutes = {
   }),
   socialImage: endpoint({
     ...base,
+    operation: "socialImage",
     method: "GET",
     path: "/social/image",
     query: z.object({ story: Text.min(3).max(600) }),
@@ -907,12 +963,14 @@ export const workspaceRoutes = {
   }),
   socialMutes: endpoint({
     ...base,
+    operation: "socialMutes",
     method: "GET",
     path: "/social/mutes",
     response: z.object({ mutes: z.array(Text) }),
   }),
   socialMute: endpoint({
     ...base,
+    operation: "socialMute",
     method: "POST",
     path: "/social/mutes",
     body: social.MuteInput,
@@ -920,6 +978,7 @@ export const workspaceRoutes = {
   }),
   socialUnmute: endpoint({
     ...base,
+    operation: "socialUnmute",
     method: "DELETE",
     path: "/social/mutes",
     body: social.MuteInput,
@@ -927,6 +986,7 @@ export const workspaceRoutes = {
   }),
   socialRead: endpoint({
     ...base,
+    operation: "socialRead",
     method: "POST",
     path: "/social/read",
     body: social.StoryIds,
@@ -934,6 +994,7 @@ export const workspaceRoutes = {
   }),
   socialUnreadSet: endpoint({
     ...base,
+    operation: "socialUnreadSet",
     method: "DELETE",
     path: "/social/read",
     body: social.StoryIds,
@@ -941,6 +1002,7 @@ export const workspaceRoutes = {
   }),
   socialDismiss: endpoint({
     ...base,
+    operation: "socialDismiss",
     method: "POST",
     path: "/social/dismiss",
     body: social.StoryIds,
@@ -948,6 +1010,7 @@ export const workspaceRoutes = {
   }),
   socialRestore: endpoint({
     ...base,
+    operation: "socialRestore",
     method: "DELETE",
     path: "/social/dismiss",
     body: social.StoryIds,
@@ -955,12 +1018,14 @@ export const workspaceRoutes = {
   }),
   socialPreferences: endpoint({
     ...base,
+    operation: "socialPreferences",
     method: "GET",
     path: "/social/preferences",
     response: social.PublicPreferences,
   }),
   socialPreferencesUpdate: endpoint({
     ...base,
+    operation: "socialPreferencesUpdate",
     method: "PUT",
     path: "/social/preferences",
     body: social.PreferenceInput,
@@ -968,6 +1033,7 @@ export const workspaceRoutes = {
   }),
   socialReadAll: endpoint({
     ...base,
+    operation: "socialReadAll",
     method: "POST",
     path: "/social/read-all",
     body: social.ReadAllInput,
@@ -975,6 +1041,7 @@ export const workspaceRoutes = {
   }),
   socialFeeds: endpoint({
     ...base,
+    operation: "socialFeeds",
     method: "GET",
     path: "/social/feeds",
     response: z.object({
@@ -984,6 +1051,7 @@ export const workspaceRoutes = {
   }),
   socialSourceDiscover: endpoint({
     ...base,
+    operation: "socialSourceDiscover",
     method: "POST",
     path: "/social/sources/discover",
     body: social.SourceDiscoveryInput,
@@ -993,6 +1061,7 @@ export const workspaceRoutes = {
   }),
   socialSourceAdd: endpoint({
     ...base,
+    operation: "socialSourceAdd",
     method: "PUT",
     path: "/social/sources",
     body: social.SourceInput,
@@ -1001,6 +1070,7 @@ export const workspaceRoutes = {
   }),
   socialSourceDelete: endpoint({
     ...base,
+    operation: "socialSourceDelete",
     method: "DELETE",
     path: "/social/sources/:id",
     params: Id,
@@ -1009,6 +1079,7 @@ export const workspaceRoutes = {
   }),
   socialOpmlImport: endpoint({
     ...base,
+    operation: "socialOpmlImport",
     method: "POST",
     path: "/social/opml",
     body: social.OpmlInput,
@@ -1019,6 +1090,7 @@ export const workspaceRoutes = {
   }),
   socialOpmlExport: endpoint({
     ...base,
+    operation: "socialOpmlExport",
     method: "GET",
     path: "/social/opml",
     kind: "stream",
@@ -1027,6 +1099,7 @@ export const workspaceRoutes = {
   }),
   socialFeedAdd: endpoint({
     ...base,
+    operation: "socialFeedAdd",
     method: "PUT",
     path: "/social/feeds/:id",
     params: Id,
@@ -1035,6 +1108,7 @@ export const workspaceRoutes = {
   }),
   socialFeedDelete: endpoint({
     ...base,
+    operation: "socialFeedDelete",
     method: "DELETE",
     path: "/social/feeds/:id",
     params: Id,
@@ -1043,12 +1117,14 @@ export const workspaceRoutes = {
   }),
   socialWatches: endpoint({
     ...base,
+    operation: "socialWatches",
     method: "GET",
     path: "/social/watches",
     response: z.object({ watches: z.array(social.PublicWatch) }),
   }),
   socialWatchCreate: endpoint({
     ...base,
+    operation: "socialWatchCreate",
     method: "POST",
     path: "/social/watches",
     body: social.WatchInput,
@@ -1057,6 +1133,7 @@ export const workspaceRoutes = {
   }),
   socialWatchPreview: endpoint({
     ...base,
+    operation: "socialWatchPreview",
     method: "POST",
     path: "/social/watches/preview",
     body: social.WatchInput,
@@ -1064,6 +1141,7 @@ export const workspaceRoutes = {
   }),
   socialWatchUpdate: endpoint({
     ...base,
+    operation: "socialWatchUpdate",
     method: "PATCH",
     path: "/social/watches/:id",
     params: Id,
@@ -1072,6 +1150,7 @@ export const workspaceRoutes = {
   }),
   socialWatchDelete: endpoint({
     ...base,
+    operation: "socialWatchDelete",
     method: "DELETE",
     path: "/social/watches/:id",
     params: Id,
@@ -1080,12 +1159,14 @@ export const workspaceRoutes = {
   }),
   socialDigests: endpoint({
     ...base,
+    operation: "socialDigests",
     method: "GET",
     path: "/social/digests",
     response: z.object({ digests: z.array(social.PublicDigest) }),
   }),
   socialDigestCreate: endpoint({
     ...base,
+    operation: "socialDigestCreate",
     method: "POST",
     path: "/social/digests",
     body: social.DigestInput,
@@ -1094,6 +1175,7 @@ export const workspaceRoutes = {
   }),
   socialDigestUpdate: endpoint({
     ...base,
+    operation: "socialDigestUpdate",
     method: "PATCH",
     path: "/social/digests/:id",
     params: Id,
@@ -1102,6 +1184,7 @@ export const workspaceRoutes = {
   }),
   socialDigestDelete: endpoint({
     ...base,
+    operation: "socialDigestDelete",
     method: "DELETE",
     path: "/social/digests/:id",
     params: Id,
@@ -1110,18 +1193,21 @@ export const workspaceRoutes = {
   }),
   teamList: endpoint({
     ...base,
+    operation: "teamList",
     method: "GET",
     path: "/teams",
     response: z.array(PublicTeam),
   }),
   teamPresets: endpoint({
     ...base,
+    operation: "teamPresets",
     method: "GET",
     path: "/team-presets",
     response: z.array(teams.PublicTeamPreset),
   }),
   teamCreate: endpoint({
     ...base,
+    operation: "teamCreate",
     method: "POST",
     path: "/teams",
     body: teams.TeamCreateInput,
@@ -1130,6 +1216,7 @@ export const workspaceRoutes = {
   }),
   teamFromPreset: endpoint({
     ...base,
+    operation: "teamFromPreset",
     method: "POST",
     path: "/teams/from-preset",
     body: teams.TeamPresetInput,
@@ -1138,6 +1225,7 @@ export const workspaceRoutes = {
   }),
   teamMemberAdd: endpoint({
     ...base,
+    operation: "teamMemberAdd",
     method: "POST",
     path: "/teams/:id/members",
     params: Id,
@@ -1146,6 +1234,7 @@ export const workspaceRoutes = {
   }),
   teamFeedVisibility: endpoint({
     ...base,
+    operation: "teamFeedVisibility",
     method: "PATCH",
     path: "/teams/:id/feed-visibility",
     params: Id,
@@ -1154,6 +1243,7 @@ export const workspaceRoutes = {
   }),
   teamDelete: endpoint({
     ...base,
+    operation: "teamDelete",
     method: "DELETE",
     path: "/teams/:id",
     params: Id,
@@ -1162,6 +1252,7 @@ export const workspaceRoutes = {
   }),
   teamReview: endpoint({
     ...base,
+    operation: "teamReview",
     method: "POST",
     path: "/teams/:id/reviews",
     params: Id,
@@ -1171,6 +1262,7 @@ export const workspaceRoutes = {
   }),
   reviewStatus: endpoint({
     ...base,
+    operation: "reviewStatus",
     method: "GET",
     path: "/reviews/conversation/:id",
     params: Id,
@@ -1179,6 +1271,7 @@ export const workspaceRoutes = {
   }),
   teamMessages: endpoint({
     ...base,
+    operation: "teamMessages",
     method: "GET",
     path: "/teams/:id/messages",
     params: Id,
@@ -1186,6 +1279,7 @@ export const workspaceRoutes = {
   }),
   teamThreadResume: endpoint({
     ...base,
+    operation: "teamThreadResume",
     method: "POST",
     path: "/teams/:id/threads/:threadId/resume",
     params: Id.extend({ threadId: Text }),
@@ -1194,6 +1288,7 @@ export const workspaceRoutes = {
   }),
   agentMail: endpoint({
     ...base,
+    operation: "agentMail",
     method: "GET",
     path: "/agents/:id/mail",
     params: Id,
@@ -1201,6 +1296,7 @@ export const workspaceRoutes = {
   }),
   agentMailResume: endpoint({
     ...base,
+    operation: "agentMailResume",
     method: "POST",
     path: "/agents/:id/mail/:threadId/resume",
     params: Id.extend({ threadId: Text }),
@@ -1209,12 +1305,14 @@ export const workspaceRoutes = {
   }),
   definitionList: endpoint({
     ...base,
+    operation: "definitionList",
     method: "GET",
     path: "/agent-definitions",
     response: z.array(teams.PublicDefinitionSummary),
   }),
   definitionRead: endpoint({
     ...base,
+    operation: "definitionRead",
     method: "GET",
     path: "/agent-definitions/:id",
     params: Id,
@@ -1222,6 +1320,7 @@ export const workspaceRoutes = {
   }),
   definitionSave: endpoint({
     ...base,
+    operation: "definitionSave",
     method: "PUT",
     path: "/agent-definitions/:id",
     params: z.object({ id: Text.uuid() }),
@@ -1230,6 +1329,7 @@ export const workspaceRoutes = {
   }),
   definitionDelete: endpoint({
     ...base,
+    operation: "definitionDelete",
     method: "DELETE",
     path: "/agent-definitions/:id",
     params: Id,
@@ -1238,6 +1338,7 @@ export const workspaceRoutes = {
   }),
   definitionCreate: endpoint({
     ...base,
+    operation: "definitionCreate",
     method: "POST",
     path: "/agent-definitions/:id/create",
     params: Id,
@@ -1250,6 +1351,7 @@ export const workspaceRoutes = {
   }),
   sharePreview: endpoint({
     ...base,
+    operation: "sharePreview",
     method: "POST",
     path: "/share/preview",
     body: teams.ShareInput,
@@ -1257,6 +1359,7 @@ export const workspaceRoutes = {
   }),
   shareSend: endpoint({
     ...base,
+    operation: "shareSend",
     method: "POST",
     path: "/share/send",
     body: teams.ShareSendInput,
@@ -1264,6 +1367,7 @@ export const workspaceRoutes = {
   }),
   routingPreview: endpoint({
     ...base,
+    operation: "routingPreview",
     method: "POST",
     path: "/routing/preview",
     body: teams.RoutingInput,
@@ -1271,12 +1375,14 @@ export const workspaceRoutes = {
   }),
   notifications: endpoint({
     ...base,
+    operation: "notifications",
     method: "GET",
     path: "/notifications",
     response: teams.PublicNotifications,
   }),
   notificationSubscribe: endpoint({
     ...base,
+    operation: "notificationSubscribe",
     method: "POST",
     path: "/notifications/subscriptions",
     body: teams.NotificationSubscriptionInput,
@@ -1285,6 +1391,7 @@ export const workspaceRoutes = {
   }),
   notificationUnsubscribe: endpoint({
     ...base,
+    operation: "notificationUnsubscribe",
     method: "DELETE",
     path: "/notifications/subscriptions",
     body: z.object({ endpoint: teams.PushEndpoint }),
@@ -1292,6 +1399,7 @@ export const workspaceRoutes = {
   }),
   viewportDiagnostics: endpoint({
     ...base,
+    operation: "viewportDiagnostics",
     method: "POST",
     path: "/ui/viewport-diagnostics",
     body: teams.ViewportInput,
@@ -1300,12 +1408,14 @@ export const workspaceRoutes = {
   }),
   workspace: endpoint({
     ...base,
+    operation: "workspace",
     method: "GET",
     path: "/workspace",
     response: companion.PublicWorkspace,
   }),
   runtimeList: endpoint({
     ...base,
+    operation: "runtimeList",
     method: "GET",
     path: "/workspace/runtimes",
     query: z.object({ fresh: Text.optional() }),
@@ -1313,6 +1423,7 @@ export const workspaceRoutes = {
   }),
   runtimeAuthProviders: endpoint({
     ...base,
+    operation: "runtimeAuthProviders",
     method: "GET",
     path: "/workspace/runtimes/:name/auth",
     params: companion.RuntimeAuthName,
@@ -1321,6 +1432,7 @@ export const workspaceRoutes = {
   }),
   runtimeAuthStatus: endpoint({
     ...base,
+    operation: "runtimeAuthStatus",
     method: "GET",
     path: "/workspace/runtimes/:name/auth/status",
     params: companion.RuntimeAuthName,
@@ -1328,6 +1440,7 @@ export const workspaceRoutes = {
   }),
   runtimeAuthStart: endpoint({
     ...base,
+    operation: "runtimeAuthStart",
     method: "POST",
     path: "/workspace/runtimes/:name/auth/start",
     params: companion.RuntimeAuthName,
@@ -1336,6 +1449,7 @@ export const workspaceRoutes = {
   }),
   runtimeAuthInput: endpoint({
     ...base,
+    operation: "runtimeAuthInput",
     method: "POST",
     path: "/workspace/runtimes/:name/auth/input",
     params: companion.RuntimeAuthName,
@@ -1344,6 +1458,7 @@ export const workspaceRoutes = {
   }),
   runtimeAuthCancel: endpoint({
     ...base,
+    operation: "runtimeAuthCancel",
     method: "POST",
     path: "/workspace/runtimes/:name/auth/cancel",
     params: companion.RuntimeAuthName,
@@ -1352,6 +1467,7 @@ export const workspaceRoutes = {
   }),
   runtimeProviders: endpoint({
     ...base,
+    operation: "runtimeProviders",
     method: "GET",
     path: "/workspace/runtimes/:name/providers",
     params: z.object({ name: ManagedHarness }),
@@ -1360,6 +1476,7 @@ export const workspaceRoutes = {
   }),
   runtimeProviderKey: endpoint({
     ...base,
+    operation: "runtimeProviderKey",
     method: "POST",
     path: "/workspace/runtimes/:name/providers/key",
     params: z.object({ name: ManagedHarness }),
@@ -1370,6 +1487,7 @@ export const workspaceRoutes = {
   }),
   runtimeProviderRemove: endpoint({
     ...base,
+    operation: "runtimeProviderRemove",
     method: "POST",
     path: "/workspace/runtimes/:name/providers/remove",
     params: z.object({ name: ManagedHarness }),
@@ -1380,6 +1498,7 @@ export const workspaceRoutes = {
   }),
   runtimeProviderRefresh: endpoint({
     ...base,
+    operation: "runtimeProviderRefresh",
     method: "POST",
     path: "/workspace/runtimes/:name/providers/refresh",
     params: z.object({ name: ManagedHarness }),
@@ -1390,6 +1509,7 @@ export const workspaceRoutes = {
   }),
   runtimeUpgrade: endpoint({
     ...base,
+    operation: "runtimeUpgrade",
     method: "GET",
     path: "/workspace/runtimes/:name/upgrade",
     params: companion.RuntimeName,
@@ -1398,6 +1518,7 @@ export const workspaceRoutes = {
   }),
   runtimeUpgradeStart: endpoint({
     ...base,
+    operation: "runtimeUpgradeStart",
     method: "POST",
     path: "/workspace/runtimes/:name/upgrade",
     params: companion.RuntimeName,
@@ -1406,6 +1527,7 @@ export const workspaceRoutes = {
   }),
   runtimeUpgradeDismiss: endpoint({
     ...base,
+    operation: "runtimeUpgradeDismiss",
     method: "DELETE",
     path: "/workspace/runtimes/:name/upgrade",
     params: companion.RuntimeName,
@@ -1414,6 +1536,7 @@ export const workspaceRoutes = {
   }),
   runtimeUpgradeRecover: endpoint({
     ...base,
+    operation: "runtimeUpgradeRecover",
     method: "POST",
     path: "/workspace/runtimes/:name/upgrade/recover",
     params: companion.RuntimeName,
@@ -1422,6 +1545,7 @@ export const workspaceRoutes = {
   }),
   runtimeEnable: endpoint({
     ...base,
+    operation: "runtimeEnable",
     method: "POST",
     path: "/workspace/runtimes/:name/enable",
     params: companion.RuntimeName,
@@ -1430,6 +1554,7 @@ export const workspaceRoutes = {
   }),
   workspaceProjectCreate: endpoint({
     ...base,
+    operation: "workspaceProjectCreate",
     method: "POST",
     path: "/workspace/projects",
     body: companion.ProjectCreateInput,
@@ -1438,6 +1563,7 @@ export const workspaceRoutes = {
   }),
   workspaceProjectUpdate: endpoint({
     ...base,
+    operation: "workspaceProjectUpdate",
     method: "PATCH",
     path: "/workspace/projects/:id",
     params: Id,
@@ -1446,6 +1572,7 @@ export const workspaceRoutes = {
   }),
   conversationNative: endpoint({
     ...base,
+    operation: "conversationNative",
     method: "GET",
     path: "/conversations/:id/native",
     params: Id,
@@ -1453,6 +1580,7 @@ export const workspaceRoutes = {
   }),
   nativeHistoryList: endpoint({
     ...base,
+    operation: "nativeHistoryList",
     method: "GET",
     path: "/native/history",
     query: z.object({
@@ -1463,6 +1591,7 @@ export const workspaceRoutes = {
   }),
   nativeHistoryDetail: endpoint({
     ...base,
+    operation: "nativeHistoryDetail",
     method: "GET",
     path: "/native/history/:id",
     params: Id,
@@ -1470,6 +1599,7 @@ export const workspaceRoutes = {
   }),
   nativeHistoryFork: endpoint({
     ...base,
+    operation: "nativeHistoryFork",
     method: "POST",
     path: "/native/history/:id/fork",
     params: Id,
@@ -1479,6 +1609,7 @@ export const workspaceRoutes = {
   }),
   conversationActivities: endpoint({
     ...base,
+    operation: "conversationActivities",
     method: "GET",
     path: "/conversations/:id/activities",
     params: Id,
@@ -1489,6 +1620,7 @@ export const workspaceRoutes = {
   // The admission boundary still limits each grant's selections and excludes Done.
   cardList: endpoint({
     ...base,
+    operation: "cardList",
     method: "GET",
     path: "/v1/cards",
     query: CardListQuerySchema,
@@ -1497,6 +1629,7 @@ export const workspaceRoutes = {
   }),
   cardChanges: endpoint({
     ...base,
+    operation: "cardChanges",
     method: "GET",
     path: "/v1/cards/changes",
     query: CardChangesQuerySchema,
@@ -1505,6 +1638,7 @@ export const workspaceRoutes = {
   }),
   cardDetail: endpoint({
     ...base,
+    operation: "cardDetail",
     method: "GET",
     path: "/v1/cards/:id",
     params: z.object({ id: CardIdSchema }),
@@ -1518,18 +1652,21 @@ export const workspaceRoutes = {
   // Management handlers historically ignore query parameters.
   cardTokens: endpoint({
     ...base,
+    operation: "cardTokens",
     method: "GET",
     path: "/card-tokens",
     response: z.array(CardTokenSchema),
   }),
   webhooks: endpoint({
     ...base,
+    operation: "webhooks",
     method: "GET",
     path: "/webhooks",
     response: webhooks.WebhookList,
   }),
   webhookCreate: endpoint({
     ...base,
+    operation: "webhookCreate",
     method: "POST",
     path: "/webhooks",
     body: webhooks.WebhookCreate,
@@ -1538,6 +1675,7 @@ export const workspaceRoutes = {
   }),
   webhookUpdate: endpoint({
     ...base,
+    operation: "webhookUpdate",
     method: "PATCH",
     path: "/webhooks/:id",
     params: Id,
@@ -1546,6 +1684,7 @@ export const workspaceRoutes = {
   }),
   webhookTest: endpoint({
     ...base,
+    operation: "webhookTest",
     method: "POST",
     path: "/webhooks/:id/test",
     params: Id,
@@ -1557,6 +1696,7 @@ export const workspaceRoutes = {
   }),
   webhookRetry: endpoint({
     ...base,
+    operation: "webhookRetry",
     method: "POST",
     path: "/webhooks/:id/retry",
     params: Id,
@@ -1565,6 +1705,7 @@ export const workspaceRoutes = {
   }),
   webhookRevoke: endpoint({
     ...base,
+    operation: "webhookRevoke",
     method: "POST",
     path: "/webhooks/:id/revoke",
     params: Id,
@@ -1573,6 +1714,7 @@ export const workspaceRoutes = {
   }),
   webhookDeliveries: endpoint({
     ...base,
+    operation: "webhookDeliveries",
     method: "GET",
     path: "/webhooks/:id/deliveries",
     params: Id,
@@ -1580,6 +1722,7 @@ export const workspaceRoutes = {
   }),
   cardTokenCreate: endpoint({
     ...base,
+    operation: "cardTokenCreate",
     method: "POST",
     path: "/card-tokens",
     body: CreateCardTokenSchema,
@@ -1588,6 +1731,7 @@ export const workspaceRoutes = {
   }),
   cardTokenRevoke: endpoint({
     ...base,
+    operation: "cardTokenRevoke",
     method: "DELETE",
     path: "/card-tokens/:id",
     params: z.object({ id: Text.min(1) }),
@@ -1595,6 +1739,7 @@ export const workspaceRoutes = {
   }),
   connectionCreate: endpoint({
     ...base,
+    operation: "connectionCreate",
     method: "POST",
     path: "/connections",
     body: ConnectionCreateInput,
@@ -1602,6 +1747,7 @@ export const workspaceRoutes = {
   }),
   connectionRefresh: endpoint({
     ...base,
+    operation: "connectionRefresh",
     method: "POST",
     path: "/connections/:id/refresh",
     params: Id,
@@ -1610,6 +1756,7 @@ export const workspaceRoutes = {
   }),
   connectionModels: endpoint({
     ...base,
+    operation: "connectionModels",
     method: "GET",
     path: "/connections/:id/models",
     params: Id,
@@ -1617,6 +1764,7 @@ export const workspaceRoutes = {
   }),
   connectionReconnect: endpoint({
     ...base,
+    operation: "connectionReconnect",
     method: "POST",
     path: "/connections/:id/reconnect",
     params: Id,
@@ -1625,6 +1773,7 @@ export const workspaceRoutes = {
   }),
   connectionDisconnect: endpoint({
     ...base,
+    operation: "connectionDisconnect",
     method: "DELETE",
     path: "/connections/:id",
     params: Id,
@@ -1633,12 +1782,14 @@ export const workspaceRoutes = {
   }),
   agentSuggestName: endpoint({
     ...base,
+    operation: "agentSuggestName",
     method: "GET",
     path: "/agents/suggest-name",
     response: z.object({ name: Text }),
   }),
   agentCreate: endpoint({
     ...base,
+    operation: "agentCreate",
     method: "POST",
     path: "/agents",
     body: AgentCreateInput,
@@ -1649,6 +1800,7 @@ export const workspaceRoutes = {
   }),
   agentUpdate: endpoint({
     ...base,
+    operation: "agentUpdate",
     method: "PATCH",
     path: "/agents/:id",
     params: Id,
@@ -1657,6 +1809,7 @@ export const workspaceRoutes = {
   }),
   agentDetail: endpoint({
     ...base,
+    operation: "agentDetail",
     access: { admits: ["read"] },
     method: "GET",
     path: "/agents/:id",
@@ -1669,6 +1822,7 @@ export const workspaceRoutes = {
   }),
   agentHarness: endpoint({
     ...base,
+    operation: "agentHarness",
     method: "GET",
     path: "/agents/:id/harness",
     params: Id,
@@ -1677,6 +1831,7 @@ export const workspaceRoutes = {
   }),
   agentMessages: endpoint({
     ...base,
+    operation: "agentMessages",
     access: { admits: ["read"] },
     method: "GET",
     path: "/agents/:id/messages",
@@ -1686,6 +1841,7 @@ export const workspaceRoutes = {
   }),
   agentTraces: endpoint({
     ...base,
+    operation: "agentTraces",
     access: { admits: ["read"] },
     method: "GET",
     path: "/agents/:id/traces",
@@ -1704,6 +1860,7 @@ export const workspaceRoutes = {
   }),
   agentTracesExport: endpoint({
     ...base,
+    operation: "agentTracesExport",
     access: { admits: ["read"] },
     method: "GET",
     path: "/agents/:id/traces/export",
@@ -1715,6 +1872,7 @@ export const workspaceRoutes = {
   }),
   agentPiPackages: endpoint({
     ...base,
+    operation: "agentPiPackages",
     method: "GET",
     path: "/agents/:id/pi-packages",
     params: Id,
@@ -1722,6 +1880,7 @@ export const workspaceRoutes = {
   }),
   agentPiTrust: endpoint({
     ...base,
+    operation: "agentPiTrust",
     method: "POST",
     path: "/agents/:id/pi-trust",
     params: Id,
@@ -1730,6 +1889,7 @@ export const workspaceRoutes = {
   }),
   agentPiFilters: endpoint({
     ...base,
+    operation: "agentPiFilters",
     method: "POST",
     path: "/agents/:id/pi-package-filters",
     params: Id,
@@ -1738,6 +1898,7 @@ export const workspaceRoutes = {
   }),
   agentPiPreview: endpoint({
     ...base,
+    operation: "agentPiPreview",
     method: "POST",
     path: "/agents/:id/pi-prompt-preview",
     params: Id,
@@ -1746,6 +1907,7 @@ export const workspaceRoutes = {
   }),
   agentPiInspect: endpoint({
     ...base,
+    operation: "agentPiInspect",
     method: "POST",
     path: "/agents/:id/pi-package-inspect",
     params: Id,
@@ -1754,6 +1916,7 @@ export const workspaceRoutes = {
   }),
   agentPiRollback: endpoint({
     ...base,
+    operation: "agentPiRollback",
     method: "POST",
     path: "/agents/:id/pi-package-rollback",
     params: Id,
@@ -1762,6 +1925,7 @@ export const workspaceRoutes = {
   }),
   agentPiAction: endpoint({
     ...base,
+    operation: "agentPiAction",
     method: "POST",
     path: "/agents/:id/pi-packages",
     params: Id,
@@ -1770,6 +1934,7 @@ export const workspaceRoutes = {
   }),
   messageSearch: endpoint({
     ...base,
+    operation: "messageSearch",
     access: { admits: ["read"] },
     method: "GET",
     path: "/messages",
@@ -1778,6 +1943,7 @@ export const workspaceRoutes = {
   }),
   messageDetail: endpoint({
     ...base,
+    operation: "messageDetail",
     access: { admits: ["read"] },
     method: "GET",
     path: "/messages/:id",
@@ -1786,6 +1952,7 @@ export const workspaceRoutes = {
   }),
   resultUpdate: endpoint({
     ...base,
+    operation: "resultUpdate",
     method: "PATCH",
     path: "/results/:id",
     params: Id,
@@ -1794,6 +1961,7 @@ export const workspaceRoutes = {
   }),
   artifactFile: endpoint({
     ...base,
+    operation: "artifactFile",
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id/file",
@@ -1804,6 +1972,7 @@ export const workspaceRoutes = {
   }),
   artifactDownload: endpoint({
     ...base,
+    operation: "artifactDownload",
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id/download",
@@ -1814,6 +1983,7 @@ export const workspaceRoutes = {
   }),
   personalFiles: endpoint({
     ...base,
+    operation: "personalFiles",
     method: "GET",
     path: "/me/files",
     query: PersonalFilesQuery,
@@ -1821,6 +1991,7 @@ export const workspaceRoutes = {
   }),
   personalDecisions: endpoint({
     ...base,
+    operation: "personalDecisions",
     method: "GET",
     path: "/me/decisions",
     query: PersonalDecisionsQuery,
@@ -1828,6 +1999,7 @@ export const workspaceRoutes = {
   }),
   personalApproval: endpoint({
     ...base,
+    operation: "personalApproval",
     method: "GET",
     path: "/me/approvals/:id",
     params: z.object({ id: Text.min(1).max(200) }),
@@ -1835,12 +2007,14 @@ export const workspaceRoutes = {
   }),
   personalProfile: endpoint({
     ...base,
+    operation: "personalProfile",
     method: "GET",
     path: "/me/profile",
     response: PublicProfile,
   }),
   personalProfileUpdate: endpoint({
     ...base,
+    operation: "personalProfileUpdate",
     method: "PUT",
     path: "/me/profile",
     body: ProfileInput,
@@ -1848,6 +2022,7 @@ export const workspaceRoutes = {
   }),
   personalPrompts: endpoint({
     ...base,
+    operation: "personalPrompts",
     method: "GET",
     path: "/me/prompts",
     query: PersonalPromptsQuery,
@@ -1855,6 +2030,7 @@ export const workspaceRoutes = {
   }),
   conversationPosition: endpoint({
     ...base,
+    operation: "conversationPosition",
     method: "PUT",
     path: "/conversations/:id/position",
     params: Id,
@@ -1863,6 +2039,7 @@ export const workspaceRoutes = {
   }),
   feedUpdate: endpoint({
     ...base,
+    operation: "feedUpdate",
     method: "PATCH",
     path: "/feed/:id",
     params: Id,
@@ -1871,6 +2048,7 @@ export const workspaceRoutes = {
   }),
   doneThreadList: endpoint({
     ...base,
+    operation: "doneThreadList",
     method: "GET",
     path: "/feed/threads",
     query: DoneThreadQuery,
@@ -1878,6 +2056,7 @@ export const workspaceRoutes = {
   }),
   doneThreadListPage: endpoint({
     ...base,
+    operation: "doneThreadListPage",
     method: "GET",
     path: "/feed/threads/page",
     query: DoneThreadListPageQuery,
@@ -1885,6 +2064,7 @@ export const workspaceRoutes = {
   }),
   agentThreadFeed: endpoint({
     ...base,
+    operation: "agentThreadFeed",
     method: "GET",
     path: "/feed/agent-threads",
     query: AgentThreadQuery,
@@ -1892,6 +2072,7 @@ export const workspaceRoutes = {
   }),
   agentThreadDetail: endpoint({
     ...base,
+    operation: "agentThreadDetail",
     method: "GET",
     path: "/feed/agent-threads/:id",
     params: Id,
@@ -1900,6 +2081,7 @@ export const workspaceRoutes = {
   }),
   doneThreadCreate: endpoint({
     ...base,
+    operation: "doneThreadCreate",
     method: "POST",
     path: "/feed/threads",
     body: DoneThreadCreate,
@@ -1907,6 +2089,7 @@ export const workspaceRoutes = {
   }),
   doneThreadDetail: endpoint({
     ...base,
+    operation: "doneThreadDetail",
     method: "GET",
     path: "/feed/threads/:id",
     params: Id,
@@ -1914,6 +2097,7 @@ export const workspaceRoutes = {
   }),
   doneThreadDetailPage: endpoint({
     ...base,
+    operation: "doneThreadDetailPage",
     method: "GET",
     path: "/feed/threads/:id/page",
     params: Id,
@@ -1922,6 +2106,7 @@ export const workspaceRoutes = {
   }),
   doneThreadMove: endpoint({
     ...base,
+    operation: "doneThreadMove",
     method: "POST",
     path: "/feed/threads/:id/cards",
     params: Id,
@@ -1930,6 +2115,7 @@ export const workspaceRoutes = {
   }),
   doneThreadRead: endpoint({
     ...base,
+    operation: "doneThreadRead",
     method: "PUT",
     path: "/feed/threads/:id/read",
     params: Id,
@@ -1940,6 +2126,7 @@ export const workspaceRoutes = {
   }),
   doneThreadUnread: endpoint({
     ...base,
+    operation: "doneThreadUnread",
     method: "DELETE",
     path: "/feed/threads/:id/read",
     params: Id,
@@ -1947,6 +2134,7 @@ export const workspaceRoutes = {
   }),
   doneThreadRemove: endpoint({
     ...base,
+    operation: "doneThreadRemove",
     method: "DELETE",
     path: "/feed/threads/:id",
     params: Id,
@@ -1954,6 +2142,7 @@ export const workspaceRoutes = {
   }),
   doneThreadRemoveCard: endpoint({
     ...base,
+    operation: "doneThreadRemoveCard",
     method: "DELETE",
     path: "/feed/threads/:id/cards/:card",
     params: Id.extend({ card: DoneThreadCardId }),
@@ -1961,6 +2150,7 @@ export const workspaceRoutes = {
   }),
   feedRead: endpoint({
     ...base,
+    operation: "feedRead",
     method: "PUT",
     path: "/feed/:id/read",
     params: Id,
@@ -1969,6 +2159,7 @@ export const workspaceRoutes = {
   }),
   feedUnread: endpoint({
     ...base,
+    operation: "feedUnread",
     method: "DELETE",
     path: "/feed/:id/read",
     params: Id,
@@ -1977,6 +2168,7 @@ export const workspaceRoutes = {
   }),
   replyState: endpoint({
     ...base,
+    operation: "replyState",
     method: "PATCH",
     path: "/replies/:id",
     params: Id,
@@ -1985,6 +2177,7 @@ export const workspaceRoutes = {
   }),
   feedAway: endpoint({
     ...base,
+    operation: "feedAway",
     access: { admits: ["read"] },
     method: "GET",
     path: "/feed/away",
@@ -1993,6 +2186,7 @@ export const workspaceRoutes = {
   }),
   messageSave: endpoint({
     ...base,
+    operation: "messageSave",
     method: "POST",
     path: "/messages/:id/saved",
     params: Id,
@@ -2001,6 +2195,7 @@ export const workspaceRoutes = {
   }),
   messageUnsave: endpoint({
     ...base,
+    operation: "messageUnsave",
     method: "DELETE",
     path: "/messages/:id/saved",
     params: Id,
@@ -2009,6 +2204,7 @@ export const workspaceRoutes = {
   }),
   savedList: endpoint({
     ...base,
+    operation: "savedList",
     method: "GET",
     path: "/saved",
     query: z.object({
@@ -2041,6 +2237,7 @@ export const workspaceRoutes = {
   }),
   savedLabel: endpoint({
     ...base,
+    operation: "savedLabel",
     method: "PUT",
     path: "/saved/label",
     body: mobile.SavedLabelInput,
@@ -2048,6 +2245,7 @@ export const workspaceRoutes = {
   }),
   conversationOutline: endpoint({
     ...base,
+    operation: "conversationOutline",
     method: "GET",
     path: "/conversations/:id/outline",
     params: Id,
@@ -2056,6 +2254,7 @@ export const workspaceRoutes = {
   }),
   laterCreate: endpoint({
     ...base,
+    operation: "laterCreate",
     method: "POST",
     path: "/later",
     body: mobile.LaterInput,
@@ -2064,12 +2263,14 @@ export const workspaceRoutes = {
   }),
   laterList: endpoint({
     ...base,
+    operation: "laterList",
     method: "GET",
     path: "/later",
     response: mobile.PublicLaterList,
   }),
   laterFinish: endpoint({
     ...base,
+    operation: "laterFinish",
     method: "DELETE",
     path: "/later/:id",
     params: Id,
@@ -2078,6 +2279,7 @@ export const workspaceRoutes = {
   }),
   laterSnooze: endpoint({
     ...base,
+    operation: "laterSnooze",
     method: "POST",
     path: "/later/:id/snooze",
     params: Id,
@@ -2090,6 +2292,7 @@ export const workspaceRoutes = {
   }),
   laterReopen: endpoint({
     ...base,
+    operation: "laterReopen",
     method: "POST",
     path: "/later/:id/reopen",
     params: Id,
@@ -2098,6 +2301,7 @@ export const workspaceRoutes = {
   }),
   projectOpened: endpoint({
     ...base,
+    operation: "projectOpened",
     method: "POST",
     path: "/projects/:id/opened",
     params: Id,
@@ -2106,12 +2310,14 @@ export const workspaceRoutes = {
   }),
   projectSummaries: endpoint({
     ...base,
+    operation: "projectSummaries",
     method: "GET",
     path: "/projects/summary",
     response: mobile.PublicProjectSummaries,
   }),
   scheduledSendCreate: endpoint({
     ...base,
+    operation: "scheduledSendCreate",
     method: "POST",
     path: "/scheduled-sends",
     body: mobile.ScheduleInput,
@@ -2121,6 +2327,7 @@ export const workspaceRoutes = {
   }),
   scheduledSendList: endpoint({
     ...base,
+    operation: "scheduledSendList",
     method: "GET",
     path: "/scheduled-sends",
     query: z.object({
@@ -2131,6 +2338,7 @@ export const workspaceRoutes = {
   }),
   scheduledSendCancel: endpoint({
     ...base,
+    operation: "scheduledSendCancel",
     method: "DELETE",
     path: "/scheduled-sends/:id",
     params: Id,
@@ -2139,6 +2347,7 @@ export const workspaceRoutes = {
   }),
   scheduledSendUpdate: endpoint({
     ...base,
+    operation: "scheduledSendUpdate",
     method: "PATCH",
     path: "/scheduled-sends/:id",
     params: Id,
@@ -2147,6 +2356,7 @@ export const workspaceRoutes = {
   }),
   scheduledSendRetry: endpoint({
     ...base,
+    operation: "scheduledSendRetry",
     method: "POST",
     path: "/scheduled-sends/:id/retry",
     params: Id,
@@ -2158,6 +2368,7 @@ export const workspaceRoutes = {
   }),
   runReorder: endpoint({
     ...base,
+    operation: "runReorder",
     access: { admits: ["write"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2168,6 +2379,7 @@ export const workspaceRoutes = {
   }),
   runUpdate: endpoint({
     ...base,
+    operation: "runUpdate",
     method: "PATCH",
     path: "/runs/:id",
     params: Id,
@@ -2176,6 +2388,7 @@ export const workspaceRoutes = {
   }),
   runWithdraw: endpoint({
     ...base,
+    operation: "runWithdraw",
     access: { admits: ["write"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2186,6 +2399,7 @@ export const workspaceRoutes = {
   }),
   runMove: endpoint({
     ...base,
+    operation: "runMove",
     access: { admits: ["write"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2197,6 +2411,7 @@ export const workspaceRoutes = {
   }),
   conversationFork: endpoint({
     ...base,
+    operation: "conversationFork",
     method: "POST",
     path: "/conversations/:id/fork",
     params: Id,
@@ -2205,6 +2420,7 @@ export const workspaceRoutes = {
   }),
   conversationUsage: endpoint({
     ...base,
+    operation: "conversationUsage",
     method: "GET",
     path: "/conversations/:id/usage",
     params: Id,
@@ -2212,12 +2428,14 @@ export const workspaceRoutes = {
   }),
   snippetList: endpoint({
     ...base,
+    operation: "snippetList",
     method: "GET",
     path: "/snippets",
     response: mobile.PublicSnippets,
   }),
   uploadCreate: endpoint({
     ...base,
+    operation: "uploadCreate",
     method: "POST",
     path: "/uploads",
     multipart: true,
@@ -2227,12 +2445,14 @@ export const workspaceRoutes = {
   }),
   folderList: endpoint({
     ...base,
+    operation: "folderList",
     method: "GET",
     path: "/folders",
     response: z.array(PublicFolder),
   }),
   folderCreate: endpoint({
     ...base,
+    operation: "folderCreate",
     method: "POST",
     path: "/folders",
     body: library.FolderCreateInput,
@@ -2241,6 +2461,7 @@ export const workspaceRoutes = {
   }),
   folderUpdate: endpoint({
     ...base,
+    operation: "folderUpdate",
     method: "PATCH",
     path: "/folders/:id",
     params: Id,
@@ -2249,6 +2470,7 @@ export const workspaceRoutes = {
   }),
   artifactList: endpoint({
     ...base,
+    operation: "artifactList",
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts",
@@ -2266,6 +2488,7 @@ export const workspaceRoutes = {
   }),
   artifactDetail: endpoint({
     ...base,
+    operation: "artifactDetail",
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id",
@@ -2274,6 +2497,7 @@ export const workspaceRoutes = {
   }),
   artifactCreate: endpoint({
     ...base,
+    operation: "artifactCreate",
     method: "POST",
     path: "/artifacts",
     body: library.ArtifactCreateInput,
@@ -2282,6 +2506,7 @@ export const workspaceRoutes = {
   }),
   artifactUpdate: endpoint({
     ...base,
+    operation: "artifactUpdate",
     method: "PATCH",
     path: "/artifacts/:id",
     params: Id,
@@ -2290,6 +2515,7 @@ export const workspaceRoutes = {
   }),
   artifactMove: endpoint({
     ...base,
+    operation: "artifactMove",
     method: "POST",
     path: "/artifacts/:id/move",
     params: Id,
@@ -2298,6 +2524,7 @@ export const workspaceRoutes = {
   }),
   runCheckout: endpoint({
     ...base,
+    operation: "runCheckout",
     method: "GET",
     path: "/runs/:id/checkout",
     params: Id,
@@ -2305,6 +2532,7 @@ export const workspaceRoutes = {
   }),
   runVerifications: endpoint({
     ...base,
+    operation: "runVerifications",
     method: "GET",
     path: "/runs/:id/verifications",
     params: Id,
@@ -2312,6 +2540,7 @@ export const workspaceRoutes = {
   }),
   runFiles: endpoint({
     ...base,
+    operation: "runFiles",
     method: "GET",
     path: "/runs/:id/files",
     params: Id,
@@ -2319,6 +2548,7 @@ export const workspaceRoutes = {
   }),
   operationUndo: endpoint({
     ...base,
+    operation: "operationUndo",
     method: "POST",
     path: "/operations/:id/undo",
     params: Id,
@@ -2327,6 +2557,7 @@ export const workspaceRoutes = {
   }),
   objectFile: endpoint({
     ...base,
+    operation: "objectFile",
     access: { admits: ["read"] },
     method: "GET",
     path: "/objects/:id",
@@ -2337,6 +2568,7 @@ export const workspaceRoutes = {
   }),
   search: endpoint({
     ...base,
+    operation: "search",
     method: "GET",
     path: "/search",
     query: library.SearchQuery,
@@ -2344,18 +2576,21 @@ export const workspaceRoutes = {
   }),
   searchStatus: endpoint({
     ...base,
+    operation: "searchStatus",
     method: "GET",
     path: "/search/status",
     response: library.PublicSearchStatus,
   }),
   preferences: endpoint({
     ...base,
+    operation: "preferences",
     method: "GET",
     path: "/preferences",
     response: library.PublicPreferences,
   }),
   preferencesUpdate: endpoint({
     ...base,
+    operation: "preferencesUpdate",
     method: "POST",
     path: "/preferences",
     body: library.PreferencesInput,
@@ -2363,6 +2598,7 @@ export const workspaceRoutes = {
   }),
   importPreview: endpoint({
     ...base,
+    operation: "importPreview",
     method: "POST",
     path: "/imports/preview",
     multipart: true,
@@ -2371,12 +2607,14 @@ export const workspaceRoutes = {
   }),
   importList: endpoint({
     ...base,
+    operation: "importList",
     method: "GET",
     path: "/imports",
     response: z.array(library.PublicImport),
   }),
   importStart: endpoint({
     ...base,
+    operation: "importStart",
     method: "POST",
     path: "/imports/:id/start",
     params: Id,
@@ -2388,6 +2626,7 @@ export const workspaceRoutes = {
   }),
   importCancel: endpoint({
     ...base,
+    operation: "importCancel",
     method: "POST",
     path: "/imports/:id/cancel",
     params: Id,
@@ -2396,6 +2635,7 @@ export const workspaceRoutes = {
   }),
   conversationContinueStart: endpoint({
     ...base,
+    operation: "conversationContinueStart",
     method: "POST",
     path: "/conversations/:id/continue/start",
     params: Id,
@@ -2409,6 +2649,7 @@ export const workspaceRoutes = {
   }),
   bootstrap: endpoint({
     ...base,
+    operation: "bootstrap",
     access: { admits: ["read"] },
     method: "GET",
     path: "/bootstrap",
@@ -2416,6 +2657,7 @@ export const workspaceRoutes = {
   }),
   feed: endpoint({
     ...base,
+    operation: "feed",
     access: { admits: ["read"] },
     method: "GET",
     path: "/feed",
@@ -2431,6 +2673,7 @@ export const workspaceRoutes = {
   }),
   conversation: endpoint({
     ...base,
+    operation: "conversation",
     access: { admits: ["read"] },
     method: "GET",
     path: "/conversations/:id",
@@ -2444,6 +2687,7 @@ export const workspaceRoutes = {
   }),
   conversationPulls: endpoint({
     ...base,
+    operation: "conversationPulls",
     method: "GET",
     path: "/conversations/:id/pulls",
     params: Id,
@@ -2452,6 +2696,7 @@ export const workspaceRoutes = {
   }),
   runs: endpoint({
     ...base,
+    operation: "runs",
     access: { admits: ["read"] },
     method: "GET",
     path: "/runs",
@@ -2460,6 +2705,7 @@ export const workspaceRoutes = {
   }),
   submit: endpoint({
     ...base,
+    operation: "submit",
     access: { admits: ["write"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2485,6 +2731,7 @@ export const workspaceRoutes = {
   }),
   runAction: endpoint({
     ...base,
+    operation: "runAction",
     access: { admits: ["write"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2497,6 +2744,7 @@ export const workspaceRoutes = {
   }),
   results: endpoint({
     ...base,
+    operation: "results",
     access: { admits: ["read"] },
     method: "GET",
     path: "/results",
@@ -2510,6 +2758,7 @@ export const workspaceRoutes = {
   }),
   resultUpdates: endpoint({
     ...base,
+    operation: "resultUpdates",
     access: { admits: ["read"] },
     method: "GET",
     path: "/results/updates",
@@ -2522,6 +2771,7 @@ export const workspaceRoutes = {
   }),
   approvals: endpoint({
     ...base,
+    operation: "approvals",
     access: { admits: ["read"] },
     method: "GET",
     path: "/approvals",
@@ -2530,6 +2780,7 @@ export const workspaceRoutes = {
   }),
   approval: endpoint({
     ...base,
+    operation: "approval",
     access: { admits: ["approvals:decide"] },
     identity: "idempotencyKey",
     method: "POST",
@@ -2543,6 +2794,7 @@ export const workspaceRoutes = {
   }),
   nativeDecisions: endpoint({
     ...base,
+    operation: "nativeDecisions",
     access: { admits: ["read"] },
     method: "GET",
     path: "/native/decisions",
@@ -2551,6 +2803,7 @@ export const workspaceRoutes = {
   }),
   nativeAnswer: endpoint({
     ...base,
+    operation: "nativeAnswer",
     access: { admits: ["approvals:decide"] },
     identity: "commandId",
     method: "POST",
@@ -2564,6 +2817,7 @@ export const workspaceRoutes = {
   }),
   session: endpoint({
     ...base,
+    operation: "session",
     method: "GET",
     path: "/conversations/:id/settings",
     params: z.object({ id: Text.uuid() }),
@@ -2571,6 +2825,7 @@ export const workspaceRoutes = {
   }),
   setting: endpoint({
     ...base,
+    operation: "setting",
     method: "PATCH",
     path: "/conversations/:id/settings/:setting",
     params: z.object({ id: Text.uuid(), setting: Text }),
@@ -2584,7 +2839,7 @@ export const workspaceRoutes = {
   }),
 } as const;
 
-// HTTP keys remain stable operation IDs. Channels share the registry without
+// Channels share the registry without
 // being mounted as Express routes or widening the typed HTTP helpers.
 export const workspaceApi = {
   ...workspaceRoutes,
