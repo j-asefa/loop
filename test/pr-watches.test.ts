@@ -421,13 +421,10 @@ it("reads every page of check runs", async () => {
 
 it("finds new reviews past the first 300", async () => {
   db.prepare("DELETE FROM pr_watch_deliveries WHERE watch_id=?").run(watchId);
-  const { review_cursor: cursor } = db
-    .prepare("SELECT review_cursor FROM pr_watches WHERE id=?")
-    .get(watchId) as { review_cursor: number };
   // 350 reviews already delivered (or skipped), then one new one at the end.
   github.reviews = [
     ...Array.from({ length: 350 }, (_, i) => ({
-      id: cursor - 350 + i,
+      id: 1000 + i,
       user: { login: "alex" },
       state: "COMMENTED",
       body: "Seen " + i,
@@ -435,7 +432,7 @@ it("finds new reviews past the first 300", async () => {
       submitted_at: "2020-01-01T00:00:00Z",
     })),
     {
-      id: cursor + 1,
+      id: 1350,
       user: { login: "alex" },
       state: "APPROVED",
       body: "Ship it.",
@@ -639,6 +636,49 @@ it("delivers a review submitted after a later-started one", async () => {
   expect(await pollWatch(w.id)).toBe("quiet");
 });
 
+it("finds newly submitted draft reviews across pages containing older submissions", async () => {
+  const w = await freshWatch("dana-paged");
+  github.reviews = Array.from({ length: 250 }, (_, i) => ({
+    id: i + 1,
+    user: { login: "alex" },
+    state: "COMMENTED",
+    body: "Old review.",
+    submitted_at: "2020-01-01T00:00:00Z",
+  }));
+  for (const index of [4, 104])
+    github.reviews[index] = {
+      id: index + 1,
+      user: { login: "sam" },
+      state: "PENDING",
+      body: "Draft on page " + (index < 100 ? 1 : 2),
+    };
+  github.reviews[249] = {
+    id: 250,
+    user: { login: "alex" },
+    state: "CHANGES_REQUESTED",
+    body: "Newest submitted review.",
+  };
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const first = deliveries(w.conversation).at(-1)!;
+  expect(first.content).toContain("Newest submitted review.");
+  expect(first.content).not.toContain("Draft on page");
+  finish(first.id);
+  for (const index of [4, 104])
+    github.reviews[index] = {
+      ...github.reviews[index],
+      state: "APPROVED",
+      body: "Submitted on page " + (index < 100 ? 1 : 2),
+    };
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const update = deliveries(w.conversation).at(-1)!;
+  expect(update.content).toContain("Submitted on page 1");
+  expect(update.content).toContain("Submitted on page 2");
+  expect(update.content).not.toContain("Old review.");
+  expect(update.content).not.toContain("Newest submitted review.");
+  finish(update.id);
+  expect(await pollWatch(w.id)).toBe("quiet");
+});
+
 it("quotes only accounts with a role in the repository, bots included, and counts others", async () => {
   const w = await freshWatch("erin");
   github.comments = [
@@ -746,13 +786,21 @@ it("waits for every check suite with runs before reporting CI", async () => {
   finish(update.id);
 });
 
-it("never redelivers what a watch handled before ids were tracked", async () => {
+it("deduplicates delivered comments while accepting later lower ids", async () => {
   const w = await freshWatch("hana");
-  // An earlier watch's cursor: everything up to 80 was delivered.
-  db.prepare("UPDATE pr_watches SET comment_cursor=80 WHERE id=?").run(w.id);
+  const delivered = {
+    id: 81,
+    user: { login: "alex" },
+    body: "Delivered before.",
+  };
+  github.comments = [delivered];
+  expect(await pollWatch(w.id)).toBe("delivered");
+  const first = deliveries(w.conversation).at(-1)!;
+  expect(first.content).toContain("> Delivered before.");
+  finish(first.id);
   github.comments = [
-    { id: 79, user: { login: "alex" }, body: "Delivered before." },
-    { id: 81, user: { login: "alex" }, body: "New." },
+    { id: 79, user: { login: "alex" }, body: "New." },
+    delivered,
   ];
   expect(await pollWatch(w.id)).toBe("delivered");
   const update = deliveries(w.conversation).at(-1)!;

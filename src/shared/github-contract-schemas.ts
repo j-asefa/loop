@@ -183,10 +183,6 @@ export const PublicPrWatch = z.object({
 export const PublicCreatedPrWatch = PublicPrWatch.extend({
   owner_id: Text,
   login: MaybeText,
-  comment_cursor: z.number(),
-  review_comment_cursor: z.number(),
-  review_cursor: z.number(),
   next_poll_at: Time,
-  // Added after the original watch endpoint in migration 045.
-  since_at: Time.nullable().optional(),
+  since_at: Time.nullable(),
 });

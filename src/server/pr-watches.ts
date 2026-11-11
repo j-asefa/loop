@@ -361,12 +361,6 @@ const FAILED = new Set([
   "stale",
 ]);
 
-/**
- * The items of an oldest-first GitHub list that may be new. New items are on
- * the last pages, so after the first page this reads back from the last one
- * until a page reaches items that are already `old`: a long list never hides
- * them.
- */
 async function pages<T extends { id: number }>(
   token: string,
   path: string,
@@ -474,16 +468,10 @@ async function read(watch: PrWatch, token: string) {
       .forWatch(db, watch.id)
       .map((s) => s.kind + ":" + s.item_id),
   );
-  // Ids up to a watch's cursor were handled before ids were tracked.
-  const floor: Record<Kind, number> = {
-    comment: watch.comment_cursor,
-    review_comment: watch.review_comment_cursor,
-    review: watch.review_cursor,
-  };
   const fresh = (kind: Kind, list: Comment[]) =>
     list
       .filter((c) => {
-        if (!Number.isSafeInteger(c.id) || c.id <= floor[kind]) return false;
+        if (!Number.isSafeInteger(c.id) || c.id <= 0) return false;
         if (seen.has(kind + ":" + c.id)) return false;
         // A draft review waits until it is submitted.
         if (kind === "review" && (c.state === "PENDING" || !c.submitted_at))
@@ -511,7 +499,13 @@ async function read(watch: PrWatch, token: string) {
   );
   const reviews = fresh(
     "review",
-    await pages<Comment>(token, `${base}/pulls/${watch.number}/reviews`, old),
+    // Review IDs are allocated before submission, so an old submission on a
+    // later page cannot bound the submission dates on preceding pages.
+    await pages<Comment>(
+      token,
+      `${base}/pulls/${watch.number}/reviews`,
+      () => false,
+    ),
   );
   const others = (list: Comment[]) => list.filter((c) => !mine(c));
   const quoted = (list: Comment[]) => others(list).filter(trusted);

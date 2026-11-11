@@ -200,6 +200,9 @@ const watchInput = {
 };
 const prWatch = await request("/pr-watches", watchInput);
 valid(workspaceApi.prWatchCreate, prWatch);
+expect(prWatch.data.since_at).toEqual(expect.any(Number));
+for (const key of ["comment_cursor", "review_comment_cursor", "review_cursor"])
+  expect(prWatch.data).not.toHaveProperty(key);
 db.exec("ALTER TABLE pr_watches ADD COLUMN private_column TEXT;");
 db.prepare("UPDATE pr_watches SET private_column='private-column-value'").run();
 afterAll(async () => {
