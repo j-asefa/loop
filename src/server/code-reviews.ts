@@ -279,7 +279,7 @@ export function reviewStatus(
   }
   return {
     id: r.id,
-    conversationId: run.conversation_id,
+    conversationId: run.conversation_id!,
     state: run.state,
     scope: s.scope,
     fingerprint: r.fingerprint,

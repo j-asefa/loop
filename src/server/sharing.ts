@@ -1,20 +1,19 @@
 import * as handlesQueries from "./sql/handles.js";
 import * as agentsQueries from "./sql/agents.js";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar } from "./registrar.js";
 import { runResponse } from "./row-schemas.js";
 
 import { db } from "./db.js";
 import { ownedFolder, ownedAgent, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
-import type { Agent } from "../shared/types.js";
 const routes = registrar("sharing");
 export const sharing = routes.mount;
 export function routeHandle(owner: string, text: string) {
   const match = text.trim().match(/^@([^\s]+)(?:\s|$)/);
   if (!match) return null;
   const name = match[1].toLowerCase().replace(/[,;:]$/, "");
-  const agent = handlesQueries.ownedAgent(db, name, owner) as Agent | undefined;
+  const agent = handlesQueries.ownedAgent(db, name, owner);
   if (!agent)
     throw new Problem(
       404,
@@ -36,21 +35,19 @@ routes.on(workspaceApi.sharePreview, (req, res) => {
   const d = req.body;
   if (d.folderId) ownedFolder(d.folderId, res.locals.owner);
   const agent = routeHandle(res.locals.owner, d.question);
-  res.json(
-    projectResponse(workspaceApi.sharePreview, {
-      mode: agent ? "queue" : "create",
-      agent: agent
-        ? {
-            id: agent.id,
-            name: agent.name,
-            provider: agent.provider,
-            model: agent.model,
-            effort: agent.effort,
-          }
-        : null,
-      source: d.source,
-    }),
-  );
+  res.json({
+    mode: agent ? "queue" : "create",
+    agent: agent
+      ? {
+          id: agent.id,
+          name: agent.name,
+          provider: agent.provider,
+          model: agent.model,
+          effort: agent.effort,
+        }
+      : null,
+    source: d.source,
+  });
 });
 routes.on(workspaceApi.shareSend, (req, res) => {
   const d = req.body,

@@ -3,7 +3,7 @@ import * as definitionCreationsQueries from "./sql/definition-creations.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import { workspaceApi } from "../shared/workspace-api.js";
-import { registrar, projectResponse } from "./registrar.js";
+import { registrar } from "./registrar.js";
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
@@ -19,7 +19,6 @@ import { addTeamMember, createTeam, listTeams } from "./teams.js";
 import { parseDefinition } from "./definition-markdown.js";
 import {
   type AgentDefinition,
-  type DefinitionCreation,
   type DefinitionRole,
   type DefinitionSummary,
 } from "../shared/agent-definitions.js";
@@ -92,7 +91,7 @@ function createFromDefinition(
   owner: string,
   definitionId: string,
   input: unknown,
-): DefinitionCreation {
+) {
   const { idempotencyKey, ...data } =
     workspaceApi.definitionCreate.body.parse(input);
   const hash = createHash("sha256")
@@ -111,10 +110,7 @@ function createFromDefinition(
         owner,
         idempotencyKey,
       );
-      const result = (
-        agentId?: string | null,
-        teamId?: string | null,
-      ): DefinitionCreation => {
+      const result = (agentId?: string | null, teamId?: string | null) => {
         const team = teamId
           ? listTeams(owner).find((t) => t.id === teamId)
           : undefined;
@@ -122,10 +118,9 @@ function createFromDefinition(
         // still recover the agent without creating or attaching anything.
         if (teamId && !team && !agentId)
           throw new Problem(409, "This team was deleted; start a new creation");
-        return {
-          ...(agentId ? { agent: ownedAgent(agentId, owner) } : {}),
-          ...(team ? { team } : {}),
-        };
+        return agentId
+          ? { agent: ownedAgent(agentId, owner), ...(team ? { team } : {}) }
+          : { team: team! };
       };
       if (prior) {
         if (prior.request_hash !== hash)
@@ -264,10 +259,5 @@ routes.on(workspaceApi.definitionDelete, (req, res) => {
 routes.on(workspaceApi.definitionCreate, (req, res) =>
   res
     .status(201)
-    .json(
-      projectResponse(
-        workspaceApi.definitionCreate,
-        createFromDefinition(res.locals.owner, req.params.id, req.body),
-      ),
-    ),
+    .json(createFromDefinition(res.locals.owner, req.params.id, req.body)),
 );

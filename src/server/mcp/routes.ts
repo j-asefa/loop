@@ -78,35 +78,20 @@ routes.on(workspaceApi.mcpNativeImport, async (req, res) => {
   res
     .status(201)
     .json(
-      projectResponse(
-        workspaceApi.mcpNativeImport,
-        await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
-      ),
+      await importNativeMcpCandidate(res.locals.owner, String(req.params.id)),
     );
 });
 routes.on(workspaceApi.mcpCatalogInstall, async (req, res) => {
   const data = req.body;
   res.json(
-    projectResponse(
-      workspaceApi.mcpCatalogInstall,
-      await installCatalog(
-        res.locals.owner,
-        String(req.params.id),
-        data.values,
-      ),
-    ),
+    await installCatalog(res.locals.owner, String(req.params.id), data.values),
   );
 });
 routes.on(workspaceApi.mcpInstall, async (req, res) => {
   const d = req.body;
   res
     .status(201)
-    .json(
-      projectResponse(
-        workspaceApi.mcpInstall,
-        await installConfig(res.locals.owner, d.config, d.agentId),
-      ),
-    );
+    .json(await installConfig(res.locals.owner, d.config, d.agentId));
 });
 function publicConnection(c: MCPConnection) {
   // Current writes seal every HTTP query parameter; never echo an unsealed
@@ -158,7 +143,7 @@ routes.on(workspaceApi.mcpTest, async (req, res) => {
     if (readSecret(c).type === "oauth") {
       const a = await authorize(c);
       if (a.authorizationUrl) {
-        res.json(projectResponse(workspaceApi.mcpTest, a));
+        res.json({ ...a, authorizationUrl: a.authorizationUrl });
         return;
       }
     }
