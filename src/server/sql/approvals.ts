@@ -151,17 +151,6 @@ export function startApproved(db: Database.Database, id: string) {
   return startApprovedStatement(db).run(id);
 }
 
-const completeResultStatement = statement(
-  "UPDATE approvals SET state='completed',result=? WHERE id=?",
-);
-export function completeResult(
-  db: Database.Database,
-  result: string,
-  id: string,
-) {
-  return completeResultStatement(db).run(result, id);
-}
-
 // A crash during a tool call leaves the approval 'executing' forever. Once
 // its run is no longer actively executing (recovered, ended), mark it
 // 'unknown' so the stored state reflects the uncertain outcome (#355 S1).

@@ -572,7 +572,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       cp.message_id,
     );
     artifactsQueries.streamInitial(db, output, metadata, now(), cp.artifact_id);
-    artifactVersionsQueries.streamInitial(db, output, cp.artifact_id);
+    artifactVersionsQueries.updateInitialContent(db, output, cp.artifact_id);
     agentCheckpointsQueries.output(db, output, run.id);
   }).immediate;
   const watched = watchRun(run);

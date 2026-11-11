@@ -333,24 +333,6 @@ export function any(db: Database.Database) {
   return row === undefined ? undefined : parseRecord(anyRow, row, "agents");
 }
 
-const searchIdentityStatement = statement(
-  "SELECT name,provider FROM agents WHERE id=? AND owner_id=?",
-);
-const searchIdentityRow = QueryRecords.agents.pick({
-  name: true,
-  provider: true,
-});
-export function searchIdentity(
-  db: Database.Database,
-  id: string,
-  owner: string,
-) {
-  const row = searchIdentityStatement(db).get(id, owner);
-  return row === undefined
-    ? undefined
-    : parseRecord(searchIdentityRow, row, "agents");
-}
-
 const ownerCountStatement = statement(
   "SELECT count(*) n FROM agents WHERE owner_id=?",
 );

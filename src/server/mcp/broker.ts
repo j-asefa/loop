@@ -347,7 +347,7 @@ export async function invokeTool(
           artifactId,
           invocationId,
         );
-        approvalsQueries.completeResult(
+        approvalsQueries.complete(
           db,
           JSON.stringify({ artifactId, isError: toolFailed }),
           approval.id,

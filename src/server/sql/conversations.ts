@@ -185,30 +185,6 @@ export function byOriginExternal(
     : parseRecord(byOriginExternalRow, row, "conversations");
 }
 
-const insertImportedStatement = statement(
-  "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at) VALUES(?,?,?,?,?,?,?)",
-);
-export function insertImported(
-  db: Database.Database,
-  id: string,
-  owner: string,
-  agent: string,
-  title: string,
-  origin: string,
-  external: string,
-  created: number,
-) {
-  return insertImportedStatement(db).run(
-    id,
-    owner,
-    agent,
-    title,
-    origin,
-    external,
-    created,
-  );
-}
-
 const insertNativeImportStatement = statement(
   "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,?,'native',?)",
 );

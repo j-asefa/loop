@@ -1,15 +1,15 @@
 import type Database from "better-sqlite3";
 import { statement } from "./statement.js";
 
-const streamInitialStatement = statement(
+const updateInitialContentStatement = statement(
   "UPDATE artifact_versions SET content=? WHERE artifact_id=? AND version=1",
 );
-export function streamInitial(
+export function updateInitialContent(
   db: Database.Database,
   content: string,
   artifact: string,
 ) {
-  return streamInitialStatement(db).run(content, artifact);
+  return updateInitialContentStatement(db).run(content, artifact);
 }
 
 const insertStatement = statement(
@@ -24,29 +24,4 @@ export function insert(
   created: number,
 ) {
   return insertStatement(db).run(id, artifact, version, content, created);
-}
-
-const updateNativeOutputStatement = statement(
-  "UPDATE artifact_versions SET content=? WHERE artifact_id=? AND version=1",
-);
-export function updateNativeOutput(
-  db: Database.Database,
-  content: string,
-  artifact: string,
-) {
-  return updateNativeOutputStatement(db).run(content, artifact);
-}
-
-const insertValuesStatement = statement(
-  "INSERT INTO artifact_versions VALUES(?,?,?,?,?)",
-);
-export function insertValues(
-  db: Database.Database,
-  id: string,
-  artifact: string,
-  version: number,
-  content: string,
-  created: number,
-) {
-  return insertValuesStatement(db).run(id, artifact, version, content, created);
 }

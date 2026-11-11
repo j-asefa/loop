@@ -93,7 +93,7 @@ export function eligibleMailAgent(owner: string, agentId: string) {
       409,
       "This native connection uses an unsupported harness.",
     );
-  if (teamsQueries.agentInCodeReview(db, owner, agentId))
+  if (teamsQueries.hasReviewAgent(db, owner, agentId))
     throw new MailRefusal(
       409,
       "Snapshot review agents accept work only through Review changes.",

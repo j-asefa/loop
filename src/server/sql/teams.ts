@@ -188,21 +188,6 @@ export function agentInActiveTeam(
     : parseRecord(agentInActiveTeamRow, row, "teams");
 }
 
-const agentInCodeReviewStatement = statement(
-  "SELECT 1 FROM teams t WHERE t.owner_id=@owner AND t.preset_id='code-review' AND t.deleted_at IS NULL AND (t.manager_id=@agent OR EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id AND m.agent_id=@agent))",
-);
-const agentInCodeReviewRow = z.object({ "1": z.number() });
-export function agentInCodeReview(
-  db: Database.Database,
-  owner: string,
-  agent: string,
-) {
-  const row = agentInCodeReviewStatement(db).get({ owner, agent });
-  return row === undefined
-    ? undefined
-    : parseRecord(agentInCodeReviewRow, row, "teams");
-}
-
 const activeOwnedStatement = statement(
   "SELECT * FROM teams WHERE id=? AND owner_id=? AND deleted_at IS NULL",
 );
