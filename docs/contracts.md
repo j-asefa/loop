@@ -40,6 +40,16 @@ the fixed endpoint, request digest, destination and current directory. Preparati
 reserves the original source/message identity; acceptance and receipt lookup use
 that identity and never create an unrelated replacement command.
 
+## Contract ownership
+
+Feature endpoint definitions live in `src/shared/*-routes.ts`, beside their
+feature contract schemas. `workspace-api.ts` composes them into the registry used
+by the server, typed client and OpenAPI generator; its public schema exports remain
+available to current callers. Feature modules import schemas and `route-contract.ts`
+directly, never the registry. Shared workspace projections live in
+`workspace-contract-schemas.ts`; route types, defaults and scalar schemas live in
+`route-contract.ts`.
+
 ## Operation identities
 
 Each workspace endpoint declares an explicit `operation` string. It identifies durable
