@@ -70,6 +70,11 @@ it("matches storage schemas to worker-produced rows without changing their seria
     connectionId: connection,
     model: "fixture",
   });
+  expect(
+    QueryRecords.handles.parse(
+      db.prepare("SELECT * FROM handles WHERE agent_id=?").get(agent.id),
+    ),
+  ).toMatchObject({ agent_id: agent.id, reserved_at: expect.any(Number) });
   const queued = submit(owner, {
     agentId: agent.id,
     input: "Exercise persisted schemas",
@@ -113,6 +118,17 @@ it("matches storage schemas to worker-produced rows without changing their seria
         .get(queued.conversation_id),
     ),
   ).toMatchObject({ owner_id: owner, agent_id: agent.id });
+  expect(
+    QueryRecords.conversations.parse(
+      db
+        .prepare("SELECT * FROM conversations WHERE id=?")
+        .get(queued.conversation_id),
+    ),
+  ).toMatchObject({
+    feed_done_run_id: null,
+    feed_queued: 0,
+    feed_visible: 0,
+  });
   const message = QueryRecords.messages.parse(
     db
       .prepare(
