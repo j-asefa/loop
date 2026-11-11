@@ -12,7 +12,6 @@ import * as runsQueries from "./sql/runs.js";
 import { maybeConnection } from "./row-schemas.js";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
-import type { Agent } from "../shared/types.js";
 import {
   fleetAgentAddress,
   parseFleetAgentAddress,
@@ -63,7 +62,7 @@ export function memberRole(team: MailTeam, agentId: string) {
 }
 
 export function eligibleMailAgent(owner: string, agentId: string) {
-  const agent = agentsQueries.owned(db, agentId, owner) as Agent | undefined;
+  const agent = agentsQueries.owned(db, agentId, owner);
   if (!agent) throw new MailRefusal(404, "Agent not found in this workspace.");
   if (agent.retired_at)
     throw new MailRefusal(
@@ -111,7 +110,7 @@ export function mailConversation(
     conversation,
     owner,
     agent,
-  ) as { id: string } | undefined;
+  );
   if (!row)
     throw new MailRefusal(
       404,
@@ -178,14 +177,14 @@ export function authorizeMail(
   if (resultRunId !== undefined) {
     const parent =
       thread.scope === "team" &&
-      (delegationsQueries.backgroundParentState(
+      delegationsQueries.backgroundParentState(
         db,
         thread.owner_id,
         sender,
         recipient,
         resultRunId,
         thread.team_id,
-      ) as { state: string } | undefined);
+      );
     if (!parent)
       throw new MailRefusal(
         403,
@@ -201,11 +200,7 @@ export function authorizeMail(
   if (sender === recipient)
     throw new MailRefusal(400, "You can't message yourself.");
   if (thread.scope === "team") {
-    const team = teamsQueries.activeOwned(
-      db,
-      thread.team_id,
-      thread.owner_id,
-    ) as MailTeam | undefined;
+    const team = teamsQueries.activeOwned(db, thread.team_id, thread.owner_id);
     if (
       !team ||
       (resultRunId === undefined && !memberRole(team, sender)) ||
@@ -217,10 +212,7 @@ export function authorizeMail(
       );
     return team;
   }
-  const members = agentThreadMembersQueries.members(db, thread.id) as {
-    agent_id: string;
-    conversation_id: string | null;
-  }[];
+  const members = agentThreadMembersQueries.members(db, thread.id);
   if (
     members.length !== 2 ||
     ![sender, recipient].every((a) => members.some((m) => m.agent_id === a))
@@ -272,11 +264,7 @@ export function queuedMailFailure(runId: string): string | undefined {
         mail.recipient_agent_id,
         mail.recipient_conversation_id,
       );
-    const selected = runsQueries.mailConnection(db, runId) as {
-      id: string;
-      status: string | null;
-      current_id: string;
-    };
+    const selected = runsQueries.mailConnection(db, runId)!;
     // A queued turn retains its original provider selection. If that provider
     // is gone, or the agent has moved away from its disconnected provider,
     // fail visibly instead of waiting forever or silently changing billing.
@@ -305,6 +293,6 @@ export function queuedMailReady(run: {
     db,
     run.payload.connectionId,
     run.owner_id,
-  ) as { status: string } | undefined;
+  );
   return connection?.status === "connected";
 }
