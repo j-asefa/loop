@@ -18,7 +18,9 @@ import type { OutputData } from "../shared/agent-activities.js";
 import {
   GithubError,
   githubRest,
-  githubTokens,
+  githubToken,
+  githubRepoPath,
+  githubPullPath,
   withGithubFixture,
 } from "./github-api.js";
 import {
@@ -44,17 +46,14 @@ export const TURNS_PER_HOUR = 5;
 const COMMENT_CHARS = 2000;
 const UPDATE_CHARS = 12_000;
 
-// ---------------------------------------------------------------------------
 // GitHub access. Read-only REST calls with the owner's official GitHub
 // connection token; the token never reaches the model or the browser.
 
 export { withGithubFixture };
-const githubToken = (owner: string) => githubTokens(owner)[0];
 
 async function github<T>(token: string, path: string): Promise<T> {
   return (await githubPage<T>(token, path)).data;
 }
-/** A GitHub response with its Link header, for paging. */
 async function githubPage<T>(token: string, path: string) {
   try {
     return await githubRest<T>(token, path);
@@ -74,12 +73,6 @@ async function githubPage<T>(token: string, path: string) {
     );
   }
 }
-
-const repoPath = (w: Pick<PrWatch, "repo_owner" | "repo_name">) =>
-  `/repos/${encodeURIComponent(w.repo_owner)}/${encodeURIComponent(w.repo_name)}`;
-
-// ---------------------------------------------------------------------------
-// Watches
 
 function watchesFor(owner: string, conversation?: string) {
   return watchQueries.list(
@@ -196,7 +189,7 @@ async function verifyCreatedPullRequest(
 ) {
   const token = githubToken(run.owner_id);
   if (!token) return;
-  const path = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
+  const path = githubPullPath(ref);
   const pr = await github<{
     state: string;
     created_at: string;
@@ -332,9 +325,6 @@ function pause(watch: PrWatch, reason: string) {
   watchQueries.pause(db, reason, now(), watch.id);
 }
 
-// ---------------------------------------------------------------------------
-// Polling
-
 type CheckRun = {
   id?: number;
   name: string;
@@ -421,9 +411,11 @@ async function pages<T extends { id: number }>(
   return [...first.data, ...later];
 }
 
-/** Reads what changed on GitHub since the watch last delivered. */
 async function read(watch: PrWatch, token: string) {
-  const base = repoPath(watch);
+  const base = githubRepoPath({
+    owner: watch.repo_owner,
+    repo: watch.repo_name,
+  });
   const pr = await github<{
     state: string;
     merged?: boolean;
@@ -592,7 +584,6 @@ const label = (text: string | null | undefined) =>
 const who = (c: Comment) =>
   "@" + (c.user?.login || "someone") + (c.user?.type === "Bot" ? " (bot)" : "");
 
-/** The follow-up text for one batch of changes. */
 function updateText(watch: PrWatch, update: Update) {
   const ref = `${watch.repo_owner}/${watch.repo_name}#${watch.number}`;
   const parts: string[] = [];
@@ -798,7 +789,6 @@ export async function pollWatch(watchId: string, time = now()) {
 }
 
 let polling = false;
-/** The worker's pass: polls due watches one at a time. */
 export async function pollWatches(time = now()) {
   if (polling) return 0;
   polling = true;

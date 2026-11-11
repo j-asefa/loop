@@ -2,7 +2,8 @@ import * as mcpConnectionsQueries from "./sql/mcp-connections.js";
 import { fetch as undiciFetch } from "undici";
 import { db, now } from "./db.js";
 import { readSecret } from "./mcp/client.js";
-import { isGithubMcpUrl } from "../shared/github.js";
+import { Problem } from "../shared/problem.js";
+import { isGithubMcpUrl, type PullRequestRef } from "../shared/github.js";
 
 // Server-side GitHub access with the owner's official GitHub connection
 // (api.githubcopilot.com/mcp). The token stays on the server: it never
@@ -35,7 +36,7 @@ export function withGithubFixture(
  * The distinct tokens of the owner's connected official GitHub integrations,
  * oldest connection first. Never inferred from a connection's display name.
  */
-export function githubTokens(owner: string) {
+function githubTokens(owner: string) {
   const connections = mcpConnectionsQueries.githubCandidates(db, owner);
   const tokens = new Set<string>();
   for (const connection of connections) {
@@ -62,6 +63,37 @@ export function githubTokens(owner: string) {
       tokens.add(token);
   }
   return [...tokens];
+}
+
+export function githubToken(owner: string, mode: "write"): string;
+export function githubToken(owner: string, mode?: "read"): string | undefined;
+export function githubToken(owner: string, mode: "read" | "write" = "read") {
+  const tokens = githubTokens(owner);
+  if (mode === "write") {
+    if (!tokens.length)
+      throw new Problem(409, "Connect GitHub in Tools first.");
+    // Writes must name one GitHub identity; never guess between accounts.
+    if (tokens.length > 1)
+      throw new Problem(
+        409,
+        "More than one GitHub account is connected. Keep one GitHub connection in Tools to act on pull requests from Loop.",
+      );
+  }
+  return tokens[0];
+}
+
+export const githubRepoPath = (ref: Pick<PullRequestRef, "owner" | "repo">) =>
+  `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}`;
+export const githubPullPath = (ref: PullRequestRef) =>
+  `${githubRepoPath(ref)}/pulls/${ref.number}`;
+
+function githubHeaders(token: string, accept = "application/vnd.github+json") {
+  return {
+    accept,
+    authorization: "Bearer " + token,
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "Loop",
+  };
 }
 
 export class GithubError extends Error {
@@ -110,7 +142,6 @@ async function githubReason(response: Response) {
     .slice(0, 300);
 }
 
-/** Throws a rate-limited or failed GitHub response as a GithubError. */
 async function refused(response: Response) {
   const retryAt = rateLimitRetry(response);
   if (retryAt)
@@ -130,7 +161,6 @@ async function refused(response: Response) {
   }
 }
 
-/** A GitHub REST response with its Link header, for paging. */
 export async function githubRest<T>(
   token: string,
   path: string,
@@ -139,10 +169,7 @@ export async function githubRest<T>(
   const response = await githubFetch(githubApi + path, {
     method: init.method || "GET",
     headers: {
-      accept: "application/vnd.github+json",
-      authorization: "Bearer " + token,
-      "x-github-api-version": "2022-11-28",
-      "user-agent": "Loop",
+      ...githubHeaders(token),
       ...(init.body === undefined
         ? {}
         : { "content-type": "application/json" }),
@@ -194,12 +221,7 @@ export async function githubGraphql<T>(
 export async function githubRaw(token: string, path: string, maxBytes: number) {
   const response = await githubFetch(githubApi + path, {
     method: "GET",
-    headers: {
-      accept: "application/vnd.github.raw+json",
-      authorization: "Bearer " + token,
-      "x-github-api-version": "2022-11-28",
-      "user-agent": "Loop",
-    },
+    headers: githubHeaders(token, "application/vnd.github.raw+json"),
     signal: AbortSignal.timeout(60_000),
   });
   await refused(response);

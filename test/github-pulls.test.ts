@@ -996,7 +996,9 @@ it("never answers with a 401 when GitHub rejects the connection, and waits out r
 
 it("acts as one GitHub account only: two connections block writes, not reads", async () => {
   connectGithub("alice", "gh-second");
+  github.authorizations.clear();
   expect((await api(PR)).status).toBe(200);
+  expect([...github.authorizations]).toEqual(["Bearer gh-secret"]);
   const refused = await api(PR + "/comments", "POST", {
     body: "hi",
     headSha: HEAD,

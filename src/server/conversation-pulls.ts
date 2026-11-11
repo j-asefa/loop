@@ -5,7 +5,7 @@ import * as watchQueries from "./sql/pr-watches.js";
 import { db, now } from "./db.js";
 import { ownedConversation, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
-import { githubTokens } from "./github-api.js";
+import { githubToken } from "./github-api.js";
 import { pullSummary } from "./github-pulls.js";
 import {
   parsePullRequestUrls,
@@ -85,7 +85,7 @@ export async function conversationPulls(
   refresh = false,
 ): Promise<ConversationPulls> {
   const { refs, hasMore } = conversationPullRefs(owner, conversation);
-  const connected = githubTokens(owner).length > 0;
+  const connected = !!githubToken(owner);
   if (!connected) return { connected, pulls: refs, hasMore };
   const pulls: ConversationPulls["pulls"] = [];
   // Bound concurrent GitHub reads, while retaining independent errors/links.
