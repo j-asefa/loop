@@ -45,7 +45,25 @@ export function decide(
   owner: string,
   approvalId: string,
   decision: "approve" | "reject",
-  automatic = false,
+) {
+  return decision === "approve"
+    ? approve(owner, approvalId, { by: "user" })
+    : decideApproval(owner, approvalId, decision, { by: "user" });
+}
+type ApprovalSource =
+  { by: "user" } | { by: "policy"; execution?: "resume" | "inline" };
+export function approve(
+  owner: string,
+  approvalId: string,
+  source: ApprovalSource,
+) {
+  return decideApproval(owner, approvalId, "approve", source);
+}
+function decideApproval(
+  owner: string,
+  approvalId: string,
+  decision: "approve" | "reject",
+  source: ApprovalSource,
 ) {
   return db
     .transaction(() => {
@@ -54,18 +72,28 @@ export function decide(
         decision === "reject"
           ? ownedRunControl(approval.run_id, owner)
           : ownedRun(approval.run_id, owner);
-      if (approval.state !== "pending" || run.state !== "awaiting_approval")
+      const inline = source.by === "policy" && source.execution === "inline";
+      const time = now();
+      // An inline call is already executing, including when pausing. It must
+      // not requeue the run or record a new dispatch source.
+      if (
+        inline &&
+        (approval.state !== "pending" || approval.expires_at <= time)
+      )
+        return { ok: false };
+      if (
+        approval.state !== "pending" ||
+        (!inline && run.state !== "awaiting_approval")
+      )
         throw new Problem(409, "This approval is no longer pending");
-      if (approval.expires_at < now())
+      if (approval.expires_at < time)
         throw new Problem(
           409,
           "This approval expired. Start a new run after review.",
         );
-      const resumesNative = nativeDispatchQueries.hasAcceptedOrUnknown(
-        db,
-        run.id,
-      );
-      if (decision === "approve" || resumesNative) {
+      const resumesNative =
+        !inline && nativeDispatchQueries.hasAcceptedOrUnknown(db, run.id);
+      if (!inline && (decision === "approve" || resumesNative)) {
         assertEffect(owner, "run", run.id);
         recordEffectEdit(owner, "run", run.id);
       }
@@ -75,7 +103,7 @@ export function decide(
         approvalId,
         "pending",
       );
-      if (!automatic)
+      if (source.by === "user")
         recordPersonalDecision({
           owner,
           run: run.id,
@@ -89,12 +117,14 @@ export function decide(
           decision,
           origin: "loop",
         });
-      } else if (decision === "approve")
+      } else if (!inline && decision === "approve")
         transition(run, "queued", { approvalId });
-      else {
+      else if (decision === "reject") {
         runsQueries.setError(db, "Approval was rejected.", run.id);
         transition(run, "failed", { approvalId, reason: "Approval rejected" });
       }
+      if (source.by === "policy")
+        emit(owner, run.id, "approval.auto_approved", { approvalId });
       return { ok: true };
     })
     .immediate();
