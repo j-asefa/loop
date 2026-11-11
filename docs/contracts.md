@@ -72,7 +72,7 @@ integration-write receipts. Their admission remains separate.
 
 ## Responses are projections
 
-The registrar projects every JSON response. Send final response data directly to
+The registrar projects JSON responses for non-stream contracts. Send final response data directly to
 `res.json`; do not repeat the same `projectResponse` immediately before it. Keep an
 explicit projection when later bookkeeping depends on validated public output
 (for example token disclosures or event-page byte limits), or when a helper must
