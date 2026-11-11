@@ -4,7 +4,7 @@ export function searchTerms(
   { limit = 20, exclude }: SearchTermOptions = {},
 ) {
   return [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || [])]
-    .filter((term) => !exclude?.has(term))
+    .filter((term) => /[\p{L}\p{N}]/u.test(term) && !exclude?.has(term))
     .slice(0, limit);
 }
 export function ftsQuery(

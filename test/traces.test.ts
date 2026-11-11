@@ -604,6 +604,8 @@ it("filters traces by every term, including linked tool results, within the owne
     );
   expect(keys("zeppelin")).toEqual(["tool:git", "tool:npm"]);
   expect(keys("npm zep")).toEqual(["tool:npm"]);
+  expect(keys("npm -- __ zep")).toEqual(["tool:npm"]);
+  expect(keys("-- __")).toEqual([]);
   expect(keys("harbour")).toEqual(["tool:search"]);
   expect(keys("web_sea")).toEqual(["tool:search"]);
   expect(keys("npm ".repeat(25) + "zep")).toEqual(["tool:npm"]);
