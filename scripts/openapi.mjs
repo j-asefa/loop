@@ -459,7 +459,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
         )
       : errors;
   const operation = {
-    operationId: name,
+    operationId: route.operation,
     parameters,
     security:
       route.security === "public"
@@ -532,7 +532,7 @@ for (const [name, route] of Object.entries(workspaceRoutes)) {
   if (method === "get" && cardNames[name])
     paths[path].head = {
       ...operation,
-      operationId: name + "Head",
+      operationId: route.operation + "Head",
       responses: Object.fromEntries(
         Object.entries(operation.responses).map(([status, response]) => [
           status,

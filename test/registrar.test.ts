@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import { registrar } from "../src/server/registrar";
 import { errorHandler } from "../src/server/error-handler";
+import { workspaceApi, workspaceRoutes } from "../src/shared/workspace-api";
 import { Problem } from "../src/shared/problem";
 
 const routes = registrar("registrar-test", {
@@ -33,7 +34,18 @@ routes.on({ ...contract, path: "/async-error" }, async () => {
   throw new Problem(409, "Inspect first");
 });
 const app = express();
-app.use(express.json(), routes.mount, errorHandler);
+app.use(
+  express.json(),
+  (req, res, next) => {
+    if (req.path === "/runs/fixture-run/reorder") {
+      res.locals.owner = "registrar-owner";
+      res.locals.bearer = { tokenId: "registrar-token", admission: ["write"] };
+    }
+    next();
+  },
+  routes.mount,
+  errorHandler,
+);
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve, reject) => {
   server.once("listening", resolve);
@@ -96,3 +108,43 @@ function registrationTypes() {
 }
 
 void registrationTypes;
+
+it("refuses an unregistered token mutation even when its operation name is known", () => {
+  const unregistered = { ...workspaceApi.submit };
+  expect(() =>
+    routes.on(unregistered, () => {}, {
+      tokenWrite: () => ({ status: 202, body: {} }),
+    }),
+  ).toThrow("registered identity");
+});
+
+it("passes the declared operation to replay policy after a registry key rename", async () => {
+  const reorder = workspaceRoutes.runReorder;
+  let operation: string | undefined;
+  Reflect.deleteProperty(workspaceRoutes, "runReorder");
+  Reflect.set(workspaceRoutes, "renamedReorder", reorder);
+  try {
+    routes.on(
+      reorder,
+      () => {
+        throw new Error("A completed replay must not dispatch the effect");
+      },
+      {
+        tokenWrite: (request) => {
+          operation = request.operation;
+          return { status: 200, body: { ok: true } };
+        },
+      },
+    );
+  } finally {
+    Reflect.deleteProperty(workspaceRoutes, "renamedReorder");
+    Reflect.set(workspaceRoutes, "runReorder", reorder);
+  }
+  expect(
+    await post("/runs/fixture-run/reorder", {
+      direction: "up",
+      idempotencyKey: "stable-operation",
+    }),
+  ).toEqual({ status: 200, body: { ok: true } });
+  expect(operation).toBe("runReorder");
+});

@@ -40,6 +40,18 @@ the fixed endpoint, request digest, destination and current directory. Preparati
 reserves the original source/message identity; acceptance and receipt lookup use
 that identity and never create an unrelated replacement command.
 
+## Operation identities
+
+Each workspace endpoint declares an explicit `operation` string. It identifies durable
+integration-write receipts and OpenAPI operations; keep it unchanged when renaming a
+registry key or moving a contract to another module. The operation inventory test
+pins established names and rejects duplicates. The registrar also requires token
+mutations to use the registered contract object and supply their replay policy.
+
+The workspace endpoint constructor requires `operation`. The generic `RouteContract`
+keeps it optional because current peer contracts share that type and do not use
+integration-write receipts. Their admission remains separate.
+
 ## Responses are projections
 
 - Response schemas describe what the caller receives, never a storage row. Never import `row-schemas.ts`, `query-records.ts`, `db.ts` or any credential schema into `src/shared`. The existing `Public*` schemas are the pattern: add to them, extend them, or add a sibling.
