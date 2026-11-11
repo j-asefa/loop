@@ -235,6 +235,20 @@ dispatched), so settings still show the receiver may hold the delivery ID.
 Delivery is at-least-once by contract with a stable
 `X-Loop-Delivery` id ([integration API](cards-api.md)).
 
+### Local creation receipts
+
+Agent, preset-team and definition creation use
+[`withCreationReceipt`](../src/server/request-receipts.ts). An immediate
+transaction reserves the owner/key against concurrent local creators, checks
+its canonical request hash, and commits the creation and receipt together.
+A matching receipt recovers the existing result; different input returns 409.
+A failed local creation rolls back both effect and receipt, so no uncertain
+external effect is implied by an absent local receipt. Recovery still applies
+the domain's owner checks and deleted-result rules.
+
+Request hashing sorts object keys and preserves array order. Token writes use
+the same encoder, but retain their explicit pending state before external IO.
+
 ### `token_requests.state`
 
 ∅ → pending (tx) → complete (sql; 409 if already complete) → expired marker

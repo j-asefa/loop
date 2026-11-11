@@ -643,3 +643,33 @@ it("validates create and update selections before persisting agent changes", asy
     expect(updated.data.effort).toBe(effort);
   }
 });
+
+it("rolls back agent creation and its receipt when initial attachments are refused", async () => {
+  const body = {
+    name: "retry-create-" + id().slice(0, 8),
+    connectionId: connection,
+    model: "fixture",
+    initialPrompt: "Use this attachment",
+    idempotencyKey: id(),
+  };
+  const count = () =>
+    db.prepare("SELECT count(*) n FROM agents WHERE owner_id=?").get(owner);
+  const before = count();
+  const refused = await request("/agents", { ...body, attachmentIds: [id()] });
+  expect(refused.status).toBe(404);
+  expect(count()).toEqual(before);
+  expect(
+    db
+      .prepare(
+        "SELECT 1 FROM agent_creations WHERE owner_id=? AND request_key=?",
+      )
+      .get(owner, body.idempotencyKey),
+  ).toBeUndefined();
+  const created = await request("/agents", body);
+  valid(workspaceApi.agentCreate, created);
+  const replay = await request("/agents", { ...body, attachmentIds: [] });
+  expect(replay.data).toEqual(created.data);
+  expect(
+    await request("/agents", { ...body, initialPrompt: "Different intent" }),
+  ).toMatchObject({ status: 409 });
+});

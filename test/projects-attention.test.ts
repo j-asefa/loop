@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import express from "express";
 import { belongsToProject } from "../src/shared/projects";
 
@@ -101,10 +101,10 @@ it("persists project membership without an initial prompt and atomically enforce
     (await api("/agents/" + a.id, { folderId: null }, "PATCH")).data.folder_id,
   ).toBeNull();
 });
-it("reuses an agent receipt created with the pre-membership field order", async () => {
+it("replays project creation with reordered fields and rejects a changed project", async () => {
   const p = await project();
   const data = {
-    name: "legacy-" + id().slice(0, 8),
+    name: "receipt-" + id().slice(0, 8),
     connectionId: connection,
     model: "fixture",
     instructions: "",
@@ -113,15 +113,18 @@ it("reuses an agent receipt created with the pre-membership field order", async 
   };
   const key = id(),
     a = await api("/agents", { ...data, idempotencyKey: key });
-  const oldHash = createHash("sha256")
-    .update(JSON.stringify(data))
-    .digest("hex");
-  db.prepare(
-    "UPDATE agent_creations SET request_hash=? WHERE owner_id='alice' AND request_key=?",
-  ).run(oldHash, key);
-  const retry = await api("/agents", { ...data, idempotencyKey: key });
+  expect(a.status).toBe(201);
+  const reordered = Object.fromEntries(Object.entries(data).reverse());
+  const retry = await api("/agents", { idempotencyKey: key, ...reordered });
   expect(retry.status).toBe(201);
   expect(retry.data.id).toBe(a.data.id);
+  expect(retry.data.folder_id).toBe(p.id);
+  const other = await project();
+  expect(
+    (await api("/agents", { ...data, folderId: other.id, idempotencyKey: key }))
+      .status,
+  ).toBe(409);
+  expect((await api("/agents/" + a.data.id)).data.agent.folder_id).toBe(p.id);
 });
 it("uses the agent project for new work and retains the conversation project across moves and retries", async () => {
   const first = await project(),
