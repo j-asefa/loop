@@ -27,7 +27,9 @@ import {
   githubGraphql,
   githubRaw,
   githubRest,
-  githubTokens,
+  githubToken,
+  githubRepoPath,
+  githubPullPath,
 } from "./github-api.js";
 import {
   parsePullRequestUrl,
@@ -65,20 +67,6 @@ const PATCH_CHARS = 100_000;
 const MAX_FILES = 300;
 const MAX_THREADS = 500;
 
-const reading = (owner: string) => githubTokens(owner)[0];
-// Writes act as one GitHub identity: with several GitHub connections Loop
-// would have to guess which account you mean, so it asks you to keep one.
-function writing(owner: string) {
-  const tokens = githubTokens(owner);
-  if (!tokens.length) throw new Problem(409, "Connect GitHub in Tools first.");
-  if (tokens.length > 1)
-    throw new Problem(
-      409,
-      "More than one GitHub account is connected. Keep one GitHub connection in Tools to act on pull requests from Loop.",
-    );
-  return tokens[0];
-}
-
 /** GitHub failures as Loop problems; never a 401, which signs you out of Loop. */
 function problem(error: unknown, write = false): never {
   if (error instanceof Problem) throw error;
@@ -107,9 +95,6 @@ function problem(error: unknown, write = false): never {
     );
   throw new Problem(502, "Could not reach GitHub. Try again.");
 }
-
-// ---------------------------------------------------------------------------
-// Reading
 
 const ITEM = `
   number title url state isDraft createdAt updatedAt
@@ -221,7 +206,7 @@ export async function pullSummary(
   ref: PullRequestRef,
   refresh = false,
 ): Promise<ConversationPull> {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token)
     throw new Problem(409, "Connect GitHub to refresh pull requests.");
   // Never reuse another owner's or a replaced connection's private data.
@@ -345,7 +330,7 @@ export async function inbox(
   owner: string,
   options: { filter?: PullFilter; repo?: string; text?: string } = {},
 ): Promise<PullInbox> {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token) return { connected: false };
   const filter = options.filter || "authored";
   // Your own search terms narrow the list; quotes and line breaks are
@@ -486,7 +471,7 @@ export async function detail(
   owner: string,
   ref: PullRequestRef,
 ): Promise<PullDetail> {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   let data: any;
   try {
@@ -693,9 +678,9 @@ export async function files(
   ref: PullRequestRef,
   headSha: string,
 ) {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
-  const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}/files?per_page=100&page=`;
+  const base = `${githubPullPath(ref)}/files?per_page=100&page=`;
   const list: PullFile[] = [];
   const moved = () =>
     new Problem(
@@ -725,14 +710,14 @@ export async function commitFiles(
   ref: PullRequestRef,
   sha: string,
 ): Promise<PullCommitFiles> {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   const list: PullFile[] = [];
   let hasMore = false;
   try {
     // Check access to the pull request with this owner's connection.
     await headOf(token, ref);
-    const base = `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/commits/${sha.toLowerCase()}?per_page=100&page=`;
+    const base = `${githubRepoPath(ref)}/commits/${sha.toLowerCase()}?per_page=100&page=`;
     for (let page = 1; page <= MAX_FILES / 100; page++) {
       const { data, link } = await githubRest<any>(token, base + page);
       if (
@@ -761,7 +746,6 @@ export async function commitFiles(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Viewing one file as it is at a commit: the pull request's head, or any file
 // it links to. A commit's files never change, so a copy is kept for a day and
 // served with range requests, which phones need to play video.
@@ -813,7 +797,7 @@ async function fileAt(
   head: string,
   path: string,
 ) {
-  const token = reading(owner);
+  const token = githubToken(owner);
   if (!token) throw new Problem(409, "Connect GitHub in Tools first.");
   const directory = viewCache();
   const file = join(
@@ -832,7 +816,7 @@ async function fileAt(
   try {
     bytes = await githubRaw(
       token,
-      `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/contents/${path
+      `${githubRepoPath(ref)}/contents/${path
         .split("/")
         .map(encodeURIComponent)
         .join("/")}?ref=${head.toLowerCase()}`,
@@ -875,14 +859,10 @@ function sendViewed(res: Response, file: string, path: string) {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Acting. Each action is a single request you submitted; nothing is retried.
 
-const pullPath = (ref: PullRequestRef) =>
-  `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/pulls/${ref.number}`;
-
 async function readPull(token: string, ref: PullRequestRef) {
-  return (await githubRest<any>(token, pullPath(ref))).data;
+  return (await githubRest<any>(token, githubPullPath(ref))).data;
 }
 const headOf = async (token: string, ref: PullRequestRef) =>
   String((await readPull(token, ref))?.head?.sha || "").toLowerCase();
@@ -920,17 +900,21 @@ export async function review(
         ? "Write a comment first."
         : "Say what needs to change.",
     );
-  const token = writing(owner);
+  const token = githubToken(owner, "write");
   try {
     await current(token, ref, input.headSha);
-    const { data } = await githubRest<any>(token, pullPath(ref) + "/reviews", {
-      method: "POST",
-      body: {
-        event: REVIEW_EVENT[input.event],
-        commit_id: input.headSha,
-        ...(input.body.trim() ? { body: input.body.trim() } : {}),
+    const { data } = await githubRest<any>(
+      token,
+      githubPullPath(ref) + "/reviews",
+      {
+        method: "POST",
+        body: {
+          event: REVIEW_EVENT[input.event],
+          commit_id: input.headSha,
+          ...(input.body.trim() ? { body: input.body.trim() } : {}),
+        },
       },
-    });
+    );
     return { ok: true, url: githubLink(data?.html_url) };
   } catch (error) {
     problem(error, true);
@@ -939,7 +923,7 @@ export async function review(
 
 async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
   const input = PullCommentInput.parse(body);
-  const token = writing(owner);
+  const token = githubToken(owner, "write");
   try {
     if ((await headOf(token, ref)) !== input.headSha.toLowerCase())
       throw new Problem(
@@ -948,7 +932,7 @@ async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
       );
     const { data } = await githubRest<any>(
       token,
-      `/repos/${encodeURIComponent(ref.owner)}/${encodeURIComponent(ref.repo)}/issues/${ref.number}/comments`,
+      `${githubRepoPath(ref)}/issues/${ref.number}/comments`,
       { method: "POST", body: { body: input.body } },
     );
     return { ok: true, url: githubLink(data?.html_url) };
@@ -963,12 +947,16 @@ async function addComment(owner: string, ref: PullRequestRef, body: unknown) {
  */
 export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
   const input = PullMergeInput.parse(body);
-  const token = writing(owner);
+  const token = githubToken(owner, "write");
   try {
-    const { data } = await githubRest<any>(token, pullPath(ref) + "/merge", {
-      method: "PUT",
-      body: { merge_method: input.method, sha: input.headSha },
-    });
+    const { data } = await githubRest<any>(
+      token,
+      githubPullPath(ref) + "/merge",
+      {
+        method: "PUT",
+        body: { merge_method: input.method, sha: input.headSha },
+      },
+    );
     if (data?.merged !== true)
       throw new Problem(
         409,
@@ -984,9 +972,6 @@ export async function merge(owner: string, ref: PullRequestRef, body: unknown) {
     problem(error, true);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Routes
 
 const routes = registrar("githubPulls");
 export const githubPulls = routes.mount;
