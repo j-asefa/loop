@@ -10,20 +10,16 @@ import { ownedConversation, Problem } from "../domain.js";
 // Where you stopped reading a thread, so reopening it continues from there.
 function readingPosition(owner: string, conversation: string) {
   return (
-    (
-      conversationPositionsQueries.position(db, owner, conversation) as
-        { position_message_id: string | null } | undefined
-    )?.position_message_id ?? null
+    conversationPositionsQueries.position(db, owner, conversation)
+      ?.position_message_id ?? null
   );
 }
 
 export function conversationReturnState(owner: string, conversation: string) {
   // A reply is saved when it was saved itself or its result card is saved.
-  const saved = (
-    messageBookmarksQueries.conversationSaved(db, { owner, conversation }) as {
-      message_id: string;
-    }[]
-  ).map((row) => row.message_id);
+  const saved = messageBookmarksQueries
+    .conversationSaved(db, { owner, conversation })
+    .map((row) => row.message_id);
   return {
     position_message_id: readingPosition(owner, conversation),
     saved,
@@ -35,12 +31,7 @@ function conversationMessage(
   conversation: string,
   message: string,
 ) {
-  return messagesQueries.conversationPosition(
-    db,
-    message,
-    owner,
-    conversation,
-  ) as { id: string; created_at: number } | undefined;
+  return messagesQueries.conversationPosition(db, message, owner, conversation);
 }
 
 export function savePosition(

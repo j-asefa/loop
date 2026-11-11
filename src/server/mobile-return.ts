@@ -180,32 +180,7 @@ function readReplyFeed(
     limit: number;
   },
 ) {
-  const rows = steeringRepliesQueries.page(db, scope) as {
-    message_id: string;
-    created_at: number;
-    read_at: number | null;
-    question_id: string;
-    question: string;
-    content: string;
-    conversation_id: string;
-    title: string;
-    origin: string;
-    team_id: string | null;
-    agent_id: string | null;
-    folder_id: string | null;
-    run_id: string;
-    state: string;
-    error: string | null;
-    input: string;
-    run_created_at: number;
-    updated_at: number;
-    connection_id: string | null;
-    model: string | null;
-    resolved_model: string | null;
-    provider: string | null;
-    agent_name: string | null;
-    saved: number;
-  }[];
+  const rows = steeringRepliesQueries.page(db, scope);
   const more = rows.length > FEED_PAGE_ITEMS;
   if (more) rows.pop();
   const last = rows.at(-1);
@@ -377,8 +352,7 @@ export function awaySummary(owner: string, since: number) {
 // has a result card is saved by pinning that result, so saving either one
 // saves both and the list shows it once.
 function resultFor(owner: string, messageId: string) {
-  return artifactsQueries.messageResult(db, messageId, owner) as
-    { id: string; pinned: number } | undefined;
+  return artifactsQueries.messageResult(db, messageId, owner);
 }
 
 export function setSaved(owner: string, messageId: string, on: boolean) {
@@ -428,22 +402,9 @@ export function listSaved(
     teams: options.teams?.length ? JSON.stringify(options.teams) : null,
     q: options.q?.trim() ? contains(options.q.trim()) : null,
   };
-  const messages = messageBookmarksQueries.page(db, params) as (Record<
-    string,
-    unknown
-  > & {
-    key: string;
-    saved_at: number;
-    content: string;
-  })[];
+  const messages = messageBookmarksQueries.page(db, params);
   // The same columns as a saved card in the results feed.
-  const results = artifactsQueries.savedPage(db, params) as (Record<
-    string,
-    unknown
-  > & {
-    key: string;
-    saved_at: number;
-  })[];
+  const results = artifactsQueries.savedPage(db, params);
   const merged = [
     ...messages.map(({ key, saved_at, content, label, ...row }) => ({
       kind: "message" as const,
@@ -501,15 +462,7 @@ const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 export function conversationUsage(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
-  const events = runsQueries.conversationUsageEvents(
-    db,
-    owner,
-    conversation,
-  ) as {
-    run_id: string;
-    type: string;
-    payload: string;
-  }[];
+  const events = runsQueries.conversationUsageEvents(db, owner, conversation);
   const runs: Record<string, Tokens> = {};
   const native: Record<string, Tokens> = {};
   // A provider message is one receipt with an externalId, optionally followed
@@ -576,11 +529,9 @@ export function conversationUsage(owner: string, conversation: string) {
   );
   // Only runtimes that recall memory record a receipt, so the thread offers
   // "Memory used" on these runs alone.
-  const memory = (
-    memoryReceiptsQueries.conversationRuns(db, owner, conversation) as {
-      run_id: string;
-    }[]
-  ).map((row) => row.run_id);
+  const memory = memoryReceiptsQueries
+    .conversationRuns(db, owner, conversation)
+    .map((row) => row.run_id);
   return { runs, total, memory };
 }
 
@@ -599,10 +550,7 @@ export function listSnippets(owner: string) {
 // 12. Project summaries
 export function projectSummaries(owner: string) {
   ensureWorkspaceProject(owner);
-  const projects = foldersQueries.rootProjects(db, owner) as {
-    id: string;
-    name: string;
-  }[];
+  const projects = foldersQueries.rootProjects(db, owner);
   const byProject = <T extends { project_id: string }>(rows: T[]) =>
     new Map(rows.map((row) => [row.project_id, row]));
   const agents = byProject(agentsQueries.projectCounts(db, owner));

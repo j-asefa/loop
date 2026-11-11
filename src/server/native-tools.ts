@@ -6,7 +6,7 @@ import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as agentThreadsQueries from "./sql/agent-threads.js";
 import * as delegationsQueries from "./sql/delegations.js";
-import type { QueryRow } from "./query-records.js";
+
 import { assertEffect, inheritEffect } from "./effect-authority.js";
 
 import { z } from "zod";
@@ -230,8 +230,7 @@ export function nativeBindings(
       JSON.stringify(workers);
   }
   const agent = run.agent_id
-    ? (agentsQueries.retirement(db, run.agent_id, run.owner_id) as
-        { retired_at: number | null } | undefined)
+    ? agentsQueries.retirement(db, run.agent_id, run.owner_id)
     : undefined;
   if (agent && !agent.retired_at) {
     descriptions.loop_agents =
@@ -278,8 +277,7 @@ export async function invokeNative(
     tool === "loop_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")
       : JSON.stringify(args);
-  const previous = nativeCallsQueries.get(db, run.id, callId) as
-    QueryRow<"native_calls"> | undefined;
+  const previous = nativeCallsQueries.get(db, run.id, callId);
   if (
     previous &&
     (previous.tool !== binding.tool || previous.arguments !== encoded)
@@ -386,10 +384,7 @@ export async function invokeNative(
       run: run.id,
       metadata: {
         native: true,
-        messageId: (
-          agentCheckpointsQueries.message(db, run.id) as
-            QueryRow<"agent_checkpoints"> | undefined
-        )?.message_id,
+        messageId: agentCheckpointsQueries.message(db, run.id)?.message_id,
       },
     });
     text = "Diagram saved and rendered natively: " + d.title;
@@ -454,13 +449,13 @@ export async function invokeNative(
                 db,
                 run.owner_id,
                 `mail:${run.id}:${callId}`,
-              ) as { scope: string } | undefined;
+              );
               const threadScope = transfer.threadId
-                ? (agentThreadsQueries.ownedScope(
+                ? agentThreadsQueries.ownedScope(
                     db,
                     transfer.threadId,
                     run.owner_id,
-                  ) as { scope: string } | undefined)
+                  )
                 : undefined;
               const team = teamOf(run);
               const scope =
@@ -555,8 +550,7 @@ export async function invokeNative(
           run.id,
           callId.length + 1,
           callId + ":",
-        ) as (QueryRow<"delegations"> &
-          Pick<Run, "state" | "result" | "error" | "agent_id" | "id">)[];
+        );
         if (prior.length) return prior;
         if (existing.n + tasks.length > 16)
           throw new Problem(

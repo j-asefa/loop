@@ -10,13 +10,9 @@ export function runPreview(
   owner: string,
   runId: string,
 ) {
-  const artifact = agentCheckpointsQueries.result(db, owner, runId) as
-    ({ content: string } & Record<string, unknown>) | undefined;
+  const artifact = agentCheckpointsQueries.result(db, owner, runId);
   const latest = !artifact?.content
-    ? (
-        messagesQueries.latestAssistantContent(db, owner, runId) as
-          { content: string } | undefined
-      )?.content
+    ? messagesQueries.latestAssistantContent(db, owner, runId)?.content
     : undefined;
   if (artifact && latest) artifact.content = latest;
   return { latest, artifact: artifact || null };

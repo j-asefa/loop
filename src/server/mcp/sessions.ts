@@ -35,8 +35,7 @@ export async function connectForRun(c: MCPConnection, run: string) {
 }
 export async function closeFinishedSessions() {
   for (const [key, record] of sessions) {
-    const run = runsQueries.state(db, record.run) as
-      { state: string } | undefined;
+    const run = runsQueries.state(db, record.run);
     if (!run || TERMINAL_RUN_STATES.includes(run.state)) {
       sessions.delete(key);
       await record.client.then((client) => client.close()).catch(() => {});

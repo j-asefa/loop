@@ -1,8 +1,7 @@
 import * as conversationTranscriptQueries from "./sql/conversation-transcript.js";
 import * as runTracesQueries from "./sql/run-traces.js";
 import * as runsQueries from "./sql/runs.js";
-import type { z } from "zod";
-import type { PublicAgentTrace } from "../shared/agent-contract-schemas.js";
+
 import { db, now } from "./db.js";
 import { ownedAgent, Problem } from "./domain.js";
 import type { Run } from "./queue.js";
@@ -62,7 +61,7 @@ export function agentTraces(
     before,
     runId || null,
     match,
-  ) as z.input<typeof PublicAgentTrace>[];
+  );
   return { items, next: items.length === 40 ? items.at(-1)!.id : null };
 }
 

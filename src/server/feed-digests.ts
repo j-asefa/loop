@@ -44,7 +44,7 @@ function validZone(zone: string) {
 }
 
 function listDigests(owner: string) {
-  return feedDigestsQueries.forOwner(db, owner) as FeedDigest[];
+  return feedDigestsQueries.forOwner(db, owner);
 }
 
 export function saveDigest(owner: string, body: unknown, digestId?: string) {
@@ -56,7 +56,7 @@ export function saveDigest(owner: string, body: unknown, digestId?: string) {
   // The prompt already skips it; converting an empty selection to NULL would
   // accidentally widen the digest to every feed.
   const previous = digestId
-    ? (feedDigestsQueries.owned(db, digestId, owner) as FeedDigest | undefined)
+    ? feedDigestsQueries.owned(db, digestId, owner)
     : undefined;
   if (digestId && !previous) throw new Problem(404, "No such digest.");
   const previousFeeds: string[] = previous?.feeds
@@ -127,7 +127,7 @@ export function dueDigests(at: number) {
   });
 }
 
-const listEnabled = () => feedDigestsQueries.enabled(db) as FeedDigest[];
+const listEnabled = () => feedDigestsQueries.enabled(db);
 
 /** What Loop asks the agent, with the stories it is asking about. */
 export function digestPrompt(digest: FeedDigest, at: number) {

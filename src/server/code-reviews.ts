@@ -4,7 +4,6 @@ import * as delegationsQueries from "./sql/delegations.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as companionSessionsQueries from "./sql/companion-sessions.js";
 import { ReviewInput } from "../shared/team-contract-schemas.js";
-import type { QueryRow } from "./query-records.js";
 
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -43,8 +42,7 @@ const continuationSnapshot = AgentSnapshot.omit({
 
 function directory(owner: string, folderId: string) {
   ownedFolder(folderId, owner);
-  const mapping = projectPathsQueries.path(db, folderId) as
-    { path: string } | undefined;
+  const mapping = projectPathsQueries.path(db, folderId);
   if (!mapping)
     throw new Problem(409, "Bind this project to a local Git repository first");
   return mapping.path;
@@ -106,8 +104,7 @@ function ensureCodeReview(
     )
     .digest("hex");
   const receipt = () => {
-    const prior = codeReviewsQueries.request(db, owner, d.idempotencyKey) as
-      QueryRow<"code_reviews"> | undefined;
+    const prior = codeReviewsQueries.request(db, owner, d.idempotencyKey);
     if (prior && prior.request_hash !== hash)
       throw new Problem(409, "This request key belongs to a different review");
     return prior;
@@ -305,10 +302,7 @@ const ACTIVE = [
 ];
 // Review teams an agent can ask for: active, and without the agent on them.
 export function requestableReviewTeams(owner: string, agentId: string) {
-  return teamsQueries.reviewCandidates(db, owner, agentId) as {
-    id: string;
-    name: string;
-  }[];
+  return teamsQueries.reviewCandidates(db, owner, agentId);
 }
 export function requestReview(
   run: Run,
@@ -321,8 +315,7 @@ export function requestReview(
   if (!folderId)
     throw new Problem(409, "This conversation has no project to review");
   // A native session's project is its verified agent worktree.
-  const session = companionSessionsQueries.project(db, run.conversation_id) as
-    { project: string } | undefined;
+  const session = companionSessionsQueries.project(db, run.conversation_id);
   const reviewId = ensureCodeReview(
     run.owner_id,
     team.id,
@@ -348,11 +341,7 @@ export function requestReview(
   if (!args.wait) delegationsQueries.background(db, run.id, callId + ":review");
   // Waiting calls poll frequently. Keep captured repository contents out of
   // this path: snapshots can be many megabytes and never change while waiting.
-  const progress = codeReviewsQueries.runIdentity(
-    db,
-    reviewId,
-    run.owner_id,
-  ) as { id: string; state: string } | undefined;
+  const progress = codeReviewsQueries.runIdentity(db, reviewId, run.owner_id);
   if (!progress) throw new Problem(404, "Review not found");
   if (ACTIVE.includes(progress.state) && args.wait) return { pending: callId };
   return agentReviewReport(run, reviewId);
@@ -402,12 +391,7 @@ export function requestedReviewStatus(run: Run, reviewId?: string) {
     run.owner_id,
     run.agent_id,
     reviewId ?? null,
-  ) as {
-    reviewId: string;
-    state: string;
-    fingerprint: string;
-    createdAt: number;
-  }[];
+  );
   if (reviewId) {
     if (!reviews.length) throw new Problem(404, "Requested review not found");
     return agentReviewReport(run, reviewId);

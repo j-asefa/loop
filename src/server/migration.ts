@@ -38,7 +38,7 @@ export async function prepareImportSession(
         OWNER,
         kind,
         importKey,
-      ) as { harness: string; project: string; source: string } | undefined;
+      );
       if (previous && previous.source !== source)
         throw new Problem(
           409,
@@ -122,7 +122,7 @@ export function importSession(
     db,
     options.harness,
     nativeId,
-  ) as any;
+  );
   if (existing) {
     if (
       existing.project !== prepared.workspace.directory ||
@@ -158,7 +158,7 @@ export function importSession(
   const connection = connectionsQueries.id(
     db,
     nativeConnectionId(options.harness),
-  ) as any;
+  );
   agentsQueries.insertNativeImport(
     db,
     agent,
@@ -219,14 +219,7 @@ export async function resumeFromDesktop(options: Options, nativeId: string) {
     db,
     options.harness,
     nativeId,
-  ) as
-    | {
-        conversation_id: string;
-        project: string;
-        worktree_agent_id: string;
-        source: string;
-      }
-    | undefined;
+  );
   const project = nativeSessions.projects.directory(options.project);
   if (existing) {
     if (existing.source !== project && existing.project !== project)

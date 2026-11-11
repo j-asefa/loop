@@ -30,8 +30,7 @@ export function enabled(
 ): boolean {
   if (scope === "workspace" && process.env.LOOP_MEMORY_ENABLED === "0")
     return false;
-  const p = memoryPolicyQueries.enabled(db, owner, scope) as
-    Pick<QueryRow<"memory_policy">, "enabled"> | undefined;
+  const p = memoryPolicyQueries.enabled(db, owner, scope);
   return p ? p.enabled === 1 : fallback;
 }
 function eligible(s: any) {
@@ -43,8 +42,7 @@ function eligible(s: any) {
   )
     return false;
   if (s.kind === "artifact") {
-    const artifact = artifactsQueries.pinned(db, s.source_id, s.owner_id) as
-      Pick<QueryRow<"artifacts">, "pinned"> | undefined;
+    const artifact = artifactsQueries.pinned(db, s.source_id, s.owner_id);
     if (
       !artifact ||
       !enabled(s.owner_id, "artifact:" + s.source_id, !!artifact.pinned)
@@ -55,8 +53,7 @@ function eligible(s: any) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
       return false;
     if (s.message_id) {
-      const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id) as
-        Pick<QueryRow<"messages">, "metadata"> | undefined;
+      const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
       if (!m || JSON.parse(m.metadata).superseded) return false;
     }
   }
@@ -67,8 +64,7 @@ function putSource(s: any) {
   const hash = digest(
     JSON.stringify([s.content, s.project_id, s.eligible, s.title]),
   );
-  const old = memorySourcesQueries.get(db, sourceId) as
-    QueryRow<"memory_sources"> | undefined;
+  const old = memorySourcesQueries.get(db, sourceId);
   if (old?.tombstone || old?.content_hash === hash) return;
   const revision = (old?.revision || 0) + 1;
   memorySourcesQueries.upsert(
@@ -134,9 +130,7 @@ export function captureMemory() {
         complete: !meta.truncated,
       });
     }
-    const artifacts = artifactsQueries.memoryCandidates(
-      db,
-    ) as QueryRow<"artifacts">[];
+    const artifacts = artifactsQueries.memoryCandidates(db);
     for (const a of artifacts)
       if (["markdown", "note", "text"].includes(a.kind))
         putSource({
@@ -272,10 +266,7 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
     throw new Problem(400, "Unknown memory scope");
   db.transaction(() => {
     memoryPolicyQueries.set(db, owner, scope, value ? 1 : 0);
-    const sources = memorySourcesQueries.forOwner(
-      db,
-      owner,
-    ) as QueryRow<"memory_sources">[];
+    const sources = memorySourcesQueries.forOwner(db, owner);
     for (const s of sources) {
       if (
         scope !== "workspace" &&

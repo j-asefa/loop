@@ -137,12 +137,7 @@ export class NativeToolBridge {
         // A delegation or another call blocked by run state must not inherit
         // a sibling tool request's approval deadline.
         const approval = pending
-          ? (approvalsQueries.pendingExpiry(
-              db,
-              pending,
-              run.owner_id,
-              run.id,
-            ) as { expires_at: number } | undefined)
+          ? approvalsQueries.pendingExpiry(db, pending, run.owner_id, run.id)
           : undefined;
         const expired = new AbortController();
         const expire = () =>

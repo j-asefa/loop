@@ -10,15 +10,14 @@ import {
 } from "../../shared/permission-modes.js";
 
 export function mcpApprovalMode(owner: string): "ask" | "allow" {
-  return (
-    (mcpPreferencesQueries.approvalMode(db, owner) as any)?.approval_mode ||
-    "ask"
-  );
+  return mcpPreferencesQueries.approvalMode(db, owner)?.approval_mode || "ask";
 }
 /** The workspace's standing approval level for native harness tool calls. */
 export function agentPermissionMode(owner: string): PermissionMode {
-  const mode = (mcpPreferencesQueries.agentPermissionMode(db, owner) as any)
-    ?.agent_permission_mode;
+  const mode = mcpPreferencesQueries.agentPermissionMode(
+    db,
+    owner,
+  )?.agent_permission_mode;
   return isPermissionMode(mode) ? mode : DEFAULT_PERMISSION_MODE;
 }
 // New native sessions start in the chosen mode; a running session switches
@@ -35,12 +34,7 @@ export function setMcpApprovalMode(owner: string, mode: "ask" | "allow") {
       if (mode === "allow") {
         // Only existing calls on connected MCPs are covered. Installation
         // approvals still require their own explicit decision.
-        const pending = approvalsQueries.pendingMcpCalls(db, owner, now()) as {
-          id: string;
-          run_id: string;
-          tools: string;
-          tool: string;
-        }[];
+        const pending = approvalsQueries.pendingMcpCalls(db, owner, now());
         for (const approval of pending) {
           let alwaysAsk = true;
           try {

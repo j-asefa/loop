@@ -62,8 +62,7 @@ const LEASE_MS = 60000;
 const digest = (input: unknown) =>
   createHash("sha256").update(JSON.stringify(input)).digest("hex");
 function owned(owner: string, id: string) {
-  const row = webhookSubscriptionsQueries.owned(db, id, owner) as
-    SubscriptionRow | undefined;
+  const row = webhookSubscriptionsQueries.owned(db, id, owner);
   if (!row) throw new Problem(404, "Webhook not found");
   return row;
 }
@@ -88,10 +87,7 @@ function publicSubscription(row: SubscriptionRow) {
   });
 }
 export function listWebhooks(owner: string) {
-  const rows = webhookSubscriptionsQueries.forOwner(
-    db,
-    owner,
-  ) as SubscriptionRow[];
+  const rows = webhookSubscriptionsQueries.forOwner(db, owner);
   return {
     policy: webhookPolicy(),
     subscriptions: rows.map(publicSubscription),
@@ -132,14 +128,7 @@ function priorRequest(
   action: string,
   input: unknown,
 ) {
-  const row = webhookRequestsQueries.prior(db, owner, request) as
-    | {
-        subscription_id: string;
-        action: string;
-        digest: string;
-        result_id: string | null;
-      }
-    | undefined;
+  const row = webhookRequestsQueries.prior(db, owner, request);
   if (
     row &&
     (row.subscription_id !== id ||
@@ -170,8 +159,7 @@ function remember(
 export async function createWebhook(owner: string, input: unknown) {
   const parsed = WebhookCreate.parse(input);
   const options = { ...parsed, kinds: [...new Set(parsed.kinds)].sort() };
-  const existing = webhookSubscriptionsQueries.byId(db, options.request_id) as
-    SubscriptionRow | undefined;
+  const existing = webhookSubscriptionsQueries.byId(db, options.request_id);
   if (existing) {
     if (
       existing.owner_id !== owner ||
@@ -189,7 +177,7 @@ export async function createWebhook(owner: string, input: unknown) {
       const collision = webhookSubscriptionsQueries.creation(
         db,
         options.request_id,
-      ) as { owner_id: string; creation_digest: string } | undefined;
+      );
       if (
         collision &&
         (collision.owner_id !== owner ||

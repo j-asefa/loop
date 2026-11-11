@@ -7,7 +7,7 @@ import * as runVerificationsQueries from "./sql/run-verifications.js";
 import * as runsQueries from "./sql/runs.js";
 import * as watchQueries from "./sql/pr-watches.js";
 import type Database from "better-sqlite3";
-import { summarize, type VerificationItem } from "../shared/verification.js";
+import { summarize } from "../shared/verification.js";
 import { pullStateFromWatch, type WatchRow } from "../shared/pull-state.js";
 import type { FeedCardDetail } from "./feed-card-display.js";
 
@@ -58,13 +58,9 @@ export function threadDetails(
   const approvals = approvalsQueries.feedPending(db, {
     owner,
     conversation,
-  }) as ApprovalCandidate[];
+  });
   const watches = watchQueries.threadDetails(db, owner, conversation);
-  const queued = runsQueries.queuedInConversation(
-    db,
-    owner,
-    conversation,
-  ) as QueueRun[];
+  const queued = runsQueries.queuedInConversation(db, owner, conversation);
   return {
     approvals,
     watches,
@@ -93,19 +89,11 @@ export function runDetails(
     live_preview: null,
   };
   if (!runId) return detail;
-  const run = runsQueries.owned(db, runId, owner) as QueueRun | undefined;
+  const run = runsQueries.owned(db, runId, owner);
   if (!run) return detail;
-  const checkout = runCheckoutsQueries.feedSummary(db, runId, owner) as
-    { summary: string | null } | undefined;
+  const checkout = runCheckoutsQueries.feedSummary(db, runId, owner);
   detail.checkout = checkout?.summary ? JSON.parse(checkout.summary) : null;
-  const verifications = runVerificationsQueries.forRun(
-    db,
-    owner,
-    runId,
-  ) as (Omit<VerificationItem, "tools" | "truncated"> & {
-    tools: string;
-    truncated: number;
-  })[];
+  const verifications = runVerificationsQueries.forRun(db, owner, runId);
   detail.verification = verifications.length
     ? summarize(
         verifications.map((row) => ({

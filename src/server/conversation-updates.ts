@@ -22,5 +22,5 @@ export function recordConversationUpdate(
     key,
     run.id,
     run.owner_id,
-  ) as { id: string } | undefined;
+  );
 }

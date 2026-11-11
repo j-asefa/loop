@@ -34,13 +34,7 @@ export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
         db,
         owner,
         idempotencyKey,
-      ) as
-        | {
-            request_hash: string;
-            agent_id: string;
-            run_id: string | null;
-          }
-        | undefined;
+      );
       if (receipt) {
         if (receipt.request_hash !== hash)
           throw new Problem(

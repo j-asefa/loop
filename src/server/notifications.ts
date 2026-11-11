@@ -19,8 +19,7 @@ export { pushEndpoint } from "../shared/team-contract-schemas.js";
 export function notificationKeys() {
   return db
     .transaction(() => {
-      let row = pushConfigQueries.keys(db) as
-        { public_key: string; private_key: string } | undefined;
+      let row = pushConfigQueries.keys(db);
       if (!row) {
         const keys = webpush.generateVAPIDKeys();
         row = {
@@ -38,13 +37,7 @@ export function notificationKeys() {
 }
 
 function devicePreferences(owner: string) {
-  const rows = pushSubscriptionsQueries.preferences(db, owner) as {
-    endpoint: string;
-    needsYou: number;
-    completed: number;
-    reminders: number;
-    social: number;
-  }[];
+  const rows = pushSubscriptionsQueries.preferences(db, owner);
   return rows.map((row) => ({
     endpoint: row.endpoint,
     preferences: {
@@ -61,11 +54,9 @@ routes.on(workspaceApi.notifications, (_req, res) => {
   res.json({
     publicKey: notificationKeys().publicKey,
     devices: devicePreferences(res.locals.owner),
-    endpoints: (
-      pushSubscriptionsQueries.endpoints(db, res.locals.owner) as {
-        endpoint: string;
-      }[]
-    ).map((s) => s.endpoint),
+    endpoints: pushSubscriptionsQueries
+      .endpoints(db, res.locals.owner)
+      .map((s) => s.endpoint),
   });
 });
 routes.on(workspaceApi.notificationSubscribe, (req, res) => {
@@ -76,7 +67,7 @@ routes.on(workspaceApi.notificationSubscribe, (req, res) => {
     const existing = pushSubscriptionsQueries.byEndpoint(
       db,
       subscription.endpoint,
-    ) as { id: string; owner_id: string } | undefined;
+    );
     if (existing && existing.owner_id !== owner)
       throw new Problem(
         409,
@@ -177,60 +168,38 @@ export function resultNotification(result: {
 export async function deliverNotifications(send = webpush.sendNotification) {
   const jobs = db
     .transaction(() => {
-      const results = (
-        pushDeliveriesQueries.due(db, now(), MAX_ATTEMPTS) as {
-          subscription_id: string;
-          artifact_id: string;
-          attempts: number;
-          subscription: string;
-          owner_id: string;
-          title: string;
-          kind: string;
-          content: string;
-          thread: string | null;
-          name: string | null;
-          conversation_id: string | null;
-          message_id: string | null;
-        }[]
-      ).map((job): Delivery => ({
-        subscription_id: job.subscription_id,
-        subscription: job.subscription,
-        owner_id: job.owner_id,
-        attempts: job.attempts,
-        artifact_id: job.artifact_id,
-        message_key: null,
-        payload: {
-          ...resultNotification(job),
-          tag: `loop-result-${job.artifact_id}`,
-          url: workspaceLink({ artifact: job.artifact_id }),
-        },
-      }));
-      const messages = (
-        pushMessagesQueries.due(db, now(), MAX_ATTEMPTS) as {
-          subscription_id: string;
-          message_key: string;
-          title: string;
-          body: string;
-          url: string;
-          attempts: number;
-          subscription: string;
-          owner_id: string;
-        }[]
-      ).map((job): Delivery => ({
-        subscription_id: job.subscription_id,
-        subscription: job.subscription,
-        owner_id: job.owner_id,
-        attempts: job.attempts,
-        artifact_id: null,
-        message_key: job.message_key,
-        // No action buttons: approvals are decided inside the locked app.
-        payload: {
-          title: job.title,
-          body: job.body,
-          tag: job.message_key,
-          url: job.url,
-        },
-      }));
+      const results = pushDeliveriesQueries
+        .due(db, now(), MAX_ATTEMPTS)
+        .map((job): Delivery => ({
+          subscription_id: job.subscription_id,
+          subscription: job.subscription,
+          owner_id: job.owner_id,
+          attempts: job.attempts,
+          artifact_id: job.artifact_id,
+          message_key: null,
+          payload: {
+            ...resultNotification(job),
+            tag: `loop-result-${job.artifact_id}`,
+            url: workspaceLink({ artifact: job.artifact_id }),
+          },
+        }));
+      const messages = pushMessagesQueries
+        .due(db, now(), MAX_ATTEMPTS)
+        .map((job): Delivery => ({
+          subscription_id: job.subscription_id,
+          subscription: job.subscription,
+          owner_id: job.owner_id,
+          attempts: job.attempts,
+          artifact_id: null,
+          message_key: job.message_key,
+          // No action buttons: approvals are decided inside the locked app.
+          payload: {
+            title: job.title,
+            body: job.body,
+            tag: job.message_key,
+            url: job.url,
+          },
+        }));
       for (const job of results)
         pushDeliveriesQueries.claim(
           db,

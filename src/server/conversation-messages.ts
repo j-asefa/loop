@@ -78,13 +78,7 @@ export function conversationMessages(
 /** The agent's latest message in the visible transcript, wherever the page
  * is anchored, so a reply to it can go unquoted. */
 export function latestAgentMessage(owner: string, conversation: string) {
-  const entry = transcriptQueries.latestAgentMessage(
-    db,
-    owner,
-    conversation,
-  ) as
-    | { id: string; position: number; phase: number; ordinal: number }
-    | undefined;
+  const entry = transcriptQueries.latestAgentMessage(db, owner, conversation);
   return entry
     ? {
         id: entry.id,

@@ -7,10 +7,8 @@ export function doneUnreadVersion(
   key: string,
 ) {
   return (
-    (
-      doneCardUnreadVersionsQueries.version(db, owner, conversation, key) as
-        { version: number } | undefined
-    )?.version ?? 0
+    doneCardUnreadVersionsQueries.version(db, owner, conversation, key)
+      ?.version ?? 0
   );
 }
 

@@ -19,8 +19,7 @@ export function cardAttachments(
       f.size < 0
     )
       return [];
-    const target = artifactsQueries.attachmentAuthority(db, f.id, owner) as
-      { id: string; object_id: string | null; published: number } | undefined;
+    const target = artifactsQueries.attachmentAuthority(db, f.id, owner);
     if (!target) return [];
     return [
       {

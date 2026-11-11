@@ -28,8 +28,7 @@ export async function authOptions({
   projectId,
 }: ExecutionInput<"auth.catalog">) {
   ownedFolder(projectId, OWNER);
-  const project = projectPathsQueries.path(db, projectId) as
-    { path: string } | undefined;
+  const project = projectPathsQueries.path(db, projectId);
   if (!project)
     throw new ExecutionRefused(
       422,
@@ -209,8 +208,7 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       "Finish or cancel this runtime’s sign-in before enabling it.",
     );
   ownedFolder(input.projectId, OWNER);
-  const project = projectPathsQueries.path(db, input.projectId) as
-    { path: string } | undefined;
+  const project = projectPathsQueries.path(db, input.projectId);
   if (!project)
     throw new ExecutionRefused(
       422,

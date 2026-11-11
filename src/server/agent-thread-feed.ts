@@ -47,19 +47,16 @@ function summary(owner: string, thread: Thread): AgentThreadSummary {
     message_count: (
       mailQueries.ownedThreadCount(db, owner, thread.id) as { n: number }
     ).n,
-    participants: (
-      agentMailQueries.participants(db, { owner, thread: thread.id }) as {
-        id: string;
-        name: string | null;
-      }[]
-    ).map((person) => {
-      const reference = publicMailAgentReference(owner, thread.id, person.id);
-      return {
-        id: person.id,
-        name: reference.name ?? person.name ?? "former agent",
-        ...(reference.kind === "peer" ? { reference } : {}),
-      };
-    }),
+    participants: agentMailQueries
+      .participants(db, { owner, thread: thread.id })
+      .map((person) => {
+        const reference = publicMailAgentReference(owner, thread.id, person.id);
+        return {
+          id: person.id,
+          name: reference.name ?? person.name ?? "former agent",
+          ...(reference.kind === "peer" ? { reference } : {}),
+        };
+      }),
     latest: publicMailMessage(latest),
   };
 }
@@ -128,20 +125,15 @@ export function readAgentThread(
         ...publicMailMessage(mail),
         content: mail.body,
         message_id:
-          (
-            messagesQueries.mailMessageId(
-              db,
-              owner,
-              mail.recipient_conversation_id,
-              mail.run_id,
-              mail.requeued_run_id,
-              mail.id,
-            ) as { id: string } | undefined
+          messagesQueries.mailMessageId(
+            db,
+            owner,
+            mail.recipient_conversation_id,
+            mail.run_id,
+            mail.requeued_run_id,
+            mail.id,
           )?.id ?? null,
-        attachments: artifactsQueries.mailFiles(db, owner, mail.file_ids) as {
-          id: string;
-          name: string;
-        }[],
+        attachments: artifactsQueries.mailFiles(db, owner, mail.file_ids),
       })),
     };
   })();

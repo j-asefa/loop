@@ -799,7 +799,7 @@ export async function completeCheckout(
     time,
     runId,
     time - CAPTURE_LEASE_MS,
-  ) as CheckoutRow | undefined;
+  );
   if (!claimed) {
     if (!options.ifIdle) runCheckoutsQueries.markPending(db, runId);
     return;
@@ -908,8 +908,8 @@ async function captureClaimed(
     // sibling may begin and commit while isolate is copying the refs.
     // Any sibling still active or ended after this run started is ambiguous.
     fields.overlap = JSON.stringify(
-      (
-        runsQueries.overlappingCheckoutRuns(
+      runsQueries
+        .overlappingCheckoutRuns(
           db,
           row.owner_id,
           row.directory,
@@ -917,8 +917,8 @@ async function captureClaimed(
           now(),
           row.started_at,
           STARTED_RUN_STATES,
-        ) as { id: string }[]
-      ).map((r) => r.id),
+        )
+        .map((r) => r.id),
     );
     fields.state = "captured";
   } catch (error) {
@@ -955,8 +955,7 @@ async function captureClaimed(
       // The lease passed to another capture while this one ran: its result
       // is discarded, and the holder will publish its own.
       if (!written) return "lost";
-      const release = runCheckoutsQueries.releaseCapture(db, runId, token) as
-        { capture_pending: number } | undefined;
+      const release = runCheckoutsQueries.releaseCapture(db, runId, token);
       if (release?.capture_pending) return "again";
       return "done";
     })

@@ -181,11 +181,11 @@ function toCard(row: Row): Card {
           !text(meta.resolvedModel) &&
           text(meta.model) &&
           text(meta.connectionId)
-            ? (connectionQueries.cardModel(
+            ? connectionQueries.cardModel(
                 db,
                 row.owner_id,
                 text(meta.connectionId)!,
-              ) as { id: string; provider: string; models: string } | undefined)
+              )
             : undefined;
         return runModelName(meta, connection ? [connection] : []) || null;
       })(),

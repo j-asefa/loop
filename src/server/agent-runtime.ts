@@ -19,7 +19,7 @@ import {
   maybeRun,
   agentPayload,
 } from "./row-schemas.js";
-import { QueryRecords, type QueryRow } from "./query-records.js";
+import { QueryRecords } from "./query-records.js";
 
 import { watchRun } from "./run-signal.js";
 import { isNativeConnection } from "./native-connections.js";
@@ -94,8 +94,7 @@ export function nextTurnFolder(
   conversation?: string,
 ): string | null {
   const previous = conversation
-    ? (runsQueries.latestConversationPayload(db, owner, conversation) as
-        { id: string; payload: string } | undefined)
+    ? runsQueries.latestConversationPayload(db, owner, conversation)
     : undefined;
   return previous
     ? (readRunFolder(previous.payload, previous.id) ?? null)
@@ -217,7 +216,7 @@ export function submit(
           db,
           owner,
           agent.id,
-        ) as { conversation_id: string; id: string } | undefined;
+        );
         if (managerTeam) {
           conversation = managerTeam.conversation_id || undefined;
           teamId = managerTeam.id;
@@ -268,7 +267,7 @@ export function submit(
         db,
         owner,
         conversation,
-      ) as { id: string; payload: string } | undefined;
+      );
       const reviewId =
         data.reviewId ||
         (previousReview
@@ -289,10 +288,8 @@ export function submit(
         model:
           connection.id === agent.connection_id
             ? agent.model
-            : (
-                runsQueries.latestConversationModel(db, conversation) as
-                  { model?: string } | undefined
-              )?.model || agent.model,
+            : runsQueries.latestConversationModel(db, conversation)?.model ||
+              agent.model,
         effort: agent.effort,
         permissionMode: agentPermissionMode(owner),
         instructions: agent.instructions,
@@ -480,8 +477,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   if (isNativeConnection(connection)) {
     return nativeSessions.execute(run);
   }
-  let cp = agentCheckpointsQueries.get(db, run.id) as
-    QueryRow<"agent_checkpoints"> | undefined;
+  let cp = agentCheckpointsQueries.get(db, run.id);
   if (!cp) {
     const turns = parseMessages(
       messagesQueries.agentHistory(
@@ -673,11 +669,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
                   );
           } catch (error) {
             // The broker marks calls whose external outcome is uncertain.
-            const unknown = (toolInvocationsQueries.isUnknown(
+            const unknown = toolInvocationsQueries.isUnknown(
               db,
               run.id,
               invocation.call.id,
-            ) as unknown)
+            )
               ? true
               : false;
             toolActivity({

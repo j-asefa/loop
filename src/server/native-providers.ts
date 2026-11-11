@@ -115,7 +115,7 @@ export async function providerCatalog(
         db,
         nativeConnectionId(target.name),
         OWNER,
-      ) as { status: string; models: string } | undefined;
+      );
       if (saved?.billing === "subscription") {
         // Only the native execution probe can attest this restriction. Do not
         // reintroduce API models through a general provider catalog read.

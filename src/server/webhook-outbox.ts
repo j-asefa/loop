@@ -36,34 +36,14 @@ export function enqueueStoppedWebhooks(
 ) {
   if (!db.inTransaction)
     throw new Error("Webhook events require the transition transaction");
-  const event = eventsQueries.webhookEvent(db, eventId) as
-    | {
-        id: number;
-        owner_id: string;
-        run_id: string | null;
-        type: string;
-        created_at: number;
-      }
-    | undefined;
+  const event = eventsQueries.webhookEvent(db, eventId);
   if (!event || !event.run_id || !reasons[event.type]) return;
   const subscriptions = webhookSubscriptionsQueries.stoppedSubscribers(
     db,
     event.owner_id,
-  ) as { id: string }[];
+  );
   if (!subscriptions.length) return;
-  const run = runsQueries.webhookContext(db, event.run_id, event.owner_id) as
-    | {
-        id: string;
-        state: string;
-        conversation_id: string | null;
-        title: string | null;
-        project_id: string | null;
-        team_id: string | null;
-        agent_id: string | null;
-        agent_name: string | null;
-        preview: string;
-      }
-    | undefined;
+  const run = runsQueries.webhookContext(db, event.run_id, event.owner_id);
   if (!run || run.state !== event.type)
     throw new Error("Webhook event does not describe the current transition");
   let needs: { kind: "approval" | "answer"; id: string } | undefined;
@@ -72,11 +52,10 @@ export function enqueueStoppedWebhooks(
       db,
       run.id,
       event.owner_id,
-    ) as { id: string } | undefined;
+    );
     if (approval) needs = { kind: "approval", id: approval.id };
     else {
-      const decision = nativeDecisionsQueries.pendingWebhook(db, run.id) as
-        { id: string; kind: string | null } | undefined;
+      const decision = nativeDecisionsQueries.pendingWebhook(db, run.id);
       if (decision)
         needs = {
           kind: decision.kind === "approval" ? "approval" : "answer",

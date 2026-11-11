@@ -11,14 +11,10 @@ export function projectFolders(
   project: string,
 ): (string | null)[] {
   if (isWorkspaceProject(owner, project))
-    return (
-      projectChangeFoldersQueries.forProject(db, owner, project) as {
-        folder_id: string | null;
-      }[]
-    ).map((row) => row.folder_id);
-  return (
-    foldersQueries.descendants(db, owner, project) as { id: string }[]
-  ).map((row) => row.id);
+    return projectChangeFoldersQueries
+      .forProject(db, owner, project)
+      .map((row) => row.folder_id);
+  return foldersQueries.descendants(db, owner, project).map((row) => row.id);
 }
 
 export function resultsRevision(owner: string) {

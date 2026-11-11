@@ -53,8 +53,7 @@ export class PiCustomization {
         decision: "not required",
         override: undefined,
       };
-    const stored = piProjectTrustQueries.decision(db, OWNER, project) as
-      { trusted: number; fingerprint: string } | undefined;
+    const stored = piProjectTrustQueries.decision(db, OWNER, project);
     if (stored?.fingerprint === resource.fingerprint)
       return {
         ...resource,
@@ -78,8 +77,7 @@ export class PiCustomization {
     };
   }
   private refreshLoopTrustAfterProjectWrite(project: string) {
-    const stored = piProjectTrustQueries.trusted(db, OWNER, project) as
-      { trusted: number } | undefined;
+    const stored = piProjectTrustQueries.trusted(db, OWNER, project);
     if (stored?.trusted !== 1) return;
     piProjectTrustQueries.refresh(
       db,
@@ -101,7 +99,7 @@ export class PiCustomization {
         project,
         entry.scope,
         entry.source,
-      ) as { previous_source: string } | undefined;
+      );
       let resolvedSource: string | undefined;
       if (index < 100)
         try {
@@ -275,7 +273,7 @@ export class PiCustomization {
       project,
       scope,
       source,
-    ) as { previous_source: string } | undefined;
+    );
     if (
       !recovery ||
       !this.piPackages(agent).some(

@@ -8,7 +8,7 @@ import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata } from "./row-schemas.js";
-import type { QueryRow } from "./query-records.js";
+
 import { z } from "zod";
 import { transition, type Run } from "./queue.js";
 import yauzl from "yauzl";
@@ -289,8 +289,7 @@ export async function readArchive(
 }
 export async function stageImport(owner: string, bytes: Buffer, name: string) {
   const checksum = digest(bytes);
-  const prior = importsQueries.byDigest(db, owner, checksum) as
-    QueryRow<"imports"> | undefined;
+  const prior = importsQueries.byDigest(db, owner, checksum);
   if (prior)
     return { ...prior, summary: JSON.parse(prior.summary), duplicate: true };
   const parsed = await readArchive(bytes, name);
@@ -336,8 +335,7 @@ export async function executeImport(run: Run) {
   const importId = z.string().min(1).parse(run.payload.importId);
   const job = ownedImport(importId, run.owner_id),
     summary = JSON.parse(job.summary);
-  const object = objectsQueries.owned(db, summary.objectId, run.owner_id) as
-    QueryRow<"objects"> | undefined;
+  const object = objectsQueries.owned(db, summary.objectId, run.owner_id);
   if (!object) throw new Error("Import file missing");
   const parsed = await readArchive(object.bytes, object.name);
   importsQueries.markRunning(db, importId);
@@ -381,7 +379,7 @@ export async function executeImport(run: Run) {
         run.owner_id,
         parsed.provider + "-import",
         c.externalId,
-      ) as { id: string } | undefined;
+      );
       if (!conversation) {
         conversation = { id: id() };
         conversationsQueries.insertExternal(

@@ -15,7 +15,7 @@ type Instance = {
   stopped_at: number | null;
 };
 const instances = (at: number) =>
-  deploymentInstancesQueries.fresh(db, at - FRESH_MS) as Instance[];
+  deploymentInstancesQueries.fresh(db, at - FRESH_MS);
 /** Called by actual serving/working entrypoints, never by a read or CLI status. */
 export function observeProcess(role: Instance["role"], build?: BuildStamp) {
   const stopEventLoop = role === "api" ? observeApiEventLoop() : undefined;

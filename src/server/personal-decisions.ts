@@ -17,8 +17,7 @@ import {
 const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
 
 export function personalApproval(owner: string, id: string): PersonalApproval {
-  const row = personalDecisionsQueries.approval(db, id, owner) as
-    { source: "approval" | "native"; request: string } | undefined;
+  const row = personalDecisionsQueries.approval(db, id, owner);
   if (!row) throw new Problem(404, "Approval history not found");
   return PersonalApprovalSchema.parse({
     source: row.source,
@@ -162,19 +161,6 @@ export function recordPersonalDecision(input: {
   );
 }
 
-type Row = {
-  id: string;
-  kind: "approval" | "answer";
-  request: string;
-  response: string | null;
-  response_truncated: number;
-  state: string;
-  native_decision_id: string | null;
-  created_at: number;
-  conversation_id: string | null;
-  conversation_title: string | null;
-  agent_name: string | null;
-};
 export function personalDecisions(
   owner: string,
   input: unknown,
@@ -195,12 +181,7 @@ export function personalDecisions(
       throw new Problem(400, "Invalid decision history cursor");
     }
   }
-  const rows = personalDecisionsQueries.page(
-    db,
-    owner,
-    query.kind,
-    ...cursor,
-  ) as Row[];
+  const rows = personalDecisionsQueries.page(db, owner, query.kind, ...cursor);
   const more = rows.length > 50;
   if (more) rows.pop();
   const last = rows.at(-1);

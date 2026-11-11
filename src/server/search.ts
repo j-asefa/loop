@@ -7,7 +7,7 @@ import * as searchDocumentsQueries from "./sql/search-documents.js";
 import * as embeddingsQueries from "./sql/embeddings.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as agentsQueries from "./sql/agents.js";
-import type { QueryRow } from "./query-records.js";
+
 import { InvalidRow, requireSealedSecret } from "./row-schemas.js";
 import { ownedConnection } from "./domain.js";
 import { searchExcerpt } from "../shared/search-excerpt.js";
@@ -43,8 +43,7 @@ type EmbeddingConfig = {
   local?: true;
 };
 function embeddingConfig(owner: string): EmbeddingConfig | undefined {
-  const preference = preferencesQueries.owned(db, owner) as
-    QueryRow<"preferences"> | undefined;
+  const preference = preferencesQueries.owned(db, owner);
   if (preference?.embedding_enabled && !preference.embedding_connection)
     return {
       id: "local",
@@ -52,15 +51,13 @@ function embeddingConfig(owner: string): EmbeddingConfig | undefined {
       embedding_model: localModel,
       local: true,
     };
-  return preferencesQueries.embeddingConnection(db, owner) as
-    EmbeddingConfig | undefined;
+  return preferencesQueries.embeddingConnection(db, owner);
 }
 // Bind semantic indexing to the selected connection and model.
 const configuration = (c: EmbeddingConfig) =>
   JSON.stringify([c.id, c.embedding_model || modelDefault]);
 export function searchStatus(owner: string) {
-  const preference = preferencesQueries.owned(db, owner) as
-    QueryRow<"preferences"> | undefined;
+  const preference = preferencesQueries.owned(db, owner);
   if (!preference?.embedding_enabled)
     return {
       enabled: false,
@@ -81,7 +78,7 @@ export function searchStatus(owner: string) {
     db,
     owner,
     c ? configuration(c) : "",
-  ) as QueryRow<"search_index_status"> | undefined;
+  );
   const state = !c
     ? "needs_connection"
     : !pending
@@ -138,9 +135,7 @@ export async function indexPending() {
   indexActive = true;
   lastIndexAttempt = now();
   try {
-    const owners = preferencesQueries.embeddingOwners(db) as {
-      owner_id: string;
-    }[];
+    const owners = preferencesQueries.embeddingOwners(db);
     for (const { owner_id } of owners) {
       const c = embeddingConfig(owner_id);
       if (!c) continue;
@@ -148,7 +143,7 @@ export async function indexPending() {
         db,
         owner_id,
         configuration(c),
-      ) as QueryRow<"search_index_status"> | undefined;
+      );
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
       const status = (state: string, error: string | null = null) =>
@@ -188,8 +183,7 @@ export async function indexPending() {
           throw new Error("Invalid embedding response");
         db.transaction(() =>
           docs.forEach((d, i) => {
-            const current = searchDocumentsQueries.owned(db, d.id, owner_id) as
-              SearchDoc | undefined;
+            const current = searchDocumentsQueries.owned(db, d.id, owner_id);
             const live = embeddingConfig(owner_id);
             if (
               current &&
@@ -320,13 +314,9 @@ export async function search(
     .filter((d) => d.id.startsWith("artifact:"))
     .map((d) => d.id.slice(9));
   const representedMessages = new Set(
-    (
-      artifactsQueries.representedSearchMessages(
-        db,
-        owner,
-        JSON.stringify(artifactIds),
-      ) as { id: string }[]
-    ).map((row) => row.id),
+    artifactsQueries
+      .representedSearchMessages(db, owner, JSON.stringify(artifactIds))
+      .map((row) => row.id),
   );
   result = result.filter((d) => !representedMessages.has(d.id));
   return {
@@ -338,10 +328,7 @@ export async function search(
     items: result.slice(offset, offset + 30).map((d) => {
       const messageId = d.id.startsWith("message:")
         ? d.id.slice(8)
-        : (
-            artifactsQueries.searchMessage(db, d.id.slice(9), owner) as
-              { message_id: string } | undefined
-          )?.message_id;
+        : artifactsQueries.searchMessage(db, d.id.slice(9), owner)?.message_id;
       const agent = d.agent_id
         ? agentsQueries.ownedDisplay(db, d.agent_id, owner)
         : {};

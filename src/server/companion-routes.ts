@@ -251,9 +251,7 @@ routes.on(workspaceApi.conversationNative, (req, res) => {
     db,
     req.params.id,
   ) as z.input<typeof workspaceApi.conversationNative.response>["binding"];
-  const items = nativeItemsQueries.sessionItems(db, req.params.id) as {
-    item: string;
-  }[];
+  const items = nativeItemsQueries.sessionItems(db, req.params.id);
   res.json({
     binding,
     memoryIncluded: memoryEnabled(

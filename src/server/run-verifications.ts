@@ -121,7 +121,7 @@ function toItem(row: VerificationRow): VerificationItem {
 
 /** Every verification observed for a run, oldest first, with output tails. */
 export function runVerifications(owner: string, runId: string) {
-  return (
-    runVerificationsQueries.forRun(db, owner, runId) as VerificationRow[]
-  ).map((row) => ({ ...toItem(row), output_tail: row.output_tail }));
+  return runVerificationsQueries
+    .forRun(db, owner, runId)
+    .map((row) => ({ ...toItem(row), output_tail: row.output_tail }));
 }
