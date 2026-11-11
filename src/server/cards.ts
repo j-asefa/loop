@@ -18,7 +18,7 @@ import { doneCards } from "./done-cards.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, now } from "./db.js";
-import { Problem, owned } from "./domain.js";
+import { Problem, ownedFolder, ownedAgent } from "./domain.js";
 import { runModelName } from "../shared/model-display.js";
 import { artifactRefreshSource } from "../shared/artifact-refresh.js";
 import { projectFolders, resultUrl, resultsRevision } from "./results.js";
@@ -42,8 +42,8 @@ function selection(owner: string, input: CardSelection): Selection {
     throw new Problem(400, "Read status is supported only for Done");
   if (["results", "done"].includes(input.view) && input.q !== undefined)
     throw new Problem(400, "Search is supported for Saved and Sent");
-  if (input.project) owned("folders", input.project, owner);
-  if (input.agent) owned("agents", input.agent, owner);
+  if (input.project) ownedFolder(input.project, owner);
+  if (input.agent) ownedAgent(input.agent, owner);
   return {
     ...input,
     teamIds: teamFilter(input.teams, owner).sort(),

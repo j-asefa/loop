@@ -6,24 +6,19 @@ import { workspaceApi } from "../../shared/workspace-api.js";
 import { McpToolCallInput } from "../../shared/mcp-contract-schemas.js";
 import { registrar, projectResponse } from "../registrar.js";
 import type { QueryRow } from "../query-records.js";
-import {
-  InvalidRow,
-  McpConnectionRecord,
-  parseRecord,
-  runResponse,
-} from "../row-schemas.js";
+import { InvalidRow, runResponse } from "../row-schemas.js";
 
 import { z } from "zod";
 import { artifactRefreshSource } from "../../shared/artifact-refresh.js";
 import { db, id, now } from "../db.js";
 import {
-  owned,
   ownedMcpConnection,
   ownedAgent,
   ownedFolder,
   ownedArtifact,
   ownedRun,
   Problem,
+  requireOwned,
 } from "../domain.js";
 import { seal } from "../secrets.js";
 import { enqueue, transition, type Run } from "../queue.js";
@@ -179,12 +174,14 @@ routes.on(workspaceApi.mcpTest, async (req, res) => {
   }
 });
 routes.on(workspaceApi.mcpUpdate, async (req, res) => {
-  const raw = owned("mcp_connections", String(req.params.id), res.locals.owner);
+  const raw = requireOwned(
+    mcpConnectionsQueries.owned(db, String(req.params.id), res.locals.owner),
+  );
   const data = req.body;
   // Disconnect never dispatches a tool or reuses the old credential.
   const c =
     data.action === "disconnect"
-      ? parseRecord(McpConnectionRecord, raw, "mcp_connections")
+      ? raw
       : ownedMcpConnection(String(req.params.id), res.locals.owner);
   if (data.action === "disconnect") {
     db.transaction(() => {

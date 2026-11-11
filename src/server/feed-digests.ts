@@ -4,7 +4,7 @@ import { registrar } from "./registrar.js";
 
 import { DigestInput as digestInput } from "../shared/social-contract-schemas.js";
 import { db, id, now } from "./db.js";
-import { owned, Problem } from "./domain.js";
+import { Problem, ownedAgent, ownedConversation } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { feedForAgent, ownerFeed, ownerFeeds } from "./news.js";
 
@@ -50,8 +50,8 @@ function listDigests(owner: string) {
 export function saveDigest(owner: string, body: unknown, digestId?: string) {
   const d = digestInput.parse(body);
   validZone(d.zone);
-  owned("agents", d.agentId, owner);
-  if (d.conversationId) owned("conversations", d.conversationId, owner);
+  ownedAgent(d.agentId, owner);
+  if (d.conversationId) ownedConversation(d.conversationId, owner);
   // Keep existing explicit scope when a feed has since been unfollowed.
   // The prompt already skips it; converting an empty selection to NULL would
   // accidentally widen the digest to every feed.
