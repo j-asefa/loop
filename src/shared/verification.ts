@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { shellWords } from "./pr-command.js";
+import { shellWords } from "./shell-words.js";
 
 /**
  * Which commands count as verification: tests, type checks and lints that
