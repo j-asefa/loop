@@ -581,3 +581,25 @@ it("manages all current token scopes and revoked metadata on a fresh database", 
     await f.close();
   }
 }, 15_000);
+
+it("carries the token rate window through the paired host", async () => {
+  const f = await cardsFixture();
+  const created = await f.request("/api/card-tokens", {
+    headers: f.browser,
+    body: integrationTokenRequest("Limited reader", ["read"]),
+  });
+  expect(created.status).toBe(201);
+  const { token, secret } = await created.json();
+  const headers = { ...f.browser, authorization: "Bearer " + secret };
+  f.db
+    .prepare(
+      "UPDATE card_tokens SET request_window=?, request_count=120 WHERE id=?",
+    )
+    .run(Math.floor(Date.now() / 60000), token.id);
+  const response = await f.request("/api/v1/cards", { headers });
+  expect(response.status).toBe(429);
+  expect(response.headers.get("retry-after")).toBe("60");
+  expect(await response.json()).toEqual({
+    error: "Too many integration requests. Try again in a minute.",
+  });
+});

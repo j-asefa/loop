@@ -159,8 +159,6 @@ app.use("/api", (req, res, next) => {
     };
     next();
   } catch (error) {
-    if (error instanceof Problem && error.status === 429)
-      res.setHeader("Retry-After", "60");
     next(error);
   }
 });
@@ -267,7 +265,7 @@ mountRoutes(app, core, "/api");
 mountRoutes(app, workspace, "/api");
 mountRoutes(app, mcp, "/api");
 mountRoutes(app, sharing, "/api");
-app.use("/api", (_req, res) =>
-  res.status(404).json({ error: "Endpoint not found" }),
-);
+app.use("/api", () => {
+  throw new Problem(404, "Endpoint not found");
+});
 app.use(errorHandler);

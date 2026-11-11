@@ -615,3 +615,32 @@ it("reads current work beyond an anchored transcript without exposing Feed cache
     ).status,
   ).toBe(404);
 });
+
+it("returns the API fallback through the shared error boundary", async () => {
+  const response = await fetch(origin + "/api/no-such-endpoint");
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({ error: "Endpoint not found" });
+});
+it("keeps ordinary and import upload limits distinct", async () => {
+  for (const [contract, bytes, error] of [
+    [
+      workspaceApi.uploadCreate,
+      25 * 1024 * 1024 + 1,
+      "Files can be up to 25 MB each",
+    ],
+    [
+      workspaceApi.importPreview,
+      30 * 1024 * 1024 + 1,
+      "Request could not be completed. Please try again.",
+    ],
+  ] as const) {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(bytes)]), "oversized.txt");
+    const response = await fetch(origin + "/api" + contract.path, {
+      method: "POST",
+      body: form,
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error });
+  }
+});

@@ -215,6 +215,8 @@ export function activeIntegrationToken(
   );
 }
 
+const TOKEN_RATE_WINDOW_SECONDS = 60;
+
 export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
   const header = req.headers.authorization;
   const match =
@@ -244,13 +246,15 @@ export function authenticateCardToken(req: IncomingMessage): CardAuthorization {
       )
         throw new Problem(401, "Invalid integration credential");
       const now = Date.now(),
-        window = Math.floor(now / 60000);
+        window = Math.floor(now / (TOKEN_RATE_WINDOW_SECONDS * 1000));
       const perToken = cardTokensQueries.charge(db, window, token.id)!;
       const perOwner = cardOwnerLimitsQueries.charge(db, OWNER, window)!;
       if (perToken.n > 120 || perOwner.n > 600)
         throw new Problem(
           429,
           "Too many integration requests. Try again in a minute.",
+          undefined,
+          { headers: { "Retry-After": String(TOKEN_RATE_WINDOW_SECONDS) } },
         );
       cardTokensQueries.touch(db, now, token.id, now - 60000);
       return {

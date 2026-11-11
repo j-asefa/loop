@@ -1,8 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 import { MulterError } from "multer";
 import { ZodError } from "zod";
-import { ExecutionProblem, Problem } from "../shared/problem.js";
-import { ExecutionRefused } from "./execution-refusal.js";
+import { Problem } from "../shared/problem.js";
 
 export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   if (res.headersSent) return next(err);
@@ -16,20 +15,20 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   const status =
     err instanceof Problem
       ? err.status
-      : err instanceof ZodError || err instanceof MulterError
-        ? 400
-        : (clientStatus ?? 500);
+      : err instanceof MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? 413
+        : err instanceof ZodError || err instanceof MulterError
+          ? 400
+          : (clientStatus ?? 500);
   // Parser errors can contain request bodies. Only log unexpected failures.
   if (status >= 500 && !(err instanceof Problem))
     console.error(
       `Unexpected error on ${req.method} ${req.path}: ${err?.stack ?? err}`,
     );
+  if (err instanceof Problem && err.headers) res.set(err.headers);
   res.status(status).json({
-    ...(err instanceof ExecutionProblem || err instanceof ExecutionRefused
-      ? {
-          executionOutcome:
-            err instanceof ExecutionRefused ? "refused" : err.outcome,
-        }
+    ...(err instanceof Problem && err.kind.type === "execution"
+      ? { executionOutcome: err.kind.outcome }
       : {}),
     error:
       err instanceof Problem

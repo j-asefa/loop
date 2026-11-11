@@ -86,6 +86,7 @@ validate a narrower shape than the final response union.
 ## Failure
 
 - Invalid input is a `Problem` 400 through the existing error middleware; the registrar already does this. Do not catch and reshape.
+- `Problem` owns the safe status, message, optional response headers and execution outcome kind. The error boundary projects only those public fields; diagnostics stay private. `ExecutionRefused` still marks a local pre-dispatch guard for receipt handling. A returned `ExecutionProblem` with outcome `refused` is not that proof and must not clear a local uncertain receipt.
 - Invalid output is the registrar's generic 500. Never surface the schema issue to the caller.
 - A route whose handler returns different shapes on different branches gets a `z.union` or a discriminated union, not a loosened schema. If the branches cannot be unified without a behaviour change, record the defect in the PR and leave the behaviour alone.
 
