@@ -2699,3 +2699,47 @@ it.each([
     ).toBeUndefined();
   },
 );
+
+it.each(["direct", "mail"])(
+  "rejects malformed scalar run data in the %s queue without blocking healthy work",
+  (kind) => {
+    const owner = id();
+    const sender = agent(owner, "sender");
+    const recipient = agent(owner, "recipient");
+    const healthyAgent = agent(owner, "healthy");
+    const source = running(owner, sender.id, {});
+    const badId =
+      kind === "mail"
+        ? mail(
+            sendMail(source, id(), { to: recipient.id, body: "Queued mail" })
+              .messageId,
+          ).run_id!
+        : submit(owner, {
+            agentId: recipient.id,
+            input: "Queued work",
+            idempotencyKey: id(),
+          }).id;
+    const healthy = submit(owner, {
+      agentId: healthyAgent.id,
+      input: "Healthy work",
+      idempotencyKey: id(),
+    });
+    db.prepare("UPDATE runs SET active_ms='invalid' WHERE id=?").run(badId);
+    expect(claim("scalar-fixture", (run) => run.id === healthy.id)?.id).toBe(
+      healthy.id,
+    );
+    expect(
+      db
+        .prepare("SELECT state,worker_id,error,active_ms FROM runs WHERE id=?")
+        .get(badId),
+    ).toEqual({
+      state: "failed",
+      worker_id: null,
+      error: expect.stringContaining(badId),
+      active_ms: 0,
+    });
+    expect(
+      db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(badId),
+    ).toBeUndefined();
+  },
+);

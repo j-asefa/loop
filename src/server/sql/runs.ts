@@ -1086,9 +1086,7 @@ export function claimCandidates(
     .all()
     .flatMap((value) => {
       try {
-        const run = parseRun(value);
-        parseRecord(QueryRecords.runs, value, "runs");
-        return [run];
+        return [parseRun(value)];
       } catch (error) {
         if (!(error instanceof InvalidRow)) throw error;
         reject(RunIdentity.parse(value), error);
@@ -1099,6 +1097,7 @@ export function claimCandidates(
 
 const attentionStatements = statementVariants();
 const attentionRow = QueryRecords.runs.extend({
+  state: QueryRecords.runs.shape.state.or(z.literal("waiting_children")),
   queue_position: z.number(),
   preview: z.string().nullable(),
 });

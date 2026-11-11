@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RunState } from "../../shared/run-state.js";
 import { harnesses } from "../../shared/harnesses.js";
 
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
@@ -169,6 +170,28 @@ export const MemorySourceRecord = z.object({
   complete: z.number(),
   created_at: z.number(),
   updated_at: z.number(),
+});
+
+export const RunRecord = z.object({
+  id: Id,
+  owner_id: Id,
+  agent_id: Id.nullable(),
+  conversation_id: Id.nullable(),
+  kind: z.string(),
+  input: z.string(),
+  state: RunState,
+  idempotency_key: z.string(),
+  payload: z.string(),
+  result: z.string().nullable(),
+  error: z.string().nullable(),
+  worker_id: Id.nullable(),
+  heartbeat: z.number().nullable(),
+  created_at: z.number(),
+  updated_at: z.number(),
+  active_ms: z.number(),
+  active_since: z.number().nullable(),
+  attention_dismissed_at: z.number().nullable(),
+  queue_rank: z.number().nullable(),
 });
 
 // Schema-derived types for scalar SQL selections; JSON stays serialized.
@@ -860,27 +883,7 @@ export const QueryRecords = {
     artifact_id: z.string().nullable(),
     created_at: z.number(),
   }),
-  runs: z.object({
-    id: z.string(),
-    owner_id: z.string(),
-    agent_id: z.string().nullable(),
-    conversation_id: z.string().nullable(),
-    kind: z.string(),
-    input: z.string(),
-    state: z.string(),
-    idempotency_key: z.string(),
-    payload: z.string(),
-    result: z.string().nullable(),
-    error: z.string().nullable(),
-    worker_id: z.string().nullable(),
-    heartbeat: z.number().nullable(),
-    created_at: z.number(),
-    updated_at: z.number(),
-    active_ms: z.number(),
-    active_since: z.number().nullable(),
-    attention_dismissed_at: z.number().nullable(),
-    queue_rank: z.number().nullable(),
-  }),
+  runs: RunRecord,
   search_index_status: z.object({
     owner_id: z.string(),
     configuration: z.string(),
