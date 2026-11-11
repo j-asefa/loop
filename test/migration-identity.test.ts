@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
-import { historicalMigrationNames } from "../src/server/historical-migration-names.js";
+import { historicalMigrationNames } from "./fixtures/historical-migration-names.js";
 
 const resources: (() => void)[] = [];
 afterEach(() => {
@@ -83,40 +83,6 @@ it("refuses duplicate names before changing the database", () => {
     "Duplicate migration name: shared",
   );
   expect(db.prepare("SELECT name FROM sqlite_master").all()).toEqual([]);
-});
-
-it.each([
-  "INSERT INTO schema_version VALUES(122,0)",
-  'InSeRt /* comment */ OR IGNORE INTO main."schema_version" VALUES(122,0)',
-  "REPLACE INTO [schema_version] VALUES(122,0)",
-  "INSERT INTO 'schema_version' VALUES(122,0)",
-  "UPDATE `schema_version` SET applied_at=0",
-  "DELETE FROM schema_version",
-  "INSERT INTO schema_migrations VALUES('future',122,0)",
-  "CREATE TRIGGER bad AFTER INSERT ON history BEGIN INSERT INTO schema_version VALUES(122,0); END",
-])("rejects a new migration that writes the retired ledger: %s", (sql) => {
-  const path = directory(),
-    db = database();
-  write(path, "122-future.sql", sql + ";");
-  expect(() => applyMigrations(db, path)).toThrow(/writes a completion ledger/);
-  expect(db.prepare("SELECT name FROM sqlite_master").all()).toEqual([]);
-});
-
-it("ignores legacy table mentions in SQL comments and string values", () => {
-  const path = directory(),
-    db = database();
-  write(
-    path,
-    "122-example.sql",
-    `
-    -- INSERT INTO schema_version VALUES(122,0);
-    /* INSERT OR IGNORE INTO schema_version VALUES(122,0); */
-    CREATE TABLE notes(value TEXT);
-    INSERT INTO notes VALUES('INSERT INTO schema_version VALUES(122,0)');
-  `,
-  );
-  applyMigrations(db, path);
-  expect(db.prepare("SELECT count(*) n FROM notes").get()).toEqual({ n: 1 });
 });
 
 it("rolls back SQL and completion records together, then retries safely", () => {

@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { historicalMigrationNames } from "../src/server/historical-migration-names";
+import { historicalMigrationNames } from "./fixtures/historical-migration-names";
 
 it("starts concurrent database clients and applies each migration once", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-concurrent-start-"));
