@@ -189,8 +189,11 @@ transaction. Before changing a binding, the caller rechecks the live session,
 binding identity and run state captured before that await. Session preparation
 and settings requests share a counted idle-eviction hold. Eviction stays suspended
 until every overlapping operation finishes. Capacity eviction also skips held
-sessions. If cleanup cannot free a capacity slot, startup defers before creating
-an adapter; the worker can requeue that undispatched run. Completion or failure re-arms
+sessions. Startup waits for and reserves capacity before capturing its checkout
+baseline or creating an adapter. Waiting retains the worker lease, checks session
+identity and run state every 250 ms, and does not repeat Git validation or requeue
+the run. Reservations count toward capacity until the live session is installed,
+and failures release them. Completion or failure re-arms
 eviction only for an idle, open live session. Same-process callers
 preparing the same checkout share one pending preparation. Fetch and immutable
 base-commit resolution are serialized per common Git directory within the

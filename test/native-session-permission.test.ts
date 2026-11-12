@@ -783,53 +783,124 @@ it("capacity eviction skips a session awaiting workspace validation", async () =
   }
 }, 30000);
 
-it("defers native startup when every capacity slot is held and resumes after release", async () => {
+it("waits for capacity in the worker and captures the checkout only after a slot opens", async () => {
   const { MAX_CONCURRENT_RUNS } = await import("../src/shared/concurrency.js");
-  const { RunDeferred } = await import("../src/server/run-deferred.js");
+  const { transition } = await import("../src/server/queue.js");
+  const { tick } = await import("../src/server/worker.js");
+  const { execFileSync } = await import("node:child_process");
+  const { writeFileSync } = await import("node:fs");
   const sessions = new NativeSessions();
-  const tasks = Array.from({ length: MAX_CONCURRENT_RUNS }, (_, i) =>
-    run("capacity-all-held-" + i),
-  );
-  const lives = [];
-  for (const task of tasks) lives.push(await sessions.session(task));
-  const workspace = await import("../src/server/native/workspace.js");
-  const original = workspace.boundWorkspace;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
+  const controls: Promise<unknown>[] = [];
+  const mocks: Array<{ mockRestore(): void }> = [];
+  let work: Promise<boolean> | undefined;
   let entered = 0;
-  const validation = vi
-    .spyOn(workspace, "boundWorkspace")
-    .mockImplementation(async (...args) => {
-      entered++;
-      await gate;
-      return original(...args);
-    });
-  const pending = tasks.map((task) =>
-    sessions.session(task).then(
-      (value) => value,
-      (error: unknown) => error,
-    ),
-  );
   try {
+    let checkout = "";
+    for (let i = 0; i < MAX_CONCURRENT_RUNS; i++) {
+      const live = await sessions.session(run("capacity-worker-" + i));
+      checkout = live.binding.project;
+      mocks.push(
+        vi.spyOn(live.adapter, "setSetting").mockImplementation(async () => {
+          entered++;
+          await gate;
+          throw new Error("Fixture setting finished");
+        }),
+      );
+      controls.push(
+        sessions
+          .setSetting(
+            live.binding.conversation_id,
+            "mode",
+            "auto",
+            1,
+            live.generation,
+          )
+          .catch((error: unknown) => error),
+      );
+    }
+    // These fixtures created idle native contexts, not worker turns.
+    const queued = db
+      .prepare("SELECT * FROM runs WHERE state='queued'")
+      .all() as Array<Parameters<typeof transition>[0]>;
+    for (const task of queued) transition(task, "cancelled");
     await vi.waitFor(() => expect(entered).toBe(MAX_CONCURRENT_RUNS));
-    const extra = run("capacity-all-held-new");
-    await expect(sessions.session(extra)).rejects.toBeInstanceOf(RunDeferred);
-    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
-    expect(lives.every((live) => !live.closed)).toBe(true);
+    const extra = run("capacity-worker-new");
+    let claims = 0;
+    let settled = false;
+    work = tick(async (claimed) => {
+      expect(claimed.id).toBe(extra.id);
+      claims++;
+      return sessions.execute(claimed);
+    }).finally(() => {
+      settled = true;
+    });
+    await vi.waitFor(() =>
+      expect(
+        db
+          .prepare("SELECT 1 FROM companion_sessions WHERE conversation_id=?")
+          .get(extra.conversation_id),
+      ).toBeDefined(),
+    );
+    const waiting = await Promise.race([
+      work.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1500)),
+    ]);
+    expect({
+      waiting,
+      settled,
+      run: db.prepare("SELECT state FROM runs WHERE id=?").get(extra.id),
+      checkout: db
+        .prepare("SELECT 1 FROM run_checkouts WHERE run_id=?")
+        .get(extra.id),
+    }).toEqual({
+      waiting: true,
+      settled: false,
+      run: { state: "running" },
+      checkout: undefined,
+    });
     expect(
-      db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(extra.id),
+      db.prepare("SELECT 1 FROM run_checkouts WHERE run_id=?").get(extra.id),
     ).toBeUndefined();
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    writeFileSync(
+      join(checkout, "tracked.txt"),
+      "Changed while waiting for capacity",
+    );
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-C", checkout, ...args], {
+        encoding: "utf8",
+      }).trim();
+    git(
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.com",
+      "commit",
+      "-am",
+      "change before native startup",
+    );
+    const expectedHead = git("rev-parse", "HEAD");
     release();
-    expect(await Promise.all(pending)).toEqual(lives);
-    const started = await sessions.session(extra);
-    expect(started.closed).toBe(false);
+    await Promise.all(controls);
+    expect(await work).toBe(true);
+    expect(claims).toBe(1);
+    expect(
+      db.prepare("SELECT state FROM runs WHERE id=?").get(extra.id),
+    ).toEqual({ state: "completed" });
+    expect(
+      db
+        .prepare("SELECT start_head FROM run_checkouts WHERE run_id=?")
+        .get(extra.id),
+    ).toEqual({ start_head: expectedHead });
     expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
   } finally {
     release();
-    await Promise.allSettled(pending);
-    validation.mockRestore();
+    await Promise.allSettled([...controls, work]);
+    for (const mock of mocks) mock.mockRestore();
     await sessions.close();
   }
 }, 30000);

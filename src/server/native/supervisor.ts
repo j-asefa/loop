@@ -70,6 +70,7 @@ export class NativeSessions {
   private live = new Map<string, Live>();
   private stopped = false;
   private idleHolds = new Map<string, number>();
+  private reservedStarts = 0;
   tools?: (
     conversation: string,
     generation: string,
@@ -138,6 +139,26 @@ export class NativeSessions {
   }
   get count() {
     return this.live.size;
+  }
+  private async reserveStart(check: () => void) {
+    for (;;) {
+      check();
+      for (const old of this.live.values()) {
+        if (this.live.size + this.reservedStarts < MAX_CONCURRENT_RUNS) break;
+        if (!old.run && !this.idleHolds.has(old.binding.conversation_id))
+          await this.dispose(old);
+      }
+      check();
+      if (this.live.size + this.reservedStarts < MAX_CONCURRENT_RUNS) {
+        this.reservedStarts++;
+        let reserved = true;
+        return () => {
+          if (reserved) this.reservedStarts--;
+          reserved = false;
+        };
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
   }
   private holdIdle(conversation: string) {
     this.idleHolds.set(
@@ -453,15 +474,6 @@ export class NativeSessions {
       await boundWorkspace(binding, run.agent_id, run.owner_id);
       binding = prepared()!;
     }
-    // What the checkout looked like before this run touched it. Recorded by
-    // Loop, never by the harness; a capture failure is recorded, not raised.
-    if (binding.worktree_source)
-      await startCheckout(
-        run,
-        binding.project,
-        binding.worktree_source,
-        binding.generation,
-      );
     const model = snapshot.model === "native-default" ? null : snapshot.model;
     const effort = snapshot.effort || null;
     const permissionMode = isPermissionMode(snapshot.permissionMode)
@@ -486,6 +498,7 @@ export class NativeSessions {
       !binding.permission_mode &&
       launchPermissionMode(harness, current.permissionMode) !==
         launchPermissionMode(harness, permissionMode);
+    let reuse: Live | undefined;
     if (
       binding.model !== model ||
       (binding.effort || null) !== effort ||
@@ -510,81 +523,98 @@ export class NativeSessions {
       binding.model = model;
       binding.effort = effort;
     } else if (current && !current.closed) {
-      clearTimeout(current.idle);
-      await current.ready;
-      current.permissionMode = permissionMode;
-      return current;
+      reuse = current;
     }
-    if (this.stopped) throw new Problem(409, "Workspace is stopping.");
-    for (const old of this.live.values()) {
-      if (this.live.size < MAX_CONCURRENT_RUNS) break;
-      if (!old.run && !this.idleHolds.has(old.binding.conversation_id))
-        await this.dispose(old);
-    }
-    if (this.live.size >= MAX_CONCURRENT_RUNS)
-      throw new RunDeferred(
-        "Wait for a native session slot to become available before starting a run.",
-      );
-    const generation = id();
-    const options: Options = {
-      ...registration,
-      project: this.projects.directory(binding.project),
-      resume: binding.native_id || undefined,
-      model: binding.model || undefined,
-      effort: binding.effort || undefined,
-      permissionMode:
-        binding.permission_mode ||
-        launchPermissionMode(harness, permissionMode),
-      instructions: binding.instructions,
-      workspaceTools: harnesses[harness].workspaceTools
-        ? this.tools?.(conversation, generation)
-        : undefined,
-      projectTrust:
-        harness === "pi"
-          ? this.pi.projectTrust(this.projects.directory(binding.project))
-              .override
-          : undefined,
-    };
-    const live: Live = {
-      bootstrapRun: run,
-      adapter: undefined as unknown as Adapter,
-      binding,
-      generation,
-      ready: Promise.resolve(),
-      items: new NativeOutput(),
-      requests: new Map(),
-      closed: false,
-      cancelling: false,
-      waiting: false,
-      bridgeWaiting: 0,
-      permissionMode,
-      sessionMode: binding.permission_mode || undefined,
-    };
-    live.adapter = new classes[harness](options, (event) =>
-      this.projector.event(live, event),
-    );
-    this.live.set(conversation, live);
-    companionSessionsQueries.markStarting(db, generation, now(), conversation);
-    live.ready = (async () => {
-      try {
-        assertEffect(run.owner_id, "run", run.id);
-        await live.adapter.start();
-        if (this.stopped || live.closed)
-          throw new Error("Workspace stopped during native startup.");
-        companionSessionsQueries.markIdle(db, now(), conversation);
-      } catch (error) {
-        await this.dispose(live);
-        companionSessionsQueries.failGeneration(
-          db,
-          now(),
-          conversation,
-          generation,
+    const prepared = preparationGuard();
+    const releaseStart = reuse ? () => {} : await this.reserveStart(prepared);
+    try {
+      prepared();
+      // What the checkout looked like before this run touched it. Recorded by
+      // Loop, never by the harness; a capture failure is recorded, not raised.
+      if (binding.worktree_source)
+        await startCheckout(
+          run,
+          binding.project,
+          binding.worktree_source,
+          binding.generation,
         );
-        throw nativeStartupFailure(harness, error, !!options.resume);
+      binding = prepared()!;
+      if (reuse) {
+        clearTimeout(reuse.idle);
+        await reuse.ready;
+        prepared();
+        reuse.permissionMode = permissionMode;
+        return reuse;
       }
-    })();
-    await live.ready;
-    return live;
+      const generation = id();
+      const options: Options = {
+        ...registration,
+        project: this.projects.directory(binding.project),
+        resume: binding.native_id || undefined,
+        model: binding.model || undefined,
+        effort: binding.effort || undefined,
+        permissionMode:
+          binding.permission_mode ||
+          launchPermissionMode(harness, permissionMode),
+        instructions: binding.instructions,
+        workspaceTools: harnesses[harness].workspaceTools
+          ? this.tools?.(conversation, generation)
+          : undefined,
+        projectTrust:
+          harness === "pi"
+            ? this.pi.projectTrust(this.projects.directory(binding.project))
+                .override
+            : undefined,
+      };
+      const live: Live = {
+        bootstrapRun: run,
+        adapter: undefined as unknown as Adapter,
+        binding,
+        generation,
+        ready: Promise.resolve(),
+        items: new NativeOutput(),
+        requests: new Map(),
+        closed: false,
+        cancelling: false,
+        waiting: false,
+        bridgeWaiting: 0,
+        permissionMode,
+        sessionMode: binding.permission_mode || undefined,
+      };
+      live.adapter = new classes[harness](options, (event) =>
+        this.projector.event(live, event),
+      );
+      this.live.set(conversation, live);
+      releaseStart();
+      companionSessionsQueries.markStarting(
+        db,
+        generation,
+        now(),
+        conversation,
+      );
+      live.ready = (async () => {
+        try {
+          assertEffect(run.owner_id, "run", run.id);
+          await live.adapter.start();
+          if (this.stopped || live.closed)
+            throw new Error("Workspace stopped during native startup.");
+          companionSessionsQueries.markIdle(db, now(), conversation);
+        } catch (error) {
+          await this.dispose(live);
+          companionSessionsQueries.failGeneration(
+            db,
+            now(),
+            conversation,
+            generation,
+          );
+          throw nativeStartupFailure(harness, error, !!options.resume);
+        }
+      })();
+      await live.ready;
+      return live;
+    } finally {
+      releaseStart();
+    }
   }
   async execute(run: Run) {
     assertEffect(run.owner_id, "run", run.id);
