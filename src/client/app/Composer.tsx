@@ -44,6 +44,7 @@ import {
   GLOBAL_DRAFT,
   saveThreadDraft as writeThreadDraft,
   clearAcceptedDraft,
+  sameDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
 import { settleFailure, type SendReceipt } from "../sendIntent";
@@ -428,9 +429,10 @@ export function useComposerSend({
     const currentView = () => viewIdentity === threadIdentityRef.current;
     const sameComposer = () =>
       threadIdentity === composerIdentityRef.current &&
-      draftRef.current === draft &&
-      JSON.stringify(attachmentsRef.current.map((file) => file.id)) ===
-        JSON.stringify(attachments.map((file) => file.id));
+      sameDraft(
+        { text: draftRef.current, files: attachmentsRef.current },
+        { text: draft, files: attachments },
+      );
     if (/^@new\b/i.test(draft.trim())) {
       // "@new …" creates an agent and starts it with the rest of the message.
       setNewAgentPrompt(draft.trim().replace(/^@new\s*/i, ""));
@@ -577,9 +579,7 @@ export function useComposerSend({
           if (
             pending?.key === draftKey &&
             pending.owner === owner &&
-            pending.text === draft &&
-            JSON.stringify(pending.files.map((file) => file.id)) ===
-              JSON.stringify(attachments.map((file) => file.id))
+            sameDraft(pending, { text: draft, files: attachments })
           ) {
             clearTimeout(pending.timer);
             pendingDraftSave.current = null;
