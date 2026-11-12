@@ -417,6 +417,13 @@ export function ArtifactViewer({
           )}
         </div>
         <RunFiles runId={target.run_id} excludeId={target.id} />
+        {!card &&
+          (item as { run_state?: string | null }).run_state &&
+          (item as { run_state?: string | null }).run_state !== "completed" && (
+            <p className="note">
+              This run did not finish normally; the answer may be incomplete.
+            </p>
+          )}
         {recovery && (
           <EffectRecovery
             key={recovery.key}

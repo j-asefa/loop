@@ -28,31 +28,6 @@
         "team_id": null
       },
       {
-        "id": "a-done-api-tool",
-        "owner_id": "owner-feed",
-        "agent_id": "agent-api",
-        "conversation_id": "c-done-api",
-        "run_id": "r-done-api",
-        "title": "Result a-done-api-tool",
-        "kind": "markdown",
-        "role": "answer",
-        "content": "[]",
-        "metadata": "{\"tool\":\"search\",\"connectionId\":\"mcp-1\"}",
-        "folder_id": null,
-        "pinned": 0,
-        "archived": 0,
-        "feed_hidden": 0,
-        "version": 1,
-        "created_at": 1799641020000,
-        "updated_at": 1799641020000,
-        "name": "api-agent",
-        "provider": "openai",
-        "run_state": "completed",
-        "run_error": null,
-        "cursor": 2,
-        "team_id": null
-      },
-      {
         "id": "a-done-native",
         "owner_id": "owner-feed",
         "agent_id": "agent-native",
@@ -304,6 +279,7 @@
       }
     ],
     "removed": [
+      "a-done-api-tool",
       "a-running"
     ],
     "revision": 92,
