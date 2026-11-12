@@ -1,7 +1,6 @@
 {
   "status": 200,
   "body": {
-    "revision": 92,
     "items": [
       {
         "id": "a-file",
@@ -11,23 +10,25 @@
         "run_id": null,
         "title": "notes.txt",
         "kind": "file",
+        "role": "answer",
         "content": "file body",
         "metadata": "{\"name\":\"notes.txt\"}",
         "folder_id": "proj",
         "pinned": 0,
         "archived": 0,
+        "feed_hidden": 0,
         "version": 1,
         "created_at": 1799647020000,
         "updated_at": 1799647020000,
-        "feed_hidden": 0,
+        "name": null,
+        "provider": null,
         "run_state": null,
         "run_error": null,
         "cursor": 12,
-        "name": null,
-        "provider": null,
         "team_id": null
       }
     ],
-    "next": null
+    "next": null,
+    "revision": 92
   }
 }
