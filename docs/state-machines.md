@@ -309,11 +309,11 @@ deleted in one transaction.
 ∅ → pending (tx, unique idempotency key) → held / **sent** / **refused**;
 pending → pending on retry; held → sent / refused; sent → refused only for a
 steering message proven unsent. Delegation results are keyed
-`result:<child>:<state>`. Result delivery and stranded steering recovery persist
+`result:<child>:<state>`. Pending delivery, result delivery and stranded steering recovery persist
 retry deadlines in `agent_mail_retries`, keyed by owner and recovery operation.
 Each attempt rechecks its deadline under the write lock; successful local
-recovery and removal of its retry record commit together. Failure rolls back
-local recovery before scheduling another attempt. This mechanism never retries
+delivery or recovery and removal of its retry record commit together. Failure
+rolls back local work before recording either a refusal or another attempt. This mechanism never retries
 an uncertain harness delivery. Retry records cascade with their source run or
 mail; ineligible results retain their metadata until source deletion.
 

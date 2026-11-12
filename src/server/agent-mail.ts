@@ -835,28 +835,27 @@ function settled(mail: Mail, error: unknown) {
 // submit is a local transaction, never provider IO. A failed attempt has no
 // external effect and may be retried. Sent runs/steering are never redispatched.
 function dispatchPending(mail: Mail, thread: Thread, time = now()) {
-  try {
-    db.transaction(() => dispatch(mail, undefined, thread))();
-  } catch (error) {
-    if (settled(mail, error)) {
-      refuse(mail, error);
-      return;
-    }
-    const attempts = mailQueries.attempts(db, mail.id)!.attempts + 1;
-    const reason =
-      error instanceof Error
-        ? error.message.slice(0, 500)
-        : "Waiting for delivery";
-    mailQueries.scheduleRetry(
-      db,
-      reason,
-      attempts,
-      time + Math.min(300000, 15000 * 2 ** Math.min(attempts - 1, 5)),
-      mail.id,
-    );
-    mail.state = "pending";
-    mail.error = reason;
-  }
+  attempt(
+    mail.owner_id,
+    "delivery:" + mail.id,
+    { mail_id: mail.id, run_id: null },
+    time,
+    () => dispatch(mail, undefined, thread),
+    (error) => {
+      if (settled(mail, error)) {
+        refuse(mail, error);
+        return "settled";
+      }
+      const reason =
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : "Waiting for delivery";
+      mailQueries.defer(db, reason, mail.id);
+      mail.state = "pending";
+      mail.error = reason;
+      return "retry";
+    },
+  );
 }
 
 function insertMail(
@@ -1586,6 +1585,7 @@ function attempt(
   source: { mail_id: string; run_id: null } | { mail_id: null; run_id: string },
   time: number,
   work: () => void,
+  onFailure?: (error: unknown) => "retry" | "settled",
 ) {
   db.transaction(() => {
     const wait = mailRetryQueries.get(db, owner, key);
@@ -1596,6 +1596,10 @@ function attempt(
         mailRetryQueries.clear(db, owner, key);
       })();
     } catch (error) {
+      if (onFailure?.(error) === "settled") {
+        mailRetryQueries.clear(db, owner, key);
+        return;
+      }
       const deferred = error instanceof Deferred;
       const delay = deferred
         ? 5_000
