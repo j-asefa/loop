@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   performStoredEffect,
+  settleStoredEffect,
   UncertainEffect,
 } from "../src/client/pendingCommands";
 import {
@@ -341,4 +342,46 @@ it("scopes run retry commands by owner, source and run, including the local sour
   expect(new Set(seen).size).toBe(4);
   await expect(retry(undefined, "", "run-1")).rejects.toThrow("Sign in");
   expect(seen).toHaveLength(5);
+});
+
+it("settles observed upgrade commands only in the matching owner/source/runtime slot", async () => {
+  const ids: string[] = [];
+  const start = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["runtime-upgrade", "codex"],
+      () => true,
+      async (id) => {
+        ids.push(id);
+        throw new Error("Lost reply");
+      },
+    );
+  await expect(start()).rejects.toThrow("Lost reply");
+  for (const [owner, source, runtime, id] of [
+    ["bob", "", "codex", ids[0]],
+    ["alice", "remote", "codex", ids[0]],
+    ["alice", "", "pi", ids[0]],
+    ["alice", "", "codex", "another-command"],
+  ])
+    await settleStoredEffect(
+      storage,
+      owner,
+      source,
+      ["runtime-upgrade", runtime],
+      { commandId: id },
+    );
+  await expect(start()).rejects.toThrow("Lost reply");
+  expect(ids[1]).toBe(ids[0]);
+  await settleStoredEffect(storage, "alice", "", ["runtime-upgrade", "codex"], {
+    commandId: ids[0],
+  });
+  await expect(start()).rejects.toThrow("Lost reply");
+  expect(ids[2]).not.toBe(ids[0]);
+  await settleStoredEffect(storage, "alice", "", ["runtime-upgrade", "codex"], {
+    commandId: ids[0],
+  });
+  await expect(start()).rejects.toThrow("Lost reply");
+  expect(ids[3]).toBe(ids[2]);
 });

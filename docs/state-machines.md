@@ -376,14 +376,16 @@ the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
 removed on a terminal answer), which turns a repeat into a receipt-only query.
 
-### Provider and artifact command identities
+### Pending command identities
 
-[`durableIdentities.ts`](../src/client/durableIdentities.ts) stores a pending
+[`pendingCommands.ts`](../src/client/pendingCommands.ts) stores a pending
 command ID and attempt ID in owner/source/operation-scoped `localStorage`.
 Preparation holds a Web Lock, records both identities before dispatch, and
 refuses dispatch if storage or the current view is unavailable. Concurrent
 attempts of the same logical request reuse the command ID; only the latest
-attempt may remove its receipt. A lost reply or an explicit unknown execution
+attempt may remove its receipt. A terminal upgrade status read can also settle
+the matching command ID, regardless of the recovery attempt, but cannot remove
+a different command in that owner/source/runtime slot. A lost reply or an explicit unknown execution
 outcome retains it across reloads. An authoritative success, refusal or
 completed outcome settles it. An ordinary artifact-route 4xx settles a fresh
 request, but cannot settle an earlier uncertain attempt. A later authentication
@@ -456,9 +458,10 @@ restart-required / failed / unconfirmed; unconfirmed after a host restart;
 restart-required → complete / unconfirmed on reconcile; unconfirmed → failed /
 restart-required by owner confirmation; finished → dismissed. One upgrade runs
 at a time; starts are deduplicated by command ID. The client reuses a pending
-command id ([`durableIdentities.ts`](../src/client/durableIdentities.ts)) until
-the upgrade settles, so a retried start reaches the host's command-id dedupe
-rather than rerunning a finished installer.
+command ID in the [pending-command journal](#pending-command-identities) until
+its start is acknowledged or a matching terminal status is observed. A lost
+start reply retains that owner/source/runtime identity, so an explicit retry
+reaches the host's command-ID dedupe rather than rerunning the installer.
 
 ## Reachable invalid states
 

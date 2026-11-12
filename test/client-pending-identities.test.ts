@@ -5,12 +5,6 @@ import {
   type SendReceipt,
 } from "../src/client/sendIntent";
 import {
-  beginUpgradeStart,
-  clearUpgradeCommandId,
-  confirmUpgradeStart,
-  upgradeCommandId,
-} from "../src/client/durableIdentities";
-import {
   prepareStoredSend,
   readSendReceipt,
   sendReceiptKey,
@@ -131,43 +125,6 @@ it("a pending receipt is owner/thread scoped", () => {
   expect(
     readSendReceipt(durable, sendReceiptKey("bob", "laptop", "conv-1")),
   ).toEqual({ signature: "", key: "", unquoted: false });
-});
-
-it("a harness upgrade reuses its command id until the upgrade settles", () => {
-  const durable = new MemoryStorage();
-  const first = upgradeCommandId(durable, "laptop", "host");
-  // A lost start response retries with the same command id, so the host's
-  // command-id dedupe matches and the installer is not rerun.
-  expect(upgradeCommandId(durable, "laptop", "host")).toBe(first);
-  // Once settled, a later start gets a fresh id.
-  clearUpgradeCommandId(durable, "laptop", "host", first);
-  expect(upgradeCommandId(durable, "laptop", "host")).not.toBe(first);
-});
-
-it("keeps an upgrade command id only across an uncertain start", () => {
-  const durable = new MemoryStorage();
-  // An uncertain start (lost reply) keeps the id for the retry.
-  const pending = beginUpgradeStart(durable, "laptop", "host");
-  expect(beginUpgradeStart(durable, "laptop", "host")).toBe(pending);
-  // The host confirms the start: the id is consumed, so a later genuine
-  // upgrade mints a fresh id instead of deduping onto a settled record (which
-  // would run no installer).
-  confirmUpgradeStart(durable, "laptop", "host", pending);
-  expect(beginUpgradeStart(durable, "laptop", "host")).not.toBe(pending);
-});
-
-it("a late answer for an earlier upgrade start keeps a newer start's pending id", () => {
-  const durable = new MemoryStorage();
-  // Tab A starts with id A; its reply is slow.
-  const a = beginUpgradeStart(durable, "laptop", "host");
-  confirmUpgradeStart(durable, "laptop", "host", a);
-  // The upgrade settles and tab B starts with id B; B's reply is lost.
-  const b = beginUpgradeStart(durable, "laptop", "host");
-  // A's delayed acknowledgement, or a status refresh showing A's settled
-  // record, arrives now. Neither may drop B's pending id.
-  confirmUpgradeStart(durable, "laptop", "host", a);
-  clearUpgradeCommandId(durable, "laptop", "host", a);
-  expect(beginUpgradeStart(durable, "laptop", "host")).toBe(b);
 });
 
 it("another message in the thread, from any tab, keeps an uncertain receipt", async () => {
