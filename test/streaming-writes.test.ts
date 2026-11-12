@@ -129,10 +129,12 @@ it("keeps the result live while deferring its indexes until completion", async (
   }
 
   const answer = chunks.join("");
+  // The artifact's own metadata declares no partial (D4); the completed run
+  // saved the final content with its initial version row.
   const result = prepare(
-    "SELECT a.content,json_extract(a.metadata,'$.partial') partial,v.content version FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id JOIN artifact_versions v ON v.artifact_id=a.id AND v.version=1 WHERE cp.run_id=?",
-  ).get(run.id) as { content: string; partial: number; version: string };
-  expect(result).toEqual({ content: answer, partial: 0, version: answer });
+    "SELECT a.content,v.content version FROM agent_checkpoints cp JOIN artifacts a ON a.id=cp.artifact_id JOIN artifact_versions v ON v.artifact_id=a.id AND v.version=1 WHERE cp.run_id=?",
+  ).get(run.id) as { content: string; version: string };
+  expect(result).toEqual({ content: answer, version: answer });
   const message = prepare(
     "SELECT m.content FROM agent_checkpoints cp JOIN messages m ON m.id=cp.message_id WHERE cp.run_id=?",
   ).get(run.id) as { content: string };
