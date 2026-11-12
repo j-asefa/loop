@@ -646,3 +646,19 @@ it("keeps ordinary and import upload limits distinct", async () => {
     expect(await response.json()).toEqual({ error });
   }
 });
+
+it("preserves terminal previews and queue values in the unfiltered run list", async () => {
+  const f = fixture();
+  db.prepare("UPDATE runs SET state='completed',queue_rank=7 WHERE id=?").run(
+    f.run.id,
+  );
+  const response = await request("/runs");
+  expect(response.status).toBe(200);
+  const run = workspaceApi.runs.response
+    .parse(response.data)
+    .find((row) => row.id === f.run.id);
+  expect(run).toMatchObject({ state: "completed", queue_rank: 7 });
+  expect(run).toHaveProperty("preview");
+  expect(run).toHaveProperty("preview_artifact");
+  expect(run).toHaveProperty("queue_position");
+});

@@ -69,7 +69,7 @@ describe("PublicRun arms", () => {
     expect("worker_id" in data).toBe(false);
   });
 
-  it("strips queue and preview fields completed never carries", () => {
+  it("keeps terminal list projections while stripping inactive timing fields", () => {
     const data = arm("completed", {
       result: "ok",
       queue_rank: 1,
@@ -81,10 +81,10 @@ describe("PublicRun arms", () => {
       error: "e",
     });
     if (data.state !== "completed") throw new Error("expected completed arm");
-    expect("queue_rank" in data).toBe(false);
-    expect("queue_position" in data).toBe(false);
-    expect("preview" in data).toBe(false);
-    expect("preview_artifact" in data).toBe(false);
+    expect(data.queue_rank).toBe(1);
+    expect(data.queue_position).toBe(2);
+    expect(data.preview).toBe("p");
+    expect(data.preview_artifact).toBe(null);
     expect("active_since" in data).toBe(false);
     expect("attention_dismissed_at" in data).toBe(false);
     expect("error" in data).toBe(false);
@@ -103,14 +103,14 @@ describe("PublicRun arms", () => {
     expect(data.active_since).toBe(3);
   });
 
-  it("keeps queue fields only on queued", () => {
+  it("keeps persisted queue ranks after claim", () => {
     const queued = arm("queued", { queue_rank: 1, queue_position: 2 });
     if (queued.state !== "queued") throw new Error("expected queued arm");
     expect(queued.queue_rank).toBe(1);
     expect(queued.queue_position).toBe(2);
     const running = arm("running", { queue_rank: 1 });
     if (running.state !== "running") throw new Error("expected running arm");
-    expect("queue_rank" in running).toBe(false);
+    expect(running.queue_rank).toBe(1);
   });
 
   it("requires the lease on awaiting_approval", () => {
@@ -122,11 +122,11 @@ describe("PublicRun arms", () => {
     expect(kept.worker_id).toBe("w");
   });
 
-  it("strips preview from cancelled but keeps it on attention-reachable states", () => {
+  it("keeps preview on the unfiltered run list including cancelled", () => {
     const cancelled = arm("cancelled", { error: "e", preview: "p" });
     if (cancelled.state !== "cancelled")
       throw new Error("expected cancelled arm");
-    expect("preview" in cancelled).toBe(false);
+    expect(cancelled.preview).toBe("p");
     for (const state of ["failed", "interrupted"] as const) {
       const data = arm(state, { error: "e", preview: "p" });
       if (data.state !== state) throw new Error(`expected ${state} arm`);

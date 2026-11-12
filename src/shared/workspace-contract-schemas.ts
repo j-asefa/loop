@@ -110,23 +110,9 @@ export const PublicArtifact = z.object({
   run_state: RunDisplayState.nullable().optional(),
   run_error: MaybeText.optional(),
 });
-// The public run is a discriminated union keyed on `state` (D2/D3): fields a
-// state never carries are absent from its arm, so client code narrows on
-// `state` and a response cannot smuggle a field a state's writers never set.
-// The field matrix (docs/state-machines.md runs.state, checked against the
-// owner data copy) drove every arm:
-//   base          every state        id, owner, agent, conversation, kind,
-//                                     input, idempotency, payload, timestamps,
-//                                     active_ms, steeringId
-//   preview       active states      queued, waiting_children, running,
-//    + artifact                       pausing, paused, awaiting_approval,
-//                                     interrupted, failed (attention card)
-//   lease         worker/heartbeat   running, pausing, awaiting_approval
-//   active_since  running/pausing    running, pausing
-//   queue         rank/position      queued only
-//   outcomes      result/error       paused, interrupted, completed, failed,
-//                                     cancelled (resumed/saved answers)
-//   attention     dismissed_at       interrupted, failed, cancelled
+// Run arms follow storage transitions and every public projection. Preview and
+// queue fields are shared: attention(active=false) returns them for every state,
+// and queue_rank is retained when a queued run starts.
 const RunBaseSchema = z.object({
   id: Text,
   owner_id: Text.optional(),
@@ -140,6 +126,10 @@ const RunBaseSchema = z.object({
   updated_at: Time,
   active_ms: z.number().optional(),
   steeringId: Text.optional(),
+  queue_rank: z.number().nullable().optional(),
+  queue_position: z.number().nullable().optional(),
+  preview: MaybeText.optional(),
+  preview_artifact: PublicArtifact.nullable().optional(),
 });
 const RunPreview = {
   preview: MaybeText.optional(),
@@ -168,17 +158,20 @@ export const PublicRun = z.discriminatedUnion("state", [
     queue_position: z.number().nullable().optional(),
   }).extend(RunPreview),
   runArm("waiting_children", {}).extend(RunPreview),
-  runArm("running", RunLeaseSchema.shape)
+  runArm("running", { ...RunLeaseSchema.shape, result: MaybeText.optional() })
     .extend({
       active_since: Time.nullable().optional(),
     })
     .extend(RunPreview),
-  runArm("pausing", RunLeaseSchema.shape)
+  runArm("pausing", { ...RunLeaseSchema.shape, result: MaybeText.optional() })
     .extend({
       active_since: Time.nullable().optional(),
     })
     .extend(RunPreview),
-  runArm("paused", { result: MaybeText.optional() }).extend(RunPreview),
+  runArm("paused", {
+    result: MaybeText.optional(),
+    ...RunLeaseSchema.shape,
+  }).extend(RunPreview),
   runArm("awaiting_approval", {
     worker_id: MaybeText,
     heartbeat: Time.nullable().optional(),
