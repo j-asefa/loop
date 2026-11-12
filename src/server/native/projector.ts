@@ -1,4 +1,4 @@
-import { withoutBusyWait } from "../busy-wait.js";
+import { tryWithoutBusyWait } from "../busy-wait.js";
 import { reportBackgroundFailure } from "../background-failure.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as companionSessionsQueries from "../sql/companion-sessions.js";
@@ -331,20 +331,15 @@ export class NativeProjector {
         this.context.live.get(live.binding.conversation_id) !== live
       )
         return;
-      withoutBusyWait(db, () => {
-        try {
-          // Display updates can wait for the next tick. A locked database must
-          // not block the event loop or escape this timer and kill every run.
+      if (
+        !tryWithoutBusyWait(db, "native-output", () => {
           this.context.projectOutput(live, true);
-        } catch (error) {
-          const code = (error as { code?: string })?.code;
-          if (code !== "SQLITE_BUSY" && !code?.startsWith("SQLITE_BUSY_"))
-            throw error;
-          // projectOutput clears dirty items only after a successful commit.
-          // Retry this display projection, never a native command or prompt.
-          this.scheduleOutput(live);
-        }
-      });
+        })
+      ) {
+        // Dirty items survive contention. Retry only this display projection,
+        // never a native command or prompt.
+        this.scheduleOutput(live);
+      }
       // Aggregate text is copied into several tables. Bound that write rate;
       // terminal statuses still flush immediately through projectOutput.
     }, 1000);

@@ -45,6 +45,7 @@ it("skips a locked heartbeat without blocking or crashing, expires it, and resum
     expect(currentBuilds()[0].observedAt).toBeGreaterThan(before);
     contender.exec("BEGIN IMMEDIATE");
     expect(stop).not.toThrow();
+    expect(warning).toHaveBeenCalledTimes(2);
     contender.exec("ROLLBACK");
     vi.advanceTimersByTime(25_000);
     expect(currentBuilds()).toEqual([]);
@@ -77,5 +78,22 @@ it("omits expired and stopped processes from reads without reconciliation", () =
   } finally {
     stopApi();
     stopWorker();
+  }
+});
+
+it("propagates non-contention heartbeat failures and restores the connection timeout", () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  const stop = observeProcess("worker", runningBuild);
+  const timeout = db.pragma("busy_timeout", { simple: true });
+  try {
+    db.exec(
+      "CREATE TEMP TRIGGER refuse_heartbeat BEFORE UPDATE ON deployment_instances BEGIN SELECT RAISE(ABORT, 'heartbeat failed'); END",
+    );
+    expect(() => vi.advanceTimersByTime(5000)).toThrow("heartbeat failed");
+    expect(db.pragma("busy_timeout", { simple: true })).toBe(timeout);
+  } finally {
+    db.exec("DROP TRIGGER IF EXISTS refuse_heartbeat");
+    stop();
+    vi.useRealTimers();
   }
 });

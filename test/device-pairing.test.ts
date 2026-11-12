@@ -105,6 +105,16 @@ it("keeps renewal and expiry nonblocking under a writer lock and restores ordina
     expect(w.db.pragma("busy_timeout", { simple: true })).toBe(4321);
     w.db
       .prepare("UPDATE devices SET expires=? WHERE owner_id=? AND id=?")
+      .run(expires, w.owner, device.id);
+    w.db.exec(
+      "CREATE TEMP TRIGGER refuse_renewal BEFORE UPDATE ON devices BEGIN SELECT RAISE(ABORT, 'renewal failed'); END",
+    );
+    expect(pairing.authenticate(hash(token))).toBeUndefined();
+    expect(w.db.pragma("busy_timeout", { simple: true })).toBe(4321);
+    w.db.exec("DROP TRIGGER refuse_renewal");
+    expect(pairing.authenticate(hash(token))!.expires).toBeGreaterThan(expires);
+    w.db
+      .prepare("UPDATE devices SET expires=? WHERE owner_id=? AND id=?")
       .run(Date.now() - 1, w.owner, device.id);
     writer.exec("BEGIN IMMEDIATE");
     const retirementStarted = performance.now();
@@ -112,6 +122,14 @@ it("keeps renewal and expiry nonblocking under a writer lock and restores ordina
     expect(performance.now() - retirementStarted).toBeLessThan(500);
     expect(w.db.pragma("busy_timeout", { simple: true })).toBe(4321);
     writer.exec("ROLLBACK");
+    w.db.exec(
+      "CREATE TEMP TRIGGER refuse_retirement BEFORE DELETE ON devices BEGIN SELECT RAISE(ABORT, 'retirement failed'); END",
+    );
+    pairing.expire();
+    expect(pairing.devices()).toHaveLength(1);
+    expect(pairing.authenticate(hash(token))).toBeUndefined();
+    expect(w.db.pragma("busy_timeout", { simple: true })).toBe(4321);
+    w.db.exec("DROP TRIGGER refuse_retirement");
     pairing.expire();
     expect(pairing.devices()).toEqual([]);
     expect(w.db.pragma("busy_timeout", { simple: true })).toBe(4321);
