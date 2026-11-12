@@ -10,7 +10,11 @@ import * as artifactsQueries from "../sql/artifacts.js";
 import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
-import { MessageMetadata, agentPayload } from "../row-schemas.js";
+import {
+  ArtifactMetadata,
+  MessageMetadata,
+  agentPayload,
+} from "../row-schemas.js";
 
 import { observeCompletedOutput } from "../run-verifications.js";
 
@@ -529,10 +533,19 @@ export class NativeProjector {
           metadata,
           checkpoint.message_id,
         );
+        // The artifact's own metadata declares no partial (D4); the message
+        // keeps the flag for message consumers and the churn guard.
         artifactsQueries.updateNativeOutput(
           db,
           output,
-          metadata,
+          JSON.stringify(
+            ArtifactMetadata.parse({
+              ...agentPayload(run),
+              native: true,
+              messageId: checkpoint.message_id,
+              finalNativeItemId: finalItem?.id,
+            }),
+          ),
           now(),
           checkpoint.artifact_id,
         );

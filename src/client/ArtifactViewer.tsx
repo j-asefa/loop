@@ -418,8 +418,10 @@ export function ArtifactViewer({
         </div>
         <RunFiles runId={target.run_id} excludeId={target.id} />
         {!card &&
-          (item as { run_state?: string | null }).run_state &&
-          (item as { run_state?: string | null }).run_state !== "completed" && (
+          (item as { role?: string }).role === "answer" &&
+          ["failed", "cancelled", "interrupted"].includes(
+            (item as { run_state?: string | null }).run_state ?? "",
+          ) && (
             <p className="note">
               This run did not finish normally; the answer may be incomplete.
             </p>
