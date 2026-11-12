@@ -9,6 +9,7 @@ import {
   useSourceId,
 } from "./SourceContext";
 import { readRoute } from "./workspace-api";
+import { storedCommandAt } from "./pendingCommandStorage";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { Sheet, RichText } from "./components";
 import {
@@ -194,17 +195,23 @@ export function NativeHistory({
               setBusy(true);
               setError("");
               const key = "loop-fork-" + selected.id;
-              let commandId = sessionStorage.getItem(key);
+              const receipt = storedCommandAt(
+                sessionStorage,
+                key,
+                (raw) => raw,
+                (value) => value,
+              );
+              let commandId = receipt.read();
               if (!commandId) {
                 commandId = crypto.randomUUID();
-                sessionStorage.setItem(key, commandId);
+                receipt.write(commandId);
               }
               try {
                 const r = await call(workspaceApi.nativeHistoryFork, {
                   params: { id: selected.id },
                   body: { commandId },
                 });
-                sessionStorage.removeItem(key);
+                receipt.remove();
                 onOpen(r.id);
               } catch (e) {
                 setError((e as Error).message);
