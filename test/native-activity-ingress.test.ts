@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { NativeOutput } from "../src/server/native-output";
+import { normalizeItemStatus } from "../src/shared/native-item-state.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -794,4 +795,13 @@ it("persists native tool items and deltas as paged activities across reloads and
   } finally {
     await sessions.close();
   }
+});
+
+it("normalizes provider item statuses to the closed set", () => {
+  expect(normalizeItemStatus("inProgress")).toBe("in_progress");
+  expect(normalizeItemStatus("awaiting-input")).toBe("waiting");
+  expect(normalizeItemStatus("rejected")).toBe("declined");
+  expect(normalizeItemStatus("done")).toBe("completed");
+  expect(normalizeItemStatus("copied", false)).toBe("running");
+  expect(normalizeItemStatus("copied", true)).toBe("completed");
 });

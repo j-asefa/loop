@@ -1,3 +1,4 @@
+import { normalizeItemStatus } from "../shared/native-item-state.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
@@ -538,7 +539,7 @@ export class Codex extends DirectAdapter implements Adapter {
           id: item.id,
           kind: "tool",
           title: item.type,
-          status: item.status ?? (completed ? "completed" : "running"),
+          status: normalizeItemStatus(item.status, completed),
           text: JSON.stringify(item, null, 2),
         },
       });
