@@ -13,6 +13,7 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gitProject } from "./git-project.js";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
+import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 import { callRoute, fetchStream, readRoute } from "../src/client/workspace-api";
 
 vi.mock("../src/server/local-embeddings.js", () => ({
@@ -504,7 +505,9 @@ it("importStart retains new, active and completed branches", async () => {
   valid(workspaceApi.importStart, active);
   expect(active.data.id).toBe(started.data.id);
   expect(active.data).toEqual(
-    db.prepare("SELECT * FROM runs WHERE id=?").get(started.data.id),
+    PublicRun.parse(
+      db.prepare("SELECT * FROM runs WHERE id=?").get(started.data.id),
+    ),
   );
   const claimed = claim("library-import")!;
   expect(claimed.id).toBe(started.data.id);

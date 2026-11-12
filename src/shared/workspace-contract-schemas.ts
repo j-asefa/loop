@@ -110,31 +110,104 @@ export const PublicArtifact = z.object({
   run_state: RunDisplayState.nullable().optional(),
   run_error: MaybeText.optional(),
 });
-export const PublicRun = z.object({
+// The public run is a discriminated union keyed on `state` (D2/D3): fields a
+// state never carries are absent from its arm, so client code narrows on
+// `state` and a response cannot smuggle a field a state's writers never set.
+// The field matrix (docs/state-machines.md runs.state, checked against the
+// owner data copy) drove every arm:
+//   base          every state        id, owner, agent, conversation, kind,
+//                                     input, idempotency, payload, timestamps,
+//                                     active_ms, steeringId
+//   preview       active states      queued, waiting_children, running,
+//    + artifact                       pausing, paused, awaiting_approval,
+//                                     interrupted, failed (attention card)
+//   lease         worker/heartbeat   running, pausing, awaiting_approval
+//   active_since  running/pausing    running, pausing
+//   queue         rank/position      queued only
+//   outcomes      result/error       paused, interrupted, completed, failed,
+//                                     cancelled (resumed/saved answers)
+//   attention     dismissed_at       interrupted, failed, cancelled
+const RunBase = {
   id: Text,
   owner_id: Text.optional(),
   agent_id: MaybeText,
   conversation_id: MaybeText,
   kind: RunKind.optional(),
   input: Text,
-  state: RunDisplayState,
   idempotency_key: Text.optional(),
   payload: Text,
-  result: MaybeText,
-  error: MaybeText,
   created_at: Time,
   updated_at: Time,
-  worker_id: MaybeText.optional(),
-  heartbeat: Time.nullable().optional(),
   active_ms: z.number().optional(),
-  active_since: Time.nullable().optional(),
-  queue_rank: z.number().nullable().optional(),
-  attention_dismissed_at: Time.nullable().optional(),
-  queue_position: z.number().nullable().optional(),
+  steeringId: Text.optional(),
+};
+const RunPreview = {
   preview: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(),
-  steeringId: Text.optional(),
-});
+};
+const RunLease = {
+  worker_id: MaybeText.optional(),
+  heartbeat: Time.nullable().optional(),
+};
+const RunOutcome = {
+  result: MaybeText.optional(),
+  error: MaybeText.optional(),
+};
+const RunAttention = {
+  attention_dismissed_at: Time.nullable().optional(),
+};
+function runArm(
+  state: RunDisplayState,
+  extra: Record<string, z.ZodTypeAny> = {},
+) {
+  return z.object({ ...RunBase, state: z.literal(state), ...extra });
+}
+export const PublicRun = z.discriminatedUnion("state", [
+  runArm("queued", {
+    queue_rank: z.number().nullable().optional(),
+    queue_position: z.number().nullable().optional(),
+    ...RunPreview,
+  }),
+  runArm("waiting_children", RunPreview),
+  runArm("running", {
+    ...RunLease,
+    active_since: Time.nullable().optional(),
+    ...RunPreview,
+  }),
+  runArm("pausing", {
+    ...RunLease,
+    active_since: Time.nullable().optional(),
+    ...RunPreview,
+  }),
+  runArm("paused", { result: MaybeText.optional(), ...RunPreview }),
+  runArm("awaiting_approval", {
+    worker_id: MaybeText,
+    heartbeat: Time.nullable().optional(),
+    ...RunPreview,
+  }),
+  runArm("interrupted", {
+    ...RunOutcome,
+    ...RunLease,
+    ...RunAttention,
+    ...RunPreview,
+  }),
+  runArm("completed", {
+    result: MaybeText.optional(),
+    worker_id: MaybeText.optional(),
+    heartbeat: Time.nullable().optional(),
+  }),
+  runArm("failed", {
+    ...RunOutcome,
+    ...RunLease,
+    ...RunAttention,
+    ...RunPreview,
+  }),
+  runArm("cancelled", {
+    ...RunOutcome,
+    ...RunLease,
+    ...RunAttention,
+  }),
+]);
 export const PublicConversation = z.object({
   id: Text,
   owner_id: Text,

@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
+import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 import { callRoute, readRoute } from "../src/client/workspace-api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-mobile-contracts-"));
@@ -480,9 +481,11 @@ it("scheduledSendRetry returns the accepted production run and matching row", as
   valid(workspaceApi.scheduledSendRetry, result);
   expect(result.data.row).toEqual(scheduledRow(row.id));
   expect(result.data.run).toEqual(
-    runResponse(
-      parseRun(
-        db.prepare("SELECT * FROM runs WHERE id=?").get(result.data.run.id),
+    PublicRun.parse(
+      runResponse(
+        parseRun(
+          db.prepare("SELECT * FROM runs WHERE id=?").get(result.data.run.id),
+        ),
       ),
     ),
   );
@@ -554,8 +557,12 @@ it("runMove requires its identity and replays the original destination receipt",
   const result = await request(`/runs/${row.id}/move`, body);
   valid(workspaceApi.runMove, result);
   expect(result.data).toEqual(
-    runResponse(
-      parseRun(db.prepare("SELECT * FROM runs WHERE id=?").get(result.data.id)),
+    PublicRun.parse(
+      runResponse(
+        parseRun(
+          db.prepare("SELECT * FROM runs WHERE id=?").get(result.data.id),
+        ),
+      ),
     ),
   );
   expect(result.data.agent_id).toBe(destination.id);

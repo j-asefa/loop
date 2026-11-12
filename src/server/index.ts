@@ -242,7 +242,7 @@ appSession.on(workspaceApi.runs, (req, res) => {
       res.locals.owner,
       selectedTeams,
       req.query.active === "1",
-    ) as z.input<typeof workspaceApi.runs.response>,
+    ) as unknown as z.input<typeof workspaceApi.runs.response>,
   );
 });
 mountRoutes(app, companion, "/api");
