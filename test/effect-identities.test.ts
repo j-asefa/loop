@@ -414,3 +414,20 @@ it("keeps recipient history scoped to owner and exact source, with safe storage 
   expect(lastRecipient("alice", "")).toBeNull();
   expect(() => rememberRecipient("alice", "", "accepted-agent")).not.toThrow();
 });
+
+it("refuses effect dispatch when browser command locks are unavailable", async () => {
+  vi.stubGlobal("navigator", {});
+  const dispatch = vi.fn(async () => "accepted");
+  await expect(
+    performStoredEffect(
+      storage,
+      "alice",
+      "",
+      ["refresh"],
+      () => true,
+      dispatch,
+    ),
+  ).rejects.toThrow("nothing was sent");
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(storage.length).toBe(0);
+});

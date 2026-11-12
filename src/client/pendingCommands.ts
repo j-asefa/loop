@@ -1,4 +1,4 @@
-import { storedCommands } from "./pendingCommandStorage";
+import { storedCommands, withCommandLock } from "./pendingCommandStorage";
 
 type PendingEffect = { commandId: string; attempt: string; context?: string };
 
@@ -34,7 +34,7 @@ export async function settleStoredEffect(
   const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
   const key = slot.key;
   try {
-    await navigator.locks.request(key, () => {
+    await withCommandLock(key, () => {
       const saved = slot.read();
       if (
         saved?.commandId === receipt.commandId &&
@@ -61,11 +61,9 @@ export async function performStoredEffect<T>(
   context?: string,
 ): Promise<T> {
   if (!owner) throw new Error("Sign in before starting this change.");
-  if (!navigator.locks)
-    throw new Error("Cannot protect pending changes; nothing was sent.");
   const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
   const key = slot.key;
-  const prepared = await navigator.locks.request(key, () => {
+  const prepared = await withCommandLock(key, () => {
     if (!current()) throw new Error("This view has changed; nothing was sent.");
     let prior: PendingEffect | undefined;
     try {
@@ -118,7 +116,7 @@ export async function performStoredEffect<T>(
       throw error;
     }
     throw new UncertainEffect(error, async () => {
-      await navigator.locks.request(key, () => {
+      await withCommandLock(key, () => {
         if (!current())
           throw new Error(
             "This view has changed. Reopen it before continuing.",

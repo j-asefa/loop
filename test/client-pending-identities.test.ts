@@ -430,3 +430,28 @@ it.each([false, true])(
     expect(restored.receipt.unquoted).toBe(unquoted);
   },
 );
+
+it("refuses composer dispatch without browser command locks", async () => {
+  const previous = navigator;
+  vi.stubGlobal("navigator", {});
+  try {
+    const storage = new MemoryStorage();
+    const dispatch = vi.fn(async () => {});
+    await expect(
+      prepareStoredSend(
+        storage,
+        sendReceiptKey("alice", "", "thread"),
+        "message",
+        { signature: "", key: "", unquoted: false },
+        { mode: "send", sendAt: null },
+        false,
+        () => true,
+        dispatch,
+      ),
+    ).rejects.toThrow("Web Locks support");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(storage.length).toBe(0);
+  } finally {
+    vi.stubGlobal("navigator", previous);
+  }
+});
