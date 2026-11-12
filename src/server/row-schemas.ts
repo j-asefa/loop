@@ -124,7 +124,6 @@ export type MessageMetadata = z.infer<typeof MessageMetadata>;
 export const ArtifactMetadata = RunPayload.extend({
   preview: z.boolean().optional(),
   messageId: Id.optional(),
-  partial: z.boolean().optional(),
   final: z.boolean().optional(),
   upload: z.boolean().optional(),
   uploaded: z.boolean().optional(),

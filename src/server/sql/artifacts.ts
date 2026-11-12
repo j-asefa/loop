@@ -4,7 +4,15 @@ import {
   ArtifactKindSchema,
   type ArtifactKind,
 } from "../../shared/artifact-kind.js";
-import type { ArtifactRole } from "../../shared/artifact-role.js";
+import {
+  ArtifactRoleSchema,
+  ResultArtifactRoles,
+  type ArtifactRole,
+} from "../../shared/artifact-role.js";
+
+// The result role set as an IN-list, built from the one shared constant (D3)
+// so SQL and TypeScript cannot drift.
+const resultRolesSql = ResultArtifactRoles.map((r) => `'${r}'`).join(",");
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -108,21 +116,25 @@ export function insert(
   });
 }
 
-// The same rule must govern initial pages and update tombstones. A running or
-// failed placeholder is not an output, and tool artifacts belong to Traces.
-// Native is provenance, not a tool marker: a completed checkpoint owns the
-// native harness's final answer, including answers saved by earlier versions.
-export const traceArtifactSql = `(json_extract(a.metadata,'$.tool') IS NOT NULL
-  OR (json_extract(a.metadata,'$.native')=1 AND NOT EXISTS(
+// Roles whose artifacts are never standalone outputs (D3): tool and native
+// capture rows are traces; a native answer is still trace-like until its done
+// checkpoint holds content (lifecycle, the row's role stays `answer`).
+export const traceArtifactSql = `(a.role='trace'
+  OR (a.role='answer' AND json_extract(a.metadata,'$.native')=1 AND NOT EXISTS(
     SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
-      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0))
-  OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id AND cp.artifact_id<>a.id))`;
+      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0)))`;
 const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
-export const fileArtifactSql = `(${finishedArtifactSql} OR json_extract(a.metadata,'$.uploaded')=1)`;
-export const resultOutputSql = `${finishedArtifactSql} AND NOT COALESCE(${traceArtifactSql},0)
-  AND json_extract(a.metadata,'$.upload') IS NOT 1
-  AND json_extract(a.metadata,'$.uploaded') IS NOT 1
-  AND COALESCE(json_extract(a.metadata,'$.partial'),0)=0`;
+// Files are published artifacts; the Files/Saved views also show every
+// finished artifact regardless of role (the run state gates answers).
+export const fileArtifactSql = `(${finishedArtifactSql} OR a.role='file')`;
+// What counts as a result (D3): the shared ResultArtifactRoles, once the run
+// is finished. trace/file/upload rows are never results; the run state gates
+// answers, and the native lifecycle clause keeps an answer out until its done
+// checkpoint holds content even if the run row already says completed. The
+// `partial` probe is gone: completion rewrites it away, so the clause
+// selected nothing extra outside that unreachable row (D4, equivalence-tested).
+export const resultOutputSql = `(a.role IN (${resultRolesSql}) AND ${finishedArtifactSql}
+  AND NOT COALESCE(${traceArtifactSql},0))`;
 
 const pageStatement = statementVariants();
 const pageRow = QueryRecords.artifacts.extend({
@@ -337,7 +349,7 @@ export function laterTarget(
 }
 
 const attachmentDescriptorsStatement = statement(
-  "SELECT a.id,o.id objectId,o.name,o.mime,length(o.bytes) size FROM artifacts a\n      JOIN objects o ON o.id=json_extract(a.metadata,'$.objectId') AND o.owner_id=a.owner_id\n      WHERE a.owner_id=? AND json_extract(a.metadata,'$.upload') IS NOT NULL AND a.id IN (SELECT value FROM json_each(?))",
+  "SELECT a.id,o.id objectId,o.name,o.mime,length(o.bytes) size FROM artifacts a\n      JOIN objects o ON o.id=json_extract(a.metadata,'$.objectId') AND o.owner_id=a.owner_id\n      WHERE a.owner_id=? AND a.role='upload' AND a.id IN (SELECT value FROM json_each(?))",
 );
 const attachmentDescriptorsRow = z.object({
   id: z.string(),
@@ -463,7 +475,7 @@ export function edit(
 }
 
 const markEditedStatement = statement(
-  "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false'),'$.edited',json('true')) WHERE id=?",
+  "UPDATE artifacts SET metadata=json_set(metadata,'$.edited',json('true')) WHERE id=?",
 );
 export function markEdited(db: Database.Database, id: string) {
   return markEditedStatement(db).run(id);
@@ -561,6 +573,7 @@ export const cardRow = z.object({
   updated_at: z.number().nullable(),
   title: z.string().nullable(),
   kind: ArtifactKindSchema.nullable(),
+  artifact_role: ArtifactRoleSchema.nullable(),
   version: z.number().nullable(),
   role: z.string().nullable(),
   conversation_id: z.string().nullable(),
@@ -619,7 +632,7 @@ export function cards(
   return cardsStatement(
     `${projects}
     SELECT ${source}.id,${source}.owner_id,${source}.content,${source}.metadata,${source}.created_at,
-      a.updated_at,a.title,a.kind,a.version,NULL role,
+      a.updated_at,a.title,a.kind,a.role artifact_role,a.version,NULL role,
       c.id conversation_id,c.title conversation_title,r.id run_id,${folder} folder_id,
       project.id project_id,project.name project_name,c.team_id,
       g.id agent_id,g.name agent_name,g.provider,

@@ -39,7 +39,8 @@ function ArtifactContent({ item }: { item: Artifact }) {
   return <ResultContent item={item} />;
 }
 export function ResultBody({ card }: { card: ResultCard }) {
-  if (card.display.uploaded) return <CardFile card={card} />;
+  if (card.role === "file" || card.role === "upload")
+    return <CardFile card={card} />;
   return (
     <ResultContent
       item={{
@@ -184,8 +185,7 @@ export function ArtifactViewer({
   const card = item.card;
   const meta = card
       ? {
-          partial: card.display.partial,
-          origin: card.display.imported ? "import" : undefined,
+          origin: card.role === "import" ? "import" : undefined,
           refreshable: card.display.refreshable,
           source: card.display.source
             ? {
@@ -416,11 +416,6 @@ export function ArtifactViewer({
             <ArtifactContent item={item} />
           )}
         </div>
-        {meta.partial && (
-          <p className="note">
-            Partial output. This run did not finish normally.
-          </p>
-        )}
         <RunFiles runId={target.run_id} excludeId={target.id} />
         {recovery && (
           <EffectRecovery

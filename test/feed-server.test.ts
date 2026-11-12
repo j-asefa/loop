@@ -72,7 +72,7 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
       appResource: { html: "large private resource" },
       toolResult: "large payload",
     },
-    role: "trace",
+    role: "snippet",
   });
   const stranger = saveArtifact("stranger", {
     title: "Private",
@@ -323,7 +323,7 @@ function nativeAnswer(
     run: run.id,
     title: "Native answer",
     content,
-    metadata: { native: true, partial },
+    metadata: { native: true },
     role: "answer",
   });
   db.prepare(
@@ -362,7 +362,7 @@ it("publishes native answers to feed and profile updates without exposing tools,
   ).toBeUndefined();
   db.prepare(
     "UPDATE artifacts SET content='Final native answer',metadata=? WHERE id=?",
-  ).run(JSON.stringify({ native: true, partial: false }), answer.artifact);
+  ).run(JSON.stringify({ native: true }), answer.artifact);
   db.prepare("UPDATE agent_checkpoints SET stage='done' WHERE run_id=?").run(
     answer.run,
   );

@@ -158,3 +158,31 @@ it("the guard aborts and rolls back when a row could be left without a role", ()
     db.close();
   }
 });
+
+it("160 replaces the artifact-flag triggers with role- and message-based ones", () => {
+  const db = new Database(":memory:");
+  try {
+    for (const file of readdirSync("migrations")
+      .filter((f) => f.endsWith(".sql"))
+      .sort())
+      db.exec(readFileSync("migrations/" + file, "utf8"));
+    const names = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name",
+      )
+      .all()
+      .map((r: any) => r.name);
+    for (const kept of [
+      "artifact_feed_update",
+      "artifact_search_update",
+      "notify_result",
+      "artifact_role_insert",
+      "artifact_role_update",
+      "artifact_kind_insert",
+    ])
+      expect(names).toContain(kept);
+    expect(names).not.toContain("artifact_search_scope_update");
+  } finally {
+    db.close();
+  }
+});

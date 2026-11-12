@@ -173,6 +173,7 @@ function toCard(row: Row): Card {
     type: "result",
     title: row.title!,
     kind: row.kind!,
+    role: row.artifact_role!,
     version: row.version!,
     hidden: !!row.feed_hidden,
     display: {
@@ -190,9 +191,6 @@ function toCard(row: Row): Card {
         return runModelName(meta, connection ? [connection] : []) || null;
       })(),
       tool: text(meta.tool),
-      partial: meta.partial === true,
-      imported: meta.origin === "import",
-      uploaded: meta.uploaded === true || meta.upload === true,
       mime: text(meta.mime),
       filename: text(meta.name),
       size:

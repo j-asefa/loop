@@ -281,13 +281,11 @@ export function ContentCard({
         <div className="card-content">
           <span className="eyebrow">
             {card.type === "result"
-              ? card.display.partial
-                ? "Partial output"
-                : card.display.imported
-                  ? "Imported history"
-                  : card.display.uploaded
-                    ? "File"
-                    : presentation!.eyebrow
+              ? card.role === "import"
+                ? "Imported history"
+                : card.role === "file" || card.role === "upload"
+                  ? "File"
+                  : presentation!.eyebrow
               : personal
                 ? "Your message"
                 : "Message"}
