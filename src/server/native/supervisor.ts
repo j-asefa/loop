@@ -69,6 +69,7 @@ function recaptureAfterStop(run: Run) {
 export class NativeSessions {
   private live = new Map<string, Live>();
   private stopped = false;
+  private preparations = new Map<string, number>();
   tools?: (
     conversation: string,
     generation: string,
@@ -142,7 +143,8 @@ export class NativeSessions {
     // Overlapping setting requests must not leave an untracked timer that can
     // dispose a later active turn.
     clearTimeout(live.idle);
-    if (eligible) live.idle = setTimeout(() => void this.dispose(live), 60_000);
+    if (eligible && !this.preparations.has(live.binding.conversation_id))
+      live.idle = setTimeout(() => void this.dispose(live), 60_000);
   }
   controls(conversation: string, cachedOnly = false) {
     const binding = companionSessionsQueries.generationBinding(
@@ -276,6 +278,24 @@ export class NativeSessions {
     }
   }
   async session(run: Run): Promise<Live> {
+    const conversation = run.conversation_id;
+    if (!conversation) return this.prepareSession(run);
+    this.preparations.set(
+      conversation,
+      (this.preparations.get(conversation) ?? 0) + 1,
+    );
+    clearTimeout(this.live.get(conversation)?.idle);
+    try {
+      return await this.prepareSession(run);
+    } finally {
+      const remaining = this.preparations.get(conversation)! - 1;
+      if (remaining) this.preparations.set(conversation, remaining);
+      else this.preparations.delete(conversation);
+      const live = this.live.get(conversation);
+      if (live) this.scheduleIdle(live, !live.closed && !live.run);
+    }
+  }
+  private async prepareSession(run: Run): Promise<Live> {
     assertEffect(run.owner_id, "run", run.id);
     if (!run.conversation_id)
       throw new Problem(400, "Native work requires a conversation.");

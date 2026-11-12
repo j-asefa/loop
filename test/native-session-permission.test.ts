@@ -661,3 +661,62 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
     await sessions.dispose(live);
   }
 });
+
+it.each([false, true])(
+  "suspends idle eviction during workspace validation and restores it afterward (failure=%s)",
+  async (failure) => {
+    const sessions = new NativeSessions();
+    const conversation = "validation-idle-" + failure;
+    const task = run(conversation);
+    const live = await sessions.session(task);
+    const workspace = await import("../src/server/native/workspace.js");
+    const original = workspace.boundWorkspace;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    const validation = vi
+      .spyOn(workspace, "boundWorkspace")
+      .mockImplementation(async (...args) => {
+        entered = true;
+        await gate;
+        if (failure) throw new Error("Fixture validation failed");
+        return original(...args);
+      });
+    const setting = vi
+      .spyOn(live.adapter, "setSetting")
+      .mockRejectedValue(new Error("Setting busy"));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let pending: Promise<unknown> | undefined;
+    try {
+      const change = () =>
+        sessions.setSetting(conversation, "mode", "auto", 1, live.generation);
+      await expect(change()).rejects.toThrow("Setting busy");
+      pending = sessions.session(task).then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+      await vi.waitFor(() => expect(entered).toBe(true));
+      // A simultaneous control request must not re-arm eviction during validation.
+      await expect(change()).rejects.toThrow("Setting busy");
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(false);
+      release();
+      if (failure)
+        await expect(pending).resolves.toMatchObject({
+          message: "Fixture validation failed",
+        });
+      else await expect(pending).resolves.toBe(live);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(true);
+    } finally {
+      release();
+      await pending;
+      vi.useRealTimers();
+      validation.mockRestore();
+      setting.mockRestore();
+      await sessions.close();
+    }
+  },
+);

@@ -186,7 +186,10 @@ States: idle, disconnected, starting, failed, running, unavailable, with a
 
 Workspace preparation and validation await Git without holding a database
 transaction. Before changing a binding, the caller rechecks the live session,
-binding identity and run state captured before that await. Same-process callers
+binding identity and run state captured before that await. Session preparation
+holds idle eviction until all overlapping preparations finish; control requests
+cannot re-arm it during that hold. Completion or failure re-arms eviction only
+for an idle, open live session. Same-process callers
 preparing the same checkout share one pending preparation; Git locks arbitrate
 between processes. Git diagnostics stay in server-side error causes, while
 browser-facing errors contain controlled setup guidance.
