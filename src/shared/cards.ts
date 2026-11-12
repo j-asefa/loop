@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
 import { ArtifactRoleSchema } from "./artifact-role.js";
+import { MessageRole } from "./message-roles.js";
 
 const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
@@ -81,7 +82,7 @@ export const ResultCardSchema = z.object({
 export const MessageCardSchema = z.object({
   ...common,
   type: z.literal("message"),
-  role: z.string(),
+  role: MessageRole,
 });
 export const DoneCardSchema = z.object({
   ...common,

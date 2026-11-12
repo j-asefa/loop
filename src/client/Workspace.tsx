@@ -1264,7 +1264,11 @@ export function ImportSheet({
         <SettingsSection title="Import history">
           <SettingsList>
             {jobs.map((j) => (
-              <ImportJobRow key={j.id} job={j} onReload={load} />
+              <ImportJobRow
+                key={j.id}
+                job={j as RouteResponse<typeof workspaceApi.importList>[number]}
+                onReload={load}
+              />
             ))}
           </SettingsList>
         </SettingsSection>

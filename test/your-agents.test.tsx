@@ -12,7 +12,7 @@ function agent(id: string, name: string): Agent {
     connection_id: null,
     model: "claude",
     instructions: "",
-    origin: "manual",
+    origin: "loop",
     created_at: 0,
   };
 }

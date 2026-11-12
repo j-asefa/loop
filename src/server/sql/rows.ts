@@ -3,6 +3,10 @@ import { RunState } from "../../shared/run-state.js";
 import { harnesses } from "../../shared/harnesses.js";
 import { ArtifactKindSchema } from "../../shared/artifact-kind.js";
 import { ArtifactRoleSchema } from "../../shared/artifact-role.js";
+import { MessageRole } from "../../shared/message-roles.js";
+import { AgentOrigin, ConversationOrigin } from "../../shared/origins.js";
+import { ConnectionStatus } from "../../shared/connection-status.js";
+import { RunKind } from "../../shared/run-state.js";
 
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
 export const RowId = z.string().min(1);
@@ -21,7 +25,7 @@ export const AgentRecord = z.object({
   connection_id: z.string().nullable(),
   model: z.string(),
   instructions: z.string(),
-  origin: z.string(),
+  origin: AgentOrigin,
   created_at: z.number(),
   folder_id: z.string().nullable(),
   effort: z.string().nullable(),
@@ -33,7 +37,7 @@ export const ConnectionRecord = z.object({
   provider: Provider,
   label: z.string(),
   secret: z.string(),
-  status: z.string(),
+  status: ConnectionStatus,
   models: z.string(),
   metadata: z.string(),
   created_at: z.number(),
@@ -43,7 +47,7 @@ export const ConversationRecord = z.object({
   owner_id: z.string(),
   agent_id: z.string().nullable(),
   title: z.string(),
-  origin: z.string(),
+  origin: ConversationOrigin,
   external_id: z.string().nullable(),
   created_at: z.number(),
   team_id: z.string().nullable(),
@@ -56,7 +60,7 @@ export const MessageRecord = z.object({
   owner_id: z.string(),
   conversation_id: z.string(),
   run_id: z.string().nullable(),
-  role: z.enum(["user", "assistant", "system", "tool"]),
+  role: MessageRole,
   content: z.string(),
   metadata: z.string(),
   created_at: z.number(),
@@ -180,7 +184,7 @@ export const RunRecord = z.object({
   owner_id: Id,
   agent_id: Id.nullable(),
   conversation_id: Id.nullable(),
-  kind: z.string(),
+  kind: RunKind,
   input: z.string(),
   state: RunState,
   idempotency_key: z.string(),

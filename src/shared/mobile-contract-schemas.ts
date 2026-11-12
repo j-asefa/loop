@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { RunDisplayState } from "./run-state.js";
+import { MessageRole } from "./message-roles.js";
+import { ScheduledSendState } from "./scheduled-send-state.js";
 import { AttachmentIds, MAX_MESSAGE_FILES } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
 
@@ -87,7 +90,7 @@ export const PublicAwayItem = z.object({
   title: Text,
   agent_name: MaybeText,
   run_id: Text,
-  state: Text,
+  state: RunDisplayState,
   updated_at: Time,
 });
 export const PublicAway = z.object({
@@ -99,7 +102,7 @@ export const PublicSavedMessage = z.object({
   message_id: Text,
   conversation_id: Text,
   conversation_title: Text,
-  role: Text,
+  role: MessageRole,
   content: Text,
   created_at: Time,
   agent_id: MaybeText,
@@ -187,7 +190,7 @@ export const PublicScheduledSend = z.object({
   reply_excerpt: MaybeText,
   idempotency_key: Text,
   send_at: Time,
-  state: Text,
+  state: ScheduledSendState,
   run_id: MaybeText,
   error: MaybeText,
   created_at: Time,

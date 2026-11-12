@@ -64,6 +64,19 @@ it("deduplicates repeated uploads and safely restarts import work", async () => 
   expect(db.prepare("SELECT status FROM imports WHERE id=?").get(a.id)).toEqual(
     { status: "completed" },
   );
+  // Imported conversations carry an <provider>-import origin; reading them
+  // through the saved-row schema (the path listings use) must succeed.
+  const { owned } = await import("../src/server/sql/conversations");
+  const imported = db
+    .prepare(
+      "SELECT id,origin FROM conversations WHERE owner_id='alice' AND origin LIKE '%-import'",
+    )
+    .all() as { id: string; origin: string }[];
+  expect(imported.length).toBeGreaterThan(0);
+  // The saved-row reader (ConversationRecord, with the closed origin enum)
+  // must accept every imported conversation without raising InvalidRow.
+  for (const row of imported)
+    expect(owned(db, row.id, "alice")?.origin).toBe(row.origin);
 });
 it("projects supported imported fractional timestamps without rejecting their snapshots", async () => {
   const { ProjectedMessage } =

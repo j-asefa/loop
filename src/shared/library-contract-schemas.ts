@@ -6,6 +6,8 @@ import {
   DefaultArtifactKind,
   OwnerArtifactKindSchema,
 } from "./artifact-kind.js";
+import { SearchIndexState, SearchMode } from "./search-state.js";
+import { ImportStatus } from "./import-status.js";
 
 const Text = z.string(),
   MaybeText = Text.nullable(),
@@ -86,7 +88,7 @@ export const SearchQuery = z.object({
 });
 export const PublicSearchStatus = z.object({
   enabled: z.boolean(),
-  state: Text,
+  state: SearchIndexState,
   total: Num,
   indexed: Num,
   pending: Num,
@@ -111,7 +113,7 @@ const PublicSearchItem = z.object({
   message_id: MaybeText,
 });
 export const PublicSearch = z.object({
-  mode: Text,
+  mode: SearchMode,
   detail: MaybeText,
   pending: Num,
   next: Num.nullable(),
@@ -132,7 +134,7 @@ export const PublicImport = z.object({
   owner_id: Text,
   provider: Text,
   digest: Text,
-  status: Text,
+  status: ImportStatus,
   summary: Text,
   created_at: Num,
 });
