@@ -1,4 +1,3 @@
-import { NativeAnswerState } from "./native-decision-state.js";
 import { NativeCommand } from "./native-commands.js";
 import { Billing } from "./protocol.js";
 import { z } from "zod";
@@ -301,7 +300,9 @@ export const executionOperations = {
   ),
   "native.answer": method(
     z.strictObject({ decisionId: Id, answer: JsonObject }),
-    z.strictObject({ state: NativeAnswerState }),
+    // The reply state spans stored transitions and live deliver stages the
+    // harness controls (D5-exempt: harness-confirmed answer state).
+    z.strictObject({ state: z.string() }),
     { effect: "existing" },
   ),
   "native.controls": method(
