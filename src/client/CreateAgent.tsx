@@ -657,7 +657,10 @@ export function CreateAgent({
                     setNameTouched(true);
                   }}
                   onChange={(e) => {
-                    setNameEdited(e.target.value !== suggestedName);
+                    setNameEdited(
+                      e.target.value.trim().toLowerCase() !==
+                        suggestedName.trim().toLowerCase(),
+                    );
                     setNameTouched(true);
                     setTypedName(e.target.value);
                   }}

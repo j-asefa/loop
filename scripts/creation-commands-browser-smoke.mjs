@@ -210,6 +210,11 @@ try {
         originalName,
       );
     }
+    if (mode === "agent") {
+      await page
+        .getByLabel("Unique name", { exact: true })
+        .fill(originalName.toUpperCase());
+    }
     refuse = false;
     loseReply = false;
     await submit.click();
