@@ -12,7 +12,9 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { parse, isExecutionRefused } from "./api";
+import { parse } from "./api";
+import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
+import { viewOwner, viewGeneration } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet, Avatar } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
@@ -101,8 +103,16 @@ export function CreateAgent({
   const [requestedModel, setRequestedModel] = useState("");
   const instructionsHint = useId(),
     promptHint = useId();
-  const locked = useRef(false),
-    request = useRef({ signature: "", key: "" });
+  const locked = useRef(false);
+  const mounted = useRef(false);
+  const owner = viewOwner(),
+    generation = viewGeneration();
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   // The suggestion arrives asynchronously. Once the person enters the field it
   // must not change underneath them: a late suggestion would land between
   // their caret placement and first keystroke and merge into what they type.
@@ -111,6 +121,13 @@ export function CreateAgent({
     connected.find((c) => connectionKey(c) === connection) ||
     (!connection ? connected[0] : undefined);
   const source = selected?.sourceId || "";
+  const selectedSource = useRef(source);
+  selectedSource.current = source;
+  const current = () =>
+    mounted.current &&
+    owner === viewOwner() &&
+    generation === viewGeneration() &&
+    source === selectedSource.current;
   const sourceCapabilities =
     sources.find((item) => item.id === source)?.capabilities ??
     (source === executionSourceId() ? capabilities : undefined);
@@ -291,25 +308,31 @@ export function CreateAgent({
         ? folderChoice
         : undefined,
     };
-    const signature = JSON.stringify({ source, ...data });
-    if (request.current.signature !== signature)
-      request.current = { signature, key: crypto.randomUUID() };
+    const signature = JSON.stringify(data);
     locked.current = true;
     setBusy(true);
     setError("");
     try {
-      const a = await callRoute(
-        workspaceApi.agentCreate,
-        { body: { ...data, idempotencyKey: request.current.key } },
+      const a = await performStoredEffect(
+        localStorage,
+        owner,
         source,
+        ["agent-create", signature],
+        current,
+        (idempotencyKey) =>
+          callRoute(
+            workspaceApi.agentCreate,
+            { body: { ...data, idempotencyKey } },
+            source,
+          ),
+        creationFailureSettled,
       );
-      await onCreated(a, data.folderId || "", source);
+      if (current()) await onCreated(a, data.folderId || "", source);
     } catch (e) {
-      if (isExecutionRefused(e)) request.current = { signature: "", key: "" };
-      setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
       locked.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   const setupBlock = (

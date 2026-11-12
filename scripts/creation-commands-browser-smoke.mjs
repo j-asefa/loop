@@ -32,6 +32,7 @@ try {
     import React from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {PresetTeamForm} from ${JSON.stringify(resolve("src/client/TeamPresets.tsx"))};
+    import {CreateAgent} from ${JSON.stringify(resolve("src/client/CreateAgent.tsx"))};
     import {StartCodeReview} from ${JSON.stringify(resolve("src/client/CodeReview.tsx"))};
     import {TEAM_PRESETS} from ${JSON.stringify(resolve("src/shared/team-presets.ts"))};
     import {setViewOwner} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
@@ -42,7 +43,9 @@ try {
     window.completed=0;
     const done=()=>{window.completed++;};
     window.unmount=()=>root.render(null);
-    root.render(new URLSearchParams(location.search).get('mode') === 'review'
+    root.render(new URLSearchParams(location.search).get('mode') === 'agent'
+      ? React.createElement(CreateAgent,{connections:[{id:'connection',provider:'openai',status:'connected',label:'Fixture',models:'[{"id":"model"}]',metadata:'{}'}],folders,initialFolder:'project',initialPromptText:'Opening fixture message',onClose:()=>{},onConnect:()=>{},onEnvironmentSetup:()=>{},onConnectionsChanged:async()=>[],onCreated:done})
+      : new URLSearchParams(location.search).get('mode') === 'review'
       ? React.createElement(StartCodeReview,{teams:[${JSON.stringify(team)}],folders,onStarted:done,onClose:()=>{},onCreateTeam:()=>{}})
       : React.createElement(PresetTeamForm,{preset:TEAM_PRESETS.find(p=>p.id==='code-review'),folders,connections:[{id:'connection',status:'connected',label:'Fixture',models:'[{"id":"model"}]'}],onCreated:done}));
   `,
@@ -62,9 +65,13 @@ try {
     } else if (path === "/client.mjs") {
       res.setHeader("content-type", "text/javascript");
       res.end(bundle.script);
+    } else if (path === "/api/agents/suggest-name") {
+      json({ name: "fixture-agent" });
     } else if (
       req.method === "POST" &&
-      (path === "/api/teams/from-preset" || path === "/api/teams/team/reviews")
+      (path === "/api/agents" ||
+        path === "/api/teams/from-preset" ||
+        path === "/api/teams/team/reviews")
     ) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -101,7 +108,27 @@ try {
                 current: true,
                 freshnessError: null,
               }
-            : team,
+            : path === "/api/agents"
+              ? {
+                  id: body.idempotencyKey,
+                  owner_id: "alice",
+                  name: body.name,
+                  provider: "openai",
+                  connection_id: body.connectionId,
+                  model: body.model,
+                  instructions: body.instructions,
+                  origin: "loop",
+                  created_at: 1,
+                  ...(body.initialPrompt
+                    ? {
+                        initialRun: {
+                          id: "initial-run",
+                          conversation_id: "initial-thread",
+                        },
+                      }
+                    : {}),
+                }
+              : team,
         );
       if (holdReply)
         await new Promise((done) => {
@@ -122,10 +149,17 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  for (const mode of process.argv[2] ? [process.argv[2]] : ["team", "review"]) {
+  for (const mode of process.argv[2]
+    ? [process.argv[2]]
+    : ["team", "review", "agent"]) {
     const url = `http://127.0.0.1:${server.address().port}/?mode=${mode}`;
     const submit = page.getByRole("button", {
-      name: mode === "team" ? "Create team" : "Start review",
+      name:
+        mode === "team"
+          ? "Create team"
+          : mode === "agent"
+            ? "Start chatting"
+            : "Start review",
       exact: true,
     });
     const count = requests.length,
@@ -228,6 +262,14 @@ try {
       alice,
       "Alice recovers her own request",
     );
+
+    if (mode === "agent") {
+      assert.equal(
+        requests.at(-1).body.initialPrompt,
+        "Opening fixture message",
+      );
+      assert.equal(requests.at(-1).body.folderId, "project");
+    }
 
     await page.reload();
     const pendingCount = () =>
