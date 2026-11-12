@@ -19,12 +19,15 @@ const NAMES = [
 // An open string schema: z.string() with optional chained refiners/shorteners,
 // or the Text/text/nullableText/MaybeText aliases with optional/nullable
 // presence and refined (Text.min(1), Text.max(300)) modifiers. Declarations
-// are matched inline (z.strictObject({ state: z.string() })) as well as on
-// their own line. enum/literal/union/uuid/template-typed fields do not match,
-// so they are not flagged.
-const OPEN = String.raw`z\.string\(\)(?:\s*\.\s*(?:trim|min|max|optional|nullable|nullish|catch|default)\([^)]*\))*|Text(?:\s*\.\s*(?:min|max|trim|optional|nullable|nullish)\([^)]*\))*|text(?:\s*\.\s*(?:min|max|trim|optional|nullable)\([^)]*\))*|nullableText(?:\.\s*(?:optional|nullable)\(\))?|MaybeText(?:\.\s*(?:optional|nullable)\(\))?`;
+// are matched inline (z.strictObject({ state: z.string() })) and across lines
+// (state:\n  z.string()), with whitespace allowed around dots and parens.
+// enum/literal/union/uuid/template-typed fields do not match, so they are not
+// flagged.
+const DOT = String.raw`\s*\.\s*`;
+const ARGS = String.raw`\([^)]*\)`;
+const OPEN = String.raw`z${DOT}string${ARGS}(?:${DOT}(?:trim|min|max|optional|nullable|nullish|catch|default)${ARGS})*|Text(?:${DOT}(?:min|max|trim|optional|nullable|nullish)${ARGS})*|text(?:${DOT}(?:min|max|trim|optional|nullable)${ARGS})*|nullableText(?:${DOT}(?:optional|nullable)${ARGS})?|MaybeText(?:${DOT}(?:optional|nullable)${ARGS})?`;
 const LINE = new RegExp(
-  String.raw`(?:[A-Za-z_][A-Za-z0-9_]*\.)?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\s*:\s*(${OPEN})\s*(?:[,;}\]])`,
+  String.raw`(?:[A-Za-z_][A-Za-z0-9_]*${DOT})?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\s*:\s*(${OPEN})\s*(?:[,;\}\]])`,
   "g",
 );
 
@@ -145,17 +148,16 @@ it("keeps discriminating fields in src/shared as closed sets", () => {
     f.endsWith(".ts"),
   )) {
     const text = readFileSync("src/shared/" + file, "utf8");
-    for (const line of text.split("\n")) {
-      // The quoted property name (e.g. "connection.status"), or the bare name.
-      // Only properties whose name is one of the discriminating fields count.
-      for (const match of line.matchAll(LINE)) {
-        const field = match[1];
-        if (!field || !NAMES.includes(field)) continue;
-        const key = `${file}:${field}`;
-        const list = seen.get(key) ?? [];
-        list.push(`${key} :: ${line.trim()}`);
-        seen.set(key, list);
-      }
+    // The quoted property name (e.g. "connection.status"), or the bare name.
+    // Only properties whose name is one of the discriminating fields count.
+    // The whole file is scanned so multiline declarations cannot bypass it.
+    for (const match of text.matchAll(LINE)) {
+      const field = match[1];
+      if (!field || !NAMES.includes(field)) continue;
+      const key = `${file}:${field}`;
+      const list = seen.get(key) ?? [];
+      list.push(`${key} :: ${match[0].replace(/\s+/g, " ").trim()}`);
+      seen.set(key, list);
     }
   }
   const failures: string[] = [];
