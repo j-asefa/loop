@@ -75,7 +75,7 @@ const Decision = z.strictObject({
   runId: Id,
   generation: Id,
   nativeId: z.string().max(256000),
-  state: z.string(),
+  state: NativeDecisionState,
   request: z.unknown(),
 });
 
@@ -110,6 +110,9 @@ const Json = z.unknown().refine((value) => {
   }
 }, "Expected bounded JSON display data");
 import { RunState } from "./run-state.js";
+import { NativeDecisionState } from "./native-decision-state.js";
+import { ConnectionStatus } from "./connection-status.js";
+import { NativeItemState } from "./native-item-state.js";
 export const RunEventState = RunState;
 export type RunEventState = z.infer<typeof RunEventState>;
 export const RunEventPayload = z.strictObject({
@@ -191,7 +194,7 @@ const NativeEvent = z
         kind: z.enum(["user", "assistant", "tool", "notice"]),
         text: Text,
         title: Text.optional(),
-        status: Text.optional(),
+        status: NativeItemState.optional(),
         phase: z.enum(["commentary", "final_answer"]).optional(),
       }),
     }),
@@ -218,7 +221,7 @@ const Tool = z.strictObject({
   artifactId: z.union([Id, z.literal("")]),
 });
 const Payloads = {
-  "connection.status": z.strictObject({ status: z.string().min(1).max(100) }),
+  "connection.status": z.strictObject({ status: ConnectionStatus }),
   "reverse.settled": z.strictObject({ callId: Id }),
   queued: RunEventPayload,
   running: RunEventPayload,

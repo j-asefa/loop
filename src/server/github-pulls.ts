@@ -10,6 +10,10 @@ import {
   PullMergeInput,
 } from "../shared/github-contract-schemas.js";
 import { registrar } from "./registrar.js";
+import {
+  PullFileStatus,
+  PullFileStatuses,
+} from "../shared/pull-file-status.js";
 import { type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -56,6 +60,7 @@ import {
   type ReviewDecision,
 } from "../shared/pull-requests.js";
 import type { ConversationPull } from "../shared/conversation-pulls.js";
+import { z } from "zod";
 
 // The Pull requests screen reads GitHub directly with your official GitHub
 // connection, so you can find, read and act on pull requests without asking
@@ -625,10 +630,19 @@ function changedFile(f: any): PullFile | undefined {
   const path = text(f?.filename, 1000);
   if (!path) return;
   const patch = typeof f.patch === "string" ? f.patch : undefined;
+  // GitHub can report statuses outside its documented PR-file kinds; every
+  // supported status is preserved, anything else is displayed as a
+  // modification so a response never 500s the list.
+  const rawStatus = text(f.status, 20);
+  const status: PullFileStatus =
+    rawStatus && (PullFileStatuses as readonly string[]).includes(rawStatus)
+      ? (rawStatus as PullFileStatus)
+      : "modified";
   return {
     path,
     previousPath: text(f.previous_filename, 1000),
-    status: text(f.status, 20) || "modified",
+    status,
+
     additions: count(f.additions) ?? 0,
     deletions: count(f.deletions) ?? 0,
     patch:
@@ -954,7 +968,11 @@ routes.on(workspaceApi.githubPullList, async (req, res) => {
   );
 });
 routes.on(workspaceApi.githubPullDetail, async (req, res) =>
-  res.json(await detail(res.locals.owner, req.params)),
+  res.json(
+    (await detail(res.locals.owner, req.params)) as z.input<
+      typeof workspaceApi.githubPullDetail.response
+    >,
+  ),
 );
 routes.on(workspaceApi.githubPullFiles, async (req, res) =>
   res.json(await files(res.locals.owner, req.params, req.query.head)),

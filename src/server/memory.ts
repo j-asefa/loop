@@ -322,11 +322,11 @@ routes.on(workspaceApi.memoryNoteCreate, (req, res) => {
 routes.on(workspaceApi.runMemory, (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
   res.json(
-    memoryReceiptsQueries.get(db, req.params.id) || {
+    (memoryReceiptsQueries.get(db, req.params.id) || {
       mode: "not-used",
       sources: "[]",
       tokens: 0,
-    },
+    }) as z.input<typeof workspaceApi.runMemory.response>,
   );
 });
 

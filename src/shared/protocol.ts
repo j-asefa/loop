@@ -1,3 +1,4 @@
+import { NativeItemState } from "./native-item-state.js";
 import { z } from "zod";
 
 export { Harness } from "./harnesses.js";
@@ -48,7 +49,7 @@ export const ItemSchema = z.object({
   kind: z.enum(["user", "assistant", "tool", "notice"]),
   text: z.string(),
   title: z.string().optional(),
-  status: z.string().optional(),
+  status: NativeItemState.optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
 });
 export type Item = z.infer<typeof ItemSchema>;

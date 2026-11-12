@@ -1,3 +1,4 @@
+import { RunDisplayState } from "./run-state.js";
 import { MAX_TEAM_WORKERS } from "./team-limits.js";
 import { z } from "zod";
 import { AgentHandle, AgentInput } from "./agent-contract-schemas.js";
@@ -41,7 +42,7 @@ export const ReviewInput = z.object({
 export const PublicReview = z.object({
   id: Text,
   conversationId: Text,
-  state: Text,
+  state: RunDisplayState,
   scope: z.enum(["uncommitted", "staged", "branch"]),
   fingerprint: Text,
   createdAt: Time,
@@ -50,7 +51,7 @@ export const PublicReview = z.object({
   reviewers: z.array(
     z.object({
       agent_id: Text.nullable(),
-      state: Text,
+      state: RunDisplayState,
       error: Text.nullable(),
     }),
   ),

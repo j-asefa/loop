@@ -13,6 +13,8 @@ import { RunDisplayState, RunKind } from "./run-state.js";
 import { MessageRole } from "./message-roles.js";
 import { AgentOrigin, ConversationOrigin } from "./origins.js";
 import { ConnectionStatus } from "./connection-status.js";
+import { ApprovalState } from "./approvals.js";
+import { NativeDecisionState } from "./native-decision-state.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 
@@ -308,7 +310,7 @@ export const Approval = z.object({
   run_id: Text,
   digest: Text,
   request: Text,
-  state: Text,
+  state: ApprovalState,
   result: MaybeText,
   created_at: Time,
   expires_at: Time,
@@ -325,7 +327,7 @@ export const NativeDecision = z.object({
   generation: Text,
   native_id: Text,
   request: Text,
-  state: Text,
+  state: NativeDecisionState,
   command_id: MaybeText,
   digest: MaybeText,
   created_at: Time,

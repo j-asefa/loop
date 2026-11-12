@@ -1,3 +1,4 @@
+import { normalizeItemStatus } from "../shared/native-item-state.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { supportsBilling } from "../shared/harnesses.js";
 import { DirectAdapter } from "./direct-adapter.js";
@@ -408,7 +409,7 @@ export class OpenCode extends DirectAdapter implements Adapter {
           id: p.id,
           kind: "tool",
           title: p.tool,
-          status: p.state.status,
+          status: normalizeItemStatus(p.state.status),
           text: JSON.stringify(p.state, null, 2),
         },
       });

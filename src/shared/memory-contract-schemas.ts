@@ -57,7 +57,11 @@ export const PublicMemorySource = z.union([
   }),
   PublicMemorySourceFields.extend({ truncated: z.boolean(), link: Text }),
 ]);
-const Receipt = z.object({ mode: Text, sources: Text, tokens: Count });
+const Receipt = z.object({
+  mode: z.enum(["disabled", "lexical"]),
+  sources: Text,
+  tokens: Count,
+});
 export const PublicMemoryReceipt = z.union([
   Receipt.extend({ run_id: Text, created_at: Count }),
   z.object({

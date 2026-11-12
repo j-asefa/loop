@@ -1,3 +1,4 @@
+import { NativeItemState } from "../src/shared/native-item-state.js";
 import type { Live } from "../src/server/native-sessions";
 import type { AdapterEvent } from "../src/adapters/events";
 import { Codex } from "../src/adapters/codex";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { NativeOutput } from "../src/server/native-output";
+import { normalizeItemStatus } from "../src/shared/native-item-state.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -701,7 +703,11 @@ it("persists native tool items and deltas as paged activities across reloads and
   let current = start(sessions, "tools-g1", run, conversation);
   current.live.run = run;
   const nativeId = "native:" + "same-prefix-".repeat(40);
-  const item = (id: string, text: string, status = "running") => ({
+  const item = (
+    id: string,
+    text: string,
+    status: NativeItemState = "running",
+  ) => ({
     type: "item" as const,
     item: { id, kind: "tool" as const, title: "Read", text, status },
   });
@@ -789,4 +795,16 @@ it("persists native tool items and deltas as paged activities across reloads and
   } finally {
     await sessions.close();
   }
+});
+
+it("normalizes provider item statuses to the closed set", () => {
+  expect(normalizeItemStatus("inProgress")).toBe("running");
+  expect(normalizeItemStatus("in_progress")).toBe("running");
+  expect(normalizeItemStatus("awaiting-input")).toBe("waiting");
+  expect(normalizeItemStatus("rejected")).toBe("declined");
+  expect(normalizeItemStatus("done")).toBe("completed");
+  expect(normalizeItemStatus("cancelled")).toBe("interrupted");
+  expect(normalizeItemStatus("interrupted")).toBe("interrupted");
+  expect(normalizeItemStatus("copied", false)).toBe("running");
+  expect(normalizeItemStatus("copied", true)).toBe("completed");
 });

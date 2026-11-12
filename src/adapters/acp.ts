@@ -18,6 +18,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import type { Billing, Item } from "../shared/protocol.js";
+import { normalizeItemStatus } from "../shared/native-item-state.js";
 import {
   ACTIVITY_VERSION,
   ACTIVITY_LIMITS,
@@ -801,7 +802,7 @@ export class Acp implements Adapter {
             .slice(0, 64_000) ??
           old?.text ??
           "",
-        status: u.status || old?.status || "pending",
+        status: normalizeItemStatus(u.status ?? old?.status),
       };
       this.toolItems.set(u.toolCallId, item);
       const tool = u.toolCallId.slice(0, 300);
