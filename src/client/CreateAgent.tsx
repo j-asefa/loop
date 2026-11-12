@@ -13,7 +13,11 @@ import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { parse } from "./api";
-import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
+import {
+  performStoredEffect,
+  creationFailureSettled,
+  UncertainEffect,
+} from "./pendingCommands";
 import { viewOwner, viewGeneration } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet, Avatar } from "./components";
@@ -94,6 +98,7 @@ export function CreateAgent({
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [uncertain, setUncertain] = useState<UncertainEffect>();
   const formId = useId();
   const [customize, setCustomize] = useState(false);
   const [nameError, setNameError] = useState(false);
@@ -313,6 +318,7 @@ export function CreateAgent({
     locked.current = true;
     setBusy(true);
     setError("");
+    setUncertain(undefined);
     try {
       // A new suggestion after reload must not abandon an uncertain creation.
       // Only the generated name is retained; free-form inputs stay out of storage.
@@ -353,7 +359,10 @@ export function CreateAgent({
       );
       if (current()) await onCreated(a, data.folderId || "", source);
     } catch (e) {
-      if (current()) setError((e as Error).message);
+      if (current()) {
+        setError((e as Error).message);
+        setUncertain(e instanceof UncertainEffect ? e : undefined);
+      }
     } finally {
       locked.current = false;
       if (mounted.current) setBusy(false);
@@ -716,6 +725,42 @@ export function CreateAgent({
             </label>
           </div>
         </details>
+        {uncertain && (
+          <div role="status">
+            <p>
+              The earlier chat may already exist. Check your agents before
+              starting a separate chat.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (locked.current) return;
+                locked.current = true;
+                setBusy(true);
+                try {
+                  await uncertain.supersede();
+                  if (current()) {
+                    setUncertain(undefined);
+                    setError("");
+                    setNameTouched(false);
+                    setNameEdited(false);
+                    setTypedName("");
+                    setSuggestedName("");
+                    setNameRevision((revision) => revision + 1);
+                  }
+                } catch (error) {
+                  if (current()) setError((error as Error).message);
+                } finally {
+                  locked.current = false;
+                  if (mounted.current) setBusy(false);
+                }
+              }}
+            >
+              Start a separate chat
+            </button>
+          </div>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}

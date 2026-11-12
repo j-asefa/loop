@@ -12,6 +12,8 @@ const requests = [];
 const receipts = new Map();
 const deleted = new Set();
 let suggestions = 0;
+let dropBeforeCommit = false;
+const occupiedNames = new Set();
 let loseReply = true,
   refuse = false;
 let holdReply = false,
@@ -90,6 +92,15 @@ try {
           },
           409,
         );
+        return;
+      }
+      if (path === "/api/agents" && dropBeforeCommit) {
+        occupiedNames.add(body.name);
+        res.destroy();
+        return;
+      }
+      if (path === "/api/agents" && occupiedNames.has(body.name)) {
+        json({ error: "Name already taken" }, 409);
         return;
       }
       if (!receipts.has(body.idempotencyKey))
@@ -299,6 +310,60 @@ try {
         "Opening fixture message",
       );
       assert.equal(requests.at(-1).body.folderId, "project");
+    }
+
+    if (mode === "agent") {
+      await page.reload();
+      dropBeforeCommit = true;
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "Couldn’t reach Loop",
+      );
+      dropBeforeCommit = false;
+      const stranded = requests.at(-1).body.idempotencyKey;
+      await page.reload();
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText("Name already taken");
+      assert.equal(requests.at(-1).body.idempotencyKey, stranded);
+      const beforeSeparate = requests.length;
+      await page.evaluate(() => {
+        const set = Storage.prototype.setItem;
+        window.restoreStorage = () => {
+          Storage.prototype.setItem = set;
+        };
+        Storage.prototype.setItem = function (key, value) {
+          if (key.startsWith("loop-effect-history:"))
+            throw new Error("History unavailable");
+          return set.call(this, key, value);
+        };
+      });
+      const separate = page.getByRole("button", {
+        name: "Start a separate chat",
+        exact: true,
+      });
+      await separate.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "History unavailable",
+      );
+      await page.evaluate(() => window.restoreStorage());
+      await separate.click();
+      await expect(separate).toHaveCount(0);
+      assert.equal(
+        requests.length,
+        beforeSeparate,
+        "setting aside never dispatches another creation",
+      );
+      const history = await page.evaluate(() =>
+        Object.entries(localStorage).filter(([key]) =>
+          key.startsWith("loop-effect-history:"),
+        ),
+      );
+      assert.ok(
+        history.some(([, value]) => JSON.parse(value).commandId === stranded),
+      );
+      await submit.click();
+      await expect.poll(() => page.evaluate(() => window.completed)).toBe(1);
+      assert.notEqual(requests.at(-1).body.idempotencyKey, stranded);
     }
 
     await page.reload();

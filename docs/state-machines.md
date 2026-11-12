@@ -286,7 +286,11 @@ mounted owner/source view. Agent creation hashes its form inputs rather than
 storing prompt or instruction text. When the name is generated, that name is
 stored with the pending identity and reused on recovery; a new suggestion
 cannot select another identity. Other inputs must still match. A digest avoids
-plaintext retention but does not encrypt low-entropy input.
+plaintext retention but does not encrypt low-entropy input. After an uncertain
+agent creation, the form offers an explicit separate-chat action. It archives
+the uncertain identity before releasing its slot, then requests a new name;
+it does not dispatch another creation. Archive failures preserve the action
+for retry. The person must check for the earlier chat and submit again.
 
 ### `token_requests.state`
 
