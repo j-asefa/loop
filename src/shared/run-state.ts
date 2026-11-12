@@ -42,6 +42,12 @@ export const RunDisplayState = z.union([
 ]);
 export type RunDisplayState = z.infer<typeof RunDisplayState>;
 
+// A predicate for stringly rows/events: the arrays stay typed, call sites that
+// hold a validated-but-wide value (DB rows, event types) use this guard.
+export function isTerminalRunState(state: string): boolean {
+  return (TERMINAL_RUN_STATES as readonly string[]).includes(state);
+}
+
 export function legalRunTransition(from: RunState, to: RunState) {
   const destinations: readonly RunState[] = RUN_TRANSITIONS[from];
   return destinations.includes(to);

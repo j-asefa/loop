@@ -140,6 +140,9 @@ function readFeed(
   // Scheduled messages, owner-wide: not sent (needs you) apart from waiting.
   const scheduled = scheduledSendsQueries.summary(db, owner)!;
   const last = rows.at(-1);
+  // The display rows carry the stored run state as a string; the response
+  // schema narrows it to the display set (the projection feed already applied
+  // the waiting_children CASE where it can appear).
   return {
     items: replyPage ? replyPage.items : page.map((item) => item.display),
     next: replyPage
@@ -162,7 +165,7 @@ function readFeed(
       scheduled_failed: scheduled.failed,
       scheduled_pending: scheduled.pending,
     },
-  };
+  } as FeedPage;
 }
 
 function replyUnread(scope: ReplyScope) {
