@@ -174,6 +174,25 @@ it("preserves note revisions, optimistic edits and local recall without a sideca
   expect(recalled.sources).toEqual([
     expect.objectContaining({ id: key, revision: 2 }),
   ]);
+  expect(
+    (
+      await searchMemory(
+        owner,
+        null,
+        "a an the is are was were do does did in on at to of for and or it this that what which who how we our my earlier revised",
+      )
+    ).sources,
+  ).toEqual(recalled.sources);
+  expect(
+    (
+      await searchMemory(
+        owner,
+        null,
+        Array.from({ length: 23 }, (_, index) => `absent${index}`).join(" ") +
+          " revised",
+      )
+    ).sources,
+  ).toEqual(recalled.sources);
   expect((await searchMemory(id(), null, "revised")).sources).toEqual([]);
   expect(await invalid(`/memory/sources/${key}`, "DELETE")).toMatchObject(bad);
   const deleted = await request(

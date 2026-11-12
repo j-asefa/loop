@@ -1,7 +1,33 @@
-export function searchTerms(query: string) {
+type SearchTermOptions = {
+  limit?: number;
+  exclude?: ReadonlySet<string>;
+  splitIdentifiers?: boolean;
+};
+export function searchTerms(
+  query: string,
+  { limit = 20, exclude, splitIdentifiers = false }: SearchTermOptions = {},
+) {
+  const pattern = splitIdentifiers ? /[\p{L}\p{N}]+/gu : /[\p{L}\p{N}_-]+/gu;
   return [
-    ...new Set(query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) || []),
-  ].slice(0, 20);
+    ...new Set((query.match(pattern) || []).map((term) => term.toLowerCase())),
+  ]
+    .filter((term) => /[\p{L}\p{N}]/u.test(term) && !exclude?.has(term))
+    .slice(0, limit);
+}
+export function ftsQuery(
+  query: string,
+  {
+    operator = "OR",
+    prefix = false,
+    ...terms
+  }: SearchTermOptions & { operator?: "OR" | "AND"; prefix?: boolean } = {},
+) {
+  const words = searchTerms(query, terms);
+  return words.length
+    ? words
+        .map((word) => `"${word.replaceAll('"', '""')}"${prefix ? "*" : ""}`)
+        .join(` ${operator} `)
+    : null;
 }
 
 export function searchExcerpt(

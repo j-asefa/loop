@@ -566,7 +566,7 @@ it("filters traces by every term, including linked tool results, within the owne
   recordTrace(run, "tool:npm", {
     kind: "tool",
     title: "Command",
-    content: "npm test -- --grep zeppelin",
+    content: "npm test -- --grep zeppelin İstanbul",
   });
   recordTrace(run, "tool:git", {
     kind: "tool",
@@ -604,7 +604,14 @@ it("filters traces by every term, including linked tool results, within the owne
     );
   expect(keys("zeppelin")).toEqual(["tool:git", "tool:npm"]);
   expect(keys("npm zep")).toEqual(["tool:npm"]);
+  expect(keys("npm -- __ zep")).toEqual(["tool:npm"]);
+  expect(keys("-- __")).toEqual([]);
   expect(keys("harbour")).toEqual(["tool:search"]);
+  expect(keys("web_sea")).toEqual(["tool:search"]);
+  expect(keys("we_sea")).toEqual(["tool:search"]);
+  expect(keys("npm-zep")).toEqual(["tool:npm"]);
+  expect(keys("İstanbul")).toEqual(["tool:npm"]);
+  expect(keys("npm ".repeat(25) + "zep")).toEqual(["tool:npm"]);
   expect(keys("zeppelin", foreign.id, "bob")).toEqual(["tool:npm"]);
   expect(() => keys("zeppelin", a.id, "bob")).toThrow("Item not found");
   expect(keys("!!")).toEqual([]);

@@ -1,3 +1,4 @@
+import { ftsQuery } from "../shared/search-excerpt.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
 import * as artifactsQueries from "./sql/artifacts.js";
@@ -193,15 +194,11 @@ export async function searchMemory(
       " ",
     ),
   );
-  const words = (query.match(/[\p{L}\p{N}_-]+/gu) || [])
-    .filter((w) => !stop.has(w.toLowerCase()))
-    .slice(0, 24);
-  if (words.length) {
+  const match = ftsQuery(query, { limit: 24, exclude: stop });
+  if (match) {
     const lexical = memoryFtsQueries.search(
       db,
-      "content:(" +
-        words.map((w) => '"' + w.replaceAll('"', '""') + '"').join(" OR ") +
-        ")",
+      `content:(${match})`,
       owner,
       project,
     );
