@@ -36,6 +36,12 @@ metadata and revokes tokens immediately.
 | `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs                                                                                                                                                       |
 | `approvals:decide` | Decide API approvals and answer companion native decisions                                                                                                                                                                                       |
 
+The `read` approval list returns pending records using the
+[shared approval state union](../src/shared/approval-contract-schema.ts); see
+[approval states](state-machines.md#approvalsstate) for its result and expiry
+fields. The `approvals:decide` response is `{ ok: true }`. Native decisions use
+a separate schema and the companion's owner-scoped decision routes.
+
 The generated [OpenAPI document](openapi.json) lists the exact admission values
 on each operation as `x-scopes`. An omitted admission means session-only access.
 Transport, peer and fleet routes never admit integration credentials. The
