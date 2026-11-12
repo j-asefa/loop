@@ -2005,7 +2005,7 @@ function ConversationView({
                               if (isCurrent()) setError((e as Error).message);
                             } finally {
                               retryBusy.current = false;
-                              if (isCurrent()) setRetrying(null);
+                              setRetrying(null);
                             }
                           }}
                         >

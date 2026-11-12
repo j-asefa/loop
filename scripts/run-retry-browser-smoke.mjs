@@ -6,6 +6,7 @@ import { selectedEngines } from "./helpers/engines.mjs";
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
   let browser;
+  let releaseReply = () => {};
   try {
     const conversation = fixture.conversations.find(
       (item) => item.state === "failed",
@@ -16,10 +17,12 @@ for (const engine of selectedEngines()) {
     await fixture.pair(context);
     const ids = [];
     let refused = false;
+    let heldReply;
     await context.route(
       `**/api/runs/${conversation.run}/retry`,
       async (route) => {
         ids.push(route.request().postDataJSON().idempotencyKey);
+        await heldReply;
         await route.fulfill({
           status: refused ? 422 : 409,
           contentType: "application/json",
@@ -81,10 +84,26 @@ for (const engine of selectedEngines()) {
       first,
       "a proven refusal permits a new explicit retry identity",
     );
+    heldReply = new Promise((resolve) => {
+      releaseReply = resolve;
+    });
+    await page
+      .getByRole("button", { name: "Retry as a new run", exact: true })
+      .click();
+    await expect.poll(() => ids.length).toBe(5);
+    await page.getByRole("button", { name: "Jump to…", exact: true }).click();
+    await page.locator(".outline-sheet li button").first().click();
+    await expect(page.locator(".outline-sheet")).toHaveCount(0);
+    await expect(page.locator(".message.anchored")).toHaveCount(1);
+    releaseReply();
+    await expect(
+      page.getByRole("button", { name: "Retry as a new run", exact: true }),
+    ).toBeEnabled();
     console.log(
       `PASS ${engine.name()} run retry storage refusal, reload recovery and explicit settlement`,
     );
   } finally {
+    releaseReply();
     await browser?.close();
     await fixture.close();
   }
