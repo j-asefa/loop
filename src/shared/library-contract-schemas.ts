@@ -158,7 +158,7 @@ export const PublicImportPreview = z.union([
   z.object({
     id: Text,
     provider: Text,
-    status: Text,
+    status: ImportStatus,
     summary: PublicImportSummary,
     duplicate: z.never().optional(),
   }),

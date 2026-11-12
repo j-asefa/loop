@@ -1,3 +1,4 @@
+import { PullFileStatus } from "./pull-file-status.js";
 import { z } from "zod";
 import { isRepoPath, MAX_REVIEW_BODY } from "./pull-requests.js";
 
@@ -142,7 +143,7 @@ export const PublicPullDetail = PublicPullItem.extend({
 const PublicPullFile = z.object({
   path: Text,
   previousPath: Text.optional(),
-  status: Text,
+  status: PullFileStatus,
   additions: z.number(),
   deletions: z.number(),
   patch: Text.optional(),

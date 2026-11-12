@@ -1,3 +1,4 @@
+import { NativeItemState } from "../src/shared/native-item-state.js";
 import type { Live } from "../src/server/native-sessions";
 import type { AdapterEvent } from "../src/adapters/events";
 import { Codex } from "../src/adapters/codex";
@@ -701,7 +702,11 @@ it("persists native tool items and deltas as paged activities across reloads and
   let current = start(sessions, "tools-g1", run, conversation);
   current.live.run = run;
   const nativeId = "native:" + "same-prefix-".repeat(40);
-  const item = (id: string, text: string, status = "running") => ({
+  const item = (
+    id: string,
+    text: string,
+    status: NativeItemState = "running",
+  ) => ({
     type: "item" as const,
     item: { id, kind: "tool" as const, title: "Read", text, status },
   });

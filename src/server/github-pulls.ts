@@ -1,5 +1,4 @@
-import {
-  GithubError,
+import {  GithubError,
   githubProblem,
   GITHUB_PULL_MISSING,
 } from "./github-errors.js";
@@ -10,6 +9,7 @@ import {
   PullMergeInput,
 } from "../shared/github-contract-schemas.js";
 import { registrar } from "./registrar.js";
+import { PullFileStatus } from "../shared/pull-file-status.js";
 import { type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -628,7 +628,8 @@ function changedFile(f: any): PullFile | undefined {
   return {
     path,
     previousPath: text(f.previous_filename, 1000),
-    status: text(f.status, 20) || "modified",
+    status: (text(f.status, 20) || "modified") as PullFileStatus,
+
     additions: count(f.additions) ?? 0,
     deletions: count(f.deletions) ?? 0,
     patch:

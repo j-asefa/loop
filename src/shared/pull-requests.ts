@@ -1,3 +1,4 @@
+import type { PullFileStatus } from "./pull-file-status.js";
 // The Pull requests screen: what the server reads from GitHub for you, without
 // an agent. Titles, descriptions, comments and diffs are untrusted content
 // from GitHub; they are shown to you and never passed to an agent from here.
@@ -113,7 +114,7 @@ export type PullDetail = PullListItem & {
 export type PullFile = {
   path: string;
   previousPath?: string;
-  status: string;
+  status: PullFileStatus;
   additions: number;
   deletions: number;
   /** The unified diff hunk text; missing when GitHub omits a large or binary diff. */
