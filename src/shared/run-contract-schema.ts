@@ -17,6 +17,9 @@ const RunBaseSchema = z.object({
   created_at: Time,
   updated_at: Time,
   active_ms: z.number().optional(),
+  // Native error events write this independently of run state; transitions do
+  // not generally clear it, including a later successful completion.
+  error: MaybeText.optional(),
   steeringId: Text.optional(),
   queue_rank: z.number().nullable().optional(),
   queue_position: z.number().nullable().optional(),
@@ -29,7 +32,6 @@ const RunLeaseSchema = z.object({
 });
 const RunOutcomeSchema = z.object({
   result: MaybeText.optional(),
-  error: MaybeText.optional(),
 });
 const RunAttentionSchema = z.object({
   attention_dismissed_at: Time.nullable().optional(),

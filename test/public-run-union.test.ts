@@ -66,7 +66,7 @@ describe("PublicRun arms", () => {
     const data = parsed.data;
     if (data.state !== "queued") throw new Error("expected the queued arm");
     expect("result" in data).toBe(false);
-    expect("error" in data).toBe(false);
+    expect(data.error).toBe(null);
     expect("worker_id" in data).toBe(false);
   });
 
@@ -88,7 +88,7 @@ describe("PublicRun arms", () => {
     expect(data.preview_artifact).toBe(null);
     expect("active_since" in data).toBe(false);
     expect("attention_dismissed_at" in data).toBe(false);
-    expect("error" in data).toBe(false);
+    expect(data.error).toBe("e");
     expect(data.result).toBe("ok");
   });
 

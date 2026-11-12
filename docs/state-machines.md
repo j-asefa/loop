@@ -85,7 +85,9 @@ arms in [`done-card.ts`](../src/shared/done-card.ts). Queue rank survives claim;
 the unfiltered run list also projects queue position and previews for terminal
 runs. A paused run can retain its lease and saved answer, and running or pausing
 work can save an answer before its completion transition. These fields are not
-proof that a run is currently executing.
+proof that a run is currently executing. Native error events persist errors
+independently of run state, and a later completion does not clear them; every
+public arm preserves that stored error field.
 
 
 ### `approvals.state`
