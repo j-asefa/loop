@@ -106,10 +106,7 @@ it("keeps live user edits and their versions while the generator finishes its ow
       pinned: 1,
       version: 3,
     });
-    expect(JSON.parse(artifact().metadata)).toMatchObject({
-      partial: false,
-      edited: true,
-    });
+    expect(JSON.parse(artifact().metadata)).toMatchObject({ edited: true });
     // Completion indexes the user's saved revision, not the generator's text.
     expect(
       db

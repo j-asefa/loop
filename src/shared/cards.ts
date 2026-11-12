@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
+import { ArtifactRoleSchema } from "./artifact-role.js";
 
 const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
@@ -59,14 +60,12 @@ export const ResultCardSchema = z.object({
   type: z.literal("result"),
   title: z.string(),
   kind: ArtifactKindSchema,
+  role: ArtifactRoleSchema,
   version: z.number().int().positive(),
   hidden: z.boolean(),
   display: z.object({
     model: nullableText,
     tool: nullableText,
-    partial: z.boolean(),
-    imported: z.boolean(),
-    uploaded: z.boolean(),
     mime: nullableText,
     filename: nullableText,
     size: z.number().nonnegative().nullable(),

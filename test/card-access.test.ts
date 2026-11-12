@@ -30,18 +30,32 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     db.prepare(
       "INSERT INTO message_bookmarks(message_id,owner_id,created_at) VALUES('assistant',?,3)",
     ).run(owner);
+    db.prepare(
+      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run-partial',?,'agent','thread','W','running','run-partial',1,1),('run-trace',?,'agent','thread','T','completed','run-trace',1,1)",
+    ).run(owner, owner);
     const artifact = db.prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,role,content,metadata,pinned,archived,feed_hidden,created_at,updated_at) VALUES(?,?,'agent','thread',?,'markdown','answer','Answer',?,?,?,?,1,1)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,pinned,archived,feed_hidden,created_at,updated_at) VALUES(?,?,'agent','thread',?,?,'markdown',?,?,?,?,?,?,1,1)",
     );
-    for (const [id, meta, pin, archive, hidden] of [
-      ["result", "{}", 0, 0, 0],
-      ["hidden", "{}", 1, 0, 1],
-      ["upload", '{"upload":true}', 1, 0, 0],
-      ["partial", '{"partial":true}', 0, 0, 0],
-      ["trace", '{"tool":"private"}', 0, 0, 0],
-      ["archived", "{}", 0, 1, 0],
+    for (const [id, meta, role, pin, archive, hidden, run] of [
+      ["result", "{}", "answer", 0, 0, 0, null],
+      ["hidden", "{}", "answer", 1, 0, 1, null],
+      ["upload", '{"upload":true}', "upload", 1, 0, 0, null],
+      ["partial", '{"partial":true}', "answer", 0, 0, 0, "run-partial"],
+      ["trace", '{"tool":"private"}', "trace", 0, 0, 0, "run-trace"],
+      ["archived", "{}", "answer", 0, 1, 0, null],
     ] as const)
-      artifact.run(id, owner, id, meta, pin, archive, hidden);
+      artifact.run(
+        id,
+        owner,
+        run,
+        id,
+        role,
+        "Answer",
+        meta,
+        pin,
+        archive,
+        hidden,
+      );
     db.prepare(
       "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,created_at,updated_at) VALUES('foreign','foreign','Secret','markdown','snippet','Secret','{}',1,1)",
     ).run();
@@ -576,11 +590,11 @@ it("does not disclose never-readable identities through scoped companion removal
     const headers = { authorization: "Bearer " + secret };
     const start = await (await request("/api/v1/cards", { headers })).json();
     const insert = db.prepare(
-      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,feed_hidden,created_at,updated_at) VALUES(?,?,'Fixture','markdown','upload','Body',?,?,1,1)",
+      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,feed_hidden,created_at,updated_at) VALUES(?,?,'Fixture','markdown',?, 'Body',?,?,1,1)",
     );
-    insert.run("private-upload", owner, '{"upload":true}', 0);
-    insert.run("never-visible", owner, "{}", 1);
-    insert.run("public", owner, "{}", 0);
+    insert.run("private-upload", owner, "upload", '{"upload":true}', 0);
+    insert.run("never-visible", owner, "answer", "{}", 1);
+    insert.run("public", owner, "answer", "{}", 0);
     const update = await (
       await request("/api/v1/cards/changes?after=" + start.revision, {
         headers,
@@ -629,7 +643,7 @@ it("does not disclose never-readable identities through scoped companion removal
     // IDs are decoded exactly once at both real boundaries, including literal
     // percent characters that resemble another encoded path separator.
     for (const id of ["foo%bar", "literal%2Fsegment"]) {
-      insert.run(id, owner, "{}", 0);
+      insert.run(id, owner, "answer", "{}", 0);
       for (const credential of [browser, headers]) {
         const listed = await (
           await request("/api/v1/cards", { headers: credential })

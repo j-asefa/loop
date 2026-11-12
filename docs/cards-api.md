@@ -365,7 +365,7 @@ data is present in Saved entries; it is not a different content variant.
 | View                | Membership and order                                                                                                                                           | Supported filters                |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | `done`              | Session-only completed-run answers, imported answers and idle-thread fallbacks, ordered by completion time, conversation and dismissal key.                    | `project`, `agent`, `teams`      |
-| `results` (default) | Visible, unarchived published results of completed runs; no partials, uploads or traces. Newest publication sequence first.                                    | `project`, `agent`, `teams`      |
+| `results` (default) | Visible, unarchived published results of completed runs (role `answer`, plus runless imports); no uploads or traces; a native answer joins once its done checkpoint holds content. Newest publication sequence first. | `project`, `agent`, `teams`      |
 | `saved`             | Unarchived pinned artifacts, including hidden results and files, plus message bookmarks. Newest save time, then ID.                                            | `project`, `agent`, `teams`, `q` |
 | `sent`              | Personally submitted user messages under the same provenance rules as [personal history](workspace.md#personal-prompt-history). Newest creation time, then ID. | `project`, `agent`, `teams`, `q` |
 
@@ -417,7 +417,7 @@ All lists and detail return the **full stored content**, its format, attribution
 source references, conversation/project context, creation time, save state,
 attachments and source-relative navigation. Common card fields are identical
 across collections for the same current record. Result cards retain title, kind,
-stored version, hidden state and explicitly selected display fields; raw metadata,
+role, stored version, hidden state and explicitly selected display fields; raw metadata,
 connection configuration, tool payloads and executable application resources are
 not included. Body content remains the user's original stored content.
 
@@ -489,7 +489,7 @@ its current eligible representation or a selection-relative removal.
 
 | Mutable source                                              | Fields, membership or ordering it affects                                                                                                                                    |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Artifacts and selected metadata                             | Body, title, format, version, timestamps, author/context references, visibility, snippet/upload/partial status, model, source, file and interactive-app display capabilities |
+| Artifacts and selected metadata                             | Body, title, format, version, role, timestamps, author/context references, visibility, model, source, file and interactive-app display capabilities |
 | Messages and selected metadata                              | Body, role, personal provenance, creation order, source references and stored attachment descriptors                                                                         |
 | Publication and artifact-bookmark relations                 | Results publication order, Saved membership/order and canonical save state                                                                                                   |
 | Message bookmarks and saved labels                          | Saved membership, save time, labels and Saved search; old identities remain removable when a relation changes identity                                                       |

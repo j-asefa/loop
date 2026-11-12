@@ -387,8 +387,8 @@ function DataPreview({ value }: { value: any }) {
   return <p>{previewValue(value)}</p>;
 }
 export function resultPresentation(
-  item: Pick<ResultCard, "title" | "kind" | "content">,
-  display: Pick<ResultCard["display"], "partial" | "imported" | "tool">,
+  item: Pick<ResultCard, "title" | "kind" | "content" | "role">,
+  display: Pick<ResultCard["display"], "tool">,
 ) {
   const tool = display.tool || undefined;
   const web = webPreview(
@@ -398,9 +398,8 @@ export function resultPresentation(
   );
   return {
     web,
-    eyebrow: display.partial
-      ? "Partial output"
-      : display.imported
+    eyebrow:
+      item.role === "import"
         ? "Imported history"
         : web
           ? web.search
@@ -425,6 +424,7 @@ export function ResultPreview({ card }: { card: ResultCard }) {
     title: card.title,
     kind: card.kind,
     content: card.content,
+    role: card.role,
   };
   return (
     <ArtifactPreview
@@ -441,9 +441,11 @@ function ArtifactPreview({
   web,
   display,
 }: {
-  item: Pick<Artifact, "id" | "conversation_id" | "title" | "kind" | "content">;
+  item: Pick<
+    Artifact,
+    "id" | "conversation_id" | "title" | "kind" | "content" | "role"
+  >;
   display: {
-    uploaded?: boolean;
     mime?: string | null;
     filename?: string | null;
     download?: string | null;
@@ -462,7 +464,7 @@ function ArtifactPreview({
         )
       : display.download;
   if (
-    display.uploaded &&
+    (item.role === "file" || item.role === "upload") &&
     imageFile &&
     ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
       display.mime || "",
@@ -599,8 +601,6 @@ export function ArtifactCard({
   const meta = parse<any>(item.metadata, {});
   const modelName = model || runModelName(meta, connections);
   const presentation = resultPresentation(item, {
-    partial: !!meta.partial,
-    imported: meta.origin === "import",
     tool: meta.tool || null,
   });
   const web = presentation.web;
@@ -723,7 +723,6 @@ export function ArtifactCard({
             <ArtifactPreview
               item={item}
               display={{
-                uploaded: meta.uploaded,
                 mime: meta.mime,
                 filename: meta.name,
               }}

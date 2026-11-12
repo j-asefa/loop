@@ -196,6 +196,7 @@ it.each([
       id: "a:presentation",
       type: "result",
       title: title!,
+      role: "answer",
       kind: kind! as ResultCard["kind"],
       content: JSON.stringify({
         results: [
@@ -234,9 +235,6 @@ it.each([
       display: {
         model: null,
         tool,
-        partial: false,
-        imported: false,
-        uploaded: false,
         mime: null,
         filename: null,
         size: null,

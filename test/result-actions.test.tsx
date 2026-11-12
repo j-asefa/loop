@@ -20,6 +20,7 @@ const card: ResultCard = {
   type: "result",
   title: "Answer",
   kind: "markdown",
+  role: "answer",
   content: "Stored answer",
   source: {
     artifact_id: "result",
@@ -48,9 +49,6 @@ const card: ResultCard = {
   display: {
     model: null,
     tool: null,
-    partial: false,
-    imported: false,
-    uploaded: false,
     mime: null,
     filename: null,
     size: null,

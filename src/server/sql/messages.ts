@@ -844,7 +844,7 @@ export function cards(
   return cardsStatement(
     `${projects}
     SELECT ${source}.id,${source}.owner_id,${source}.content,${source}.metadata,${source}.created_at,
-      NULL updated_at,NULL title,NULL kind,NULL version,m.role,
+      NULL updated_at,NULL title,NULL kind,NULL artifact_role,NULL version,m.role,
       c.id conversation_id,c.title conversation_title,r.id run_id,${folder} folder_id,
       project.id project_id,project.name project_name,c.team_id,
       g.id agent_id,g.name agent_name,g.provider,

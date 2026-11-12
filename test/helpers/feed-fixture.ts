@@ -320,10 +320,15 @@ function seed(db: import("better-sqlite3").Database) {
 
   // Done: an API answer (saved, with a tool trace) and a native answer.
   finished("done-api", "agent-api", { pinned: true });
-  artifact("a-done-api-tool", "c-done-api", "r-done-api", "agent-api", "[]", {
-    tool: "search",
-    connectionId: "mcp-1",
-  });
+  artifact(
+    "a-done-api-tool",
+    "c-done-api",
+    "r-done-api",
+    "agent-api",
+    "[]",
+    { tool: "search", connectionId: "mcp-1" },
+    { role: "trace" },
+  );
   finished("done-native", "agent-native", {
     native: true,
     payload: { connectionId: "conn-native", model: "fixture-model" },

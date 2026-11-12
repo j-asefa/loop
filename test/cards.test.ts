@@ -98,8 +98,8 @@ function result(
     agent: owner,
     conversation: owner,
     folder: owner,
-    ...data,
     role: "answer",
+    ...data,
   });
 }
 function all(owner: string, options: CardSelection, limit = 3) {
@@ -174,6 +174,7 @@ it("shares full cards across Results, Saved and detail without leaking internal 
   const file = result("contract", {
     kind: "file",
     metadata: { uploaded: true, name: "notes.txt" },
+    role: "file",
   });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(file);
   expect(listCards("contract", {}).items).toHaveLength(0);
@@ -278,12 +279,18 @@ it("invalidates both bookmark identities when a relationship changes", () => {
   expect(cache.items.size).toBe(0);
 });
 
-it("keeps completed historical results and excludes partial, running, failed, tool and incorrect native checkpoints", () => {
+it("keeps completed historical results and excludes running, failed, tool and incorrect native checkpoints", () => {
   setup("eligibility");
   const first = result("eligibility"),
     second = result("eligibility");
-  result("eligibility", { metadata: { partial: true } });
-  result("eligibility", { metadata: { tool: "fixture" } });
+  // A tool artifact belongs to a run; its trace role keeps it out of results.
+  const toolRun = message("eligibility", "eligibility-tool");
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(toolRun);
+  result("eligibility", {
+    run: toolRun,
+    metadata: { tool: "fixture" },
+    role: "trace",
+  });
   for (const state of ["running", "failed", "completed"]) {
     const run = message("eligibility", "eligibility-" + state);
     db.prepare("UPDATE runs SET state=? WHERE id=?").run(state, run);
@@ -639,8 +646,7 @@ it("refreshes default Workspace context on creation and advances through irrelev
     expect(results.items.get("a:" + id)?.card.context.project_name).toBe(
       "Renamed Workspace",
     );
-  for (let i = 0; i < 211; i++)
-    result("default", { metadata: { partial: true } });
+  for (let i = 0; i < 211; i++) result("default");
   expectCurrent("default", { view: "sent" }, cache);
   expect(cache.items.size).toBe(1);
   expect(
@@ -1081,8 +1087,14 @@ it("migrates existing bookmarks/labels and preserves revision numbers and truthf
 it("reconciles typed reader file links and display metadata without streaming body revisions", () => {
   setup("reader");
   const id = result("reader", {
-    metadata: { uploaded: true, partial: true, rawObjectId: "reader-object" },
+    metadata: {
+      uploaded: true,
+      rawObjectId: "reader-object",
+      messageId: "m-reader",
+    },
+    role: "file",
   });
+  message("reader", "m-reader", "assistant", { partial: true });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
   const cache = all("reader", { view: "saved" });
   const display = () => {
@@ -1141,14 +1153,23 @@ it("reconciles typed reader file links and display metadata without streaming bo
   db.prepare("UPDATE artifacts SET content='A partial chunk' WHERE id=?").run(
     id,
   );
+  // The linked message is still partial: the churn guard suppresses body
+  // chunk revisions, as it did with the artifact's own partial flag (D4).
   expect(
     cardChanges("reader", { view: "saved", after: revision }).items,
   ).toEqual([]);
   db.prepare(
-    "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id=?",
+    "UPDATE messages SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id='m-reader'",
+  ).run();
+  db.prepare(
+    "UPDATE artifacts SET content='A partial chunk done' WHERE id=?",
   ).run(id);
   expectCurrent("reader", { view: "saved" }, cache);
-  expect(cache.items.get("a:" + id)!.card.content).toBe("A partial chunk");
+  expect(cache.items.get("a:" + id)!.card.content).toBe("A partial chunk done");
+  expect(
+    cardChanges("reader", { view: "saved", after: revision }).items[0].card
+      .content,
+  ).toContain("chunk");
 });
 
 it("keeps reusable prompt snippets out of content collections while exposing their conversion to results", () => {
@@ -1290,10 +1311,11 @@ it("keeps provider model aliases owner-scoped and reconciles their catalog depen
 it("invalidates partial Saved display changes without revising every body chunk", () => {
   const owner = "partial-display";
   setup(owner);
-  const id = result(owner, { metadata: { partial: true } });
+  const id = result(owner, { metadata: { messageId: "m-partial" } });
+  message(owner, "m-partial", "assistant", { partial: true });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
   let revision = listCards(owner, { view: "saved" }).revision;
-  const metadata: Record<string, unknown> = { partial: true };
+  const metadata: Record<string, unknown> = { messageId: "m-partial" };
   for (const [key, value] of Object.entries({
     model: "alias",
     resolvedModel: "recorded",
@@ -1324,8 +1346,11 @@ it("invalidates partial Saved display changes without revising every body chunk"
     ).toEqual([]);
   }
   db.prepare(
-    "UPDATE artifacts SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id=?",
-  ).run(id);
+    "UPDATE messages SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id='m-partial'",
+  ).run();
+  db.prepare("UPDATE artifacts SET content=content||' done' WHERE id=?").run(
+    id,
+  );
   expect(
     cardChanges(owner, { view: "saved", after: revision }).items[0].card
       .content,

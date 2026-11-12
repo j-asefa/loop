@@ -99,7 +99,27 @@ it("honors pause at response boundary and cancellation while retaining partial o
     .prepare("SELECT content,metadata FROM artifacts WHERE run_id=?")
     .get(cancelled.id) as any;
   expect(artifact.content).toBe("Saved partial. ");
-  expect(JSON.parse(artifact.metadata).partial).toBe(true);
+  // The artifact's own metadata declares no partial (D4); the linked message
+  // keeps the flag, so the cancellation preserved the streamed output as a
+  // partial message.
+  expect(JSON.parse(artifact.metadata).partial).toBeUndefined();
+  expect(
+    (
+      db
+        .prepare(
+          "SELECT json_extract(metadata,'$.partial') p FROM messages WHERE id=?",
+        )
+        .get(
+          (
+            db
+              .prepare(
+                "SELECT message_id FROM agent_checkpoints WHERE run_id=?",
+              )
+              .get(cancelled.id) as { message_id: string }
+          ).message_id,
+        ) as { p: number }
+    ).p,
+  ).toBe(1);
 });
 it("allows only one concurrent cross-user claim of a normalized name", async () => {
   const accounts = [account("race-a"), account("race-b")];

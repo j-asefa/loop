@@ -740,7 +740,7 @@ export function useAppController() {
       if (!current()) return;
       const target = resultTarget(original);
       const imported = original.card
-        ? original.card.display.imported
+        ? original.card.role === "import"
         : parse<any>(original.metadata, {}).origin === "import";
       if (!target.agent_id || !target.conversation_id || imported)
         return void open(original);

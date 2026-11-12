@@ -11,6 +11,7 @@ import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { assertEffect } from "./effect-authority.js";
 import {
+  ArtifactMetadata,
   MessageMetadata,
   readRunFolder,
   readRunReviewId,
@@ -526,7 +527,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         conversation: run.conversation_id,
         run: run.id,
         folder: snapshot.folderId,
-        metadata: { ...snapshot, messageId, partial: true },
+        metadata: { ...snapshot, messageId },
         role: "answer",
       });
       agentCheckpointsQueries.insert(
@@ -568,7 +569,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
       metadata,
       cp.message_id,
     );
-    artifactsQueries.streamInitial(db, output, metadata, now(), cp.artifact_id);
+    // The artifact's own metadata declares no partial (D4); the message keeps
+    // its flag for message consumers. The streaming churn guard on artifacts
+    // follows the linked message's flag.
+    artifactsQueries.streamInitial(
+      db,
+      output,
+      JSON.stringify(
+        ArtifactMetadata.parse({ ...snapshot, messageId: cp.message_id }),
+      ),
+      now(),
+      cp.artifact_id,
+    );
     artifactVersionsQueries.updateInitialContent(db, output, cp.artifact_id);
     agentCheckpointsQueries.output(db, output, run.id);
   }).immediate;
