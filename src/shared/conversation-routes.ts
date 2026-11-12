@@ -5,6 +5,7 @@ import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
 import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
+import { NativeDecisionState } from "./native-decision-state.js";
 import {
   PublicRun,
   ConversationPage,
@@ -129,7 +130,7 @@ export const conversationRoutes = {
       commandId: Text.uuid(),
       answer: z.record(Text, z.json()),
     }),
-    response: z.object({ state: Text }),
+    response: z.object({ state: NativeDecisionState }),
   }),
   session: endpoint({
     ...base,

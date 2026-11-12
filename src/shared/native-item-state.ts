@@ -25,10 +25,13 @@ export function normalizeItemStatus(
   status: string | null | undefined,
   completed = false,
 ): NativeItemState {
+  // The activity projector recognises running/waiting/completed/failed only;
+  // both progress spellings must land on "running" so a tool is never
+  // recorded as unknown progress (docs/cards-api.md tool activity).
   switch (status) {
     case "in_progress":
     case "inProgress":
-      return "in_progress";
+      return "running";
     case "running":
       return "running";
     case "waiting":

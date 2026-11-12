@@ -18,67 +18,152 @@ const NAMES = [
 
 // An open string schema: z.string() with optional chained refiners/shorteners,
 // or the Text/text/nullableText/MaybeText aliases with optional/nullable
-// presence modifiers. enum/literal/union/uuid/template-typed fields do not
-// match, so they are not flagged.
-const OPEN = String.raw`(?:z\.string\(\)(?:\s*\.\s*(?:trim|min|max|optional|nullable|nullish|catch|default)\([^)]*\))*|Text(?:\s*\.\s*(?:optional|nullable|nullish)\(\))?|text(?:\s*\.\s*(?:optional|nullable)\(\))?|nullableText|MaybeText(?:\s*\.\s*(?:optional|nullable)\(\))?)`;
+// presence and refined (Text.min(1), Text.max(300)) modifiers. Declarations
+// are matched inline (z.strictObject({ state: z.string() })) as well as on
+// their own line. enum/literal/union/uuid/template-typed fields do not match,
+// so they are not flagged.
+const OPEN = String.raw`z\.string\(\)(?:\s*\.\s*(?:trim|min|max|optional|nullable|nullish|catch|default)\([^)]*\))*|Text(?:\s*\.\s*(?:min|max|trim|optional|nullable|nullish)\([^)]*\))*|text(?:\s*\.\s*(?:min|max|trim|optional|nullable)\([^)]*\))*|nullableText(?:\.\s*(?:optional|nullable)\(\))?|MaybeText(?:\.\s*(?:optional|nullable)\(\))?`;
 const LINE = new RegExp(
-  `^\\s*(?:[A-Za-z_]+\\.)?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\\s*:\\s*${OPEN}\\s*[,;]?$`,
+  String.raw`(?:[A-Za-z_][A-Za-z0-9_]*\.)?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\s*:\s*(${OPEN})\s*(?:[,;}\]])`,
+  "g",
 );
 
-// Exemptions: file, field, reason. The list only shrinks.
-const EXEMPTIONS = new Map([
+type Exemption = { count: number; reason: string };
+
+// Exemptions: file:field, expected occurrence count, reason. The list only
+// shrinks, and each exemption covers a fixed number of declarations, so a new
+// `phase: Text` elsewhere in the same file cannot inherit it (D5).
+const EXPLICIT_EXEMPTIONS: Array<[string, Exemption]> = [
   [
     "agent-activities.ts:origin",
-    "harness producer origin string (broker/loop_plan/codex/adapter ids)",
+    {
+      count: 1,
+      reason:
+        "harness producer origin string (broker/loop_plan/codex/adapter ids)",
+    },
   ],
-  ["agent-contract-schemas.ts:kind", "harness-defined command kinds"],
-  ["agent-contract-schemas.ts:origin", "harness command source origin text"],
   [
-    "library-contract-schemas.ts:kind",
-    "search document discriminator spanning message and artifact kinds",
+    "agent-contract-schemas.ts:kind",
+    {
+      count: 2,
+      reason: "harness-defined command kinds and diagnostics entry kinds",
+    },
+  ],
+  [
+    "agent-contract-schemas.ts:origin",
+    { count: 1, reason: "harness command source origin text" },
+  ],
+  [
+    "companion-contract-schemas.ts:state",
+    {
+      count: 1,
+      reason:
+        "companion-reported native history entry state (no in-repo producer)",
+    },
   ],
   [
     "execution-authority.ts:state",
-    "native answer reply state spans stored transitions and harness-confirmed live stages",
+    {
+      count: 1,
+      reason:
+        "native answer reply state spans stored transitions and harness-confirmed live stages",
+    },
   ],
-  ["execution-authority.ts:origin", "execution request origin text"],
-  ["native-commands.ts:kind", "harness-defined command kinds"],
-  ["native-commands.ts:origin", "command source origin text"],
+  [
+    "execution-authority.ts:origin",
+    { count: 1, reason: "execution request origin text" },
+  ],
+  [
+    "library-contract-schemas.ts:kind",
+    {
+      count: 1,
+      reason:
+        "search document discriminator spanning message and artifact kinds",
+    },
+  ],
+  [
+    "mcp-contract-schemas.ts:kind",
+    {
+      count: 1,
+      reason:
+        "agent source transport kind from wire discovery; local entries have none",
+    },
+  ],
+  [
+    "native-commands.ts:kind",
+    { count: 1, reason: "harness-defined command kinds" },
+  ],
+  [
+    "native-commands.ts:origin",
+    { count: 1, reason: "command source origin text" },
+  ],
   [
     "session-controls.ts:state",
-    "companion-reported session-controls state (no in-repo producer)",
+    {
+      count: 1,
+      reason: "companion-reported session-controls state (no in-repo producer)",
+    },
   ],
   [
     "social-contract-schemas.ts:kind",
-    "social feed source kind from the catalog",
+    { count: 1, reason: "social feed source kind from the catalog" },
   ],
-  ["workspace-events.ts:phase", "run failure phase free text"],
+  [
+    "workspace-events.ts:phase",
+    { count: 1, reason: "run failure phase free text" },
+  ],
+];
+
+const EXEMPTIONS = new Map<string, Exemption>([
+  ...EXPLICIT_EXEMPTIONS,
+  // Fleet files are removed with the fleet feature; until then every field in
+  // them is exempt (count is enforced, disappearance is not).
   ...readdirSync("src/shared")
     .filter((file) => file.startsWith("fleet-"))
     .flatMap((file) =>
       NAMES.map(
-        (name) => [`${file}:${name}`, "fleet removal pending"] as const,
+        (name) =>
+          [
+            `${file}:${name}`,
+            { count: 1, reason: "fleet removal pending" },
+          ] as const,
       ),
     ),
 ]);
 
 it("keeps discriminating fields in src/shared as closed sets", () => {
-  const failures: string[] = [];
+  const seen = new Map<string, string[]>();
   for (const file of readdirSync("src/shared").filter((f) =>
     f.endsWith(".ts"),
   )) {
     const text = readFileSync("src/shared/" + file, "utf8");
     for (const line of text.split("\n")) {
-      const match = LINE.exec(line);
-      if (!match) continue;
       // The quoted property name (e.g. "connection.status"), or the bare name.
       // Only properties whose name is one of the discriminating fields count.
-      const field = match[1];
-      if (!field || !NAMES.includes(field)) continue;
-      const key = `${file}:${field}`;
-      if (EXEMPTIONS.has(key)) continue;
-      failures.push(`${key} :: ${line.trim()}`);
+      for (const match of line.matchAll(LINE)) {
+        const field = match[1];
+        if (!field || !NAMES.includes(field)) continue;
+        const key = `${file}:${field}`;
+        const list = seen.get(key) ?? [];
+        list.push(`${key} :: ${line.trim()}`);
+        seen.set(key, list);
+      }
     }
+  }
+  const failures: string[] = [];
+  for (const [key, lines] of seen) {
+    const allowed = EXEMPTIONS.get(key)?.count ?? 0;
+    if (lines.length === allowed) continue;
+    failures.push(
+      `${key} (${lines.length} match${lines.length === 1 ? "" : "es"}, ` +
+        `${allowed} allowed):\n` +
+        lines.map((l) => `  ${l}`).join("\n"),
+    );
+  }
+  // An explicit exemption whose declaration disappeared is a sign to review
+  // it (D5); the fleet wildcard only enforces counts.
+  for (const [key] of EXPLICIT_EXEMPTIONS) {
+    if (!seen.has(key)) failures.push(`${key} (exempted but not found)`);
   }
   expect(
     failures,

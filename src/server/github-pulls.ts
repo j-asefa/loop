@@ -57,6 +57,7 @@ import {
   type ReviewDecision,
 } from "../shared/pull-requests.js";
 import type { ConversationPull } from "../shared/conversation-pulls.js";
+import { z } from "zod";
 
 // The Pull requests screen reads GitHub directly with your official GitHub
 // connection, so you can find, read and act on pull requests without asking
@@ -966,7 +967,11 @@ routes.on(workspaceApi.githubPullList, async (req, res) => {
   );
 });
 routes.on(workspaceApi.githubPullDetail, async (req, res) =>
-  res.json(await detail(res.locals.owner, req.params)),
+  res.json(
+    (await detail(res.locals.owner, req.params)) as z.input<
+      typeof workspaceApi.githubPullDetail.response
+    >,
+  ),
 );
 routes.on(workspaceApi.githubPullFiles, async (req, res) =>
   res.json(await files(res.locals.owner, req.params, req.query.head)),

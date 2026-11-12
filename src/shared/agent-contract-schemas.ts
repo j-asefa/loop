@@ -177,13 +177,26 @@ export const PublicPiConfiguration = z.object({
     decision: Text,
     fingerprint: Text,
     paths: z.array(
-      z.object({ path: Text, kind: Text, size: z.number().optional() }),
+      z.object({
+        path: Text,
+        kind: z.enum(["file", "directory"]),
+        size: z.number().optional(),
+      }),
     ),
     override: z.boolean().optional(),
   }),
   packages: z.array(PublicPiPackage),
   instructions: z.array(
-    z.object({ path: Text, role: Text, scope: Text, effective: z.boolean() }),
+    z.object({
+      path: Text,
+      role: z.enum([
+        "Replace system prompt",
+        "Append system prompt",
+        "Context",
+      ]),
+      scope: Text,
+      effective: z.boolean(),
+    }),
   ),
 });
 export const PublicPiMutation = PublicPiConfiguration.extend({

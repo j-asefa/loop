@@ -798,7 +798,8 @@ it("persists native tool items and deltas as paged activities across reloads and
 });
 
 it("normalizes provider item statuses to the closed set", () => {
-  expect(normalizeItemStatus("inProgress")).toBe("in_progress");
+  expect(normalizeItemStatus("inProgress")).toBe("running");
+  expect(normalizeItemStatus("in_progress")).toBe("running");
   expect(normalizeItemStatus("awaiting-input")).toBe("waiting");
   expect(normalizeItemStatus("rejected")).toBe("declined");
   expect(normalizeItemStatus("done")).toBe("completed");

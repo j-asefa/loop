@@ -195,11 +195,11 @@ routes.on(
   async (req, res) => {
     const d = req.body;
     res.json(
-      await executionRequest(
+      (await executionRequest(
         "native.answer",
         { decisionId: String(req.params.id), answer: d.answer },
         { owner: res.locals.owner, commandId: d.commandId },
-      ),
+      )) as z.input<typeof workspaceApi.nativeAnswer.response>,
     );
   },
   { tokenWrite: nativeAnswerTokenWrite },

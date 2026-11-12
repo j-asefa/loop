@@ -111,7 +111,16 @@ export const PublicPullDetail = PublicPullItem.extend({
     }),
   ),
   requested: z.array(Text),
-  reviews: z.array(PublicComment.extend({ state: Text })),
+  reviews: z.array(
+    PublicComment.extend({
+      state: z.enum([
+        "approved",
+        "changes_requested",
+        "commented",
+        "dismissed",
+      ]),
+    }),
+  ),
   reviewsTotal: z.number(),
   reviewsOmitted: z.boolean(),
   checkRuns: z.array(
