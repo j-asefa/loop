@@ -17,7 +17,7 @@ function agent(id: string, name: string): Agent {
   };
 }
 
-function run(agentId: string, state: string, created_at: number): Run {
+function run(agentId: string, state: Run["state"], created_at: number): Run {
   return {
     id: `${agentId}-${created_at}`,
     agent_id: agentId,

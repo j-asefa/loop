@@ -34,25 +34,39 @@ export type RunState = keyof typeof RUN_TRANSITIONS;
 export const RunState = z.enum(
   Object.keys(RUN_TRANSITIONS) as [RunState, ...RunState[]],
 );
+// The projections show unleased running/pausing work as waiting_children; it
+// is a display state, never stored, but it is a value the public schemas carry.
+export const RunDisplayState = z.union([
+  RunState,
+  z.literal("waiting_children"),
+]);
+export type RunDisplayState = z.infer<typeof RunDisplayState>;
+
+// A predicate for stringly rows/events: the arrays stay typed, call sites that
+// hold a validated-but-wide value (DB rows, event types) use this guard.
+export function isTerminalRunState(state: string): boolean {
+  return (TERMINAL_RUN_STATES as readonly string[]).includes(state);
+}
+
 export function legalRunTransition(from: RunState, to: RunState) {
   const destinations: readonly RunState[] = RUN_TRANSITIONS[from];
   return destinations.includes(to);
 }
 
 // Interrupted ends an execution attempt even though an explicit retry is legal.
-export const TERMINAL_RUN_STATES: readonly string[] = [
+export const TERMINAL_RUN_STATES: readonly RunState[] = [
   "completed",
   "failed",
   "interrupted",
   "cancelled",
 ];
-export const STARTED_RUN_STATES: readonly string[] = [
+export const STARTED_RUN_STATES: readonly RunState[] = [
   "running",
   "pausing",
   "paused",
   "awaiting_approval",
 ];
-export const ACTIVE_RUN_STATES: readonly string[] = [
+export const ACTIVE_RUN_STATES: readonly RunState[] = [
   "queued",
   ...STARTED_RUN_STATES,
 ];

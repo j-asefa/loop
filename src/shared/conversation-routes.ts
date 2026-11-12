@@ -1,5 +1,6 @@
 import { ConversationPulls } from "./conversation-pulls.js";
 import { z } from "zod";
+import { ApprovalDecision } from "./approvals.js";
 import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
@@ -102,7 +103,7 @@ export const conversationRoutes = {
     path: "/approvals/:id",
     params: Id,
     body: z.object({
-      decision: z.enum(["approve", "reject"]),
+      decision: ApprovalDecision,
       idempotencyKey: Text.min(8).max(150).optional(),
     }),
     response: Ok,

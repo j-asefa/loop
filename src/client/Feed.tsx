@@ -2,8 +2,8 @@ import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
 import {
   WORKING_RUN_DISPLAY_STATES,
-  TERMINAL_RUN_STATES,
   PENDING_RUN_DISPLAY_STATES,
+  isTerminalRunState,
 } from "../shared/run-state";
 import { lastVisit, recordVisit } from "./deviceHistory";
 import { proseEntry } from "./textEntry";
@@ -3243,7 +3243,7 @@ export function Feed({
         icon: <X size={20} />,
         onSelect: () => void runAction(item.run!.id, "dismiss", source),
       });
-    if (state && !TERMINAL_RUN_STATES.includes(state))
+    if (state && !isTerminalRunState(state))
       actions.push({
         id: "cancel",
         label:

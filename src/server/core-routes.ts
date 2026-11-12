@@ -754,7 +754,7 @@ routes.on(
       ...returned,
       resumed,
       latest_agent_message: latestAgentMessage(res.locals.owner, req.params.id),
-    });
+    } as z.input<typeof workspaceApi.conversation.response>);
   },
   { wrap: projectionSnapshot },
 );

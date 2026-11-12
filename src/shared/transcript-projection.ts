@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RunDisplayState } from "./run-state.js";
 
 const Count = z.number().int().nonnegative().safe();
 export const ProjectedMessage = z.object({
@@ -13,7 +14,7 @@ export const ProjectedMessage = z.object({
   created_at: z.number().finite(),
   revision: Count,
   cursor: z.tuple([Count, Count, Count]),
-  run_state: z.string().nullable().optional(),
+  run_state: RunDisplayState.nullable().optional(),
   run_error: z.string().nullable().optional(),
   run_checkout: z.string().nullable().optional(),
   run_verification: z.string().nullable().optional(),

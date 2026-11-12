@@ -1,4 +1,4 @@
-import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
+import { isTerminalRunState } from "../shared/run-state.js";
 import * as delegationsQueries from "./sql/delegations.js";
 import * as runsQueries from "./sql/runs.js";
 import { changes, db } from "./db.js";
@@ -74,7 +74,7 @@ function subscribe(run: Identity) {
       events.some(
         (event) =>
           event.run_id &&
-          TERMINAL_RUN_STATES.includes(event.type) &&
+          isTerminalRunState(event.type) &&
           delegationsQueries.isChild(db, run.id, event.run_id),
       )
     )

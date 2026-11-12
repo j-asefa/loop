@@ -1989,9 +1989,32 @@
                         "maxItems": 3
                       },
                       "run_state": {
-                        "type": [
-                          "string",
-                          "null"
+                        "anyOf": [
+                          {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "queued",
+                                  "running",
+                                  "pausing",
+                                  "paused",
+                                  "awaiting_approval",
+                                  "interrupted",
+                                  "completed",
+                                  "failed",
+                                  "cancelled"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "const": "waiting_children"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
                         ]
                       },
                       "run_error": {

@@ -2,6 +2,7 @@ import { PullStateSchema } from "./pull-state.js";
 import { VerificationSummarySchema } from "./verification.js";
 import { CheckoutSummarySchema } from "./checkout.js";
 import { z } from "zod";
+import { RunDisplayState } from "./run-state.js";
 
 const text = z.string().nullable();
 const time = z.number().nonnegative();
@@ -34,7 +35,7 @@ export const DoneDisplaySchema = z.object({
   run: z
     .object({
       id: z.string(),
-      state: z.string(),
+      state: RunDisplayState,
       error: text,
       input: z.string(),
       connection_id: text,

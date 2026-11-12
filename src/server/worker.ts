@@ -4,7 +4,7 @@ import {
 } from "./worker-maintenance.js";
 import { reportBackgroundFailure } from "./background-failure.js";
 import { RUN_HEARTBEAT_MS } from "./run-lease.js";
-import { TERMINAL_RUN_STATES } from "../shared/run-state.js";
+import { isTerminalRunState } from "../shared/run-state.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as importsQueries from "./sql/imports.js";
@@ -208,7 +208,7 @@ export function startWorker() {
       events.some(
         ({ type }) =>
           ["queued", "running"].includes(type) ||
-          TERMINAL_RUN_STATES.includes(type) ||
+          isTerminalRunState(type) ||
           type.startsWith("queue."),
       )
     )

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ApprovalDecision } from "./approvals.js";
 import {
   ProjectedMessage,
   MessageAppend,
@@ -250,7 +251,7 @@ const Payloads = {
   "approval.requested": z.strictObject({ approvalId: Id, request: Json }),
   "approval.decided": z.strictObject({
     approvalId: Id,
-    decision: z.enum(["approve", "reject"]),
+    decision: ApprovalDecision,
     origin: z.literal("loop"),
   }),
   "tool.failed": Tool,
