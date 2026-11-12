@@ -3,6 +3,8 @@ import { VerificationSummarySchema } from "./verification.js";
 import { CheckoutSummarySchema } from "./checkout.js";
 import { z } from "zod";
 import { RunDisplayState } from "./run-state.js";
+import { ConversationOrigin } from "./origins.js";
+import { MessageRole } from "./message-roles.js";
 
 const text = z.string().nullable();
 const time = z.number().nonnegative();
@@ -18,12 +20,12 @@ export const DoneDisplaySchema = z.object({
   project_id: text,
   project_name: text,
   team_id: text,
-  origin: z.string(),
+  origin: ConversationOrigin,
   last_activity_at: time,
   last_message: z
     .object({
       id: z.string(),
-      role: z.string(),
+      role: MessageRole,
       preview: z.string(),
       content: z.string(),
       created_at: time,

@@ -1,3 +1,4 @@
+import { MessageRole } from "../shared/message-roles.js";
 import { downloadLink } from "../shared/workspace-links.js";
 import { DONE_CARD_PREFIX } from "../shared/done-card-id.js";
 import { REVISION_PAGE_ITEMS } from "./pagination.js";
@@ -167,7 +168,12 @@ function toCard(row: Row): Card {
       message_id: messageId,
     }),
   };
-  if (!artifact) return { ...common, type: "message", role: row.role! };
+  if (!artifact)
+    return {
+      ...common,
+      type: "message",
+      role: row.role! as MessageRole,
+    };
   return {
     ...common,
     type: "result",

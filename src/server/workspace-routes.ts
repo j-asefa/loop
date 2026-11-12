@@ -301,7 +301,11 @@ routes.on(workspaceApi.search, async (req, res) => {
   );
 });
 routes.on(workspaceApi.searchStatus, (_req, res) =>
-  res.json(searchStatus(res.locals.owner)),
+  res.json(
+    searchStatus(res.locals.owner) as z.input<
+      typeof workspaceApi.searchStatus.response
+    >,
+  ),
 );
 routes.on(workspaceApi.preferences, (_req, res) =>
   res.json(
@@ -347,7 +351,11 @@ routes.on(
   { middleware: [upload.single("file")] },
 );
 routes.on(workspaceApi.importList, (_req, res) =>
-  res.json(importsQueries.forOwner(db, res.locals.owner)),
+  res.json(
+    importsQueries.forOwner(db, res.locals.owner) as z.input<
+      typeof workspaceApi.importList.response
+    >,
+  ),
 );
 routes.on(workspaceApi.importStart, (req, res) => {
   const job = ownedImport(req.params.id, res.locals.owner);

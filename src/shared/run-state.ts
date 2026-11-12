@@ -44,6 +44,12 @@ export type RunDisplayState = z.infer<typeof RunDisplayState>;
 
 // A predicate for stringly rows/events: the arrays stay typed, call sites that
 // hold a validated-but-wide value (DB rows, event types) use this guard.
+// Run kinds the current build writes: the worker dispatches diagnostic,
+// MCP and import work as runs of their own kind; workflows were removed.
+export const RunKinds = ["agent", "diagnostic", "mcp", "import"] as const;
+export const RunKind = z.enum(RunKinds);
+export type RunKind = z.infer<typeof RunKind>;
+
 export function isTerminalRunState(state: string): boolean {
   return (TERMINAL_RUN_STATES as readonly string[]).includes(state);
 }

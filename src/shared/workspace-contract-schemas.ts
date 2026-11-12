@@ -9,7 +9,10 @@ import { CardTokenSchema } from "./card-token-schemas.js";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
 import { ArtifactRoleSchema } from "./artifact-role.js";
-import { RunDisplayState } from "./run-state.js";
+import { RunDisplayState, RunKind } from "./run-state.js";
+import { MessageRole } from "./message-roles.js";
+import { AgentOrigin, ConversationOrigin } from "./origins.js";
+import { ConnectionStatus } from "./connection-status.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 
@@ -24,7 +27,7 @@ export const PublicAgent = z.object({
   effort: MaybeText.optional(),
   instructions: Text,
   folder_id: MaybeText.optional(),
-  origin: Text,
+  origin: AgentOrigin,
   retired_at: Time.nullable().optional(),
   created_at: Time,
 });
@@ -32,7 +35,7 @@ export const PublicConnection = z.object({
   id: Text,
   provider: Provider,
   label: Text,
-  status: Text,
+  status: ConnectionStatus,
   models: Text,
   metadata: Text,
 });
@@ -68,7 +71,7 @@ export const PublicMessage = z.object({
   owner_id: Text,
   conversation_id: Text,
   run_id: MaybeText,
-  role: z.enum(["user", "assistant", "system", "tool"]),
+  role: MessageRole,
   content: Text,
   metadata: Text,
   created_at: Time,
@@ -110,7 +113,7 @@ export const PublicRun = z.object({
   owner_id: Text.optional(),
   agent_id: MaybeText,
   conversation_id: MaybeText,
-  kind: Text.optional(),
+  kind: RunKind.optional(),
   input: Text,
   state: RunDisplayState,
   idempotency_key: Text.optional(),
@@ -135,7 +138,7 @@ export const PublicConversation = z.object({
   owner_id: Text,
   agent_id: MaybeText,
   title: Text,
-  origin: Text,
+  origin: ConversationOrigin,
   external_id: MaybeText,
   created_at: Time,
   team_id: MaybeText,

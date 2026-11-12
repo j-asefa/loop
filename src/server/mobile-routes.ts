@@ -139,7 +139,11 @@ routes.on(workspaceApi.replyState, (req, res) =>
   res.json(setReplyState(res.locals.owner, req.params.id, req.body)),
 );
 routes.on(workspaceApi.feedAway, (req, res) =>
-  res.json(awaySummary(res.locals.owner, req.query.since)),
+  res.json(
+    awaySummary(res.locals.owner, req.query.since) as z.input<
+      typeof workspaceApi.feedAway.response
+    >,
+  ),
 );
 routes.on(workspaceApi.messageSave, (req, res) =>
   res.json(setSaved(res.locals.owner, req.params.id, true)),
@@ -186,7 +190,9 @@ routes.on(workspaceApi.projectSummaries, (_req, res) =>
 );
 routes.on(workspaceApi.scheduledSendCreate, (req, res) => {
   const { created, row } = createScheduledSend(res.locals.owner, req.body);
-  res.status(created ? 201 : 200).json(row);
+  res
+    .status(created ? 201 : 200)
+    .json(row as z.input<typeof workspaceApi.scheduledSendCreate.response>);
 });
 routes.on(workspaceApi.scheduledSendList, (req, res) =>
   res.json(
@@ -198,14 +204,25 @@ routes.on(workspaceApi.scheduledSendList, (req, res) =>
   ),
 );
 routes.on(workspaceApi.scheduledSendCancel, (req, res) =>
-  res.json(cancelScheduledSend(res.locals.owner, req.params.id)),
+  res.json(
+    cancelScheduledSend(res.locals.owner, req.params.id) as z.input<
+      typeof workspaceApi.scheduledSendCancel.response
+    >,
+  ),
 );
 routes.on(workspaceApi.scheduledSendUpdate, (req, res) =>
-  res.json(editScheduledSend(res.locals.owner, req.params.id, req.body)),
+  res.json(
+    editScheduledSend(res.locals.owner, req.params.id, req.body) as z.input<
+      typeof workspaceApi.scheduledSendUpdate.response
+    >,
+  ),
 );
 routes.on(workspaceApi.scheduledSendRetry, (req, res) => {
   const result = retryScheduledSend(res.locals.owner, req.params.id);
-  res.json({ ...result, run: result.run ? runResponse(result.run) : null });
+  res.json({
+    ...result,
+    run: result.run ? runResponse(result.run) : null,
+  } as z.input<typeof workspaceApi.scheduledSendRetry.response>);
 });
 routes.on(
   workspaceApi.runReorder,
