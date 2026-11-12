@@ -379,8 +379,9 @@ mail; ineligible results retain their metadata until source deletion.
 
 [`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
 pending, unquoted}` per message (keyed by its signature; settled entries are pruned toward 20 per thread, uncertain entries are never evicted), stored in an owner/source/thread-scoped durable store
-([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), backed by
-`localStorage`), so a pending send survives a killed home-screen app, a new
+([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), using the shared
+[`pendingCommandStorage.ts`](../src/client/pendingCommandStorage.ts) JSON adapter
+and Web Locks helper, backed by `localStorage`), so a pending send survives a killed home-screen app, a new
 tab and auth expiry (Session clears `sessionStorage`, never these receipts).
 Empty → pending (new key) → cleared on 2xx, refused (key kept) on a Loop
 response below 500, unchanged on 5xx or no response. A pending receipt for
