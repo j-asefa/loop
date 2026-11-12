@@ -31,7 +31,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
       "INSERT INTO message_bookmarks(message_id,owner_id,created_at) VALUES('assistant',?,3)",
     ).run(owner);
     const artifact = db.prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,content,metadata,pinned,archived,feed_hidden,created_at,updated_at) VALUES(?,?,'agent','thread',?,'markdown','Answer',?,?,?,?,1,1)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,role,content,metadata,pinned,archived,feed_hidden,created_at,updated_at) VALUES(?,?,'agent','thread',?,'markdown','answer','Answer',?,?,?,?,1,1)",
     );
     for (const [id, meta, pin, archive, hidden] of [
       ["result", "{}", 0, 0, 0],
@@ -43,7 +43,7 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     ] as const)
       artifact.run(id, owner, id, meta, pin, archive, hidden);
     db.prepare(
-      "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,created_at,updated_at) VALUES('foreign','foreign','Secret','markdown','Secret','{}',1,1)",
+      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,created_at,updated_at) VALUES('foreign','foreign','Secret','markdown','snippet','Secret','{}',1,1)",
     ).run();
     const create = async (scope: TokenScope, name: string = scope) => {
       const response = await request("/api/card-tokens", {
@@ -408,7 +408,7 @@ it("keeps bearer reads bound to the paired owner, whatever owner the request nam
     const other = "another-owner";
     for (const id of [owner, other])
       db.prepare(
-        "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,'markdown',?,1,1)",
+        "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,'markdown','snippet',?,1,1)",
       ).run(id, id, "Owner " + id, "Private body " + id);
     const create = await request("/api/card-tokens", {
       headers: browser,
@@ -576,7 +576,7 @@ it("does not disclose never-readable identities through scoped companion removal
     const headers = { authorization: "Bearer " + secret };
     const start = await (await request("/api/v1/cards", { headers })).json();
     const insert = db.prepare(
-      "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,feed_hidden,created_at,updated_at) VALUES(?,?,'Fixture','markdown','Body',?,?,1,1)",
+      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,feed_hidden,created_at,updated_at) VALUES(?,?,'Fixture','markdown','upload','Body',?,?,1,1)",
     );
     insert.run("private-upload", owner, '{"upload":true}', 0);
     insert.run("never-visible", owner, "{}", 1);

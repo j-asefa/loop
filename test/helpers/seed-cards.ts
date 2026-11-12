@@ -17,7 +17,7 @@ export async function seedCards(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'writer','thread','Prompt','completed','seed',1,1)",
   ).run(owner);
   const result = db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,folder_id,title,kind,content,metadata,pinned,created_at,updated_at) VALUES(?,?,'writer','thread','run','project',?,'markdown',?,'{}',1,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,folder_id,title,kind,role,content,metadata,pinned,created_at,updated_at) VALUES(?,?,'writer','thread','run','project',?,'markdown','answer',?,'{}',1,?,?)",
   );
   const message = db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,'thread','run','user',?,'{\"personal\":true}',?)",

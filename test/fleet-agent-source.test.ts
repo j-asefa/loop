@@ -1081,6 +1081,7 @@ it("streams an owning publication through the download alias without redirects",
     kind: "file",
     content: "fixture",
     metadata: { name: "published.txt", mime: "text/plain" },
+    role: "file",
   });
   const key = `objects/${"a".repeat(64)}/${randomUUID()}/${"b".repeat(64)}`;
   const path = join(process.env.LOOP_DATA_DIR!, key);

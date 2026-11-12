@@ -175,6 +175,7 @@ function finish(run: Run, content: string) {
     run: run.id,
     folder: run.payload.folderId,
     metadata: { messageId: message, preview: true, model: MODEL },
+    role: "answer",
   });
   agentCheckpointsQueries.previewComplete(
     db,

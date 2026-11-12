@@ -100,10 +100,12 @@ it("Saved is only bookmarked full cards, including feed-archived cards, filtered
     agent: manager.id,
     conversation: team.conversation_id,
     folder,
+    role: "answer",
   });
   const unsaved = saveArtifact("owner", {
     title: "Not bookmarked",
     content: "Ordinary automatic result",
+    role: "answer",
   });
   pin(a);
   db.prepare("UPDATE artifacts SET feed_hidden=1 WHERE id=?").run(a);
@@ -135,9 +137,14 @@ it("new bookmarks on old results arrive above loaded pages and unsaving removes 
   const old = saveArtifact("owner", {
     title: "Old card",
     content: "Older result",
+    role: "answer",
   });
   const ids = Array.from({ length: 45 }, (_, i) =>
-    saveArtifact("owner", { title: "Saved " + i, content: "Full result" }),
+    saveArtifact("owner", {
+      title: "Saved " + i,
+      content: "Full result",
+      role: "answer",
+    }),
   );
   ids.forEach((value) => pin(value));
   const first = (await api("/results?saved=1")).data;
@@ -282,6 +289,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
     title: "Before subscription",
     content: "History",
     agent: a.id,
+    role: "answer",
   });
   const sub = makeSubscription();
   await api("/notifications/subscriptions", sub);
@@ -301,6 +309,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
     conversation: run.conversation_id,
     run: run.id,
     metadata: { messageId: "answer-1" },
+    role: "answer",
   });
   saveArtifact("owner", {
     title: "Tool output",
@@ -308,6 +317,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
     agent: a.id,
     run: run.id,
     metadata: { tool: "exec" },
+    role: "trace",
   });
   saveArtifact("owner", {
     title: "Intermediate file",
@@ -315,7 +325,17 @@ it("only new finished results notify, retries survive failures, expired endpoint
     agent: a.id,
     run: run.id,
     metadata: { uploaded: true },
+    role: "file",
   });
+  const roleOf = (title: string) =>
+    (
+      db.prepare("SELECT role FROM artifacts WHERE title=?").get(title) as {
+        role: string;
+      }
+    ).role;
+  expect(roleOf("Completed task")).toBe("answer");
+  expect(roleOf("Tool output")).toBe("trace");
+  expect(roleOf("Intermediate file")).toBe("file");
   expect(db.prepare("SELECT count(*) n FROM push_deliveries").get()).toEqual({
     n: 0,
   });
@@ -357,6 +377,7 @@ it("only new finished results notify, retries survive failures, expired endpoint
     title: "Later result",
     content: "Later",
     agent: a.id,
+    role: "answer",
   });
   await deliverNotifications(async () => {
     throw { statusCode: 410 };
@@ -591,6 +612,7 @@ it("device notification choices filter every category and discard pending alerts
     agent: a.id,
     run: run.id,
     conversation: run.conversation_id,
+    role: "answer",
   });
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(run.id);
   enqueuePush("owner", "later-preference-test", {

@@ -107,7 +107,7 @@ function fixture() {
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user','Review the workspace',?)",
     ).run(message, owner, cid, run, now());
     db.prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,'Workspace result','markdown','Workspace work is ready.',?,?,?)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,'Workspace result','markdown','answer','Workspace work is ready.',?,?,?)",
     ).run(artifact, owner, agent, cid, run, folder, now(), now());
     return { id: run, conversation: cid, message, artifact };
   };

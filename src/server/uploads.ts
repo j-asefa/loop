@@ -77,6 +77,7 @@ export function uploadFile(
         folder: options.folderId,
         agent: options.agentId,
         metadata,
+        role: "upload",
       });
       return { id: artifact, objectId, name, mime, size: file.buffer.length };
     })

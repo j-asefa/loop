@@ -270,7 +270,7 @@ it("labels saved items and searches Saved by text, title and label, per owner", 
   const unsaved = message(w.owner, cid, "assistant", "Not kept", r);
   const result = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,pinned,created_at,updated_at) VALUES(?,?,?,?,?,'Release plan','markdown','Ship Friday','{}',1,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,pinned,created_at,updated_at) VALUES(?,?,?,?,?,'Release plan','markdown','answer','Ship Friday','{}',1,?,?)",
   ).run(result, w.owner, a.id, cid, r, now(), now());
   await api(w.owner, `/messages/${decision}/saved`, "POST");
   await api(w.owner, `/messages/${other}/saved`, "POST");
@@ -707,7 +707,7 @@ it("searches within a project, including its subfolders and its threads' message
   message(w.owner, outside, "assistant", "Also zebra caching");
   const result = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,folder_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Zebra plan','markdown','zebra outcome','{}',?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,folder_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Zebra plan','markdown','snippet','zebra outcome','{}',?,?)",
   ).run(result, w.owner, a.id, inside, project, now(), now());
   const found = (
     await api(w.owner, `/search?q=zebra&project=${project}`)

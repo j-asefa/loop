@@ -46,6 +46,7 @@ const artifactUpdateRow = z.object({
   run_id: QueryRecords.artifacts.shape.run_id.nullable(),
   title: QueryRecords.artifacts.shape.title.nullable(),
   kind: QueryRecords.artifacts.shape.kind.nullable(),
+  role: QueryRecords.artifacts.shape.role.nullable(),
   content: QueryRecords.artifacts.shape.content.nullable(),
   metadata: QueryRecords.artifacts.shape.metadata.nullable(),
   folder_id: QueryRecords.artifacts.shape.folder_id.nullable(),

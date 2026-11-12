@@ -27,6 +27,7 @@ const draft = (folder?: string) =>
     content: "searchable draft",
     folder,
     metadata: { partial: true },
+    role: "file",
   });
 const version = (artifact: string) =>
   (

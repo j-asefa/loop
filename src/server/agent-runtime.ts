@@ -527,6 +527,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         run: run.id,
         folder: snapshot.folderId,
         metadata: { ...snapshot, messageId, partial: true },
+        role: "answer",
       });
       agentCheckpointsQueries.insert(
         db,

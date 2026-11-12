@@ -280,6 +280,7 @@ beforeAll(async () => {
     kind: "file",
     content: "fixture",
     metadata: { name: "published.txt", mime: "text/plain" },
+    role: "file",
   });
   const key = `objects/${"a".repeat(64)}/${randomUUID()}/${"b".repeat(64)}`;
   publishedPath = join(root, key);

@@ -320,7 +320,7 @@ it("preserves separate files and repeated messages while deduplicating only a li
     a = agent(owner),
     conversation = id();
   const files = ["Invoice January.pdf", "Invoice February.pdf"].map((title) =>
-    saveArtifact(owner, { title, content: "", kind: "file" }),
+    saveArtifact(owner, { title, content: "", kind: "file", role: "file" }),
   );
   expect(
     new Set((await search(owner, "Invoice")).items.map((item) => item.id)),
@@ -350,12 +350,14 @@ it("preserves separate files and repeated messages while deduplicating only a li
     agent: a.id,
     conversation,
     metadata: { messageId: messages[1] },
+    role: "answer",
   });
   const independent = saveArtifact(owner, {
     title: "Separate quasar note",
     content: "Shared quasar answer",
     agent: a.id,
     conversation,
+    role: "answer",
   });
   const expected = [
     "message:" + messages[0],

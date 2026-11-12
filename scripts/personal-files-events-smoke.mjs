@@ -10,7 +10,7 @@ function publish(fixture, first, last) {
       const id = "file-" + n;
       const name = "report-" + String(n).padStart(3, "0") + ".pdf";
       db.prepare(
-        "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,kind,title,content,metadata,created_at,updated_at) VALUES(?,?,'agent','thread','run','file',?,'',?,1,1)",
+        "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,kind,role,title,content,metadata,created_at,updated_at) VALUES(?,?,'agent','thread','run','file','file',?,'',?,1,1)",
       ).run(id, owner, name, JSON.stringify({ name }));
       db.prepare(
         "INSERT INTO artifact_objects VALUES(?,?,'run',?,?,'application/pdf',1,'fixture')",

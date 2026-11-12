@@ -165,7 +165,7 @@ it("keeps the listener available when rejected upgrade clients reset their socke
     expect(frames.at(-1).events.length).toBeGreaterThan(0);
     f.db
       .prepare(
-        "INSERT INTO artifacts(id,owner_id,kind,title,content,created_at,updated_at) VALUES('note',?,'markdown','A saved note','Body',1,1)",
+        "INSERT INTO artifacts(id,owner_id,kind,role,title,content,created_at,updated_at) VALUES('note',?,'markdown','snippet','A saved note','Body',1,1)",
       )
       .run(f.owner);
     await expect
@@ -462,7 +462,7 @@ it("catches up every replay page without a later write even after the process cu
     const before = replay.frames.length;
     f.db
       .prepare(
-        "INSERT INTO artifacts(id,owner_id,kind,title,content,created_at,updated_at) VALUES('revision-only',?,'markdown','Saved note','Body',1,1)",
+        "INSERT INTO artifacts(id,owner_id,kind,role,title,content,created_at,updated_at) VALUES('revision-only',?,'markdown','snippet','Saved note','Body',1,1)",
       )
       .run(f.owner);
     await expect

@@ -583,6 +583,7 @@ export class NativeSessions {
           run: run.id,
           folder: snapshot.folderId,
           metadata: { native: true, partial: true, messageId },
+          role: "answer",
         });
         agentCheckpointsQueries.insertNative(db, run.id, messageId, artifact);
         nativeDispatchQueries.insertUnknown(

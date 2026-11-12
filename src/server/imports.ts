@@ -453,6 +453,7 @@ export async function executeImport(run: Run) {
             externalId: c.externalId,
             rawObjectId: summary.objectId,
           },
+          role: "import",
         });
       summary.completed = index + 1;
       importsQueries.setSummary(db, JSON.stringify(summary), importId);
@@ -489,6 +490,7 @@ export async function executeImport(run: Run) {
             origin: "import",
             provider: parsed.provider,
           },
+          role: "import",
         });
       }
       summary.attachmentsStored = true;

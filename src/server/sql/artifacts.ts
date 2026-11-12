@@ -4,6 +4,7 @@ import {
   ArtifactKindSchema,
   type ArtifactKind,
 } from "../../shared/artifact-kind.js";
+import type { ArtifactRole } from "../../shared/artifact-role.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -74,7 +75,7 @@ export function feedHidden(
 }
 
 const insertStatement = statement(
-  "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,created_at,updated_at) VALUES(@id,@owner,@agent,@conversation,@run,@title,@kind,@content,@metadata,@folder,@created,@created)",
+  "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,folder_id,created_at,updated_at) VALUES(@id,@owner,@agent,@conversation,@run,@title,@kind,@role,@content,@metadata,@folder,@created,@created)",
 );
 export function insert(
   db: Database.Database,
@@ -85,6 +86,7 @@ export function insert(
   run: string | null,
   title: string,
   kind: ArtifactKind,
+  role: ArtifactRole,
   content: string,
   metadata: string,
   folder: string | null,
@@ -98,6 +100,7 @@ export function insert(
     run,
     title,
     kind,
+    role,
     content,
     metadata,
     folder,

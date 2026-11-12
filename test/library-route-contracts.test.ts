@@ -208,6 +208,13 @@ afterAll(async () => {
 
 it("uploadCreate retains multipart fields, stored bytes and its descriptor", async () => {
   valid(workspaceApi.uploadCreate, uploaded);
+  expect(
+    (
+      db
+        .prepare("SELECT role FROM artifacts WHERE id=?")
+        .get(uploaded.data.id) as { role: string }
+    ).role,
+  ).toBe("upload");
   const stored = db
     .prepare("SELECT name,bytes FROM objects WHERE id=?")
     .get(uploaded.data.objectId) as { name: string; bytes: Buffer };
@@ -316,7 +323,9 @@ it("artifactCreate rejects kinds outside the owner-creatable set", async () => {
     kind: "diagram",
   });
   valid(workspaceApi.artifactCreate, created);
-  expect(ownedArtifact(created.data.id, owner).kind).toBe("diagram");
+  const stored = ownedArtifact(created.data.id, owner);
+  expect(stored.kind).toBe("diagram");
+  expect(stored.role).toBe("snippet");
 });
 it("artifactUpdate preserves version checks and returns the updated artifact", async () => {
   const path = `/artifacts/${artifact.id}`,

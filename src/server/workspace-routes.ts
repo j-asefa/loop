@@ -223,7 +223,10 @@ routes.on(workspaceApi.artifactDetail, (req, res) => {
 routes.on(workspaceApi.artifactCreate, (req, res) => {
   const d = req.body;
   if (d.folder) ownedFolder(d.folder, res.locals.owner);
-  res.status(201).json({ id: saveArtifact(res.locals.owner, d) });
+  // The owner's saved artifacts are snippets: no run, declared at insert.
+  res
+    .status(201)
+    .json({ id: saveArtifact(res.locals.owner, { ...d, role: "snippet" }) });
 });
 routes.on(workspaceApi.artifactUpdate, (req, res) => {
   const d = req.body;

@@ -165,6 +165,7 @@ it("filters the production search route by Feed categories and each document's r
   const standalone = saveArtifact(f.owner, {
     title: "categoryneedle standalone",
     content: "Outside a thread",
+    role: "answer",
   });
   recordConversationUpdate(ownedRun(working.run, f.owner), "progress", {
     content: "categoryneedle ordinary progress",
@@ -235,6 +236,7 @@ it("combines categories with project, agent, type and date filters without cross
     run: done.run,
     folder: f.folder,
     metadata: { messageId: done.answer },
+    role: "answer",
   });
   const filters = {
     category: "done",

@@ -49,7 +49,11 @@ afterAll(async () => {
 it("returns only changed visible cards and removal tombstones, scoped to their owner", () => {
   const owner = "changes",
     keys = Array.from({ length: 100 }, (_, i) =>
-      saveArtifact(owner, { title: String(i), content: "original" }),
+      saveArtifact(owner, {
+        title: String(i),
+        content: "original",
+        role: "answer",
+      }),
     );
   const after = resultsRevision(owner),
     through = cursor(keys[20]);
@@ -68,10 +72,12 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
       appResource: { html: "large private resource" },
       toolResult: "large payload",
     },
+    role: "trace",
   });
   const stranger = saveArtifact("stranger", {
     title: "Private",
     content: "not for this owner",
+    role: "answer",
   });
   const changes = resultsUpdates(owner, { after, through });
   expect(changes.items.map((i) => i.id)).toEqual([keys[25], newest]);
@@ -95,7 +101,11 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
 it("bounds batches at 200 and never skips repeated edits while a backlog is drained", () => {
   const owner = "backlog",
     keys = Array.from({ length: 450 }, () =>
-      saveArtifact(owner, { title: "Card", content: "original" }),
+      saveArtifact(owner, {
+        title: "Card",
+        content: "original",
+        role: "answer",
+      }),
     );
   const first = resultsUpdates(owner, { after: 0, through: 0 });
   expect(first.items).toHaveLength(200);
@@ -133,6 +143,7 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
     kind: "chart",
     content: "data",
     agent,
+    role: "answer",
   });
   const conversation = id(),
     message = id();
@@ -177,11 +188,13 @@ it("keeps project feed updates scoped when outputs are filed or moved", () => {
     title: "Filed",
     content: "A",
     folder: project,
+    role: "answer",
   });
   const elsewhere = saveArtifact(owner, {
     title: "Elsewhere",
     content: "B",
     folder: other,
+    role: "answer",
   });
   const first = resultsUpdates(owner, {
     after: 0,
@@ -224,6 +237,7 @@ it("includes nested project folders and excludes another owner's folder tree", a
     title: "Nested result",
     content: "Finished",
     folder: child,
+    role: "answer",
   });
   expect(projectFolders(owner, project)).toEqual([project, child]);
   expect(
@@ -235,11 +249,13 @@ it("includes nested project folders and excludes another owner's folder tree", a
   const outside = saveArtifact(owner, {
     title: "Elsewhere",
     content: "Other project",
+    role: "answer",
   });
   const privateArtifact = saveArtifact("other-owner", {
     title: "Private",
     content: "Other owner",
     folder: foreign,
+    role: "answer",
   });
   expect(
     (await get(`/results?folder=${project}`, owner)).items.map(
@@ -308,6 +324,7 @@ function nativeAnswer(
     title: "Native answer",
     content,
     metadata: { native: true, partial },
+    role: "answer",
   });
   db.prepare(
     "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history,stage) VALUES(?,?,?,'[]',?)",
@@ -334,6 +351,7 @@ it("publishes native answers to feed and profile updates without exposing tools,
     title: "Native tool",
     content: "private tool output",
     metadata: { native: true },
+    role: "answer",
   });
   const after = resultsRevision(owner);
   expect((await get("/results", owner)).items).toEqual([]);

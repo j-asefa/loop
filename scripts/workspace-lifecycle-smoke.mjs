@@ -445,7 +445,7 @@ for (const engine of selectedEngines()) {
         );
       fixture.db
         .prepare(
-          "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
         )
         .run(
           prCard,
@@ -454,6 +454,7 @@ for (const engine of selectedEngines()) {
           thread.id,
           "acme/api #42",
           "github_pr",
+          "snippet",
           JSON.stringify({
             type: "github_pull_requests",
             tool: "pull_request_read",

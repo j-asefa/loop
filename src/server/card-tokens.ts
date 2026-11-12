@@ -161,7 +161,10 @@ export function tokenResultPage<
         recordCardRead(
           owner,
           tokenId,
-          page.items.map((item) => ("role" in item ? "m:" : "a:") + item.id),
+          // Artifacts carry a `kind`; messages never do. `role` cannot
+          // discriminate: artifacts now have one too, and a misrecorded
+          // disclosure would leak removals for records this token never read.
+          page.items.map((item) => ("kind" in item ? "a:" : "m:") + item.id),
         );
       return page;
     })

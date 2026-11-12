@@ -120,7 +120,7 @@ it("companion groups only explicit mail in its thread, including interrupts into
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES('before',?,'willow','willow','assistant','UNRELATED BEFORE','{}',1),('incoming',?,'willow','willow','user','Wrapped mail','{\"automation\":{\"mailId\":\"question\",\"threadId\":\"exchange\"}}',10),('after',?,'willow','willow','assistant','UNRELATED FINAL ANSWER','{}',50)",
     ).run(owner, owner, owner);
     db.prepare(
-      "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('file',?,'Shared note','file','note',1,1),('private-file','foreign','PRIVATE FILE','file','secret',1,1)",
+      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES('file',?,'Shared note','file','file','note',1,1),('private-file','foreign','PRIVATE FILE','file','file','secret',1,1)",
     ).run(owner);
     db.prepare(
       "UPDATE agent_mail SET file_ids='[\"file\",\"private-file\"]' WHERE id='question'",

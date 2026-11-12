@@ -8,6 +8,7 @@ import { ProjectedMessage } from "./transcript-projection.js";
 import { CardTokenSchema } from "./card-token-schemas.js";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
+import { ArtifactRoleSchema } from "./artifact-role.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 
@@ -88,6 +89,7 @@ export const PublicArtifact = z.object({
   run_id: MaybeText,
   title: Text,
   kind: ArtifactKindSchema,
+  role: ArtifactRoleSchema,
   content: Text,
   metadata: Text,
   folder_id: MaybeText,

@@ -135,6 +135,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
         title: "Other finished work " + i,
         kind: "markdown",
         content: "Independent answer",
+        role: "answer",
       });
     const loadedFeed = await get("/results");
     expect(loadedFeed.items).toHaveLength(40);
@@ -399,6 +400,7 @@ it("deduplicates legacy answer representations by run without hiding edited file
     agent: a.id,
     conversation: run.conversation_id,
     run: run.id,
+    role: "answer",
   });
   const trace = saveArtifact("legacy", {
     title: "Quasar tool",
@@ -407,6 +409,7 @@ it("deduplicates legacy answer representations by run without hiding edited file
     conversation: run.conversation_id,
     run: run.id,
     metadata: { tool: "web_search" },
+    role: "trace",
   });
   const result = await search("legacy", "Quasar");
   expect(result.items.map((i) => i.id)).toEqual(["artifact:" + artifact]);
@@ -586,6 +589,7 @@ it("filters traces by every term, including linked tool results, within the owne
     conversation: run.conversation_id,
     run: run.id,
     metadata: { tool: "web_search" },
+    role: "trace",
   });
   recordTrace(run, "tool:search", {
     kind: "tool",

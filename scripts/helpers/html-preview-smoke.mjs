@@ -39,7 +39,7 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
   writeFileSync(filePath, bytes);
   fixture.db
     .prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,'file',?,?,?,?)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,?,'file','file',?,?,?,?)",
     )
     .run(
       id,

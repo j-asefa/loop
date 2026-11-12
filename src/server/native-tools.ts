@@ -386,6 +386,7 @@ export async function invokeNative(
         native: true,
         messageId: agentCheckpointsQueries.message(db, run.id)?.message_id,
       },
+      role: "trace",
     });
     text = "Diagram saved and rendered natively: " + d.title;
   } else if (tool === "loop_install_mcp") {

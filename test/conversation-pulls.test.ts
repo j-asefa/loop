@@ -255,7 +255,7 @@ it("collects newer PR cards independently of older transcript references", async
   for (const number of [70, 71]) {
     const at = Date.now() + number;
     db.prepare(
-      "INSERT INTO artifacts(id,owner_id,conversation_id,run_id,agent_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,'Created PR','github_pr',?,?,?)",
+      "INSERT INTO artifacts(id,owner_id,conversation_id,run_id,agent_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,?,?,'Created PR','github_pr','trace',?,?,?)",
     ).run(
       id(),
       f.owner,

@@ -1005,7 +1005,7 @@ for (const engine of selectedEngines()) {
         );
         fixture.db.transaction(() => {
           const insert = fixture.db.prepare(
-            "INSERT INTO artifacts(id,owner_id,title,kind,content,folder_id,metadata,created_at,updated_at) VALUES(?,?,?,'markdown','Project history fixture',?,'{}',?,?)",
+            "INSERT INTO artifacts(id,owner_id,title,kind,role,content,folder_id,metadata,created_at,updated_at) VALUES(?,?,?,'markdown','answer','Project history fixture',?,'{}',?,?)",
           );
           historyIds.forEach((id, i) =>
             insert.run(

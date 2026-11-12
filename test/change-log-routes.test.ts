@@ -1088,7 +1088,7 @@ it(`companion keeps owner-wide change clocks out of scoped Cards responses`, asy
   pendingApproval(f, "private-approval", expires);
   f.db
     .prepare(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES('published',?,'agent','thread','run','Result','markdown','Published','{}',1,1)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,created_at,updated_at) VALUES('published',?,'agent','thread','run','Result','markdown','answer','Published','{}',1,1)",
     )
     .run(f.owner);
   const ownerResponse = await f.request("/api/v1/cards?view=results", {
@@ -1250,7 +1250,7 @@ it("publishes every internal reader dependency from committed worker writes with
   const owner = f.owner;
   f.db
     .prepare(
-      "INSERT INTO artifacts(id,owner_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES('artifact',?,'thread','run','Output','markdown','Body',1,1)",
+      "INSERT INTO artifacts(id,owner_id,conversation_id,run_id,title,kind,role,content,created_at,updated_at) VALUES('artifact',?,'thread','run','Output','markdown','answer','Body',1,1)",
     )
     .run(owner);
   f.db
