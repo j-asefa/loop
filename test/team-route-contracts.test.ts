@@ -207,6 +207,22 @@ it("teamFromPreset preserves the creation receipt", async () => {
     }),
   ).toMatchObject(bad);
 });
+it("deleted preset teams report the completed creation receipt", async () => {
+  const input = { ...presetInput, idempotencyKey: id() };
+  const created = await request("/teams/from-preset", input);
+  valid(workspaceApi.teamFromPreset, created);
+  valid(
+    workspaceApi.teamDelete,
+    await request(`/teams/${created.data.id}`, undefined, "DELETE"),
+  );
+  expect(await request("/teams/from-preset", input)).toMatchObject({
+    status: 409,
+    data: {
+      error: "This team was deleted; start a new creation",
+      executionOutcome: "completed",
+    },
+  });
+});
 it("teamMemberAdd returns updated membership", async () => {
   const path = `/teams/${team.id}/members`,
     result = await request(path, { agentId: agents[2].id });

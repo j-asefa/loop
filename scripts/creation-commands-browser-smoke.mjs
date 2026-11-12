@@ -10,6 +10,7 @@ const dir = await mkdtemp(join(tmpdir(), "loop-creation-commands-"));
 let browser, server;
 const requests = [];
 const receipts = new Map();
+const deleted = new Set();
 let loseReply = true,
   refuse = false;
 let holdReply = false,
@@ -71,6 +72,16 @@ try {
       requests.push({ path, body });
       if (refuse) {
         json({ error: "Fixture access refused" }, 403);
+        return;
+      }
+      if (deleted.has(body.idempotencyKey)) {
+        json(
+          {
+            error: "This team was deleted; start a new creation",
+            executionOutcome: "completed",
+          },
+          409,
+        );
         return;
       }
       if (!receipts.has(body.idempotencyKey))
@@ -175,6 +186,25 @@ try {
       rejected,
       "fresh refusal allows a new explicit request",
     );
+
+    if (mode === "team") {
+      await page.reload();
+      loseReply = true;
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText("unavailable");
+      const removed = requests.at(-1).body.idempotencyKey;
+      deleted.add(removed);
+      await page.reload();
+      loseReply = false;
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "This team was deleted",
+      );
+      assert.equal(requests.at(-1).body.idempotencyKey, removed);
+      await submit.click();
+      await expect.poll(() => page.evaluate(() => window.completed)).toBe(1);
+      assert.notEqual(requests.at(-1).body.idempotencyKey, removed);
+    }
 
     loseReply = true;
     await page.reload();

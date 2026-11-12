@@ -1,3 +1,4 @@
+import { ExecutionProblem } from "../shared/problem.js";
 import { MAX_TEAM_WORKERS } from "../shared/team-limits.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as teamMembersQueries from "./sql/team-members.js";
@@ -102,7 +103,11 @@ export function createPresetTeam(owner: string, input: unknown) {
       recover: (prior) => {
         const team = listTeams(owner).find((t) => t.id === prior.team_id);
         if (!team)
-          throw new Problem(409, "This team was deleted; start a new creation");
+          throw new ExecutionProblem(
+            409,
+            "This team was deleted; start a new creation",
+            "completed",
+          );
         return team;
       },
       create: () => {
