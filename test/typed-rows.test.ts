@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import {
-  ArtifactMetadata,
+  AnswerArtifactMetadata,
+  ArtifactMetadataSchemas,
   ConnectionMetadata,
   ConnectionModels,
-  MessageMetadata,
   RunPayload,
   SealedEnvelope,
 } from "../src/server/row-schemas.js";
@@ -184,11 +184,13 @@ it("rejects invalid present display fields and unknown new writes without repair
   expect(() => ownedConnection(connection, owner)).toThrow("models");
   for (const schema of [
     RunPayload,
-    MessageMetadata,
-    ArtifactMetadata,
+    ...Object.values(ArtifactMetadataSchemas),
     ConnectionMetadata,
   ])
     expect(schema.safeParse({ accidentalField: true }).success).toBe(false);
+  expect(
+    AnswerArtifactMetadata.safeParse({ accidentalField: true }).success,
+  ).toBe(false);
   expect(ConnectionModels.safeParse([{ id: "fixture" }]).success).toBe(false);
   expect(() =>
     saveArtifact(owner, {

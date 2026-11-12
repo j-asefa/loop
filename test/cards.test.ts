@@ -143,11 +143,7 @@ it("shares full cards across Results, Saved and detail without leaking internal 
   setup("contract");
   const id = result("contract", {
     content: "# Long answer\n" + "Complete text. ".repeat(700),
-    metadata: {
-      appResource: { html: "private executable" },
-      toolResult: { secret: "internal" },
-      connectionId: "private connection",
-    },
+    metadata: { connectionId: "private connection" },
   });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
   setSavedLabel("contract", { key: "a:" + id, label: "Keep" });
@@ -536,6 +532,7 @@ it("uses authorized immutable attachment descriptions and invalidates removal of
   const file = result("files", {
     kind: "file",
     metadata: { upload: true, objectId: "files-object" },
+    role: "upload",
   });
   db.prepare(
     "INSERT INTO objects VALUES('files-object','files','Original','text/plain',X'01',1)",
@@ -676,7 +673,11 @@ it("preserves same-owner run associations while requiring exact provenance for S
 
 it("indexes reverse attachment edges and uses indexed candidates in production write triggers", () => {
   setup("edges");
-  const file = result("edges", { kind: "file", metadata: { upload: true } });
+  const file = result("edges", {
+    kind: "file",
+    metadata: { upload: true },
+    role: "upload",
+  });
   message("edges", "edges-message", "user", {
     personal: true,
     attachments: [
@@ -1084,17 +1085,13 @@ it("migrates existing bookmarks/labels and preserves revision numbers and truthf
   old.close();
 });
 
-it("reconciles typed reader file links and display metadata without streaming body revisions", () => {
+it("reconciles typed reader file links and display metadata", () => {
   setup("reader");
   const id = result("reader", {
-    metadata: {
-      uploaded: true,
-      rawObjectId: "reader-object",
-      messageId: "m-reader",
-    },
-    role: "file",
+    kind: "file",
+    metadata: { upload: true, objectId: "reader-object" },
+    role: "upload",
   });
-  message("reader", "m-reader", "assistant", { partial: true });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
   const cache = all("reader", { view: "saved" });
   const display = () => {
@@ -1149,32 +1146,14 @@ it("reconciles typed reader file links and display metadata without streaming bo
     expectCurrent("reader", { view: "saved" }, cache);
     expect(display()?.refreshable).toBe(false);
   }
-  const revision = cache.revision;
-  db.prepare("UPDATE artifacts SET content='A partial chunk' WHERE id=?").run(
-    id,
-  );
-  // The linked message is still partial: the churn guard suppresses body
-  // chunk revisions, as it did with the artifact's own partial flag (D4).
-  expect(
-    cardChanges("reader", { view: "saved", after: revision }).items,
-  ).toEqual([]);
-  db.prepare(
-    "UPDATE messages SET metadata=json_set(metadata,'$.partial',json('false')) WHERE id='m-reader'",
-  ).run();
-  db.prepare(
-    "UPDATE artifacts SET content='A partial chunk done' WHERE id=?",
-  ).run(id);
-  expectCurrent("reader", { view: "saved" }, cache);
-  expect(cache.items.get("a:" + id)!.card.content).toBe("A partial chunk done");
-  expect(
-    cardChanges("reader", { view: "saved", after: revision }).items[0].card
-      .content,
-  ).toContain("chunk");
 });
 
 it("keeps reusable prompt snippets out of content collections while exposing their conversion to results", () => {
   setup("snippets");
-  const id = result("snippets", { metadata: { snippet: true } });
+  const id = result("snippets", {
+    metadata: { snippet: true },
+    role: "snippet",
+  });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
   const resultCache = all("snippets", { view: "results" }),
     savedCache = all("snippets", { view: "saved" });

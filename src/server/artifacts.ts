@@ -1,6 +1,6 @@
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as artifactVersionsQueries from "./sql/artifact-versions.js";
-import { ArtifactMetadata } from "./row-schemas.js";
+import { parseArtifactMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
 import {
   DefaultArtifactKind,
@@ -35,7 +35,10 @@ export function saveArtifact(
     data.role,
     data.content,
     JSON.stringify(
-      ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata),
+      parseArtifactMetadata(
+        data.role,
+        data.metadata === undefined ? {} : data.metadata,
+      ),
     ),
     data.folder || null,
     time,
