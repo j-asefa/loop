@@ -11,7 +11,7 @@ import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
 import {
-  ArtifactMetadata,
+  parseArtifactMetadata,
   MessageMetadata,
   agentPayload,
 } from "../row-schemas.js";
@@ -539,7 +539,7 @@ export class NativeProjector {
           db,
           output,
           JSON.stringify(
-            ArtifactMetadata.parse({
+            parseArtifactMetadata("answer", {
               ...agentPayload(run),
               native: true,
               messageId: checkpoint.message_id,

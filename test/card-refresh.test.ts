@@ -7,6 +7,9 @@ it("advertises a refresh source consistent with the actual companion action", as
   try {
     await seedCards(fixture, 1);
     const { db, owner, browser } = fixture;
+    // A refreshable card is a saved tool artifact: its role arm holds the
+    // connection/tool/arguments metadata the refresh route reads (D5).
+    db.prepare("UPDATE artifacts SET role='trace' WHERE id='result-000'").run();
     const metadata = (value: object) =>
       db
         .prepare("UPDATE artifacts SET metadata=? WHERE id='result-000'")

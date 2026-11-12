@@ -180,7 +180,7 @@ it.each(["high", null, undefined])(
 
 it("files and undoes a historical artifact while refusing malformed metadata and operation versions", async () => {
   const f = fixture(),
-    metadata = { historicalLabel: "Kept" };
+    metadata = { messageId: "m-historical" };
   const artifact = saveArtifact(f.owner, {
     title: "Fixture",
     content: "Fixture",
@@ -291,7 +291,7 @@ it("keeps artifact metadata serialized and rejects malformed edits before writin
       role: "answer",
     });
   db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
-    '{"historicalLabel":"kept"}',
+    '{"messageId":"kept"}',
     artifact,
   );
   const read = await request(
@@ -302,7 +302,7 @@ it("keeps artifact metadata serialized and rejects malformed edits before writin
   );
   expect(read).toMatchObject({
     status: 200,
-    data: { metadata: '{"historicalLabel":"kept"}' },
+    data: { metadata: '{"messageId":"kept"}' },
   });
   const edited = await request(
     f.owner,
@@ -312,7 +312,7 @@ it("keeps artifact metadata serialized and rejects malformed edits before writin
   );
   expect(edited).toMatchObject({
     status: 200,
-    data: { title: "Edited", metadata: '{"historicalLabel":"kept"}' },
+    data: { title: "Edited", metadata: '{"messageId":"kept"}' },
   });
   db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
     '{"reviewId":null}',

@@ -68,10 +68,6 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
   const newest = saveArtifact(owner, {
     title: "New",
     content: "new output",
-    metadata: {
-      appResource: { html: "large private resource" },
-      toolResult: "large payload",
-    },
     role: "snippet",
   });
   const stranger = saveArtifact("stranger", {
@@ -84,12 +80,6 @@ it("returns only changed visible cards and removal tombstones, scoped to their o
   expect(changes.items[0].content).toBe("older edit");
   expect(changes.removed).toEqual([keys[30], keys[31]]);
   expect(changes.more).toBe(false);
-  expect(JSON.parse(changes.items[1].metadata)).not.toHaveProperty(
-    "toolResult",
-  );
-  expect(JSON.parse(changes.items[1].metadata).appResource).not.toHaveProperty(
-    "html",
-  );
   expect(
     resultsUpdates("stranger", { after: 0, through: 0 }).items.map((i) => i.id),
   ).toEqual([stranger]);

@@ -11,7 +11,7 @@ import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { assertEffect } from "./effect-authority.js";
 import {
-  ArtifactMetadata,
+  parseArtifactMetadata,
   MessageMetadata,
   readRunFolder,
   readRunReviewId,
@@ -576,7 +576,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
       db,
       output,
       JSON.stringify(
-        ArtifactMetadata.parse({ ...snapshot, messageId: cp.message_id }),
+        parseArtifactMetadata("answer", {
+          ...snapshot,
+          messageId: cp.message_id,
+        }),
       ),
       now(),
       cp.artifact_id,
