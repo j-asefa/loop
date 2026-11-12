@@ -77,7 +77,7 @@ import {
   isExecutionRefused,
 } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { clearRunRetryKey, runRetryKey } from "./durableIdentities";
+import { performStoredEffect } from "./pendingCommands";
 import {
   TranscriptHandoff,
   ProjectedMessage,
@@ -445,7 +445,6 @@ function ConversationView({
   const followLatest = useRef(!anchor);
   const pinnedSize = useRef({ height: 0, viewport: 0 });
   const [awayFromLatest, setAwayFromLatest] = useState(false);
-  const retryKeys = useRef(new Map<string, string>());
   const [retrying, setRetrying] = useState<string | null>(null);
   const retryBusy = useRef(false);
   const paging = useRef(false);
@@ -1982,51 +1981,31 @@ function ConversationView({
                             if (retryBusy.current) return;
                             retryBusy.current = true;
                             setRetrying(m.run_id);
-                            // The retry key survives reloads so a lost retry
-                            // response is repeated with the same identity
-                            // instead of running the accepted run again. The
-                            // local workspace's source ID is "", a valid scope.
-                            let key = retryKeys.current.get(m.run_id!);
-                            if (key === undefined) {
-                              key = runRetryKey(
-                                localStorage,
-                                owner,
-                                sourceId,
-                                m.run_id!,
-                              );
-                              retryKeys.current.set(m.run_id!, key);
-                            }
+                            const current = generation.current;
+                            const isCurrent = () =>
+                              current === generation.current &&
+                              owner === viewOwner();
                             try {
-                              await call(workspaceApi.runAction, {
-                                params: { id: m.run_id!, action: "retry" },
-                                body: {
-                                  idempotencyKey: key,
-                                },
-                              });
-                              // Settled: the run exists, so the key is spent.
-                              clearRunRetryKey(
+                              await performStoredEffect(
                                 localStorage,
                                 owner,
                                 sourceId,
-                                m.run_id!,
+                                ["run-retry", m.run_id!],
+                                isCurrent,
+                                (key) =>
+                                  call(workspaceApi.runAction, {
+                                    params: { id: m.run_id!, action: "retry" },
+                                    body: { idempotencyKey: key },
+                                  }),
                               );
-                              retryKeys.current.delete(m.run_id!);
+                              if (!isCurrent()) return;
                               onSubmitted();
                               await load();
                             } catch (e) {
-                              if (isExecutionRefused(e)) {
-                                clearRunRetryKey(
-                                  localStorage,
-                                  owner,
-                                  sourceId,
-                                  m.run_id!,
-                                );
-                                retryKeys.current.delete(m.run_id!);
-                              }
-                              setError((e as Error).message);
+                              if (isCurrent()) setError((e as Error).message);
                             } finally {
                               retryBusy.current = false;
-                              setRetrying(null);
+                              if (isCurrent()) setRetrying(null);
                             }
                           }}
                         >
