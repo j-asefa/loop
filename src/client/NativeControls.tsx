@@ -1,6 +1,7 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { AutofillBoundary } from "./AutofillBoundary";
 import { readRoute } from "./workspace-api";
+import { storedCommandAt } from "./pendingCommandStorage";
 import {
   workspaceApi,
   type NativeDecision as Decision,
@@ -296,10 +297,15 @@ function DecisionCard({
         throw new Error(
           "This workspace session changed. Reopen the owning conversation.",
         );
-      const old = parse<any>(sessionStorage.getItem(storage) || "", {});
+      const empty = { commandId: "", digest: "" };
+      const slot = storedCommandAt(sessionStorage, storage, (raw) =>
+        parse(raw, empty),
+      );
+      const saved = slot.read();
+      const old = saved === undefined ? empty : saved;
       const commandId =
         old.digest === digest ? old.commandId : crypto.randomUUID();
-      sessionStorage.setItem(storage, JSON.stringify({ commandId, digest }));
+      slot.write({ commandId, digest });
       const r = await call(workspaceApi.nativeAnswer, {
         params: { id: item.id },
         body: {
@@ -320,7 +326,7 @@ function DecisionCard({
         generation === viewGeneration()
       ) {
         try {
-          sessionStorage.removeItem(storage);
+          storedCommandAt(sessionStorage, storage).remove();
         } catch {
           /* Retaining a refused ID is safe. */
         }

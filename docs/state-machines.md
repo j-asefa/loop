@@ -425,6 +425,16 @@ without turning acceptance into a reported failure. The conversation UI retains
 its outcome policy: an ordinary refusal during recovery cannot settle an earlier
 uncertain request.
 
+### Native answer receipts
+
+[`NativeControls.tsx`](../src/client/NativeControls.tsx) uses the shared command
+storage adapter for owner/source/decision-scoped session receipts. Only the
+command ID and answer digest are persisted, never the answer. The owner and view
+generation are checked after hashing, before writing the receipt and dispatching.
+The same digest reuses its command ID; an uncertain response retains it. A
+confirmed execution refusal removes it only while the captured owner and
+generation remain current. Successful answers retain the receipt.
+
 ### Pending command identities
 
 [`pendingCommands.ts`](../src/client/pendingCommands.ts) stores a pending
