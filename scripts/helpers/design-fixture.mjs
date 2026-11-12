@@ -273,7 +273,7 @@ export async function designFixture({ githubApi } = {}) {
       );
       if (["completed", "running"].includes(state)) {
         db.prepare(
-          "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         ).run(
           artifact,
           owner,
@@ -282,6 +282,7 @@ export async function designFixture({ githubApi } = {}) {
           run,
           title,
           "markdown",
+          "answer",
           state === "completed"
             ? answer
             : "Checking **the changes** and reviewing the test results.",
