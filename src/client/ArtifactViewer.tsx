@@ -5,7 +5,7 @@ import type { ResultCard } from "../shared/cards";
 import { resultTarget, type ResultAction } from "./card-actions";
 import { CardBody } from "./ContentCard";
 import { useSourcePath, useSourceRoute, useSourceId } from "./SourceContext";
-import { performStoredEffect, UncertainEffect } from "./durableIdentities";
+import { performStoredEffect, UncertainEffect } from "./pendingCommands";
 import { EffectRecovery } from "./EffectRecovery";
 import { viewGeneration, viewOwner } from "./viewCache";
 import { SourceCard } from "./Sharing";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UncertainEffect } from "./durableIdentities";
+import { UncertainEffect } from "./pendingCommands";
 
 export function EffectRecovery({
   failure,

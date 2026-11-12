@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   performStoredEffect,
   UncertainEffect,
-} from "../src/client/durableIdentities";
+} from "../src/client/pendingCommands";
 import {
   recentSearches,
   rememberSearch,
@@ -313,4 +313,32 @@ it("retains the identity when settled-receipt removal fails", async () => {
   await expect(send()).resolves.toBe("accepted");
   await expect(send()).resolves.toBe("accepted");
   expect(ids[1]).toBe(ids[0]);
+});
+
+it("scopes run retry commands by owner, source and run, including the local source", async () => {
+  const seen: string[] = [];
+  const retry = (owner: string | undefined, source: string, run: string) =>
+    performStoredEffect(
+      storage,
+      owner,
+      source,
+      ["run-retry", run],
+      () => true,
+      async (id) => {
+        seen.push(id);
+        throw new Error("Lost reply");
+      },
+    );
+  await expect(retry("alice", "", "run-1")).rejects.toThrow("Lost reply");
+  await expect(retry("alice", "", "run-1")).rejects.toThrow("Lost reply");
+  expect(seen[1]).toBe(seen[0]);
+  for (const [owner, source, run] of [
+    ["bob", "", "run-1"],
+    ["alice", "remote", "run-1"],
+    ["alice", "", "run-2"],
+  ])
+    await expect(retry(owner, source, run)).rejects.toThrow("Lost reply");
+  expect(new Set(seen).size).toBe(4);
+  await expect(retry(undefined, "", "run-1")).rejects.toThrow("Sign in");
+  expect(seen).toHaveLength(5);
 });

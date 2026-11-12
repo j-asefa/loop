@@ -6,10 +6,8 @@ import {
 } from "../src/client/sendIntent";
 import {
   beginUpgradeStart,
-  clearRunRetryKey,
   clearUpgradeCommandId,
   confirmUpgradeStart,
-  runRetryKey,
   upgradeCommandId,
 } from "../src/client/durableIdentities";
 import {
@@ -135,19 +133,6 @@ it("a pending receipt is owner/thread scoped", () => {
   ).toEqual({ signature: "", key: "", unquoted: false });
 });
 
-it("a run retry key is stable across reloads and cleared on settlement", () => {
-  const durable = new MemoryStorage();
-  const first = runRetryKey(durable, "alice", "laptop", "run-1");
-  // Reload: the same key is reused so an accepted retry is not rerun.
-  expect(runRetryKey(durable, "alice", "laptop", "run-1")).toBe(first);
-  // A different run and a different owner get distinct keys.
-  expect(runRetryKey(durable, "alice", "laptop", "run-2")).not.toBe(first);
-  expect(runRetryKey(durable, "bob", "laptop", "run-1")).not.toBe(first);
-  // Settlement (refused or accepted) clears it for a real fresh retry.
-  clearRunRetryKey(durable, "alice", "laptop", "run-1");
-  expect(runRetryKey(durable, "alice", "laptop", "run-1")).not.toBe(first);
-});
-
 it("a harness upgrade reuses its command id until the upgrade settles", () => {
   const durable = new MemoryStorage();
   const first = upgradeCommandId(durable, "laptop", "host");
@@ -260,19 +245,6 @@ it("retains more than twenty uncertain sends and reuses the oldest key", () => {
       () => "duplicate",
     ).receipt.key,
   ).toBe("key-0");
-});
-
-it("remembers a retry key on the local workspace, whose source ID is empty", () => {
-  const durable = new MemoryStorage();
-  const first = runRetryKey(durable, "alice", "", "run-1");
-  // A reload re-reads the same key instead of minting a new one.
-  expect(runRetryKey(durable, "alice", "", "run-1")).toBe(first);
-  clearRunRetryKey(durable, "alice", "", "run-1");
-  expect(runRetryKey(durable, "alice", "", "run-1")).not.toBe(first);
-  // Signed out: nothing is stored.
-  const before = durable.length;
-  runRetryKey(durable, undefined, "", "run-2");
-  expect(durable.length).toBe(before);
 });
 
 it("serializes concurrent preparation and settlement without losing another send", async () => {
