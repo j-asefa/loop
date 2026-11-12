@@ -184,6 +184,7 @@ it("files and undoes a historical artifact while refusing malformed metadata and
   const artifact = saveArtifact(f.owner, {
     title: "Fixture",
     content: "Fixture",
+    role: "answer",
   });
   // Historical extras are read compatibility, not permitted new-write input.
   db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
@@ -261,6 +262,7 @@ it("rejects a damaged PR card before registering a watch and preserves the owner
       title: "PR",
       content: "{}",
       kind: "github_pr",
+      role: "trace",
     });
   db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
     '{"reviewId":null}',
@@ -283,7 +285,11 @@ it("rejects a damaged PR card before registering a watch and preserves the owner
 
 it("keeps artifact metadata serialized and rejects malformed edits before writing", async () => {
   const f = fixture(),
-    artifact = saveArtifact(f.owner, { title: "Original", content: "Body" });
+    artifact = saveArtifact(f.owner, {
+      title: "Original",
+      content: "Body",
+      role: "answer",
+    });
   db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
     '{"historicalLabel":"kept"}',
     artifact,

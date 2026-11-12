@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RunState } from "../../shared/run-state.js";
 import { harnesses } from "../../shared/harnesses.js";
 import { ArtifactKindSchema } from "../../shared/artifact-kind.js";
+import { ArtifactRoleSchema } from "../../shared/artifact-role.js";
 
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
 export const RowId = z.string().min(1);
@@ -71,6 +72,7 @@ export const ArtifactRecord = z.object({
   run_id: z.string().nullable(),
   title: z.string(),
   kind: ArtifactKindSchema,
+  role: ArtifactRoleSchema,
   content: z.string(),
   metadata: z.string(),
   folder_id: z.string().nullable(),

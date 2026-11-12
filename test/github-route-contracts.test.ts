@@ -191,6 +191,7 @@ const artifact = saveArtifact(owner, {
     fetchedAt: now(),
     pulls: [detail.data],
   }),
+  role: "trace",
 });
 const watchInput = {
   artifactId: artifact,

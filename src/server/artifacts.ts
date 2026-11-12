@@ -6,11 +6,13 @@ import {
   DefaultArtifactKind,
   type ArtifactKind,
 } from "../shared/artifact-kind.js";
+import type { ArtifactRole } from "../shared/artifact-role.js";
 export function saveArtifact(
   owner: string,
   data: {
     title: string;
     kind?: ArtifactKind;
+    role: ArtifactRole;
     content: string;
     agent?: string | null;
     conversation?: string | null;
@@ -30,6 +32,7 @@ export function saveArtifact(
     data.run || null,
     data.title,
     data.kind || DefaultArtifactKind,
+    data.role,
     data.content,
     JSON.stringify(
       ArtifactMetadata.parse(data.metadata === undefined ? {} : data.metadata),

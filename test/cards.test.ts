@@ -99,6 +99,7 @@ function result(
     conversation: owner,
     folder: owner,
     ...data,
+    role: "answer",
   });
 }
 function all(owner: string, options: CardSelection, limit = 3) {

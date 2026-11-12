@@ -131,6 +131,7 @@ const html = storePublishedFile(run, id(), {
 const foreign = saveArtifact("other-owner", {
   title: "Private",
   content: "Private",
+  role: "answer",
 });
 const approval = requestApproval(run, {
   tool: "fixture",

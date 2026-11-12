@@ -97,6 +97,7 @@ export function storePublishedFile(
             model: snapshot.model,
             provider: snapshot.provider,
           },
+          role: "file",
         });
       if (!prior) {
         artifactObjectsQueries.insert(

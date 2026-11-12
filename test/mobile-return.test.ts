@@ -1617,7 +1617,7 @@ it("keeps saved messages and results in one list, newest save first, per owner",
       .get(answer),
   ).toBeDefined();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Final answer',?,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','answer','Final answer',?,?,?)",
   ).run(
     result,
     w.owner,
@@ -1740,7 +1740,7 @@ it("says on a feed card whether its latest message is saved", async () => {
   // Saving the result card the message produced counts as saving the card.
   const result = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','Here are the options',?,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,?,?,'Report','markdown','answer','Here are the options',?,?,?)",
   ).run(
     result,
     w.owner,
@@ -1791,7 +1791,7 @@ it("scopes the Saved list to a project and to teams like the results feed", asyn
   const m2 = message(w.owner, elsewhere, "assistant", "Kept there", r2);
   const result = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,folder_id,title,kind,content,pinned,created_at,updated_at) VALUES(?,?,?,?,?,?,'Spec','markdown','Spec',1,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,folder_id,title,kind,role,content,pinned,created_at,updated_at) VALUES(?,?,?,?,?,?,'Spec','markdown','answer','Spec',1,?,?)",
   ).run(result, w.owner, a.id, inProject, r1, nested, now(), now());
   await api(w.owner, `/messages/${m1}/saved`, "POST");
   await api(w.owner, `/messages/${m2}/saved`, "POST");
@@ -2871,7 +2871,7 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
     )?.id ?? message(w.owner, cid, "assistant", "", first.id);
   const checkpointArtifact = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,'Draft','markdown','',?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,?,?,'Draft','markdown','answer','',?,?)",
   ).run(checkpointArtifact, w.owner, a.id, cid, first.id, now(), now());
   db.prepare(
     "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
@@ -3161,7 +3161,7 @@ it("lists snippets, searches personal prompts and summarizes projects", async ()
   ]);
   // More repeated saves than the list holds don't hide older snippets.
   const repeats = db.prepare(
-    "INSERT INTO artifacts(id,owner_id,title,kind,content,metadata,created_at,updated_at) VALUES(?,?,?,'markdown',?,'{\"snippet\":true}',?,?)",
+    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,created_at,updated_at) VALUES(?,?,?,'markdown','snippet',?,'{\"snippet\":true}',?,?)",
   );
   const later = now() + 1000;
   for (let i = 0; i < 250; i++)

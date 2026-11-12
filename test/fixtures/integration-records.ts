@@ -81,6 +81,7 @@ export function integrationRecords(owner: string) {
     agent: agent.id,
     run: run.id,
     conversation: run.conversation_id,
+    role: "answer",
   });
   const file = uploadFile(owner, {
     originalname: "fixture.txt",

@@ -557,6 +557,7 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
       arguments: { query: "original" },
       appResource: { html: "<!doctype html><p>Isolated fixture app</p>" },
     },
+    role: "trace",
   });
   const prefix = `/artifacts/${artifact}`;
   const iframe = await request(prefix + "/app");
@@ -655,6 +656,7 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
     title: "Private",
     content: "Private",
     agent: agent.id,
+    role: "answer",
   });
   expect((await request(`/artifacts/${foreign}/tool-call`, input)).status).toBe(
     404,

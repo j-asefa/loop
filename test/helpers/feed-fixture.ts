@@ -222,6 +222,7 @@ function seed(db: import("better-sqlite3").Database) {
     metadata: object,
     extra: {
       kind?: string;
+      role?: "answer" | "trace" | "file" | "upload" | "import" | "snippet";
       folder?: string;
       pinned?: boolean;
       title?: string;
@@ -229,7 +230,7 @@ function seed(db: import("better-sqlite3").Database) {
   ) => {
     const time = tick();
     sql(
-      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,metadata,folder_id,pinned,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,folder_id,pinned,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       id,
       OWNER,
       agentId,
@@ -237,6 +238,7 @@ function seed(db: import("better-sqlite3").Database) {
       runId,
       extra.title ?? `Result ${id}`,
       extra.kind ?? "markdown",
+      extra.role ?? "answer",
       content,
       json(metadata),
       extra.folder ?? null,

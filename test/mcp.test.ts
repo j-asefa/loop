@@ -624,6 +624,7 @@ it("preserves a received form error as text without claiming success or replayin
     .prepare("SELECT * FROM artifacts WHERE id=?")
     .get(invocation.artifact_id) as any;
   const meta = JSON.parse(artifact.metadata);
+  expect(artifact.role).toBe("trace");
   expect(meta.appResource).toBeUndefined();
   expect(resourceReads).toBe(0);
   expect(meta.toolResult).toMatchObject({

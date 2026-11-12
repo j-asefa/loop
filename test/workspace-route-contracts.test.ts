@@ -227,6 +227,7 @@ it("serves all six Cards contracts from production writes and refuses invalid in
     content: "Published content",
     agent: f.agent.id,
     conversation: f.run.conversation_id,
+    role: "answer",
   });
   const created = await request(
     "/card-tokens",
@@ -373,6 +374,7 @@ it("retains nullable author joins, serialized metadata and Results cursor behavi
   const artifact = saveArtifact(owner, {
     title: "Unattributed",
     content: "Result",
+    role: "answer",
   });
   for (const path of [
     "/results?before=invalid",

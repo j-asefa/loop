@@ -39,7 +39,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('message','owner','conversation','assistant','',0)",
   ).run();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','owner','test','markdown','',0,0)",
+    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES('artifact','owner','test','markdown','answer','',0,0)",
   ).run();
   db.prepare(
     "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,'message','artifact','[]')",

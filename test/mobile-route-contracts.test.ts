@@ -138,6 +138,7 @@ const file = uploadFile(owner, {
 const foreign = saveArtifact("other-owner", {
   title: "Private",
   content: "Private",
+  role: "answer",
 });
 const laterInput = () => ({
   kind: "conversation",
@@ -268,6 +269,7 @@ it("savedList preserves both production bookmark and pinned-artifact projections
     conversation,
     agent: agent.id,
     run: run.id,
+    role: "answer",
   });
   db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(artifact);
   const result = await request("/saved");
@@ -616,6 +618,7 @@ it("snippetList returns production snippet artifacts with their timestamps", asy
     title: "Saved prompt: Contract",
     content: "Snippet contract",
     metadata: { snippet: true },
+    role: "snippet",
   });
   const result = await request("/snippets");
   valid(workspaceApi.snippetList, result);

@@ -270,7 +270,7 @@ it("rejects an event producer targeting another owner", async () => {
   const { db, changes, deadlines, emit } = await import("../src/server/db");
   try {
     db.exec(
-      "INSERT INTO artifacts(id,owner_id,title,kind,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','Body',1,1)",
+      "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES('artifact','alice','A','markdown','snippet','Body',1,1)",
     );
     const count = () => db.prepare("SELECT count(*) n FROM events").get();
     const before = count();

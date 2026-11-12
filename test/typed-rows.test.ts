@@ -195,6 +195,7 @@ it("rejects invalid present display fields and unknown new writes without repair
       title: "Invalid",
       content: "Never stored",
       metadata: { reviewId: false },
+      role: "answer",
     }),
   ).toThrow();
   expect(

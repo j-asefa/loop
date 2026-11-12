@@ -131,7 +131,11 @@ it("moves and undoes atomically without duplicate objects and rejects stale undo
     "Reading",
     now(),
   );
-  const a = saveArtifact("alice", { title: "Plan", content: "The plan" });
+  const a = saveArtifact("alice", {
+    title: "Plan",
+    content: "The plan",
+    role: "answer",
+  });
   expect(
     naturalDestination("alice", "Put this file in Research Radar / Reading"),
   ).toBe(f);
@@ -213,12 +217,14 @@ it("applies project and type filters before the lexical candidate cap", () => {
     saveArtifact("filter-user", {
       title: "routine searchable task",
       content: "routine searchable task",
+      role: "answer",
     });
   const target = saveArtifact("filter-user", {
     title: "routine searchable task",
     content: "routine searchable task",
     kind: "diagram",
     folder,
+    role: "answer",
   });
   const result = lexical("filter-user", "routine", {
     folder,

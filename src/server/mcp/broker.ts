@@ -328,6 +328,7 @@ export async function invokeTool(
             isError: toolFailed,
             fixture: metadata.fixture === true,
           },
+          role: "trace",
         });
         toolInvocationsQueries.complete(
           db,

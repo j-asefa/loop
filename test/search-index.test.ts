@@ -43,13 +43,15 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
     saveArtifact(owner, {
       title: "Travel " + i,
       content: "A car is parked outside.",
+      role: "answer",
     });
   saveArtifact(owner, {
     title: "Vehicle registration.pdf",
     content: "",
     kind: "file",
+    role: "file",
   });
-  saveArtifact(owner, { title: "", content: "" });
+  saveArtifact(owner, { title: "", content: "", role: "answer" });
   enable(owner);
   expect(searchStatus(owner)).toMatchObject({
     state: "preparing",
@@ -106,6 +108,7 @@ it("returns the matching passage through the search service", async () => {
       "# Integration report\n\n" +
       "Background context. ".repeat(40) +
       "Use web_fetch_exa to retrieve the release notes.",
+    role: "answer",
   });
   saveArtifact(owner, { title: "Other report", content: "The web is useful." });
   const result = await search(owner, "web_fetch_exa");
@@ -125,6 +128,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
   saveArtifact(owner, {
     title: "Travel planning",
     content: "A car is parked outside.",
+    role: "answer",
   });
   enable(owner);
   fixture.fail = true;
@@ -185,20 +189,28 @@ it("applies the same folder, kind, date and owner filters to keyword and semanti
     content: "A car",
     folder,
     kind: "markdown",
+    role: "answer",
   });
   saveArtifact(owner, {
     title: "Travel",
     content: "A car",
     folder: otherFolder,
     kind: "markdown",
+    role: "answer",
   });
   saveArtifact(owner, {
     title: "Travel",
     content: "A car",
     folder,
     kind: "diagram",
+    role: "answer",
   });
-  saveArtifact(id(), { title: "Travel", content: "A car", kind: "markdown" });
+  saveArtifact(id(), {
+    title: "Travel",
+    content: "A car",
+    kind: "markdown",
+    role: "answer",
+  });
   const filters = { folder, kind: "markdown", from: now() - 1, to: now() + 1 };
   expect(
     (await search(owner, "Travel", filters)).items.map((x) => x.id),
@@ -219,7 +231,11 @@ it.each(["metadata", "secret"] as const)(
   async (column) => {
     const owner = id(),
       connection = id();
-    saveArtifact(owner, { title: "Unavailable provider", content: "A car" });
+    saveArtifact(owner, {
+      title: "Unavailable provider",
+      content: "A car",
+      role: "answer",
+    });
     db.prepare(
       "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)",
     ).run(connection, owner, seal("fixture-key", owner), now());

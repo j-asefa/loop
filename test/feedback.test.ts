@@ -117,6 +117,7 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
     agent: a.id,
     conversation: c,
     metadata: { messageId: m },
+    role: "answer",
   });
   expect((await search("feedback", "quasar")).items).toHaveLength(1);
   const beforeArchive = (await api("/results")).data.revision;
@@ -186,10 +187,12 @@ it("finds paraphrases with local embeddings and removes vectors when disabled", 
   saveArtifact("semantic", {
     title: "Travel",
     content: "An automobile is parked outside.",
+    role: "answer",
   });
   saveArtifact("semantic", {
     title: "Cooking",
     content: "Roast vegetables for dinner.",
+    role: "answer",
   });
   db.prepare(
     "UPDATE search_documents SET updated_at=? WHERE owner_id='semantic'",

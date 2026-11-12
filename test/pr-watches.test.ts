@@ -174,7 +174,7 @@ function setup(owner = "alice", fetchedAt = now()) {
   transition(first, "completed");
   const artifact = id();
   db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
   ).run(
     artifact,
     owner,
@@ -183,6 +183,7 @@ function setup(owner = "alice", fetchedAt = now()) {
     first.id,
     "acme/api #42",
     "github_pr",
+    "trace",
     JSON.stringify({
       type: "github_pull_requests",
       tool: "pull_request_read",
