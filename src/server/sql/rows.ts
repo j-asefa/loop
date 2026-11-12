@@ -702,6 +702,15 @@ export const QueryRecords = {
     retry_at: z.number(),
     attempts: z.number(),
   }),
+  agent_mail_retries: z.object({
+    owner_id: z.string(),
+    key: z.string(),
+    mail_id: z.string().nullable(),
+    run_id: z.string().nullable(),
+    attempts: z.number(),
+    retry_at: z.number(),
+    delay_ms: z.number(),
+  }),
   agent_checkpoints: z.object({
     run_id: z.string(),
     message_id: z.string(),

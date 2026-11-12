@@ -337,15 +337,17 @@ export function markRequeued(
 const strandedStatement =
   statement(`SELECT m.* FROM agent_mail m JOIN run_steering s ON s.id=m.steering_id
        WHERE m.steering_id IS NOT NULL AND m.requeued_run_id IS NULL AND m.state='sent' AND s.state='failed' AND s.failure_reason='run-ended-unread'
+         AND NOT EXISTS(SELECT 1 FROM agent_mail_retries retry WHERE retry.owner_id=m.owner_id AND retry.key='requeue:'||m.id AND retry.retry_at>?)
        ORDER BY m.created_at LIMIT 200`);
 
 const strandedIdentityRow = QueryRecords.agent_mail.pick({ id: true });
 export function stranded(
   db: Database.Database,
+  time: number,
   reject: (id: string, error: InvalidRow) => void,
 ) {
   return strandedStatement(db)
-    .all()
+    .all(time)
     .flatMap((row) => {
       try {
         return [parseRecord(QueryRecords.agent_mail, row, "agent_mail")];
