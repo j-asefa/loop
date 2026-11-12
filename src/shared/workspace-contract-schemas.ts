@@ -127,7 +127,7 @@ export const PublicArtifact = z.object({
 //   outcomes      result/error       paused, interrupted, completed, failed,
 //                                     cancelled (resumed/saved answers)
 //   attention     dismissed_at       interrupted, failed, cancelled
-const RunBase = {
+const RunBaseSchema = z.object({
   id: Text,
   owner_id: Text.optional(),
   agent_id: MaybeText,
@@ -140,73 +140,65 @@ const RunBase = {
   updated_at: Time,
   active_ms: z.number().optional(),
   steeringId: Text.optional(),
-};
+});
 const RunPreview = {
   preview: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(),
 };
-const RunLease = {
+const RunLeaseSchema = z.object({
   worker_id: MaybeText.optional(),
   heartbeat: Time.nullable().optional(),
-};
-const RunOutcome = {
+});
+const RunOutcomeSchema = z.object({
   result: MaybeText.optional(),
   error: MaybeText.optional(),
-};
-const RunAttention = {
+});
+const RunAttentionSchema = z.object({
   attention_dismissed_at: Time.nullable().optional(),
-};
-function runArm(
-  state: RunDisplayState,
-  extra: Record<string, z.ZodTypeAny> = {},
-) {
-  return z.object({ ...RunBase, state: z.literal(state), ...extra });
+});
+function runArm<
+  S extends RunDisplayState,
+  E extends Record<string, z.ZodTypeAny>,
+>(state: S, extra: E) {
+  return RunBaseSchema.extend({ state: z.literal(state), ...extra });
 }
 export const PublicRun = z.discriminatedUnion("state", [
   runArm("queued", {
     queue_rank: z.number().nullable().optional(),
     queue_position: z.number().nullable().optional(),
-    ...RunPreview,
-  }),
-  runArm("waiting_children", RunPreview),
-  runArm("running", {
-    ...RunLease,
-    active_since: Time.nullable().optional(),
-    ...RunPreview,
-  }),
-  runArm("pausing", {
-    ...RunLease,
-    active_since: Time.nullable().optional(),
-    ...RunPreview,
-  }),
-  runArm("paused", { result: MaybeText.optional(), ...RunPreview }),
+  }).extend(RunPreview),
+  runArm("waiting_children", {}).extend(RunPreview),
+  runArm("running", RunLeaseSchema.shape)
+    .extend({
+      active_since: Time.nullable().optional(),
+    })
+    .extend(RunPreview),
+  runArm("pausing", RunLeaseSchema.shape)
+    .extend({
+      active_since: Time.nullable().optional(),
+    })
+    .extend(RunPreview),
+  runArm("paused", { result: MaybeText.optional() }).extend(RunPreview),
   runArm("awaiting_approval", {
     worker_id: MaybeText,
     heartbeat: Time.nullable().optional(),
-    ...RunPreview,
-  }),
-  runArm("interrupted", {
-    ...RunOutcome,
-    ...RunLease,
-    ...RunAttention,
-    ...RunPreview,
-  }),
+  }).extend(RunPreview),
+  runArm("interrupted", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape)
+    .extend(RunPreview),
   runArm("completed", {
     result: MaybeText.optional(),
     worker_id: MaybeText.optional(),
     heartbeat: Time.nullable().optional(),
   }),
-  runArm("failed", {
-    ...RunOutcome,
-    ...RunLease,
-    ...RunAttention,
-    ...RunPreview,
-  }),
-  runArm("cancelled", {
-    ...RunOutcome,
-    ...RunLease,
-    ...RunAttention,
-  }),
+  runArm("failed", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape)
+    .extend(RunPreview),
+  runArm("cancelled", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape),
 ]);
 export const PublicConversation = z.object({
   id: Text,
