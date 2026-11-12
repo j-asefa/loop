@@ -456,6 +456,12 @@ try {
           project_id: null,
           feed_hidden: 0,
         },
+        projection: {
+          epoch: "fixture-continuation",
+          cursor: 0,
+          serverNow: 1,
+          nextDeadline: null,
+        },
         messages: [
           {
             id: "continuation-message",
