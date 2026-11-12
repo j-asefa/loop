@@ -9,6 +9,7 @@ import { CardTokenSchema } from "./card-token-schemas.js";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
 import { ArtifactRoleSchema } from "./artifact-role.js";
+import { RunDisplayState } from "./run-state.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 
@@ -74,7 +75,7 @@ export const PublicMessage = z.object({
   revision: z.number().optional(),
   update_key: MaybeText.optional(),
   transcript_ordinal: z.number().nullable().optional(),
-  run_state: MaybeText.optional(),
+  run_state: RunDisplayState.nullable().optional(),
   run_error: MaybeText.optional(),
   /** JSON checkout summary Loop observed for the run, when it has one. */
   run_checkout: MaybeText.optional(),
@@ -101,7 +102,7 @@ export const PublicArtifact = z.object({
   updated_at: Time,
   name: MaybeText.optional(),
   provider: Provider.nullable().optional(),
-  run_state: MaybeText.optional(),
+  run_state: RunDisplayState.nullable().optional(),
   run_error: MaybeText.optional(),
 });
 export const PublicRun = z.object({
@@ -111,7 +112,7 @@ export const PublicRun = z.object({
   conversation_id: MaybeText,
   kind: Text.optional(),
   input: Text,
-  state: Text,
+  state: RunDisplayState,
   idempotency_key: Text.optional(),
   payload: Text,
   result: MaybeText,
