@@ -1,3 +1,4 @@
+import { withOptionalStorage } from "./browserStorage";
 import { parse } from "./api";
 
 export const GLOBAL_DRAFT = "__global__";
@@ -22,14 +23,16 @@ export function threadDraft(
   owner = currentOwner,
 ): { text: string; files: any[] } {
   if (!owner) return { text: "", files: [] };
-  try {
-    return {
-      text: localStorage.getItem(key(owner, "text", id)) || "",
-      files: parse(localStorage.getItem(key(owner, "files", id)) || "", []),
-    };
-  } catch {
-    return { text: "", files: [] };
-  }
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      return {
+        text: storage.getItem(key(owner, "text", id)) || "",
+        files: parse(storage.getItem(key(owner, "files", id)) || "", []),
+      };
+    },
+    { text: "", files: [] },
+  );
 }
 export function saveThreadDraft(
   id: string,
@@ -38,13 +41,17 @@ export function saveThreadDraft(
   owner = currentOwner,
 ) {
   if (!owner) return;
-  try {
-    if (text.trim()) localStorage.setItem(key(owner, "text", id), text);
-    else localStorage.removeItem(key(owner, "text", id));
-    if (files.length)
-      localStorage.setItem(key(owner, "files", id), JSON.stringify(files));
-    else localStorage.removeItem(key(owner, "files", id));
-  } catch {}
+  withOptionalStorage(
+    "local",
+    (storage) => {
+      if (text.trim()) storage.setItem(key(owner, "text", id), text);
+      else storage.removeItem(key(owner, "text", id));
+      if (files.length)
+        storage.setItem(key(owner, "files", id), JSON.stringify(files));
+      else storage.removeItem(key(owner, "files", id));
+    },
+    undefined,
+  );
 }
 
 type DraftIdentity = { text: string; files: readonly { id: string }[] };

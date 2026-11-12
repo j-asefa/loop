@@ -115,3 +115,20 @@ it("keeps a local thread whose ID resembles a remote key separate from that remo
   expect(threadDraft(remote).text).toBe("Remote draft");
   expect(threadDraft(local).text).toBe("Local draft");
 });
+
+it("keeps draft reads and writes optional when local storage access is denied", () => {
+  setDraftOwner("alice");
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage")!;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new Error("Storage denied");
+    },
+  });
+  try {
+    expect(threadDraft("thread")).toEqual({ text: "", files: [] });
+    expect(() => saveThreadDraft("thread", "in-memory", [])).not.toThrow();
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", original);
+  }
+});

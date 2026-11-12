@@ -52,3 +52,18 @@ it("an old callback cannot overwrite a returning owner's new draft", () => {
   old.write("late callback");
   expect(current.read()).toBe("new draft");
 });
+
+it("keeps session draft failures optional, including unavailable storage access", () => {
+  setViewOwner("alice");
+  const draft = sessionDraft<string>("alice", "", "composer");
+  values.set(draft.key, "{");
+  expect(draft.read()).toBeUndefined();
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get() {
+      throw new Error("Storage denied");
+    },
+  });
+  expect(draft.read()).toBeUndefined();
+  expect(() => draft.write("in-memory draft")).not.toThrow();
+});

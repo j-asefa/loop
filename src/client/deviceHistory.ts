@@ -1,62 +1,78 @@
+import { withOptionalStorage } from "./browserStorage";
+
 function key(name: string, owner: string) {
   return `${name}:${JSON.stringify(owner)}`;
 }
 
 export function recentSearches(owner: string | undefined): string[] {
   if (!owner) return [];
-  try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(key("loop-recent-searches", owner)) || "[]",
-    );
-    return Array.isArray(value)
-      ? value
-          .filter((query): query is string => typeof query === "string")
-          .slice(0, 8)
-      : [];
-  } catch {
-    return [];
-  }
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      const value: unknown = JSON.parse(
+        storage.getItem(key("loop-recent-searches", owner)) || "[]",
+      );
+      return Array.isArray(value)
+        ? value
+            .filter((query): query is string => typeof query === "string")
+            .slice(0, 8)
+        : [];
+    },
+    [],
+  );
 }
 
 export function rememberSearch(owner: string | undefined, query: string) {
   if (!owner) return;
-  try {
-    localStorage.setItem(
-      key("loop-recent-searches", owner),
-      JSON.stringify(
-        [query, ...recentSearches(owner).filter((q) => q !== query)].slice(
-          0,
-          8,
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      storage.setItem(
+        key("loop-recent-searches", owner),
+        JSON.stringify(
+          [query, ...recentSearches(owner).filter((q) => q !== query)].slice(
+            0,
+            8,
+          ),
         ),
-      ),
-    );
-  } catch {}
+      );
+    },
+    undefined,
+  );
 }
 
 export function lastVisit(owner: string | undefined): number {
   if (!owner) return 0;
-  try {
-    const value = Number(
-      localStorage.getItem(key("loop-last-visit", owner)) || 0,
-    );
-    return Number.isFinite(value) && value >= 0 ? value : 0;
-  } catch {
-    return 0;
-  }
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      const value = Number(storage.getItem(key("loop-last-visit", owner)) || 0);
+      return Number.isFinite(value) && value >= 0 ? value : 0;
+    },
+    0,
+  );
 }
 
 export function recordVisit(owner: string | undefined, at: number) {
   if (!owner) return;
-  try {
-    localStorage.setItem(key("loop-last-visit", owner), String(at));
-  } catch {}
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      storage.setItem(key("loop-last-visit", owner), String(at));
+    },
+    undefined,
+  );
 }
 
 export function clearRecentSearches(owner: string | undefined) {
   if (!owner) return;
-  try {
-    localStorage.removeItem(key("loop-recent-searches", owner));
-  } catch {}
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      storage.removeItem(key("loop-recent-searches", owner));
+    },
+    undefined,
+  );
 }
 
 function recipientKey(owner: string, source: string) {
@@ -68,11 +84,13 @@ export function lastRecipient(
   source: string,
 ): string | null {
   if (!owner) return null;
-  try {
-    return localStorage.getItem(recipientKey(owner, source));
-  } catch {
-    return null;
-  }
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      return storage.getItem(recipientKey(owner, source));
+    },
+    null,
+  );
 }
 
 export function rememberRecipient(
@@ -81,9 +99,11 @@ export function rememberRecipient(
   recipient: string,
 ) {
   if (!owner) return;
-  try {
-    localStorage.setItem(recipientKey(owner, source), recipient);
-  } catch {
-    // Storage restrictions must not turn an accepted send into an error.
-  }
+  return withOptionalStorage(
+    "local",
+    (storage) => {
+      storage.setItem(recipientKey(owner, source), recipient);
+    },
+    undefined,
+  );
 }
