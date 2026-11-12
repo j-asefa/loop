@@ -414,3 +414,34 @@ it("drops item events from a superseded session generation", () => {
     clearTimeout(current.flush);
   }
 });
+
+it("keeps an unavailable native session's binding readable", async () => {
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('unavailable-conv','owner','un', 0)",
+  ).run();
+  db.prepare(
+    "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,worktree_agent_id,state,updated_at) VALUES('unavailable-conv','codex','un', '/p','w','unavailable',0)",
+  ).run();
+  const { publicSession } =
+    await import("../src/server/sql/companion-sessions");
+  const row = publicSession(db, "unavailable-conv");
+  expect(row?.state).toBe("unavailable");
+  // The contractions-projection path the companion route uses must parse it.
+  const { PublicNativeConversation } =
+    await import("../src/shared/companion-contract-schemas");
+  expect(
+    PublicNativeConversation.safeParse({
+      binding: {
+        harness: "codex",
+        project: "/p",
+        model: null,
+        state: "unavailable",
+        updated_at: 0,
+      },
+      memoryIncluded: false,
+      items: [],
+      projection: true,
+      note: "",
+    }).success,
+  ).toBe(true);
+});

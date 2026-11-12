@@ -7,6 +7,7 @@ export const NativeSessionStates = [
   "idle",
   "failed",
   "disconnected",
+  "unavailable",
 ] as const;
 export const NativeSessionState = z.enum(NativeSessionStates);
 export type NativeSessionState = z.infer<typeof NativeSessionState>;
