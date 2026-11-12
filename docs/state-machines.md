@@ -114,11 +114,14 @@ that call identity with 409.
 | pending → sending | `sql/run-steering.ts` | sql + run is `running`/`awaiting_approval` |
 | sending → pending | definitely not handed over | sql |
 | pending/sending → **delivered** / **failed** | delivery outcome | sql |
-| pending/sending → **failed** | run ended | trigger (migration 025) |
+| pending/sending → **failed** | run ended | trigger (migration 157) |
 
 A delivery acknowledges only when the write actually takes the row to
 `delivered`; if a run-end trigger already failed it, no late `steering.delivered`
-fires.
+fires. The run-end trigger stores `failure_reason`: pending input becomes
+`run-ended-unread`, while sending input becomes `delivery-unconfirmed`.
+Mail recovery selects only the unread reason and clears it when it records a
+requeue or refusal; displayed error text never authorizes another delivery.
 
 ### `scheduled_sends.state`
 

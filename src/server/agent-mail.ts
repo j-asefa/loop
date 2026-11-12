@@ -1515,10 +1515,6 @@ function deliverResult(row: {
   }).immediate();
 }
 
-// Set by the run_steering_stopped trigger (migration 025) on input that was
-// still pending, never handed to the harness, when its run stopped.
-const UNSENT =
-  "The run ended before this message could be delivered. Send it again to continue.";
 const REQUEUED =
   "The task ended before this message was read. Loop queued it as a new turn instead.";
 const CANCELLED =
@@ -1529,10 +1525,10 @@ const CANCELLED =
 // restarted by its unread messages.
 function requeue(mail: Mail) {
   db.transaction(() => {
-    const message = runSteeringQueries.failedMail(db, mail.steering_id, UNSENT);
+    const message = runSteeringQueries.failedMail(db, mail.steering_id);
     if (!message) return;
     const note = (text: string) =>
-      runSteeringQueries.setError(db, text, mail.steering_id);
+      runSteeringQueries.resolveMailFailure(db, text, mail.steering_id);
     if (message.run_state === "cancelled") {
       note(CANCELLED);
       refuse(mail, new Problem(409, CANCELLED));
@@ -1611,11 +1607,7 @@ export function sweepAgentMail(time = now()) {
     );
   const rejectInvalidMail = (id: string, error: InvalidRow) =>
     mailQueries.refuse(db, error.message.slice(0, 500), id);
-  const stranded = mailQueries.stranded(
-    db,
-    UNSENT,
-    rejectInvalidMail,
-  ) as Mail[];
+  const stranded = mailQueries.stranded(db, rejectInvalidMail) as Mail[];
   for (const mail of stranded)
     attempt("requeue:" + mail.id, time, () => requeue(mail));
   const pending = mailQueries.pendingHeads(db, time);

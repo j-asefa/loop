@@ -336,17 +336,16 @@ export function markRequeued(
 
 const strandedStatement =
   statement(`SELECT m.* FROM agent_mail m JOIN run_steering s ON s.id=m.steering_id
-       WHERE m.steering_id IS NOT NULL AND m.requeued_run_id IS NULL AND m.state='sent' AND s.state='failed' AND s.error=?
+       WHERE m.steering_id IS NOT NULL AND m.requeued_run_id IS NULL AND m.state='sent' AND s.state='failed' AND s.failure_reason='run-ended-unread'
        ORDER BY m.created_at LIMIT 200`);
 
 const strandedIdentityRow = QueryRecords.agent_mail.pick({ id: true });
 export function stranded(
   db: Database.Database,
-  error: string,
   reject: (id: string, error: InvalidRow) => void,
 ) {
   return strandedStatement(db)
-    .all(error)
+    .all()
     .flatMap((row) => {
       try {
         return [parseRecord(QueryRecords.agent_mail, row, "agent_mail")];
