@@ -606,10 +606,18 @@ it("requeues a mid-task message its task ended without reading, once, and never 
   });
   if ("error" in steered || "error" in lost) throw new Error("not sent");
   // The second one was handed to the harness, which could not confirm it.
-  db.prepare("UPDATE run_steering SET state='failed' WHERE id=?").run(
+  db.prepare("UPDATE run_steering SET state='sending' WHERE id=?").run(
     mail(lost.messageId).steering_id,
   );
   transition(busy, "completed");
+  db.prepare("UPDATE run_steering SET error=? WHERE id=?").run(
+    "This unread message can be continued in a new turn.",
+    mail(steered.messageId).steering_id,
+  );
+  db.prepare("UPDATE run_steering SET error=? WHERE id=?").run(
+    "The run ended before this message could be delivered. Send it again to continue.",
+    mail(lost.messageId).steering_id,
+  );
   sweepAgentMail();
   sweepAgentMail();
   const requeued = mail(steered.messageId);
@@ -627,9 +635,13 @@ it("requeues a mid-task message its task ended without reading, once, and never 
   });
   expect(
     db
-      .prepare("SELECT state,error FROM run_steering WHERE id=?")
+      .prepare("SELECT state,error,failure_reason FROM run_steering WHERE id=?")
       .get(requeued.steering_id),
-  ).toEqual({ state: "failed", error: expect.stringContaining("queued it") });
+  ).toEqual({
+    state: "failed",
+    error: expect.stringContaining("queued it"),
+    failure_reason: null,
+  });
   expect(
     db
       .prepare("SELECT count(*) n FROM runs WHERE idempotency_key LIKE ?")

@@ -108,7 +108,7 @@ export function state(db: Database.Database, id: string | null) {
 }
 
 const failedMailStatement = statement(
-  "SELECT m.content,m.conversation_id,m.metadata,r.state run_state FROM run_steering s JOIN messages m ON m.id=s.message_id JOIN runs r ON r.id=s.run_id WHERE s.id=? AND s.state='failed' AND s.error=?",
+  "SELECT m.content,m.conversation_id,m.metadata,r.state run_state FROM run_steering s JOIN messages m ON m.id=s.message_id JOIN runs r ON r.id=s.run_id WHERE s.id=? AND s.state='failed' AND s.failure_reason='run-ended-unread'",
 );
 const failedMailRow = z.object({
   content: z.string(),
@@ -116,26 +116,22 @@ const failedMailRow = z.object({
   metadata: z.string(),
   run_state: z.string(),
 });
-export function failedMail(
-  db: Database.Database,
-  id: string | null,
-  error: string,
-) {
-  const row = failedMailStatement(db).get(id, error);
+export function failedMail(db: Database.Database, id: string | null) {
+  const row = failedMailStatement(db).get(id);
   return row === undefined
     ? undefined
     : parseRecord(failedMailRow, row, "run_steering");
 }
 
-const setErrorStatement = statement(
-  "UPDATE run_steering SET error=? WHERE id=?",
+const resolveMailFailureStatement = statement(
+  "UPDATE run_steering SET error=?,failure_reason=NULL WHERE id=?",
 );
-export function setError(
+export function resolveMailFailure(
   db: Database.Database,
   error: string,
   id: string | null,
 ) {
-  return setErrorStatement(db).run(error, id);
+  return resolveMailFailureStatement(db).run(error, id);
 }
 
 const ownedRunExistsStatement = statement(

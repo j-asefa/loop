@@ -990,6 +990,9 @@ export const QueryRecords = {
     request: z.string(),
     state: z.string(),
     error: z.string().nullable(),
+    failure_reason: z
+      .enum(["run-ended-unread", "delivery-unconfirmed"])
+      .nullable(),
     created_at: z.number(),
   }),
   events: z.object({
