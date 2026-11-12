@@ -1,4 +1,5 @@
-import {  GithubError,
+import {
+  GithubError,
   githubProblem,
   GITHUB_PULL_MISSING,
 } from "./github-errors.js";
