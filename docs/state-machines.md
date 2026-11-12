@@ -396,7 +396,10 @@ Runtime enable/refresh uses this journal with the runtime, project, billing,
 installed version and sign-in attempt as its target. Reloading retains an
 uncertain verification identity. The existing status-inspection action does not
 dispatch; an explicit "Start new verification" archives the matching uncertain
-attempt before preparing a new command. Late replies cannot update an unmounted
+attempt before preparing a new command. A storage failure during that archive
+retains the recovery handle so the explicit action can be retried. A refusal
+while recovering keeps the uncertain ID, because access checks may refuse
+before consulting the authority's receipt. Late replies cannot update an unmounted
 or replaced owner/source view.
 
 An unknown server receipt can remain unknown permanently. The recovery UI

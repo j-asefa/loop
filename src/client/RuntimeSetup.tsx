@@ -145,6 +145,7 @@ export function RuntimeSetup({
   async function enable(runtime: Runtime, newAttempt = false) {
     const previousFailure = enableError;
     let target: string | undefined;
+    let superseding: UncertainEffect | undefined;
     setEnabling(runtime.name);
     setEnableError(undefined);
     setError("");
@@ -165,8 +166,11 @@ export function RuntimeSetup({
         authAttempts.current.get(runtimeAuthScope(runtime)),
       ]);
       target = commandKey;
-      if (newAttempt && previousFailure?.target === commandKey)
-        await previousFailure.failure?.supersede();
+      if (newAttempt && previousFailure?.target === commandKey) {
+        superseding = previousFailure.failure;
+        await superseding?.supersede();
+        superseding = undefined;
+      }
       await performStoredEffect(
         localStorage,
         owner,
@@ -189,6 +193,15 @@ export function RuntimeSetup({
             },
             source,
           ),
+        (error, recovering) => {
+          const outcome = (error as { executionOutcome?: string } | null)
+            ?.executionOutcome;
+          // Access checks can refuse recovery before the authority reads its
+          // receipt. Such a refusal cannot settle an earlier uncertain command.
+          return (
+            outcome === "completed" || (!recovering && outcome === "refused")
+          );
+        },
       );
       if (!current()) return;
       const results = await Promise.allSettled([
@@ -205,7 +218,7 @@ export function RuntimeSetup({
         name: runtime.name,
         scope: runtimeAuthScope(runtime),
         message: (e as Error).message,
-        failure: e instanceof UncertainEffect ? e : undefined,
+        failure: e instanceof UncertainEffect ? e : superseding,
         target,
       });
     } finally {

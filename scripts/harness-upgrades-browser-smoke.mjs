@@ -123,6 +123,14 @@ try {
           },
           409,
         );
+      else if (enableOutcome === "refused")
+        reply(
+          {
+            error: "Fixture project access refused",
+            executionOutcome: "refused",
+          },
+          403,
+        );
       else
         reply({
           name: "codex",
@@ -251,6 +259,17 @@ try {
     [pendingEnable, pendingEnable],
     "reload must recover the same enable command",
   );
+  enableOutcome = "refused";
+  await refreshRuntime.click();
+  await expect(account).toContainText("Fixture project access refused");
+  enableOutcome = "unknown";
+  await refreshRuntime.click();
+  await expect(account).toContainText("Fixture enable outcome is unknown");
+  assert.deepEqual(
+    enableIds,
+    Array(4).fill(pendingEnable),
+    "a recovery refusal must retain the original unknown command",
+  );
   await account
     .getByRole("button", { name: "Check runtime status", exact: true })
     .click();
@@ -259,7 +278,49 @@ try {
     exact: true,
   });
   await expect(newVerification).toBeEnabled();
-  assert.equal(enableIds.length, 2, "inspection does not dispatch");
+  assert.equal(enableIds.length, 4, "inspection does not dispatch");
+  await page.evaluate(() => {
+    const set = Storage.prototype.setItem;
+    window.blockArchive = true;
+    Storage.prototype.setItem = function (key, value) {
+      if (window.blockArchive && key.startsWith("loop-effect-history:"))
+        throw new Error("Fixture archive unavailable");
+      return set.call(this, key, value);
+    };
+  });
+  await newVerification.click();
+  await expect(account).toContainText("Fixture archive unavailable");
+  assert.equal(enableIds.length, 4, "failed supersession cannot dispatch");
+  await page.evaluate(() => {
+    window.blockArchive = false;
+  });
+  await account
+    .getByRole("button", { name: "Check runtime status", exact: true })
+    .click();
+  await expect(newVerification).toBeEnabled();
+  await page.evaluate(() => {
+    const remove = Storage.prototype.removeItem;
+    window.blockRemoval = true;
+    Storage.prototype.removeItem = function (key) {
+      if (window.blockRemoval && key.startsWith("loop-effect:"))
+        throw new Error("Fixture removal unavailable");
+      return remove.call(this, key);
+    };
+  });
+  await newVerification.click();
+  await expect(account).toContainText("Fixture removal unavailable");
+  assert.equal(
+    enableIds.length,
+    4,
+    "failed active-slot removal cannot dispatch",
+  );
+  await page.evaluate(() => {
+    window.blockRemoval = false;
+  });
+  await account
+    .getByRole("button", { name: "Check runtime status", exact: true })
+    .click();
+  await expect(newVerification).toBeEnabled();
   enableOutcome = "success";
   await newVerification.click();
   await expect(refreshRuntime).toBeEnabled();
@@ -267,7 +328,7 @@ try {
     account.getByText("Connection not verified", { exact: true }),
   ).toHaveCount(0);
   assert.notEqual(enableIds.at(-1), pendingEnable);
-  assert.equal(enableIds.length, 3);
+  assert.equal(enableIds.length, 5);
   await page.evaluate(() => {
     const set = Storage.prototype.setItem;
     window.blockEnable = true;
@@ -281,7 +342,7 @@ try {
   await expect(account).toContainText("nothing was sent");
   assert.equal(
     enableIds.length,
-    3,
+    5,
     "storage failure prevents runtime verification",
   );
   await page.evaluate(() => {
