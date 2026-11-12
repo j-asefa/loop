@@ -202,52 +202,54 @@ export async function prepareAgentWorkspace(
         throw new AgentWorktreeError(
           "Registered agent worktree is missing; restore it before resuming",
         );
-      const refs = (
-        await runGit(
-          "for-each-ref",
-          "--format=%(refname)",
-          "refs/heads/main",
-          "refs/remotes",
-        )
-      ).split("\n");
-      const localMain = refs.includes("refs/heads/main");
-      const upstream = localMain
-        ? await runGit(
-            "for-each-ref",
-            "--format=%(upstream)",
-            "refs/heads/main",
-          )
-        : "";
-      const remote = mainRemote(
-        refs,
-        upstream,
-        localMain ? (await runGit("remote")).split("\n") : [],
-      );
-      if (remote) {
-        try {
+      const base = await prepareBase(common, async () => {
+        const refs = (
           await runGit(
-            "fetch",
-            "--no-tags",
-            "--",
-            remote,
-            "+refs/heads/main:refs/remotes/" + remote + "/main",
-          );
-        } catch (cause) {
-          throw new AgentWorktreeError(
-            "Could not fetch latest main for a new agent worktree; check remote access and retry.",
-            { cause },
-          );
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads/main",
+            "refs/remotes",
+          )
+        ).split("\n");
+        const localMain = refs.includes("refs/heads/main");
+        const upstream = localMain
+          ? await runGit(
+              "for-each-ref",
+              "--format=%(upstream)",
+              "refs/heads/main",
+            )
+          : "";
+        const remote = mainRemote(
+          refs,
+          upstream,
+          localMain ? (await runGit("remote")).split("\n") : [],
+        );
+        if (remote) {
+          try {
+            await runGit(
+              "fetch",
+              "--no-tags",
+              "--",
+              remote,
+              "+refs/heads/main:refs/remotes/" + remote + "/main",
+            );
+          } catch (cause) {
+            throw new AgentWorktreeError(
+              "Could not fetch latest main for a new agent worktree; check remote access and retry.",
+              { cause },
+            );
+          }
         }
-      }
-      const base = await runGit(
-        "rev-parse",
-        "--verify",
-        (remote
-          ? "refs/remotes/" + remote + "/main"
-          : localMain
-            ? "refs/heads/main"
-            : "HEAD") + "^{commit}",
-      );
+        return runGit(
+          "rev-parse",
+          "--verify",
+          (remote
+            ? "refs/remotes/" + remote + "/main"
+            : localMain
+              ? "refs/heads/main"
+              : "HEAD") + "^{commit}",
+        );
+      });
       await runGit(
         "worktree",
         "add",
@@ -262,6 +264,18 @@ export async function prepareAgentWorkspace(
       worktreeSource: project,
     });
   });
+}
+
+const resolvingBases = new Map<string, Promise<string>>();
+async function prepareBase(common: string, work: () => Promise<string>) {
+  const previous = resolvingBases.get(common);
+  const result = (previous ?? Promise.resolve()).then(work, work);
+  resolvingBases.set(common, result);
+  try {
+    return await result;
+  } finally {
+    if (resolvingBases.get(common) === result) resolvingBases.delete(common);
+  }
 }
 
 const preparing = new Map<string, Promise<AgentWorkspace>>();

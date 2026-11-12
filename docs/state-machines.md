@@ -190,8 +190,9 @@ binding identity and run state captured before that await. Session preparation
 and settings requests share a counted idle-eviction hold. Eviction stays suspended
 until every overlapping operation finishes. Completion or failure re-arms
 eviction only for an idle, open live session. Same-process callers
-preparing the same checkout share one pending preparation; Git locks arbitrate
-between processes. Git diagnostics stay in server-side error causes, while
+preparing the same checkout share one pending preparation. Fetch and immutable
+base-commit resolution are serialized per common Git directory within the
+process; Git locks arbitrate between processes. Git diagnostics stay in server-side error causes, while
 browser-facing errors contain controlled setup guidance.
 
 Disposal does not rewrite the row; readers go through the in-memory live

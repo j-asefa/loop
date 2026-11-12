@@ -232,6 +232,10 @@ it("fetches latest main for new agents without changing the source or existing a
       projectId: repo,
     }),
   ).rejects.toThrow(/Could not fetch latest main/);
+  git(repo, "remote", "set-url", "origin", remote);
+  expect(git(await worktree(repo, "third"), "rev-parse", "HEAD")).toBe(
+    git(remote, "rev-parse", "HEAD"),
+  );
 });
 
 it("uses local main ahead of a feature checkout when no remote exists", async () => {
@@ -319,4 +323,32 @@ it("shares concurrent preparations of the same agent checkout", async () => {
   expect(readFileSync(join(expected.directory, "tracked.txt"), "utf8")).toBe(
     "initial",
   );
+});
+
+it("prepares different agents against an advanced remote main concurrently", async () => {
+  const remote = fixture();
+  const repo = fixture();
+  git(repo, "remote", "add", "origin", remote);
+  git(repo, "fetch", "origin");
+  commit(remote, "new remote main");
+  const expected = git(remote, "rev-parse", "HEAD");
+  const results = await Promise.allSettled(
+    Array.from({ length: 8 }, (_, index) =>
+      agentWorkspace(repo, repo, {
+        ownerId: "owner",
+        agentId: "parallel-" + index,
+        environmentId: "fixture",
+        projectId: repo,
+      }),
+    ),
+  );
+  for (const result of results)
+    if (result.status === "rejected") throw result.reason;
+  expect(results.map((result) => result.status)).toEqual(
+    Array(8).fill("fulfilled"),
+  );
+  for (const result of results) {
+    if (result.status !== "fulfilled") throw result.reason;
+    expect(git(result.value.directory, "rev-parse", "HEAD")).toBe(expected);
+  }
 });
