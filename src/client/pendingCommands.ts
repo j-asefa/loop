@@ -1,3 +1,5 @@
+import { storedCommands } from "./pendingCommandStorage";
+
 type PendingEffect = { commandId: string; attempt: string; context?: string };
 
 export class UncertainEffect extends Error {
@@ -19,10 +21,6 @@ function effectOutcomeSettled(error: unknown): boolean {
   return outcome === "refused" || outcome === "completed";
 }
 
-function commandKey(owner: string, source: string, target: readonly string[]) {
-  return `loop-effect:${JSON.stringify([owner, source, ...target])}`;
-}
-
 // A receipt response identifies an attempt; a terminal status read identifies
 // the command itself. Neither may clear a newer command in the same slot.
 export async function settleStoredEffect(
@@ -33,15 +31,16 @@ export async function settleStoredEffect(
   receipt: { commandId: string; attempt?: string },
 ): Promise<void> {
   if (!owner) return;
-  const key = commandKey(owner, source, target);
+  const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
+  const key = slot.key;
   try {
     await navigator.locks.request(key, () => {
-      const saved = JSON.parse(storage.getItem(key) || "null");
+      const saved = slot.read();
       if (
         saved?.commandId === receipt.commandId &&
         (receipt.attempt === undefined || saved?.attempt === receipt.attempt)
       )
-        storage.removeItem(key);
+        slot.remove();
     });
   } catch {
     // Settlement failure retains the identity for receipt recovery.
@@ -64,14 +63,14 @@ export async function performStoredEffect<T>(
   if (!owner) throw new Error("Sign in before starting this change.");
   if (!navigator.locks)
     throw new Error("Cannot protect pending changes; nothing was sent.");
-  const key = commandKey(owner, source, target);
+  const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
+  const key = slot.key;
   const prepared = await navigator.locks.request(key, () => {
     if (!current()) throw new Error("This view has changed; nothing was sent.");
     let prior: PendingEffect | undefined;
     try {
-      const raw = storage.getItem(key);
-      if (raw !== null) {
-        const value = JSON.parse(raw);
+      const value = slot.read();
+      if (value !== undefined) {
         if (
           typeof value?.commandId !== "string" ||
           !value.commandId ||
@@ -93,7 +92,7 @@ export async function performStoredEffect<T>(
         : { context: prior ? prior.context : context }),
     };
     try {
-      storage.setItem(key, JSON.stringify(receipt));
+      slot.write(receipt);
     } catch {
       throw new Error("Cannot save this change's identity; nothing was sent.");
     }
@@ -124,7 +123,7 @@ export async function performStoredEffect<T>(
           throw new Error(
             "This view has changed. Reopen it before continuing.",
           );
-        const saved = JSON.parse(storage.getItem(key) || "null");
+        const saved = slot.read();
         if (
           saved?.commandId !== prepared.receipt.commandId ||
           saved?.attempt !== prepared.receipt.attempt
@@ -138,7 +137,7 @@ export async function performStoredEffect<T>(
           `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
           JSON.stringify({ ...prepared.receipt, target }),
         );
-        storage.removeItem(key);
+        slot.remove();
       });
     });
   }

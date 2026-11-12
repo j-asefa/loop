@@ -402,7 +402,15 @@ removed on a terminal answer), which turns a repeat into a receipt-only query.
 
 [`pendingCommands.ts`](../src/client/pendingCommands.ts) stores a pending
 command ID and attempt ID in owner/source/operation-scoped `localStorage`.
-Preparation holds a Web Lock, records both identities before dispatch, and
+The owner/source/operation slot is shared through
+[`pendingCommandStorage.ts`](../src/client/pendingCommandStorage.ts), whose
+persistent adapter propagates storage failures. Integration-token creation uses
+the same scoped slots with an in-memory adapter: its request ID, name, scopes
+and secret survive closing Settings, but never go to local/session storage or
+the URL. A lost creation response is reconciled against the token list; a retry
+reuses the exact request. Closing the page loses that ephemeral secret.
+
+Durable command preparation holds a Web Lock, records both identities before dispatch, and
 refuses dispatch if storage or the current view is unavailable. Concurrent
 attempts of the same logical request reuse the command ID; only the latest
 attempt may remove its receipt. A terminal upgrade status read can also settle

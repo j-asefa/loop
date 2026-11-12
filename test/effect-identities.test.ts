@@ -277,24 +277,27 @@ it("keeps the pending identity when preserving recovery history fails", async ()
   expect(ids[1]).toBe(ids[0]);
 });
 
-it("refuses dispatch for a malformed pending record", async () => {
-  storage.setItem(
-    `loop-effect:${JSON.stringify(["alice", "", "provider-refresh"])}`,
-    "{broken",
-  );
-  const dispatch = vi.fn(async () => "accepted");
-  await expect(
-    performStoredEffect(
-      storage,
-      "alice",
-      "",
-      ["provider-refresh"],
-      () => true,
-      dispatch,
-    ),
-  ).rejects.toThrow("Cannot read pending changes");
-  expect(dispatch).not.toHaveBeenCalled();
-});
+it.each(["{broken", "null", "", "{}"])(
+  "refuses dispatch for malformed pending record %j",
+  async (raw) => {
+    storage.setItem(
+      `loop-effect:${JSON.stringify(["alice", "", "provider-refresh"])}`,
+      raw,
+    );
+    const dispatch = vi.fn(async () => "accepted");
+    await expect(
+      performStoredEffect(
+        storage,
+        "alice",
+        "",
+        ["provider-refresh"],
+        () => true,
+        dispatch,
+      ),
+    ).rejects.toThrow("Cannot read pending changes");
+    expect(dispatch).not.toHaveBeenCalled();
+  },
+);
 
 it("retains the identity when settled-receipt removal fails", async () => {
   const ids: string[] = [];

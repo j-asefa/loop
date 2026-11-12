@@ -19,10 +19,11 @@ import {
 } from "../shared/card-access";
 import { SCOPE_CATALOG, TokenScope } from "../shared/token-scopes";
 import { viewOwner } from "./viewCache";
+import { memoryCommands } from "./pendingCommandStorage";
 
 // Pending creation survives closing Settings, scoped to its initiating owner/source.
 // This ephemeral receipt never goes to URL, localStorage or sessionStorage.
-const pending = new Map<string, IntegrationTokenRequest>();
+const pending = memoryCommands<IntegrationTokenRequest>();
 
 /** The parent keys this surface by owner and source. Secrets live only in this
  * creation workflow; stale responses cannot reveal them to another owner/source. */
@@ -33,8 +34,8 @@ export function CardTokens({
   owner: string;
   sourceId: string;
 }) {
-  const key = JSON.stringify([owner, sourceId]);
-  const receipt = useRef(pending.get(key));
+  const slot = pending(owner, sourceId, ["integration-token"]);
+  const receipt = useRef(slot.read() ?? undefined);
   const nameId = useId();
   const [tokens, setTokens] = useState<CardToken[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -74,7 +75,7 @@ export function CardTokens({
         if (draft && committed) {
           setCreated({ token: committed, secret: draft.secret });
           receipt.current = undefined;
-          pending.delete(key);
+          slot.remove();
           setName("");
           setScopes(["read"]);
           setError("");
@@ -96,7 +97,7 @@ export function CardTokens({
     return () => {
       alive.current = false;
       listRequest.current++;
-      if (viewOwner() !== owner) pending.delete(key);
+      if (viewOwner() !== owner) slot.remove();
     };
   }, []);
   if (unavailable)
@@ -131,7 +132,7 @@ export function CardTokens({
             const draft =
               receipt.current || integrationTokenRequest(name, scopes);
             receipt.current = draft;
-            pending.set(key, draft);
+            slot.write(draft);
             setBusy(true);
             setError("");
             setCreated(null);
@@ -143,7 +144,7 @@ export function CardTokens({
               );
               if (current()) {
                 receipt.current = undefined;
-                pending.delete(key);
+                slot.remove();
                 setCreated(result);
                 setName("");
                 setScopes(["read"]);
@@ -158,7 +159,7 @@ export function CardTokens({
                   ![408, 429].includes(status)
                 ) {
                   receipt.current = undefined;
-                  pending.delete(key);
+                  slot.remove();
                   await load(false);
                   setError((e as Error).message);
                   return;
@@ -290,7 +291,7 @@ export function CardTokens({
                           if (created?.token.id === token.id) setCreated(null);
                           if (receipt.current?.request_id === token.id) {
                             receipt.current = undefined;
-                            pending.delete(key);
+                            slot.remove();
                           }
                           await load();
                         }
