@@ -1,3 +1,4 @@
+import { NativeAnswerState } from "./native-decision-state.js";
 import { NativeCommand } from "./native-commands.js";
 import { Billing } from "./protocol.js";
 import { z } from "zod";
@@ -300,7 +301,7 @@ export const executionOperations = {
   ),
   "native.answer": method(
     z.strictObject({ decisionId: Id, answer: JsonObject }),
-    z.strictObject({ state: z.string() }),
+    z.strictObject({ state: NativeAnswerState }),
     { effect: "existing" },
   ),
   "native.controls": method(

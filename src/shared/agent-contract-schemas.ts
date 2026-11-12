@@ -1,3 +1,5 @@
+import { TraceKind } from "./trace-kind.js";
+import { RunDisplayState } from "./run-state.js";
 import { z } from "zod";
 import { AttachmentIds } from "./uploads.js";
 import { SessionCapabilities } from "./session-controls.js";
@@ -239,14 +241,14 @@ export const PublicAgentTrace = z.object({
   owner_id: Text,
   trace_key: Text,
   run_id: Text,
-  kind: Text,
+  kind: TraceKind,
   title: Text,
   content: Text,
   metadata: Text,
   artifact_id: Text.nullable(),
   created_at: z.number(),
   input: Text,
-  run_state: Text,
+  run_state: RunDisplayState,
   run_error: Text.nullable(),
   conversation_id: Text.nullable(),
   server: Text.nullable(),

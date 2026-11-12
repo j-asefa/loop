@@ -1,3 +1,4 @@
+import { McpConnectionStatus } from "./mcp-status.js";
 import { z } from "zod";
 import { toolInvocationSchema } from "./artifact-refresh.js";
 import { PERMISSION_MODES } from "./permission-modes.js";
@@ -70,7 +71,7 @@ export const PublicMcpConnection = z.object({
   owner_id: Text,
   name: Text,
   url: Text,
-  status: Text,
+  status: McpConnectionStatus,
   tools: Text,
   metadata: Text,
   created_at: Count,
