@@ -3,7 +3,6 @@ import { afterAll, expect, it, vi } from "vitest";
 import { chmodSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-session-capacity-")));
 process.env.LOOP_DATA_DIR = dir;
