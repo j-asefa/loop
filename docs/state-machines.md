@@ -399,6 +399,20 @@ the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
 removed on a terminal answer), which turns a repeat into a receipt-only query.
 
+### Continuation requests
+
+[`continuationCommands.ts`](../src/client/continuationCommands.ts) stores the
+exact continuation request in owner/source/thread-scoped local storage through
+the shared command adapter. Each request has its own idempotency-key slot;
+preparing another continuation does not evict an uncertain one. A per-tab
+session marker selects a saved request or explicitly selects new work. That
+marker is optional; saving the durable request must succeed before dispatch.
+Reloads validate saved requests against the current route schema. Acceptance
+removes only the matching request, and cleanup failure retains its identity
+without turning acceptance into a reported failure. The conversation UI retains
+its outcome policy: an ordinary refusal during recovery cannot settle an earlier
+uncertain request.
+
 ### Pending command identities
 
 [`pendingCommands.ts`](../src/client/pendingCommands.ts) stores a pending
