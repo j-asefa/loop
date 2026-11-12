@@ -3,7 +3,7 @@ import { db, id, now } from "./db.js";
 import { BuildStamp, publicBuild } from "../shared/build.js";
 import { observedBuild } from "./build-runtime.js";
 import { observeApiEventLoop } from "./event-loop-health.js";
-import { heartbeatWrite } from "./heartbeat-write.js";
+import { tryWithoutBusyWait } from "./busy-wait.js";
 
 const FRESH_MS = 20_000;
 type Instance = {
@@ -30,7 +30,7 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
     started,
   );
   const pulse = () =>
-    heartbeatWrite(`deployment-${role}`, () => {
+    tryWithoutBusyWait(db, `deployment-${role}`, () => {
       deploymentInstancesQueries.heartbeat(
         db,
         now(),
@@ -44,7 +44,7 @@ export function observeProcess(role: Instance["role"], build?: BuildStamp) {
   return () => {
     stopEventLoop?.();
     clearInterval(timer);
-    heartbeatWrite(`deployment-${role}`, () =>
+    tryWithoutBusyWait(db, `deployment-${role}`, () =>
       deploymentInstancesQueries.stop(db, now(), instance),
     );
   };

@@ -36,7 +36,7 @@ import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
 import { harnessHolds } from "./harness-holds.js";
 import { nativeSessions } from "./native-sessions.js";
 import { observeProcess } from "./deployments.js";
-import { heartbeatWrite } from "./heartbeat-write.js";
+import { tryWithoutBusyWait } from "./busy-wait.js";
 import {
   assertExecutionGeneration,
   executionGeneration,
@@ -84,7 +84,7 @@ export async function tick(
   if (!run) return false;
   const heartbeat = setInterval(
     () =>
-      heartbeatWrite("run", () =>
+      tryWithoutBusyWait(db, "run", () =>
         runsQueries.heartbeatLease(db, now(), run.id, workerId),
       ),
     RUN_HEARTBEAT_MS,
@@ -169,7 +169,7 @@ export function startWorker() {
   let stopping = false;
   const inflight = new Set<Promise<unknown>>();
   const heartbeat = () =>
-    heartbeatWrite("worker", () =>
+    tryWithoutBusyWait(db, "worker", () =>
       workerHealthQueries.heartbeat(db, workerId, now()),
     );
   heartbeat();
