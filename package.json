@@ -20,6 +20,7 @@
     "smoke:cards": "node scripts/heavy-command.mjs --import tsx scripts/cards-browser-smoke.mjs && node scripts/heavy-command.mjs --import tsx scripts/cards-content-browser.mjs && node scripts/heavy-command.mjs scripts/cards-window-browser.mjs",
     "smoke:feed-events": "node scripts/heavy-command.mjs --import tsx scripts/feed-websocket-smoke.mjs && node scripts/heavy-command.mjs --import tsx scripts/personal-files-events-smoke.mjs",
     "smoke:package": "node scripts/heavy-command.mjs scripts/package-smoke.mjs",
+    "smoke:creation-commands": "node scripts/heavy-command.mjs scripts/creation-commands-browser-smoke.mjs",
     "smoke:run-retry": "node scripts/heavy-command.mjs scripts/run-retry-browser-smoke.mjs",
     "smoke:history": "node scripts/heavy-command.mjs scripts/conversation-history-smoke.mjs",
     "smoke:design": "node scripts/design-browser-smoke.mjs && node scripts/heavy-command.mjs scripts/approval-layout-browser.mjs",

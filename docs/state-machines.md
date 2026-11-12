@@ -275,6 +275,14 @@ a pending reservation before IO and complete in a second transaction. Refused
 replays never execute the effect; expiry markers commit before a refusal is
 returned.
 
+Preset-team creation and review starts keep their browser request identities in
+[the pending-command journal](#pending-command-identities), keyed by owner,
+source, operation and form inputs. Reloading can recover an uncertain creation.
+A fresh 4xx can settle a refused request; a refusal during recovery cannot prove
+whether the earlier request committed and therefore retains its identity.
+Storage failure prevents dispatch. Completion callbacks require the same
+mounted owner/source view.
+
 ### `token_requests.state`
 
 ∅ → pending (tx) → complete (sql; 409 if already complete) → expired marker

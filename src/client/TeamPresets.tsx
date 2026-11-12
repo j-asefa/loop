@@ -1,8 +1,10 @@
 import { proseEntry } from "./textEntry";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
+import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
+import { viewOwner, viewGeneration } from "./viewCache";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Connection, Folder, Team } from "../shared/types";
 
@@ -76,7 +78,21 @@ export function PresetTeamForm({
   const [roles, setRoles] = useState<Record<string, Choice>>({});
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const receipt = useRef({ body: "", key: "" });
+  const owner = viewOwner(),
+    generation = viewGeneration(),
+    source = executionSourceId();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const current = () =>
+    mounted.current &&
+    owner === viewOwner() &&
+    generation === viewGeneration() &&
+    source === executionSourceId();
   function chooser(label: string, value: Choice, change: (c: Choice) => void) {
     return (
       <fieldset>
@@ -137,25 +153,26 @@ export function PresetTeamForm({
           roles,
         };
         const encoded = JSON.stringify(body);
-        if (receipt.current.body !== encoded)
-          receipt.current = { body: encoded, key: crypto.randomUUID() };
         try {
-          onCreated(
-            await callRoute(
-              workspaceApi.teamFromPreset,
-              {
-                body: {
-                  ...body,
-                  idempotencyKey: receipt.current.key,
-                },
-              },
-              executionSourceId(),
-            ),
+          const team = await performStoredEffect(
+            localStorage,
+            owner,
+            source,
+            ["team-create", encoded],
+            current,
+            (idempotencyKey) =>
+              callRoute(
+                workspaceApi.teamFromPreset,
+                { body: { ...body, idempotencyKey } },
+                source,
+              ),
+            creationFailureSettled,
           );
+          if (current()) onCreated(team);
         } catch (e) {
-          setError((e as Error).message);
+          if (current()) setError((e as Error).message);
         } finally {
-          setBusy(false);
+          if (mounted.current) setBusy(false);
         }
       }}
     >
