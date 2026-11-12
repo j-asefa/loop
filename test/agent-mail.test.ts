@@ -618,8 +618,39 @@ it("requeues a mid-task message its task ended without reading, once, and never 
     "The run ended before this message could be delivered. Send it again to continue.",
     mail(lost.messageId).steering_id,
   );
-  sweepAgentMail();
-  sweepAgentMail();
+  const connection = (status: string) =>
+    db
+      .prepare(
+        "UPDATE connections SET status=? WHERE id=(SELECT connection_id FROM agents WHERE id=?)",
+      )
+      .run(status, coder.id);
+  connection("disconnected");
+  const retryTime = now();
+  sweepAgentMail(retryTime);
+  expect(mail(steered.messageId).requeued_run_id).toBeNull();
+  connection("connected");
+  const { execFileSync } = await import("node:child_process");
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "const {sweepAgentMail}=await import('./src/server/agent-mail.ts');sweepAgentMail(" +
+        (retryTime + 1) +
+        ");",
+    ],
+    { env: { ...process.env, LOOP_DATA_DIR: dir } },
+  );
+  expect(mail(steered.messageId).requeued_run_id).toBeNull();
+  sweepAgentMail(retryTime + 15_000);
+  sweepAgentMail(retryTime + 30_000);
+  expect(
+    db
+      .prepare("SELECT key FROM agent_mail_retries WHERE owner_id=?")
+      .all(owner),
+  ).toEqual([]);
   const requeued = mail(steered.messageId);
   expect(requeued.requeued_run_id).toEqual(expect.any(String));
   const follow = runOf(requeued.requeued_run_id);
@@ -1068,7 +1099,74 @@ it("does not wake a manager cancelled after its workers finished, including defe
   ).toEqual({ n: 0 });
 });
 
-it("retries a result the manager can't take yet, and holds it while the manager works elsewhere", () => {
+it("continues the mail sweep when a selected result source is deleted before its attempt", async () => {
+  const owner = "deleted-retry-source";
+  const { manager, coder, piWorker, team } = mixedTeam(owner);
+  const lead = running(owner, manager.id, {
+    conversationId: team.conversation_id!,
+  });
+  const removed = running(
+    owner,
+    coder.id,
+    { teamId: team.id },
+    "Removed result",
+  );
+  const healthy = running(
+    owner,
+    piWorker.id,
+    { teamId: team.id },
+    "Healthy result",
+  );
+  for (const [index, child] of [removed, healthy].entries()) {
+    db.prepare(
+      "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
+    ).run(lead.id, `call:${index}`, child.id, "{}");
+    transition(child, "completed");
+  }
+  transition(lead, "completed");
+  db.prepare("UPDATE runs SET updated_at=0 WHERE id=?").run(removed.id);
+  const queries = await import("../src/server/sql/delegations");
+  const select = queries.finishedMailResults;
+  const { default: Database } = await import("better-sqlite3");
+  const writer = new Database(join(dir, "loop.db"));
+  writer.pragma("foreign_keys=ON");
+  const selection = vi
+    .spyOn(queries, "finishedMailResults")
+    .mockImplementationOnce((connection, time) => {
+      const rows = select(connection, time);
+      expect(rows.some((row) => row.child_run_id === removed.id)).toBe(true);
+      writer
+        .prepare("DELETE FROM messages WHERE owner_id=? AND run_id=?")
+        .run(owner, removed.id);
+      writer
+        .prepare("DELETE FROM delegations WHERE child_run_id=?")
+        .run(removed.id);
+      writer
+        .prepare("DELETE FROM runs WHERE owner_id=? AND id=?")
+        .run(owner, removed.id);
+      return rows;
+    });
+  try {
+    sweepAgentMail();
+    expect(
+      db
+        .prepare(
+          "SELECT sender_run_id FROM agent_mail WHERE owner_id=? AND kind='result'",
+        )
+        .all(owner),
+    ).toEqual([{ sender_run_id: healthy.id }]);
+    expect(
+      db
+        .prepare("SELECT key FROM agent_mail_retries WHERE owner_id=?")
+        .all(owner),
+    ).toEqual([]);
+  } finally {
+    selection.mockRestore();
+    writer.close();
+  }
+});
+
+it("retries a result the manager can't take yet, and holds it while the manager works elsewhere", async () => {
   const owner = "retry";
   const { manager, coder, team } = mixedTeam(owner);
   const lead = running(owner, manager.id, {
@@ -1089,11 +1187,27 @@ it("retries a result the manager can't take yet, and holds it while the manager 
   db.prepare(
     "UPDATE connections SET status='disconnected' WHERE id=(SELECT connection_id FROM agents WHERE id=?)",
   ).run(manager.id);
-  sweepAgentMail();
+  const retryTime = now();
+  sweepAgentMail(retryTime);
   expect(results()).toEqual([]);
   db.prepare(
     "UPDATE connections SET status='connected' WHERE id=(SELECT connection_id FROM agents WHERE id=?)",
   ).run(manager.id);
+  const { execFileSync } = await import("node:child_process");
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "const {sweepAgentMail}=await import('./src/server/agent-mail.ts');sweepAgentMail(" +
+        (retryTime + 1) +
+        ");",
+    ],
+    { env: { ...process.env, LOOP_DATA_DIR: dir } },
+  );
+  expect(results()).toEqual([]);
   // Now busy in another team conversation: the result waits rather than
   // starting a second session in the delegating conversation.
   const elsewhere = running(owner, manager.id, { teamId: team.id }, "Other");
@@ -1111,6 +1225,11 @@ it("retries a result the manager can't take yet, and holds it while the manager 
     }),
   ]);
   expect(runOf(results()[0].run_id).input).toContain("Ported");
+  expect(
+    db
+      .prepare("SELECT key FROM agent_mail_retries WHERE owner_id=?")
+      .all(owner),
+  ).toEqual([]);
 });
 
 it("doesn't restart a cancelled task with its unread messages, and cancels results waiting for a cancelled manager", async () => {

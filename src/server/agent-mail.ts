@@ -11,6 +11,7 @@ import * as agentThreadMembersQueries from "./sql/agent-thread-members.js";
 import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
 import * as fleetMailThreadsQueries from "./sql/fleet-mail-threads.js";
 import * as mailQueries from "./sql/agent-mail.js";
+import * as mailRetryQueries from "./sql/agent-mail-retries.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
 import { FleetMailCaller } from "../shared/fleet-mail-worker.js";
@@ -1579,37 +1580,61 @@ function requeue(mail: Mail) {
 
 // Thrown to leave a sweep item for a later pass without counting a failure.
 class Deferred extends Error {}
-// Items that failed for a reason that may clear (a disconnected provider, a
-// full queue) wait before the next attempt, so they can't crowd out others.
-const backoff = new Map<string, { until: number; delay: number }>();
-function attempt(key: string, time: number, work: () => void) {
-  const wait = backoff.get(key);
-  if (wait && wait.until > time) return;
-  try {
-    work();
-    backoff.delete(key);
-  } catch (error) {
-    const delay =
-      error instanceof Deferred
+function attempt(
+  owner: string,
+  key: string,
+  source: { mail_id: string; run_id: null } | { mail_id: null; run_id: string },
+  time: number,
+  work: () => void,
+) {
+  db.transaction(() => {
+    const wait = mailRetryQueries.get(db, owner, key);
+    if (wait && wait.retry_at > time) return;
+    try {
+      db.transaction(() => {
+        work();
+        mailRetryQueries.clear(db, owner, key);
+      })();
+    } catch (error) {
+      const deferred = error instanceof Deferred;
+      const delay = deferred
         ? 5_000
-        : Math.min(300_000, (wait?.delay ?? 7_500) * 2);
-    backoff.set(key, { until: time + delay, delay });
-  }
+        : Math.min(300_000, (wait?.delay_ms ?? 7_500) * 2);
+      mailRetryQueries.schedule(db, {
+        owner_id: owner,
+        key,
+        ...source,
+        attempts: (wait?.attempts ?? 0) + (deferred ? 0 : 1),
+        retry_at: time + delay,
+        delay_ms: delay,
+      });
+    }
+  }).immediate();
 }
 
 /** Worker pass: deliver background delegation results, requeue stranded steering. */
 export function sweepAgentMail(time = now()) {
   // Snapshot reviews are retrieved through loop_review_status, not team mail.
-  const finished = delegationsQueries.finishedMailResults(db);
+  const finished = delegationsQueries.finishedMailResults(db, time);
   for (const row of finished)
-    attempt(`result:${row.child_run_id}:${row.state}`, time, () =>
-      deliverResult(row),
+    attempt(
+      row.owner_id,
+      `result:${row.child_run_id}:${row.state}`,
+      { mail_id: null, run_id: row.child_run_id },
+      time,
+      () => deliverResult(row),
     );
   const rejectInvalidMail = (id: string, error: InvalidRow) =>
     mailQueries.refuse(db, error.message.slice(0, 500), id);
-  const stranded = mailQueries.stranded(db, rejectInvalidMail) as Mail[];
+  const stranded = mailQueries.stranded(db, time, rejectInvalidMail) as Mail[];
   for (const mail of stranded)
-    attempt("requeue:" + mail.id, time, () => requeue(mail));
+    attempt(
+      mail.owner_id,
+      "requeue:" + mail.id,
+      { mail_id: mail.id, run_id: null },
+      time,
+      () => requeue(mail),
+    );
   const pending = mailQueries.pendingHeads(db, time);
   for (const item of pending)
     db.transaction(() => {
@@ -1627,8 +1652,6 @@ export function sweepAgentMail(time = now()) {
       if (mailQueries.hasEarlierPending(db, thread.id, mail.id)) return;
       dispatchPending(mail, thread, time);
     }).immediate();
-  for (const [key, wait] of backoff)
-    if (wait.until < time - 600_000) backoff.delete(key);
 }
 
 /**

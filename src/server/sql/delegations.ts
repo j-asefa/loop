@@ -155,6 +155,7 @@ const finishedMailResultsStatement =
        WHERE d.background=1 AND c.state IN ${FINISHED}
          AND json_extract(c.payload,'$.reviewId') IS NULL
          AND p.state<>'cancelled'
+         AND NOT EXISTS(SELECT 1 FROM agent_mail_retries retry WHERE retry.owner_id=p.owner_id AND retry.key='result:'||d.child_run_id||':'||c.state AND retry.retry_at>?)
          AND NOT EXISTS(SELECT 1 FROM agent_mail m WHERE m.owner_id=p.owner_id AND m.idempotency_key='result:'||d.child_run_id||':'||c.state)
        ORDER BY c.updated_at LIMIT 200`);
 const finishedMailResultsRow = z.object({
@@ -163,9 +164,9 @@ const finishedMailResultsRow = z.object({
   child_run_id: z.string(),
   state: z.string(),
 });
-export function finishedMailResults(db: Database.Database) {
+export function finishedMailResults(db: Database.Database, time: number) {
   return finishedMailResultsStatement(db)
-    .all()
+    .all(time)
     .map((row) => parseRecord(finishedMailResultsRow, row, "delegations"));
 }
 
