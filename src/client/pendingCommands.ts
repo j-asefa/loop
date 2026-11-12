@@ -138,3 +138,24 @@ export async function performStoredEffect<T>(
     });
   }
 }
+
+// Local creation commits its effect and receipt together. A fresh 4xx proves
+// refusal, but an access failure during recovery says nothing about the
+// earlier request. Keep that identity until its receipt can be read.
+export function creationFailureSettled(
+  error: unknown,
+  recovering: boolean,
+): boolean {
+  const failure = error as {
+    status?: number;
+    executionOutcome?: string;
+  } | null;
+  if (failure?.executionOutcome === "completed") return true;
+  if (recovering) return false;
+  if (failure?.executionOutcome) return failure.executionOutcome === "refused";
+  return (
+    failure?.status !== undefined &&
+    failure.status >= 400 &&
+    failure.status < 500
+  );
+}

@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
+import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
+import { viewOwner, viewGeneration } from "./viewCache";
 import { useSourceRoute, useSourceRouteRead } from "./SourceContext";
 import { Sheet } from "./components";
 import type { Folder, Team } from "../shared/types";
@@ -34,7 +36,21 @@ export function StartCodeReview({
     [base, setBase] = useState("main");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const receipt = useRef({ body: "", key: "" });
+  const owner = viewOwner(),
+    generation = viewGeneration(),
+    source = executionSourceId();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const current = () =>
+    mounted.current &&
+    owner === viewOwner() &&
+    generation === viewGeneration() &&
+    source === executionSourceId();
   return (
     <Sheet title="Review local changes" onClose={onClose}>
       <p>
@@ -55,25 +71,26 @@ export function StartCodeReview({
           setError("");
           const body = { folderId, scope, base },
             encoded = JSON.stringify({ teamId, ...body });
-          if (receipt.current.body !== encoded)
-            receipt.current = { body: encoded, key: crypto.randomUUID() };
           try {
-            const r = await callRoute(
-              workspaceApi.teamReview,
-              {
-                params: { id: teamId },
-                body: {
-                  ...body,
-                  idempotencyKey: receipt.current.key,
-                },
-              },
-              executionSourceId(),
+            const r = await performStoredEffect(
+              localStorage,
+              owner,
+              source,
+              ["review-create", encoded],
+              current,
+              (idempotencyKey) =>
+                callRoute(
+                  workspaceApi.teamReview,
+                  { params: { id: teamId }, body: { ...body, idempotencyKey } },
+                  source,
+                ),
+              creationFailureSettled,
             );
-            onStarted(r.conversationId);
+            if (current()) onStarted(r.conversationId);
           } catch (e) {
-            setError((e as Error).message);
+            if (current()) setError((e as Error).message);
           } finally {
-            setBusy(false);
+            if (mounted.current) setBusy(false);
           }
         }}
       >
