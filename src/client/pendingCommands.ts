@@ -19,6 +19,35 @@ function effectOutcomeSettled(error: unknown): boolean {
   return outcome === "refused" || outcome === "completed";
 }
 
+function commandKey(owner: string, source: string, target: readonly string[]) {
+  return `loop-effect:${JSON.stringify([owner, source, ...target])}`;
+}
+
+// A receipt response identifies an attempt; a terminal status read identifies
+// the command itself. Neither may clear a newer command in the same slot.
+export async function settleStoredEffect(
+  storage: Storage,
+  owner: string | undefined,
+  source: string,
+  target: readonly string[],
+  receipt: { commandId: string; attempt?: string },
+): Promise<void> {
+  if (!owner) return;
+  const key = commandKey(owner, source, target);
+  try {
+    await navigator.locks.request(key, () => {
+      const saved = JSON.parse(storage.getItem(key) || "null");
+      if (
+        saved?.commandId === receipt.commandId &&
+        (receipt.attempt === undefined || saved?.attempt === receipt.attempt)
+      )
+        storage.removeItem(key);
+    });
+  } catch {
+    // Settlement failure retains the identity for receipt recovery.
+  }
+}
+
 export async function performStoredEffect<T>(
   storage: Storage,
   owner: string | undefined,
@@ -34,7 +63,7 @@ export async function performStoredEffect<T>(
   if (!owner) throw new Error("Sign in before starting this change.");
   if (!navigator.locks)
     throw new Error("Cannot protect pending changes; nothing was sent.");
-  const key = `loop-effect:${JSON.stringify([owner, source, ...target])}`;
+  const key = commandKey(owner, source, target);
   const prepared = await navigator.locks.request(key, () => {
     if (!current()) throw new Error("This view has changed; nothing was sent.");
     let prior: PendingEffect | undefined;
@@ -73,20 +102,8 @@ export async function performStoredEffect<T>(
     }
     return { receipt, completion, recovering: prior !== undefined };
   });
-  async function settle() {
-    await navigator.locks.request(key, () => {
-      try {
-        const saved = JSON.parse(storage.getItem(key) || "null");
-        if (
-          saved?.commandId === prepared.receipt.commandId &&
-          saved?.attempt === prepared.receipt.attempt
-        )
-          storage.removeItem(key);
-      } catch {
-        // Failure retains the pending identity for receipt recovery.
-      }
-    });
-  }
+  const settle = () =>
+    settleStoredEffect(storage, owner, source, target, prepared.receipt);
   try {
     const value = await prepared.completion;
     await settle();

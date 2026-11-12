@@ -17,6 +17,8 @@ let upgrade = null,
   effects = 0,
   checks = 0;
 let outcome = "complete";
+let loseStartReply = true;
+const commandIds = [];
 let holdCheck = false,
   checkEntered = false,
   releaseCheck;
@@ -29,6 +31,8 @@ try {
     import React from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {RuntimeSetup} from ${JSON.stringify(resolve("src/client/RuntimeSetup.tsx"))};
+    import {setViewOwner} from  ${JSON.stringify(resolve("src/client/viewCache.ts"))};
+    setViewOwner("fixture-owner");
     import {HarnessUpgrade} from ${JSON.stringify(resolve("src/client/HarnessUpgrade.tsx"))};
     import ${JSON.stringify(resolve("src/client/style.css"))};
     const root = createRoot(document.getElementById('root'));
@@ -123,6 +127,7 @@ try {
         for await (const chunk of req) chunks.push(chunk);
         const body = JSON.parse(Buffer.concat(chunks).toString());
         assert.match(body.commandId, /^[0-9a-f-]{36}$/);
+        commandIds.push(body.commandId);
         effects++;
         polls = 0;
         upgrade = {
@@ -131,7 +136,11 @@ try {
           state: "running",
           message: "Upgrading runtime…",
         };
-        reply({ upgrade });
+        if (loseStartReply) {
+          loseStartReply = false;
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end('{"');
+        } else reply({ upgrade });
         return;
       }
       if (req.method === "DELETE") {
@@ -201,6 +210,28 @@ try {
   });
   await expect(update).toBeEnabled();
   assert.equal(effects, 0, "opening provider settings only checks metadata");
+  await page.evaluate(() => {
+    window.blockIdentity = true;
+    window.blockedWrites = 0;
+    const set = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (
+        window.blockIdentity &&
+        (key.startsWith("loop-effect:") || key.startsWith("loop-upgrade-cmd:"))
+      ) {
+        window.blockedWrites++;
+        throw new Error("Fixture storage unavailable");
+      }
+      return set.call(this, key, value);
+    };
+  });
+  await update.click();
+  await expect.poll(() => page.evaluate(() => window.blockedWrites)).toBe(1);
+  await expect(update).toBeEnabled();
+  assert.equal(effects, 0, "storage refusal must prevent an upgrade start");
+  await page.evaluate(() => {
+    window.blockIdentity = false;
+  });
   await update.click();
   await expect(
     card.getByRole("button", { name: "Upgrading Codex…", exact: true }),
@@ -210,6 +241,16 @@ try {
   });
   await expect(card).toContainText("No newer release found: 0.160.0");
   assert.equal(effects, 1);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.keys(localStorage).filter((key) =>
+            key.startsWith("loop-effect:"),
+          ).length,
+      ),
+    )
+    .toBe(0);
   await card.getByRole("button", { name: "Dismiss", exact: true }).click();
   const before = checks;
   await card
@@ -224,6 +265,11 @@ try {
     { timeout: 10_000 },
   );
   await expect(update).toBeDisabled();
+  assert.notEqual(
+    commandIds[1],
+    commandIds[0],
+    "status recovery settles the lost start reply before a later upgrade",
+  );
   await page.reload();
   await expect(card).toContainText(
     "Restart the workspace before running Codex again.",

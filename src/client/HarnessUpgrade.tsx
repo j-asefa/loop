@@ -5,13 +5,9 @@ import {
   type RouteResponse,
 } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./workspace-api";
-import {
-  beginUpgradeStart,
-  clearUpgradeCommandId,
-  confirmUpgradeStart,
-} from "./durableIdentities";
+import { performStoredEffect, settleStoredEffect } from "./pendingCommands";
 import { useSourceId } from "./SourceContext";
-import { viewGeneration } from "./viewCache";
+import { viewGeneration, viewOwner } from "./viewCache";
 type UpgradeView = RouteResponse<typeof workspaceApi.runtimeUpgrade>;
 type Target = {
   runtime: RouteInput<typeof workspaceApi.runtimeUpgrade>["params"]["name"];
@@ -41,6 +37,19 @@ function HarnessUpgradeControls({
   onComplete,
   sourceId,
 }: Props & { sourceId: string }) {
+  const owner = viewOwner();
+  const epoch = viewGeneration();
+  const mounted = useRef(false);
+  const canStart = useRef(!disabled);
+  canStart.current = !disabled;
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const current = () =>
+    mounted.current && owner === viewOwner() && epoch === viewGeneration();
   const [upgrade, setUpgrade] = useState<UpgradeView["upgrade"]>();
   const [availability, setAvailability] =
     useState<Pick<UpgradeView, "canUpgrade" | "upgradeHelp">>();
@@ -108,7 +117,13 @@ function HarnessUpgradeControls({
     // A settled upgrade has consumed its command id; a fresh start later must
     // get a new one rather than dedupe onto the finished installer.
     if (upgrade?.state === "complete" || upgrade?.state === "failed")
-      clearUpgradeCommandId(localStorage, sourceId, runtime, upgrade.commandId);
+      void settleStoredEffect(
+        localStorage,
+        owner,
+        sourceId,
+        ["runtime-upgrade", runtime],
+        { commandId: upgrade.commandId },
+      );
     // Refresh once per confirmed operation, not on every parent's render.
   }, [upgrade?.commandId, upgrade?.state]);
   return (
@@ -167,29 +182,29 @@ function HarnessUpgradeControls({
           setSending(true);
           setError("");
           try {
-            // Reuse a pending command id only across an uncertain start, so
-            // the host's command-id dedupe recognizes a retried start.
-            const commandId = beginUpgradeStart(
+            const value = await performStoredEffect(
               localStorage,
+              owner,
               sourceId,
-              runtime,
+              ["runtime-upgrade", runtime],
+              () => current() && canStart.current,
+              (commandId) =>
+                callRoute(
+                  workspaceApi.runtimeUpgradeStart,
+                  { params: { name: runtime }, body: { commandId } },
+                  sourceId,
+                ),
             );
-            const value = await callRoute(
-              workspaceApi.runtimeUpgradeStart,
-              { params: { name: runtime }, body: { commandId } },
-              sourceId,
-            );
-            // The host accepted this start, so the command id is consumed; a
-            // later genuine upgrade must mint a fresh id rather than dedupe
-            // onto this already-settled one (which would run no installer).
-            confirmUpgradeStart(localStorage, sourceId, runtime, commandId);
+            if (!current()) return;
             setUpgrade(value.upgrade);
             setRelease(undefined);
           } catch (e) {
-            setError((e as Error).message);
+            if (current()) setError((e as Error).message);
           } finally {
-            setSending(false);
-            setChecking((n) => n + 1);
+            if (current()) {
+              setSending(false);
+              setChecking((n) => n + 1);
+            }
           }
         }}
       >
