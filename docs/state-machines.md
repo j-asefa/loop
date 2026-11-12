@@ -78,6 +78,16 @@ Invariants:
 `interrupted → queued` is legal but unused: Retry creates a new run with a new
 idempotency key and inherits the effect authority.
 
+Public response arms are owned by
+[`run-contract-schema.ts`](../src/shared/run-contract-schema.ts). The Done-card
+and Feed presentations derive their state and common identity fields from those
+arms in [`done-card.ts`](../src/shared/done-card.ts). Queue rank survives claim;
+the unfiltered run list also projects queue position and previews for terminal
+runs. A paused run can retain its lease and saved answer, and running or pausing
+work can save an answer before its completion transition. These fields are not
+proof that a run is currently executing.
+
+
 ### `approvals.state`
 
 States: `pending`, `approved`, `executing`, **`rejected`**, **`completed`**,

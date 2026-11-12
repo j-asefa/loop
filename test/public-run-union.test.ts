@@ -1,3 +1,4 @@
+import { DoneRunSchema, FeedRunSchema } from "../src/shared/done-card.js";
 import { describe, expect, it } from "vitest";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 
@@ -137,4 +138,29 @@ describe("PublicRun arms", () => {
   it("rejects an unknown state", () => {
     expect(run("dispatched").success).toBe(false);
   });
+});
+
+it("derives Done and Feed presentation discriminators from every canonical run arm", () => {
+  for (const schema of [DoneRunSchema, FeedRunSchema]) {
+    expect(schema.options.map((arm) => arm.shape.state.value)).toEqual(
+      PublicRun.options.map((arm) => arm.shape.state.value),
+    );
+    for (const state of PublicRun.options.map((arm) => arm.shape.state.value)) {
+      const input = {
+        id: "r",
+        state,
+        error: null,
+        input: "in",
+        connection_id: null,
+        model: null,
+        resolved_model: null,
+        created_at: 1,
+        updated_at: 1,
+        queue_position: null,
+        can_move_up: false,
+        can_move_down: false,
+      };
+      expect(schema.parse(input)).toEqual(input);
+    }
+  }
 });
