@@ -392,6 +392,17 @@ request, but cannot settle an earlier uncertain attempt. A later authentication
 refusal therefore cannot cause a previously accepted refresh to be sent with a
 new ID.
 
+Runtime enable/refresh uses this journal with its command inputs—runtime,
+project and billing—as its target. Discovery versions and sign-in status do not
+change an uncertain command’s identity. Reloading retains an
+uncertain verification identity. The existing status-inspection action does not
+dispatch; an explicit "Start new verification" archives the matching uncertain
+attempt before preparing a new command. A storage failure during that archive
+retains the recovery handle so the explicit action can be retried. A refusal
+while recovering keeps the uncertain ID, because access checks may refuse
+before consulting the authority's receipt. Late replies cannot update an unmounted
+or replaced owner/source view.
+
 An unknown server receipt can remain unknown permanently. The recovery UI
 warns that status inspection cannot prove the outcome and requires explicit
 acknowledgement that a new command may repeat the change. Confirmation takes

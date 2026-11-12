@@ -13,6 +13,8 @@ import { runtimeAuthScope } from "../shared/runtime-auth-scope";
 import { HarnessUpgrade } from "./HarnessUpgrade";
 import { RuntimeSignIn } from "./RuntimeSignIn";
 import { HarnessProviders } from "./HarnessProviders";
+import { performStoredEffect, UncertainEffect } from "./pendingCommands";
+import { viewOwner, viewGeneration } from "./viewCache";
 type SignIn = NonNullable<
   RouteResponse<typeof workspaceApi.runtimeAuthStatus>["attempt"]
 >;
@@ -30,6 +32,21 @@ export function RuntimeSetup({
   connections?: Connection[];
 }) {
   const read = useProjectionRoute();
+  const owner = viewOwner();
+  const generation = viewGeneration();
+  const source = executionSourceId();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const current = () =>
+    mounted.current &&
+    owner === viewOwner() &&
+    generation === viewGeneration() &&
+    source === executionSourceId();
   const [discovery, setDiscovery] = useState<Discovery>();
   const [projects, setProjects] = useState<
     RouteResponse<typeof workspaceApi.workspace>["projectPaths"]
@@ -45,18 +62,17 @@ export function RuntimeSetup({
     scope: string;
     message: string;
     inspected?: boolean;
+    failure?: UncertainEffect;
+    target?: string;
   }>();
   const [signingIn, setSigningIn] = useState<string>();
   const [authStates, setAuthStates] = useState<
     Record<string, SignIn["state"] | undefined>
   >({});
   const authRevision = useRef(0);
-  const authAttempts = useRef(new Map<string, string | undefined>());
-  const enableCommands = useRef(new Map<string, string>());
   const onAuthState = useCallback(
-    (name: string, state: SignIn["state"] | undefined, attemptId?: string) => {
+    (name: string, state: SignIn["state"] | undefined) => {
       authRevision.current++;
-      authAttempts.current.set(name, attemptId);
       setAuthStates((current) => ({ ...current, [name]: state }));
       // A new login supersedes the previous account's enable/refresh failure.
       // Do not clear on every complete status: verification can still fail
@@ -85,18 +101,11 @@ export function RuntimeSetup({
         const auth = await read(workspaceApi.runtimeAuthStatus, {
           params: { name: runtime.name },
         });
-        return [
-          runtimeAuthScope(runtime),
-          auth.attempt?.state,
-          auth.attempt?.id,
-        ] as const;
+        return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
       }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
     if (revision === authRevision.current) {
-      for (const result of states)
-        if (result.status === "fulfilled")
-          authAttempts.current.set(result.value[0], result.value[2]);
       setAuthStates((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -125,6 +134,9 @@ export function RuntimeSetup({
     }
   }
   async function enable(runtime: Runtime, newAttempt = false) {
+    const previousFailure = enableError;
+    let target: string | undefined;
+    let superseding: UncertainEffect | undefined;
     setEnabling(runtime.name);
     setEnableError(undefined);
     setError("");
@@ -141,47 +153,65 @@ export function RuntimeSetup({
         runtime.name,
         projectId,
         selectedBilling,
-        runtime.version,
-        authAttempts.current.get(runtimeAuthScope(runtime)),
       ]);
-      // Only an explicit action after inspection starts a new verification.
-      // Ordinary retries keep reconciling the original durable command.
-      if (newAttempt) enableCommands.current.delete(commandKey);
-      const commandId =
-        enableCommands.current.get(commandKey) || crypto.randomUUID();
-      enableCommands.current.set(commandKey, commandId);
-      await callRoute(
-        workspaceApi.runtimeEnable,
-        {
-          params: { name: runtime.name },
-          body: {
-            projectId: projectId || "",
-            billing:
-              workspaceApi.runtimeEnable.body.shape.billing.parse(
-                selectedBilling,
-              ),
-            commandId,
-          },
+      target = commandKey;
+      if (newAttempt && previousFailure?.target === commandKey) {
+        superseding = previousFailure.failure;
+        await superseding?.supersede();
+        superseding = undefined;
+      }
+      await performStoredEffect(
+        localStorage,
+        owner,
+        source,
+        ["runtime-enable", commandKey],
+        current,
+        (commandId) =>
+          callRoute(
+            workspaceApi.runtimeEnable,
+            {
+              params: { name: runtime.name },
+              body: {
+                projectId: projectId || "",
+                billing:
+                  workspaceApi.runtimeEnable.body.shape.billing.parse(
+                    selectedBilling,
+                  ),
+                commandId,
+              },
+            },
+            source,
+          ),
+        (error, recovering) => {
+          const outcome = (error as { executionOutcome?: string } | null)
+            ?.executionOutcome;
+          // Access checks can refuse recovery before the authority reads its
+          // receipt. Such a refusal cannot settle an earlier uncertain command.
+          return (
+            outcome === "completed" || (!recovering && outcome === "refused")
+          );
         },
-        executionSourceId(),
       );
-      enableCommands.current.delete(commandKey);
+      if (!current()) return;
       const results = await Promise.allSettled([
         onEnabled(runtime.name),
         refresh(),
       ]);
-      if (results.some((result) => result.status === "rejected"))
+      if (current() && results.some((result) => result.status === "rejected"))
         setError(
           "Runtime enabled, but the screen could not refresh. Check installed runtimes again.",
         );
     } catch (e) {
+      if (!current()) return;
       setEnableError({
         name: runtime.name,
         scope: runtimeAuthScope(runtime),
         message: (e as Error).message,
+        failure: e instanceof UncertainEffect ? e : superseding,
+        target,
       });
     } finally {
-      setEnabling(undefined);
+      if (mounted.current) setEnabling(undefined);
     }
   }
   useEffect(() => {
@@ -231,11 +261,7 @@ export function RuntimeSetup({
               params: { name: runtime.name },
             });
             if (!disposed)
-              onAuthState(
-                runtimeAuthScope(runtime),
-                view.attempt?.state,
-                view.attempt?.id,
-              );
+              onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
           }),
       );
       if (!disposed) timer = setTimeout(poll, 1200);
@@ -577,9 +603,7 @@ export function RuntimeSetup({
                         </section>
                       }
                       enableAction={enableAction}
-                      onStateChange={(_, state, attemptId) =>
-                        onAuthState(scope, state, attemptId)
-                      }
+                      onStateChange={(_, state) => onAuthState(scope, state)}
                       onClose={() => {
                         setSigningIn(undefined);
                         void refresh().catch((e) => setError(e.message));
