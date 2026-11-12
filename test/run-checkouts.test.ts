@@ -36,7 +36,7 @@ const git = (cwd: string, ...args: string[]) =>
 
 const { db, id, now } = await import("../src/server/db");
 const { ownedRun } = await import("../src/server/domain");
-const { agentWorktree } = await import("../src/server/agent-worktree");
+const { prepareAgentWorkspace } = await import("../src/server/agent-worktree");
 const {
   startCheckout,
   completeCheckout,
@@ -85,12 +85,14 @@ function bind(conversation: string, checkout: string) {
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const checkout = agentWorktree(project, project, {
-  ownerId: owner,
-  agentId: agent,
-  environmentId: dir,
-  projectId: project,
-});
+const checkout = (
+  await prepareAgentWorkspace(project, project, {
+    ownerId: owner,
+    agentId: agent,
+    environmentId: dir,
+    projectId: project,
+  })
+).directory;
 
 it("records the worktree before and after a run, as Loop observed it", async () => {
   const run = runFixture("thread-1");

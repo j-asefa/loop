@@ -1,4 +1,4 @@
-import { agentWorktree } from "../src/server/agent-worktree.js";
+import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -39,12 +39,14 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('switch','owner','t',0)",
   ).run();
-  const checkout = agentWorktree(dir, dir, {
-    ownerId: "owner",
-    agentId: "worktree-fixture",
-    environmentId: dir,
-    projectId: dir,
-  });
+  const checkout = (
+    await prepareAgentWorkspace(dir, dir, {
+      ownerId: "owner",
+      agentId: "worktree-fixture",
+      environmentId: dir,
+      projectId: dir,
+    })
+  ).directory;
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,model,instructions,updated_at,worktree_source,worktree_agent_id) VALUES('switch','codex','codex-thread',?,'gpt-old','Be brief.',0,?,'worktree-fixture')",
   ).run(checkout, dir);

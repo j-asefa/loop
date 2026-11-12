@@ -184,6 +184,25 @@ States: idle, disconnected, starting, failed, running, unavailable, with a
 | running → idle / unavailable | terminal status | mem: current live |
 | all → disconnected, generation NULL | worker start or close | `recover` |
 
+Workspace preparation and validation await Git without holding a database
+transaction. Before changing a binding, the caller rechecks the live session,
+binding identity and run state captured before that await. Session preparation
+and settings requests share a counted idle-eviction hold. Eviction stays suspended
+until every overlapping operation finishes. Capacity eviction also skips held
+sessions. Startup waits for and reserves capacity before capturing its checkout
+baseline or creating an adapter. Waiting retains the worker lease, checks session
+identity and run state every 250 ms, and does not repeat Git validation or requeue
+the run. Reservations count toward capacity until the live session is installed,
+and failures release them. Existing permission overrides and model settings are
+updated only after the final guarded preparation step, so cancellation during
+capacity waiting or checkout capture does not commit those turn settings.
+Completion or failure re-arms
+eviction only for an idle, open live session. Same-process callers
+preparing the same checkout share one pending preparation. Fetch and immutable
+base-commit resolution are serialized per common Git directory within the
+process; Git locks arbitrate between processes. Git diagnostics stay in server-side error causes, while
+browser-facing errors contain controlled setup guidance.
+
 Disposal does not rewrite the row; readers go through the in-memory live
 session or the run's state.
 

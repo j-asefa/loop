@@ -13,9 +13,11 @@ import { type Harness } from "../../shared/protocol.js";
 import { type Binding } from "./state.js";
 import { OWNER } from "../workspace-identity.js";
 
-export function prepareWorkspace(...args: Parameters<typeof agentWorkspace>) {
+export async function prepareWorkspace(
+  ...args: Parameters<typeof agentWorkspace>
+) {
   try {
-    return agentWorkspace(...args);
+    return await agentWorkspace(...args);
   } catch (error) {
     workspaceError(error);
   }
@@ -49,8 +51,11 @@ export async function prepareImportedWorkspace(
 
 export function workspaceError(error: unknown): never {
   // These messages are controlled setup guidance, not raw Git/filesystem output.
-  if (error instanceof AgentWorktreeError)
-    throw new Problem(409, error.message);
+  if (error instanceof AgentWorktreeError) {
+    const problem = new Problem(409, error.message);
+    problem.cause = error;
+    throw problem;
+  }
   if (
     ["ENOENT", "ENOTDIR", "EACCES", "EPERM", "ELOOP"].includes(
       (error as NodeJS.ErrnoException)?.code || "",

@@ -661,3 +661,124 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
     await sessions.dispose(live);
   }
 });
+
+it.each([false, true])(
+  "suspends idle eviction during workspace validation and restores it afterward (failure=%s)",
+  async (failure) => {
+    const sessions = new NativeSessions();
+    const conversation = "validation-idle-" + failure;
+    const task = run(conversation);
+    const live = await sessions.session(task);
+    const workspace = await import("../src/server/native/workspace.js");
+    const original = workspace.boundWorkspace;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    const validation = vi
+      .spyOn(workspace, "boundWorkspace")
+      .mockImplementation(async (...args) => {
+        entered = true;
+        await gate;
+        if (failure) throw new Error("Fixture validation failed");
+        return original(...args);
+      });
+    const setting = vi
+      .spyOn(live.adapter, "setSetting")
+      .mockRejectedValue(new Error("Setting busy"));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let pending: Promise<unknown> | undefined;
+    let control: Promise<unknown> | undefined;
+    let finishControl: ((error: Error) => void) | undefined;
+    try {
+      const change = () =>
+        sessions.setSetting(conversation, "mode", "auto", 1, live.generation);
+      await expect(change()).rejects.toThrow("Setting busy");
+      pending = sessions.session(task).then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+      await vi.waitFor(() => expect(entered).toBe(true));
+      // A completed control must not re-arm eviction during validation.
+      await expect(change()).rejects.toThrow("Setting busy");
+      setting.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            finishControl = reject;
+          }),
+      );
+      control = change().catch((error: unknown) => error);
+      await vi.waitFor(() => expect(finishControl).toBeDefined());
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(false);
+      release();
+      if (failure)
+        await expect(pending).resolves.toMatchObject({
+          message: "Fixture validation failed",
+        });
+      else await expect(pending).resolves.toBe(live);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(false);
+      finishControl!(new Error("Setting busy"));
+      await expect(control).resolves.toMatchObject({ message: "Setting busy" });
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(true);
+    } finally {
+      release();
+      finishControl?.(new Error("Setting busy"));
+      await Promise.allSettled([pending, control]);
+      vi.useRealTimers();
+      validation.mockRestore();
+      setting.mockRestore();
+      await sessions.close();
+    }
+  },
+);
+
+it("capacity eviction skips a session awaiting workspace validation", async () => {
+  const { MAX_CONCURRENT_RUNS } = await import("../src/shared/concurrency.js");
+  const sessions = new NativeSessions();
+  const first = run("capacity-held");
+  const held = await sessions.session(first);
+  const workspace = await import("../src/server/native/workspace.js");
+  const original = workspace.boundWorkspace;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered = false;
+  let pending: Promise<unknown> | undefined;
+  const validation = vi
+    .spyOn(workspace, "boundWorkspace")
+    .mockImplementation(async (...args) => {
+      if (args[0].conversation_id === first.conversation_id) {
+        entered = true;
+        await gate;
+      }
+      return original(...args);
+    });
+  try {
+    const evictable = await sessions.session(run("capacity-idle"));
+    for (let i = 2; i < MAX_CONCURRENT_RUNS; i++)
+      await sessions.session(run("capacity-" + i));
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    pending = sessions.session(first).then(
+      (live) => live,
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(entered).toBe(true));
+    const extra = await sessions.session(run("capacity-new"));
+    expect(held.closed).toBe(false);
+    expect(evictable.closed).toBe(true);
+    expect(extra.closed).toBe(false);
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    release();
+    await expect(pending).resolves.toBe(held);
+  } finally {
+    release();
+    await pending;
+    validation.mockRestore();
+    await sessions.close();
+  }
+}, 30000);

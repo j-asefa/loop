@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile, spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -121,16 +121,6 @@ function identityRequired(identity: Identity) {
       );
 }
 
-function isGitProject(project: string) {
-  return gitProjectStatus(
-    project,
-    spawnSync(
-      "git",
-      ["-C", project, "rev-parse", "--is-inside-work-tree"],
-      gitOptions(),
-    ),
-  );
-}
 function gitProjectStatus(project: string, result: GitResult) {
   if (!result.error && result.status === 0 && result.stdout.trim() === "true")
     return true;
@@ -154,44 +144,19 @@ function gitProjectStatus(project: string, result: GitResult) {
   }
   throw new AgentWorktreeError(
     "Could not verify the project's Git status. Check Git installation, repository access and metadata before retrying.",
+    { cause: gitFailure(result) },
   );
 }
 
-/** Pin a conversation to either an isolated checkout or an ordinary directory. */
-export function agentWorkspace(
+export async function agentWorkspace(
   root: string,
   project: string,
   identity: Identity,
   expected?: AgentWorkspace,
-): AgentWorkspace {
-  identityRequired(identity);
-  root = realpathSync(root);
-  project = realpathSync(project);
-  inside(root, project);
-  if (!statSync(project).isDirectory())
-    throw new AgentWorktreeError("Agent project directory is missing");
-  // An existing worktree is always verified strictly, even if its source has
-  // lost its Git metadata. Never fall back to the original shared directory.
-  if (expected?.worktreeSource)
-    return {
-      directory: agentWorktree(root, project, identity, expected.directory),
-      worktreeSource: project,
-    };
-  if (expected && expected.directory !== project)
-    throw new AgentWorktreeError(
-      "Agent project directory was redirected; restore it before resuming",
-    );
-  if (isGitProject(project)) {
-    if (expected)
-      throw new AgentWorktreeError(
-        "This project is now a Git repository. Start a new conversation to use an agent worktree; the existing session is preserved.",
-      );
-    return {
-      directory: agentWorktree(root, project, identity),
-      worktreeSource: project,
-    };
-  }
-  return { directory: project, worktreeSource: null };
+): Promise<AgentWorkspace> {
+  return expected
+    ? verifyAgentWorkspace(root, project, identity, expected)
+    : prepareAgentWorkspace(root, project, identity);
 }
 
 /** Prepare a fresh import without blocking the API or holding a DB transaction. */
@@ -225,71 +190,101 @@ export async function prepareAgentWorkspace(
     await runGit("rev-parse", "--path-format=absolute", "--git-common-dir"),
   );
   const paths = worktreePaths(project, identity, top, common);
-  mkdirSync(paths.storage, { recursive: true, mode: 0o700 });
-  if (realpathSync(paths.storage) !== paths.storage)
-    throw new AgentWorktreeError("Worktree storage was redirected");
-  if (!existsSync(paths.checkout)) {
-    const registered = (
-      await runGit("worktree", "list", "--porcelain", "-z")
-    ).split("\0");
-    if (registered.includes("worktree " + paths.checkout))
-      throw new AgentWorktreeError(
-        "Registered agent worktree is missing; restore it before resuming",
-      );
-    const refs = (
-      await runGit(
-        "for-each-ref",
-        "--format=%(refname)",
-        "refs/heads/main",
-        "refs/remotes",
-      )
-    ).split("\n");
-    const localMain = refs.includes("refs/heads/main");
-    const upstream = localMain
-      ? await runGit("for-each-ref", "--format=%(upstream)", "refs/heads/main")
-      : "";
-    const remote = mainRemote(
-      refs,
-      upstream,
-      localMain ? (await runGit("remote")).split("\n") : [],
-    );
-    if (remote) {
-      try {
-        await runGit(
-          "fetch",
-          "--no-tags",
-          "--",
-          remote,
-          "+refs/heads/main:refs/remotes/" + remote + "/main",
-        );
-      } catch {
+  return prepareCheckout(paths.checkout, async () => {
+    mkdirSync(paths.storage, { recursive: true, mode: 0o700 });
+    if (realpathSync(paths.storage) !== paths.storage)
+      throw new AgentWorktreeError("Worktree storage was redirected");
+    if (!existsSync(paths.checkout)) {
+      const registered = (
+        await runGit("worktree", "list", "--porcelain", "-z")
+      ).split("\0");
+      if (registered.includes("worktree " + paths.checkout))
         throw new AgentWorktreeError(
-          "Could not fetch latest main for a new agent worktree; check remote access and retry.",
+          "Registered agent worktree is missing; restore it before resuming",
         );
-      }
+      const base = await prepareBase(common, async () => {
+        const refs = (
+          await runGit(
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads/main",
+            "refs/remotes",
+          )
+        ).split("\n");
+        const localMain = refs.includes("refs/heads/main");
+        const upstream = localMain
+          ? await runGit(
+              "for-each-ref",
+              "--format=%(upstream)",
+              "refs/heads/main",
+            )
+          : "";
+        const remote = mainRemote(
+          refs,
+          upstream,
+          localMain ? (await runGit("remote")).split("\n") : [],
+        );
+        if (remote) {
+          try {
+            await runGit(
+              "fetch",
+              "--no-tags",
+              "--",
+              remote,
+              "+refs/heads/main:refs/remotes/" + remote + "/main",
+            );
+          } catch (cause) {
+            throw new AgentWorktreeError(
+              "Could not fetch latest main for a new agent worktree; check remote access and retry.",
+              { cause },
+            );
+          }
+        }
+        return runGit(
+          "rev-parse",
+          "--verify",
+          (remote
+            ? "refs/remotes/" + remote + "/main"
+            : localMain
+              ? "refs/heads/main"
+              : "HEAD") + "^{commit}",
+        );
+      });
+      await runGit(
+        "worktree",
+        "add",
+        "-b",
+        "loop/agent-" + paths.key,
+        paths.checkout,
+        base,
+      );
     }
-    const base = await runGit(
-      "rev-parse",
-      "--verify",
-      (remote
-        ? "refs/remotes/" + remote + "/main"
-        : localMain
-          ? "refs/heads/main"
-          : "HEAD") + "^{commit}",
-    );
-    await runGit(
-      "worktree",
-      "add",
-      "-b",
-      "loop/agent-" + paths.key,
-      paths.checkout,
-      base,
-    );
-  }
-  return verifyAgentWorkspace(root, project, identity, {
-    directory: paths.directory,
-    worktreeSource: project,
+    return verifyAgentWorkspace(root, project, identity, {
+      directory: paths.directory,
+      worktreeSource: project,
+    });
   });
+}
+
+const resolvingBases = new Map<string, Promise<string>>();
+async function prepareBase(common: string, work: () => Promise<string>) {
+  const previous = resolvingBases.get(common);
+  const result = (previous ?? Promise.resolve()).then(work, work);
+  resolvingBases.set(common, result);
+  try {
+    return await result;
+  } finally {
+    if (resolvingBases.get(common) === result) resolvingBases.delete(common);
+  }
+}
+
+const preparing = new Map<string, Promise<AgentWorkspace>>();
+function prepareCheckout(key: string, work: () => Promise<AgentWorkspace>) {
+  const pending = preparing.get(key);
+  if (pending) return pending;
+  const promise = work().finally(() => preparing.delete(key));
+  preparing.set(key, promise);
+  return promise;
 }
 
 /** Read-only validation for API polling; Git must not block the event loop. */
@@ -362,26 +357,16 @@ export async function verifyAgentWorkspace(
   return { directory: paths.directory, worktreeSource: project };
 }
 
-function git(directory: string, ...args: string[]): string {
-  const transport = args[0] === "fetch";
-  const paths = transport
-    ? [
-        "--git-dir=" + git(directory, "rev-parse", "--absolute-git-dir"),
-        "--work-tree=" + git(directory, "rev-parse", "--show-toplevel"),
-      ]
-    : [];
-  return gitOutput(
-    spawnSync(
-      "git",
-      ["-C", directory, ...paths, ...args],
-      gitOptions(transport),
-    ),
-  );
+function gitFailure(result: GitResult) {
+  return new Error(result.stderr.trim() || "Git command failed", {
+    cause: result.error,
+  });
 }
 function gitOutput(result: GitResult) {
   if (result.error || result.status !== 0)
     throw new AgentWorktreeError(
       "Agent worktree could not be verified; select a Git repository with a commit and check its worktrees.",
+      { cause: gitFailure(result) },
     );
   return result.stdout.trim();
 }
@@ -447,115 +432,4 @@ function mainRemote(refs: string[], upstream: string, remotes: string[]) {
     : remotes.includes("origin")
       ? "origin"
       : "";
-}
-function newWorktreeBase(project: string) {
-  const refs = git(
-    project,
-    "for-each-ref",
-    "--format=%(refname)",
-    "refs/heads/main",
-    "refs/remotes",
-  ).split("\n");
-  const localMain = refs.includes("refs/heads/main");
-  const upstream = localMain
-    ? git(project, "for-each-ref", "--format=%(upstream)", "refs/heads/main")
-    : "";
-  const remote = mainRemote(
-    refs,
-    upstream,
-    localMain ? git(project, "remote").split("\n") : [],
-  );
-  if (remote) {
-    try {
-      git(
-        project,
-        "fetch",
-        "--no-tags",
-        "--",
-        remote,
-        "+refs/heads/main:refs/remotes/" + remote + "/main",
-      );
-    } catch {
-      throw new AgentWorktreeError(
-        "Could not fetch latest main for a new agent worktree; check remote access and retry.",
-      );
-    }
-    // Resolve immediately to an immutable commit rather than a shared ref that
-    // another worker's fetch could move during worktree creation.
-    return git(
-      project,
-      "rev-parse",
-      "--verify",
-      "refs/remotes/" + remote + "/main^{commit}",
-    );
-  }
-  return git(
-    project,
-    "rev-parse",
-    "--verify",
-    (localMain ? "refs/heads/main" : "HEAD") + "^{commit}",
-  );
-}
-
-// Synchronous Git operations serialize preparations in this worker. Git's own
-// locks arbitrate across workers; a conflicting/partial creation fails closed.
-export function agentWorktree(
-  root: string,
-  project: string,
-  identity: Identity,
-  expectedDirectory?: string,
-) {
-  identityRequired(identity);
-  root = realpathSync(root);
-  project = realpathSync(project);
-  inside(root, project);
-  const top = realpathSync(git(project, "rev-parse", "--show-toplevel"));
-  const common = realpathSync(
-    git(project, "rev-parse", "--path-format=absolute", "--git-common-dir"),
-  );
-  const paths = worktreePaths(project, identity, top, common);
-  const { key, storage, checkout, directory } = paths;
-  // Keep managed checkouts in Git's private directory, outside tracked content.
-  mkdirSync(storage, { recursive: true, mode: 0o700 });
-  if (realpathSync(storage) !== storage)
-    throw new AgentWorktreeError("Worktree storage was redirected");
-  if (expectedDirectory && expectedDirectory !== directory)
-    throw new AgentWorktreeError("Launch worktree identity cannot change");
-  if (!existsSync(checkout)) {
-    const registered = git(
-      project,
-      "worktree",
-      "list",
-      "--porcelain",
-      "-z",
-    ).split("\0");
-    if (registered.includes("worktree " + checkout))
-      throw new AgentWorktreeError(
-        "Registered agent worktree is missing; restore it before resuming",
-      );
-    if (expectedDirectory)
-      throw new AgentWorktreeError(
-        "Existing agent worktree is missing; restore it before resuming",
-      );
-    git(
-      project,
-      "worktree",
-      "add",
-      "-b",
-      "loop/agent-" + key,
-      checkout,
-      newWorktreeBase(project),
-    );
-  }
-  verifyWorktreePaths(paths);
-  if (
-    realpathSync(git(checkout, "rev-parse", "--show-toplevel")) !== checkout ||
-    realpathSync(
-      git(checkout, "rev-parse", "--path-format=absolute", "--git-common-dir"),
-    ) !== common
-  )
-    throw new AgentWorktreeError(
-      "Agent worktree identity could not be verified",
-    );
-  return directory;
 }
