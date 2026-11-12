@@ -188,7 +188,8 @@ Workspace preparation and validation await Git without holding a database
 transaction. Before changing a binding, the caller rechecks the live session,
 binding identity and run state captured before that await. Session preparation
 and settings requests share a counted idle-eviction hold. Eviction stays suspended
-until every overlapping operation finishes. Completion or failure re-arms
+until every overlapping operation finishes. Capacity eviction also skips held
+sessions. Completion or failure re-arms
 eviction only for an idle, open live session. Same-process callers
 preparing the same checkout share one pending preparation. Fetch and immutable
 base-commit resolution are serialized per common Git directory within the

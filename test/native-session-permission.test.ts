@@ -735,3 +735,50 @@ it.each([false, true])(
     }
   },
 );
+
+it("capacity eviction skips a session awaiting workspace validation", async () => {
+  const { MAX_CONCURRENT_RUNS } = await import("../src/shared/concurrency.js");
+  const sessions = new NativeSessions();
+  const first = run("capacity-held");
+  const held = await sessions.session(first);
+  const workspace = await import("../src/server/native/workspace.js");
+  const original = workspace.boundWorkspace;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered = false;
+  let pending: Promise<unknown> | undefined;
+  const validation = vi
+    .spyOn(workspace, "boundWorkspace")
+    .mockImplementation(async (...args) => {
+      if (args[0].conversation_id === first.conversation_id) {
+        entered = true;
+        await gate;
+      }
+      return original(...args);
+    });
+  try {
+    const evictable = await sessions.session(run("capacity-idle"));
+    for (let i = 2; i < MAX_CONCURRENT_RUNS; i++)
+      await sessions.session(run("capacity-" + i));
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    pending = sessions.session(first).then(
+      (live) => live,
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(entered).toBe(true));
+    const extra = await sessions.session(run("capacity-new"));
+    expect(held.closed).toBe(false);
+    expect(evictable.closed).toBe(true);
+    expect(extra.closed).toBe(false);
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    release();
+    await expect(pending).resolves.toBe(held);
+  } finally {
+    release();
+    await pending;
+    validation.mockRestore();
+    await sessions.close();
+  }
+}, 30000);

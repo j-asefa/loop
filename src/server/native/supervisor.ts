@@ -518,7 +518,8 @@ export class NativeSessions {
     if (this.stopped) throw new Problem(409, "Workspace is stopping.");
     for (const old of this.live.values()) {
       if (this.live.size < MAX_CONCURRENT_RUNS) break;
-      if (!old.run) await this.dispose(old);
+      if (!old.run && !this.idleHolds.has(old.binding.conversation_id))
+        await this.dispose(old);
     }
     const generation = id();
     const options: Options = {
