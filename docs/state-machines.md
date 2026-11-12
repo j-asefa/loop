@@ -392,8 +392,9 @@ request, but cannot settle an earlier uncertain attempt. A later authentication
 refusal therefore cannot cause a previously accepted refresh to be sent with a
 new ID.
 
-Runtime enable/refresh uses this journal with the runtime, project, billing,
-installed version and sign-in attempt as its target. Reloading retains an
+Runtime enable/refresh uses this journal with its command inputs—runtime,
+project and billing—as its target. Discovery versions and sign-in status do not
+change an uncertain command’s identity. Reloading retains an
 uncertain verification identity. The existing status-inspection action does not
 dispatch; an explicit "Start new verification" archives the matching uncertain
 attempt before preparing a new command. A storage failure during that archive

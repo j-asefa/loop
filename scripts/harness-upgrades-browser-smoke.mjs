@@ -21,6 +21,7 @@ let loseStartReply = true;
 const commandIds = [];
 const enableIds = [];
 let enableOutcome = "unknown";
+let authUnavailable = false;
 let holdCheck = false,
   checkEntered = false,
   releaseCheck;
@@ -141,7 +142,23 @@ try {
       return;
     }
     if (url.pathname.endsWith("/auth")) {
-      reply({ providers: [] });
+      reply(
+        authUnavailable
+          ? { providers: "unavailable" }
+          : {
+              providers: [],
+              attempt: {
+                id: "attempt-a",
+                commandId: "auth-a",
+                provider: "codex",
+                method: "login",
+                state: "complete",
+                expiresAt: Date.now() + 60000,
+                url: "https://fixture.invalid",
+                instructions: "Fixture auth status loaded",
+              },
+            },
+      );
       return;
     }
     if (url.pathname === "/api/workspace/runtimes/muse/upgrade") {
@@ -246,9 +263,11 @@ try {
     name: "Refresh Codex",
     exact: true,
   });
+  await expect(account).toContainText("Fixture auth status loaded");
   await refreshRuntime.click();
   await expect(account).toContainText("Fixture enable outcome is unknown");
   const pendingEnable = enableIds.at(-1);
+  authUnavailable = true;
   await page.reload();
   await openAccount();
   await expect(refreshRuntime).toBeEnabled();

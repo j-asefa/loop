@@ -70,11 +70,9 @@ export function RuntimeSetup({
     Record<string, SignIn["state"] | undefined>
   >({});
   const authRevision = useRef(0);
-  const authAttempts = useRef(new Map<string, string | undefined>());
   const onAuthState = useCallback(
-    (name: string, state: SignIn["state"] | undefined, attemptId?: string) => {
+    (name: string, state: SignIn["state"] | undefined) => {
       authRevision.current++;
-      authAttempts.current.set(name, attemptId);
       setAuthStates((current) => ({ ...current, [name]: state }));
       // A new login supersedes the previous account's enable/refresh failure.
       // Do not clear on every complete status: verification can still fail
@@ -103,18 +101,11 @@ export function RuntimeSetup({
         const auth = await read(workspaceApi.runtimeAuthStatus, {
           params: { name: runtime.name },
         });
-        return [
-          runtimeAuthScope(runtime),
-          auth.attempt?.state,
-          auth.attempt?.id,
-        ] as const;
+        return [runtimeAuthScope(runtime), auth.attempt?.state] as const;
       }),
     );
     // A sign-in response received during discovery is newer than this snapshot.
     if (revision === authRevision.current) {
-      for (const result of states)
-        if (result.status === "fulfilled")
-          authAttempts.current.set(result.value[0], result.value[2]);
       setAuthStates((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -162,8 +153,6 @@ export function RuntimeSetup({
         runtime.name,
         projectId,
         selectedBilling,
-        runtime.version,
-        authAttempts.current.get(runtimeAuthScope(runtime)),
       ]);
       target = commandKey;
       if (newAttempt && previousFailure?.target === commandKey) {
@@ -272,11 +261,7 @@ export function RuntimeSetup({
               params: { name: runtime.name },
             });
             if (!disposed)
-              onAuthState(
-                runtimeAuthScope(runtime),
-                view.attempt?.state,
-                view.attempt?.id,
-              );
+              onAuthState(runtimeAuthScope(runtime), view.attempt?.state);
           }),
       );
       if (!disposed) timer = setTimeout(poll, 1200);
