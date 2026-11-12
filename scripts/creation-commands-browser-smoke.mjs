@@ -182,11 +182,23 @@ try {
       );
     }
     await page.reload();
+    if (mode === "agent") {
+      await page.getByText("Customize", { exact: true }).click();
+      await page.getByLabel("Unique name", { exact: true }).focus();
+    }
     refuse = true;
     await submit.click();
     await expect(page.getByRole("alert")).toContainText(
       "Fixture access refused",
     );
+    if (mode === "agent") {
+      await expect(
+        page.getByText(`Meet ${originalName}`, { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Unique name", { exact: true })).toHaveValue(
+        originalName,
+      );
+    }
     refuse = false;
     loseReply = false;
     await submit.click();

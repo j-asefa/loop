@@ -90,6 +90,7 @@ export function CreateAgent({
     [suggestedName, setSuggestedName] = useState(""),
     [typedName, setTypedName] = useState(""),
     [nameTouched, setNameTouched] = useState(false),
+    [nameEdited, setNameEdited] = useState(false),
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -318,7 +319,7 @@ export function CreateAgent({
       const digest = await crypto.subtle.digest(
         "SHA-256",
         new TextEncoder().encode(
-          JSON.stringify({ ...data, name: nameTouched ? data.name : null }),
+          JSON.stringify({ ...data, name: nameEdited ? data.name : null }),
         ),
       );
       const signature = Array.from(new Uint8Array(digest), (byte) =>
@@ -330,8 +331,12 @@ export function CreateAgent({
         source,
         ["agent-create", signature],
         current,
-        (idempotencyKey, generatedName) =>
-          callRoute(
+        (idempotencyKey, generatedName) => {
+          if (generatedName !== undefined) {
+            setSuggestedName(generatedName);
+            setTypedName(generatedName);
+          }
+          return callRoute(
             workspaceApi.agentCreate,
             {
               body: {
@@ -341,9 +346,10 @@ export function CreateAgent({
               },
             },
             source,
-          ),
+          );
+        },
         creationFailureSettled,
-        nameTouched ? undefined : data.name,
+        nameEdited ? undefined : data.name,
       );
       if (current()) await onCreated(a, data.folderId || "", source);
     } catch (e) {
@@ -388,6 +394,7 @@ export function CreateAgent({
           if (definition.spec.kind !== "agent") return;
           const spec = definition.spec;
           setTypedName(spec.name);
+          setNameEdited(true);
           setNameTouched(true);
           setInstructions(spec.instructions);
           setImportedName(spec.name);
@@ -641,6 +648,7 @@ export function CreateAgent({
                     setNameTouched(true);
                   }}
                   onChange={(e) => {
+                    setNameEdited(e.target.value !== suggestedName);
                     setNameTouched(true);
                     setTypedName(e.target.value);
                   }}
