@@ -29,6 +29,7 @@ import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { callRoute } from "../workspace-api";
 import type { useSourceRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
+import { lastRecipient, rememberRecipient } from "../deviceHistory";
 import { resultTarget, type ResultAction } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
 import { composerLaunchRecipient } from "../composerLaunch";
@@ -647,14 +648,11 @@ export function useComposerSend({
         );
         await settleAccepted();
         if (owner !== ownerRef.current) return;
-        try {
-          localStorage.setItem(
-            `loop-last-recipient:${JSON.stringify([owner, actionSource || "laptop"])}`,
-            accepted.agent_id || recipient.id,
-          );
-        } catch {
-          // Storage restrictions must not turn an accepted send into an error.
-        }
+        rememberRecipient(
+          owner,
+          actionSource,
+          accepted.agent_id || recipient.id,
+        );
         const unchanged = sameComposer();
         if (!unchanged)
           notify({
@@ -916,15 +914,7 @@ export function renderComposer({
       return;
     }
     if (!draft.trim() && !attachments.length && !replyContext) {
-      let last: string | null = null;
-      try {
-        last = localStorage.getItem(
-          `loop-last-recipient:${JSON.stringify([session?.user?.id, executionSourceId() || "laptop"])}`,
-        );
-      } catch {
-        // Storage unavailable: the profile default below still applies, and
-        // otherwise the current recipient is kept.
-      }
+      const last = lastRecipient(session?.user?.id, executionSourceId());
       // On an agent's profile page, "+" addresses that agent; elsewhere the
       // last recipient is restored.
       const agent = composerLaunchRecipient(
