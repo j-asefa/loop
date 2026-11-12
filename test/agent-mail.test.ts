@@ -1725,7 +1725,31 @@ it("retains disconnected mail through a fresh process sweep and does not release
   db.prepare("UPDATE connections SET status='connected' WHERE id=?").run(
     b.connection_id,
   );
+  const retry = db
+    .prepare(
+      "SELECT attempts,retry_at,delay_ms FROM agent_mail_retries WHERE owner_id=? AND key=?",
+    )
+    .get(owner, "delivery:" + sent.messageId) as {
+    attempts: number;
+    retry_at: number;
+    delay_ms: number;
+  };
+  expect(retry).toMatchObject({ attempts: 1, delay_ms: 15_000 });
   const { execFileSync } = await import("node:child_process");
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "const {sweepAgentMail}=await import('./src/server/agent-mail.ts');sweepAgentMail(" +
+        (retry.retry_at - 1) +
+        ");",
+    ],
+    { env: { ...process.env, LOOP_DATA_DIR: dir } },
+  );
+  expect(mail(sent.messageId).state).toBe("pending");
   execFileSync(
     process.execPath,
     [
@@ -1738,6 +1762,11 @@ it("retains disconnected mail through a fresh process sweep and does not release
     { env: { ...process.env, LOOP_DATA_DIR: dir } },
   );
   expect(mail(sent.messageId).state).toBe("sent");
+  expect(
+    db
+      .prepare("SELECT key FROM agent_mail_retries WHERE owner_id=? AND key=?")
+      .get(owner, "delivery:" + sent.messageId),
+  ).toBeUndefined();
   expect(mail(held.messageId).state).toBe("held");
   expect(
     db
@@ -2657,10 +2686,9 @@ it("does not let blocked followers starve retryable thread heads across owners",
   // More than a sweep page of followers are due before their earlier mail.
   // They must not crowd those heads out of every later sweep.
   for (const head of heads)
-    db.prepare("UPDATE agent_mail SET retry_at=? WHERE id=?").run(
-      now() + 300000,
-      head,
-    );
+    db.prepare(
+      "UPDATE agent_mail_retries SET retry_at=? WHERE mail_id=? AND key='delivery:'||mail_id",
+    ).run(now() + 300000, head);
   sweepAgentMail(now() + 600000);
   expect(heads.map((head) => mail(head).state)).toEqual(Array(12).fill("sent"));
 });

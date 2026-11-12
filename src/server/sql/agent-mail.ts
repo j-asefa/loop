@@ -168,28 +168,11 @@ export function refuse(db: Database.Database, error: string, id: string) {
   return refuseStatement(db).run(error, id);
 }
 
-const attemptsStatement = statement(
-  "SELECT attempts FROM agent_mail WHERE id=?",
+const deferStatement = statement(
+  "UPDATE agent_mail SET state='pending',error=? WHERE id=?",
 );
-const attemptsRow = QueryRecords.agent_mail.pick({ attempts: true });
-export function attempts(db: Database.Database, id: string) {
-  const row = attemptsStatement(db).get(id);
-  return row === undefined
-    ? undefined
-    : parseRecord(attemptsRow, row, "agent_mail");
-}
-
-const scheduleRetryStatement = statement(
-  "UPDATE agent_mail SET state='pending',error=?,attempts=?,retry_at=? WHERE id=?",
-);
-export function scheduleRetry(
-  db: Database.Database,
-  error: string,
-  attempts: number,
-  retry: number,
-  id: string,
-) {
-  return scheduleRetryStatement(db).run(error, attempts, retry, id);
+export function defer(db: Database.Database, error: string, id: string) {
+  return deferStatement(db).run(error, id);
 }
 
 const insertPendingStatement = statement(
@@ -360,7 +343,7 @@ export function stranded(
 }
 
 const pendingHeadsStatement = statement(
-  "SELECT m.id FROM agent_mail m WHERE m.state='pending' AND m.retry_at<=? AND NOT EXISTS(SELECT 1 FROM fleet_mail_outbox f WHERE f.owner_id=m.owner_id AND f.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM agent_mail earlier WHERE earlier.thread_id=m.thread_id AND earlier.state='pending' AND earlier.rowid<m.rowid) ORDER BY m.retry_at,m.created_at,m.rowid LIMIT 200",
+  "SELECT m.id FROM agent_mail m LEFT JOIN agent_mail_retries retry ON retry.owner_id=m.owner_id AND retry.key='delivery:'||m.id WHERE m.state='pending' AND COALESCE(retry.retry_at,0)<=? AND NOT EXISTS(SELECT 1 FROM fleet_mail_outbox f WHERE f.owner_id=m.owner_id AND f.message_id=m.id) AND NOT EXISTS(SELECT 1 FROM agent_mail earlier WHERE earlier.thread_id=m.thread_id AND earlier.state='pending' AND earlier.rowid<m.rowid) ORDER BY COALESCE(retry.retry_at,0),m.created_at,m.rowid LIMIT 200",
 );
 const pendingHeadsRow = QueryRecords.agent_mail.pick({ id: true });
 export function pendingHeads(db: Database.Database, time: number) {
@@ -370,7 +353,7 @@ export function pendingHeads(db: Database.Database, time: number) {
 }
 
 const dueStatement = statement(
-  "SELECT * FROM agent_mail WHERE id=? AND state='pending' AND retry_at<=?",
+  "SELECT m.* FROM agent_mail m LEFT JOIN agent_mail_retries retry ON retry.owner_id=m.owner_id AND retry.key='delivery:'||m.id WHERE m.id=? AND m.state='pending' AND COALESCE(retry.retry_at,0)<=?",
 );
 
 export function due(db: Database.Database, id: string, time: number) {
