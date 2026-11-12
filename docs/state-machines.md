@@ -289,7 +289,12 @@ cannot select another identity. Other inputs must still match. A digest avoids
 plaintext retention but does not encrypt low-entropy input. After an uncertain
 agent creation, the form offers an explicit separate-chat action. It archives
 the uncertain identity before releasing its slot, then requests a new name;
-it does not dispatch another creation. Archive failures preserve the action
+it does not dispatch another creation. Matching generated-name forms in two tabs
+share the pending operation rather than create two agents: neither the tab nor
+a new suggestion proves that the earlier uncertain creation should be repeated.
+Recovery updates the displayed name to the stored name. To request a distinct
+creation after uncertainty, use the explicit separate-chat action. Archive
+failures preserve the action
 for retry. The person must check for the earlier chat and submit again.
 
 ### `token_requests.state`
