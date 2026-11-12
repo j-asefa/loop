@@ -15,7 +15,9 @@ export function get(db: Database.Database, owner: string, key: string) {
 }
 const scheduleStatement =
   statement(`INSERT INTO agent_mail_retries(owner_id,key,mail_id,run_id,attempts,retry_at,delay_ms)
- VALUES(@owner_id,@key,@mail_id,@run_id,@attempts,@retry_at,@delay_ms)
+ SELECT @owner_id,@key,@mail_id,@run_id,@attempts,@retry_at,@delay_ms
+ WHERE EXISTS(SELECT 1 FROM agent_mail WHERE owner_id=@owner_id AND id=@mail_id)
+    OR EXISTS(SELECT 1 FROM runs WHERE owner_id=@owner_id AND id=@run_id)
  ON CONFLICT(owner_id,key) DO UPDATE SET attempts=excluded.attempts,retry_at=excluded.retry_at,delay_ms=excluded.delay_ms`);
 export function schedule(
   db: Database.Database,

@@ -1099,6 +1099,73 @@ it("does not wake a manager cancelled after its workers finished, including defe
   ).toEqual({ n: 0 });
 });
 
+it("continues the mail sweep when a selected result source is deleted before its attempt", async () => {
+  const owner = "deleted-retry-source";
+  const { manager, coder, piWorker, team } = mixedTeam(owner);
+  const lead = running(owner, manager.id, {
+    conversationId: team.conversation_id!,
+  });
+  const removed = running(
+    owner,
+    coder.id,
+    { teamId: team.id },
+    "Removed result",
+  );
+  const healthy = running(
+    owner,
+    piWorker.id,
+    { teamId: team.id },
+    "Healthy result",
+  );
+  for (const [index, child] of [removed, healthy].entries()) {
+    db.prepare(
+      "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
+    ).run(lead.id, `call:${index}`, child.id, "{}");
+    transition(child, "completed");
+  }
+  transition(lead, "completed");
+  db.prepare("UPDATE runs SET updated_at=0 WHERE id=?").run(removed.id);
+  const queries = await import("../src/server/sql/delegations");
+  const select = queries.finishedMailResults;
+  const { default: Database } = await import("better-sqlite3");
+  const writer = new Database(join(dir, "loop.db"));
+  writer.pragma("foreign_keys=ON");
+  const selection = vi
+    .spyOn(queries, "finishedMailResults")
+    .mockImplementationOnce((connection, time) => {
+      const rows = select(connection, time);
+      expect(rows.some((row) => row.child_run_id === removed.id)).toBe(true);
+      writer
+        .prepare("DELETE FROM messages WHERE owner_id=? AND run_id=?")
+        .run(owner, removed.id);
+      writer
+        .prepare("DELETE FROM delegations WHERE child_run_id=?")
+        .run(removed.id);
+      writer
+        .prepare("DELETE FROM runs WHERE owner_id=? AND id=?")
+        .run(owner, removed.id);
+      return rows;
+    });
+  try {
+    sweepAgentMail();
+    expect(
+      db
+        .prepare(
+          "SELECT sender_run_id FROM agent_mail WHERE owner_id=? AND kind='result'",
+        )
+        .all(owner),
+    ).toEqual([{ sender_run_id: healthy.id }]);
+    expect(
+      db
+        .prepare("SELECT key FROM agent_mail_retries WHERE owner_id=?")
+        .all(owner),
+    ).toEqual([]);
+  } finally {
+    selection.mockRestore();
+    writer.close();
+  }
+});
+
 it("retries a result the manager can't take yet, and holds it while the manager works elsewhere", async () => {
   const owner = "retry";
   const { manager, coder, team } = mixedTeam(owner);
