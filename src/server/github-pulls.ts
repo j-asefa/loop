@@ -10,7 +10,10 @@ import {
   PullMergeInput,
 } from "../shared/github-contract-schemas.js";
 import { registrar } from "./registrar.js";
-import { PullFileStatus } from "../shared/pull-file-status.js";
+import {
+  PullFileStatus,
+  PullFileStatuses,
+} from "../shared/pull-file-status.js";
 import { type Response } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -627,15 +630,13 @@ function changedFile(f: any): PullFile | undefined {
   const path = text(f?.filename, 1000);
   if (!path) return;
   const patch = typeof f.patch === "string" ? f.patch : undefined;
-  // GitHub can report statuses outside the four-file-change kinds; anything
-  // else is displayed as a modification so a response never 500s the list.
+  // GitHub can report statuses outside its documented PR-file kinds; every
+  // supported status is preserved, anything else is displayed as a
+  // modification so a response never 500s the list.
   const rawStatus = text(f.status, 20);
   const status: PullFileStatus =
-    rawStatus === "added" ||
-    rawStatus === "removed" ||
-    rawStatus === "renamed" ||
-    rawStatus === "modified"
-      ? rawStatus
+    rawStatus && (PullFileStatuses as readonly string[]).includes(rawStatus)
+      ? (rawStatus as PullFileStatus)
       : "modified";
   return {
     path,
