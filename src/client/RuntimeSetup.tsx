@@ -603,9 +603,7 @@ export function RuntimeSetup({
                         </section>
                       }
                       enableAction={enableAction}
-                      onStateChange={(_, state, attemptId) =>
-                        onAuthState(scope, state, attemptId)
-                      }
+                      onStateChange={(_, state) => onAuthState(scope, state)}
                       onClose={() => {
                         setSigningIn(undefined);
                         void refresh().catch((e) => setError(e.message));
