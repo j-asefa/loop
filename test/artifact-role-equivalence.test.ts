@@ -214,3 +214,31 @@ it("documents the one unreachable divergence: partial on a completed run", () =>
   expect(oldResults.has("unreachable")).toBe(false);
   expect(newResults.has("unreachable")).toBe(true);
 });
+
+it("keeps published run files out of search, as the previous filter did", () => {
+  const db = buildDb();
+  // The run's checkpoint names its answer; the published file shares the run
+  // and carries text, which the old third trace clause removed from search.
+  seed(db, "answer-1", "answer", "completed", "done", "Answer body");
+  const fileId = "file-run-1";
+  db.prepare(
+    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,run_id,created_at,updated_at) VALUES(?,'owner','F','file','file','File text','{\"uploaded\":true}',?,1,1)",
+  ).run(
+    fileId,
+    (
+      db.prepare("SELECT run_id FROM artifacts WHERE id='answer-1'").get() as {
+        run_id: string;
+      }
+    ).run_id,
+  );
+  const oldTrace = selectIds(db, oldTraceArtifactSql);
+  const newTrace = selectIds(db, newTraceArtifactSql);
+  expect(oldTrace.has(fileId)).toBe(true);
+  expect(newTrace.has(fileId)).toBe(true);
+  // Still a result/file parity: the file is in the file collection, never a
+  // result, under both filter pairs.
+  expect(selectIds(db, oldResultOutputSql).has(fileId)).toBe(false);
+  expect(selectIds(db, newResultOutputSql).has(fileId)).toBe(false);
+  expect(selectIds(db, oldFileArtifactSql).has(fileId)).toBe(true);
+  expect(selectIds(db, fileArtifactSql).has(fileId)).toBe(true);
+});

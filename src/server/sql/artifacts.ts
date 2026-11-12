@@ -116,13 +116,19 @@ export function insert(
   });
 }
 
-// Roles whose artifacts are never standalone outputs (D3): tool and native
-// capture rows are traces; a native answer is still trace-like until its done
-// checkpoint holds content (lifecycle, the row's role stays `answer`).
+// Artifacts that are never standalone outputs (D3): tool and native capture
+// rows are traces; a native answer is still trace-like until its done
+// checkpoint holds content (lifecycle, the row's role stays `answer`); and any
+// artifact of a run whose checkpoint points at a different artifact (a
+// published run file, for example) stays out of the search index like the
+// pre-role filter did. The answer's own checkpoint points at itself, so the
+// third clause never classifies the answer.
 export const traceArtifactSql = `(a.role='trace'
   OR (a.role='answer' AND json_extract(a.metadata,'$.native')=1 AND NOT EXISTS(
     SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
-      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0)))`;
+      AND cp.artifact_id=a.id AND cp.stage='done' AND length(trim(a.content))>0))
+  OR EXISTS(SELECT 1 FROM agent_checkpoints cp WHERE cp.run_id=a.run_id
+    AND cp.artifact_id<>a.id))`;
 const finishedArtifactSql = `(a.run_id IS NULL OR r.state='completed')`;
 // Files are published artifacts; the Files/Saved views also show every
 // finished artifact regardless of role (the run state gates answers).
