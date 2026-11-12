@@ -11,6 +11,9 @@ let browser, server;
 const requests = [];
 const receipts = new Map();
 const deleted = new Set();
+let suggestions = 0;
+let dropBeforeCommit = false;
+const occupiedNames = new Set();
 let loseReply = true,
   refuse = false;
 let holdReply = false,
@@ -32,6 +35,7 @@ try {
     import React from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {PresetTeamForm} from ${JSON.stringify(resolve("src/client/TeamPresets.tsx"))};
+    import {CreateAgent} from ${JSON.stringify(resolve("src/client/CreateAgent.tsx"))};
     import {StartCodeReview} from ${JSON.stringify(resolve("src/client/CodeReview.tsx"))};
     import {TEAM_PRESETS} from ${JSON.stringify(resolve("src/shared/team-presets.ts"))};
     import {setViewOwner} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
@@ -42,7 +46,9 @@ try {
     window.completed=0;
     const done=()=>{window.completed++;};
     window.unmount=()=>root.render(null);
-    root.render(new URLSearchParams(location.search).get('mode') === 'review'
+    root.render(new URLSearchParams(location.search).get('mode') === 'agent'
+      ? React.createElement(CreateAgent,{connections:[{id:'connection',provider:'openai',status:'connected',label:'Fixture',models:'[{"id":"model"}]',metadata:'{}'}],folders,initialFolder:'project',initialPromptText:'Opening fixture message',onClose:()=>{},onConnect:()=>{},onEnvironmentSetup:()=>{},onConnectionsChanged:async()=>[],onCreated:done})
+      : new URLSearchParams(location.search).get('mode') === 'review'
       ? React.createElement(StartCodeReview,{teams:[${JSON.stringify(team)}],folders,onStarted:done,onClose:()=>{},onCreateTeam:()=>{}})
       : React.createElement(PresetTeamForm,{preset:TEAM_PRESETS.find(p=>p.id==='code-review'),folders,connections:[{id:'connection',status:'connected',label:'Fixture',models:'[{"id":"model"}]'}],onCreated:done}));
   `,
@@ -62,9 +68,13 @@ try {
     } else if (path === "/client.mjs") {
       res.setHeader("content-type", "text/javascript");
       res.end(bundle.script);
+    } else if (path === "/api/agents/suggest-name") {
+      json({ name: `fixture-agent-${++suggestions}` });
     } else if (
       req.method === "POST" &&
-      (path === "/api/teams/from-preset" || path === "/api/teams/team/reviews")
+      (path === "/api/agents" ||
+        path === "/api/teams/from-preset" ||
+        path === "/api/teams/team/reviews")
     ) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -84,6 +94,15 @@ try {
         );
         return;
       }
+      if (path === "/api/agents" && dropBeforeCommit) {
+        occupiedNames.add(body.name);
+        res.destroy();
+        return;
+      }
+      if (path === "/api/agents" && occupiedNames.has(body.name)) {
+        json({ error: "Name already taken" }, 409);
+        return;
+      }
       if (!receipts.has(body.idempotencyKey))
         receipts.set(
           body.idempotencyKey,
@@ -101,7 +120,27 @@ try {
                 current: true,
                 freshnessError: null,
               }
-            : team,
+            : path === "/api/agents"
+              ? {
+                  id: body.idempotencyKey,
+                  owner_id: "alice",
+                  name: body.name,
+                  provider: "openai",
+                  connection_id: body.connectionId,
+                  model: body.model,
+                  instructions: body.instructions,
+                  origin: "loop",
+                  created_at: 1,
+                  ...(body.initialPrompt
+                    ? {
+                        initialRun: {
+                          id: "initial-run",
+                          conversation_id: "initial-thread",
+                        },
+                      }
+                    : {}),
+                }
+              : team,
         );
       if (holdReply)
         await new Promise((done) => {
@@ -122,10 +161,17 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  for (const mode of process.argv[2] ? [process.argv[2]] : ["team", "review"]) {
+  for (const mode of process.argv[2]
+    ? [process.argv[2]]
+    : ["team", "review", "agent"]) {
     const url = `http://127.0.0.1:${server.address().port}/?mode=${mode}`;
     const submit = page.getByRole("button", {
-      name: mode === "team" ? "Create team" : "Start review",
+      name:
+        mode === "team"
+          ? "Create team"
+          : mode === "agent"
+            ? "Start chatting"
+            : "Start review",
       exact: true,
     });
     const count = requests.length,
@@ -135,12 +181,40 @@ try {
     await submit.click();
     await expect(page.getByRole("alert")).toContainText("unavailable");
     const first = requests.at(-1).body.idempotencyKey;
+    const originalName = requests.at(-1).body.name;
+    if (mode === "agent") {
+      const journal = await page.evaluate(() =>
+        JSON.stringify(Object.entries(localStorage)),
+      );
+      assert.equal(
+        journal.includes("Opening fixture message"),
+        false,
+        "journal must not retain plaintext prompts",
+      );
+    }
     await page.reload();
+    if (mode === "agent") {
+      await page.getByText("Customize", { exact: true }).click();
+      await page.getByLabel("Unique name", { exact: true }).focus();
+    }
     refuse = true;
     await submit.click();
     await expect(page.getByRole("alert")).toContainText(
       "Fixture access refused",
     );
+    if (mode === "agent") {
+      await expect(
+        page.getByText(`Meet ${originalName}`, { exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Unique name", { exact: true })).toHaveValue(
+        originalName,
+      );
+    }
+    if (mode === "agent") {
+      await page
+        .getByLabel("Unique name", { exact: true })
+        .fill(originalName.toUpperCase());
+    }
     refuse = false;
     loseReply = false;
     await submit.click();
@@ -150,6 +224,12 @@ try {
       [first, first, first],
       `${mode} reload and recovery refusal must preserve identity`,
     );
+    if (mode === "agent") {
+      assert.deepEqual(
+        requests.slice(count).map((r) => r.body.name),
+        [originalName, originalName, originalName],
+      );
+    }
     assert.equal(
       receipts.size,
       effects + 1,
@@ -228,6 +308,68 @@ try {
       alice,
       "Alice recovers her own request",
     );
+
+    if (mode === "agent") {
+      assert.equal(
+        requests.at(-1).body.initialPrompt,
+        "Opening fixture message",
+      );
+      assert.equal(requests.at(-1).body.folderId, "project");
+    }
+
+    if (mode === "agent") {
+      await page.reload();
+      dropBeforeCommit = true;
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "Couldn’t reach Loop",
+      );
+      dropBeforeCommit = false;
+      const stranded = requests.at(-1).body.idempotencyKey;
+      await page.reload();
+      await submit.click();
+      await expect(page.getByRole("alert")).toContainText("Name already taken");
+      assert.equal(requests.at(-1).body.idempotencyKey, stranded);
+      const beforeSeparate = requests.length;
+      await page.evaluate(() => {
+        const set = Storage.prototype.setItem;
+        window.restoreStorage = () => {
+          Storage.prototype.setItem = set;
+        };
+        Storage.prototype.setItem = function (key, value) {
+          if (key.startsWith("loop-effect-history:"))
+            throw new Error("History unavailable");
+          return set.call(this, key, value);
+        };
+      });
+      const separate = page.getByRole("button", {
+        name: "Start a separate chat",
+        exact: true,
+      });
+      await separate.click();
+      await expect(page.getByRole("alert")).toContainText(
+        "History unavailable",
+      );
+      await page.evaluate(() => window.restoreStorage());
+      await separate.click();
+      await expect(separate).toHaveCount(0);
+      assert.equal(
+        requests.length,
+        beforeSeparate,
+        "setting aside never dispatches another creation",
+      );
+      const history = await page.evaluate(() =>
+        Object.entries(localStorage).filter(([key]) =>
+          key.startsWith("loop-effect-history:"),
+        ),
+      );
+      assert.ok(
+        history.some(([, value]) => JSON.parse(value).commandId === stranded),
+      );
+      await submit.click();
+      await expect.poll(() => page.evaluate(() => window.completed)).toBe(1);
+      assert.notEqual(requests.at(-1).body.idempotencyKey, stranded);
+    }
 
     await page.reload();
     const pendingCount = () =>

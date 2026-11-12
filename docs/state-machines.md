@@ -275,13 +275,27 @@ a pending reservation before IO and complete in a second transaction. Refused
 replays never execute the effect; expiry markers commit before a refusal is
 returned.
 
-Preset-team creation and review starts keep their browser request identities in
+Agent creation, preset-team creation and review starts keep their browser
+request identities in
 [the pending-command journal](#pending-command-identities), keyed by owner,
 source, operation and form inputs. Reloading can recover an uncertain creation.
 A fresh 4xx can settle a refused request; a refusal during recovery cannot prove
 whether the earlier request committed and therefore retains its identity.
 Storage failure prevents dispatch. Completion callbacks require the same
-mounted owner/source view.
+mounted owner/source view. Agent creation hashes its form inputs rather than
+storing prompt or instruction text. When the name is generated, that name is
+stored with the pending identity and reused on recovery; a new suggestion
+cannot select another identity. Other inputs must still match. A digest avoids
+plaintext retention but does not encrypt low-entropy input. After an uncertain
+agent creation, the form offers an explicit separate-chat action. It archives
+the uncertain identity before releasing its slot, then requests a new name;
+it does not dispatch another creation. Matching generated-name forms in two tabs
+share the pending operation rather than create two agents: neither the tab nor
+a new suggestion proves that the earlier uncertain creation should be repeated.
+Recovery updates the displayed name to the stored name. To request a distinct
+creation after uncertainty, use the explicit separate-chat action. Archive
+failures preserve the action
+for retry. The person must check for the earlier chat and submit again.
 
 ### `token_requests.state`
 

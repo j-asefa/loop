@@ -12,7 +12,13 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { parse, isExecutionRefused } from "./api";
+import { parse } from "./api";
+import {
+  performStoredEffect,
+  creationFailureSettled,
+  UncertainEffect,
+} from "./pendingCommands";
+import { viewOwner, viewGeneration } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet, Avatar } from "./components";
 import type { Connection, CreatedAgent } from "../shared/types";
@@ -88,9 +94,11 @@ export function CreateAgent({
     [suggestedName, setSuggestedName] = useState(""),
     [typedName, setTypedName] = useState(""),
     [nameTouched, setNameTouched] = useState(false),
+    [nameEdited, setNameEdited] = useState(false),
     [loadingName, setLoadingName] = useState(true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const [uncertain, setUncertain] = useState<UncertainEffect>();
   const formId = useId();
   const [customize, setCustomize] = useState(false);
   const [nameError, setNameError] = useState(false);
@@ -101,8 +109,16 @@ export function CreateAgent({
   const [requestedModel, setRequestedModel] = useState("");
   const instructionsHint = useId(),
     promptHint = useId();
-  const locked = useRef(false),
-    request = useRef({ signature: "", key: "" });
+  const locked = useRef(false);
+  const mounted = useRef(false);
+  const owner = viewOwner(),
+    generation = viewGeneration();
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   // The suggestion arrives asynchronously. Once the person enters the field it
   // must not change underneath them: a late suggestion would land between
   // their caret placement and first keystroke and merge into what they type.
@@ -111,6 +127,13 @@ export function CreateAgent({
     connected.find((c) => connectionKey(c) === connection) ||
     (!connection ? connected[0] : undefined);
   const source = selected?.sourceId || "";
+  const selectedSource = useRef(source);
+  selectedSource.current = source;
+  const current = () =>
+    mounted.current &&
+    owner === viewOwner() &&
+    generation === viewGeneration() &&
+    source === selectedSource.current;
   const sourceCapabilities =
     sources.find((item) => item.id === source)?.capabilities ??
     (source === executionSourceId() ? capabilities : undefined);
@@ -291,25 +314,58 @@ export function CreateAgent({
         ? folderChoice
         : undefined,
     };
-    const signature = JSON.stringify({ source, ...data });
-    if (request.current.signature !== signature)
-      request.current = { signature, key: crypto.randomUUID() };
+
     locked.current = true;
     setBusy(true);
     setError("");
+    setUncertain(undefined);
     try {
-      const a = await callRoute(
-        workspaceApi.agentCreate,
-        { body: { ...data, idempotencyKey: request.current.key } },
-        source,
+      // A new suggestion after reload must not abandon an uncertain creation.
+      // Only the generated name is retained; free-form inputs stay out of storage.
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({ ...data, name: nameEdited ? data.name : null }),
+        ),
       );
-      await onCreated(a, data.folderId || "", source);
+      const signature = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      const a = await performStoredEffect(
+        localStorage,
+        owner,
+        source,
+        ["agent-create", signature],
+        current,
+        (idempotencyKey, generatedName) => {
+          if (generatedName !== undefined) {
+            setSuggestedName(generatedName);
+            setTypedName(generatedName);
+          }
+          return callRoute(
+            workspaceApi.agentCreate,
+            {
+              body: {
+                ...data,
+                name: generatedName ?? data.name,
+                idempotencyKey,
+              },
+            },
+            source,
+          );
+        },
+        creationFailureSettled,
+        nameEdited ? undefined : data.name,
+      );
+      if (current()) await onCreated(a, data.folderId || "", source);
     } catch (e) {
-      if (isExecutionRefused(e)) request.current = { signature: "", key: "" };
-      setError((e as Error).message);
+      if (current()) {
+        setError((e as Error).message);
+        setUncertain(e instanceof UncertainEffect ? e : undefined);
+      }
     } finally {
       locked.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   const setupBlock = (
@@ -347,6 +403,7 @@ export function CreateAgent({
           if (definition.spec.kind !== "agent") return;
           const spec = definition.spec;
           setTypedName(spec.name);
+          setNameEdited(true);
           setNameTouched(true);
           setInstructions(spec.instructions);
           setImportedName(spec.name);
@@ -600,6 +657,10 @@ export function CreateAgent({
                     setNameTouched(true);
                   }}
                   onChange={(e) => {
+                    setNameEdited(
+                      e.target.value.trim().toLowerCase() !==
+                        suggestedName.trim().toLowerCase(),
+                    );
                     setNameTouched(true);
                     setTypedName(e.target.value);
                   }}
@@ -667,6 +728,42 @@ export function CreateAgent({
             </label>
           </div>
         </details>
+        {uncertain && (
+          <div role="status">
+            <p>
+              The earlier chat may already exist. Check your agents before
+              starting a separate chat.
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (locked.current) return;
+                locked.current = true;
+                setBusy(true);
+                try {
+                  await uncertain.supersede();
+                  if (current()) {
+                    setUncertain(undefined);
+                    setError("");
+                    setNameTouched(false);
+                    setNameEdited(false);
+                    setTypedName("");
+                    setSuggestedName("");
+                    setNameRevision((revision) => revision + 1);
+                  }
+                } catch (error) {
+                  if (current()) setError((error as Error).message);
+                } finally {
+                  locked.current = false;
+                  if (mounted.current) setBusy(false);
+                }
+              }}
+            >
+              Start a separate chat
+            </button>
+          </div>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
