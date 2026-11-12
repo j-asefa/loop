@@ -802,6 +802,8 @@ it("normalizes provider item statuses to the closed set", () => {
   expect(normalizeItemStatus("awaiting-input")).toBe("waiting");
   expect(normalizeItemStatus("rejected")).toBe("declined");
   expect(normalizeItemStatus("done")).toBe("completed");
+  expect(normalizeItemStatus("cancelled")).toBe("interrupted");
+  expect(normalizeItemStatus("interrupted")).toBe("interrupted");
   expect(normalizeItemStatus("copied", false)).toBe("running");
   expect(normalizeItemStatus("copied", true)).toBe("completed");
 });

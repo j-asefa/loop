@@ -1,3 +1,4 @@
+import { normalizeItemStatus } from "../shared/native-item-state.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { museHost } from "../muse-host.js";
 import { supportsBilling } from "../shared/harnesses.js";
@@ -498,10 +499,7 @@ export class Muse extends DirectAdapter implements Adapter {
             (completed ? item.displayLabel?.done : item.displayLabel?.active) ||
             item.tool ||
             item.kind,
-          status:
-            item.status === "inProgress"
-              ? "running"
-              : (item.status ?? (completed ? "completed" : "running")),
+          status: normalizeItemStatus(item.status, completed),
           text: JSON.stringify(item, null, 2),
         },
       });
