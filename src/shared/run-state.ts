@@ -36,7 +36,10 @@ export const RunState = z.enum(
 );
 // The projections show unleased running/pausing work as waiting_children; it
 // is a display state, never stored, but it is a value the public schemas carry.
-export const RunDisplayState = z.union([RunState, z.literal("waiting_children")]);
+export const RunDisplayState = z.union([
+  RunState,
+  z.literal("waiting_children"),
+]);
 export type RunDisplayState = z.infer<typeof RunDisplayState>;
 
 export function legalRunTransition(from: RunState, to: RunState) {
