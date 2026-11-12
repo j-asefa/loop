@@ -17,12 +17,21 @@ for (const engine of selectedEngines()) {
     await fixture.pair(context);
     const ids = [];
     let refused = false;
+    let success = false;
     let heldReply;
     await context.route(
       `**/api/runs/${conversation.run}/retry`,
       async (route) => {
         ids.push(route.request().postDataJSON().idempotencyKey);
         await heldReply;
+        if (success) {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ ok: true }),
+          });
+          return;
+        }
         await route.fulfill({
           status: refused ? 422 : 409,
           contentType: "application/json",
@@ -96,6 +105,38 @@ for (const engine of selectedEngines()) {
     await expect(page.locator(".outline-sheet")).toHaveCount(0);
     await expect(page.locator(".message.anchored")).toHaveCount(1);
     releaseReply();
+    await expect(
+      page.getByRole("button", { name: "Retry as a new run", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      page.getByText("Retry fixture uncertain", { exact: true }),
+    ).toBeVisible();
+    success = true;
+    heldReply = new Promise((resolve) => {
+      releaseReply = resolve;
+    });
+    await page
+      .getByRole("button", { name: "Retry as a new run", exact: true })
+      .click();
+    await expect.poll(() => ids.length).toBe(6);
+    const oldAnchor = await page
+      .locator(".message.anchored")
+      .getAttribute("id");
+    await page.getByRole("button", { name: "Jump to…", exact: true }).click();
+    await page.locator(".outline-sheet li button").last().click();
+    await expect
+      .poll(() => page.locator(".message.anchored").getAttribute("id"))
+      .not.toBe(oldAnchor);
+    await page.evaluate(() => {
+      window.retryRefreshes = 0;
+      window.addEventListener("loop-source-refresh", () => {
+        window.retryRefreshes++;
+      });
+    });
+    releaseReply();
+    await expect
+      .poll(() => page.evaluate(() => window.retryRefreshes))
+      .toBeGreaterThan(0);
     await expect(
       page.getByRole("button", { name: "Retry as a new run", exact: true }),
     ).toBeEnabled();

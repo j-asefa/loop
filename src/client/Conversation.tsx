@@ -447,6 +447,18 @@ function ConversationView({
   const [awayFromLatest, setAwayFromLatest] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
   const retryBusy = useRef(false);
+  const retryMounted = useRef(false);
+  const retryComplete = useRef(async () => {});
+  retryComplete.current = async () => {
+    onSubmitted();
+    await load();
+  };
+  useEffect(() => {
+    retryMounted.current = true;
+    return () => {
+      retryMounted.current = false;
+    };
+  }, []);
   const paging = useRef(false);
   const loadRequest = useRef(0);
   const refreshRequest = useRef<{
@@ -1981,10 +1993,8 @@ function ConversationView({
                             if (retryBusy.current) return;
                             retryBusy.current = true;
                             setRetrying(m.run_id);
-                            const current = generation.current;
                             const isCurrent = () =>
-                              current === generation.current &&
-                              owner === viewOwner();
+                              retryMounted.current && owner === viewOwner();
                             try {
                               await performStoredEffect(
                                 localStorage,
@@ -1999,8 +2009,7 @@ function ConversationView({
                                   }),
                               );
                               if (!isCurrent()) return;
-                              onSubmitted();
-                              await load();
+                              await retryComplete.current();
                             } catch (e) {
                               if (isCurrent()) setError((e as Error).message);
                             } finally {
