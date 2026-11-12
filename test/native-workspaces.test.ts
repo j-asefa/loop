@@ -867,3 +867,75 @@ it("rejects redirected ordinary folders and changed agent identities before disp
       .get(redirected.id),
   ).toBeUndefined();
 });
+
+it.each(["cancel", "replace"] as const)(
+  "does not start a native session after %s during async workspace preparation",
+  async (change) => {
+    const key = "preparation-" + change;
+    const project = directory(key);
+    const git = gitProject(project);
+    git("branch", "-M", "main");
+    const remote = directory(key + "-remote");
+    const remoteGit = gitProject(remote);
+    remoteGit("branch", "-M", "main");
+    const entered = join(project, "fetch-entered");
+    const release = join(project, "fetch-release");
+    const transport = join(project, "transport.cjs");
+    writeFileSync(
+      transport,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const { execFileSync } = require("node:child_process");
+fs.writeFileSync(${JSON.stringify(entered)}, "ready");
+const timeout = setTimeout(() => process.exit(1), 6000);
+const interval = setInterval(() => {
+  if (!fs.existsSync(${JSON.stringify(release)})) return;
+  clearInterval(interval);
+  clearTimeout(timeout);
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  execFileSync("git-upload-pack", [${JSON.stringify(remote)}], { stdio: "inherit", env });
+}, 10);
+`,
+      { mode: 0o700 },
+    );
+    git("config", "protocol.ext.allow", "always");
+    git("remote", "add", "origin", "ext::" + transport);
+    const task = submit(project, key);
+    const starts = requests().filter((r) => r.method === "session/new").length;
+    const outcome = nativeSessions.session(task).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    try {
+      await until(() => existsSync(entered));
+      if (change === "cancel") {
+        expect(transition(task, "cancelled")).toBe(true);
+      } else {
+        db.prepare(
+          "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_agent_id,worktree_source) VALUES(?,'grok',?,'replacement-context','idle',0,'replacement',?,?)",
+        ).run(key, project, key, project);
+      }
+      writeFileSync(release, "continue");
+      await expect(outcome).resolves.toMatchObject({
+        message: "Native session changed; refresh and retry.",
+      });
+      expect(requests().filter((r) => r.method === "session/new")).toHaveLength(
+        starts,
+      );
+      expect(
+        db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(task.id),
+      ).toBeUndefined();
+      if (change === "cancel") expect(binding(key)).toBeUndefined();
+      else
+        expect(binding(key)).toMatchObject({
+          generation: "replacement",
+          native_id: "replacement-context",
+          project,
+        });
+    } finally {
+      writeFileSync(release, "continue");
+      await outcome;
+    }
+  },
+  15000,
+);

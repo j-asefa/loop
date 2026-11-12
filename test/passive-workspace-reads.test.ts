@@ -247,7 +247,7 @@ it.each([
   async ({ harness, Adapter }) => {
     const conversation = randomUUID(),
       liveGeneration = randomUUID();
-    const project = agentWorkspace(root, root, {
+    const project = await agentWorkspace(root, root, {
       ownerId: owner,
       agentId: agent,
       environmentId: process.env.LOOP_DATA_DIR!,

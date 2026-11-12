@@ -293,13 +293,46 @@ export class NativeSessions {
     }
     let binding = companionSessionsQueries.get(db, conversation) as
       Binding | undefined;
+    const preparationGuard = () => {
+      const before = companionSessionsQueries.get(db, conversation);
+      const beforeLive = this.live.get(conversation);
+      const state = ownedRun(run.id, run.owner_id).state;
+      return () => {
+        assertEffect(run.owner_id, "run", run.id);
+        if (this.stopped) throw new Problem(409, "Workspace is stopping.");
+        const latest = companionSessionsQueries.get(db, conversation);
+        if (
+          this.live.get(conversation) !== beforeLive ||
+          beforeLive?.closed ||
+          ownedRun(run.id, run.owner_id).state !== state ||
+          !!latest !== !!before ||
+          (
+            [
+              "generation",
+              "harness",
+              "project",
+              "worktree_agent_id",
+              "worktree_source",
+            ] as const
+          ).some((key) => latest?.[key] !== before?.[key])
+        )
+          throw new Problem(409, "Native session changed; refresh and retry.");
+        return latest as Binding | undefined;
+      };
+    };
     let previousProject: string | undefined;
     let previousWorkspace: AgentWorkspace | undefined;
     let previousBinding: Binding | undefined;
     if (binding && binding.harness !== harness) {
       // Verify the destination before retiring the old binding. A missing
       // checkout must not discard native context during a harness switch.
-      previousWorkspace = boundWorkspace(binding, run.agent_id, run.owner_id);
+      const prepared = preparationGuard();
+      previousWorkspace = await boundWorkspace(
+        binding,
+        run.agent_id,
+        run.owner_id,
+      );
+      binding = prepared()!;
       // A native session cannot move between harnesses. Start a fresh one
       // on the new harness and carry Loop's transcript over as context.
       if (current && !current.closed) {
@@ -332,7 +365,8 @@ export class NativeSessions {
         throw new Problem(409, "Native work requires an agent identity.");
       assertEffect(run.owner_id, "run", run.id);
       const agentId = run.agent_id;
-      const workspace = prepareWorkspace(
+      const prepared = preparationGuard();
+      const workspace = await prepareWorkspace(
         source,
         source,
         {
@@ -343,6 +377,7 @@ export class NativeSessions {
         },
         previousWorkspace,
       );
+      prepared();
       const transfer = selectedContext(conversation);
       const earlier = transfer
         ? []
@@ -389,7 +424,11 @@ export class NativeSessions {
         );
       }).immediate();
       binding = companionSessionsQueries.get(db, conversation) as Binding;
-    } else boundWorkspace(binding, run.agent_id, run.owner_id);
+    } else {
+      const prepared = preparationGuard();
+      await boundWorkspace(binding, run.agent_id, run.owner_id);
+      binding = prepared()!;
+    }
     // What the checkout looked like before this run touched it. Recorded by
     // Loop, never by the harness; a capture failure is recorded, not raised.
     if (binding.worktree_source)

@@ -1,6 +1,6 @@
 import express from "express";
 import { until } from "./helpers";
-import { agentWorktree } from "../src/server/agent-worktree.js";
+import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import {
@@ -134,12 +134,14 @@ it("reports a Codex writer conflict without dispatch, takeover or raw native err
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'private-native-thread','idle',0,'old',?,'worktree-fixture')",
   ).run(
     "codex-busy",
-    agentWorktree(dir, dir, {
-      ownerId: "local-workspace",
-      agentId: "worktree-fixture",
-      environmentId: dir,
-      projectId: dir,
-    }),
+    (
+      await prepareAgentWorkspace(dir, dir, {
+        ownerId: "local-workspace",
+        agentId: "worktree-fixture",
+        environmentId: dir,
+        projectId: dir,
+      })
+    ).directory,
     dir,
   );
   expect(await tick(execute)).toBe(true);
@@ -194,12 +196,14 @@ it("recognises a reworded Codex writer conflict instead of leaking the native er
     "INSERT INTO companion_sessions(conversation_id,harness,project,native_id,state,updated_at,generation,worktree_source,worktree_agent_id) VALUES(?,'codex',?,'other-native-thread','idle',0,'old',?,'worktree-fixture')",
   ).run(
     "codex-reworded",
-    agentWorktree(dir, dir, {
-      ownerId: "local-workspace",
-      agentId: "worktree-fixture",
-      environmentId: dir,
-      projectId: dir,
-    }),
+    (
+      await prepareAgentWorkspace(dir, dir, {
+        ownerId: "local-workspace",
+        agentId: "worktree-fixture",
+        environmentId: dir,
+        projectId: dir,
+      })
+    ).directory,
     dir,
   );
   expect(await tick(execute)).toBe(true);

@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   agentWorkspace,
-  agentWorktree,
   prepareAgentWorkspace,
   verifyAgentWorkspace,
 } from "../src/server/agent-worktree.js";
@@ -42,13 +41,15 @@ function commit(dir: string, value: string) {
   git(dir, "add", "tracked.txt");
   git(dir, "commit", "-m", value);
 }
-function worktree(dir: string, agentId: string) {
-  return agentWorktree(dir, dir, {
-    ownerId: "owner",
-    agentId,
-    environmentId: "fixture",
-    projectId: dir,
-  });
+async function worktree(dir: string, agentId: string) {
+  return (
+    await prepareAgentWorkspace(dir, dir, {
+      ownerId: "owner",
+      agentId,
+      environmentId: "fixture",
+      projectId: dir,
+    })
+  ).directory;
 }
 
 it.each(["missing", "foreign"])(
@@ -70,7 +71,7 @@ it.each(["missing", "foreign"])(
     );
     vi.stubEnv("GIT_WORK_TREE", foreign);
     vi.stubEnv("GIT_COMMON_DIR", join(foreign, ".git"));
-    expect(agentWorkspace(project, project, identity)).toEqual(expected);
+    expect(await agentWorkspace(project, project, identity)).toEqual(expected);
     await expect(
       prepareAgentWorkspace(project, project, identity),
     ).resolves.toEqual(expected);
@@ -104,7 +105,7 @@ it("creates and validates the selected repository's worktree despite inherited G
     GIT_CONFIG_VALUE_0: foreign,
   }))
     vi.stubEnv(name, value);
-  const workspace = agentWorkspace(project, project, identity);
+  const workspace = await agentWorkspace(project, project, identity);
   expect(workspace.worktreeSource).toBe(project);
   expect(
     workspace.directory.startsWith(
@@ -114,7 +115,7 @@ it("creates and validates the selected repository's worktree despite inherited G
   expect(readFileSync(join(workspace.directory, "tracked.txt"), "utf8")).toBe(
     "initial",
   );
-  expect(agentWorkspace(project, project, identity, workspace)).toEqual(
+  expect(await agentWorkspace(project, project, identity, workspace)).toEqual(
     workspace,
   );
   await expect(
@@ -173,7 +174,7 @@ execFileSync("git-upload-pack", [process.argv[2]], { stdio: "inherit", env });
     vi.stubEnv("GIT_DIR", join(foreign, ".git"));
     vi.stubEnv("GIT_COMMON_DIR", join(foreign, ".git"));
     vi.stubEnv("GIT_WORK_TREE", foreign);
-    const first = worktree(repo, "transport-sync");
+    const first = await worktree(repo, "transport-workspace");
     const second = await prepareAgentWorkspace(repo, repo, {
       ownerId: "owner",
       agentId: "transport-async",
@@ -205,12 +206,12 @@ it("fetches latest main for new agents without changing the source or existing a
   git(repo, "checkout", "-b", "feature");
   commit(repo, "feature");
   const sourceHead = git(repo, "rev-parse", "HEAD");
-  const first = worktree(repo, "first");
+  const first = await worktree(repo, "first");
   expect(readFileSync(join(first, "tracked.txt"), "utf8")).toBe("initial");
   writeFileSync(join(first, "tracked.txt"), "agent edit");
   commit(remote, "latest");
   writeFileSync(join(repo, "tracked.txt"), "source edit");
-  const second = worktree(repo, "second");
+  const second = await worktree(repo, "second");
   expect(git(second, "rev-parse", "HEAD")).toBe(
     git(remote, "rev-parse", "main"),
   );
@@ -218,9 +219,11 @@ it("fetches latest main for new agents without changing the source or existing a
   expect(git(repo, "rev-parse", "HEAD")).toBe(sourceHead);
   expect(readFileSync(join(repo, "tracked.txt"), "utf8")).toBe("source edit");
   git(repo, "remote", "set-url", "origin", join(remote, "missing"));
-  expect(worktree(repo, "first")).toBe(first);
+  expect(await worktree(repo, "first")).toBe(first);
   expect(readFileSync(join(first, "tracked.txt"), "utf8")).toBe("agent edit");
-  expect(() => worktree(repo, "third")).toThrow(/Could not fetch latest main/);
+  await expect(worktree(repo, "third")).rejects.toThrow(
+    /Could not fetch latest main/,
+  );
   await expect(
     prepareAgentWorkspace(repo, repo, {
       ownerId: "owner",
@@ -231,18 +234,18 @@ it("fetches latest main for new agents without changing the source or existing a
   ).rejects.toThrow(/Could not fetch latest main/);
 });
 
-it("uses local main ahead of a feature checkout when no remote exists", () => {
+it("uses local main ahead of a feature checkout when no remote exists", async () => {
   const repo = fixture();
   git(repo, "checkout", "-b", "feature");
   commit(repo, "feature");
-  expect(git(worktree(repo, "local"), "rev-parse", "HEAD")).toBe(
+  expect(git(await worktree(repo, "local"), "rev-parse", "HEAD")).toBe(
     git(repo, "rev-parse", "main"),
   );
 });
 
-it("preserves HEAD behavior for repositories without main", () => {
+it("preserves HEAD behavior for repositories without main", async () => {
   const repo = fixture("trunk");
-  expect(git(worktree(repo, "trunk"), "rev-parse", "HEAD")).toBe(
+  expect(git(await worktree(repo, "trunk"), "rev-parse", "HEAD")).toBe(
     git(repo, "rev-parse", "HEAD"),
   );
 });
@@ -254,7 +257,7 @@ it("fetches main from its configured upstream rather than origin", async () => {
   git(repo, "fetch", "upstream");
   git(repo, "branch", "--set-upstream-to=upstream/main", "main");
   commit(upstream, "upstream latest");
-  expect(git(worktree(repo, "upstream"), "rev-parse", "HEAD")).toBe(
+  expect(git(await worktree(repo, "upstream"), "rev-parse", "HEAD")).toBe(
     git(upstream, "rev-parse", "HEAD"),
   );
   commit(upstream, "latest import");
@@ -266,5 +269,54 @@ it("fetches main from its configured upstream rather than origin", async () => {
   });
   expect(git(imported.directory, "rev-parse", "HEAD")).toBe(
     git(upstream, "rev-parse", "HEAD"),
+  );
+});
+
+it("retains Git stderr as a cause without putting it in workspace guidance", async () => {
+  const repo = fixture();
+  const transport = join(repo, "reject-fetch.cjs");
+  writeFileSync(
+    transport,
+    '#!/usr/bin/env node\nconsole.error("private-transport-diagnostic");process.exit(1);\n',
+    { mode: 0o700 },
+  );
+  git(repo, "config", "protocol.ext.allow", "always");
+  git(repo, "remote", "add", "origin", "ext::" + transport);
+  const failure = await prepareAgentWorkspace(repo, repo, {
+    ownerId: "owner",
+    agentId: "diagnostic",
+    environmentId: "fixture",
+    projectId: repo,
+  }).then(
+    () => undefined,
+    (error: Error) => error,
+  );
+  expect(failure?.message).toMatch(/Could not fetch latest main/);
+  expect(failure?.message).not.toContain("private-transport-diagnostic");
+  expect((failure?.cause as Error)?.cause).toMatchObject({
+    message: expect.stringContaining("private-transport-diagnostic"),
+  });
+});
+
+it("shares concurrent preparations of the same agent checkout", async () => {
+  const repo = fixture();
+  const identity = {
+    ownerId: "owner",
+    agentId: "concurrent",
+    environmentId: "fixture",
+    projectId: repo,
+  };
+  const results = await Promise.allSettled(
+    Array.from({ length: 4 }, () => agentWorkspace(repo, repo, identity)),
+  );
+  expect(results.map((result) => result.status)).toEqual(
+    Array(4).fill("fulfilled"),
+  );
+  const expected = await agentWorkspace(repo, repo, identity);
+  expect(results).toEqual(
+    Array(4).fill({ status: "fulfilled", value: expected }),
+  );
+  expect(readFileSync(join(expected.directory, "tracked.txt"), "utf8")).toBe(
+    "initial",
   );
 });

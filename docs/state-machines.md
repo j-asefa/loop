@@ -184,6 +184,13 @@ States: idle, disconnected, starting, failed, running, unavailable, with a
 | running → idle / unavailable | terminal status | mem: current live |
 | all → disconnected, generation NULL | worker start or close | `recover` |
 
+Workspace preparation and validation await Git without holding a database
+transaction. Before changing a binding, the caller rechecks the live session,
+binding identity and run state captured before that await. Same-process callers
+preparing the same checkout share one pending preparation; Git locks arbitrate
+between processes. Git diagnostics stay in server-side error causes, while
+browser-facing errors contain controlled setup guidance.
+
 Disposal does not rewrite the row; readers go through the in-memory live
 session or the run's state.
 
