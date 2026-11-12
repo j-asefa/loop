@@ -626,10 +626,20 @@ function changedFile(f: any): PullFile | undefined {
   const path = text(f?.filename, 1000);
   if (!path) return;
   const patch = typeof f.patch === "string" ? f.patch : undefined;
+  // GitHub can report statuses outside the four-file-change kinds; anything
+  // else is displayed as a modification so a response never 500s the list.
+  const rawStatus = text(f.status, 20);
+  const status: PullFileStatus =
+    rawStatus === "added" ||
+    rawStatus === "removed" ||
+    rawStatus === "renamed" ||
+    rawStatus === "modified"
+      ? rawStatus
+      : "modified";
   return {
     path,
     previousPath: text(f.previous_filename, 1000),
-    status: (text(f.status, 20) || "modified") as PullFileStatus,
+    status,
 
     additions: count(f.additions) ?? 0,
     deletions: count(f.deletions) ?? 0,

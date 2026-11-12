@@ -8,6 +8,8 @@ export const NativeItemStates = [
   "waiting",
   "in_progress",
   "pending",
+  "declined",
+  "error",
   "failed",
   "interrupted",
   "completed",
