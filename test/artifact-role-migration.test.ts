@@ -181,7 +181,7 @@ it("160 replaces the artifact-flag triggers with role- and message-based ones", 
       "artifact_kind_insert",
     ])
       expect(names).toContain(kept);
-    expect(names).not.toContain("artifact_search_scope_update");
+    expect(names).toContain("artifact_search_scope_update");
   } finally {
     db.close();
   }

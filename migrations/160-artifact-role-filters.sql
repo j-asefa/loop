@@ -23,11 +23,15 @@ END;
 -- Search indexing defers until the artifact is no longer partial. The
 -- artifact metadata no longer carries partial, so the guard follows the
 -- linked message, which is written with the same flag in the same persist.
+-- An explicit owner edit is the escape hatch: markEdited stamps $.edited on
+-- the artifact, so a corrected interrupted answer is reindexed even though
+-- its message stays partial (it re-indexes and invalidates the embedding).
 DROP TRIGGER artifact_search_update;
 CREATE TRIGGER artifact_search_update AFTER UPDATE ON artifacts
 WHEN NOT EXISTS(SELECT 1 FROM messages m
   WHERE m.id=json_extract(new.metadata,'$.messageId')
-    AND json_extract(m.metadata,'$.partial') IS 1) BEGIN
+    AND json_extract(m.metadata,'$.partial') IS 1)
+  OR json_extract(new.metadata,'$.edited') IS 1 BEGIN
   -- Compare with the indexed snapshot, not old.content: on completion the last
   -- streamed chunk can already equal new.content while its embedding is stale.
   DELETE FROM embeddings WHERE document_id='artifact:'||new.id AND EXISTS(
@@ -39,11 +43,17 @@ WHEN NOT EXISTS(SELECT 1 FROM messages m
     WHERE id='artifact:'||new.id;
 END;
 
--- The scope-change trigger existed only to reindex a move while content was
--- still partial; that state is now visible through the message guard above,
--- and filing changes only folder/kind, which the search_update trigger covers
--- once the artifact is no longer partial.
+-- Filing changes search scope immediately even while the linked message is
+-- still partial: the folder/kind columns move without indexing chunk content.
 DROP TRIGGER artifact_search_scope_update;
+CREATE TRIGGER artifact_search_scope_update AFTER UPDATE OF folder_id,kind ON artifacts
+WHEN EXISTS(SELECT 1 FROM messages m
+  WHERE m.id=json_extract(new.metadata,'$.messageId')
+    AND json_extract(m.metadata,'$.partial') IS 1)
+  AND (new.folder_id IS NOT old.folder_id OR new.kind IS NOT old.kind) BEGIN
+  UPDATE search_documents SET folder_id=new.folder_id,kind=new.kind
+    WHERE id='artifact:'||new.id;
+END;
 
 -- Feed revisions: content/metadata writes stay invisible while the artifact is
 -- streamed as partial (message guard), matching the old artifact-metadata

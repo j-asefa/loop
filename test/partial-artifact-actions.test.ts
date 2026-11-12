@@ -160,14 +160,14 @@ it("defers search and feed revisions for a message-linked answer until the messa
     run = id(),
     msg = id();
   db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,'alice','pi','fixture',1)",
-  ).run(agent, agent);
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
+  ).run(agent, agent, agent);
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
   ).run(conv, agent);
   db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running','k',1,1)",
-  ).run(run, agent, conv);
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
+  ).run(run, agent, conv, "k-" + run);
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{}',1)",
   ).run(msg, conv, run);
@@ -222,4 +222,101 @@ it("defers search and feed revisions for a message-linked answer until the messa
   ]);
   expect(revision()).toBeGreaterThan(before);
   expect(embedding()).toBeUndefined();
+});
+
+it("moves a streaming answer's search scope without indexing chunk content", () => {
+  const agent = id(),
+    conv = id(),
+    run = id(),
+    msg = id(),
+    oldFolder = id(),
+    newFolder = id();
+  for (const folder of [oldFolder, newFolder])
+    db.prepare(
+      "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,'alice','project',?,1)",
+    ).run(folder, folder);
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
+  ).run(agent, agent, agent);
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
+  ).run(conv, agent);
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
+  ).run(run, agent, conv, "k-" + run);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{\"partial\":true}',1)",
+  ).run(msg, conv, run);
+  const artifact = saveArtifact("alice", {
+    agent,
+    conversation: conv,
+    run,
+    title: "Streaming answer",
+    content: "initial marked text",
+    folder: oldFolder,
+    metadata: { messageId: msg },
+    role: "answer",
+  });
+  moveArtifact("alice", artifact, newFolder);
+  expect(
+    db
+      .prepare("SELECT folder_id,content FROM search_documents WHERE id=?")
+      .get("artifact:" + artifact),
+  ).toEqual({ folder_id: newFolder, content: "initial marked text" });
+  expect(
+    lexical("alice", "marked", { folders: [newFolder] }).map((r) => r.id),
+  ).toEqual(["artifact:" + artifact]);
+  expect(lexical("alice", "marked", { folder: oldFolder })).toEqual([]);
+});
+
+it("reindexes an interrupted answer when the owner edits it", async () => {
+  const agent = id(),
+    conv = id(),
+    run = id(),
+    msg = id();
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
+  ).run(agent, agent, agent);
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
+  ).run(conv, agent);
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','interrupted',?,1,1)",
+  ).run(run, agent, conv, "k-" + run);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{\"partial\":true}',1)",
+  ).run(msg, conv, run);
+  const artifact = saveArtifact("alice", {
+    agent,
+    conversation: conv,
+    run,
+    title: "Interrupted",
+    content: "old text",
+    metadata: { messageId: msg },
+    role: "answer",
+  });
+  const before = resultsRevision("alice");
+  expect(lexical("alice", "old", {}).map((r) => r.id)).toEqual([
+    "artifact:" + artifact,
+  ]);
+  db.prepare("UPDATE artifacts SET content=? WHERE id=?").run(
+    "corrected text",
+    artifact,
+  );
+  // A raw chunk write while the message stays partial is still suppressed.
+  expect(lexical("alice", "corrected", {})).toEqual([]);
+  // The owner's edit passes through markEdited, which stamps $.edited and
+  // reindexes despite the still-partial message.
+  expect(
+    (
+      await patch(`/api/artifacts/${artifact}`, {
+        content: "corrected text",
+        version: version(artifact),
+      })
+    ).status,
+  ).toBe(200);
+  expect(lexical("alice", "corrected", {}).map((r) => r.id)).toEqual([
+    "artifact:" + artifact,
+  ]);
+  expect(resultsRevision("alice")).toBeGreaterThan(before);
 });
