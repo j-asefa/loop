@@ -61,7 +61,7 @@ try {
           revoked_at: null,
           last_used_at: null,
         });
-      req.socket.destroy();
+      reply({ error: "Response withheld by fixture" }, 503);
     } else if (path === "/") {
       res.setHeader("content-type", "text/html");
       res.end(
@@ -75,6 +75,14 @@ try {
     ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
   });
   const page = await browser.newPage();
+  await page.route("**/api/card-tokens", async (route) => {
+    if (route.request().method() !== "POST" || mode === "refuse")
+      return route.continue();
+    // Dropping a TCP connection can trigger a browser transport retry. Abort
+    // delivery after the fixture handles it to test one lost application reply.
+    await route.fetch();
+    await route.abort("failed");
+  });
   await page.goto("http://127.0.0.1:" + server.address().port);
   const name = page.getByLabel("Token name", { exact: true });
   await name.fill("Refused token");
