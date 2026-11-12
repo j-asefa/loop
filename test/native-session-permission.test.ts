@@ -689,6 +689,8 @@ it.each([false, true])(
       .mockRejectedValue(new Error("Setting busy"));
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     let pending: Promise<unknown> | undefined;
+    let control: Promise<unknown> | undefined;
+    let finishControl: ((error: Error) => void) | undefined;
     try {
       const change = () =>
         sessions.setSetting(conversation, "mode", "auto", 1, live.generation);
@@ -698,8 +700,16 @@ it.each([false, true])(
         (error: unknown) => error,
       );
       await vi.waitFor(() => expect(entered).toBe(true));
-      // A simultaneous control request must not re-arm eviction during validation.
+      // A completed control must not re-arm eviction during validation.
       await expect(change()).rejects.toThrow("Setting busy");
+      setting.mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            finishControl = reject;
+          }),
+      );
+      control = change().catch((error: unknown) => error);
+      await vi.waitFor(() => expect(finishControl).toBeDefined());
       await vi.advanceTimersByTimeAsync(61_000);
       expect(live.closed).toBe(false);
       release();
@@ -709,10 +719,15 @@ it.each([false, true])(
         });
       else await expect(pending).resolves.toBe(live);
       await vi.advanceTimersByTimeAsync(61_000);
+      expect(live.closed).toBe(false);
+      finishControl!(new Error("Setting busy"));
+      await expect(control).resolves.toMatchObject({ message: "Setting busy" });
+      await vi.advanceTimersByTimeAsync(61_000);
       expect(live.closed).toBe(true);
     } finally {
       release();
-      await pending;
+      finishControl?.(new Error("Setting busy"));
+      await Promise.allSettled([pending, control]);
       vi.useRealTimers();
       validation.mockRestore();
       setting.mockRestore();

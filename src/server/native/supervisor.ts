@@ -69,7 +69,7 @@ function recaptureAfterStop(run: Run) {
 export class NativeSessions {
   private live = new Map<string, Live>();
   private stopped = false;
-  private preparations = new Map<string, number>();
+  private idleHolds = new Map<string, number>();
   tools?: (
     conversation: string,
     generation: string,
@@ -139,11 +139,25 @@ export class NativeSessions {
   get count() {
     return this.live.size;
   }
+  private holdIdle(conversation: string) {
+    this.idleHolds.set(
+      conversation,
+      (this.idleHolds.get(conversation) ?? 0) + 1,
+    );
+    clearTimeout(this.live.get(conversation)?.idle);
+    return () => {
+      const remaining = this.idleHolds.get(conversation)! - 1;
+      if (remaining) this.idleHolds.set(conversation, remaining);
+      else this.idleHolds.delete(conversation);
+      const live = this.live.get(conversation);
+      if (live) this.scheduleIdle(live, !live.closed && !live.run);
+    };
+  }
   private scheduleIdle(live: Live, eligible: boolean) {
     // Overlapping setting requests must not leave an untracked timer that can
     // dispose a later active turn.
     clearTimeout(live.idle);
-    if (eligible && !this.preparations.has(live.binding.conversation_id))
+    if (eligible && !this.idleHolds.has(live.binding.conversation_id))
       live.idle = setTimeout(() => void this.dispose(live), 60_000);
   }
   controls(conversation: string, cachedOnly = false) {
@@ -200,9 +214,7 @@ export class NativeSessions {
         409,
         "Wait for the native turn to finish before changing settings.",
       );
-    // An idle eviction must not close the protocol while a setting is being
-    // confirmed. The next turn/idle timer owns the session after this request.
-    clearTimeout(live.idle);
+    const releaseIdle = this.holdIdle(conversation);
     try {
       assertFleetAction(live.bootstrapRun.owner_id);
       const activeRun = live.run;
@@ -274,25 +286,17 @@ export class NativeSessions {
         error instanceof Error ? error.message : "Native setting was rejected",
       );
     } finally {
-      this.scheduleIdle(live, isCurrent() && !live.run);
+      releaseIdle();
     }
   }
   async session(run: Run): Promise<Live> {
     const conversation = run.conversation_id;
     if (!conversation) return this.prepareSession(run);
-    this.preparations.set(
-      conversation,
-      (this.preparations.get(conversation) ?? 0) + 1,
-    );
-    clearTimeout(this.live.get(conversation)?.idle);
+    const release = this.holdIdle(conversation);
     try {
       return await this.prepareSession(run);
     } finally {
-      const remaining = this.preparations.get(conversation)! - 1;
-      if (remaining) this.preparations.set(conversation, remaining);
-      else this.preparations.delete(conversation);
-      const live = this.live.get(conversation);
-      if (live) this.scheduleIdle(live, !live.closed && !live.run);
+      release();
     }
   }
   private async prepareSession(run: Run): Promise<Live> {
