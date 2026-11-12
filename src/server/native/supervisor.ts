@@ -521,6 +521,10 @@ export class NativeSessions {
       if (!old.run && !this.idleHolds.has(old.binding.conversation_id))
         await this.dispose(old);
     }
+    if (this.live.size >= MAX_CONCURRENT_RUNS)
+      throw new RunDeferred(
+        "Wait for a native session slot to become available before starting a run.",
+      );
     const generation = id();
     const options: Options = {
       ...registration,

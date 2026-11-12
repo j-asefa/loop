@@ -782,3 +782,54 @@ it("capacity eviction skips a session awaiting workspace validation", async () =
     await sessions.close();
   }
 }, 30000);
+
+it("defers native startup when every capacity slot is held and resumes after release", async () => {
+  const { MAX_CONCURRENT_RUNS } = await import("../src/shared/concurrency.js");
+  const { RunDeferred } = await import("../src/server/run-deferred.js");
+  const sessions = new NativeSessions();
+  const tasks = Array.from({ length: MAX_CONCURRENT_RUNS }, (_, i) =>
+    run("capacity-all-held-" + i),
+  );
+  const lives = [];
+  for (const task of tasks) lives.push(await sessions.session(task));
+  const workspace = await import("../src/server/native/workspace.js");
+  const original = workspace.boundWorkspace;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered = 0;
+  const validation = vi
+    .spyOn(workspace, "boundWorkspace")
+    .mockImplementation(async (...args) => {
+      entered++;
+      await gate;
+      return original(...args);
+    });
+  const pending = tasks.map((task) =>
+    sessions.session(task).then(
+      (value) => value,
+      (error: unknown) => error,
+    ),
+  );
+  try {
+    await vi.waitFor(() => expect(entered).toBe(MAX_CONCURRENT_RUNS));
+    const extra = run("capacity-all-held-new");
+    await expect(sessions.session(extra)).rejects.toBeInstanceOf(RunDeferred);
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+    expect(lives.every((live) => !live.closed)).toBe(true);
+    expect(
+      db.prepare("SELECT 1 FROM native_dispatch WHERE run_id=?").get(extra.id),
+    ).toBeUndefined();
+    release();
+    expect(await Promise.all(pending)).toEqual(lives);
+    const started = await sessions.session(extra);
+    expect(started.closed).toBe(false);
+    expect(sessions.count).toBe(MAX_CONCURRENT_RUNS);
+  } finally {
+    release();
+    await Promise.allSettled(pending);
+    validation.mockRestore();
+    await sessions.close();
+  }
+}, 30000);
