@@ -456,9 +456,16 @@ try {
           project_id: null,
           feed_hidden: 0,
         },
+        projection: {
+          epoch: "fixture-continuation",
+          cursor: 0,
+          serverNow: 1,
+          nextDeadline: null,
+        },
         messages: [
           {
             id: "continuation-message",
+            revision: 0,
             owner_id: "fixture-owner",
             conversation_id: conversation,
             role: "user",
@@ -1013,6 +1020,11 @@ try {
     name: "Continue with another agent",
     exact: true,
   });
+  await expect(
+    continuationSheet.getByRole("checkbox", {
+      name: "You: Continue this work",
+    }),
+  ).toBeChecked();
   await continuationSheet
     .getByRole("combobox", { name: "Continue with", exact: true })
     .selectOption("continuation-target");
