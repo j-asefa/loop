@@ -110,7 +110,11 @@ it("returns the matching passage through the search service", async () => {
       "Use web_fetch_exa to retrieve the release notes.",
     role: "answer",
   });
-  saveArtifact(owner, { title: "Other report", content: "The web is useful." });
+  saveArtifact(owner, {
+    title: "Other report",
+    content: "The web is useful.",
+    role: "answer",
+  });
   const result = await search(owner, "web_fetch_exa");
   expect(
     result.items.find((item) => item.id === "artifact:" + artifact)?.snippet,

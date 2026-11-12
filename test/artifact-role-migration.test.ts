@@ -4,12 +4,12 @@ import { expect, it } from "vitest";
 
 const priorMigrations = () =>
   readdirSync("migrations")
-    .filter((file) => file.endsWith(".sql") && file < "158")
+    .filter((file) => file.endsWith(".sql") && file < "159")
     .sort()
     .map((file) => readFileSync("migrations/" + file, "utf8"));
 
 const migration = () =>
-  readFileSync("migrations/158-artifact-role.sql", "utf8");
+  readFileSync("migrations/159-artifact-role.sql", "utf8");
 
 const insertArtifact = (
   db: Database.Database,
