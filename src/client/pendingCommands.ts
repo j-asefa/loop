@@ -1,4 +1,4 @@
-type PendingEffect = { commandId: string; attempt: string };
+type PendingEffect = { commandId: string; attempt: string; context?: string };
 
 export class UncertainEffect extends Error {
   constructor(
@@ -54,11 +54,12 @@ export async function performStoredEffect<T>(
   source: string,
   target: readonly string[],
   current: () => boolean,
-  dispatch: (commandId: string) => Promise<T>,
+  dispatch: (commandId: string, context?: string) => Promise<T>,
   settledError: (
     error: unknown,
     recovering: boolean,
   ) => boolean = effectOutcomeSettled,
+  context?: string,
 ): Promise<T> {
   if (!owner) throw new Error("Sign in before starting this change.");
   if (!navigator.locks)
@@ -75,7 +76,8 @@ export async function performStoredEffect<T>(
           typeof value?.commandId !== "string" ||
           !value.commandId ||
           typeof value?.attempt !== "string" ||
-          !value.attempt
+          !value.attempt ||
+          (context !== undefined && typeof value.context !== "string")
         )
           throw new Error("Invalid pending change");
         prior = value;
@@ -86,6 +88,9 @@ export async function performStoredEffect<T>(
     const receipt: PendingEffect = {
       commandId: prior?.commandId ?? crypto.randomUUID(),
       attempt: crypto.randomUUID(),
+      ...(context === undefined
+        ? {}
+        : { context: prior ? prior.context : context }),
     };
     try {
       storage.setItem(key, JSON.stringify(receipt));
@@ -96,7 +101,7 @@ export async function performStoredEffect<T>(
     // Another tab must be able to recover the same identity after a lost reply.
     let completion: Promise<T>;
     try {
-      completion = dispatch(receipt.commandId);
+      completion = dispatch(receipt.commandId, receipt.context);
     } catch (error) {
       completion = Promise.reject(error);
     }

@@ -282,7 +282,11 @@ source, operation and form inputs. Reloading can recover an uncertain creation.
 A fresh 4xx can settle a refused request; a refusal during recovery cannot prove
 whether the earlier request committed and therefore retains its identity.
 Storage failure prevents dispatch. Completion callbacks require the same
-mounted owner/source view.
+mounted owner/source view. Agent creation hashes its form inputs rather than
+storing prompt or instruction text. When the name is generated, that name is
+stored with the pending identity and reused on recovery; a new suggestion
+cannot select another identity. Other inputs must still match. A digest avoids
+plaintext retention but does not encrypt low-entropy input.
 
 ### `token_requests.state`
 

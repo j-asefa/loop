@@ -11,6 +11,7 @@ let browser, server;
 const requests = [];
 const receipts = new Map();
 const deleted = new Set();
+let suggestions = 0;
 let loseReply = true,
   refuse = false;
 let holdReply = false,
@@ -66,7 +67,7 @@ try {
       res.setHeader("content-type", "text/javascript");
       res.end(bundle.script);
     } else if (path === "/api/agents/suggest-name") {
-      json({ name: "fixture-agent" });
+      json({ name: `fixture-agent-${++suggestions}` });
     } else if (
       req.method === "POST" &&
       (path === "/api/agents" ||
@@ -169,6 +170,17 @@ try {
     await submit.click();
     await expect(page.getByRole("alert")).toContainText("unavailable");
     const first = requests.at(-1).body.idempotencyKey;
+    const originalName = requests.at(-1).body.name;
+    if (mode === "agent") {
+      const journal = await page.evaluate(() =>
+        JSON.stringify(Object.entries(localStorage)),
+      );
+      assert.equal(
+        journal.includes("Opening fixture message"),
+        false,
+        "journal must not retain plaintext prompts",
+      );
+    }
     await page.reload();
     refuse = true;
     await submit.click();
@@ -184,6 +196,12 @@ try {
       [first, first, first],
       `${mode} reload and recovery refusal must preserve identity`,
     );
+    if (mode === "agent") {
+      assert.deepEqual(
+        requests.slice(count).map((r) => r.body.name),
+        [originalName, originalName, originalName],
+      );
+    }
     assert.equal(
       receipts.size,
       effects + 1,

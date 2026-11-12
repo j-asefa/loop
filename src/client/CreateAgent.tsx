@@ -308,24 +308,42 @@ export function CreateAgent({
         ? folderChoice
         : undefined,
     };
-    const signature = JSON.stringify(data);
+
     locked.current = true;
     setBusy(true);
     setError("");
     try {
+      // A new suggestion after reload must not abandon an uncertain creation.
+      // Only the generated name is retained; free-form inputs stay out of storage.
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify({ ...data, name: nameTouched ? data.name : null }),
+        ),
+      );
+      const signature = Array.from(new Uint8Array(digest), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
       const a = await performStoredEffect(
         localStorage,
         owner,
         source,
         ["agent-create", signature],
         current,
-        (idempotencyKey) =>
+        (idempotencyKey, generatedName) =>
           callRoute(
             workspaceApi.agentCreate,
-            { body: { ...data, idempotencyKey } },
+            {
+              body: {
+                ...data,
+                name: generatedName ?? data.name,
+                idempotencyKey,
+              },
+            },
             source,
           ),
         creationFailureSettled,
+        nameTouched ? undefined : data.name,
       );
       if (current()) await onCreated(a, data.folderId || "", source);
     } catch (e) {
