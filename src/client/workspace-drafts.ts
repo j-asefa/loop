@@ -1,3 +1,4 @@
+import { withOptionalStorage } from "./browserStorage";
 import { viewGeneration, viewOwner } from "./viewCache";
 import type { ComposerContext } from "./composerContext";
 import type { SharedDraft } from "./Sharing";
@@ -24,21 +25,25 @@ export function sessionDraft<T>(
     key,
     read(): T | undefined {
       if (!current()) return;
-      try {
-        const value = sessionStorage.getItem(key);
-        return value ? (JSON.parse(value) as T) : undefined;
-      } catch {
-        return;
-      }
+      return withOptionalStorage(
+        "session",
+        (storage) => {
+          const value = storage.getItem(key);
+          return value ? (JSON.parse(value) as T) : undefined;
+        },
+        undefined,
+      );
     },
     write(value: T | undefined) {
       if (!current()) return;
-      try {
-        if (value === undefined) sessionStorage.removeItem(key);
-        else sessionStorage.setItem(key, JSON.stringify(value));
-      } catch {
-        /* A full/disabled storage does not discard the in-memory draft. */
-      }
+      withOptionalStorage(
+        "session",
+        (storage) => {
+          if (value === undefined) storage.removeItem(key);
+          else storage.setItem(key, JSON.stringify(value));
+        },
+        undefined,
+      );
     },
   };
 }
