@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import type { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
@@ -18,7 +19,7 @@ const scheduleStatement =
  ON CONFLICT(owner_id,key) DO UPDATE SET attempts=excluded.attempts,retry_at=excluded.retry_at,delay_ms=excluded.delay_ms`);
 export function schedule(
   db: Database.Database,
-  row: typeof QueryRecords.agent_mail_retries._type,
+  row: z.infer<typeof QueryRecords.agent_mail_retries>,
 ) {
   return scheduleStatement(db).run(row);
 }
