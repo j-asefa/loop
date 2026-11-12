@@ -164,3 +164,22 @@ it("derives Done and Feed presentation discriminators from every canonical run a
     }
   }
 });
+
+it("preserves the presentations' existing timestamp constraints", () => {
+  const input = {
+    id: "r",
+    state: "completed",
+    error: null,
+    input: "in",
+    connection_id: null,
+    model: null,
+    resolved_model: null,
+    created_at: -1,
+    updated_at: -1,
+    queue_position: null,
+    can_move_up: false,
+    can_move_down: false,
+  };
+  expect(DoneRunSchema.safeParse(input).success).toBe(false);
+  expect(FeedRunSchema.safeParse(input).success).toBe(true);
+});

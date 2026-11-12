@@ -11,6 +11,8 @@ const time = z.number().nonnegative();
 // The Done card uses a declared projection of the canonical run arms.
 // Presentation-only error and queue values remain nullable in every state.
 const RunPresentation = {
+  created_at: time,
+  updated_at: time,
   error: text,
   connection_id: text,
   model: text,
@@ -43,8 +45,8 @@ export const DoneRunSchema = z.discriminatedUnion("state", [
   PublicRun.options[9].pick(pickRun).extend(RunPresentation),
 ]);
 const FeedRunExtra = {
-  created_at: time,
-  updated_at: time,
+  created_at: z.number(),
+  updated_at: z.number(),
   can_move_up: z.boolean().optional(),
   can_move_down: z.boolean().optional(),
   checkout: CheckoutSummarySchema.nullable().optional(),
