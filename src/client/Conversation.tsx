@@ -1,4 +1,12 @@
 import {
+  continuationStorageKey,
+  storedContinuation,
+  storedContinuations,
+  storeContinuation,
+  selectContinuation,
+  clearStoredContinuation,
+} from "./continuationCommands";
+import {
   ACTIVE_RUN_DISPLAY_STATES,
   STARTED_RUN_DISPLAY_STATES,
   PENDING_RUN_DISPLAY_STATES,
@@ -172,59 +180,6 @@ function browserTranscript(page: ConversationPage) {
   return { ...page, projection: page.projection };
 }
 type Transcript = ReturnType<typeof browserTranscript>;
-type ContinuationInput = RouteInput<
-  typeof workspaceApi.conversationContinueStart
->["body"];
-function storedContinuationAt(key: string): ContinuationInput | null {
-  try {
-    const parsed = workspaceApi.conversationContinueStart.body.safeParse(
-      JSON.parse(localStorage.getItem(key) || "null"),
-    );
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-function storedContinuations(key: string): ContinuationInput[] {
-  try {
-    const requests = new Map<string, ContinuationInput>();
-    for (const slot of Object.keys(localStorage)
-      .filter((k) => k.startsWith(key + ":"))
-      .sort()) {
-      const request = storedContinuationAt(slot);
-      if (request) requests.set(request.start.idempotencyKey, request);
-    }
-    return [...requests.values()];
-  } catch {
-    return [];
-  }
-}
-function storedContinuation(key: string): ContinuationInput | null {
-  // Keep each tab's choice, while allowing a new tab to recover saved requests.
-  let preferred: string | null = null;
-  try {
-    preferred = sessionStorage.getItem(key);
-  } catch {}
-  if (preferred === "new") return null;
-  const requests = storedContinuations(key);
-  return (
-    requests.find((request) => request.start.idempotencyKey === preferred) ||
-    requests[0] ||
-    null
-  );
-}
-function clearStoredContinuation(key: string, request: ContinuationInput) {
-  // An accepted response must still open its conversation if device storage
-  // refuses cleanup. Any retained request can safely recover that same receipt.
-  try {
-    localStorage.removeItem(key + ":" + request.start.idempotencyKey);
-  } catch {}
-  try {
-    if (sessionStorage.getItem(key) === request.start.idempotencyKey)
-      sessionStorage.removeItem(key);
-  } catch {}
-}
-
 export function Conversation(props: Parameters<typeof ConversationView>[0]) {
   const source = useSourceId();
   // Remount before rendering a different identity, not in a later effect.
@@ -306,8 +261,7 @@ function ConversationView({
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
-  const continuationKey =
-    "loop-continuation:" + JSON.stringify([owner, sourceId, id]);
+  const continuationKey = continuationStorageKey(owner, sourceId, id);
   const [pendingContinuation, setPendingContinuation] = useState(() =>
     storedContinuation(continuationKey),
   );
@@ -2103,12 +2057,10 @@ function ConversationView({
                       (r) => r.start.idempotencyKey === e.target.value,
                     );
                     if (!request) return;
-                    try {
-                      sessionStorage.setItem(
-                        continuationKey,
-                        request.start.idempotencyKey,
-                      );
-                    } catch {}
+                    selectContinuation(
+                      continuationKey,
+                      request.start.idempotencyKey,
+                    );
                     setPendingContinuation(request);
                     setContinuationUnavailable(false);
                     setDestination(request.agentId);
@@ -2250,23 +2202,13 @@ function ConversationView({
                     idempotencyKey: crypto.randomUUID(),
                   },
                 };
-                const requestKey =
-                  continuationKey + ":" + request.start.idempotencyKey;
                 const clearPending = () => {
                   clearStoredContinuation(continuationKey, request);
                   setSavedContinuations(storedContinuations(continuationKey));
                   setPendingContinuation(null);
                 };
                 try {
-                  // Keep the exact owner/source/thread-bound request across a
-                  // lost response, closing the sheet and reloading the app.
-                  localStorage.setItem(requestKey, JSON.stringify(request));
-                  try {
-                    sessionStorage.setItem(
-                      continuationKey,
-                      request.start.idempotencyKey,
-                    );
-                  } catch {}
+                  storeContinuation(continuationKey, request);
                   setPendingContinuation(request);
                   setSavedContinuations(storedContinuations(continuationKey));
                   const r = await call(workspaceApi.conversationContinueStart, {
@@ -2319,9 +2261,7 @@ function ConversationView({
                         continuationKey,
                         pendingContinuation,
                       );
-                    try {
-                      sessionStorage.setItem(continuationKey, "new");
-                    } catch {}
+                    selectContinuation(continuationKey, "new");
                     setSavedContinuations(storedContinuations(continuationKey));
                     setPendingContinuation(null);
                     setContinuationUnavailable(false);

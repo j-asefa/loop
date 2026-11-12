@@ -10,7 +10,7 @@ export type BrowserCommandStorage = Pick<
 >;
 
 export function commandStorageKey(
-  owner: string,
+  owner: string | undefined,
   source: string,
   target: readonly (string | null)[],
   namespace = "loop-effect",
