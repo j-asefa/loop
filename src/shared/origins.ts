@@ -9,6 +9,10 @@ export const ConversationOrigins = [
   "loop-fork",
   "native",
   "import",
+  // Imported exports declare their source provider (imports.ts writes
+  // parsed.provider + "-import").
+  "openai-import",
+  "anthropic-import",
 ] as const;
 export const ConversationOrigin = z.enum(ConversationOrigins);
 export type ConversationOrigin = z.infer<typeof ConversationOrigin>;
