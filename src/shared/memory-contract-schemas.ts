@@ -1,3 +1,8 @@
+import {
+  MemorySourceKind,
+  MemorySourceOrigin,
+  MemorySourceRole,
+} from "./memory-source.js";
 import { z } from "zod";
 
 const Text = z.string();
@@ -19,7 +24,7 @@ export const MemoryNoteUpdateInput = MemoryNoteInput.omit({
 const PublicMemorySummary = z.object({
   id: Text,
   title: Text,
-  kind: Text,
+  kind: MemorySourceKind,
   project_id: MaybeText,
   revision: Count,
   eligible: Count,
@@ -35,8 +40,8 @@ const PublicMemorySourceFields = PublicMemorySummary.extend({
   conversation_id: MaybeText,
   message_id: MaybeText,
   agent_id: MaybeText,
-  origin: Text,
-  role: Text,
+  origin: MemorySourceOrigin,
+  role: MemorySourceRole,
   content_hash: Text,
   content: Text,
   complete: Count,

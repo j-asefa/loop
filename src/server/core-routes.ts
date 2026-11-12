@@ -444,7 +444,11 @@ routes.on(workspaceApi.agentPiAction, async (req, res) => {
 });
 routes.on(workspaceApi.agentTraces, (req, res) => {
   const { before, run: runId, q } = req.query;
-  res.json(agentTraces(res.locals.owner, req.params.id, before, runId, q));
+  res.json(
+    agentTraces(res.locals.owner, req.params.id, before, runId, q) as z.input<
+      typeof workspaceApi.agentTraces.response
+    >,
+  );
 });
 routes.on(workspaceApi.agentTracesExport, (req, res) => {
   const runId = req.query.run;

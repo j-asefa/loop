@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ftsQuery } from "../shared/search-excerpt.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
@@ -247,7 +248,9 @@ routes.on(workspaceApi.memoryStatus, (_req, res) => {
   const owner = res.locals.owner;
   res.json({
     policies: memoryPolicyQueries.forOwner(db, owner),
-    sources: memorySourcesQueries.summaries(db, owner),
+    sources: memorySourcesQueries.summaries(db, owner) as z.input<
+      typeof workspaceApi.memoryStatus.response
+    >["sources"],
   });
 });
 routes.on(workspaceApi.memoryPolicy, (req, res) => {
@@ -278,8 +281,16 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
 routes.on(workspaceApi.memorySource, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);
   if (s.kind === "note" && !s.tombstone)
-    return res.json({ ...s, kind: s.kind, truncated: false });
-  res.json(readMemory(res.locals.owner, req.params.id));
+    return res.json({
+      ...s,
+      kind: s.kind,
+      truncated: false,
+    } as z.input<typeof workspaceApi.memorySource.response>);
+  res.json(
+    readMemory(res.locals.owner, req.params.id) as unknown as z.input<
+      typeof workspaceApi.memorySource.response
+    >,
+  );
 });
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);

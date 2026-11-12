@@ -1,3 +1,4 @@
+import { NativeSessionState } from "./native-session-state.js";
 import { z } from "zod";
 import { ActivityKind, ActivityRecordSchema } from "./agent-activities.js";
 import { Harness, ItemSchema } from "./protocol.js";
@@ -166,7 +167,7 @@ export const PublicNativeConversation = z.object({
       harness: Harness,
       project: Text,
       model: Text.nullable(),
-      state: Text,
+      state: NativeSessionState,
       updated_at: z.number(),
     })
     .optional(),

@@ -300,6 +300,8 @@ export const executionOperations = {
   ),
   "native.answer": method(
     z.strictObject({ decisionId: Id, answer: JsonObject }),
+    // The reply state spans stored transitions and live deliver stages the
+    // harness controls (D5-exempt: harness-confirmed answer state).
     z.strictObject({ state: z.string() }),
     { effect: "existing" },
   ),
