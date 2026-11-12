@@ -25,11 +25,9 @@ function run(agentId: string, state: Run["state"], created_at: number): Run {
     input: "",
     state,
     payload: "",
-    result: null,
-    error: null,
     created_at,
     updated_at: created_at,
-  };
+  } as Run;
 }
 
 describe("YourAgents ordering", () => {

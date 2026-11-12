@@ -1,15 +1,16 @@
+import { PublicArtifact } from "./artifact-contract-schema.js";
+import { PublicRun } from "./run-contract-schema.js";
+export { PublicArtifact, PublicRun };
 import { FeedEntities } from "./feed-projection.js";
 import { SteeringReplyContext } from "./steering-replies.js";
 import { z } from "zod";
 import { ProviderSchema as Provider } from "./provider-schema.js";
-import { DoneDisplaySchema } from "./done-card.js";
+import { DoneDisplaySchema, FeedRunSchema } from "./done-card.js";
 import { WorkspaceClock } from "./workspace-events.js";
 import { ProjectedMessage } from "./transcript-projection.js";
 import { CardTokenSchema } from "./card-token-schemas.js";
 import { Text, MaybeText, Time } from "./route-contract.js";
-import { ArtifactKindSchema } from "./artifact-kind.js";
-import { ArtifactRoleSchema } from "./artifact-role.js";
-import { RunDisplayState, RunKind } from "./run-state.js";
+import { RunDisplayState } from "./run-state.js";
 import { MessageRole } from "./message-roles.js";
 import { AgentOrigin, ConversationOrigin } from "./origins.js";
 import { ConnectionStatus } from "./connection-status.js";
@@ -87,54 +88,6 @@ export const PublicMessage = z.object({
   /** JSON list of verification commands Loop observed for the run. */
   run_verification: MaybeText.optional(),
 });
-export const PublicArtifact = z.object({
-  id: Text,
-  owner_id: Text,
-  agent_id: MaybeText,
-  conversation_id: MaybeText,
-  run_id: MaybeText,
-  title: Text,
-  kind: ArtifactKindSchema,
-  role: ArtifactRoleSchema,
-  content: Text,
-  metadata: Text,
-  folder_id: MaybeText,
-  pinned: z.number(),
-  archived: z.number(),
-  feed_hidden: z.number().optional(),
-  version: z.number(),
-  created_at: Time,
-  updated_at: Time,
-  name: MaybeText.optional(),
-  provider: Provider.nullable().optional(),
-  run_state: RunDisplayState.nullable().optional(),
-  run_error: MaybeText.optional(),
-});
-export const PublicRun = z.object({
-  id: Text,
-  owner_id: Text.optional(),
-  agent_id: MaybeText,
-  conversation_id: MaybeText,
-  kind: RunKind.optional(),
-  input: Text,
-  state: RunDisplayState,
-  idempotency_key: Text.optional(),
-  payload: Text,
-  result: MaybeText,
-  error: MaybeText,
-  created_at: Time,
-  updated_at: Time,
-  worker_id: MaybeText.optional(),
-  heartbeat: Time.nullable().optional(),
-  active_ms: z.number().optional(),
-  active_since: Time.nullable().optional(),
-  queue_rank: z.number().nullable().optional(),
-  attention_dismissed_at: Time.nullable().optional(),
-  queue_position: z.number().nullable().optional(),
-  preview: MaybeText.optional(),
-  preview_artifact: PublicArtifact.nullable().optional(),
-  steeringId: Text.optional(),
-});
 export const PublicConversation = z.object({
   id: Text,
   owner_id: Text,
@@ -186,23 +139,7 @@ export const FeedItem = DoneDisplaySchema.extend({
       saved: z.boolean().optional(),
     })
     .nullable(),
-  run: DoneDisplaySchema.shape.run
-    .unwrap()
-    .extend({
-      created_at: Time,
-      updated_at: Time,
-      can_move_up: z.boolean().optional(),
-      can_move_down: z.boolean().optional(),
-      checkout: DoneDisplaySchema.shape.run
-        .unwrap()
-        .shape.checkout.nullable()
-        .optional(),
-      verification: DoneDisplaySchema.shape.run
-        .unwrap()
-        .shape.verification.nullable()
-        .optional(),
-    })
-    .nullable(),
+  run: FeedRunSchema.nullable(),
   done_card_key: Text.optional(),
   position_message_id: MaybeText,
   later: DoneDisplaySchema.shape.later

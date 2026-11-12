@@ -646,3 +646,97 @@ it("keeps ordinary and import upload limits distinct", async () => {
     expect(await response.json()).toEqual({ error });
   }
 });
+
+it("preserves terminal previews and queue values in the unfiltered run list", async () => {
+  const f = fixture();
+  db.prepare("UPDATE runs SET state='completed',queue_rank=7 WHERE id=?").run(
+    f.run.id,
+  );
+  const response = await request("/runs");
+  expect(response.status).toBe(200);
+  const run = workspaceApi.runs.response
+    .parse(response.data)
+    .find((row) => row.id === f.run.id);
+  expect(run).toMatchObject({ state: "completed", queue_rank: 7 });
+  expect(run).toHaveProperty("preview");
+  expect(run).toHaveProperty("preview_artifact");
+  expect(run).toHaveProperty("queue_position");
+});
+
+it("preserves native error events in running and subsequently completed HTTP runs", async () => {
+  const { NativeSessions } = await import("../src/server/native-sessions");
+  const { NativeOutput } = await import("../src/server/native-output");
+  const { Codex } = await import("../src/adapters/codex");
+  const { ownedRun } = await import("../src/server/domain");
+  const { transition } = await import("../src/server/queue");
+  const f = fixture();
+  const conversation = f.run.conversation_id!;
+  const generation = id();
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture-error-worker',heartbeat=?,active_since=? WHERE id=?",
+  ).run(now(), now(), f.run.id);
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES(?,?,'codex',?,?,?)",
+  ).run(f.agent.id, conversation, directory, generation, now());
+  const run = ownedRun(f.run.id, owner);
+  const live: import("../src/server/native-sessions").Live = {
+    binding: {
+      worktree_source: null,
+      worktree_agent_id: f.agent.id,
+      conversation_id: conversation,
+      harness: "codex",
+      native_id: null,
+      project: directory,
+      model: null,
+      instructions: "",
+      generation,
+      state: "idle",
+    },
+    adapter: new Codex(
+      {
+        harness: "codex",
+        executable: "",
+        version: "fixture",
+        project: directory,
+        billing: "existing",
+      },
+      () => {},
+    ),
+    generation,
+    ready: Promise.resolve(),
+    bootstrapRun: run,
+    run,
+    requests: new Map(),
+    cancelling: false,
+    waiting: false,
+    bridgeWaiting: 0,
+    items: new NativeOutput(),
+    closed: false,
+  };
+  const sessions = new NativeSessions();
+  (sessions as unknown as { live: Map<string, typeof live> }).live.set(
+    conversation,
+    live,
+  );
+  sessions.projector.event(live, {
+    type: "error",
+    message: "Recoverable native error",
+  });
+  for (const state of ["running", "completed"] as const) {
+    if (state === "completed") expect(transition(run, "completed")).toBe(true);
+    const response = await request(
+      state === "running" ? "/runs?active=1" : "/runs",
+    );
+    expect(response.status).toBe(200);
+    // Assert the actual wire field, without projecting the expected value.
+    expect(response.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: run.id,
+          state,
+          error: "Recoverable native error",
+        }),
+      ]),
+    );
+  }
+});

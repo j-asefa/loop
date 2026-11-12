@@ -110,10 +110,10 @@ const publicProjections = {
   PublicConversation: workspaceRoutes.conversation.response.shape.conversation,
   PublicDoneCheckout: DoneDisplaySchema.shape.run
     .unwrap()
-    .shape.checkout.unwrap(),
+    .options[0].shape.checkout.unwrap(),
   PublicDoneVerification: DoneDisplaySchema.shape.run
     .unwrap()
-    .shape.verification.unwrap(),
+    .options[0].shape.verification.unwrap(),
   DoneCard: DoneCardSchema,
   DoneThread,
   DoneThreadSummary,
