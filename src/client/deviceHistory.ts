@@ -58,3 +58,32 @@ export function clearRecentSearches(owner: string | undefined) {
     localStorage.removeItem(key("loop-recent-searches", owner));
   } catch {}
 }
+
+function recipientKey(owner: string, source: string) {
+  return `loop-last-recipient:${JSON.stringify([owner, source])}`;
+}
+
+export function lastRecipient(
+  owner: string | undefined,
+  source: string,
+): string | null {
+  if (!owner) return null;
+  try {
+    return localStorage.getItem(recipientKey(owner, source));
+  } catch {
+    return null;
+  }
+}
+
+export function rememberRecipient(
+  owner: string | undefined,
+  source: string,
+  recipient: string,
+) {
+  if (!owner) return;
+  try {
+    localStorage.setItem(recipientKey(owner, source), recipient);
+  } catch {
+    // Storage restrictions must not turn an accepted send into an error.
+  }
+}

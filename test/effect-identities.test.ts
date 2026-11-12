@@ -10,6 +10,8 @@ import {
   clearRecentSearches,
   lastVisit,
   recordVisit,
+  lastRecipient,
+  rememberRecipient,
 } from "../src/client/deviceHistory";
 
 let storage: Storage;
@@ -384,4 +386,28 @@ it("settles observed upgrade commands only in the matching owner/source/runtime 
   });
   await expect(start()).rejects.toThrow("Lost reply");
   expect(ids[3]).toBe(ids[2]);
+});
+
+it("keeps recipient history scoped to owner and exact source, with safe storage failures", () => {
+  rememberRecipient("alice", "", "local-agent");
+  rememberRecipient("alice", "laptop", "named-source-agent");
+  rememberRecipient("alice", "docker:project", "project-agent");
+  rememberRecipient("bob", "", "bob-agent");
+  expect(lastRecipient("alice", "")).toBe("local-agent");
+  expect(lastRecipient("alice", "laptop")).toBe("named-source-agent");
+  expect(lastRecipient("alice", "docker:project")).toBe("project-agent");
+  expect(lastRecipient("bob", "")).toBe("bob-agent");
+  expect(lastRecipient("bob", "docker:project")).toBeNull();
+  const count = storage.length;
+  rememberRecipient(undefined, "", "signed-out-agent");
+  expect(lastRecipient(undefined, "")).toBeNull();
+  expect(storage.length).toBe(count);
+  vi.spyOn(storage, "getItem").mockImplementation(() => {
+    throw new Error("unavailable");
+  });
+  vi.spyOn(storage, "setItem").mockImplementation(() => {
+    throw new Error("unavailable");
+  });
+  expect(lastRecipient("alice", "")).toBeNull();
+  expect(() => rememberRecipient("alice", "", "accepted-agent")).not.toThrow();
 });
