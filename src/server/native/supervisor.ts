@@ -481,21 +481,15 @@ export class NativeSessions {
       : DEFAULT_PERMISSION_MODE;
     // A mode chosen in Session settings outranks the workspace level only
     // until that level changes; the newer decision then wins.
-    if (
-      binding.permission_mode &&
-      (binding.permission_base ?? DEFAULT_PERMISSION_MODE) !== permissionMode
-    ) {
-      companionSessionsQueries.clearPermission(db, now(), conversation);
-      binding.permission_mode = null;
-      binding.permission_base = null;
-      if (current && !current.closed) current.sessionMode = undefined;
-    }
+    const resetsPermission = (value: Binding) =>
+      !!value.permission_mode &&
+      (value.permission_base ?? DEFAULT_PERMISSION_MODE) !== permissionMode;
     // A harness launched in a permission mode restarts to change it, like a
     // model change. Loop-side approval policy applies from the next turn.
     const relaunch =
       !!current &&
       !current.closed &&
-      !binding.permission_mode &&
+      (!binding.permission_mode || resetsPermission(binding)) &&
       launchPermissionMode(harness, current.permissionMode) !==
         launchPermissionMode(harness, permissionMode);
     let reuse: Live | undefined;
@@ -513,15 +507,6 @@ export class NativeSessions {
           );
         await this.dispose(current);
       }
-      companionSessionsQueries.setModelEffort(
-        db,
-        model,
-        effort,
-        now(),
-        conversation,
-      );
-      binding.model = model;
-      binding.effort = effort;
     } else if (current && !current.closed) {
       reuse = current;
     }
@@ -538,11 +523,28 @@ export class NativeSessions {
           binding.worktree_source,
           binding.generation,
         );
+      if (reuse) await reuse.ready;
       binding = prepared()!;
+      // Persist turn settings only after cancellable preparation has finished.
+      if (resetsPermission(binding)) {
+        companionSessionsQueries.clearPermission(db, now(), conversation);
+        binding.permission_mode = null;
+        binding.permission_base = null;
+        if (reuse) reuse.sessionMode = undefined;
+      }
+      if (binding.model !== model || (binding.effort || null) !== effort) {
+        companionSessionsQueries.setModelEffort(
+          db,
+          model,
+          effort,
+          now(),
+          conversation,
+        );
+        binding.model = model;
+        binding.effort = effort;
+      }
       if (reuse) {
         clearTimeout(reuse.idle);
-        await reuse.ready;
-        prepared();
         reuse.permissionMode = permissionMode;
         return reuse;
       }
