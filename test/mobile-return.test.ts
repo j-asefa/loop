@@ -2936,7 +2936,8 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
     input: "Continue",
     idempotencyKey: "fork-" + randomBytes(6).toString("hex"),
   });
-  if (sent.status !== 202) console.log("FORKDBG", sent.status, JSON.stringify(sent.data));
+  if (sent.status !== 202)
+    console.log("FORKDBG", sent.status, JSON.stringify(sent.data));
   expect(sent.status).toBe(202);
   // A fork to an API agent stays on the managed backend.
   const apiFork = await api(w.owner, `/conversations/${cid}/fork`, "POST", {
