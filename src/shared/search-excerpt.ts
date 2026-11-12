@@ -8,7 +8,9 @@ export function searchTerms(
   { limit = 20, exclude, splitIdentifiers = false }: SearchTermOptions = {},
 ) {
   const pattern = splitIdentifiers ? /[\p{L}\p{N}]+/gu : /[\p{L}\p{N}_-]+/gu;
-  return [...new Set(query.toLowerCase().match(pattern) || [])]
+  return [
+    ...new Set((query.match(pattern) || []).map((term) => term.toLowerCase())),
+  ]
     .filter((term) => /[\p{L}\p{N}]/u.test(term) && !exclude?.has(term))
     .slice(0, limit);
 }
