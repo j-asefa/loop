@@ -19,6 +19,8 @@ let upgrade = null,
 let outcome = "complete";
 let loseStartReply = true;
 const commandIds = [];
+const enableIds = [];
+let enableOutcome = "unknown";
 let holdCheck = false,
   checkEntered = false,
   releaseCheck;
@@ -106,6 +108,28 @@ try {
         tunnelOrigin: "",
         projectPaths: [{ folder_id: "fixture-project", path: "/fixture" }],
       });
+      return;
+    }
+    if (url.pathname === "/api/workspace/runtimes/codex/enable") {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString());
+      enableIds.push(body.commandId);
+      if (enableOutcome === "unknown")
+        reply(
+          {
+            error: "Fixture enable outcome is unknown",
+            executionOutcome: "unknown",
+          },
+          409,
+        );
+      else
+        reply({
+          name: "codex",
+          billing: { mode: body.billing, description: "Fixture billing" },
+          models: [],
+          capabilities: {},
+        });
       return;
     }
     if (url.pathname.endsWith("/auth")) {
@@ -204,6 +228,67 @@ try {
     0,
     "updates are on the provider card",
   );
+  const openAccount = () =>
+    card
+      .getByRole("button", { name: "Manage Codex account", exact: true })
+      .click();
+  await openAccount();
+  const account = page.getByRole("dialog", { name: "Codex", exact: true });
+  const refreshRuntime = account.getByRole("button", {
+    name: "Refresh Codex",
+    exact: true,
+  });
+  await refreshRuntime.click();
+  await expect(account).toContainText("Fixture enable outcome is unknown");
+  const pendingEnable = enableIds.at(-1);
+  await page.reload();
+  await openAccount();
+  await expect(refreshRuntime).toBeEnabled();
+  await refreshRuntime.click();
+  await expect(account).toContainText("Fixture enable outcome is unknown");
+  assert.deepEqual(
+    enableIds,
+    [pendingEnable, pendingEnable],
+    "reload must recover the same enable command",
+  );
+  await account
+    .getByRole("button", { name: "Check runtime status", exact: true })
+    .click();
+  const newVerification = account.getByRole("button", {
+    name: "Start new verification",
+    exact: true,
+  });
+  await expect(newVerification).toBeEnabled();
+  assert.equal(enableIds.length, 2, "inspection does not dispatch");
+  enableOutcome = "success";
+  await newVerification.click();
+  await expect(refreshRuntime).toBeEnabled();
+  await expect(
+    account.getByText("Connection not verified", { exact: true }),
+  ).toHaveCount(0);
+  assert.notEqual(enableIds.at(-1), pendingEnable);
+  assert.equal(enableIds.length, 3);
+  await page.evaluate(() => {
+    const set = Storage.prototype.setItem;
+    window.blockEnable = true;
+    Storage.prototype.setItem = function (key, value) {
+      if (window.blockEnable && key.startsWith("loop-effect:"))
+        throw new Error("Fixture storage unavailable");
+      return set.call(this, key, value);
+    };
+  });
+  await refreshRuntime.click();
+  await expect(account).toContainText("nothing was sent");
+  assert.equal(
+    enableIds.length,
+    3,
+    "storage failure prevents runtime verification",
+  );
+  await page.evaluate(() => {
+    window.blockEnable = false;
+  });
+  await account.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(account).toHaveCount(0);
   const update = card.getByRole("button", {
     name: "Upgrade Codex",
     exact: true,
