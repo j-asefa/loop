@@ -54,6 +54,14 @@ const EXPLICIT_EXEMPTIONS: Array<[string, Exemption]> = [
     { count: 1, reason: "harness command source origin text" },
   ],
   [
+    "conversation-routes.ts:state",
+    {
+      count: 1,
+      reason:
+        "native answer outcome state from the harness/authority (answered, declined, error...)",
+    },
+  ],
+  [
     "companion-contract-schemas.ts:state",
     {
       count: 1,
