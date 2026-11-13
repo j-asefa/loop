@@ -107,6 +107,11 @@ try {
             page,
             "**/api/v1/cards?*",
             async (route) => {
+              if (
+                new URL(route.request().url()).searchParams.get("agent") !==
+                "writer"
+              )
+                return route.fallback();
               if (await page.evaluate(() => !!window.__cardsManualRetry))
                 return route.fallback();
               if (holdRecovery && !recoveryHeld) {
@@ -181,6 +186,11 @@ try {
             page,
             "**/api/v1/cards**",
             async (route) => {
+              if (
+                new URL(route.request().url()).searchParams.get("agent") !==
+                "writer"
+              )
+                return route.fallback();
               if (!restart)
                 return route.fulfill({
                   status: 400,
