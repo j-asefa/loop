@@ -1,3 +1,4 @@
+import { ownerSession } from "./ownerSession";
 import {
   WORKSPACE_MULTIPLEX_PATH,
   WorkspaceMuxResponse,
@@ -12,16 +13,10 @@ export interface WorkspaceSocket {
   close(): void;
 }
 type Detail = { conversation?: string; run?: string };
-let detailsGeneration = -1;
 const details = new Map<string, Map<symbol, Detail>>();
 const transports = new Map<string, MultiplexTransport>();
-function currentDetails() {
-  if (detailsGeneration === viewGeneration()) return;
-  detailsGeneration = viewGeneration();
-  details.clear();
-}
+ownerSession.registerCache(() => details.clear());
 function selection(source: string) {
-  currentDetails();
   const values = [...(details.get(source)?.values() ?? [])];
   return {
     conversations: [
@@ -38,7 +33,6 @@ function selection(source: string) {
 }
 /** Open detail lifetime is source/owner-bound, including stale React cleanup. */
 export function watchWorkspaceDetail(source: string, detail: Detail) {
-  currentDetails();
   const generation = viewGeneration(),
     key = Symbol();
   let group = details.get(source);

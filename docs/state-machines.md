@@ -393,6 +393,21 @@ mail; ineligible results retain their metadata until source deletion.
 
 ## Client and host
 
+### Browser owner generation
+
+[`ownerSession.ts`](../src/client/ownerSession.ts) owns the current owner and
+generation. Re-selecting the same owner leaves the generation and caches alone;
+signing out or selecting another owner advances it before clearing registered
+module caches. View snapshots, read cooldowns, unread versions, failed-read
+interests, poll capacity and detail selections register their reset at module
+load. Late responses and releases still check or retain their originating
+generation/state; clearing a cache does not authorize an old callback.
+
+Drafts use this same owner for their default storage scope. Owner changes do not
+delete persisted drafts or command identities. Per-view readers keep their own
+lifetime and disposal rather than registering permanently with the module cache
+registry.
+
 ### Composer send receipt
 
 [`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,

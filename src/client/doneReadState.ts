@@ -1,15 +1,14 @@
+import { ownerSession } from "./ownerSession";
 import { viewGeneration } from "./viewCache";
 
 const pending = new Map<string, Promise<unknown>>();
-let versionGeneration = viewGeneration();
 const ownUnreadVersions = new Map<string, number>();
 const groupUnreadVersions = new Map<string, Record<string, number>>();
+ownerSession.registerCache(() => {
+  ownUnreadVersions.clear();
+  groupUnreadVersions.clear();
+});
 function versionsKey(source: string, id: string) {
-  if (versionGeneration !== viewGeneration()) {
-    ownUnreadVersions.clear();
-    groupUnreadVersions.clear();
-    versionGeneration = viewGeneration();
-  }
   return JSON.stringify([source, id]);
 }
 

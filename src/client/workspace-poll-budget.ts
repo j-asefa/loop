@@ -1,30 +1,19 @@
-import { viewGeneration } from "./viewCache";
+import { ownerSession } from "./ownerSession";
 
-let pool = {
-  generation: -1,
-  active: 0,
-  tokens: 8,
-  at: 0,
-  waiting: new Set<symbol>(),
-};
-function current() {
-  if (pool.generation !== viewGeneration())
-    pool = {
-      generation: viewGeneration(),
-      active: 0,
-      tokens: 8,
-      at: Date.now(),
-      waiting: new Set(),
-    };
-  return pool;
+function newPool() {
+  return { active: 0, tokens: 8, at: Date.now(), waiting: new Set<symbol>() };
 }
+let pool = newPool();
+ownerSession.registerCache(() => {
+  pool = newPool();
+});
 export function cancelWorkspacePoll(key: symbol) {
-  current().waiting.delete(key);
+  pool.waiting.delete(key);
 }
 /** Fair bounded fallback across the page, used only while a source lacks push.
  * An obsolete owner releases its own pool, never the next owner's counters. */
 export function acquireWorkspacePoll(key: symbol): (() => void) | undefined {
-  const state = current(),
+  const state = pool,
     now = Date.now();
   if (state.waiting.size >= 256 && !state.waiting.has(key)) return;
   state.waiting.add(key);

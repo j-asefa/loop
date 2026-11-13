@@ -1,3 +1,4 @@
+import { ownerSession } from "./ownerSession";
 import { isFleetReadContract } from "../shared/fleet-workspace-api";
 import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
@@ -15,9 +16,9 @@ import { prepareFleetCommand } from "./fleetCommand";
 import { beginWorkspaceRead } from "./workspace-read-recovery";
 let csrf = "";
 let sessionRequest: Promise<void> | undefined;
-let backoffGeneration = -1;
 let clockRequestId = 0;
 const readBackoff = new Map<string, number>();
+ownerSession.registerCache(() => readBackoff.clear());
 export const RATE_LIMITED =
   "Updates are paused briefly. Retrying automatically…";
 
@@ -217,10 +218,6 @@ async function requestInWorkspace<T>({
 }: WorkspaceRequestOptions): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
-  if (generation !== backoffGeneration) {
-    readBackoff.clear();
-    backoffGeneration = generation;
-  }
   const url = sourceApiPathAt("/api" + path, sourceId);
   // Social and already-routed requests may have a different destination from
   // their caller's source. The cooldown belongs to the actual upstream.
@@ -265,7 +262,7 @@ async function requestInWorkspace<T>({
   if ((r.status === 429 || r.status >= 500) && r.headers.has("retry-after")) {
     deadline = retryDeadline(r.headers.get("retry-after"));
     // A late response from a previous owner cannot throttle the new owner.
-    if (generation === viewGeneration() && generation === backoffGeneration)
+    if (generation === viewGeneration())
       readBackoff.set(
         destination,
         Math.max(readBackoff.get(destination) ?? 0, deadline),

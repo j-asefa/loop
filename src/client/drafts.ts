@@ -1,3 +1,4 @@
+import { viewOwner } from "./viewCache";
 import { withOptionalStorage } from "./browserStorage";
 import { parse } from "./json";
 
@@ -7,20 +8,13 @@ export function sourceDraftId(id: string, source: string) {
   return JSON.stringify([source, id]);
 }
 
-// Drafts belong to the signed-in owner. Keys carry the owner so one account
-// never reads another's unsent text on a shared device, and with no owner
-// (signed out, expired) drafts are neither read nor written.
-let currentOwner: string | undefined;
-export function setDraftOwner(owner: string | undefined) {
-  currentOwner = owner || undefined;
-}
 const key = (owner: string, kind: "text" | "files", id: string) =>
   `loop-draft-${kind}:${owner}:${id}`;
 
 /** Unsent text and files for one thread, kept across app restarts. */
 export function threadDraft(
   id: string,
-  owner = currentOwner,
+  owner = viewOwner(),
 ): { text: string; files: any[] } {
   if (!owner) return { text: "", files: [] };
   return withOptionalStorage(
@@ -38,7 +32,7 @@ export function saveThreadDraft(
   id: string,
   text: string,
   files: any[],
-  owner = currentOwner,
+  owner = viewOwner(),
 ) {
   if (!owner) return;
   withOptionalStorage(

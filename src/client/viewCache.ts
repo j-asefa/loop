@@ -1,29 +1,23 @@
-// What a page last showed, so going back returns to it as you left it instead
-// of an empty list that reloads. Entries belong to the signed-in owner and are
-// dropped when the owner changes, so one account never sees another's views.
-let owner: string | undefined;
-let generation = 0;
+import { ownerSession } from "./ownerSession";
+
 const views = new Map<string, unknown>();
+ownerSession.registerCache(() => views.clear());
 
 export function setViewOwner(next: string | undefined) {
-  if ((next || undefined) === owner) return;
-  owner = next || undefined;
-  generation++;
-  views.clear();
+  ownerSession.change(next);
 }
 
-/** The owner whose views are cached now. Capture it when a request starts. */
 export function viewOwner() {
-  return owner;
+  return ownerSession.current.owner;
 }
 
 /** Distinguish logout/login even when the same owner returns. */
 export function viewGeneration() {
-  return generation;
+  return ownerSession.current.generation;
 }
 
 export function cachedView<T>(key: string): T | undefined {
-  return owner ? (views.get(key) as T | undefined) : undefined;
+  return viewOwner() ? (views.get(key) as T | undefined) : undefined;
 }
 
 /**
@@ -36,8 +30,7 @@ export function cacheView<T>(
   value: T,
   forOwner: string | undefined,
 ) {
-  if (!owner || forOwner !== owner) return;
-  // Keep a bounded number of views; the oldest entry is replaced first.
+  if (!viewOwner() || forOwner !== viewOwner()) return;
   views.delete(key);
   views.set(key, value);
   if (views.size > 40) views.delete(views.keys().next().value!);
