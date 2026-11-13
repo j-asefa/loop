@@ -29,6 +29,7 @@ export function createSessionCheck(props: {
 }) {
   const { setSession } = props;
   async function check(signal = new AbortController().signal) {
+    const started = ownerSession.current;
     const source = executionSourceId();
     try {
       const result = await readRoute(
@@ -37,7 +38,7 @@ export function createSessionCheck(props: {
         source.startsWith("peer:") ? "" : source,
         signal,
       );
-      if (signal.aborted) return;
+      if (signal.aborted || ownerSession.current !== started) return;
       if (result?.user) {
         // An already paired browser bypasses the pairing page. Discard a
         // newly opened capability without storing or redeeming either half.

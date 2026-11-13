@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createSessionCheck } from "../src/client/app/Session";
 import { setShellSource } from "../src/client/sourceRouting";
 import { setViewOwner } from "../src/client/viewCache";
+import { ownerSession } from "../src/client/ownerSession";
 
 const fetcher = vi.fn<typeof fetch>();
 const setSession = vi.fn();
@@ -79,6 +80,54 @@ it("loads only the typed paired session projection", async () => {
     cache: "no-store",
     credentials: "same-origin",
   });
+});
+
+it.each([
+  "another owner",
+  "expiry",
+  "returning owner",
+  "updated identity",
+  "anonymous expiry",
+])("does not replace %s with a delayed session response", async (change) => {
+  vi.stubGlobal("location", {
+    href: "https://loop.test/#pair=current-capability",
+  });
+  const alice = {
+    user: { id: "alice", name: "Alice" },
+    mode: "paired" as const,
+  };
+  ownerSession.setSession(change === "anonymous expiry" ? undefined : alice);
+  let finish!: (response: Response) => void;
+  fetcher.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = createSessionCheck({ setSession: ownerSession.setSession })();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  if (change === "another owner" || change === "returning owner") {
+    ownerSession.setSession({
+      user: { id: "bob", name: "Bob" },
+      mode: "paired",
+    });
+    if (change === "returning owner")
+      ownerSession.setSession({
+        ...alice,
+        user: { ...alice.user, name: "Returned Alice" },
+      });
+  } else if (change === "updated identity") {
+    ownerSession.setSession({
+      ...alice,
+      user: { ...alice.user, name: "Updated Alice" },
+    });
+  } else ownerSession.setSession(null);
+  const current = ownerSession.current;
+  finish(Response.json(alice));
+  await pending;
+  expect(ownerSession.current).toEqual(current);
+  expect(replaceState).not.toHaveBeenCalled();
 });
 
 it("keeps anonymous sessions null and rejects malformed identity data", async () => {
