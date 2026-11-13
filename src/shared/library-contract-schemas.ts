@@ -8,6 +8,10 @@ import {
   ConversationId,
   OwnerId,
   RunId,
+  CheckoutId,
+  ImportId,
+  ObjectId,
+  VerificationId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
@@ -141,7 +145,7 @@ export const PublicPreferences = z.union([
   }),
 ]);
 export const PublicImport = z.object({
-  id: Text,
+  id: ImportId,
   owner_id: OwnerId,
   provider: Text,
   digest: Text,
@@ -150,7 +154,7 @@ export const PublicImport = z.object({
   created_at: Num,
 });
 const PublicImportSummary = z.object({
-  objectId: Text,
+  objectId: ObjectId,
   conversations: Num,
   messages: Num,
   attachments: Num,
@@ -167,7 +171,7 @@ export const PublicImportPreview = z.union([
     duplicate: z.literal(true),
   }),
   z.object({
-    id: Text,
+    id: ImportId,
     provider: Text,
     status: ImportStatus,
     summary: PublicImportSummary,
@@ -188,7 +192,7 @@ const CheckoutStat = z.object({
   deletions: Num,
 });
 const PublicCheckoutSummary = z.object({
-  id: Text,
+  id: CheckoutId,
   state: z.enum(["started", "captured", "failed"]),
   // Present when a start-patch baseline was captured for this run.
   scope: z.literal("run").optional(),
@@ -207,7 +211,7 @@ const PublicCheckoutSummary = z.object({
   error: MaybeText,
 });
 export const PublicCheckout = z.object({
-  id: Text,
+  id: CheckoutId,
   owner_id: OwnerId,
   run_id: RunId,
   agent_id: AgentId,
@@ -248,7 +252,7 @@ export const PublicCheckout = z.object({
   error: MaybeText,
 });
 export const PublicVerification = z.object({
-  id: Text,
+  id: VerificationId,
   kind: z.enum(["test", "typecheck", "lint"]),
   tools: z.array(Text),
   command: Text,

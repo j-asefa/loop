@@ -7,6 +7,10 @@ import {
   requestId,
   OwnerId,
   RunId,
+  ArtifactId,
+  LaterItemId,
+  ObjectId,
+  ScheduledSendId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { RunDisplayState } from "./run-state.js";
@@ -147,7 +151,7 @@ export const PublicOutline = z.union([
   }),
 ]);
 export const PublicLater = z.object({
-  id: Text,
+  id: LaterItemId,
   owner_id: OwnerId,
   kind: LaterInput.shape.kind,
   target_id: Text,
@@ -162,7 +166,7 @@ export const PublicLater = z.object({
 });
 
 export const PublicCreatedLater = PublicLater.extend({
-  replaced: MaybeText,
+  replaced: LaterItemId.nullable(),
 });
 export const PublicLaterView = PublicLater.extend({
   title: Text,
@@ -182,14 +186,14 @@ export const PublicLaterList = z.object({
 });
 // These descriptors come from stored uploads, not credentials or object bytes.
 export const PublicUploadDescriptor = z.object({
-  id: Text,
-  objectId: Text,
+  id: ArtifactId,
+  objectId: ObjectId,
   name: Text,
   mime: Text,
   size: z.number(),
 });
 export const PublicScheduledSend = z.object({
-  id: Text,
+  id: ScheduledSendId,
   owner_id: OwnerId,
   agent_id: AgentId,
   conversation_id: ConversationId.nullable(),
@@ -238,20 +242,20 @@ export const PublicUsage = z.object({
 });
 export const PublicSnippets = z.object({
   items: z.array(
-    z.object({ id: Text, title: Text, content: Text, created_at: Time }),
+    z.object({ id: ArtifactId, title: Text, content: Text, created_at: Time }),
   ),
 });
 export const PublicProjectSummaries = z.object({
   items: z.array(
     z.object({
-      id: Text,
+      id: ProjectId,
       name: Text,
       agents: z.number(),
       last_activity_at: Time.nullable(),
       working: z.number(),
       needs: z.number(),
       latest_result: z
-        .object({ id: Text, title: Text, created_at: Time })
+        .object({ id: ArtifactId, title: Text, created_at: Time })
         .nullable(),
     }),
   ),

@@ -1,6 +1,14 @@
 import { expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  ImportId,
+  ObjectId,
+  ScheduledSendId,
+  PrWatchId,
+  LaterItemId,
+  ReviewId,
+  CheckoutId,
+  VerificationId,
   OwnerId,
   AgentId,
   ConversationId,
@@ -347,4 +355,30 @@ it("retains nominal identities in Done and operational Feed projections", () => 
   expectTypeOf<Action["message_id"]>().toEqualTypeOf<MessageId | null>();
   type Page = z.output<typeof workspaceApi.conversation.response>;
   expectTypeOf<Page["saved"][number]>().toEqualTypeOf<MessageId>();
+});
+
+it("preserves string rules for each additional public record identity", () => {
+  for (const schema of [
+    ImportId,
+    ObjectId,
+    ScheduledSendId,
+    PrWatchId,
+    LaterItemId,
+    ReviewId,
+    CheckoutId,
+    VerificationId,
+  ]) {
+    expect(schema.parse(uuid)).toBe(uuid);
+    expect(schema.parse("opaque-fixture")).toBe("opaque-fixture");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  type Import = z.output<typeof workspaceApi.importList.response>[number];
+  expectTypeOf<Import["id"]>().toEqualTypeOf<ImportId>();
+  type Upload = z.output<typeof workspaceApi.uploadCreate.response>;
+  expectTypeOf<Upload["objectId"]>().toEqualTypeOf<ObjectId>();
+  expectTypeOf<Upload["id"]>().toEqualTypeOf<ArtifactId>();
+  // @ts-expect-error An object is not an import job.
+  const wrongImport: Import["id"] = ObjectId.parse("object");
+  void wrongImport;
 });
