@@ -1,3 +1,5 @@
+import { IdempotencyKey } from "./contract-ids.js";
+import { SearchDocumentId, GitCommitId } from "./contract-ids.js";
 import { NativeGenerationId } from "./contract-ids.js";
 import {
   AgentId,
@@ -77,7 +79,7 @@ export const ContinueInput = z.object({
   messageIds: z.array(requestId(MessageId)).min(1).max(200),
   start: z.object({
     input: Text.trim().min(1).max(30000),
-    idempotencyKey: Text.min(8).max(150),
+    idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
   }),
 });
 // The handler ignores non-string filters and retains its Number(value) coercion
@@ -111,7 +113,7 @@ export const PublicSearchStatus = z.object({
   detail: MaybeText,
 });
 const PublicSearchItem = z.object({
-  id: Text,
+  id: SearchDocumentId,
   owner_id: OwnerId,
   kind: Text,
   title: Text,
@@ -222,13 +224,13 @@ export const PublicCheckout = z.object({
   source: Text,
   branch: Text,
   base_ref: MaybeText,
-  base_sha: MaybeText,
-  start_head: Text,
+  base_sha: GitCommitId.nullable(),
+  start_head: GitCommitId,
   start_dirty: Num,
   start_untracked: Num,
   started_at: Num,
   state: z.enum(["started", "captured", "failed"]),
-  end_head: MaybeText,
+  end_head: GitCommitId.nullable(),
   ahead: Num.nullable(),
   behind: Num.nullable(),
   files: z.array(PublicCheckoutFile),
@@ -241,7 +243,7 @@ export const PublicCheckout = z.object({
   remote: z
     .object({
       ref: Text,
-      sha: Text,
+      sha: GitCommitId,
       contains_head: z.boolean().nullable(),
       observed_at: Num,
     })

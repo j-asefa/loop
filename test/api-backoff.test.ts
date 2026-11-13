@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../src/shared/contract-ids.js";
 import { ArtifactId } from "../src/shared/contract-ids.js";
 import { ConversationId } from "../src/shared/contract-ids.js";
 import { callRoute, readRoute } from "../src/client/api";
@@ -38,7 +39,7 @@ const write = () =>
     workspaceApi.artifactRefresh,
     {
       params: { id: ArtifactId.parse("artifact") },
-      body: { idempotencyKey: "fixture-request" },
+      body: { idempotencyKey: IdempotencyKey.parse("fixture-request") },
     },
     "",
   );

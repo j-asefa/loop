@@ -1,3 +1,4 @@
+import { AgentSourceId } from "../shared/contract-ids";
 import {
   workspaceApi,
   type RouteContract,
@@ -20,7 +21,8 @@ import type { Capabilities } from "../shared/capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
 
-// Local and not-yet-discovered view entries have no transport kind. Wire discovery requires it.
+// Local and not-yet-discovered view entries have no transport kind.
+// Their source identities use the same domain as discovery and multiplexing.
 export type AgentSource = Omit<
   RouteResponse<typeof workspaceApi.agentSources>[number],
   "kind"
@@ -56,7 +58,10 @@ type SourceState = Projection & {
   error: string;
 };
 
-const laptop: AgentSource = { id: "", name: "This computer" };
+const laptop: AgentSource = {
+  id: AgentSourceId.parse(""),
+  name: "This computer",
+};
 const empty: Projection = {
   agents: [],
   connections: [],
@@ -125,7 +130,7 @@ export function useAgentSources(
   owner: string | undefined,
   current: CurrentData,
 ) {
-  const currentSourceId = executionSourceId();
+  const currentSourceId = AgentSourceId.parse(executionSourceId());
   const localName = !currentSourceId
     ? current.environmentName || laptop.name
     : laptop.name;

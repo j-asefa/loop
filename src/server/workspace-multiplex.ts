@@ -14,7 +14,9 @@ import {
   WorkspaceSubscription,
 } from "../shared/workspace-multiplex.js";
 
-type Subscription = z.infer<typeof WorkspaceSubscription>;
+type Subscription = Omit<z.infer<typeof WorkspaceSubscription>, "epoch"> & {
+  epoch: string;
+};
 type Frame = WorkspaceSourceFrame;
 type Listener = {
   request: Subscription;

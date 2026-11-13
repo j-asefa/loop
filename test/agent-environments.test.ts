@@ -1,3 +1,4 @@
+import { AgentSourceId } from "../src/shared/contract-ids.js";
 import { expect, it } from "vitest";
 import { agentEnvironment } from "../src/client/agentSources";
 import type { Agent, Connection } from "../src/shared/types";
@@ -15,14 +16,14 @@ it("names enrolled Docker companions using their recorded execution location", (
   ];
   expect(
     agentEnvironment(agent, connections, {
-      id: "peer:one",
+      id: AgentSourceId.parse("peer:one"),
       kind: "peer",
       name: "Research",
     }),
   ).toBe("Research · Docker · research");
   expect(
     agentEnvironment(agent, connections, {
-      id: "peer:two",
+      id: AgentSourceId.parse("peer:two"),
       kind: "peer",
       name: "Docker · research",
     }),
@@ -39,21 +40,21 @@ it("keeps distinct local Docker destinations and resolves generic Docker names f
           environmentName: "Docker · research",
         }),
       ],
-      { id: "", name: "Office Mac" },
+      { id: AgentSourceId.parse(""), name: "Office Mac" },
     ),
   ).toBe("Docker · research");
   expect(
     agentEnvironment(
       agent,
       [connection({ location: "docker", environmentName: "Docker" })],
-      { id: "", name: "Docker · research" },
+      { id: AgentSourceId.parse(""), name: "Docker · research" },
     ),
   ).toBe("Docker · research");
   expect(
     agentEnvironment(
       agent,
       [connection({ location: "docker", environmentName: "Docker" })],
-      { id: "", name: "Office Mac" },
+      { id: AgentSourceId.parse(""), name: "Office Mac" },
     ),
   ).toBe("Docker");
 });

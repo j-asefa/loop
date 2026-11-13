@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "./contract-ids.js";
 import { NativeGenerationId } from "./contract-ids.js";
 import { TraceId, TraceKey } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
@@ -51,7 +52,7 @@ export const AgentCreateInput = AgentInput.extend({
   initialPrompt: Text.trim().max(30000).default(""),
   attachmentIds: AttachmentIds,
   folderId: requestId(FolderId).optional(),
-  idempotencyKey: Text.min(8).max(150).optional(),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150).optional(),
 });
 export const AgentUpdateInput = z.object({
   retired: z.boolean().optional(),

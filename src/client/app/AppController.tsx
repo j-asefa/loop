@@ -556,7 +556,9 @@ export function useAppController(seed?: AppNavigationInitial) {
     const held = await threadApi(workspaceApi.runWithdraw, {
       params: { id: RunId.parse(runId) },
       body: {
-        draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
+        draftAttachmentIds: attachmentsRef.current.map((file) =>
+          ArtifactId.parse(file.id),
+        ),
       },
     });
     const visible =

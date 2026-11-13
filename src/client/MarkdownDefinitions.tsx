@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
 import {
   ConnectionId,
@@ -572,7 +573,10 @@ export function CreateFromDefinition({
               workspaceApi.definitionCreate,
               {
                 params: { id: DefinitionId.parse(definition.id) },
-                body: { ...body, idempotencyKey: receipt.current.key },
+                body: {
+                  ...body,
+                  idempotencyKey: IdempotencyKey.parse(receipt.current.key),
+                },
               },
               sourceId,
             );

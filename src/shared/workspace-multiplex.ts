@@ -1,22 +1,32 @@
+import {
+  ConversationId,
+  RunId,
+  AgentSourceId,
+  WorkspaceSubscriptionId,
+  WorkspaceEpochId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import { WorkspaceFrameV3 } from "./workspace-events.js";
 import { FleetEventSubscription } from "./fleet-workspace-events.js";
 
 export const WORKSPACE_MULTIPLEX_PATH = "/api/events/multiplex/ws";
-const WorkspaceSourceId = z
-  .string()
-  .max(180)
-  .regex(/^(?:[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128})?$/);
+const WorkspaceSourceId = AgentSourceId.max(180).regex(
+  /^(?:[a-z][a-z0-9-]{0,31}:[a-zA-Z0-9._~-]{1,128})?$/,
+);
 export const WorkspaceSelection = FleetEventSubscription.pick({
   conversations: true,
   runs: true,
+}).extend({
+  conversations: z.array(requestId(ConversationId).min(1).max(1000)).max(16),
+  runs: z.array(requestId(RunId).min(1).max(1000)).max(16),
 });
 export const WorkspaceSubscription = WorkspaceSelection.extend({
   v: z.literal(1),
   type: z.literal("subscribe"),
-  id: z.string().uuid(),
-  source: WorkspaceSourceId,
-  epoch: z.string().max(200),
+  id: requestId(WorkspaceSubscriptionId).uuid(),
+  source: requestId(WorkspaceSourceId),
+  epoch: requestId(WorkspaceEpochId).max(200),
   cursor: z.number().int().nonnegative().safe(),
 });
 export const WorkspaceMuxRequest = z.discriminatedUnion("type", [
@@ -24,7 +34,7 @@ export const WorkspaceMuxRequest = z.discriminatedUnion("type", [
   z.strictObject({
     v: z.literal(1),
     type: z.literal("unsubscribe"),
-    id: z.string().uuid(),
+    id: requestId(WorkspaceSubscriptionId).uuid(),
   }),
 ]);
 export const WorkspaceSourceFrame = WorkspaceFrameV3;
@@ -33,14 +43,14 @@ export const WorkspaceMuxResponse = z.discriminatedUnion("type", [
   z.strictObject({
     v: z.literal(1),
     type: z.literal("frame"),
-    id: z.string().uuid(),
+    id: WorkspaceSubscriptionId.uuid(),
     source: WorkspaceSourceId,
     frame: WorkspaceSourceFrame,
   }),
   z.strictObject({
     v: z.literal(1),
     type: z.literal("closed"),
-    id: z.string().uuid(),
+    id: WorkspaceSubscriptionId.uuid(),
     source: WorkspaceSourceId,
     code: z.number().int(),
     reason: z.string().max(200),

@@ -1,3 +1,4 @@
+import { LaterTargetInput } from "../shared/contract-ids";
 import {
   AgentId,
   ConversationId,
@@ -376,7 +377,13 @@ export function LaterSheet({
           ).then((row) => ({ id: row.id, replaced: null }))
         : await callRoute(
             workspaceApi.laterCreate,
-            { body: { kind, targetId, ...trigger } },
+            {
+              body: {
+                kind,
+                targetId: LaterTargetInput.parse(targetId),
+                ...trigger,
+              },
+            },
             sourceId ?? scopedSource,
           ).then((row) => ({ id: row.id, replaced: row.replaced ?? null }));
       if (!current()) return;

@@ -1,3 +1,10 @@
+import { ResultEntityId } from "./contract-ids.js";
+import {
+  MessageUpdateKey,
+  ExternalConversationId,
+  PreviewBuildId,
+  GitCommitId,
+} from "./contract-ids.js";
 import { NativeGenerationId, NativeRequestId } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
@@ -97,7 +104,7 @@ export const PublicMessage = z.object({
   metadata: Text,
   created_at: Time,
   revision: z.number().optional(),
-  update_key: MaybeText.optional(),
+  update_key: MessageUpdateKey.nullable().optional(),
   transcript_ordinal: z.number().nullable().optional(),
   run_state: RunDisplayState.nullable().optional(),
   run_error: MaybeText.optional(),
@@ -112,7 +119,7 @@ export const PublicConversation = z.object({
   agent_id: AgentId.nullable(),
   title: Text,
   origin: ConversationOrigin,
-  external_id: MaybeText,
+  external_id: ExternalConversationId.nullable(),
   created_at: Time,
   team_id: TeamId.nullable(),
   execution_connection_id: ConnectionId.nullable(),
@@ -130,9 +137,9 @@ export const Bootstrap = z.object({
       name: Text,
       mode: z.enum(["design", "working"]),
       build: z.object({
-        id: Text,
+        id: PreviewBuildId,
         branch: Text,
-        commit: Text,
+        commit: GitCommitId,
         dirty: z.boolean(),
         builtAt: Text,
         sourceHash: Text,
@@ -254,7 +261,7 @@ export const ResultsPage = z.object({
 });
 export const ResultsUpdates = z.object({
   items: z.array(ResultItem),
-  removed: z.array(Text),
+  removed: z.array(ResultEntityId),
   revision: z.number(),
   more: z.boolean(),
   projection: WorkspaceClock.optional(),

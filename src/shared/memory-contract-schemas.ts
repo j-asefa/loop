@@ -1,3 +1,4 @@
+import { MemoryOriginId } from "./contract-ids.js";
 import {
   ProjectId,
   requestId,
@@ -45,7 +46,7 @@ export const PublicMemoryStatus = z.object({
 });
 const PublicMemorySourceFields = PublicMemorySummary.extend({
   owner_id: OwnerId,
-  source_id: Text,
+  source_id: MemoryOriginId,
   conversation_id: ConversationId.nullable(),
   message_id: MessageId.nullable(),
   agent_id: AgentId.nullable(),

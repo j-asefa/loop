@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import { ArtifactId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -34,7 +35,7 @@ export function McpApp({
           body: {
             tool: params.name,
             arguments: params.arguments || {},
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: IdempotencyKey.parse(crypto.randomUUID()),
           },
         });
         setStatus("Tool request queued. Review it in Running.");

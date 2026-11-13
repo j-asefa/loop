@@ -1,3 +1,4 @@
+import { FeedProjectionId } from "./contract-ids.js";
 import { z } from "zod";
 
 export type FeedIdentity = {
@@ -15,14 +16,14 @@ export const FeedEntities = z.object({
   delta: z.boolean(),
   entities: z.array(
     z.object({
-      id: z.string(),
+      id: FeedProjectionId,
       signature: z.string(),
       revision: z.number().int().nonnegative().safe(),
     }),
   ),
-  removed: z.array(z.string()),
+  removed: z.array(FeedProjectionId),
 });
-export type FeedEntities = z.infer<typeof FeedEntities>;
+export type FeedEntities = z.input<typeof FeedEntities>;
 export type FeedProjectionPage<T> = {
   items: T[];
   projection?: { epoch: string; cursor: number };
@@ -42,14 +43,14 @@ export function reduceFeedPage<
   )
     throw new Error("Feed delta needs its matching snapshot");
   if (incoming.projection.cursor < previous.projection.cursor) return previous;
-  const revisions = new Map(
+  const revisions = new Map<string, number>(
     previous.projectionRows?.entities.map((row) => [row.id, row.revision]),
   );
   const current = new Map(
     previous.items.map((row) => [feedProjectionId(row), row]),
   );
   for (const id of delta.removed) current.delete(id);
-  const nextRevisions = new Map(
+  const nextRevisions = new Map<string, number>(
     delta.entities.map((row) => [row.id, row.revision]),
   );
   for (const row of incoming.items) {

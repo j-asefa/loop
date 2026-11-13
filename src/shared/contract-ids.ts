@@ -147,6 +147,83 @@ export type OperationId = z.output<typeof OperationId>;
 export const TraceId = z.number().brand<"TraceId">();
 export type TraceId = z.output<typeof TraceId>;
 
+// Remaining transport identities keep each field’s existing runtime validators.
+export const PairedDeviceId = z.string().brand<"PairedDeviceId">();
+export type PairedDeviceId = z.output<typeof PairedDeviceId>;
+export const AgentSourceId = z.string().brand<"AgentSourceId">();
+export type AgentSourceId = z.output<typeof AgentSourceId>;
+export const WorkspaceSubscriptionId = z
+  .string()
+  .brand<"WorkspaceSubscriptionId">();
+export type WorkspaceSubscriptionId = z.output<typeof WorkspaceSubscriptionId>;
+export const WorkspaceEpochId = z.string().brand<"WorkspaceEpochId">();
+export type WorkspaceEpochId = z.output<typeof WorkspaceEpochId>;
+export const BuildId = z.string().brand<"BuildId">();
+export type BuildId = z.output<typeof BuildId>;
+export const ProcessInstanceId = z.string().brand<"ProcessInstanceId">();
+export type ProcessInstanceId = z.output<typeof ProcessInstanceId>;
+export const PreviewBuildId = z.string().brand<"PreviewBuildId">();
+export type PreviewBuildId = z.output<typeof PreviewBuildId>;
+export const GitCommitId = z.string().brand<"GitCommitId">();
+export type GitCommitId = z.output<typeof GitCommitId>;
+export const GitHubThreadId = z.string().brand<"GitHubThreadId">();
+export type GitHubThreadId = z.output<typeof GitHubThreadId>;
+export const EventSubjectId = z.string().brand<"EventSubjectId">();
+export type EventSubjectId = z.output<typeof EventSubjectId>;
+export const FeedProjectionId = z.string().brand<"FeedProjectionId">();
+export type FeedProjectionId = z.output<typeof FeedProjectionId>;
+export const PersonalDecisionId = z.string().brand<"PersonalDecisionId">();
+export type PersonalDecisionId = z.output<typeof PersonalDecisionId>;
+export const SearchDocumentId = z.string().brand<"SearchDocumentId">();
+export type SearchDocumentId = z.output<typeof SearchDocumentId>;
+export const MemoryOriginId = z.string().brand<"MemoryOriginId">();
+export type MemoryOriginId = z.output<typeof MemoryOriginId>;
+export const AgentAddressId = z.string().brand<"AgentAddressId">();
+export type AgentAddressId = z.output<typeof AgentAddressId>;
+export const ExternalConversationId = z
+  .string()
+  .brand<"ExternalConversationId">();
+export type ExternalConversationId = z.output<typeof ExternalConversationId>;
+export const MessageUpdateKey = z.string().brand<"MessageUpdateKey">();
+export type MessageUpdateKey = z.output<typeof MessageUpdateKey>;
+export const IdempotencyKey = z.string().brand<"IdempotencyKey">();
+export type IdempotencyKey = z.output<typeof IdempotencyKey>;
+export const GitHubPullNumber = z.number().brand<"GitHubPullNumber">();
+export type GitHubPullNumber = z.output<typeof GitHubPullNumber>;
+export const EventId = z.number().brand<"EventId">();
+export type EventId = z.output<typeof EventId>;
+export const ViewportSessionId = z.string().brand<"ViewportSessionId">();
+export type ViewportSessionId = z.output<typeof ViewportSessionId>;
+
+// These coercing views preserve the original HTTP input behavior exactly.
+export const CoercedPairedDeviceId = z.coerce
+  .string<string>()
+  .brand<"PairedDeviceId", "inout">();
+export const CoercedGitHubPullNumber = z.coerce
+  .number<string | number>()
+  .brand<"GitHubPullNumber", "inout">();
+// Each string is a valid representation in every member domain. These views
+// keep the original scalar validators (including errors and OpenAPI shape),
+// while exposing the contextual union instead of intersecting nominal marks.
+export type LaterTargetId =
+  ConversationId | ArtifactId | MessageId | SocialStoryId;
+export const LaterTargetId = z.string() as unknown as z.ZodType<
+  LaterTargetId,
+  string
+>;
+export const LaterTargetInput = z
+  .string()
+  .min(1)
+  .max(150) as unknown as z.ZodType<LaterTargetId, LaterTargetId>;
+export const WebhookDecisionId = z
+  .string()
+  .min(1)
+  .max(300) as unknown as z.ZodType<ApprovalId | NativeDecisionId, string>;
+export const ResultEntityId = z.string() as unknown as z.ZodType<
+  ArtifactId | MessageId,
+  string
+>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;
@@ -175,3 +252,13 @@ export function parseId<
   if (value == null) return value as Extract<V, null | undefined>;
   return schema.parse(value);
 }
+
+// Parse the scalar lookup; the route retains its existing range checks and
+// numeric URL normalization. Request bodies and queries remain untouched.
+export function parsePullNumber(value: string | number) {
+  return CoercedGitHubPullNumber.parse(value);
+}
+export const GitHubPullNumberInput = GitHubPullNumber.brand<
+  "GitHubPullNumber",
+  "inout"
+>();

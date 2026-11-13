@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
 import {
   ConnectionId,
@@ -175,7 +176,12 @@ export function PresetTeamForm({
             (idempotencyKey) =>
               callRoute(
                 workspaceApi.teamFromPreset,
-                { body: { ...body, idempotencyKey } },
+                {
+                  body: {
+                    ...body,
+                    idempotencyKey: IdempotencyKey.parse(idempotencyKey),
+                  },
+                },
                 source,
               ),
             creationFailureSettled,

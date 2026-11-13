@@ -1,3 +1,4 @@
+import { GitHubPullNumber, GitCommitId } from "./contract-ids.js";
 import { z } from "zod";
 /**
  * A thread's pull request as its watch last observed it: which head GitHub
@@ -8,21 +9,21 @@ import { z } from "zod";
 export const PullStateSchema = z.object({
   repo_owner: z.string(),
   repo_name: z.string(),
-  number: z.number(),
+  number: GitHubPullNumber,
   watch: z.enum(["watching", "paused", "stopped"]),
   ended_reason: z.string().nullable(),
   error: z.string().nullable(),
-  head_sha: z.string().nullable(),
+  head_sha: GitCommitId.nullable(),
   // Last concluded checks and the head they describe.
   ci: z
-    .object({ sha: z.string(), conclusion: z.enum(["success", "failure"]) })
+    .object({ sha: GitCommitId, conclusion: z.enum(["success", "failure"]) })
     .nullable(),
   // Checks for the current head had not all finished at the last read.
   pending: z.boolean(),
   // Last successful read; null before any successful read.
   checked_at: z.number().nonnegative().nullable(),
 });
-export type PullState = z.infer<typeof PullStateSchema>;
+export type PullState = z.input<typeof PullStateSchema>;
 
 export type WatchRow = {
   repo_owner: string;

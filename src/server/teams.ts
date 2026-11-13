@@ -120,8 +120,9 @@ export function createPresetTeam(owner: string, input: unknown) {
         )
           throw new Problem(400, "Unknown preset role");
         ownedFolder(d.folderId, owner);
+        const roles: Readonly<Record<string, typeof d.selection>> = d.roles;
         const agents = preset.roles.map((role) => {
-          const chosen = d.roles[role.id] || d.selection;
+          const chosen = roles[role.id] || d.selection;
           ownedConnection(chosen.connectionId, owner);
           return {
             role: role.id,

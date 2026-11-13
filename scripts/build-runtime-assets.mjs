@@ -63,11 +63,27 @@ export async function stageRuntimeAssets(root, output) {
         resources(part.right);
       }
     };
+    // Native build scripts load shared TypeScript directly. Compiled modules
+    // must resolve those same dependencies from their emitted JavaScript.
+    const moduleImport = (literal) => {
+      if (
+        literal?.type === "Literal" &&
+        typeof literal.value === "string" &&
+        literal.value.startsWith(".") &&
+        literal.value.endsWith(".ts")
+      ) {
+        edits.push({
+          start: literal.start,
+          end: literal.end,
+          text: JSON.stringify(literal.value.slice(0, -3) + ".js"),
+        });
+      } else relocate(literal);
+    };
     new Visitor({
-      ImportDeclaration: (node) => relocate(node.source),
-      ExportNamedDeclaration: (node) => relocate(node.source),
-      ExportAllDeclaration: (node) => relocate(node.source),
-      ImportExpression: (node) => relocate(node.source),
+      ImportDeclaration: (node) => moduleImport(node.source),
+      ExportNamedDeclaration: (node) => moduleImport(node.source),
+      ExportAllDeclaration: (node) => moduleImport(node.source),
+      ImportExpression: (node) => moduleImport(node.source),
       NewExpression(node) {
         const base = node.arguments[1];
         if (

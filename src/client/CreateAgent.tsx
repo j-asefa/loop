@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import { ArtifactId } from "../shared/contract-ids.js";
 import { ModelId } from "../shared/contract-ids.js";
 import { FolderId, parseId } from "../shared/contract-ids.js";
@@ -358,7 +359,7 @@ export function CreateAgent({
                   ArtifactId.parse(id),
                 ),
                 name: generatedName ?? data.name,
-                idempotencyKey,
+                idempotencyKey: IdempotencyKey.parse(idempotencyKey),
               },
             },
             source,

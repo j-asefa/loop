@@ -1,4 +1,4 @@
-import { ActivityKey } from "../src/shared/contract-ids.js";
+import { ActivityKey, RunId } from "../src/shared/contract-ids.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ActivityRecords } from "../src/client/ActivityRecords";
@@ -259,7 +259,7 @@ it("client merge keeps the newest record per key and renders the production acti
   const item = (key: string, sequence: number, record: any): ActivityItem => ({
     key: ActivityKey.parse(key),
     kind: record.kind,
-    run: "r",
+    run: RunId.parse("r"),
     sequence,
     record,
   });

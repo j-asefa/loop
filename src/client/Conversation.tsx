@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import {
   AgentId,
   ConversationId,
@@ -1993,7 +1994,9 @@ function ConversationView({
                                       id: RunId.parse(m.run_id!),
                                       action: "retry",
                                     },
-                                    body: { idempotencyKey: key },
+                                    body: {
+                                      idempotencyKey: IdempotencyKey.parse(key),
+                                    },
                                   }),
                               );
                               if (!isCurrent()) return;
@@ -2235,7 +2238,7 @@ function ConversationView({
                   ),
                   start: {
                     input: continuationPrompt.trim(),
-                    idempotencyKey: crypto.randomUUID(),
+                    idempotencyKey: IdempotencyKey.parse(crypto.randomUUID()),
                   },
                 };
                 const clearPending = () => {

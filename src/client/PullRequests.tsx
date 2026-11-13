@@ -1,3 +1,4 @@
+import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -536,7 +537,10 @@ function FileList({
     const controller = new AbortController();
     readRoute(
       workspaceApi.githubPullFiles,
-      { params: pullRef, query: { head: headSha } },
+      {
+        params: { ...pullRef, number: parsePullNumber(pullRef.number) },
+        query: { head: GitCommitId.parse(headSha) },
+      },
       executionSourceId(),
       controller.signal,
     )
@@ -670,7 +674,13 @@ function CommitChanges({
     const controller = new AbortController();
     readRoute(
       workspaceApi.githubPullCommitFiles,
-      { params: { ...pullRef, sha: commit.sha } },
+      {
+        params: {
+          ...pullRef,
+          number: parsePullNumber(pullRef.number),
+          sha: GitCommitId.parse(commit.sha),
+        },
+      },
       executionSourceId(),
       controller.signal,
     )
@@ -782,7 +792,11 @@ function PullRequestDetail({
     setBusy(true);
     setError(undefined);
     try {
-      setPr(await read(workspaceApi.githubPullDetail, { params: pullRef }));
+      setPr(
+        await read(workspaceApi.githubPullDetail, {
+          params: { ...pullRef, number: parsePullNumber(pullRef.number) },
+        }),
+      );
     } catch (e) {
       setError({
         message: (e as Error).message,
@@ -1251,7 +1265,10 @@ function ReviewSheet({
           void run(async () => {
             await callRoute(
               workspaceApi.githubPullReview,
-              { params: pr, body: { event, body, headSha: pr.headSha } },
+              {
+                params: { ...pr, number: parsePullNumber(pr.number) },
+                body: { event, body, headSha: GitCommitId.parse(pr.headSha) },
+              },
               executionSourceId(),
             );
             return event === "approve"
@@ -1342,7 +1359,10 @@ function CommentSheet({
           void run(async () => {
             await callRoute(
               workspaceApi.githubPullComment,
-              { params: pr, body: { body, headSha: pr.headSha } },
+              {
+                params: { ...pr, number: parsePullNumber(pr.number) },
+                body: { body, headSha: GitCommitId.parse(pr.headSha) },
+              },
               executionSourceId(),
             );
             return "Your comment is on GitHub.";
@@ -1487,7 +1507,13 @@ function MergeSheet({
             void run(async () => {
               await callRoute(
                 workspaceApi.githubPullMerge,
-                { params: pr, body: { method: method!, headSha: pr.headSha } },
+                {
+                  params: { ...pr, number: parsePullNumber(pr.number) },
+                  body: {
+                    method: method!,
+                    headSha: GitCommitId.parse(pr.headSha),
+                  },
+                },
                 executionSourceId(),
               );
               return `Merged into ${pr.baseRef}.`;

@@ -1,3 +1,4 @@
+import { parsePullNumber } from "../src/shared/contract-ids.js";
 import express from "express";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -216,7 +217,7 @@ afterAll(async () => {
 });
 
 type Case = [keyof typeof workspaceRoutes, string, unknown?, unknown?];
-it.each([64, "64"])(
+it.each([64, "64", "064", "6.4e1"])(
   "typed GitHub reader sends a validated numeric path parameter (%s) over HTTP",
   async (number) => {
     const nativeFetch = globalThis.fetch;
@@ -236,7 +237,9 @@ it.each([64, "64"])(
       return nativeFetch(input, init);
     });
     try {
-      const input = { params: { owner: "acme", repo: "api", number } };
+      const input = {
+        params: { owner: "acme", repo: "api", number: parsePullNumber(number) },
+      };
       const result = await readRoute(
         workspaceApi.githubPullDetail,
         input,
@@ -250,7 +253,12 @@ it.each([64, "64"])(
       await expect(
         readRoute(
           workspaceApi.githubPullDetail,
-          { params: { ...input.params, number: 0 } },
+          {
+            params: {
+              ...input.params,
+              number: 0 as ReturnType<typeof parsePullNumber>,
+            },
+          },
           "",
           new AbortController().signal,
         ),

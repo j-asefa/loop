@@ -135,7 +135,7 @@ it("projects real paired devices and revokes only within their authorized host",
     expect(JSON.stringify(result.data)).not.toContain(device.csrf);
   }
   expect(devices).toEqual(
-    stored.map(({ id, name, expires }: (typeof devices)[number]) => ({
+    stored.map(({ id, name, expires }) => ({
       id,
       name,
       expires,

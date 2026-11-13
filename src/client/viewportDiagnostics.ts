@@ -1,3 +1,4 @@
+import { ViewportSessionId } from "../shared/contract-ids";
 import { callRoute } from "./api";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 
@@ -6,7 +7,7 @@ import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 export function startViewportDiagnostics() {
   if (new URL(location.href).searchParams.get("viewportDebug") !== "feed-reply")
     return;
-  const session = crypto.randomUUID();
+  const session = ViewportSessionId.parse(crypto.randomUUID());
   const started = performance.now();
   let batch: RouteInput<
     typeof workspaceApi.viewportDiagnostics

@@ -6,7 +6,6 @@ export const MaybeText = Text.nullable();
 export const Time = z.number();
 export const Empty = z.object({});
 export const NoBody = z.undefined();
-export const Id = z.object({ id: Text });
 export const Ok = z.object({ ok: z.boolean() });
 export const NumberCursor = z.coerce
   .number<string>()

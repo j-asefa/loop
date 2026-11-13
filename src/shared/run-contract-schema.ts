@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "./contract-ids.js";
 import { SteeringId, WorkerId } from "./contract-ids.js";
 import { AgentId, ConversationId, OwnerId, RunId } from "./contract-ids.js";
 import { z } from "zod";
@@ -14,7 +15,7 @@ const RunBaseSchema = z.object({
   conversation_id: ConversationId.nullable(),
   kind: RunKind.optional(),
   input: Text,
-  idempotency_key: Text.optional(),
+  idempotency_key: IdempotencyKey.optional(),
   payload: Text,
   created_at: Time,
   updated_at: Time,

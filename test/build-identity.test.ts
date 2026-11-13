@@ -184,7 +184,7 @@ it("runs compiled helpers, migrations and metadata from captured source after ch
   );
   writeFileSync(
     join(root, "src/shared/helper.ts"),
-    `export {value} from './sibling.js';`,
+    `export {value} from './sibling.ts';`,
   );
   writeFileSync(
     join(root, "src/shared/sibling.ts"),
@@ -196,12 +196,12 @@ it("runs compiled helpers, migrations and metadata from captured source after ch
     join(root, "src/server/probe.ts"),
     `
 import {readFileSync} from 'node:fs';
-import {value} from '../shared/helper.js';
+import {value} from '../shared/helper.ts';
 export {value};
 const migration='001.sql';
 export const sql=readFileSync(new URL('../../migrations/'+migration,import.meta.url),'utf8');
 export const version=JSON.parse(readFileSync(new URL('../../package.json',import.meta.url),'utf8')).version;
-export const dynamic=(await import('../shared/helper.js')).value;
+export const dynamic=(await import('../shared/helper.ts')).value;
 `,
   );
   const git = (...args: string[]) =>

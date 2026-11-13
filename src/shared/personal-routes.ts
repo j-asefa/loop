@@ -1,3 +1,4 @@
+import { PersonalDecisionId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import { PersonalFilesQuery, PersonalFilesPage } from "./personal-files.js";
 import {
@@ -11,7 +12,7 @@ import {
   PersonalPromptsQuery,
   PersonalPromptsPage,
 } from "./personal-schemas.js";
-import { Text, endpoint, base } from "./route-contract.js";
+import { endpoint, base } from "./route-contract.js";
 
 export const personalRoutes = {
   personalFiles: endpoint({
@@ -35,7 +36,7 @@ export const personalRoutes = {
     operation: "personalApproval",
     method: "GET",
     path: "/me/approvals/:id",
-    params: z.object({ id: Text.min(1).max(200) }),
+    params: z.object({ id: requestId(PersonalDecisionId).min(1).max(200) }),
     response: PersonalApprovalSchema,
   }),
   personalProfile: endpoint({
