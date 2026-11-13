@@ -62,7 +62,7 @@ export function useResultsLoader(props: ResultsProps) {
   ]);
   const resultsContext = useRef(scope);
   resultsContext.current = scope;
-  const { load: execute, error } = useCollectionRead(scope);
+  const { load: execute, error, failure } = useCollectionRead(scope);
   async function loadResults(append = false, notify = true, manual = false) {
     if (manual) append = resultsSelection.current.retryAppend ?? false;
     const owner = ownerRef.current,
@@ -245,7 +245,16 @@ export function useResultsLoader(props: ResultsProps) {
         setResultsLoading((selectionContext.foreground ?? 0) > 0);
     }
   }
-  return { items, setItems, next, loading, loadResults, error };
+  return {
+    items,
+    setItems,
+    next,
+    loading,
+    loadResults,
+    error: (failure as { reconnecting?: boolean } | undefined)?.reconnecting
+      ? ""
+      : error,
+  };
 }
 
 export function renderResults(

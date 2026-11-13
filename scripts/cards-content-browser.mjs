@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
+import {
+  temporaryPageRoute,
+  drainPageRoutes,
+} from "./helpers/temporary-page-route.mjs";
 import { seedCards } from "../test/helpers/seed-cards.ts";
 const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 const browser = await engine.launch({
@@ -99,18 +103,22 @@ try {
         });
         try {
           // Agent Results, full body, selected text and return to loaded range.
-          await page.route("**/api/v1/cards?*", async (route) => {
-            if (await page.evaluate(() => !!window.__cardsManualRetry))
-              return route.fallback();
-            if (holdRecovery && !recoveryHeld) {
-              recoveryHeld = true;
-              await recoveryGate;
-            }
-            return route.fulfill({
-              status: 503,
-              json: { error: "Temporary Cards read failure" },
-            });
-          });
+          const stopFailure = await temporaryPageRoute(
+            page,
+            "**/api/v1/cards?*",
+            async (route) => {
+              if (await page.evaluate(() => !!window.__cardsManualRetry))
+                return route.fallback();
+              if (holdRecovery && !recoveryHeld) {
+                recoveryHeld = true;
+                await recoveryGate;
+              }
+              return route.fulfill({
+                status: 503,
+                json: { error: "Temporary Cards read failure" },
+              });
+            },
+          );
           await page.goto(fixture.origin + "/?agent=writer");
           const cards = page.locator("[data-card-id]");
           // The existing read helper exhausts two- and four-second retries
@@ -166,7 +174,61 @@ try {
           }).toPass({ timeout: 30000 });
           await expect(cards).toHaveCount(40, { timeout: 20000 });
           releaseRecovery();
-          await page.unroute("**/api/v1/cards?*");
+          await stopFailure();
+          let restart = false,
+            restartReads = 0;
+          const stopRestart = await temporaryPageRoute(
+            page,
+            "**/api/v1/cards**",
+            async (route) => {
+              if (!restart)
+                return route.fulfill({
+                  status: 400,
+                  json: { error: "Fixture read unavailable" },
+                });
+              restartReads++;
+              return route.fulfill({
+                status: 503,
+                headers: { "x-loop-unavailable": "restarting" },
+                body: "Restarting",
+              });
+            },
+          );
+          const refreshResults = () =>
+            page.evaluate(() =>
+              window.dispatchEvent(
+                new CustomEvent("loop-workspace-change", {
+                  detail: { sources: [""] },
+                }),
+              ),
+            );
+          const settleUi = () =>
+            page.evaluate(
+              () =>
+                new Promise((resolve) =>
+                  requestAnimationFrame(() => requestAnimationFrame(resolve)),
+                ),
+            );
+          await refreshResults();
+          await expect(page.getByRole("alert")).toContainText(
+            "Fixture read unavailable",
+          );
+          restart = true;
+          await page
+            .getByRole("button", { name: "Retry connection", exact: true })
+            .click();
+          await expect.poll(() => restartReads).toBeGreaterThanOrEqual(1);
+          await settleUi();
+          await expect(page.locator(".collection-read-error")).toHaveCount(0);
+          await refreshResults();
+          await expect
+            .poll(() => restartReads, { timeout: 12000 })
+            .toBeGreaterThanOrEqual(4);
+          await settleUi();
+          await expect(page.locator(".collection-read-error")).toHaveCount(0);
+          await expect(cards).toHaveCount(40);
+          await stopRestart();
+          await refreshResults();
           await page
             .getByRole("button", { name: "Earlier results", exact: true })
             .click();
@@ -683,6 +745,7 @@ try {
           throw error;
         } finally {
           releaseRecovery();
+          await drainPageRoutes(page);
           await context.close();
         }
       }

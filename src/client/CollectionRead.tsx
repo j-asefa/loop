@@ -276,7 +276,12 @@ export function useCollectionRead(key: string) {
     }),
     [key, owner],
   );
-  const [state, setState] = useState({ context, error: "", busy: false });
+  const [state, setState] = useState({
+    context,
+    error: "",
+    busy: false,
+    failure: undefined as unknown,
+  });
   useEffect(() => {
     context.active = true;
     return () => {
@@ -318,6 +323,7 @@ export function useCollectionRead(key: string) {
       setState((old) => ({
         context,
         error: old.context === context ? old.error : "",
+        failure: old.context === context ? old.failure : undefined,
         busy: true,
       }));
       try {
@@ -327,11 +333,12 @@ export function useCollectionRead(key: string) {
         );
         if (!current()) return;
         receive(value);
-        setState({ context, error: "", busy: false });
+        setState({ context, error: "", busy: false, failure: undefined });
       } catch (error) {
         if (!current()) return;
         setState({
           context,
+          failure: error,
           error:
             error instanceof Error
               ? error.message
@@ -359,6 +366,7 @@ export function useCollectionRead(key: string) {
     load,
     isBusy: useCallback(() => context.running, [context]),
     error: state.context === context ? state.error : "",
+    failure: state.context === context ? state.failure : undefined,
     busy: state.context === context && state.busy,
   };
 }
