@@ -3,6 +3,7 @@ import {
   FolderId,
   TeamId,
   parseId,
+  DefinitionId,
 } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
@@ -92,7 +93,7 @@ export function MarkdownDefinitions({
     try {
       return await readRoute(
         workspaceApi.definitionRead,
-        { params: { id } },
+        { params: { id: DefinitionId.parse(id) } },
         sourceId,
         controller.signal,
       );
@@ -163,7 +164,7 @@ export function MarkdownDefinitions({
               const saved = await callRoute(
                 workspaceApi.definitionSave,
                 {
-                  params: { id: editing.id },
+                  params: { id: DefinitionId.parse(editing.id) },
                   body: {
                     markdown: editing.markdown,
                     version: editing.version,
@@ -318,7 +319,7 @@ export function MarkdownDefinitions({
                           await callRoute(
                             workspaceApi.definitionDelete,
                             {
-                              params: { id: item.id },
+                              params: { id: DefinitionId.parse(item.id) },
                               body: { version: item.version },
                             },
                             sourceId,
@@ -564,7 +565,7 @@ export function CreateFromDefinition({
             const result = await callRoute(
               workspaceApi.definitionCreate,
               {
-                params: { id: definition.id },
+                params: { id: DefinitionId.parse(definition.id) },
                 body: { ...body, idempotencyKey: receipt.current.key },
               },
               sourceId,

@@ -1,4 +1,8 @@
-import { ArtifactId, ObjectId } from "../src/shared/contract-ids.js";
+import {
+  ArtifactId,
+  ObjectId,
+  SocialFeedId,
+} from "../src/shared/contract-ids.js";
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
@@ -124,7 +128,7 @@ it("keeps Social on the paired app while an agent source owns its conversations"
   await callRoute(workspaceApi.socialFeeds, {}, `docker:${id}`);
   await callRoute(
     workspaceApi.socialFeedAdd,
-    { params: { id: "hackernews" } },
+    { params: { id: SocialFeedId.parse("hackernews") } },
     `docker:${id}`,
   );
   await callRoute(workspaceApi.teamList, {}, executionSourceId());

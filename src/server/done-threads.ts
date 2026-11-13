@@ -16,12 +16,14 @@ import { assertFleetAction } from "./fleet-action-context.js";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
+  DoneThread as DoneThreadSchema,
   MAX_DONE_THREAD_MEMBERS,
   DONE_THREAD_PAGE_BYTES,
   DONE_THREAD_PAGE_ITEMS,
 } from "../shared/done-threads.js";
-import type { DoneThread, DoneThreadQuery } from "../shared/done-threads.js";
+import type { DoneThreadQuery } from "../shared/done-threads.js";
 
+type DoneThread = z.input<typeof DoneThreadSchema>;
 type ThreadRow = NonNullable<ReturnType<typeof doneThreadsQueries.owned>>;
 function owned(owner: string, id: string): ThreadRow {
   const row = doneThreadsQueries.owned(db, owner, id);

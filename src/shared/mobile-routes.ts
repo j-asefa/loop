@@ -9,6 +9,7 @@ import {
   TeamId,
   LaterItemId,
   ScheduledSendId,
+  DoneThreadId,
 } from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
@@ -113,7 +114,7 @@ export const mobileRoutes = {
     operation: "doneThreadDetail",
     method: "GET",
     path: "/feed/threads/:id",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     response: DoneThreadDetail,
   }),
   doneThreadDetailPage: endpoint({
@@ -121,7 +122,7 @@ export const mobileRoutes = {
     operation: "doneThreadDetailPage",
     method: "GET",
     path: "/feed/threads/:id/page",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     query: DoneThreadPageQuery,
     response: DoneThreadDetailPage,
   }),
@@ -130,7 +131,7 @@ export const mobileRoutes = {
     operation: "doneThreadMove",
     method: "POST",
     path: "/feed/threads/:id/cards",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     body: DoneThreadMembers,
     response: DoneThread,
   }),
@@ -139,7 +140,7 @@ export const mobileRoutes = {
     operation: "doneThreadRead",
     method: "PUT",
     path: "/feed/threads/:id/read",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     body: z
       .object({ unreadVersions: mobile.DoneReadVersions.optional() })
       .strict(),
@@ -150,7 +151,7 @@ export const mobileRoutes = {
     operation: "doneThreadUnread",
     method: "DELETE",
     path: "/feed/threads/:id/read",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     response: mobile.DoneReadResult,
   }),
   doneThreadRemove: endpoint({
@@ -158,7 +159,7 @@ export const mobileRoutes = {
     operation: "doneThreadRemove",
     method: "DELETE",
     path: "/feed/threads/:id",
-    params: Id,
+    params: z.object({ id: requestId(DoneThreadId) }),
     response: Ok,
   }),
   doneThreadRemoveCard: endpoint({
@@ -166,7 +167,9 @@ export const mobileRoutes = {
     operation: "doneThreadRemoveCard",
     method: "DELETE",
     path: "/feed/threads/:id/cards/:card",
-    params: Id.extend({ card: DoneThreadCardId }),
+    params: z
+      .object({ id: requestId(DoneThreadId) })
+      .extend({ card: DoneThreadCardId }),
     response: Ok,
   }),
   feedRead: endpoint({

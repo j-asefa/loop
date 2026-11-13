@@ -6,8 +6,11 @@ import { ownedMcpConnection, Problem } from "../domain.js";
 import { seal } from "../secrets.js";
 import { authorize, discover, readSecret, type AuthSecret } from "./client.js";
 import { catalog, type CatalogDefinition } from "./catalog-data.js";
-import type { CatalogInstallResult } from "../../shared/mcp-catalog.js";
+import type { z } from "zod";
+import type { PublicMcpCatalogInstall } from "../../shared/mcp-contract-schemas.js";
 import { ToolBudgetError } from "./tool-budget.js";
+
+type CatalogInstallResult = z.input<typeof PublicMcpCatalogInstall>;
 
 export function catalogSecret(
   entry: CatalogDefinition,

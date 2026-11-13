@@ -1,4 +1,13 @@
-import { AgentId, ConversationId, requestId, OwnerId } from "./contract-ids.js";
+import {
+  AgentId,
+  ConversationId,
+  requestId,
+  OwnerId,
+  SocialDigestId,
+  SocialFeedId,
+  SocialStoryId,
+  SocialWatchId,
+} from "./contract-ids.js";
 import { z } from "zod";
 
 const Text = z.string();
@@ -15,11 +24,11 @@ export const SocialQuery = z.object({
 });
 export const SocialSearchQuery = z.object({
   q: Text.max(200).default(""),
-  feed: Text.max(120).optional(),
+  feed: requestId(SocialFeedId).max(120).optional(),
   unread: Flag,
 });
 export const StoryIds = z.object({
-  stories: z.array(Text.min(3).max(600)).max(200),
+  stories: z.array(requestId(SocialStoryId).min(3).max(600)).max(200),
 });
 export const MuteInput = z.object({ phrase: Text.max(80) });
 export const PreferenceInput = z.object({
@@ -27,7 +36,7 @@ export const PreferenceInput = z.object({
   images: z.boolean().optional(),
 });
 export const ReadAllInput = z
-  .object({ feed: Text.max(120).optional() })
+  .object({ feed: requestId(SocialFeedId).max(120).optional() })
   .nullish();
 export const SourceDiscoveryInput = z.object({ url: Text.min(8).max(2048) });
 export const SourceInput = SourceDiscoveryInput.extend({
@@ -42,13 +51,13 @@ export const OpmlInput = z
   .nullish();
 export const WatchInput = z.object({
   query: Text.min(2).max(200),
-  feeds: z.array(Text.min(1).max(120)).max(200).nullish(),
+  feeds: z.array(requestId(SocialFeedId).min(1).max(120)).max(200).nullish(),
   enabled: z.boolean().default(true),
 });
 export const DigestInput = z.object({
   agentId: requestId(AgentId).min(1).max(150),
   conversationId: requestId(ConversationId).min(1).max(150).nullish(),
-  feeds: z.array(Text.min(1).max(120)).max(200).nullish(),
+  feeds: z.array(requestId(SocialFeedId).min(1).max(120)).max(200).nullish(),
   minuteOfDay: z.number().int().min(0).max(1439),
   zone: Text.min(1).max(60),
   unreadOnly: z.boolean().default(true),
@@ -56,7 +65,7 @@ export const DigestInput = z.object({
 });
 
 export const PublicSocialStory = z.object({
-  id: Text,
+  id: SocialStoryId,
   title: Text,
   url: Text,
   site: MaybeText,
@@ -71,12 +80,12 @@ export const PublicSocialStory = z.object({
   media: z
     .object({ url: Text, type: Text, seconds: z.number().nullable() })
     .nullable(),
-  feed: Text,
+  feed: SocialFeedId,
   first_seen_at: Time,
   read: z.boolean(),
 });
 const PublicFeedHealth = z.object({
-  id: Text,
+  id: SocialFeedId,
   fetched_at: Time.nullable(),
   failed_at: Time.nullable(),
   error: MaybeText,
@@ -84,15 +93,15 @@ const PublicFeedHealth = z.object({
 });
 export const PublicSocial = z.object({
   stories: z.array(PublicSocialStory),
-  failed: z.array(Text),
-  pending: z.array(Text),
+  failed: z.array(SocialFeedId),
+  pending: z.array(SocialFeedId),
   fetched_at: Time,
   feeds: z.array(PublicFeedHealth),
   unread: z.number(),
   hidden: z.number(),
 });
 export const PublicFeedEntry = z.object({
-  id: Text,
+  id: SocialFeedId,
   name: Text,
   category: Text,
   description: Text,
@@ -108,7 +117,7 @@ export const PublicPreferences = z.object({
   mutes: z.array(Text),
 });
 export const PublicWatch = z.object({
-  id: Text,
+  id: SocialWatchId,
   owner_id: OwnerId,
   query: Text,
   feeds: MaybeText,
@@ -121,6 +130,7 @@ export const PublicWatch = z.object({
 export const PublicWatchPreview = z.object({
   stories: z.array(
     z.object({
+      // storiesForWatch supplies the display name here, not a feed ID.
       feed: Text,
       title: Text,
       url: Text,
@@ -129,7 +139,7 @@ export const PublicWatchPreview = z.object({
   ),
 });
 export const PublicDigest = z.object({
-  id: Text,
+  id: SocialDigestId,
   owner_id: OwnerId,
   agent_id: AgentId,
   conversation_id: ConversationId.nullable(),

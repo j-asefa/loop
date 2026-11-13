@@ -6,6 +6,7 @@ import {
   MessageId,
   OwnerId,
   RunId,
+  MemorySourceId,
 } from "./contract-ids.js";
 import {
   MemorySourceKind,
@@ -30,7 +31,7 @@ export const MemoryNoteUpdateInput = MemoryNoteInput.omit({
 }).extend({ revision: Count.int() });
 
 const PublicMemorySummary = z.object({
-  id: Text,
+  id: MemorySourceId,
   title: Text,
   kind: MemorySourceKind,
   project_id: ProjectId.nullable(),

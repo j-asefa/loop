@@ -1,4 +1,10 @@
-import { AgentId, requestId } from "./contract-ids.js";
+import {
+  AgentId,
+  requestId,
+  McpCandidateId,
+  McpCatalogEntryId,
+  McpConnectionId,
+} from "./contract-ids.js";
 import { McpConnectionStatus } from "./mcp-status.js";
 import { z } from "zod";
 import { toolInvocationSchema } from "./artifact-refresh.js";
@@ -68,7 +74,7 @@ export const McpToolCallInput = toolInvocationSchema.extend({
   idempotencyKey: Text.min(10).max(200),
 });
 export const PublicMcpConnection = z.object({
-  id: Text,
+  id: McpConnectionId,
   owner_id: Text,
   name: Text,
   url: Text,
@@ -84,7 +90,7 @@ export const PublicMcpTest = z.union([
 ]);
 export const PublicMcpCandidates = z.array(
   z.object({
-    id: Text,
+    id: McpCandidateId,
     provider: Text,
     name: Text,
     kind: z.enum(["command", "http"]),
@@ -93,13 +99,13 @@ export const PublicMcpCandidates = z.array(
 export const PublicMcpInstall = z.array(
   z.union([
     z.object({
-      id: Text,
+      id: McpConnectionId,
       name: Text,
       status: z.literal("connected"),
       tools: Count,
     }),
     z.object({
-      id: Text,
+      id: McpConnectionId,
       name: Text,
       status: z.enum(["disabled", "needs_auth"]),
       error: Text,
@@ -109,7 +115,7 @@ export const PublicMcpInstall = z.array(
 export const PublicMcpCatalog = z.object({
   entries: z.array(
     z.object({
-      id: Text,
+      id: McpCatalogEntryId,
       name: Text,
       publisher: Text,
       category: Text,
@@ -129,15 +135,19 @@ export const PublicMcpCatalog = z.object({
   oauthRedirectUrl: Text,
 });
 export const PublicMcpCatalogInstall = z.union([
-  z.object({ id: Text, status: z.literal("connected"), tools: Count }),
   z.object({
-    id: Text,
+    id: McpConnectionId,
+    status: z.literal("connected"),
+    tools: Count,
+  }),
+  z.object({
+    id: McpConnectionId,
     status: z.literal("needs_auth"),
     tools: Count,
     authorizationUrl: Text,
   }),
   z.object({
-    id: Text,
+    id: McpConnectionId,
     status: z.enum(["disabled", "needs_auth"]),
     tools: Count,
     error: Text,

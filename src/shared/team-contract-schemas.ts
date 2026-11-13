@@ -6,6 +6,9 @@ import {
   requestId,
   ConversationId,
   ReviewId,
+  DefinitionId,
+  TeamPresetId,
+  TeamRoleId,
 } from "./contract-ids.js";
 import { RunDisplayState } from "./run-state.js";
 import { MAX_TEAM_WORKERS } from "./team-limits.js";
@@ -27,7 +30,7 @@ const Selection = z.object({
   effort: Text.nullable().optional(),
 });
 export const TeamPresetInput = z.object({
-  presetId: Text,
+  presetId: requestId(TeamPresetId),
   name: Text.trim().min(1).max(80),
   folderId: requestId(FolderId).min(1),
   selection: Selection,
@@ -35,11 +38,11 @@ export const TeamPresetInput = z.object({
   idempotencyKey: Text.min(8).max(150),
 });
 export const PublicTeamPreset = z.object({
-  id: Text,
+  id: TeamPresetId,
   version: z.number(),
   name: Text,
   description: Text,
-  roles: z.array(z.object({ id: Text, name: Text, instructions: Text })),
+  roles: z.array(z.object({ id: TeamRoleId, name: Text, instructions: Text })),
 });
 export const ReviewInput = z.object({
   folderId: requestId(FolderId).min(1),
@@ -115,7 +118,7 @@ const PublicDefinitionSpec = z.discriminatedUnion("kind", [
   }),
 ]);
 export const PublicDefinitionSummary = z.object({
-  id: Text,
+  id: DefinitionId,
   kind: z.enum(["agent", "team"]),
   name: Text,
   description: Text,

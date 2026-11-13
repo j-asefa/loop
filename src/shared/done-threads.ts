@@ -1,3 +1,4 @@
+import { DoneThreadId, requestId } from "./contract-ids.js";
 import { DONE_CARD_PREFIX } from "./done-card-id.js";
 import { z } from "zod";
 import { CardSelectionSchema, DoneCardSchema } from "./cards.js";
@@ -15,11 +16,11 @@ export const DoneThreadMembers = z
   })
   .strict();
 export const DoneThreadCreate = DoneThreadMembers.extend({
-  id: z.string().uuid(),
+  id: requestId(DoneThreadId).uuid(),
   title: z.string().trim().min(1).max(200),
 }).strict();
 export const DoneThread = z.object({
-  id: z.string(),
+  id: DoneThreadId,
   title: z.string(),
   createdAt: z.number(),
   cardIds: z.array(DoneThreadCardId),

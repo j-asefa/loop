@@ -1,7 +1,14 @@
-import { AgentId, ArtifactId, requestId } from "./contract-ids.js";
+import {
+  AgentId,
+  ArtifactId,
+  requestId,
+  McpCandidateId,
+  McpCatalogEntryId,
+  McpConnectionId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import * as mcp from "./mcp-contract-schemas.js";
-import { Text, Id, endpoint, base } from "./route-contract.js";
+import { Text, endpoint, base } from "./route-contract.js";
 import { PublicRun, CardErrorSchema } from "./workspace-contract-schemas.js";
 
 export const mcpRoutes = {
@@ -39,7 +46,7 @@ export const mcpRoutes = {
     operation: "mcpNativeImport",
     method: "POST",
     path: "/mcp/native-candidates/:id/import",
-    params: Id,
+    params: z.object({ id: requestId(McpCandidateId) }),
     body: z.unknown(),
     response: mcp.PublicMcpInstall,
     status: 201,
@@ -49,7 +56,7 @@ export const mcpRoutes = {
     operation: "mcpCatalogInstall",
     method: "POST",
     path: "/mcp/catalog/:id/install",
-    params: Id,
+    params: z.object({ id: requestId(McpCatalogEntryId) }),
     body: mcp.McpCatalogInput,
     response: mcp.PublicMcpCatalogInstall,
   }),
@@ -83,7 +90,7 @@ export const mcpRoutes = {
     operation: "mcpTest",
     method: "POST",
     path: "/mcp/:id/test",
-    params: Id,
+    params: z.object({ id: requestId(McpConnectionId) }),
     body: z.unknown(),
     response: mcp.PublicMcpTest,
   }),
@@ -92,7 +99,7 @@ export const mcpRoutes = {
     operation: "mcpUpdate",
     method: "PATCH",
     path: "/mcp/:id",
-    params: Id,
+    params: z.object({ id: requestId(McpConnectionId) }),
     body: mcp.McpUpdateInput,
     response: mcp.PublicMcpConnection,
   }),

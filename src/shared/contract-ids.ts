@@ -46,6 +46,31 @@ export type CheckoutId = z.output<typeof CheckoutId>;
 export const VerificationId = z.string().brand<"VerificationId">();
 export type VerificationId = z.output<typeof VerificationId>;
 
+export const DefinitionId = z.string().brand<"DefinitionId">();
+export type DefinitionId = z.output<typeof DefinitionId>;
+export const DoneThreadId = z.string().brand<"DoneThreadId">();
+export type DoneThreadId = z.output<typeof DoneThreadId>;
+export const MemorySourceId = z.string().brand<"MemorySourceId">();
+export type MemorySourceId = z.output<typeof MemorySourceId>;
+export const McpConnectionId = z.string().brand<"McpConnectionId">();
+export type McpConnectionId = z.output<typeof McpConnectionId>;
+export const McpCatalogEntryId = z.string().brand<"McpCatalogEntryId">();
+export type McpCatalogEntryId = z.output<typeof McpCatalogEntryId>;
+export const McpCandidateId = z.string().brand<"McpCandidateId">();
+export type McpCandidateId = z.output<typeof McpCandidateId>;
+export const SocialStoryId = z.string().brand<"SocialStoryId">();
+export type SocialStoryId = z.output<typeof SocialStoryId>;
+export const SocialFeedId = z.string().brand<"SocialFeedId">();
+export type SocialFeedId = z.output<typeof SocialFeedId>;
+export const SocialWatchId = z.string().brand<"SocialWatchId">();
+export type SocialWatchId = z.output<typeof SocialWatchId>;
+export const SocialDigestId = z.string().brand<"SocialDigestId">();
+export type SocialDigestId = z.output<typeof SocialDigestId>;
+export const TeamPresetId = z.string().brand<"TeamPresetId">();
+export type TeamPresetId = z.output<typeof TeamPresetId>;
+export const TeamRoleId = z.string().brand<"TeamRoleId">();
+export type TeamRoleId = z.output<typeof TeamRoleId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

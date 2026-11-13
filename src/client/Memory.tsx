@@ -3,6 +3,7 @@ import {
   RunId,
   ProjectId,
   parseId,
+  MemorySourceId,
 } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -54,7 +55,9 @@ export function Memory({
     void load();
     const requested = new URLSearchParams(location.search).get("memory");
     if (requested)
-      void read(workspaceApi.memorySource, { params: { id: requested } })
+      void read(workspaceApi.memorySource, {
+        params: { id: MemorySourceId.parse(requested) },
+      })
         .then(setSource)
         .catch((e) => setError(e.message));
   }, []);

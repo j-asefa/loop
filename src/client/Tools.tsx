@@ -1,3 +1,4 @@
+import { McpConnectionId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -93,7 +94,7 @@ export function Tools({
   }
   async function test(id: string) {
     const result = await call(workspaceApi.mcpTest, {
-      params: { id },
+      params: { id: McpConnectionId.parse(id) },
       body: {},
     });
     if ("authorizationUrl" in result && result.authorizationUrl)
@@ -540,7 +541,7 @@ export function Tools({
                 let c;
                 if (editing) {
                   c = await call(workspaceApi.mcpUpdate, {
-                    params: { id: editing },
+                    params: { id: McpConnectionId.parse(editing) },
                     body: { action: "credentials", auth },
                   });
                 } else
