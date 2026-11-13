@@ -7,6 +7,8 @@ import {
   ProjectId,
   AgentId,
   TeamId,
+  LaterItemId,
+  ScheduledSendId,
 } from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
@@ -292,7 +294,7 @@ export const mobileRoutes = {
     operation: "laterFinish",
     method: "DELETE",
     path: "/later/:id",
-    params: Id,
+    params: z.object({ id: requestId(LaterItemId) }),
     body: z.unknown(),
     response: Ok,
   }),
@@ -301,7 +303,7 @@ export const mobileRoutes = {
     operation: "laterSnooze",
     method: "POST",
     path: "/later/:id/snooze",
-    params: Id,
+    params: z.object({ id: requestId(LaterItemId) }),
     body: mobile.LaterInput.pick({
       condition: true,
       dueAt: true,
@@ -314,7 +316,7 @@ export const mobileRoutes = {
     operation: "laterReopen",
     method: "POST",
     path: "/later/:id/reopen",
-    params: Id,
+    params: z.object({ id: requestId(LaterItemId) }),
     body: z.unknown(),
     response: mobile.PublicLater,
   }),
@@ -360,7 +362,7 @@ export const mobileRoutes = {
     operation: "scheduledSendCancel",
     method: "DELETE",
     path: "/scheduled-sends/:id",
-    params: Id,
+    params: z.object({ id: requestId(ScheduledSendId) }),
     body: z.unknown(),
     response: Ok,
   }),
@@ -369,7 +371,7 @@ export const mobileRoutes = {
     operation: "scheduledSendUpdate",
     method: "PATCH",
     path: "/scheduled-sends/:id",
-    params: Id,
+    params: z.object({ id: requestId(ScheduledSendId) }),
     body: mobile.ScheduleUpdateInput.optional(),
     response: mobile.PublicScheduledSend,
   }),
@@ -378,7 +380,7 @@ export const mobileRoutes = {
     operation: "scheduledSendRetry",
     method: "POST",
     path: "/scheduled-sends/:id/retry",
-    params: Id,
+    params: z.object({ id: requestId(ScheduledSendId) }),
     body: z.unknown(),
     response: z.object({
       run: PublicRun.nullable(),

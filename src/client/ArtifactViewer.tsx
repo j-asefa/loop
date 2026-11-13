@@ -1,3 +1,4 @@
+import { ObjectId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -343,7 +344,9 @@ export function ArtifactViewer({
                           workspaceApi.objectFile,
                           {
                             params: {
-                              id: String(meta.objectId || meta.rawObjectId),
+                              id: ObjectId.parse(
+                                String(meta.objectId || meta.rawObjectId),
+                              ),
                             },
                           },
                           sourceId,

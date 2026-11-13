@@ -28,7 +28,7 @@ export type ConnectionId = z.output<typeof ConnectionId>;
 export const ProjectId = FolderId.brand<"ProjectId">();
 export type ProjectId = z.output<typeof ProjectId>;
 
-// These records have unrestricted current request paths; retain their string rule.
+// Retain these record fields' existing unrestricted string rule.
 export const ImportId = z.string().brand<"ImportId">();
 export type ImportId = z.output<typeof ImportId>;
 export const ObjectId = z.string().brand<"ObjectId">();

@@ -1,4 +1,4 @@
-import { ArtifactId } from "../shared/contract-ids.js";
+import { ArtifactId, ObjectId } from "../shared/contract-ids.js";
 import { fetchStream, routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useState, type ReactNode } from "react";
@@ -40,7 +40,11 @@ export function loopFileUrl(href?: string, source?: string, preview?: "html") {
           },
           sourceId,
         )
-      : routeUrl(workspaceApi.objectFile, { params: { id }, query }, sourceId);
+      : routeUrl(
+          workspaceApi.objectFile,
+          { params: { id: ObjectId.parse(id) }, query },
+          sourceId,
+        );
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
@@ -201,7 +205,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
           : fetchStream(
               workspaceApi.objectFile,
               {
-                params: { id },
+                params: { id: ObjectId.parse(id) },
                 query,
               },
               sourceId,

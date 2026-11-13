@@ -1,7 +1,7 @@
-import { ConversationId, requestId } from "./contract-ids.js";
+import { ConversationId, requestId, PrWatchId } from "./contract-ids.js";
 import { z } from "zod";
 import * as github from "./github-contract-schemas.js";
-import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
+import { Text, Ok, endpoint, base } from "./route-contract.js";
 
 export const githubRoutes = {
   prWatchList: endpoint({
@@ -28,7 +28,7 @@ export const githubRoutes = {
     operation: "prWatchResume",
     method: "POST",
     path: "/pr-watches/:id/resume",
-    params: Id,
+    params: z.object({ id: requestId(PrWatchId) }),
     body: z.unknown(),
     response: Ok,
   }),
@@ -37,7 +37,7 @@ export const githubRoutes = {
     operation: "prWatchDelete",
     method: "DELETE",
     path: "/pr-watches/:id",
-    params: Id,
+    params: z.object({ id: requestId(PrWatchId) }),
     body: z.unknown(),
     response: Ok,
   }),

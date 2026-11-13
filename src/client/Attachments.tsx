@@ -3,6 +3,7 @@ import {
   ArtifactId,
   FolderId,
   parseId,
+  ObjectId,
 } from "../shared/contract-ids.js";
 import { callRoute, routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -99,7 +100,7 @@ export function AttachmentList({
                 )
               : routeUrl(
                   workspaceApi.objectFile,
-                  { params: { id: preview.objectId } },
+                  { params: { id: ObjectId.parse(preview.objectId) } },
                   sourceId,
                 )
           }

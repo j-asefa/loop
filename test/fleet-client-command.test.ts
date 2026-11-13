@@ -3,6 +3,7 @@ import {
   ConnectionId,
   parseId,
   AgentId,
+  ScheduledSendId,
 } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -885,7 +886,7 @@ it("retains the original command for bodyless mutations while unsupported contra
   await expect(
     api.callRoute(
       workspaceApi.scheduledSendCancel,
-      { params: { id: "scheduled" }, body: undefined },
+      { params: { id: ScheduledSendId.parse("scheduled") }, body: undefined },
       source,
     ),
   ).rejects.toThrow();
@@ -893,7 +894,7 @@ it("retains the original command for bodyless mutations while unsupported contra
   expect(
     await api.callRoute(
       workspaceApi.scheduledSendCancel,
-      { params: { id: "scheduled" }, body: undefined },
+      { params: { id: ScheduledSendId.parse("scheduled") }, body: undefined },
       source,
     ),
   ).toEqual({
