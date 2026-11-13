@@ -1,3 +1,4 @@
+import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { AutofillBoundary } from "./AutofillBoundary";
 import { readRoute } from "./api";
@@ -169,7 +170,7 @@ export function NativeDecisions({
     const load = () => {
       const request = ++latest;
       void readContract(workspaceApi.nativeDecisions, {
-        query: { conversation },
+        query: { conversation: parseId(ConversationId, conversation) },
       })
         .then((x) => {
           if (!stopped && request === latest) setItems(x);

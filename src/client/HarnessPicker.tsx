@@ -1,4 +1,4 @@
-import { AgentId } from "../shared/contract-ids.js";
+import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -81,7 +81,9 @@ export function HarnessPicker({
       try {
         const result = await route(workspaceApi.agentHarness, {
           params: { id: AgentId.parse(agentId) },
-          query: { conversation: conversationId || undefined },
+          query: {
+            conversation: parseId(ConversationId, conversationId) || undefined,
+          },
         });
         if (current === generation.current && own === request) {
           setCatalog((old) =>

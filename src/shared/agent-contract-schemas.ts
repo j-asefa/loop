@@ -1,4 +1,13 @@
-import { ConnectionId, FolderId, requestId } from "./contract-ids.js";
+import {
+  ConnectionId,
+  FolderId,
+  requestId,
+  ConversationId,
+  ArtifactId,
+  OwnerId,
+  RunId,
+  MessageId,
+} from "./contract-ids.js";
 import { TraceKind } from "./trace-kind.js";
 import { RunDisplayState } from "./run-state.js";
 import { z } from "zod";
@@ -229,7 +238,7 @@ export const PiFiltersInput = z.strictObject({
 export const PiPreviewInput = z.strictObject({
   name: Text.min(1).max(100),
   args: Text.max(2000),
-  conversation: Text.uuid().optional(),
+  conversation: requestId(ConversationId).uuid().optional(),
 });
 export const PiInspectInput = z.strictObject({ source: Source });
 export const PiRollbackInput = z.strictObject({ source: Source, scope: Scope });
@@ -239,11 +248,11 @@ export const PiActionInput = PiRollbackInput.extend({
 export const PublicAgentMessages = z.object({
   items: z.array(
     z.object({
-      id: Text,
+      id: MessageId,
       content: Text,
       created_at: z.number(),
-      conversation_id: Text.nullable(),
-      run_id: Text.nullable(),
+      conversation_id: ConversationId.nullable(),
+      run_id: RunId.nullable(),
       final: z.number(),
       model: Text.nullable(),
     }),
@@ -252,19 +261,19 @@ export const PublicAgentMessages = z.object({
 });
 export const PublicAgentTrace = z.object({
   id: z.number(),
-  owner_id: Text,
+  owner_id: OwnerId,
   trace_key: Text,
-  run_id: Text,
+  run_id: RunId,
   kind: TraceKind,
   title: Text,
   content: Text,
   metadata: Text,
-  artifact_id: Text.nullable(),
+  artifact_id: ArtifactId.nullable(),
   created_at: z.number(),
   input: Text,
   run_state: RunDisplayState,
   run_error: Text.nullable(),
-  conversation_id: Text.nullable(),
+  conversation_id: ConversationId.nullable(),
   server: Text.nullable(),
   invocation_state: Text.nullable(),
 });

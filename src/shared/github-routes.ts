@@ -1,3 +1,4 @@
+import { ConversationId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as github from "./github-contract-schemas.js";
 import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
@@ -8,7 +9,9 @@ export const githubRoutes = {
     operation: "prWatchList",
     method: "GET",
     path: "/pr-watches",
-    query: z.object({ conversation: Text.max(150).optional() }),
+    query: z.object({
+      conversation: requestId(ConversationId).max(150).optional(),
+    }),
     response: z.object({ watches: z.array(github.PublicPrWatch) }),
   }),
   prWatchCreate: endpoint({

@@ -1,6 +1,14 @@
 import { expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  ImportId,
+  ObjectId,
+  ScheduledSendId,
+  PrWatchId,
+  LaterItemId,
+  ReviewId,
+  CheckoutId,
+  VerificationId,
   OwnerId,
   AgentId,
   ConversationId,
@@ -246,4 +254,131 @@ it("parses nullable identity values without changing their wire representation",
   // @ts-expect-error Agent creation connections cannot be identified by run IDs.
   const wrongConnection: Body["connectionId"] = RunId.parse("run");
   void wrongConnection;
+});
+
+it("keeps route-specific ID acceptance and query fallback rules", () => {
+  const opaque = "native-opaque";
+  expect(workspaceApi.projectOpened.params.parse({ id: opaque })).toEqual({
+    id: opaque,
+  });
+  expect(
+    workspaceApi.runtimeAuthProviders.query.safeParse({ projectId: "" })
+      .success,
+  ).toBe(false);
+  expect(
+    workspaceApi.runtimeAuthProviders.query.parse({ projectId: opaque }),
+  ).toEqual({ projectId: opaque });
+  expect(
+    workspaceApi.nativeDecisions.query.safeParse({ conversation: opaque })
+      .success,
+  ).toBe(false);
+  expect(workspaceApi.conversation.query.parse({ message: "" })).toEqual({
+    message: "",
+  });
+  expect(
+    workspaceApi.search.query.parse({
+      q: "fixture",
+      agent: ["a", "b"],
+      folder: 3,
+      project: opaque,
+    }),
+  ).toEqual({
+    q: "fixture",
+    agent: undefined,
+    folder: undefined,
+    project: opaque,
+  });
+  expect(workspaceApi.artifactList.query.parse({ folder: "unfiled" })).toEqual({
+    folder: "unfiled",
+  });
+  expect(
+    workspaceApi.submit.body.parse({
+      agentId: "",
+      conversationId: "",
+      input: "fixture",
+      idempotencyKey: "fixture-identity",
+    }),
+  ).toMatchObject({ agentId: "", conversationId: "" });
+});
+
+it("requires the core domain at actual typed route inputs", () => {
+  type Opened = RouteInput<typeof workspaceApi.projectOpened>["params"];
+  // @ts-expect-error An agent is not a project.
+  const wrongProject: Opened = { id: AgentId.parse("agent") };
+  type Submit = RouteInput<typeof workspaceApi.submit>["body"];
+  // @ts-expect-error Run IDs cannot identify the target conversation.
+  const wrongConversation: Submit["conversationId"] = RunId.parse("run");
+  type Search = NonNullable<RouteInput<typeof workspaceApi.search>["query"]>;
+  // @ts-expect-error A conversation is not an agent filter.
+  const wrongFilter: Search["agent"] = ConversationId.parse("conversation");
+  type Share = RouteInput<typeof workspaceApi.shareSend>["body"];
+  // @ts-expect-error A folder cannot identify the shared agent.
+  const wrongShare: Share["newAgentId"] = FolderId.parse("folder");
+  void [wrongProject, wrongConversation, wrongFilter, wrongShare];
+});
+
+it("carries nominal domains through feature response references", () => {
+  type Trace = z.output<
+    typeof workspaceApi.agentTraces.response
+  >["items"][number];
+  expectTypeOf<Trace["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<
+    Trace["conversation_id"]
+  >().toEqualTypeOf<ConversationId | null>();
+  type Saved = z.output<typeof workspaceApi.conversation.response>;
+  expectTypeOf<
+    Saved["position_message_id"]
+  >().toEqualTypeOf<MessageId | null>();
+});
+
+it("brands route response aliases without requiring branded server inputs", () => {
+  type Created = z.output<typeof workspaceApi.artifactCreate.response>;
+  expectTypeOf<Created["id"]>().toEqualTypeOf<ArtifactId>();
+  const raw: z.input<typeof workspaceApi.conversationContinueStart.response> = {
+    id: "conversation",
+    agentId: "agent",
+    runId: "run",
+  };
+  const parsed = workspaceApi.conversationContinueStart.response.parse(raw);
+  expect(parsed).toEqual(raw);
+  expectTypeOf(parsed.id).toEqualTypeOf<ConversationId>();
+  expectTypeOf(parsed.agentId).toEqualTypeOf<AgentId>();
+  expectTypeOf(parsed.runId).toEqualTypeOf<RunId>();
+});
+
+it("retains nominal identities in Done and operational Feed projections", () => {
+  type Row = z.output<typeof workspaceApi.feed.response>["items"][number];
+  expectTypeOf<Row["conversation_id"]>().toEqualTypeOf<ConversationId>();
+  expectTypeOf<Row["connection_id"]>().toEqualTypeOf<ConnectionId | null>();
+  type Action = NonNullable<Row["next_action"]>;
+  expectTypeOf<Action["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<Action["message_id"]>().toEqualTypeOf<MessageId | null>();
+  type Page = z.output<typeof workspaceApi.conversation.response>;
+  expectTypeOf<Page["saved"][number]>().toEqualTypeOf<MessageId>();
+});
+
+it("preserves string rules for each additional public record identity", () => {
+  for (const schema of [
+    ImportId,
+    ObjectId,
+    ScheduledSendId,
+    PrWatchId,
+    LaterItemId,
+    ReviewId,
+    CheckoutId,
+    VerificationId,
+  ]) {
+    expect(schema.parse(uuid)).toBe(uuid);
+    expect(schema.parse("opaque-fixture")).toBe("opaque-fixture");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  type Import = z.output<typeof workspaceApi.importList.response>[number];
+  expectTypeOf<Import["id"]>().toEqualTypeOf<ImportId>();
+  type Upload = z.output<typeof workspaceApi.uploadCreate.response>;
+  expectTypeOf<Upload["objectId"]>().toEqualTypeOf<ObjectId>();
+  expectTypeOf<Upload["id"]>().toEqualTypeOf<ArtifactId>();
+  // @ts-expect-error An object is not an import job.
+  const wrongImport: Import["id"] = ObjectId.parse("object");
+  void wrongImport;
 });

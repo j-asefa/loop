@@ -4,6 +4,8 @@ import {
   FolderId,
   TeamId,
   requestId,
+  ConversationId,
+  ReviewId,
 } from "./contract-ids.js";
 import { RunDisplayState } from "./run-state.js";
 import { MAX_TEAM_WORKERS } from "./team-limits.js";
@@ -47,8 +49,8 @@ export const ReviewInput = z.object({
 });
 // HTTP uses id; the agent tool exposes the same identity as reviewId.
 export const PublicReview = z.object({
-  id: Text,
-  conversationId: Text,
+  id: ReviewId,
+  conversationId: ConversationId,
   state: RunDisplayState,
   scope: z.enum(["uncommitted", "staged", "branch"]),
   fingerprint: Text,
@@ -57,7 +59,7 @@ export const PublicReview = z.object({
   omitted: z.array(Text),
   reviewers: z.array(
     z.object({
-      agent_id: Text.nullable(),
+      agent_id: AgentId.nullable(),
       state: RunDisplayState,
       error: Text.nullable(),
     }),
@@ -149,7 +151,7 @@ export const ShareInput = z.object({
   folderId: requestId(FolderId).optional(),
 });
 export const ShareSendInput = ShareInput.extend({
-  newAgentId: Text.optional(),
+  newAgentId: requestId(AgentId).optional(),
   idempotencyKey: Text.min(10).max(150),
 });
 export const RoutingInput = z.object({
@@ -160,7 +162,7 @@ export const PublicSharePreview = z.object({
   mode: z.enum(["queue", "create"]),
   agent: z
     .object({
-      id: Text,
+      id: AgentId,
       name: Text,
       provider: ProviderSchema,
       model: Text,

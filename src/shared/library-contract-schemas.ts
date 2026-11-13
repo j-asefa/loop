@@ -4,6 +4,14 @@ import {
   FolderId,
   MessageId,
   requestId,
+  ProjectId,
+  ConversationId,
+  OwnerId,
+  RunId,
+  CheckoutId,
+  ImportId,
+  ObjectId,
+  VerificationId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
@@ -42,7 +50,7 @@ export const ArtifactCreateInput = z.object({
   title: Text.min(1).max(180),
   kind: OwnerArtifactKindSchema.default(DefaultArtifactKind),
   content: Text.max(200000),
-  folder: Text.optional(),
+  folder: requestId(FolderId).optional(),
   metadata: z
     .object({ snippet: z.literal(true) })
     .strict()
@@ -76,16 +84,16 @@ export const ContinueInput = z.object({
 const Filter = Text.optional().catch(undefined),
   NumericQuery = z.union([Text, z.array(Text)]).optional();
 export const ArtifactListQuery = z.object({
-  folder: Text.optional(),
-  agent: Text.optional(),
+  folder: requestId(FolderId).optional(),
+  agent: requestId(AgentId).optional(),
   pinned: Filter,
   before: NumericQuery,
 });
 export const SearchQuery = z.object({
   q: Text.min(1).max(500),
-  agent: Filter,
-  folder: Filter,
-  project: Filter,
+  agent: requestId(AgentId).optional().catch(undefined),
+  folder: requestId(FolderId).optional().catch(undefined),
+  project: requestId(ProjectId).optional().catch(undefined),
   kind: Filter,
   scope: Filter,
   category: z.enum(feedCategories.map(({ id }) => id)).optional(),
@@ -103,12 +111,12 @@ export const PublicSearchStatus = z.object({
 });
 const PublicSearchItem = z.object({
   id: Text,
-  owner_id: Text,
+  owner_id: OwnerId,
   kind: Text,
   title: Text,
-  agent_id: MaybeText,
-  conversation_id: MaybeText,
-  folder_id: MaybeText,
+  agent_id: AgentId.nullable(),
+  conversation_id: ConversationId.nullable(),
+  folder_id: FolderId.nullable(),
   created_at: Num,
   updated_at: Num,
   // Agentless documents have no display join; these are not required capabilities.
@@ -117,7 +125,7 @@ const PublicSearchItem = z.object({
   snippet: SearchExcerptSchema,
   score: Num,
   url: Text,
-  message_id: MaybeText,
+  message_id: MessageId.nullable(),
 });
 export const PublicSearch = z.object({
   mode: SearchMode,
@@ -137,8 +145,8 @@ export const PublicPreferences = z.union([
   }),
 ]);
 export const PublicImport = z.object({
-  id: Text,
-  owner_id: Text,
+  id: ImportId,
+  owner_id: OwnerId,
   provider: Text,
   digest: Text,
   status: ImportStatus,
@@ -146,7 +154,7 @@ export const PublicImport = z.object({
   created_at: Num,
 });
 const PublicImportSummary = z.object({
-  objectId: Text,
+  objectId: ObjectId,
   conversations: Num,
   messages: Num,
   attachments: Num,
@@ -154,7 +162,7 @@ const PublicImportSummary = z.object({
   titles: z.array(Text),
   completed: Num,
   // Added by execution only after the preview has been accepted.
-  agentId: Text.optional(),
+  agentId: AgentId.optional(),
   attachmentsStored: z.boolean().optional(),
 });
 export const PublicImportPreview = z.union([
@@ -163,7 +171,7 @@ export const PublicImportPreview = z.union([
     duplicate: z.literal(true),
   }),
   z.object({
-    id: Text,
+    id: ImportId,
     provider: Text,
     status: ImportStatus,
     summary: PublicImportSummary,
@@ -184,7 +192,7 @@ const CheckoutStat = z.object({
   deletions: Num,
 });
 const PublicCheckoutSummary = z.object({
-  id: Text,
+  id: CheckoutId,
   state: z.enum(["started", "captured", "failed"]),
   // Present when a start-patch baseline was captured for this run.
   scope: z.literal("run").optional(),
@@ -203,11 +211,11 @@ const PublicCheckoutSummary = z.object({
   error: MaybeText,
 });
 export const PublicCheckout = z.object({
-  id: Text,
-  owner_id: Text,
-  run_id: Text,
-  agent_id: Text,
-  conversation_id: Text,
+  id: CheckoutId,
+  owner_id: OwnerId,
+  run_id: RunId,
+  agent_id: AgentId,
+  conversation_id: ConversationId,
   generation: MaybeText,
   directory: Text,
   source: Text,
@@ -244,7 +252,7 @@ export const PublicCheckout = z.object({
   error: MaybeText,
 });
 export const PublicVerification = z.object({
-  id: Text,
+  id: VerificationId,
   kind: z.enum(["test", "typecheck", "lint"]),
   tools: z.array(Text),
   command: Text,

@@ -1,6 +1,7 @@
+import { z } from "zod";
 import {
   PersonalFilesQuery,
-  type PersonalFilesPage,
+  PersonalFilesPage,
 } from "../shared/personal-files.js";
 import { db } from "./db.js";
 import { projectFolders } from "./results.js";
@@ -12,7 +13,7 @@ import * as artifactObjectsQueries from "./sql/artifact-objects.js";
 export function personalFiles(
   owner: string,
   input: unknown,
-): PersonalFilesPage {
+): z.input<typeof PersonalFilesPage> {
   const query = PersonalFilesQuery.parse(input);
   if (query.agent) ownedAgent(query.agent, owner);
   if (query.project) ownedFolder(query.project, owner);

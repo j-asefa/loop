@@ -8,6 +8,7 @@ import {
   ProjectId,
   RunId,
   TeamId,
+  requestId,
 } from "./contract-ids.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
 import { PublicRun } from "./run-contract-schema.js";
@@ -153,7 +154,7 @@ export const FeedItem = DoneDisplaySchema.extend({
     .nullable(),
   run: FeedRunSchema.nullable(),
   done_card_key: Text.optional(),
-  position_message_id: MaybeText,
+  position_message_id: MessageId.nullable(),
   later: DoneDisplaySchema.shape.later
     .unwrap()
     .extend({
@@ -165,7 +166,7 @@ export const FeedItem = DoneDisplaySchema.extend({
   queued_runs: z
     .array(
       z.object({
-        id: Text,
+        id: RunId,
         input: Text,
         created_at: Time,
         queue_position: z.number().nullable(),
@@ -180,8 +181,8 @@ export const FeedItem = DoneDisplaySchema.extend({
   next_action: z
     .object({
       kind: z.enum(["approve", "answer", "result"]),
-      message_id: MaybeText,
-      run_id: Text,
+      message_id: MessageId.nullable(),
+      run_id: RunId,
       ref: Text.optional(),
     })
     .nullable()
@@ -216,24 +217,24 @@ export const ConversationPage = z.object({
     from: ProjectedMessage.shape.cursor,
     before: ProjectedMessage.shape.cursor,
   }),
-  position_message_id: MaybeText,
-  saved: z.array(Text),
-  steerable_run_id: MaybeText,
+  position_message_id: MessageId.nullable(),
+  saved: z.array(MessageId),
+  steerable_run_id: RunId.nullable(),
   resumed: z.boolean(),
   projection: WorkspaceClock.optional(),
   // The agent's latest visible message, beyond this page if need be.
   latest_agent_message: z
-    .object({ id: Text, cursor: ProjectedMessage.shape.cursor })
+    .object({ id: MessageId, cursor: ProjectedMessage.shape.cursor })
     .nullable(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
 const ResultFields = {
   cursor: z.number(),
-  agent_id: MaybeText,
-  team_id: MaybeText,
+  agent_id: AgentId.nullable(),
+  team_id: TeamId.nullable(),
   name: MaybeText,
   provider: Provider.nullable(),
-  folder_id: MaybeText.optional(),
+  folder_id: FolderId.nullable().optional(),
 };
 export const ResultItem = z.union([
   PublicArtifact.extend(ResultFields),
@@ -255,8 +256,8 @@ export const ResultsUpdates = z.object({
 });
 export const NativeDecision = z.object({
   id: Text,
-  run_id: Text,
-  conversation_id: Text,
+  run_id: RunId,
+  conversation_id: ConversationId,
   generation: Text,
   native_id: Text,
   request: Text,
@@ -279,8 +280,8 @@ export const CreatedCardTokenSchema = z.object({
 export const Teams = Text.max(2000).optional();
 
 export const ResultSelection = {
-  agent: Text.optional(),
-  folder: Text.optional(),
+  agent: requestId(AgentId).optional(),
+  folder: requestId(FolderId).optional(),
   teams: Teams,
   view: z.enum(["all", "prompts", "files"]).default("all"),
   saved: z.enum(["1", "0"]).optional(),

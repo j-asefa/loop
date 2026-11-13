@@ -1,3 +1,4 @@
+import { AgentId, ConversationId, requestId, OwnerId } from "./contract-ids.js";
 import { z } from "zod";
 
 const Text = z.string();
@@ -45,8 +46,8 @@ export const WatchInput = z.object({
   enabled: z.boolean().default(true),
 });
 export const DigestInput = z.object({
-  agentId: Text.min(1).max(150),
-  conversationId: Text.min(1).max(150).nullish(),
+  agentId: requestId(AgentId).min(1).max(150),
+  conversationId: requestId(ConversationId).min(1).max(150).nullish(),
   feeds: z.array(Text.min(1).max(120)).max(200).nullish(),
   minuteOfDay: z.number().int().min(0).max(1439),
   zone: Text.min(1).max(60),
@@ -108,7 +109,7 @@ export const PublicPreferences = z.object({
 });
 export const PublicWatch = z.object({
   id: Text,
-  owner_id: Text,
+  owner_id: OwnerId,
   query: Text,
   feeds: MaybeText,
   created_at: Time,
@@ -129,9 +130,9 @@ export const PublicWatchPreview = z.object({
 });
 export const PublicDigest = z.object({
   id: Text,
-  owner_id: Text,
-  agent_id: Text,
-  conversation_id: MaybeText,
+  owner_id: OwnerId,
+  agent_id: AgentId,
+  conversation_id: ConversationId.nullable(),
   feeds: MaybeText,
   minute_of_day: z.number(),
   zone: Text,

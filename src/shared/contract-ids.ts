@@ -28,6 +28,24 @@ export type ConnectionId = z.output<typeof ConnectionId>;
 export const ProjectId = FolderId.brand<"ProjectId">();
 export type ProjectId = z.output<typeof ProjectId>;
 
+// These records have unrestricted current request paths; retain their string rule.
+export const ImportId = z.string().brand<"ImportId">();
+export type ImportId = z.output<typeof ImportId>;
+export const ObjectId = z.string().brand<"ObjectId">();
+export type ObjectId = z.output<typeof ObjectId>;
+export const ScheduledSendId = z.string().brand<"ScheduledSendId">();
+export type ScheduledSendId = z.output<typeof ScheduledSendId>;
+export const PrWatchId = z.string().brand<"PrWatchId">();
+export type PrWatchId = z.output<typeof PrWatchId>;
+export const LaterItemId = z.string().brand<"LaterItemId">();
+export type LaterItemId = z.output<typeof LaterItemId>;
+export const ReviewId = z.string().brand<"ReviewId">();
+export type ReviewId = z.output<typeof ReviewId>;
+export const CheckoutId = z.string().brand<"CheckoutId">();
+export type CheckoutId = z.output<typeof CheckoutId>;
+export const VerificationId = z.string().brand<"VerificationId">();
+export type VerificationId = z.output<typeof VerificationId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

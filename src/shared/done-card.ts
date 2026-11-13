@@ -1,3 +1,12 @@
+import {
+  RunId,
+  AgentId,
+  ConnectionId,
+  ConversationId,
+  MessageId,
+  ProjectId,
+  TeamId,
+} from "./contract-ids.js";
 import { PullStateSchema } from "./pull-state.js";
 import { VerificationSummarySchema } from "./verification.js";
 import { CheckoutSummarySchema } from "./checkout.js";
@@ -14,7 +23,7 @@ const RunPresentation = {
   created_at: time,
   updated_at: time,
   error: text,
-  connection_id: text,
+  connection_id: ConnectionId.nullable(),
   model: text,
   resolved_model: text,
   queue_position: z.number().nullable(),
@@ -66,21 +75,21 @@ export const FeedRunSchema = z.discriminatedUnion("state", [
 ]);
 // Session-only presentation data. Runtime actions still use the Feed contract.
 export const DoneDisplaySchema = z.object({
-  conversation_id: z.string(),
+  conversation_id: ConversationId,
   done_card_key: text,
   title: z.string(),
-  agent_id: text,
-  connection_id: text,
+  agent_id: AgentId.nullable(),
+  connection_id: ConnectionId.nullable(),
   agent_name: text,
   provider: text,
-  project_id: text,
+  project_id: ProjectId.nullable(),
   project_name: text,
-  team_id: text,
+  team_id: TeamId.nullable(),
   origin: ConversationOrigin,
   last_activity_at: time,
   last_message: z
     .object({
-      id: z.string(),
+      id: MessageId,
       role: MessageRole,
       preview: z.string(),
       content: z.string(),
@@ -107,6 +116,10 @@ export const DoneDisplaySchema = z.object({
     })
     .nullable(),
   next_action: z
-    .object({ kind: z.literal("result"), message_id: text, run_id: z.string() })
+    .object({
+      kind: z.literal("result"),
+      message_id: MessageId.nullable(),
+      run_id: RunId,
+    })
     .nullable(),
 });

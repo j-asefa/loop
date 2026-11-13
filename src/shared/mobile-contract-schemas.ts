@@ -5,6 +5,12 @@ import {
   MessageId,
   ProjectId,
   requestId,
+  OwnerId,
+  RunId,
+  ArtifactId,
+  LaterItemId,
+  ObjectId,
+  ScheduledSendId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { RunDisplayState } from "./run-state.js";
@@ -96,10 +102,10 @@ export const ConversationForkInput = z.object({
 });
 
 export const PublicAwayItem = z.object({
-  conversation_id: Text,
+  conversation_id: ConversationId,
   title: Text,
   agent_name: MaybeText,
-  run_id: Text,
+  run_id: RunId,
   state: RunDisplayState,
   updated_at: Time,
 });
@@ -109,27 +115,27 @@ export const PublicAway = z.object({
   failed: z.array(PublicAwayItem),
 });
 export const PublicSavedMessage = z.object({
-  message_id: Text,
-  conversation_id: Text,
+  message_id: MessageId,
+  conversation_id: ConversationId,
   conversation_title: Text,
   role: MessageRole,
   content: Text,
   created_at: Time,
-  agent_id: MaybeText,
+  agent_id: AgentId.nullable(),
   agent_name: MaybeText,
   provider: MaybeText,
   project_name: MaybeText,
   preview: Text,
 });
 const PublicOutlineItem = z.object({
-  message_id: Text,
+  message_id: MessageId,
   kind: z.enum(["prompt", "result", "approval", "failure", "saved"]),
   preview: Text,
   created_at: Time,
-  run_id: MaybeText,
+  run_id: RunId.nullable(),
 });
 const PublicThreadMatch = z.object({
-  message_id: Text,
+  message_id: MessageId,
   kind: z.enum(["prompt", "response", "update", "result", "failure"]),
   saved: z.boolean(),
   preview: Text,
@@ -145,13 +151,13 @@ export const PublicOutline = z.union([
   }),
 ]);
 export const PublicLater = z.object({
-  id: Text,
-  owner_id: Text,
+  id: LaterItemId,
+  owner_id: OwnerId,
   kind: LaterInput.shape.kind,
   target_id: Text,
   condition: LaterInput.shape.condition,
   due_at: Time.nullable(),
-  project_id: MaybeText,
+  project_id: ProjectId.nullable(),
   created_at: Time,
   surfaced_at: Time.nullable(),
   done_at: Time.nullable(),
@@ -160,15 +166,15 @@ export const PublicLater = z.object({
 });
 
 export const PublicCreatedLater = PublicLater.extend({
-  replaced: MaybeText,
+  replaced: LaterItemId.nullable(),
 });
 export const PublicLaterView = PublicLater.extend({
   title: Text,
   preview: Text,
   content: Text,
   provider: MaybeText,
-  conversation_id: MaybeText,
-  message_id: MaybeText,
+  conversation_id: ConversationId.nullable(),
+  message_id: MessageId.nullable(),
   agent_name: MaybeText,
   project_name: MaybeText,
 
@@ -180,28 +186,28 @@ export const PublicLaterList = z.object({
 });
 // These descriptors come from stored uploads, not credentials or object bytes.
 export const PublicUploadDescriptor = z.object({
-  id: Text,
-  objectId: Text,
+  id: ArtifactId,
+  objectId: ObjectId,
   name: Text,
   mime: Text,
   size: z.number(),
 });
 export const PublicScheduledSend = z.object({
-  id: Text,
-  owner_id: Text,
-  agent_id: Text,
-  conversation_id: MaybeText,
-  folder_id: MaybeText,
+  id: ScheduledSendId,
+  owner_id: OwnerId,
+  agent_id: AgentId,
+  conversation_id: ConversationId.nullable(),
+  folder_id: FolderId.nullable(),
   folder_chosen: z.number(),
   input: Text,
   attachment_ids: Text,
-  reply_to_message_id: MaybeText,
+  reply_to_message_id: MessageId.nullable(),
 
   reply_excerpt: MaybeText,
   idempotency_key: Text,
   send_at: Time,
   state: ScheduledSendState,
-  run_id: MaybeText,
+  run_id: RunId.nullable(),
   error: MaybeText,
   created_at: Time,
 });
@@ -219,8 +225,8 @@ export const PublicScheduledList = z.object({
 });
 export const PublicWithdrawnDraft = z.object({
   input: Text,
-  agent_id: MaybeText,
-  conversation_id: MaybeText,
+  agent_id: AgentId.nullable(),
+  conversation_id: ConversationId.nullable(),
   attachment_ids: z.array(Text),
   attachments: z.array(PublicUploadDescriptor),
 });
@@ -236,20 +242,20 @@ export const PublicUsage = z.object({
 });
 export const PublicSnippets = z.object({
   items: z.array(
-    z.object({ id: Text, title: Text, content: Text, created_at: Time }),
+    z.object({ id: ArtifactId, title: Text, content: Text, created_at: Time }),
   ),
 });
 export const PublicProjectSummaries = z.object({
   items: z.array(
     z.object({
-      id: Text,
+      id: ProjectId,
       name: Text,
       agents: z.number(),
       last_activity_at: Time.nullable(),
       working: z.number(),
       needs: z.number(),
       latest_result: z
-        .object({ id: Text, title: Text, created_at: Time })
+        .object({ id: ArtifactId, title: Text, created_at: Time })
         .nullable(),
     }),
   ),

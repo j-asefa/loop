@@ -1,3 +1,11 @@
+import {
+  ArtifactId,
+  requestId,
+  AgentId,
+  ConversationId,
+  OwnerId,
+  PrWatchId,
+} from "./contract-ids.js";
 import { PullFileStatus } from "./pull-file-status.js";
 import { z } from "zod";
 import { isRepoPath, MAX_REVIEW_BODY } from "./pull-requests.js";
@@ -43,7 +51,7 @@ export const PullMergeInput = z.object({
   headSha: CommitSha,
 });
 export const PrWatchInput = z.object({
-  artifactId: Text.min(1).max(150),
+  artifactId: requestId(ArtifactId).min(1).max(150),
   owner: Text.min(1).max(39),
   repo: Text.min(1).max(100),
   number: z.number().int().positive().max(999_999_999),
@@ -171,9 +179,9 @@ export const PublicCommitFiles = z.object({
   fetchedAt: Time,
 });
 export const PublicPrWatch = z.object({
-  id: Text,
-  conversation_id: Text,
-  agent_id: Text,
+  id: PrWatchId,
+  conversation_id: ConversationId,
+  agent_id: AgentId,
   repo_owner: Text,
   repo_name: Text,
   number: z.number(),
@@ -191,7 +199,7 @@ export const PublicPrWatch = z.object({
   seen_ci_conclusion: MaybeText,
 });
 export const PublicCreatedPrWatch = PublicPrWatch.extend({
-  owner_id: Text,
+  owner_id: OwnerId,
   login: MaybeText,
   next_poll_at: Time,
   since_at: Time.nullable(),

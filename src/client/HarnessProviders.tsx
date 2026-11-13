@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, type ManagedHarness as Harness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
@@ -104,7 +105,7 @@ export function HarnessProviders({
   const catalog = (name: Harness, project: string) =>
     read(workspaceApi.runtimeProviders, {
       params: { name },
-      query: { projectId: project },
+      query: { projectId: parseId(ProjectId, project) },
     });
   async function load() {
     const next = await catalog(runtime, projectId);
@@ -145,7 +146,7 @@ export function HarnessProviders({
             {
               params: { name: runtime },
               body: {
-                projectId,
+                projectId: parseId(ProjectId, projectId),
                 useProviderBilling,
                 commandId,
               },
@@ -225,7 +226,7 @@ export function HarnessProviders({
                 {
                   params: { name: target.name },
                   body: {
-                    projectId: target.projectId,
+                    projectId: parseId(ProjectId, target.projectId),
                     provider,
                     method: targetMethod,
                     secret: key,
@@ -462,7 +463,7 @@ export function HarnessProviders({
                       {
                         params: { name: runtime },
                         body: {
-                          projectId,
+                          projectId: parseId(ProjectId, projectId),
                           provider: removing.id,
                           commandId,
                         },

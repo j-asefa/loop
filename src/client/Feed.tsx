@@ -4,6 +4,8 @@ import {
   MessageId,
   RunId,
   parseId,
+  FolderId,
+  ProjectId,
 } from "../shared/contract-ids.js";
 import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
@@ -1345,8 +1347,8 @@ export function Feed({
     activeSources.map((source) => source.id),
     filter === "done" || filter === "threads",
     {
-      project: project || undefined,
-      agent: agent || undefined,
+      project: parseId(ProjectId, project || undefined),
+      agent: parseId(AgentId, agent || undefined),
       teams: teams || undefined,
     },
   );
@@ -1355,8 +1357,8 @@ export function Feed({
     (filter === "done" && doneRead === "all") || filter === "threads",
     {
       view: filter === "done" ? "done" : "threads",
-      project: project || undefined,
-      agent: agent || undefined,
+      project: parseId(ProjectId, project || undefined),
+      agent: parseId(AgentId, agent || undefined),
       teams: teams || undefined,
     },
   );
@@ -1607,8 +1609,8 @@ export function Feed({
     const selectedAgent = which === "needs" ? scopedAgent : agent;
     return {
       filter: which === "threads" ? "all" : which,
-      ...(project ? { folder: project } : {}),
-      ...(selectedAgent ? { agent: selectedAgent } : {}),
+      ...(project ? { folder: parseId(FolderId, project) } : {}),
+      ...(selectedAgent ? { agent: parseId(AgentId, selectedAgent) } : {}),
       ...(teams ? { teams } : {}),
       ...(before ? { before } : {}),
     };
@@ -1959,8 +1961,8 @@ export function Feed({
                 transport,
                 {
                   view: "done",
-                  project: project || undefined,
-                  agent: agent || undefined,
+                  project: parseId(ProjectId, project || undefined),
+                  agent: parseId(AgentId, agent || undefined),
                   teams: teams || undefined,
                   ...(doneRead !== "all" ? { read: doneRead } : {}),
                 },
