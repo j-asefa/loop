@@ -9,6 +9,7 @@ import { viewGeneration } from "./viewCache";
 import {
   broadWorkspaceChange,
   listenWorkspaceChanges,
+  workspaceChangeAffects,
 } from "./workspace-changes";
 
 type QueryOptions = {
@@ -106,7 +107,11 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
 
 type PagedOptions<P, C> = {
   key: string;
-  source: string;
+  source: string | readonly string[];
+  enabled?: boolean;
+  events?: readonly string[];
+  coalesceDelay?: number;
+  needsRefresh?: (page: P) => boolean;
   empty: P;
   collections: QueryOptions["collections"];
   read: (
@@ -126,9 +131,19 @@ export function usePagedProjectionQuery<
   C extends string | number,
 >(options: PagedOptions<P, C>) {
   const generation = viewGeneration();
-  const identity = JSON.stringify([generation, options.source, options.key]);
+  const identity = JSON.stringify([
+    generation,
+    options.source,
+    options.key,
+    options.enabled !== false,
+  ]);
   const context = useMemo(
-    () => ({ options, more: () => {}, retry: () => {} }),
+    () => ({
+      options,
+      more: () => {},
+      retry: () => {},
+      refresh: (_manual = false) => {},
+    }),
     [identity],
   );
   const [state, setState] = useState({
@@ -139,8 +154,20 @@ export function usePagedProjectionQuery<
     error: "",
   });
   useEffect(() => {
-    const { source, empty, collections, read, queueMore, refreshDelay } =
-      context.options;
+    const {
+      source,
+      empty,
+      collections,
+      read,
+      queueMore,
+      refreshDelay,
+      enabled = true,
+      events = ["loop-refresh"],
+      coalesceDelay = 0,
+      needsRefresh,
+    } = context.options;
+    if (!enabled) return;
+    const sourceList = typeof source === "string" ? [source] : source;
     const controller = new AbortController();
     const stale = () =>
       controller.signal.aborted || generation !== viewGeneration();
@@ -149,6 +176,7 @@ export function usePagedProjectionQuery<
       appendPending = false,
       pending = false,
       urgent = false,
+      pendingManual = false,
       refreshAfter = 0;
     let retryBefore: C | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -156,8 +184,8 @@ export function usePagedProjectionQuery<
       pending = true;
       if (busy || timer || stale()) return;
       timer = setTimeout(
-        () => void load(),
-        urgent ? 0 : Math.max(0, refreshAfter - Date.now()),
+        () => void load(undefined, pendingManual),
+        urgent ? 0 : Math.max(coalesceDelay, refreshAfter - Date.now()),
       );
     };
     const load = async (before?: C, manual = false) => {
@@ -169,6 +197,7 @@ export function usePagedProjectionQuery<
       if (before === undefined) {
         pending = false;
         urgent = false;
+        pendingManual = false;
       }
       setState((old) => ({
         ...old,
@@ -214,6 +243,7 @@ export function usePagedProjectionQuery<
         if (before === undefined || !queueMore)
           refreshAfter = urgent ? 0 : Date.now() + refreshDelay(reads);
         if (!stale()) {
+          if (complete && needsRefresh?.(current)) pending = true;
           const append = complete && appendPending ? current.next : null;
           if (complete) appendPending = false;
           if (append !== null) void load(append);
@@ -224,7 +254,7 @@ export function usePagedProjectionQuery<
     const refresh = (event: Event) => {
       const sources = (event as CustomEvent<{ sources?: string[] }>).detail
         ?.sources;
-      if (sources && !sources.includes(source)) return;
+      if (sources && !sourceList.some((item) => sources.includes(item))) return;
       if (event.type === "loop-refresh") {
         urgent = true;
         clearTimeout(timer);
@@ -240,24 +270,41 @@ export function usePagedProjectionQuery<
       } else void load(current.next);
     };
     context.retry = () => void load(retryBefore, true);
+    context.refresh = (manual = false) => {
+      if (busy) {
+        pendingManual ||= manual;
+        urgent ||= manual;
+        schedule();
+      } else void load(undefined, manual);
+    };
     const stops = (collections ?? []).map((collection) =>
-      listenWorkspaceChanges(collection, refresh, source),
+      listenWorkspaceChanges(collection, (event) => {
+        if (
+          sourceList.some((item) =>
+            workspaceChangeAffects(event, collection, item),
+          )
+        )
+          refresh(event);
+      }),
     );
-    window.addEventListener("loop-refresh", refresh);
+    for (const event of events) window.addEventListener(event, refresh);
     void load();
     return () => {
       controller.abort();
       clearTimeout(timer);
       stops.forEach((stop) => stop());
-      window.removeEventListener("loop-refresh", refresh);
+      for (const event of events) window.removeEventListener(event, refresh);
     };
   }, [context]);
   return {
-    ...(state.context === context
-      ? state
-      : { page: options.empty, loading: true, appending: false, error: "" }),
+    ...(options.enabled === false
+      ? { page: options.empty, loading: false, appending: false, error: "" }
+      : state.context === context
+        ? state
+        : { page: options.empty, loading: true, appending: false, error: "" }),
     more: () => context.more(),
     retry: () => context.retry(),
+    refresh: (manual = false) => context.refresh(manual),
   };
 }
 
