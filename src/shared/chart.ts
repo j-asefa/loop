@@ -1,3 +1,4 @@
+import { McpConnectionId } from "./contract-ids.js";
 import { z } from "zod";
 
 // Time-series result charts: validated by the tool broker before saving and
@@ -24,7 +25,7 @@ export const chartSchema = z
       .min(1)
       .max(20),
     source: z.object({
-      connectionId: z.string(),
+      connectionId: McpConnectionId,
       tool: z.string(),
       fetchedAt: timestamp,
       fixture: z.boolean().default(false),

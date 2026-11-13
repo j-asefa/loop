@@ -1,3 +1,6 @@
+import { WebhookStop } from "../src/shared/webhooks.js";
+import { chartSchema } from "../src/shared/chart.js";
+import { artifactRefreshSource } from "../src/shared/artifact-refresh.js";
 import {
   NativeCatalogId,
   NativeDecisionId,
@@ -609,4 +612,38 @@ it("keeps native catalog, managed conversation and decision identities distinct"
     id: ConversationId.parse("conversation"),
   };
   void wrong;
+});
+
+it("keeps MCP and webhook reference domains and existing field bounds", () => {
+  expectTypeOf<z.output<typeof WebhookStop>["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<
+    z.output<typeof chartSchema>["source"]["connectionId"]
+  >().toEqualTypeOf<McpConnectionId>();
+  expectTypeOf<
+    RouteResponse<typeof workspaceApi.agentTools>[number]["connection_id"]
+  >().toEqualTypeOf<McpConnectionId>();
+  expect(WebhookStop.shape.run_id.safeParse("").success).toBe(false);
+  expect(WebhookStop.shape.run_id.safeParse("r".repeat(301)).success).toBe(
+    false,
+  );
+  expect(WebhookStop.shape.run_id.parse("opaque:run")).toBe("opaque:run");
+  expect(
+    artifactRefreshSource("agent", {
+      connectionId: "mcp",
+      tool: "read",
+      arguments: {},
+    }),
+  ).toEqual({
+    agentId: "agent",
+    connectionId: "mcp",
+    tool: "read",
+    arguments: {},
+  });
+  expect(
+    artifactRefreshSource("agent", {
+      connectionId: "",
+      tool: "read",
+      arguments: {},
+    }),
+  ).toBeNull();
 });

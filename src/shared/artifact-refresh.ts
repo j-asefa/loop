@@ -1,3 +1,4 @@
+import { AgentId, McpConnectionId } from "./contract-ids.js";
 import { z } from "zod";
 
 export const toolInvocationSchema = z.object({
@@ -5,8 +6,8 @@ export const toolInvocationSchema = z.object({
   arguments: z.record(z.string(), z.unknown()),
 });
 const refreshSourceSchema = toolInvocationSchema.extend({
-  agentId: z.string().min(1),
-  connectionId: z.string().min(1),
+  agentId: AgentId.min(1),
+  connectionId: McpConnectionId.min(1),
 });
 /** Stored refresh context, not a grant: the action rechecks owner/tool access. */
 export function artifactRefreshSource(
