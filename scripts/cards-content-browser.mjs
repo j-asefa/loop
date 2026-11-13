@@ -5,6 +5,7 @@ import {
   temporaryPageRoute,
   drainPageRoutes,
 } from "./helpers/temporary-page-route.mjs";
+import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { seedCards } from "../test/helpers/seed-cards.ts";
 const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 const browser = await engine.launch({
@@ -87,6 +88,7 @@ try {
         }
         const page = await context.newPage();
         const errors = [],
+          navigationDiagnostics = [],
           reads = [];
         let holdRecovery = false,
           recoveryHeld = false,
@@ -94,7 +96,19 @@ try {
         const recoveryGate = new Promise((resolve) => {
           releaseRecovery = resolve;
         });
-        page.on("pageerror", (error) => errors.push(error.message));
+        page.on("pageerror", (error) => {
+          if (
+            isWebKitNavigationFetchError(
+              process.env.LOOP_BROWSER,
+              error,
+              fixture.origin,
+            )
+          )
+            navigationDiagnostics.push(
+              error.stack?.split("\n", 1)[0] || error.message,
+            );
+          else errors.push(error.message);
+        });
         page.on("request", (request) => {
           if (request.method() === "GET")
             reads.push(
@@ -747,6 +761,10 @@ try {
             path: `/tmp/cards-content-companion-${width}.png`,
           });
           console.log(`Card content journey passed: companion, ${width}px`);
+          if (navigationDiagnostics.length)
+            console.log(
+              `Classified ${navigationDiagnostics.length} known WebKit navigation fetch diagnostics`,
+            );
         } catch (error) {
           await page.screenshot({
             path: `/tmp/cards-content-failure-companion-${width}.png`,
