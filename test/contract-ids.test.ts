@@ -322,3 +322,18 @@ it("carries nominal domains through feature response references", () => {
     Saved["position_message_id"]
   >().toEqualTypeOf<MessageId | null>();
 });
+
+it("brands route response aliases without requiring branded server inputs", () => {
+  type Created = z.output<typeof workspaceApi.artifactCreate.response>;
+  expectTypeOf<Created["id"]>().toEqualTypeOf<ArtifactId>();
+  const raw: z.input<typeof workspaceApi.conversationContinueStart.response> = {
+    id: "conversation",
+    agentId: "agent",
+    runId: "run",
+  };
+  const parsed = workspaceApi.conversationContinueStart.response.parse(raw);
+  expect(parsed).toEqual(raw);
+  expectTypeOf(parsed.id).toEqualTypeOf<ConversationId>();
+  expectTypeOf(parsed.agentId).toEqualTypeOf<AgentId>();
+  expectTypeOf(parsed.runId).toEqualTypeOf<RunId>();
+});

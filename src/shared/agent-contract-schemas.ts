@@ -6,6 +6,7 @@ import {
   ArtifactId,
   OwnerId,
   RunId,
+  MessageId,
 } from "./contract-ids.js";
 import { TraceKind } from "./trace-kind.js";
 import { RunDisplayState } from "./run-state.js";
@@ -247,7 +248,7 @@ export const PiActionInput = PiRollbackInput.extend({
 export const PublicAgentMessages = z.object({
   items: z.array(
     z.object({
-      id: Text,
+      id: MessageId,
       content: Text,
       created_at: z.number(),
       conversation_id: ConversationId.nullable(),

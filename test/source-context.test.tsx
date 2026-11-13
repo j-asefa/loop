@@ -1,4 +1,4 @@
-import { ConnectionId } from "../src/shared/contract-ids.js";
+import { ArtifactId, ConnectionId } from "../src/shared/contract-ids.js";
 import { RunId } from "../src/shared/contract-ids.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
@@ -124,7 +124,7 @@ it("scopes transcript download links without rewriting external links", () => {
 
 it("keeps thread file summaries download-free while retaining source-scoped previews elsewhere", () => {
   const item = {
-    id: "image-file",
+    id: ArtifactId.parse("image-file"),
     title: "Design",
     metadata: JSON.stringify({
       name: "design.png",

@@ -5,6 +5,8 @@ import {
   requestId,
   FolderId,
   ProjectId,
+  AgentId,
+  TeamId,
 } from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
@@ -52,7 +54,7 @@ export const mobileRoutes = {
     path: "/conversations/:id/position",
     params: z.object({ id: requestId(ConversationId) }),
     body: mobile.PositionInput,
-    response: z.object({ position_message_id: MaybeText }),
+    response: z.object({ position_message_id: MessageId.nullable() }),
   }),
   feedUpdate: endpoint({
     ...base,
@@ -245,7 +247,7 @@ export const mobileRoutes = {
             key: Text,
             saved_at: Time,
             label: MaybeText,
-            result: PublicArtifact.extend({ team_id: MaybeText }),
+            result: PublicArtifact.extend({ team_id: TeamId.nullable() }),
           }),
         ]),
       ),
@@ -433,7 +435,7 @@ export const mobileRoutes = {
     path: "/conversations/:id/fork",
     params: z.object({ id: requestId(ConversationId) }),
     body: mobile.ConversationForkInput,
-    response: z.object({ id: Text, agentId: Text }),
+    response: z.object({ id: ConversationId, agentId: AgentId }),
   }),
   conversationUsage: endpoint({
     ...base,

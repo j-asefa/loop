@@ -1,3 +1,4 @@
+import { AgentId, ConversationId, MessageId } from "./contract-ids.js";
 import { z } from "zod";
 
 const Text = z.string(),
@@ -38,17 +39,17 @@ export const PersonalPromptsQuery = z.object({
 export const PersonalPromptsPage = z.object({
   items: z.array(
     z.object({
-      id: Text,
+      id: MessageId,
       content: Text,
       created_at: z.number(),
-      conversation_id: Text,
+      conversation_id: ConversationId,
       // The service parses stored JSON from native and imported history.
       // This opaque history value is not a new upload request.
       attachments: z.json(),
       conversation_title: Text,
       agent_name: MaybeText,
       provider: MaybeText,
-      agent_id: MaybeText,
+      agent_id: AgentId.nullable(),
       project_name: MaybeText,
     }),
   ),
