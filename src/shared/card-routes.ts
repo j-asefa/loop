@@ -1,3 +1,4 @@
+import { CardTokenId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import {
   CardSchema,
@@ -11,7 +12,7 @@ import {
   CardTokenSchema,
   CreateCardTokenSchema,
 } from "./card-token-schemas.js";
-import { Text, endpoint, base } from "./route-contract.js";
+import { endpoint, base } from "./route-contract.js";
 import { CreatedCardTokenSchema } from "./workspace-contract-schemas.js";
 
 export const cardRoutes = {
@@ -67,7 +68,7 @@ export const cardRoutes = {
     operation: "cardTokenRevoke",
     method: "DELETE",
     path: "/card-tokens/:id",
-    params: z.object({ id: Text.min(1) }),
+    params: z.object({ id: requestId(CardTokenId).min(1) }),
     response: z.object({ ok: z.literal(true) }),
   }),
 } as const;

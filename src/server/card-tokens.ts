@@ -1,3 +1,6 @@
+type CardToken = import("zod").input<
+  typeof import("../shared/card-token-schemas.js").CardTokenSchema
+>;
 import { InvalidRow } from "./row-schemas.js";
 import * as cardTokensQueries from "./sql/card-tokens.js";
 import * as cardTokenIdsQueries from "./sql/card-token-ids.js";
@@ -18,7 +21,6 @@ import {
   CreateCardTokenSchema,
   cardAuthorization,
   type CardAuthorization,
-  type CardToken,
 } from "../shared/card-access.js";
 
 import {
