@@ -1,5 +1,6 @@
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
@@ -85,7 +86,6 @@ export function Projects({
     [page, setPage] = useState(() =>
       projectTab(sessionStorage.getItem("loop-project-tab")),
     ),
-    [summary, setSummary] = useState<Summary[] | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const current = folders.find((f) => f.id === selected);
@@ -143,15 +143,15 @@ export function Projects({
       (a) => !a.retired_at && belongsToProject(a.folder_id, id, folders),
     );
   const projectAgents = current ? members(current.id) : [];
-  useEffect(() => {
-    let active = true;
-    callRoute(workspaceApi.projectSummaries, {}, executionSourceId())
-      .then((result) => active && setSummary(result.items))
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [revision, folders.length]);
+  const summaries = useProjectionQuery(
+    workspaceApi.projectSummaries,
+    {},
+    {
+      source: executionSourceId(),
+      revision: JSON.stringify([revision, folders.length]),
+    },
+  );
+  const summary = summaries.data?.items;
   // Opening a project brings back anything snoozed "until I open this project".
   useEffect(() => {
     if (!selected) return;
@@ -185,6 +185,7 @@ export function Projects({
       }));
   return (
     <section className="projects-view">
+      <CollectionReadNotice {...summaries} />
       {current ? (
         <>
           <div className="project-topbar">
@@ -501,28 +502,12 @@ export function ProjectSearchResults({
   onArtifact: (id: string) => void;
 }) {
   type SearchItem = RouteResponse<typeof workspaceApi.search>["items"][number];
-  const [result, setResult] = useState<RouteResponse<
-    typeof workspaceApi.search
-  > | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    if (!query.trim()) return;
-    let active = true;
-    setResult(null);
-    setError("");
-    callRoute(
-      workspaceApi.search,
-      {
-        query: { q: query, scope: "all", project: parseId(ProjectId, project) },
-      },
-      executionSourceId(),
-    )
-      .then((r) => active && setResult(r))
-      .catch((e) => active && setError((e as Error).message));
-    return () => {
-      active = false;
-    };
-  }, [project, query]);
+  const search = useProjectionQuery(
+    workspaceApi.search,
+    { query: { q: query, scope: "all", project: parseId(ProjectId, project) } },
+    { source: executionSourceId(), enabled: !!query.trim() },
+  );
+  const result = search.data;
   const groups: { key: string; items: SearchItem[] }[] = [];
   for (const item of result?.items || []) {
     const key = item.conversation_id || item.id;
@@ -535,12 +520,7 @@ export function ProjectSearchResults({
       if (r.conversation_id) onConversation(r.conversation_id, r.id.slice(8));
     } else onArtifact(r.id.slice(9));
   };
-  if (error)
-    return (
-      <p className="error" role="alert">
-        {error}
-      </p>
-    );
+  if (search.error) return <CollectionReadNotice {...search} />;
   if (!result) return <p role="status">Searching…</p>;
   if (!groups.length)
     return (

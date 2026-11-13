@@ -2,6 +2,7 @@ import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { AutofillBoundary } from "./AutofillBoundary";
 import { readRoute } from "./api";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { storedCommandAt } from "./pendingCommandStorage";
 import {
   workspaceApi,
@@ -13,7 +14,6 @@ import {
   useSourceOperation,
   useSourceId,
   useSourceRoute,
-  useProjectionRoute,
 } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { parse } from "./json";
@@ -26,10 +26,7 @@ import { setConnection } from "./ConnectionNotice";
 import { NativeRequestDetails } from "./NativeRequestDetails";
 import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame } from "./workspace-projections";
-import {
-  WorkspaceChangeQueue,
-  listenWorkspaceChanges,
-} from "./workspace-changes";
+import { WorkspaceChangeQueue } from "./workspace-changes";
 import { type WorkspaceEvent } from "../shared/workspace-events";
 import { capabilities } from "./capabilities";
 import { multiplexWorkspaceSocket } from "./workspace-multiplex";
@@ -161,42 +158,28 @@ export function NativeDecisions({
   conversation?: string;
   onConversation?: (id: string) => void;
 }) {
-  const readContract = useProjectionRoute();
   const sourceId = useSourceId();
-  const [items, setItems] = useState<Decision[]>([]);
-  useEffect(() => {
-    let stopped = false,
-      latest = 0;
-    const load = () => {
-      const request = ++latest;
-      void readContract(workspaceApi.nativeDecisions, {
-        query: { conversation: parseId(ConversationId, conversation) },
-      })
-        .then((x) => {
-          if (!stopped && request === latest) setItems(x);
-        })
-        .catch(() => {});
-    };
-    const stopChanges = listenWorkspaceChanges(
-      "decisions",
-      load,
-      sourceId,
-      conversation,
-    );
-    load();
-    return () => {
-      stopped = true;
-      stopChanges();
-    };
-  }, [conversation, sourceId]);
-  if (!items.length) return null;
+  const query = useProjectionQuery(
+    workspaceApi.nativeDecisions,
+    { query: { conversation: parseId(ConversationId, conversation) } },
+    { source: sourceId, conversation, collections: ["decisions"] },
+  );
+  const items = query.data ?? [];
+  const notice = <CollectionReadNotice {...query} />;
+  if (!items.length) return notice;
   const cards = items.map((item) => (
     <DecisionCard key={item.id} item={item} onConversation={onConversation} />
   ));
   return conversation ? (
-    <div className="native-decisions">{cards}</div>
+    <div className="native-decisions">
+      {notice}
+      {cards}
+    </div>
   ) : (
-    <>{cards}</>
+    <>
+      {notice}
+      {cards}
+    </>
   );
 }
 function QuestionResponse({
