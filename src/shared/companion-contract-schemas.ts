@@ -1,3 +1,4 @@
+import { ProjectId, RunId, requestId } from "./contract-ids.js";
 import { NativeSessionState } from "./native-session-state.js";
 import { z } from "zod";
 import { ActivityKind, ActivityRecordSchema } from "./agent-activities.js";
@@ -19,7 +20,10 @@ export const RuntimeName = z.object({ name: RuntimeHarness });
 export const RuntimeAuthName = z.object({ name: AuthHarness });
 export const RuntimeAuthStart = executionOperations["auth.start"].input
   .omit({ name: true })
-  .extend({ commandId: Text.uuid() });
+  .extend({
+    projectId: requestId(ProjectId).min(1).max(200),
+    commandId: Text.uuid(),
+  });
 export const RuntimeAuthInput = executionOperations["auth.input"].input.omit({
   name: true,
 });
@@ -73,7 +77,10 @@ export const UpgradeRecoverInput = CommandIdentity.extend({
 });
 export const RuntimeEnableInput = executionOperations["runtime.enable"].input
   .omit({ name: true })
-  .extend({ commandId: Text.uuid().optional() });
+  .extend({
+    projectId: requestId(ProjectId).min(1).max(200),
+    commandId: Text.uuid().optional(),
+  });
 export const PublicEnabledRuntime = z.object({
   name: Harness,
   billing: PublicConnectionRefresh.shape.billing.unwrap(),
@@ -199,7 +206,7 @@ export const PublicNativeHistoryDetail = z.object({
 const ActivityRunIds = z.array(Text.min(1).max(150)).min(1).max(50);
 export const ActivityQuery = z.object({
   after: z.coerce.number<string>().int().nonnegative().optional(),
-  run: Text.max(100).optional(),
+  run: requestId(RunId).max(100).optional(),
   before: z.coerce
     .number<string>()
     .int()

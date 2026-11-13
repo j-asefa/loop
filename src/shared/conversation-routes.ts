@@ -3,6 +3,9 @@ import {
   ConversationId,
   RunId,
   requestId,
+  AgentId,
+  MessageId,
+  FolderId,
 } from "./contract-ids.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { z } from "zod";
@@ -29,7 +32,7 @@ export const conversationRoutes = {
     params: z.object({ id: requestId(ConversationId) }),
     query: z.object({
       before: Text.max(512).optional(),
-      message: Text.max(150).optional(),
+      message: requestId(MessageId).max(150).optional(),
       resume: z.enum(["0", "1"]).optional(),
     }),
     response: ConversationPage,
@@ -61,14 +64,14 @@ export const conversationRoutes = {
     path: "/runs",
     body: z
       .object({
-        agentId: Text,
-        conversationId: Text.optional(),
-        replyToMessageId: Text.min(1).max(150).optional(),
+        agentId: requestId(AgentId),
+        conversationId: requestId(ConversationId).optional(),
+        replyToMessageId: requestId(MessageId).min(1).max(150).optional(),
         replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
         input: Text.trim().min(1).max(30000),
         attachmentIds: AttachmentIds,
         idempotencyKey: Text.min(8).max(150),
-        folderId: Text.min(1).nullable().optional(),
+        folderId: requestId(FolderId).min(1).nullable().optional(),
         queue: z.boolean().optional(),
       })
       .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
@@ -120,7 +123,9 @@ export const conversationRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/native/decisions",
-    query: z.object({ conversation: Text.uuid().optional() }),
+    query: z.object({
+      conversation: requestId(ConversationId).uuid().optional(),
+    }),
     response: z.array(NativeDecision),
   }),
   nativeAnswer: endpoint({

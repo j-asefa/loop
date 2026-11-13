@@ -1,3 +1,4 @@
+import { AgentId, requestId } from "./contract-ids.js";
 import { McpConnectionStatus } from "./mcp-status.js";
 import { z } from "zod";
 import { toolInvocationSchema } from "./artifact-refresh.js";
@@ -31,7 +32,7 @@ export const McpCatalogInput = z.strictObject({
 // into a local command install.
 export const McpInstallInput = z.strictObject({
   config: z.union([Text.max(50000), z.record(Text, z.unknown())]),
-  agentId: Text.optional(),
+  agentId: requestId(AgentId).optional(),
 });
 // Request-only setup values, never the encrypted credential/storage shape.
 const AuthInput = z.discriminatedUnion("type", [

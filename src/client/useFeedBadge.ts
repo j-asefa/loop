@@ -1,3 +1,4 @@
+import { FolderId, parseId } from "../shared/contract-ids.js";
 import { useEffect, useState } from "react";
 import { workspaceApi } from "../shared/workspace-api";
 import { readRoute } from "./api";
@@ -41,7 +42,7 @@ export function useFeedBadge(
           {
             query: {
               filter: "needs",
-              ...(folder ? { folder } : {}),
+              ...(folder ? { folder: parseId(FolderId, folder) } : {}),
               ...(teams ? { teams } : {}),
             },
           },

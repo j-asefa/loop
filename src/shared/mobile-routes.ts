@@ -1,4 +1,11 @@
-import { ConversationId, MessageId, RunId, requestId } from "./contract-ids.js";
+import {
+  ConversationId,
+  MessageId,
+  RunId,
+  requestId,
+  FolderId,
+  ProjectId,
+} from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -219,7 +226,7 @@ export const mobileRoutes = {
     path: "/saved",
     query: z.object({
       before: Text.max(500).optional(),
-      folder: Text.max(150).optional(),
+      folder: requestId(FolderId).max(150).optional(),
       teams: Teams,
       q: Text.max(200).optional(),
     }),
@@ -314,7 +321,7 @@ export const mobileRoutes = {
     operation: "projectOpened",
     method: "POST",
     path: "/projects/:id/opened",
-    params: Id,
+    params: z.object({ id: requestId(ProjectId) }),
     body: z.unknown(),
     response: z.object({ surfaced: z.number() }),
   }),
@@ -341,7 +348,7 @@ export const mobileRoutes = {
     method: "GET",
     path: "/scheduled-sends",
     query: z.object({
-      conversation: Text.min(1).max(150).optional(),
+      conversation: requestId(ConversationId).min(1).max(150).optional(),
       failedBefore: Text.max(500).optional(),
     }),
     response: mobile.PublicScheduledList,

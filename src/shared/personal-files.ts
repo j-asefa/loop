@@ -1,10 +1,11 @@
+import { AgentId, ProjectId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 export const PersonalFilesQuery = z.object({
   q: z.string().trim().max(200).default(""),
   before: z.coerce.number<string>().int().positive().optional(),
-  agent: z.string().uuid().optional(),
-  project: z.string().uuid().optional(),
+  agent: requestId(AgentId).uuid().optional(),
+  project: requestId(ProjectId).uuid().optional(),
   type: z.enum(["all", "image", "video", "html", "other"]).default("all"),
 });
 const PersonalFile = z.object({

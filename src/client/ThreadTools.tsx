@@ -970,7 +970,7 @@ export function ScheduledSends({
   const query = (
     failedBefore?: string,
   ): RouteInput<typeof workspaceApi.scheduledSendList>["query"] => ({
-    conversation: conversationId || undefined,
+    conversation: parseId(ConversationId, conversationId) || undefined,
     failedBefore,
   });
   const load = (manual = false) =>

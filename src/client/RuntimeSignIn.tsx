@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { isManagedHarness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
 import {
@@ -183,14 +184,14 @@ function RuntimeSignInSession({
           workspaceApi.runtimeAuthProviders,
           {
             params: { name: runtime },
-            query: { projectId: projectId || "" },
+            query: { projectId: parseId(ProjectId, projectId || "") },
           },
           sourceId,
           signal,
         )
       : read(workspaceApi.runtimeAuthProviders, {
           params: { name: runtime },
-          query: { projectId: projectId || "" },
+          query: { projectId: parseId(ProjectId, projectId || "") },
         });
   }
   function status(signal?: AbortSignal, onRetry?: (error: unknown) => void) {
@@ -272,7 +273,7 @@ function RuntimeSignInSession({
     void perform(async () => {
       try {
         const body = {
-          projectId: projectId || "",
+          projectId: parseId(ProjectId, projectId || ""),
           provider,
           method,
           commandId,

@@ -1,3 +1,4 @@
+import { AgentId, ConversationId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 const Text = z.string();
@@ -45,8 +46,8 @@ export const WatchInput = z.object({
   enabled: z.boolean().default(true),
 });
 export const DigestInput = z.object({
-  agentId: Text.min(1).max(150),
-  conversationId: Text.min(1).max(150).nullish(),
+  agentId: requestId(AgentId).min(1).max(150),
+  conversationId: requestId(ConversationId).min(1).max(150).nullish(),
   feeds: z.array(Text.min(1).max(120)).max(200).nullish(),
   minuteOfDay: z.number().int().min(0).max(1439),
   zone: Text.min(1).max(60),

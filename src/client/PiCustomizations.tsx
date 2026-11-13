@@ -1,4 +1,4 @@
-import { AgentId } from "../shared/contract-ids.js";
+import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
@@ -194,7 +194,7 @@ export function PiCustomizations({
           name: resource.name,
           args: promptArgs,
           ...(conversationId && selected === agentId
-            ? { conversation: conversationId }
+            ? { conversation: parseId(ConversationId, conversationId) }
             : {}),
         },
       });
@@ -255,8 +255,10 @@ export function PiCustomizations({
     void route(workspaceApi.agentHarness, {
       params: { id: selectedId },
       query: {
-        conversation:
+        conversation: parseId(
+          ConversationId,
           conversationId && selected === agentId ? conversationId : undefined,
+        ),
       },
     })
       .then((result) => active && setCatalog(result))

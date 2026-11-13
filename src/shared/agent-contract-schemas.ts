@@ -1,4 +1,9 @@
-import { ConnectionId, FolderId, requestId } from "./contract-ids.js";
+import {
+  ConnectionId,
+  FolderId,
+  requestId,
+  ConversationId,
+} from "./contract-ids.js";
 import { TraceKind } from "./trace-kind.js";
 import { RunDisplayState } from "./run-state.js";
 import { z } from "zod";
@@ -229,7 +234,7 @@ export const PiFiltersInput = z.strictObject({
 export const PiPreviewInput = z.strictObject({
   name: Text.min(1).max(100),
   args: Text.max(2000),
-  conversation: Text.uuid().optional(),
+  conversation: requestId(ConversationId).uuid().optional(),
 });
 export const PiInspectInput = z.strictObject({ source: Source });
 export const PiRollbackInput = z.strictObject({ source: Source, scope: Scope });

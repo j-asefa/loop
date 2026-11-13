@@ -1,3 +1,4 @@
+import { ProjectId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 import { ManagedHarness } from "./harnesses.js";
@@ -31,7 +32,7 @@ export const NativeProviderView = z.object({
 export type NativeProviderView = z.infer<typeof NativeProviderView>;
 export const ProviderTarget = z.object({
   name: ManagedHarness,
-  projectId: z.string().min(1),
+  projectId: requestId(ProjectId).min(1),
 });
 export const ProviderKey = ProviderTarget.extend({
   provider: z.string().min(1).max(200),

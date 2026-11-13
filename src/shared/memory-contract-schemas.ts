@@ -1,3 +1,4 @@
+import { ProjectId, requestId } from "./contract-ids.js";
 import {
   MemorySourceKind,
   MemorySourceOrigin,
@@ -15,7 +16,7 @@ export const MemoryPolicyInput = z.object({
 export const MemoryNoteInput = z.object({
   title: Text.min(1).max(180),
   content: Text.min(1).max(20000),
-  projectId: Text.nullable().default(null),
+  projectId: requestId(ProjectId).nullable().default(null),
 });
 export const MemoryNoteUpdateInput = MemoryNoteInput.omit({
   projectId: true,

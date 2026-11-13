@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, isManagedHarness } from "../shared/harnesses";
 import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -172,7 +173,7 @@ export function RuntimeSetup({
             {
               params: { name: runtime.name },
               body: {
-                projectId: projectId || "",
+                projectId: parseId(ProjectId, projectId || ""),
                 billing:
                   workspaceApi.runtimeEnable.body.shape.billing.parse(
                     selectedBilling,

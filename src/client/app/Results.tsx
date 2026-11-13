@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../../shared/contract-ids.js";
 import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
 import { ContentCard } from "../ContentCard";
 import { resultAction, type ResultAction } from "../card-actions";
@@ -130,7 +131,10 @@ export function createResultsLoader(props: ResultsProps) {
         view: "results" as const,
         agent: profile?.id,
         teams: profile ? undefined : teamKey || undefined,
-        project: !profile && projectFilter ? projectFilter : undefined,
+        project: parseId(
+          ProjectId,
+          !profile && projectFilter ? projectFilter : undefined,
+        ),
       };
       const cardPage =
         view !== "files"

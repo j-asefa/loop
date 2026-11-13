@@ -1,3 +1,4 @@
+import { AgentId, ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -94,8 +95,8 @@ export function PersonalFiles({
               query: {
                 ...query,
                 q: query.q || undefined,
-                agent: query.agent || undefined,
-                project: query.project || undefined,
+                agent: parseId(AgentId, query.agent || undefined),
+                project: parseId(ProjectId, query.project || undefined),
                 before: cursor ? String(cursor) : undefined,
               },
             },

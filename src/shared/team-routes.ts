@@ -48,7 +48,7 @@ export const teamRoutes = {
     method: "POST",
     path: "/teams/:id/members",
     params: z.object({ id: requestId(TeamId) }),
-    body: z.object({ agentId: Text.min(1) }),
+    body: z.object({ agentId: requestId(AgentId).min(1) }),
     response: PublicTeam,
   }),
   teamFeedVisibility: endpoint({

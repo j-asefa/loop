@@ -1,3 +1,4 @@
+import { ProjectId } from "../src/shared/contract-ids.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
@@ -96,7 +97,10 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
       );
       const providers = await readRoute(
         workspaceApi.runtimeAuthProviders,
-        { params: { name: "pi" }, query: { projectId: projectResult.id } },
+        {
+          params: { name: "pi" },
+          query: { projectId: ProjectId.parse(projectResult.id) },
+        },
         source,
         controller.signal,
       );
@@ -122,7 +126,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
         const startInput = {
           params: { name: "pi" as const },
           body: {
-            projectId: projectResult.id,
+            projectId: ProjectId.parse(projectResult.id),
             provider: "anthropic",
             method: "api",
             commandId,
@@ -198,7 +202,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
           {
             params: { name: "grok" },
             body: {
-              projectId: projectResult.id,
+              projectId: ProjectId.parse(projectResult.id),
               provider: "xai",
               method: "oauth",
               commandId: randomUUID(),

@@ -1,3 +1,4 @@
+import { AgentId } from "../src/shared/contract-ids.js";
 import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -843,7 +844,7 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
     return response.body;
   };
   const reader = new DoneCardsReader(peer + ":done");
-  const selection = { view: "done" as const, agent };
+  const selection = { view: "done" as const, agent: AgentId.parse(agent) };
   const first = await reader.load(request, selection, false);
   expect(first?.page.items.map((entry) => entry.card.id)).toEqual([
     "d:run:" + newer,

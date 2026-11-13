@@ -7,6 +7,7 @@ import {
   FolderId,
   ProjectId,
   TeamId,
+  requestId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
@@ -129,8 +130,8 @@ const integer = z.coerce
   .max(Number.MAX_SAFE_INTEGER);
 export const CardSelectionSchema = z.object({
   view: CardViewSchema.default("results"),
-  project: z.string().min(1).max(150).optional(),
-  agent: z.string().min(1).max(150).optional(),
+  project: requestId(ProjectId).min(1).max(150).optional(),
+  agent: requestId(AgentId).min(1).max(150).optional(),
   teams: z.string().max(2000).optional(),
   read: z
     .enum(["read", "unread"])

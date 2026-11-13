@@ -25,7 +25,9 @@ import { ExecutionProblem } from "../shared/problem.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import type { Harness } from "../shared/protocol.js";
 
-type Target = ExecutionInput<"provider.catalog">;
+type Target = Omit<ExecutionInput<"provider.catalog">, "projectId"> & {
+  projectId: string;
+};
 // Secret-bearing commands have only HMAC receipts on disk. Keep their safe
 // results in the generation that executed them, never replay the credential.
 const keyResults = new Map<string, NativeProviderView>();

@@ -1,3 +1,4 @@
+import { FolderId, AgentId, requestId } from "./contract-ids.js";
 import { FEED_FILTERS } from "./feed-categories.js";
 import { z } from "zod";
 import { Text, NumberCursor, endpoint, base } from "./route-contract.js";
@@ -27,8 +28,8 @@ export const workspaceFeedRoutes = {
     path: "/feed",
     query: z.object({
       filter: z.enum(FEED_FILTERS).default("all"),
-      folder: Text.min(1).max(150).optional(),
-      agent: Text.min(1).max(150).optional(),
+      folder: requestId(FolderId).min(1).max(150).optional(),
+      agent: requestId(AgentId).min(1).max(150).optional(),
       before: Text.min(1).max(512).optional(),
       teams: Teams,
       known: Text.optional(),

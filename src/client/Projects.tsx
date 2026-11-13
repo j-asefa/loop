@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -156,7 +157,7 @@ export function Projects({
     if (!selected) return;
     void callRoute(
       workspaceApi.projectOpened,
-      { params: { id: selected }, body: {} },
+      { params: { id: parseId(ProjectId, selected) }, body: {} },
       executionSourceId(),
     )
       .then((result) => {
@@ -511,7 +512,9 @@ export function ProjectSearchResults({
     setError("");
     callRoute(
       workspaceApi.search,
-      { query: { q: query, scope: "all", project } },
+      {
+        query: { q: query, scope: "all", project: parseId(ProjectId, project) },
+      },
       executionSourceId(),
     )
       .then((r) => active && setResult(r))

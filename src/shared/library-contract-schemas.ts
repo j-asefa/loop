@@ -4,6 +4,7 @@ import {
   FolderId,
   MessageId,
   requestId,
+  ProjectId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
@@ -42,7 +43,7 @@ export const ArtifactCreateInput = z.object({
   title: Text.min(1).max(180),
   kind: OwnerArtifactKindSchema.default(DefaultArtifactKind),
   content: Text.max(200000),
-  folder: Text.optional(),
+  folder: requestId(FolderId).optional(),
   metadata: z
     .object({ snippet: z.literal(true) })
     .strict()
@@ -76,16 +77,16 @@ export const ContinueInput = z.object({
 const Filter = Text.optional().catch(undefined),
   NumericQuery = z.union([Text, z.array(Text)]).optional();
 export const ArtifactListQuery = z.object({
-  folder: Text.optional(),
-  agent: Text.optional(),
+  folder: requestId(FolderId).optional(),
+  agent: requestId(AgentId).optional(),
   pinned: Filter,
   before: NumericQuery,
 });
 export const SearchQuery = z.object({
   q: Text.min(1).max(500),
-  agent: Filter,
-  folder: Filter,
-  project: Filter,
+  agent: requestId(AgentId).optional().catch(undefined),
+  folder: requestId(FolderId).optional().catch(undefined),
+  project: requestId(ProjectId).optional().catch(undefined),
   kind: Filter,
   scope: Filter,
   category: z.enum(feedCategories.map(({ id }) => id)).optional(),
