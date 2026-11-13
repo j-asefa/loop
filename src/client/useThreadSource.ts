@@ -48,12 +48,23 @@ export function useThreadSource(source: string | null, owner?: string) {
             );
           };
           arm();
-          const waiting = (error: unknown, delayMs: number) => {
-            deadline = Math.max(deadline, Date.now() + delayMs + 20_000);
-            arm();
-            setWaitingState(
-              isRateLimited(error) ? { scope, signal } : undefined,
-            );
+          const cooldowns = new Set<string>();
+          const publishCooldowns = () => {
+            if (!signal.aborted && generation === viewGeneration())
+              setWaitingState(cooldowns.size ? { scope, signal } : undefined);
+          };
+          const waiting =
+            (read: string) => (error: unknown, delayMs: number) => {
+              deadline = Math.max(deadline, Date.now() + delayMs + 20_000);
+              arm();
+              if (isRateLimited(error)) cooldowns.add(read);
+              else cooldowns.delete(read);
+              publishCooldowns();
+            };
+          const complete = <T>(read: string, value: T) => {
+            cooldowns.delete(read);
+            publishCooldowns();
+            return value;
           };
           const settle = beginWorkspaceRead(source!, "thread-source", signal);
           try {
@@ -63,17 +74,17 @@ export function useThreadSource(source: string | null, owner?: string) {
                 {},
                 source!,
                 pair.signal,
-                waiting,
+                waiting("bootstrap"),
                 mode,
-              ),
+              ).then((value) => complete("bootstrap", value)),
               readRoute(
                 workspaceApi.capabilities,
                 {},
                 source!,
                 pair.signal,
-                waiting,
+                waiting("capabilities"),
                 mode,
-              ),
+              ).then((value) => complete("capabilities", value)),
             ]);
             settle(false);
             return { data, capabilities };
@@ -83,9 +94,10 @@ export function useThreadSource(source: string | null, owner?: string) {
               previous?.signal === signal ? undefined : previous,
             );
             settle(
-              deadlineExpired ||
-                failure.network === true ||
-                (failure.status !== undefined && failure.status >= 500),
+              mode === "automatic" &&
+                (deadlineExpired ||
+                  failure.network === true ||
+                  (failure.status !== undefined && failure.status >= 500)),
             );
             if (deadlineExpired && !signal.aborted)
               throw new Error("This workspace timed out. Try again.");

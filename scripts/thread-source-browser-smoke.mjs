@@ -60,6 +60,10 @@ try {
       return;
     }
     if (path.endsWith("/capabilities")) {
+      if (mode === "paired") {
+        send(429, { error: "Capabilities cooldown" }, { "Retry-After": "60" });
+        return;
+      }
       send(200, {
         pairedDevices: true,
         cardTokens: true,
@@ -72,6 +76,10 @@ try {
       reads++;
       if (mode === "cooldown") {
         send(429, { error: "Wait" }, { "Retry-After": "60" });
+        return;
+      }
+      if (mode === "paired") {
+        held.push(() => send(503, { error: "Bootstrap transient" }));
         return;
       }
       if (mode === "failure") {
@@ -104,7 +112,7 @@ try {
   });
   for (const scenario of process.argv.length > 2
     ? process.argv.slice(2)
-    : ["cooldown", "slow", "timeout", "recovery", "scope"]) {
+    : ["cooldown", "paired", "slow", "timeout", "recovery", "scope"]) {
     mode =
       scenario === "cooldown"
         ? "cooldown"
@@ -112,7 +120,9 @@ try {
           ? "failure"
           : scenario === "slow"
             ? "slow"
-            : "hold";
+            : scenario === "paired"
+              ? "paired"
+              : "hold";
     reads = 0;
     label = "old";
     const context = await browser.newContext(),
@@ -137,6 +147,26 @@ try {
           2,
           "cooldown resumes automatically without another event",
         );
+      } else if (scenario === "paired") {
+        await expect.poll(() => held.length).toBe(1);
+        await expect(page.locator("#error")).toContainText(
+          "Retrying automatically",
+        );
+        const response = page.waitForResponse((r) =>
+          r.url().endsWith("/bootstrap"),
+        );
+        held.shift()();
+        await response;
+        await page.clock.runFor(100);
+        assert.match(
+          await page.locator("#error").textContent(),
+          /Retrying automatically/,
+          "the sibling retry cannot hide an active cooldown",
+        );
+        mode = "healthy";
+        await page.clock.fastForward(61000);
+        await expect(page.locator("#data")).toHaveText("old");
+        await expect(page.locator("#error")).toBeEmpty();
       } else if (scenario === "slow") {
         const release = async () => {
           const response = page.waitForResponse((r) =>
@@ -184,6 +214,14 @@ try {
           "Metadata unavailable",
         );
         assert.equal(await page.evaluate(() => window.needsRecovery()), true);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await expect.poll(() => reads).toBe(4);
+        await page.clock.runFor(20);
+        assert.equal(
+          await page.evaluate(() => window.needsRecovery()),
+          false,
+          "manual failure must not register automatic recovery",
+        );
         mode = "healthy";
         label = "recovered";
         await page.evaluate(() =>
