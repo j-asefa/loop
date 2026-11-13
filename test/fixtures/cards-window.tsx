@@ -1,14 +1,22 @@
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
+import { CollectionReadNotice } from "../../src/client/CollectionRead";
 import { useCards } from "../../src/client/useCards";
 import { SourceProvider } from "../../src/client/SourceContext";
 import { workspaceCapabilities } from "../../src/shared/capabilities";
 import { setViewOwner } from "../../src/client/viewCache";
 function Collection({ query }: { query: string }) {
-  const { items, error, loading, load } = useCards({ view: "saved", q: query });
+  const { items, error, loading, load, busy, retry } = useCards({
+    view: "saved",
+    q: query,
+  });
   return (
     <>
-      <div role="alert">{error}</div>
+      <CollectionReadNotice
+        error={error}
+        busy={busy}
+        retry={() => void retry()}
+      />
       {loading && <p role="status">Loading cards</p>}
       <button disabled={loading} onClick={() => void load(true)}>
         More cards

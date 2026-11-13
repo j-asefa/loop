@@ -1,13 +1,12 @@
 import assert from "node:assert/strict";
-import { chromium, webkit, expect } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { webhookSettingsReceiver } from "./helpers/webhook-settings-smoke.mjs";
 
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
-const browser = await engine.launch({
+const browser = await chromium.launch({
   headless: true,
-  ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
-  ...(engine === chromium && process.env.CHROMIUM_PATH
+  args: ["--no-sandbox"],
+  ...(process.env.CHROMIUM_PATH
     ? { executablePath: process.env.CHROMIUM_PATH }
     : {}),
 });
