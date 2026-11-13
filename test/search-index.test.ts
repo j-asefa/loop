@@ -17,6 +17,11 @@ const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { page: eventPage } = await import("../src/server/sql/events");
+const searchSignals = (owner: string) =>
+  eventPage(db, owner, 0).filter(
+    (e) => e.subject_kind === "collection" && e.subject_id === "search",
+  );
 const { seal } = await import("../src/server/secrets");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { indexPending, search, searchStatus } =
@@ -70,6 +75,11 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
     indexed: 16,
     pending: 3,
   });
+  expect(searchSignals(owner)).toHaveLength(1);
+  expect(JSON.parse(searchSignals(owner)[0].payload)).toEqual({
+    scope: { kind: "collection", id: "search" },
+  });
+  expect(searchSignals("stranger")).toHaveLength(0);
   advance();
   await indexPending();
   expect(searchStatus(owner)).toMatchObject({
@@ -77,6 +87,10 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
     indexed: 19,
     pending: 0,
   });
+  expect(searchSignals(owner)).toHaveLength(2);
+  advance();
+  await indexPending();
+  expect(searchSignals(owner)).toHaveLength(2);
   const result = await search(owner, "automobile");
   expect(result).toMatchObject({ mode: "hybrid", pending: 0 });
   expect(result.items).toHaveLength(18);
@@ -144,6 +158,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
     pending: 1,
   });
   expect(searchStatus(owner).detail).not.toContain("credentials");
+  expect(searchSignals(owner)).toHaveLength(1);
   const result = await search(owner, "Travel");
   expect(result.items).toHaveLength(1);
   expect(result.detail).toContain("indexing failed");
@@ -151,6 +166,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
   advance();
   await indexPending();
   expect(fixture.calls).toBe(calls);
+  expect(searchSignals(owner)).toHaveLength(1);
   fixture.fail = false;
   advance(31000);
   await indexPending();
@@ -159,6 +175,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
     indexed: 1,
     pending: 0,
   });
+  expect(searchSignals(owner)).toHaveLength(3);
   expect((await search(owner, "automobile")).items).toHaveLength(1);
   fixture.stall = true;
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

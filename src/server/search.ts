@@ -13,7 +13,7 @@ import { ownedConnection } from "./domain.js";
 import { ftsQuery, searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
-import { db, now } from "./db.js";
+import { db, emit, now } from "./db.js";
 import { unseal } from "./secrets.js";
 
 import { localEmbeddings, localModel } from "./local-embeddings.js";
@@ -146,15 +146,25 @@ export async function indexPending() {
       );
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
+      let published = JSON.stringify(searchStatus(owner_id));
       const status = (state: string, error: string | null = null) =>
-        searchIndexStatusQueries.replace(
-          db,
-          owner_id,
-          configuration(c),
-          state,
-          error,
-          now(),
-        );
+        db.transaction(() => {
+          searchIndexStatusQueries.replace(
+            db,
+            owner_id,
+            configuration(c),
+            state,
+            error,
+            now(),
+          );
+          const snapshot = JSON.stringify(searchStatus(owner_id));
+          if (snapshot !== published) {
+            emit(owner_id, { kind: "collection", id: "search" }, "invalidate", {
+              scope: { kind: "collection", id: "search" },
+            });
+            published = snapshot;
+          }
+        })();
       const docs = searchDocumentsQueries.pendingIndex(
         db,
         owner_id,
@@ -181,7 +191,7 @@ export async function indexPending() {
           )
         )
           throw new Error("Invalid embedding response");
-        db.transaction(() =>
+        db.transaction(() => {
           docs.forEach((d, i) => {
             const current = searchDocumentsQueries.owned(db, d.id, owner_id);
             const live = embeddingConfig(owner_id);
@@ -200,9 +210,9 @@ export async function indexPending() {
                 hash(d),
                 now(),
               );
-          }),
-        )();
-        status("ready");
+          });
+          status("ready");
+        })();
       } catch (error) {
         status(
           "error",

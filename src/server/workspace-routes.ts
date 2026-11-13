@@ -20,7 +20,7 @@ import { nativeSessions } from "./native-sessions.js";
 
 import multer from "multer";
 import { z } from "zod";
-import { db, id, now } from "./db.js";
+import { db, emit, id, now } from "./db.js";
 import {
   ownedFolder,
   ownedArtifact,
@@ -322,15 +322,21 @@ routes.on(workspaceApi.preferencesUpdate, (req, res) => {
     if (c.provider !== "openai" || c.status !== "connected")
       throw new Problem(400, "Choose a connected OpenAI API account");
   }
-  preferencesQueries.upsert(
-    db,
-    res.locals.owner,
-    d.connectionId,
-    d.connectionId ? config.embeddingModel : localModel,
-    Number(d.embeddingEnabled),
-  );
-  if (!d.embeddingEnabled) embeddingsQueries.removeOwner(db, res.locals.owner);
-  searchIndexStatusQueries.removeOwner(db, res.locals.owner);
+  db.transaction(() => {
+    preferencesQueries.upsert(
+      db,
+      res.locals.owner,
+      d.connectionId,
+      d.connectionId ? config.embeddingModel : localModel,
+      Number(d.embeddingEnabled),
+    );
+    if (!d.embeddingEnabled)
+      embeddingsQueries.removeOwner(db, res.locals.owner);
+    searchIndexStatusQueries.removeOwner(db, res.locals.owner);
+    emit(res.locals.owner, { kind: "collection", id: "search" }, "invalidate", {
+      scope: { kind: "collection", id: "search" },
+    });
+  })();
   res.json({ ok: true });
 });
 const upload = multer({

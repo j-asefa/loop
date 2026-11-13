@@ -484,6 +484,22 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         kind: "markdown",
       });
       assert(saved.id);
+      const searchSignals = () =>
+        frames
+          .flatMap((frame) => frame.events || [])
+          .filter(
+            (entry) =>
+              entry.event?.type === "invalidate" &&
+              entry.event.scope.kind === "collection" &&
+              entry.event.scope.id === "search",
+          );
+      const before = searchSignals().length;
+      await api("/preferences", {
+        embeddingEnabled: false,
+        connectionId: null,
+      });
+      await until(() => searchSignals().length === before + 1);
+      assert.equal((await api("/search/status")).enabled, false);
       assert(
         (await api("/artifacts")).items.some((x: any) => x.id === saved.id),
       );
