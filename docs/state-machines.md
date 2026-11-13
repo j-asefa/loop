@@ -399,6 +399,9 @@ mail; ineligible results retain their metadata until source deletion.
 generation together with the paired-session projection. Session reads and expiry
 publish through that store; AppController subscribes to its stable snapshot with
 `useSyncExternalStore` instead of setting global ownership during render.
+Session reads publish only while the snapshot that started the read remains
+current. A late successful response cannot replace an expired session, another
+owner, or a newer identity projection for the same owner.
 Cache resets finish before subscribers observe an owner change. A suspended or
 abandoned render does not publish a session. Re-selecting the same owner leaves
 the generation and caches alone;

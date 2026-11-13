@@ -127,9 +127,56 @@ try {
   assert.equal(returned.generation, first.generation + 3);
   assert.equal(returned.draft, "Alice draft");
   assert.equal(returned.cached, undefined);
+  for (const transition of ["owner", "expiry"]) {
+    let release;
+    let arrived;
+    const reached = new Promise((resolve) => {
+      arrived = resolve;
+    });
+    const handler = async (route) => {
+      await new Promise((resolve) => {
+        release = resolve;
+        arrived();
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          user: { id: "alice", name: "Stale Alice" },
+          mode: "paired",
+        }),
+      });
+    };
+    await page.route("**/api/auth/get-session", handler);
+    try {
+      await page.evaluate(() => {
+        window.checkDone = false;
+        void window.model.check().finally(() => {
+          window.checkDone = true;
+        });
+      });
+      await reached;
+      if (transition === "owner")
+        await page.evaluate(() => window.changeOwner("bob"));
+      else
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-auth-expired")),
+        );
+      const expected = transition === "owner" ? "bob" : "anonymous";
+      await expect(page.locator("#owner")).toHaveText(expected);
+      const current = await page.evaluate(() => window.inspect());
+      release();
+      await expect.poll(() => page.evaluate(() => window.checkDone)).toBe(true);
+      await expect(page.locator("#owner")).toHaveText(expected);
+      assert.deepEqual(await page.evaluate(() => window.inspect()), current);
+    } finally {
+      release?.();
+      await page.unroute("**/api/auth/get-session", handler);
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(
-    "Session snapshot: suspended render, owner replacement, expiry and durable draft isolation passed",
+    "Session snapshot: suspended render, owner replacement, expiry, delayed auth responses and durable draft isolation passed",
   );
 } finally {
   await browser?.close();
