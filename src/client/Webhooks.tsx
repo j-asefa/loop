@@ -1,3 +1,7 @@
+import {
+  WebhookRequestId,
+  WebhookSubscriptionId,
+} from "../shared/contract-ids.js";
 import { useEffect, useId, useRef, useState } from "react";
 import { Webhook } from "lucide-react";
 import { callRoute, readRoute } from "./api";
@@ -111,7 +115,7 @@ export function Webhooks({
     historyId.current = id;
     const rows = await readRoute(
       workspaceApi.webhookDeliveries,
-      { params: { id } },
+      { params: { id: WebhookSubscriptionId.parse(id) } },
       sourceId,
       reads.current.signal,
       undefined,
@@ -166,7 +170,10 @@ export function Webhooks({
           workspaceApi.webhookUpdate,
           {
             params: { id: item.id },
-            body: { request_id: receipt.request_id, kinds: receipt.kinds! },
+            body: {
+              request_id: WebhookRequestId.parse(receipt.request_id),
+              kinds: receipt.kinds!,
+            },
           },
           sourceId,
         );
@@ -184,7 +191,10 @@ export function Webhooks({
             workspaceApi.webhookUpdate,
             {
               params: { id: item.id },
-              body: { request_id: receipt.request_id, kinds: receipt.kinds! },
+              body: {
+                request_id: WebhookRequestId.parse(receipt.request_id),
+                kinds: receipt.kinds!,
+              },
             },
             sourceId,
           );
@@ -192,19 +202,28 @@ export function Webhooks({
       } else if (action === "test")
         await callRoute(
           workspaceApi.webhookTest,
-          { params: { id: item.id }, body: { request_id: receipt.request_id } },
+          {
+            params: { id: item.id },
+            body: { request_id: WebhookRequestId.parse(receipt.request_id) },
+          },
           sourceId,
         );
       else if (action === "retry")
         await callRoute(
           workspaceApi.webhookRetry,
-          { params: { id: item.id }, body: { request_id: receipt.request_id } },
+          {
+            params: { id: item.id },
+            body: { request_id: WebhookRequestId.parse(receipt.request_id) },
+          },
           sourceId,
         );
       else
         await callRoute(
           workspaceApi.webhookRevoke,
-          { params: { id: item.id }, body: { request_id: receipt.request_id } },
+          {
+            params: { id: item.id },
+            body: { request_id: WebhookRequestId.parse(receipt.request_id) },
+          },
           sourceId,
         );
       forget();
@@ -278,7 +297,12 @@ export function Webhooks({
             try {
               const value = await callRoute(
                 workspaceApi.webhookCreate,
-                { body: receipt },
+                {
+                  body: {
+                    ...receipt,
+                    request_id: WebhookRequestId.parse(receipt.request_id),
+                  },
+                },
                 sourceId,
               );
               if (current()) {

@@ -1,6 +1,7 @@
+import { WebhookSubscriptionId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as webhooks from "./webhooks.js";
-import { Id, endpoint, base } from "./route-contract.js";
+import { endpoint, base } from "./route-contract.js";
 
 export const webhookRoutes = {
   webhooks: endpoint({
@@ -24,7 +25,7 @@ export const webhookRoutes = {
     operation: "webhookUpdate",
     method: "PATCH",
     path: "/webhooks/:id",
-    params: Id,
+    params: z.object({ id: requestId(WebhookSubscriptionId) }),
     body: webhooks.WebhookUpdate,
     response: webhooks.WebhookSubscription,
   }),
@@ -33,7 +34,7 @@ export const webhookRoutes = {
     operation: "webhookTest",
     method: "POST",
     path: "/webhooks/:id/test",
-    params: Id,
+    params: z.object({ id: requestId(WebhookSubscriptionId) }),
     body: webhooks.WebhookRequest,
     response: z.object({
       subscription: webhooks.WebhookSubscription,
@@ -45,7 +46,7 @@ export const webhookRoutes = {
     operation: "webhookRetry",
     method: "POST",
     path: "/webhooks/:id/retry",
-    params: Id,
+    params: z.object({ id: requestId(WebhookSubscriptionId) }),
     body: webhooks.WebhookRequest,
     response: webhooks.WebhookSubscription,
   }),
@@ -54,7 +55,7 @@ export const webhookRoutes = {
     operation: "webhookRevoke",
     method: "POST",
     path: "/webhooks/:id/revoke",
-    params: Id,
+    params: z.object({ id: requestId(WebhookSubscriptionId) }),
     body: webhooks.WebhookRequest,
     response: webhooks.WebhookSubscription,
   }),
@@ -63,7 +64,7 @@ export const webhookRoutes = {
     operation: "webhookDeliveries",
     method: "GET",
     path: "/webhooks/:id/deliveries",
-    params: Id,
+    params: z.object({ id: requestId(WebhookSubscriptionId) }),
     response: z.array(webhooks.WebhookDelivery),
   }),
 } as const;

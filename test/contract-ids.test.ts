@@ -1,3 +1,9 @@
+import {
+  CardTokenId,
+  WebhookSubscriptionId,
+  WebhookDeliveryId,
+  WebhookRequestId,
+} from "../src/shared/contract-ids.js";
 import { MailId, MailThreadId } from "../src/shared/contract-ids.js";
 import {
   DefinitionId,
@@ -516,6 +522,34 @@ it("distinguishes mail from thread identities without tightening string paths", 
   const wrong: RouteInput<typeof workspaceApi.agentThreadDetail>["params"] = {
     // @ts-expect-error A mail message is not its thread.
     id: MailId.parse("mail"),
+  };
+  void wrong;
+});
+
+it("preserves token and webhook validators with distinct request domains", () => {
+  for (const schema of [
+    CardTokenId,
+    WebhookSubscriptionId,
+    WebhookDeliveryId,
+    WebhookRequestId,
+  ]) {
+    expect(schema.parse("opaque:fixture")).toBe("opaque:fixture");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  expect(
+    workspaceApi.cardTokenRevoke.params.safeParse({ id: "" }).success,
+  ).toBe(false);
+  expect(
+    workspaceApi.webhookUpdate.params.parse({ id: "opaque:fixture" }),
+  ).toEqual({ id: "opaque:fixture" });
+  expect(
+    workspaceApi.webhookTest.body.safeParse({ request_id: "opaque:fixture" })
+      .success,
+  ).toBe(false);
+  const wrong: RouteInput<typeof workspaceApi.webhookDeliveries>["params"] = {
+    // @ts-expect-error A webhook delivery is not a subscription.
+    id: WebhookDeliveryId.parse("delivery"),
   };
   void wrong;
 });

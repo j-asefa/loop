@@ -76,6 +76,17 @@ export type MailId = z.output<typeof MailId>;
 export const MailThreadId = z.string().brand<"MailThreadId">();
 export type MailThreadId = z.output<typeof MailThreadId>;
 
+export const CardTokenId = z.string().brand<"CardTokenId">();
+export type CardTokenId = z.output<typeof CardTokenId>;
+export const WebhookSubscriptionId = z
+  .string()
+  .brand<"WebhookSubscriptionId">();
+export type WebhookSubscriptionId = z.output<typeof WebhookSubscriptionId>;
+export const WebhookDeliveryId = z.string().brand<"WebhookDeliveryId">();
+export type WebhookDeliveryId = z.output<typeof WebhookDeliveryId>;
+export const WebhookRequestId = z.string().brand<"WebhookRequestId">();
+export type WebhookRequestId = z.output<typeof WebhookRequestId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

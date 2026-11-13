@@ -1,3 +1,9 @@
+import {
+  WebhookSubscriptionId,
+  WebhookDeliveryId,
+  WebhookRequestId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 
 const Id = z.string().min(1).max(300);
@@ -12,7 +18,7 @@ const WebhookState = z.enum([
 ]);
 export const WebhookStop = z
   .object({
-    id: z.string().uuid(),
+    id: WebhookDeliveryId.uuid(),
     event_id: z.number().int().positive(),
     kind: WebhookKind,
     version: z.literal(1),
@@ -47,7 +53,7 @@ export const WebhookStop = z
   );
 export const WebhookPing = z
   .object({
-    id: z.string().uuid(),
+    id: WebhookDeliveryId.uuid(),
     type: z.literal("ping"),
     sent_at: Time,
   })
@@ -62,7 +68,7 @@ const WebhookOutcome = z.enum([
   "cancelled",
 ]);
 export const WebhookDelivery = z.object({
-  id: Id,
+  id: WebhookDeliveryId.min(1).max(300),
   event_id: z.number().int().nullable(),
   kind: z.enum(["run.stopped", "control"]),
   purpose: z.enum(["activation", "test"]).nullable(),
@@ -77,7 +83,7 @@ export const WebhookDelivery = z.object({
   created_at: Time,
 });
 export const WebhookSubscription = z.object({
-  id: Id,
+  id: WebhookSubscriptionId.min(1).max(300),
   url: z.string().url(),
   local: z.boolean(),
   kinds: WebhookKinds,
@@ -101,7 +107,7 @@ export const WebhookList = z.object({
   subscriptions: z.array(WebhookSubscription),
 });
 export const WebhookRequest = z
-  .object({ request_id: z.string().uuid() })
+  .object({ request_id: requestId(WebhookRequestId).uuid() })
   .strict();
 export const WebhookCreate = WebhookRequest.extend({
   url: z.string().trim().min(1).max(2048),

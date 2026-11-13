@@ -1,3 +1,4 @@
+import { CardTokenId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useEffect, useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
@@ -139,7 +140,12 @@ export function CardTokens({
             try {
               const result = await callRoute(
                 workspaceApi.cardTokenCreate,
-                { body: draft },
+                {
+                  body: {
+                    ...draft,
+                    request_id: CardTokenId.parse(draft.request_id),
+                  },
+                },
                 sourceId,
               );
               if (current()) {
