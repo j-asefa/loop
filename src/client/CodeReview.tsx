@@ -1,4 +1,9 @@
-import { ConversationId, TeamId } from "../shared/contract-ids.js";
+import {
+  ConversationId,
+  FolderId,
+  TeamId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./api";
@@ -70,7 +75,7 @@ export function StartCodeReview({
           if (busy) return;
           setBusy(true);
           setError("");
-          const body = { folderId, scope, base },
+          const body = { folderId: parseId(FolderId, folderId), scope, base },
             encoded = JSON.stringify({ teamId, ...body });
           try {
             const r = await performStoredEffect(

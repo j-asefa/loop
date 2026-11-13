@@ -1,5 +1,10 @@
-import { MessageId } from "../shared/contract-ids.js";
-import { ConversationId, RunId } from "../shared/contract-ids.js";
+import {
+  AgentId,
+  ConversationId,
+  MessageId,
+  RunId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
 import {
@@ -1004,7 +1009,10 @@ function MoveQueued({
               workspaceApi.runMove,
               {
                 params: { id: RunId.parse(message.id) },
-                body: { agentId, idempotencyKey: key.current },
+                body: {
+                  agentId: parseId(AgentId, agentId),
+                  idempotencyKey: key.current,
+                },
               },
               message.sourceId ?? scopedSource,
             );

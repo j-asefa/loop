@@ -1,4 +1,5 @@
 import { emptySharedDraft } from "../workspace-drafts";
+import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { resultTarget } from "../card-actions";
 import { LoopLogo } from "../LoopLogo";
 import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
@@ -1127,7 +1128,10 @@ export function renderApp(props: AppViewProps) {
                     body: {
                       name: String(f.get("name") ?? ""),
                       instructions: String(f.get("instructions") ?? ""),
-                      folderId: String(f.get("folder") || "") || null,
+                      folderId: parseId(
+                        FolderId,
+                        String(f.get("folder") || "") || null,
+                      ),
                     },
                   },
                   executionSourceId(),

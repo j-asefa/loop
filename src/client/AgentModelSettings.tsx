@@ -1,3 +1,4 @@
+import { ConnectionId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useSourceOperation, useSourceRoute } from "./SourceContext";
 import { workspaceApi } from "../shared/workspace-api";
@@ -133,7 +134,11 @@ export function AgentModelSettings({
     try {
       const saved = await route(workspaceApi.agentUpdate, {
         params: { id: agent.id },
-        body: { connectionId, model, effort },
+        body: {
+          connectionId: parseId(ConnectionId, connectionId),
+          model,
+          effort,
+        },
       });
       setSelected(saved);
       onSaved(saved);

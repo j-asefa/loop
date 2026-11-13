@@ -1,4 +1,9 @@
-import { ConversationId } from "../src/shared/contract-ids.js";
+import {
+  ConnectionId,
+  FolderId,
+  parseId,
+  ConversationId,
+} from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
@@ -213,4 +218,32 @@ it("retains bounded read recovery and aborts the originating view while waiting"
   expect((await cancelled).name).toBe("AbortError");
   await vi.advanceTimersByTimeAsync(60_000);
   expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("keeps request defaults off the wire after ID ingress parsing", async () => {
+  const raw = {
+    name: "fixture-agent",
+    connectionId: "native-codex",
+    model: "default",
+  };
+  const body = {
+    ...raw,
+    connectionId: parseId(ConnectionId, raw.connectionId),
+    folderId: parseId(FolderId, undefined),
+  };
+  fetcher.mockResolvedValueOnce(
+    Response.json({
+      id: "agent",
+      owner_id: "owner",
+      name: raw.name,
+      provider: "codex",
+      connection_id: raw.connectionId,
+      model: raw.model,
+      instructions: "",
+      origin: "loop",
+      created_at: 0,
+    }),
+  );
+  await callRoute(workspaceApi.agentCreate, { body }, "");
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(raw);
 });

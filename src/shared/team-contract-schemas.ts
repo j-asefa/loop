@@ -1,3 +1,10 @@
+import {
+  AgentId,
+  ConnectionId,
+  FolderId,
+  TeamId,
+  requestId,
+} from "./contract-ids.js";
 import { RunDisplayState } from "./run-state.js";
 import { MAX_TEAM_WORKERS } from "./team-limits.js";
 import { z } from "zod";
@@ -9,18 +16,18 @@ const Text = z.string(),
   Time = z.number();
 export const TeamCreateInput = z.object({
   name: Text.trim().min(1).max(80),
-  managerId: Text,
-  members: z.array(Text).min(1).max(MAX_TEAM_WORKERS),
+  managerId: requestId(AgentId),
+  members: z.array(requestId(AgentId)).min(1).max(MAX_TEAM_WORKERS),
 });
 const Selection = z.object({
-  connectionId: Text,
+  connectionId: requestId(ConnectionId),
   model: Text.min(1),
   effort: Text.nullable().optional(),
 });
 export const TeamPresetInput = z.object({
   presetId: Text,
   name: Text.trim().min(1).max(80),
-  folderId: Text.min(1),
+  folderId: requestId(FolderId).min(1),
   selection: Selection,
   roles: z.record(Text, Selection).default({}),
   idempotencyKey: Text.min(8).max(150),
@@ -33,7 +40,7 @@ export const PublicTeamPreset = z.object({
   roles: z.array(z.object({ id: Text, name: Text, instructions: Text })),
 });
 export const ReviewInput = z.object({
-  folderId: Text.min(1),
+  folderId: requestId(FolderId).min(1),
   scope: z.enum(["uncommitted", "staged", "branch"]),
   base: Text.trim().min(1).max(200).default("main"),
   idempotencyKey: Text.min(8).max(150),
@@ -66,7 +73,7 @@ export const DefinitionSaveInput = z.strictObject({
   kind: z.enum(["agent", "team"]).optional(),
 });
 const DefinitionChoice = z.strictObject({
-  connectionId: Text.min(1),
+  connectionId: requestId(ConnectionId).min(1),
   model: AgentInput.shape.model.optional(),
   effort: AgentInput.shape.effort,
 });
@@ -74,8 +81,8 @@ export const DefinitionVersion = z.number().int().positive();
 export const DefinitionCreateInput = z.strictObject({
   version: DefinitionVersion,
   selection: DefinitionChoice,
-  folderId: Text.min(1).nullable().optional(),
-  teamId: Text.min(1).optional(),
+  folderId: requestId(FolderId).min(1).nullable().optional(),
+  teamId: requestId(TeamId).min(1).optional(),
   name: Text.trim().min(1).max(80).optional(),
   roles: z
     .record(
@@ -139,7 +146,7 @@ export const ShareInput = z.object({
   question: Text.trim().min(1).max(20000),
   source: SharedSource.optional(),
   sharedText: Text.max(12000).optional(),
-  folderId: Text.optional(),
+  folderId: requestId(FolderId).optional(),
 });
 export const ShareSendInput = ShareInput.extend({
   newAgentId: Text.optional(),
@@ -147,7 +154,7 @@ export const ShareSendInput = ShareInput.extend({
 });
 export const RoutingInput = z.object({
   input: Text.min(1).max(30000),
-  folderId: Text.optional(),
+  folderId: requestId(FolderId).optional(),
 });
 export const PublicSharePreview = z.object({
   mode: z.enum(["queue", "create"]),

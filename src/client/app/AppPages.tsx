@@ -1,4 +1,4 @@
-import { ArtifactId } from "../../shared/contract-ids.js";
+import { ArtifactId, FolderId, parseId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
 import { PersonalProfile } from "../PersonalProfile";
@@ -744,7 +744,10 @@ export function renderAppPages(
           onAssign={async (a, id) => {
             await callRoute(
               workspaceApi.agentUpdate,
-              { params: { id: a.id }, body: { folderId: id } },
+              {
+                params: { id: a.id },
+                body: { folderId: parseId(FolderId, id) },
+              },
               executionSourceId(),
             );
             await bootstrap();

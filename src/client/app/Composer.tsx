@@ -1,3 +1,10 @@
+import {
+  AgentId,
+  ConversationId,
+  FolderId,
+  MessageId,
+  parseId,
+} from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { proseEntry } from "../textEntry";
 import { AutofillBoundary } from "../AutofillBoundary";
@@ -473,7 +480,10 @@ export function useComposerSend({
       setBusy(true);
       try {
         const result = await threadApi(workspaceApi.routingPreview, {
-          body: { input: draft, folderId: folder || undefined },
+          body: {
+            input: draft,
+            folderId: parseId(FolderId, folder || undefined),
+          },
         });
         if (!currentView() || !sameComposer()) return;
         setRoutePreview({
@@ -561,19 +571,21 @@ export function useComposerSend({
               ? { queue: true }
               : {};
         const body = {
-          agentId: recipient.id,
-          conversationId,
-          replyToMessageId: quotedId,
+          agentId: parseId(AgentId, recipient.id),
+          conversationId: parseId(ConversationId, conversationId),
+          replyToMessageId: parseId(MessageId, quotedId),
           replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
           input: draft,
           idempotencyKey: request.current.key,
           attachmentIds: attachments.map((file) => file.id),
-          folderId:
+          folderId: parseId(
+            FolderId,
             folderChoice !== undefined
               ? folderChoice || null
               : conversationId
                 ? undefined
                 : recipient.folder_id || undefined,
+          ),
         };
         const settleAccepted = async () => {
           const pending = pendingDraftSave.current;

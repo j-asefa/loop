@@ -1,4 +1,9 @@
-import { ConnectionId } from "../shared/contract-ids.js";
+import {
+  ConnectionId,
+  FolderId,
+  TeamId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./api";
@@ -361,7 +366,7 @@ export function MarkdownDefinitions({
 
 type RoleChoice = {
   name: string;
-  connectionId: string;
+  connectionId: ConnectionId;
   model: string;
   effort: string | null;
 };
@@ -413,7 +418,7 @@ export function CreateFromDefinition({
         role.name,
         {
           name: role.name,
-          connectionId: available[0]?.id || "",
+          connectionId: parseId(ConnectionId, available[0]?.id || ""),
           model:
             role.model && role.model !== "inherit"
               ? role.model
@@ -538,9 +543,14 @@ export function CreateFromDefinition({
           const body = {
             version: definition.version,
             name,
-            folderId: folderId || null,
-            teamId,
-            selection: { connectionId: choices[roles[0].name].connectionId },
+            folderId: parseId(FolderId, folderId || null),
+            teamId: parseId(TeamId, teamId),
+            selection: {
+              connectionId: parseId(
+                ConnectionId,
+                choices[roles[0].name].connectionId,
+              ),
+            },
             roles: choices,
           };
           const encoded = JSON.stringify({
@@ -648,7 +658,7 @@ export function CreateFromDefinition({
                     onChange={(event) => {
                       const connectionId = event.target.value;
                       change({
-                        connectionId,
+                        connectionId: parseId(ConnectionId, connectionId),
                         model: models(connectionId)[0]?.id || "",
                         effort: null,
                       });

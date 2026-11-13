@@ -1,3 +1,4 @@
+import { ConnectionId, FolderId, requestId } from "./contract-ids.js";
 import { TraceKind } from "./trace-kind.js";
 import { RunDisplayState } from "./run-state.js";
 import { z } from "zod";
@@ -26,27 +27,27 @@ export const AgentHandle = Text.trim()
   .refine((name) => !reserved.has(name), "This name is reserved");
 export const AgentInput = z.object({
   name: AgentHandle,
-  connectionId: Text,
+  connectionId: requestId(ConnectionId),
   model: Text.min(1).max(150),
   effort: Text.regex(/^[a-z][a-z0-9_-]{0,31}$/)
     .nullable()
     .optional(),
   instructions: Text.max(12000).default(""),
-  folderId: Text.optional(),
+  folderId: requestId(FolderId).optional(),
 });
 export const AgentCreateInput = AgentInput.extend({
   initialPrompt: Text.trim().max(30000).default(""),
   attachmentIds: AttachmentIds,
-  folderId: Text.optional(),
+  folderId: requestId(FolderId).optional(),
   idempotencyKey: Text.min(8).max(150).optional(),
 });
 export const AgentUpdateInput = z.object({
   retired: z.boolean().optional(),
-  folderId: Text.min(1).nullable().optional(),
+  folderId: requestId(FolderId).min(1).nullable().optional(),
   name: AgentHandle.optional(),
   instructions: Text.max(12000).optional(),
   // The existing patch handler treats null like an omitted model/connection.
-  connectionId: Text.nullish(),
+  connectionId: requestId(ConnectionId).nullish(),
   model: Text.min(1).max(200).nullish(),
   effort: AgentInput.shape.effort,
 });

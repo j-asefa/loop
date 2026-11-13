@@ -1,3 +1,4 @@
+import { FolderId, parseId } from "../src/shared/contract-ids.js";
 import { createHost } from "./helpers/gateway.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -462,7 +463,7 @@ it("requires files consent, the owning references and the original command/diges
     (
       await call("prepare", {
         ...admission(id),
-        input: manifest(bytes, { folderId: foreignFolder }),
+        input: manifest(bytes, { folderId: parseId(FolderId, foreignFolder) }),
       })
     ).status,
   ).toBe(404);

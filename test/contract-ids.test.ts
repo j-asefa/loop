@@ -13,6 +13,7 @@ import {
   ProjectId,
   ConnectionId,
   requestId,
+  parseId,
 } from "../src/shared/contract-ids.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
 import type {
@@ -222,4 +223,27 @@ it("preserves opaque team, approval and message path strings", () => {
     expect(route.params.parse({ id: "opaque-key" }).id).toBe("opaque-key");
     expect(route.params.safeParse({ id: 42 }).success).toBe(false);
   }
+});
+
+it("parses nullable identity values without changing their wire representation", () => {
+  const raw = {
+    connectionId: "native-codex",
+    folderId: undefined,
+    parentId: null,
+  };
+  const input = {
+    connectionId: parseId(ConnectionId, raw.connectionId),
+    folderId: parseId(FolderId, raw.folderId),
+    parentId: parseId(FolderId, raw.parentId),
+  };
+  expect(input).toEqual(raw);
+  expect(JSON.stringify(input)).toBe(JSON.stringify(raw));
+  expectTypeOf(parseId(AgentId, "agent")).toEqualTypeOf<AgentId>();
+  expectTypeOf(parseId(FolderId, undefined)).toEqualTypeOf<
+    FolderId | undefined
+  >();
+  type Body = RouteInput<typeof workspaceApi.agentCreate>["body"];
+  // @ts-expect-error Agent creation connections cannot be identified by run IDs.
+  const wrongConnection: Body["connectionId"] = RunId.parse("run");
+  void wrongConnection;
 });
