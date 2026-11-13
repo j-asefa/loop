@@ -35,7 +35,7 @@ export function useThreadSource(source: string | null, owner?: string) {
           if (signal.aborted) abort();
           let deadline = Date.now() + 20_000;
           let deadlineExpired = false;
-          let timeout: ReturnType<typeof setTimeout>;
+          let timeout: ReturnType<typeof setTimeout> | undefined;
           const arm = () => {
             clearTimeout(timeout);
             timeout = setTimeout(
@@ -87,6 +87,8 @@ export function useThreadSource(source: string | null, owner?: string) {
                 failure.network === true ||
                 (failure.status !== undefined && failure.status >= 500),
             );
+            if (deadlineExpired && !signal.aborted)
+              throw new Error("This workspace timed out. Try again.");
             throw error;
           } finally {
             // A rejected read must cancel its sibling as well as its timeout.
