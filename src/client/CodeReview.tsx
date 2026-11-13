@@ -5,13 +5,15 @@ import {
   parseId,
 } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
-import { useEffect, useRef, useState } from "react";
-import { callRoute } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
 import { viewOwner, viewGeneration } from "./viewCache";
-import { useSourceRoute, useSourceRouteRead } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
+import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import { broadWorkspaceChange } from "./workspace-changes";
 import { Sheet } from "./components";
 import type { Folder, Team } from "../shared/types";
 
@@ -190,38 +192,78 @@ export function CodeReviewStatus({
   revision: number;
 }) {
   const conversationId = ConversationId.parse(rawConversationId);
-  const sourceRoute = useSourceRoute();
-  const read = useSourceRouteRead();
-  const [review, setReview] = useState<Status | null>(null),
-    [error, setError] = useState("");
-  const [checking, setChecking] = useState(false);
-  useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-    read(
-      workspaceApi.reviewStatus,
-      { params: { id: conversationId } },
-      controller.signal,
-    )
-      .then((r) => {
-        if (active)
-          setReview((previous) =>
-            r && previous?.id === r.id
-              ? {
-                  ...r,
-                  current: previous.current,
-                  freshnessError: previous.freshnessError,
-                }
-              : r,
+  const source = useSourceId();
+  const generation = viewGeneration();
+  const context = useMemo(
+    () => ({ source, conversationId, retryFreshness: false }),
+    [source, conversationId, generation],
+  );
+  const { load, error, busy } = useCollectionRead(
+    JSON.stringify([generation, source, conversationId]),
+  );
+  const [snapshot, setSnapshot] = useState<{
+    context: typeof context;
+    review: Status | null;
+  }>();
+  const refresh = useCallback(
+    (manual = false, freshness = false) =>
+      load(
+        (signal, mode) => {
+          context.retryFreshness = freshness;
+          return readRoute(
+            workspaceApi.reviewStatus,
+            {
+              params: { id: context.conversationId },
+              ...(freshness ? { query: { freshness: "true" } } : {}),
+            },
+            context.source,
+            signal,
+            undefined,
+            mode,
           );
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      controller.abort();
+        },
+        (review) =>
+          setSnapshot((previous) => ({
+            context,
+            review:
+              !freshness &&
+              review &&
+              previous?.context === context &&
+              previous.review?.id === review.id
+                ? {
+                    ...review,
+                    current: previous.review.current,
+                    freshnessError: previous.review.freshnessError,
+                  }
+                : review,
+          })),
+        manual,
+      ),
+    [context, load],
+  );
+  useEffect(() => {
+    const recover = (event: Event) => {
+      if (!broadWorkspaceChange(event)) return;
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
+        ?.sources;
+      if (!sources || sources.includes(context.source)) void refresh();
     };
-  }, [conversationId, revision, read]);
-  if (!review) return null;
+    window.addEventListener("loop-workspace-change", recover);
+    void refresh();
+    return () => {
+      window.removeEventListener("loop-workspace-change", recover);
+    };
+  }, [context, refresh, revision]);
+  const review = snapshot?.context === context ? snapshot.review : null;
+  const checking = busy && context.retryFreshness;
+  const notice = (
+    <CollectionReadNotice
+      error={error}
+      busy={busy}
+      retry={() => void refresh(true, context.retryFreshness)}
+    />
+  );
+  if (!review) return notice;
   const complete = review.reviewers.filter(
     (r) => r.state === "completed",
   ).length;
@@ -230,6 +272,7 @@ export function CodeReviewStatus({
   );
   return (
     <aside className="code-review-status" aria-label="Snapshot review status">
+      {notice}
       <strong>
         Snapshot review · {complete}/{review.reviewers.length} reviewers
         completed
@@ -259,22 +302,7 @@ export function CodeReviewStatus({
       <button
         className="text-button"
         disabled={checking}
-        onClick={async () => {
-          setChecking(true);
-          setError("");
-          try {
-            setReview(
-              await sourceRoute(workspaceApi.reviewStatus, {
-                params: { id: conversationId },
-                query: { freshness: "true" },
-              }),
-            );
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setChecking(false);
-          }
-        }}
+        onClick={() => void refresh(true, true)}
       >
         {checking ? "Checking…" : "Check for newer edits"}
       </button>
@@ -285,10 +313,8 @@ export function CodeReviewStatus({
             : "Changes have moved on. This report covers an earlier snapshot."}
         </p>
       )}
-      {(error || review.freshnessError) && (
-        <p role="status">
-          Freshness unavailable: {error || review.freshnessError}
-        </p>
+      {review.freshnessError && (
+        <p role="status">Freshness unavailable: {review.freshnessError}</p>
       )}
     </aside>
   );

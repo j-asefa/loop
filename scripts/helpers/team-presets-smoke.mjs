@@ -138,6 +138,7 @@ export async function teamPresetsSmoke(page, fixture, _engine, capture) {
     omitted: [],
     files: { "fixture.ts": "fixture" },
     before: { "fixture.ts": "before" },
+    context: {},
   };
   const fingerprint = createHash("sha256")
     .update(JSON.stringify(snapshot))
