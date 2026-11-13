@@ -19,12 +19,15 @@ type Module = {
   program: any;
   definitions: Map<string, any>;
   imports: Map<string, [string, string]>;
+  exports: Map<string, any>;
+  stars: string[];
 };
 function inventory(
   sources: Map<string, string>,
   directory = resolve("src/shared"),
 ) {
-  const modules = new Map<string, Module>();
+  const modules = new Map<string, Module>(),
+    scopes = new WeakMap<object, Map<string, any>>();
   const importTarget = (file: string, specifier: string) => {
     if (!specifier.startsWith(".")) return specifier;
     const path = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
@@ -34,37 +37,94 @@ function inventory(
         ? path + ".ts"
         : path;
   };
+  // A projection retains the initializer's lexical scope, including renames,
+  // nested object/array patterns and default values.
+  function declare(
+    pattern: any,
+    expression: any,
+    scope: Map<string, any>,
+    path: string[] = [],
+  ): string[] {
+    if (!pattern) return [];
+    if (pattern.type === "Identifier") {
+      const binding = path.length
+        ? { type: "BindingProjection", expression, path }
+        : expression;
+      if (binding && path.length) scopes.set(binding, scope);
+      scope.set(pattern.name, binding);
+      return [pattern.name];
+    }
+    if (pattern.type === "AssignmentPattern") {
+      const binding = {
+        type: "BindingDefault",
+        expression,
+        path,
+        fallback: pattern.right,
+      };
+      scopes.set(binding, scope);
+      return declare(pattern.left, binding, scope);
+    }
+    if (pattern.type === "ObjectPattern")
+      return pattern.properties.flatMap((part: any) =>
+        part.type === "RestElement"
+          ? declare(part.argument, undefined, scope)
+          : declare(part.value, expression, scope, [
+              ...path,
+              String(part.key.name ?? part.key.value),
+            ]),
+      );
+    if (pattern.type === "ArrayPattern")
+      return pattern.elements.flatMap((part: any, index: number) =>
+        declare(part, expression, scope, [...path, String(index)]),
+      );
+    if (pattern.type === "RestElement")
+      return declare(pattern.argument, undefined, scope);
+    return [];
+  }
   for (const [file, source] of sources) {
     const { program, errors } = parseSync(file, source);
-    if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
+    if (errors.length) throw Error(`${file}: ${errors[0].message}`);
     const definitions = new Map<string, any>(),
-      imports = new Map<string, [string, string]>();
+      imports = new Map<string, [string, string]>(),
+      exports = new Map<string, any>(),
+      stars: string[] = [];
     for (const statement of (program as any).body) {
       const declaration =
         statement.type === "ExportNamedDeclaration"
           ? statement.declaration
           : statement;
-      if (statement.type === "ExportDefaultDeclaration")
-        definitions.set("default", statement.declaration);
       if (declaration?.type === "VariableDeclaration")
-        for (const entry of declaration.declarations)
-          if (entry.id.type === "Identifier")
-            definitions.set(entry.id.name, entry.init);
-      if (statement.type === "ExportNamedDeclaration" && statement.source) {
-        const target = importTarget(file, statement.source.value);
-        for (const spec of statement.specifiers)
-          if (spec.type === "ExportSpecifier")
-            imports.set(spec.exported.name ?? spec.exported.value, [
-              target,
-              spec.local.name ?? spec.local.value,
-            ]);
-      }
+        for (const entry of declaration.declarations) {
+          const bound = declare(entry.id, entry.init, definitions);
+          if (statement.type === "ExportNamedDeclaration")
+            for (const name of bound)
+              exports.set(name, { type: "Identifier", name });
+        }
+      if (statement.type === "ExportDefaultDeclaration")
+        exports.set("default", statement.declaration);
+      if (statement.type === "ExportAllDeclaration")
+        stars.push(importTarget(file, statement.source.value));
+      if (statement.type === "ExportNamedDeclaration")
+        for (const spec of statement.specifiers) {
+          if (spec.type !== "ExportSpecifier") continue;
+          const local = spec.local.name ?? spec.local.value;
+          exports.set(
+            spec.exported.name ?? spec.exported.value,
+            statement.source
+              ? {
+                  type: "ExportReference",
+                  file: importTarget(file, statement.source.value),
+                  name: local,
+                }
+              : spec.local,
+          );
+        }
       if (
         statement.type === "ImportDeclaration" &&
         statement.importKind !== "type"
-      ) {
-        const target = importTarget(file, statement.source.value);
+      )
         for (const spec of statement.specifiers) {
+          const target = importTarget(file, statement.source.value);
           if (spec.type === "ImportSpecifier" && spec.importKind !== "type")
             imports.set(spec.local.name, [
               target,
@@ -75,13 +135,16 @@ function inventory(
           else if (spec.type === "ImportNamespaceSpecifier")
             imports.set(spec.local.name, [target, "*"]);
         }
-      }
     }
-    modules.set(file, { source, program, definitions, imports });
+    modules.set(file, {
+      source,
+      program,
+      definitions,
+      imports,
+      exports,
+      stars,
+    });
   }
-  // Resolve aliases in the lexical environment of each expression, not a
-  // module-wide name table. Inner declarations must not overwrite siblings.
-  const scopes = new WeakMap<object, Map<string, any>>();
   for (const module of modules.values()) {
     function bind(node: any, inherited: Map<string, any>) {
       if (!node || typeof node !== "object") return;
@@ -98,7 +161,8 @@ function inventory(
         ].includes(node.type)
       ) {
         scope = new Map(inherited);
-        // var belongs to the function even when declared inside a block.
+        for (const parameter of node.params)
+          declare(parameter, undefined, scope);
         function hoist(value: any) {
           if (!value || typeof value !== "object") return;
           if (Array.isArray(value)) {
@@ -115,22 +179,17 @@ function inventory(
             return;
           if (value.type === "VariableDeclaration" && value.kind === "var")
             for (const entry of value.declarations)
-              if (entry.id.type === "Identifier")
-                scope.set(entry.id.name, entry.init);
+              declare(entry.id, entry.init, scope);
           for (const child of Object.values(value)) hoist(child);
         }
-        for (const parameter of node.params)
-          if (parameter.type === "Identifier")
-            scope.set(parameter.name, undefined);
         hoist(node.body);
       }
       if (node.type === "BlockStatement") {
         scope = new Map(scope);
         for (const statement of node.body)
           if (statement.type === "VariableDeclaration")
-            for (const declaration of statement.declarations)
-              if (declaration.id.type === "Identifier")
-                scope.set(declaration.id.name, declaration.init);
+            for (const entry of statement.declarations)
+              declare(entry.id, entry.init, scope);
       }
       scopes.set(node, scope);
       for (const value of Object.values(node)) bind(value, scope);
@@ -141,7 +200,29 @@ function inventory(
     scopes.get(node)?.has(name)
       ? undefined
       : modules.get(file)?.imports.get(name);
-  function open(file: string, node: any, seen = new Set<any>()): boolean {
+  function exported(
+    file: string,
+    name: string,
+    seen: Set<any>,
+    path: string[],
+  ): boolean {
+    const key = `export:${file}:${name}:${path.join(".")}`;
+    if (seen.has(key)) return false;
+    const next = new Set([...seen, key]),
+      module = modules.get(file);
+    if (module?.exports.has(name))
+      return open(file, module.exports.get(name), next, path);
+    return (
+      module?.stars.some((target) => exported(target, name, next, path)) ??
+      false
+    );
+  }
+  function open(
+    file: string,
+    node: any,
+    seen = new Set<any>(),
+    path: string[] = [],
+  ): boolean {
     if (!node) return false;
     if (
       [
@@ -151,36 +232,56 @@ function inventory(
         "TSNonNullExpression",
       ].includes(node.type)
     )
-      return open(file, node.expression, seen);
-    const module = modules.get(file);
+      return open(file, node.expression, seen, path);
+    if (node.type === "ExportReference")
+      return exported(node.file, node.name, seen, path);
+    if (node.type === "BindingProjection")
+      return open(file, node.expression, seen, [...node.path, ...path]);
+    if (node.type === "BindingDefault")
+      return (
+        open(file, node.expression, seen, [...node.path, ...path]) ||
+        open(file, node.fallback, seen, path)
+      );
     if (node.type === "Identifier") {
-      const scope = scopes.get(node) ?? module?.definitions;
-      const binding = scope?.get(node.name);
-      const key = scope?.has(node.name)
-        ? (binding ?? node)
-        : `${file}:${node.name}`;
+      const scope = scopes.get(node) ?? modules.get(file)?.definitions,
+        binding = scope?.get(node.name),
+        key = scope?.has(node.name)
+          ? (binding ?? node)
+          : `${file}:${node.name}:${path.join(".")}`;
       if (seen.has(key)) return false;
-      const next = new Set([...seen, key]);
-      const reference = imported(file, node, node.name);
-      if (reference)
-        return open(
-          reference[0],
-          { type: "Identifier", name: reference[1] },
-          next,
-        );
-      return open(file, binding, next);
+      const next = new Set([...seen, key]),
+        reference = imported(file, node, node.name);
+      if (reference) {
+        if (reference[1] === "*")
+          return path.length
+            ? exported(reference[0], path[0], next, path.slice(1))
+            : false;
+        return exported(reference[0], reference[1], next, path);
+      }
+      return open(file, binding, next, path);
     }
-    if (node.type === "MemberExpression" && node.object.type === "Identifier") {
-      const reference = imported(file, node, node.object.name);
-      if (reference?.[1] === "*")
-        return open(
-          reference[0],
-          {
-            type: "Identifier",
-            name: node.property.name ?? node.property.value,
-          },
-          seen,
+    if (node.type === "MemberExpression")
+      return open(file, node.object, seen, [
+        String(node.property.name ?? node.property.value),
+        ...path,
+      ]);
+    if (path.length) {
+      if (node.type === "ObjectExpression")
+        return node.properties.some(
+          (part: any) =>
+            part.type === "Property" &&
+            String(part.key.name ?? part.key.value) === path[0] &&
+            open(file, part.value, seen, path.slice(1)),
         );
+      if (node.type === "ArrayExpression")
+        return open(file, node.elements[Number(path[0])], seen, path.slice(1));
+      if (
+        node.type === "CallExpression" &&
+        path[0] === "shape" &&
+        node.callee?.property?.name === "object"
+      )
+        return open(file, node.arguments[0], seen, path.slice(1));
+      return false;
     }
     if (
       node.type !== "CallExpression" ||
@@ -215,7 +316,6 @@ function inventory(
   }
   const found = new Map<string, string>();
   for (const [file, module] of modules) {
-    // Fleet schemas remain outside this package, including fleet.ts.
     if (/^fleet(?:-|\.)/.test(basename(file))) continue;
     function walk(node: any, path: string[] = []) {
       if (!node || typeof node !== "object") return;
@@ -228,16 +328,30 @@ function inventory(
         return;
       }
       if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
-        walk(node.init, [node.id.name]);
+        walk(node.init, [...path, node.id.name]);
         return;
       }
+      if (
+        node.type === "CallExpression" &&
+        ["union", "discriminatedUnion"].includes(node.callee?.property?.name)
+      ) {
+        const branches = node.arguments.find(
+          (part: any) => part.type === "ArrayExpression",
+        );
+        if (branches) {
+          branches.elements.forEach((part: any, index: number) =>
+            walk(part, [...path, `variant[${index}]`]),
+          );
+          return;
+        }
+      }
       if (node.type === "Property") {
-        const field = node.key.name ?? node.key.value;
-        const next = typeof field === "string" ? [...path, field] : path;
+        const field = node.key.name ?? node.key.value,
+          next = typeof field === "string" ? [...path, field] : path;
         if (names.has(field) && open(file, node.value)) {
           const key = `${relative(directory, file).split("\\").join("/")}:${next.join(".")}`;
           if (found.has(key))
-            throw new Error(`Ambiguous schema declaration: ${key}`);
+            throw Error(`Ambiguous schema declaration: ${key}`);
           found.set(key, module.source.slice(node.value.start, node.value.end));
         }
         walk(node.value, next);
@@ -281,7 +395,7 @@ const exemptions = new Map<string, string>([
     "Native answer reply spans harness-confirmed outcome stages.",
   ],
   [
-    "execution-authority.ts:ExecutionParentMessage.origin",
+    "execution-authority.ts:ExecutionParentMessage.variant[3].origin",
     "Execution parent request origin text.",
   ],
   [
@@ -428,5 +542,66 @@ it("follows default schema imports and their named re-exports", () => {
   expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
     "use.ts:Schema.state",
     "use.ts:Schema.mode",
+  ]);
+});
+
+it("resolves local export aliases and cyclic star barrels without changing local bindings", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod';const Text=z.literal('closed');const Open=z.string();export {Open as Text};const Local=z.object({state:Text});`,
+    ],
+    [
+      resolve("fixture/a.ts"),
+      `export * from './b.js';export * from './base.js';`,
+    ],
+    [resolve("fixture/b.ts"), `export * from './a.js';`],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import {Text} from './a.js';import * as Barrel from './a.js';const Schema=z.object({state:Text,kind:Barrel.Text});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
+    "use.ts:Schema.kind",
+  ]);
+});
+it("resolves renamed nested and array destructuring and parameter defaults", () => {
+  const file = resolve("fixture/pattern.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ const {Text:Alias}={Text:z.string()};
+ const {nested:{Status},list:[Kind]}={nested:{Status:z.string()},list:[z.string()]};
+ const Schema=z.object({state:Alias,status:Status,kind:Kind});
+ function build({Text}={Text:z.string()}){return z.object({origin:Text});}
+ function closed(){const {Text}={Text:z.literal('ready')};return z.object({state:Text});}
+ `,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "pattern.ts:Schema.state",
+    "pattern.ts:Schema.status",
+    "pattern.ts:Schema.kind",
+    "pattern.ts:build.origin",
+  ]);
+});
+it("distinguishes function-local declarations and union variants", () => {
+  const file = resolve("fixture/identities.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ function first(){const Schema=z.object({kind:z.string()});return Schema;}
+ function second(){const Schema=z.object({kind:z.string()});return Schema;}
+ const Variants=z.union([z.object({kind:z.string()}),z.object({kind:z.string()})]);`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "identities.ts:first.Schema.kind",
+    "identities.ts:second.Schema.kind",
+    "identities.ts:Variants.variant[0].kind",
+    "identities.ts:Variants.variant[1].kind",
   ]);
 });
