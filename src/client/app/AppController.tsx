@@ -11,13 +11,11 @@ import {
   workspaceApi,
   type ClientRouteContract,
   type RouteInput,
-  type ResultItem,
 } from "../../shared/workspace-api";
 import { capabilities as shellCapabilities } from "../capabilities";
 import { composerBlockReason } from "../sourceAvailability";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { resultAction, resultTarget, type ResultAction } from "../card-actions";
-import { CardPager } from "../card-pager";
 import { contractCardReader } from "../../shared/card-client";
 
 import { type MyProfileData } from "../MyProfile";
@@ -47,7 +45,6 @@ import {
   type ComposerContext,
   type LatestAgentMessage,
 } from "../composerContext";
-import { ResultsPager } from "../results";
 import { OPEN_PULL } from "../PullRequests";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
@@ -75,7 +72,7 @@ import {
   useSessionLifecycle,
   useOwnerSession,
 } from "./Session";
-import { createResultsLoader } from "./Results";
+import { useResultsLoader } from "./Results";
 import {
   useWorkspaceData,
   useWorkspaceEvents,
@@ -133,8 +130,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     [error, setError] = useState(""),
     [profile, setProfile] = useState<Agent | null>(null),
     [view, setView] = useState("all"),
-    [items, setItems] = useState<any[]>([]),
-    [next, setNext] = useState<string | number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
     [selected, setSelected] = useState(""),
     [draft, setDraft] = useState(""),
@@ -764,8 +759,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
-  const [resultsLoading, setResultsLoading] = useState(true);
-  const [resultsError, setResultsError] = useState("");
   const [workspaceLoadErrors, setWorkspaceLoadErrors] = useState<
     Partial<Record<"bootstrap" | "runs", string>>
   >({});
@@ -963,24 +956,12 @@ export function useAppController(seed?: AppNavigationInitial) {
   const request = receiptBox.current.box;
   const readContract = useProjectionRoute();
   const stopWorkspaceEvents = useRef<() => void>(() => {});
-  const resultsPager = useRef(new ResultsPager<ResultItem>());
-  const cardsPager = useRef(new CardPager());
-  const resultsSelection = useRef({ key: "" });
   const resultsVisible = useRef(true);
   // Project activity and files also follow feed changes to refresh in place.
   resultsVisible.current =
     (tab === "projects" && !!project) ||
     (!!profile && ["all", "files"].includes(view));
   const lastNavTap = useRef<{ tab: string; at: number } | null>(null);
-  const resultsContext = useRef("");
-  resultsContext.current = JSON.stringify([
-    session?.user?.id,
-    executionSourceId(),
-    profile?.id,
-    view,
-    teamKey,
-    projectFilter,
-  ]);
   const activeAgent =
     selected === "__route__"
       ? composerData.agents.find((a) => a.id === routePreview?.agent?.id)
@@ -1072,21 +1053,19 @@ export function useAppController(seed?: AppNavigationInitial) {
   const check = createSessionCheck({
     setSession,
   });
-  const loadResults = createResultsLoader({
+  const {
+    items,
+    setItems,
+    next,
+    loading: resultsLoading,
+    loadResults,
+    error: resultsError,
+  } = useResultsLoader({
     ownerRef,
     profile,
     view,
     teamKey,
     projectFilter,
-    resultsContext,
-    resultsSelection,
-    resultsPager,
-    cardsPager,
-    setItems,
-    setNext,
-    setResultsLoading,
-    setResultsError,
-    readContract,
     setRevision,
   });
   const { bootstrap, loadRuns, runsGeneration, refresh } = useWorkspaceData({
