@@ -144,4 +144,66 @@ export async function attachmentPickerSmoke(page, fixture) {
       await context.close();
     }
   }
+  // Exercise the production send caller after the picker-only checks. Drafts
+  // belong to their composer, so clear prior fixture files before each send.
+  for (const thread of [false, true]) {
+    const composer = await openComposer(page, fixture, thread);
+    if (!thread)
+      await composer
+        .getByLabel("Agent recipient")
+        .selectOption(fixture.agents[0].id);
+    const remove = composer
+      .getByRole("list", { name: "Attached files" })
+      .getByRole("button", { name: /^Remove / });
+    while (await remove.count()) await remove.first().click();
+    await composer
+      .getByRole("textbox")
+      .last()
+      .fill("Fixture attachment submission");
+    const upload = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/uploads"),
+    );
+    await composer
+      .getByLabel("Attach files", { exact: true })
+      .setInputFiles(document);
+    const descriptor = await (await upload).json();
+    await expect(
+      composer.getByRole("list", { name: "Attached files" }),
+    ).toContainText(document.name);
+    const send = composer.getByRole("button", {
+      name: /^Send (message|reply)$/,
+      exact: true,
+    });
+    await expect(composer.getByRole("textbox").last()).toHaveValue(
+      "Fixture attachment submission",
+    );
+    await expect(send).toBeEnabled();
+    const [submitted, accepted] = await Promise.all([
+      page.waitForRequest(
+        (request) =>
+          request.method() === "POST" && request.url().endsWith("/api/runs"),
+      ),
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/runs"),
+      ),
+      send.click(),
+    ]).catch(async (error) => {
+      const state = await composer
+        .innerText({ timeout: 1000 })
+        .catch(() => "closed");
+      throw new Error(
+        `${thread ? "Thread" : "Dock"} attachment submission failed: ${state}`,
+        { cause: error },
+      );
+    });
+    assert.deepEqual(submitted.postDataJSON().attachmentIds, [descriptor.id]);
+    assert(
+      accepted.ok(),
+      "The production receiver accepts the uploaded artifact identity",
+    );
+  }
 }

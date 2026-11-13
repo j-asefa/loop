@@ -1,3 +1,12 @@
+import {
+  ActivityId,
+  PlanStepId,
+  CatalogCommandId,
+  ToolCallId,
+  TerminalId,
+  TraceKey,
+  ArtifactId,
+} from "./contract-ids.js";
 import { NativeGenerationId, SessionSettingId } from "./contract-ids.js";
 import { settingSchema } from "./control-settings.js";
 import type { Setting } from "./control-settings.js";
@@ -56,7 +65,6 @@ export type ActivityKind = z.infer<typeof ActivityKind>;
 // Settings and command catalogs describe the session; the rest belong to a turn.
 export const SESSION_KINDS: readonly ActivityKind[] = ["settings", "commands"];
 
-const Id = z.string().min(1).max(ACTIVITY_LIMITS.id);
 const Text = z.string().max(ACTIVITY_LIMITS.text);
 const Path = z.string().min(1).max(ACTIVITY_LIMITS.path);
 
@@ -83,7 +91,7 @@ const PlanStep = z
   .object({
     // Stable when the producer supplies one. Otherwise `step-<index>` with
     // `positional: true`; never derived from the step text.
-    id: Id,
+    id: PlanStepId.min(1).max(ACTIVITY_LIMITS.id),
     positional: z.boolean().optional(),
     title: z
       .string()
@@ -93,7 +101,7 @@ const PlanStep = z
     priority: z.enum(["high", "medium", "low"]).optional(),
   })
   .strict();
-type PlanStep = z.infer<typeof PlanStep>;
+type PlanStep = z.input<typeof PlanStep>;
 const PlanPatch = z
   .object({
     // Plans are replaced as a whole list, matching ACP/Codex semantics.
@@ -121,12 +129,22 @@ const ToolStatus = z.enum([
 type ToolStatus = z.infer<typeof ToolStatus>;
 const ToolContent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("text"), text: Text }).strict(),
-  z.object({ type: z.literal("file_change"), activity: Id }).strict(),
-  z.object({ type: z.literal("output"), activity: Id }).strict(),
+  z
+    .object({
+      type: z.literal("file_change"),
+      activity: ActivityId.min(1).max(ACTIVITY_LIMITS.id),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("output"),
+      activity: ActivityId.min(1).max(ACTIVITY_LIMITS.id),
+    })
+    .strict(),
   z
     .object({
       type: z.literal("artifact"),
-      artifactId: z.string().max(100),
+      artifactId: ArtifactId.max(100),
       title: z.string().max(ACTIVITY_LIMITS.title).optional(),
     })
     .strict(),
@@ -139,7 +157,7 @@ const ToolContent = z.discriminatedUnion("type", [
     })
     .strict(),
 ]);
-type ToolContent = z.infer<typeof ToolContent>;
+type ToolContent = z.input<typeof ToolContent>;
 const ToolPatch = z
   .object({
     title: z.string().max(ACTIVITY_LIMITS.title).nullable().optional(),
@@ -154,11 +172,11 @@ const ToolPatch = z
     // Invocation identities for de-duplication with broker/native records.
     links: z
       .object({
-        broker: Id.optional(),
+        broker: ToolCallId.min(1).max(ACTIVITY_LIMITS.id).optional(),
         // Native trace identities are bounded by the incoming event, not the
         // activity ID cap. Preserve the exact link; never truncate identity.
-        trace: z.string().max(ACTIVITY_LIMITS.record).optional(),
-        native: Id.optional(),
+        trace: TraceKey.max(ACTIVITY_LIMITS.record).optional(),
+        native: ToolCallId.min(1).max(ACTIVITY_LIMITS.id).optional(),
       })
       .strict()
       .optional(),
@@ -194,7 +212,7 @@ const FileEntry = z
 type FileEntry = z.infer<typeof FileEntry>;
 const FileChangePatch = z
   .object({
-    tool: Id.nullable().optional(),
+    tool: ActivityId.min(1).max(ACTIVITY_LIMITS.id).nullable().optional(),
     // Display state only. Receiving a diff never applies it.
     state: z.enum(["proposed", "applied", "failed", "unknown"]).optional(),
     // Replaces the full change set when present.
@@ -218,8 +236,8 @@ const OutputChunk = z
   .strict();
 const OutputPatch = z
   .object({
-    tool: Id.nullable().optional(),
-    terminal: z.string().max(ACTIVITY_LIMITS.id).nullable().optional(),
+    tool: ActivityId.min(1).max(ACTIVITY_LIMITS.id).nullable().optional(),
+    terminal: TerminalId.max(ACTIVITY_LIMITS.id).nullable().optional(),
     command: Text.nullable().optional(),
     cwd: Path.nullable().optional(),
     append: z.array(OutputChunk).max(256).optional(),
@@ -291,7 +309,7 @@ const CatalogCommand = NativeCommand.pick({
   description: true,
   argumentHint: true,
 }).extend({
-  id: Id,
+  id: CatalogCommandId.min(1).max(ACTIVITY_LIMITS.id),
   token: NativeCommand.shape.token.min(1).max(200),
   name: NativeCommand.shape.name.max(200),
   description: NativeCommand.shape.description.max(2000).default(""),
@@ -300,7 +318,9 @@ const CatalogCommand = NativeCommand.pick({
   available: z.boolean().default(true),
   reason: z.string().max(1000).optional(),
 });
-type CatalogCommand = z.infer<typeof CatalogCommand>;
+// Retained records have filled defaults; internal builders keep raw IDs.
+type CatalogCommand = z.input<typeof CatalogCommand> &
+  Pick<z.output<typeof CatalogCommand>, "description" | "available">;
 const CommandsPatch = z
   .object({
     // Always the complete catalog, so removals are explicit.
@@ -313,7 +333,7 @@ export type CommandsData = { commands: CatalogCommand[]; revision: number };
 // ---- Updates and records -----------------------------------------------
 const base = {
   v: z.literal(ACTIVITY_VERSION),
-  id: Id,
+  id: ActivityId.min(1).max(ACTIVITY_LIMITS.id),
   source: ActivitySource,
   // Producer process generation. Ingestion rejects non-current generations.
   generation: NativeGenerationId.max(200).optional(),
@@ -383,7 +403,7 @@ const retained = <T extends z.ZodType>(
 const recordedChunk = OutputChunk.strip().required({ index: true });
 const recordBase = {
   v: z.literal(ACTIVITY_VERSION),
-  id: z.string(),
+  id: ActivityId,
   source: ActivitySource.strip(),
   generation: base.generation,
   revision: z.number(),

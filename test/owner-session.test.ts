@@ -1,3 +1,4 @@
+import { OwnerId } from "../src/shared/contract-ids.js";
 import { ownerSession } from "../src/client/ownerSession";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -113,7 +114,7 @@ it("keeps late poll releases and unread responses out of a returning owner's sta
 
 it("publishes paired identity and cleared caches in one snapshot before notifying readers", () => {
   ownerSession.setSession({
-    user: { id: "alice", name: "Alice" },
+    user: { id: OwnerId.parse("alice"), name: "Alice" },
     mode: "paired",
   });
   const original = ownerSession.current;
@@ -131,7 +132,7 @@ it("publishes paired identity and cleared caches in one snapshot before notifyin
   );
   try {
     ownerSession.setSession({
-      user: { id: "alice", name: "Renamed Alice" },
+      user: { id: OwnerId.parse("alice"), name: "Renamed Alice" },
       mode: "paired",
     });
     expect(observed[0]).toEqual({
@@ -142,7 +143,7 @@ it("publishes paired identity and cleared caches in one snapshot before notifyin
       draft: "Alice draft",
     });
     ownerSession.setSession({
-      user: { id: "bob", name: "Bob" },
+      user: { id: OwnerId.parse("bob"), name: "Bob" },
       mode: "paired",
     });
     expect(observed[1]).toEqual({
@@ -163,7 +164,7 @@ it("publishes paired identity and cleared caches in one snapshot before notifyin
   expect(ownerSession.current.owner).toBeUndefined();
   expect(threadDraft("thread").text).toBe("");
   ownerSession.setSession({
-    user: { id: "alice", name: "Alice" },
+    user: { id: OwnerId.parse("alice"), name: "Alice" },
     mode: "paired",
   });
   expect(threadDraft("thread").text).toBe("Alice draft");

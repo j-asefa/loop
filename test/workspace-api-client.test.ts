@@ -1,3 +1,4 @@
+import { ArtifactId } from "../src/shared/contract-ids.js";
 import { ModelId } from "../src/shared/contract-ids.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeDecisionId } from "../src/shared/contract-ids.js";
@@ -254,5 +255,41 @@ it("keeps request defaults off the wire after ID ingress parsing", async () => {
     }),
   );
   await callRoute(workspaceApi.agentCreate, { body }, "");
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(raw);
+});
+
+it("preserves attachment order and duplicates on the request wire", async () => {
+  const attachment = "11111111-1111-4111-8111-111111111111";
+  const raw = {
+    name: "fixture-agent",
+    connectionId: "native-codex",
+    model: "default",
+    attachmentIds: [attachment, attachment],
+  };
+  fetcher.mockResolvedValueOnce(
+    Response.json({
+      id: "agent",
+      owner_id: "owner",
+      name: raw.name,
+      provider: "codex",
+      connection_id: raw.connectionId,
+      model: raw.model,
+      instructions: "",
+      origin: "loop",
+      created_at: 0,
+    }),
+  );
+  await callRoute(
+    workspaceApi.agentCreate,
+    {
+      body: {
+        ...raw,
+        connectionId: ConnectionId.parse(raw.connectionId),
+        model: ModelId.parse(raw.model),
+        attachmentIds: raw.attachmentIds.map((id) => ArtifactId.parse(id)),
+      },
+    },
+    "",
+  );
   expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body))).toEqual(raw);
 });

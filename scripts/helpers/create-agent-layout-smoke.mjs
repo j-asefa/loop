@@ -138,10 +138,35 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
   // The footer's submit button must still submit the associated form.
   await chooseAgentConnection(sheet, { provider: "codex" });
   await sheet.getByLabel("Unique name").fill("mobilelayout");
-  await sheet.getByLabel("Opening message", { exact: true }).fill("");
+  await sheet
+    .getByLabel("Opening message", { exact: true })
+    .fill("Fixture opening attachment");
+  const upload = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/api/uploads"),
+  );
+  await sheet
+    .getByLabel("Attach files", { exact: true })
+    .setInputFiles({
+      name: "creation-attachment.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Fixture creation attachment"),
+    });
+  const descriptor = await (await upload).json();
+  await expect(
+    sheet.getByRole("list", { name: "Attached files" }),
+  ).toContainText("creation-attachment.txt");
+  const creation = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" && request.url().endsWith("/api/agents"),
+  );
   await sheet
     .getByRole("button", { name: "Start chatting", exact: true })
     .click();
+  assert.deepEqual((await creation).postDataJSON().attachmentIds, [
+    descriptor.id,
+  ]);
   await expect(sheet).toHaveCount(0);
   assert(
     fixture.db

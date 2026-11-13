@@ -1,4 +1,17 @@
 import {
+  ActivityId,
+  ActivityKey,
+  PlanStepId,
+  CatalogCommandId,
+  ToolCallId,
+  TerminalId,
+  TraceKey,
+  TraceId,
+  OperationId,
+} from "../src/shared/contract-ids.js";
+import { ActivityUpdate } from "../src/shared/agent-activities.js";
+import { AttachmentIds } from "../src/shared/uploads.js";
+import {
   SteeringId,
   WorkerId,
   NativeGenerationId,
@@ -837,4 +850,103 @@ it("separates native sessions and execution correlations without tightening toke
   const wrongKey: RouteInput<typeof workspaceApi.setting>["params"]["setting"] =
     ModelId.parse("default");
   void [wrongSetting, wrongReady, wrongItem, wrongWorker, wrongKey];
+});
+
+it("keeps activity identities separate and preserves ingest bounds and upload receipts", () => {
+  for (const schema of [
+    ActivityId,
+    ActivityKey,
+    PlanStepId,
+    CatalogCommandId,
+    ToolCallId,
+    TerminalId,
+    TraceKey,
+    OperationId,
+  ]) {
+    expect(schema.parse("opaque:provider-token")).toBe("opaque:provider-token");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  const output = {
+    v: 1,
+    kind: "output",
+    id: "tool:output",
+    source: { transport: "acp", origin: "fixture" },
+    patch: { tool: "tool", terminal: "acp-terminal:opaque" },
+  };
+  expect(ActivityUpdate.parse(output)).toEqual(output);
+  expect(ActivityUpdate.safeParse({ ...output, id: "" }).success).toBe(false);
+  expect(
+    ActivityUpdate.safeParse({ ...output, id: "x".repeat(301) }).success,
+  ).toBe(false);
+  const plan = {
+    ...output,
+    kind: "plan",
+    patch: { steps: [{ id: "step-0", title: "Fixture", status: "pending" }] },
+  };
+  expect(ActivityUpdate.parse(plan)).toEqual(plan);
+  expect(TraceId.parse(17)).toBe(17);
+  expect(TraceId.safeParse("17").success).toBe(false);
+  expect(
+    workspaceApi.operationUndo.params.parse({ id: "opaque-operation" }).id,
+  ).toBe("opaque-operation");
+  expect(workspaceApi.operationUndo.params.safeParse({ id: 42 }).success).toBe(
+    false,
+  );
+  expect(AttachmentIds.parse([uuid, uuid])).toEqual([uuid]);
+  expect(AttachmentIds.parse(undefined)).toEqual([]);
+  expect(AttachmentIds.safeParse(["opaque-artifact"]).success).toBe(false);
+  type Activity = RouteResponse<
+    typeof workspaceApi.conversationActivities
+  >["items"][number];
+  // @ts-expect-error An activity record ID is not the composite projection key.
+  const wrongKey: Activity["key"] = ActivityId.parse("tool");
+  type Commands = Extract<Activity["record"], { kind: "commands" }>;
+  // @ts-expect-error A setting key does not identify a catalog command.
+  const wrongCommand: Commands["data"]["commands"][number]["id"] =
+    SessionSettingId.parse("model");
+  type Plan = Extract<Activity["record"], { kind: "plan" }>;
+  // @ts-expect-error A catalog command does not identify a plan step.
+  const wrongStep: Plan["data"]["steps"][number]["id"] =
+    CatalogCommandId.parse("command");
+  // @ts-expect-error A raw row number must be projected through the trace schema.
+  const wrongRow: TraceId = 17;
+  // @ts-expect-error A run is not a filing operation.
+  const wrongOperation: RouteInput<
+    typeof workspaceApi.operationUndo
+  >["params"]["id"] = RunId.parse(uuid);
+  const wrongAttachments: NonNullable<
+    RouteInput<typeof workspaceApi.agentCreate>["body"]["attachmentIds"]
+  > = [
+    // @ts-expect-error Uploaded attachments are artifacts, not object-storage IDs.
+    ObjectId.parse(uuid),
+  ];
+  void [
+    wrongKey,
+    wrongCommand,
+    wrongStep,
+    wrongRow,
+    wrongOperation,
+    wrongAttachments,
+  ];
+});
+
+it("projects shell and event owners with the canonical label bounds", () => {
+  const session = {
+    user: { id: "local-workspace", name: "Your workspace" },
+    mode: "paired",
+  };
+  expect(workspaceApi.authSession.response.parse(session)).toEqual(session);
+  expect(
+    workspaceApi.authSession.response.safeParse({
+      ...session,
+      user: { id: "", name: "Fixture" },
+    }).success,
+  ).toBe(false);
+  expect(
+    workspaceApi.authSession.response.safeParse({
+      ...session,
+      user: { id: "x".repeat(201), name: "Fixture" },
+    }).success,
+  ).toBe(false);
 });

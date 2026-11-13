@@ -1,3 +1,4 @@
+import { OperationId } from "./contract-ids.js";
 import {
   ArtifactId,
   ConversationId,
@@ -17,7 +18,6 @@ import {
   Text,
   MaybeText,
   Empty,
-  Id,
   Ok,
   endpoint,
   base,
@@ -174,7 +174,7 @@ export const libraryRoutes = {
     params: z.object({ id: requestId(ArtifactId) }),
     body: library.ArtifactMoveInput,
     response: z.object({
-      operation: Text,
+      operation: OperationId,
       folderId: FolderId.nullable(),
       message: Text,
     }),
@@ -210,7 +210,7 @@ export const libraryRoutes = {
     operation: "operationUndo",
     method: "POST",
     path: "/operations/:id/undo",
-    params: Id,
+    params: z.object({ id: requestId(OperationId) }),
     body: z.unknown(),
     response: Ok.extend({ folderId: FolderId.nullable() }),
   }),

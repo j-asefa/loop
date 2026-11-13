@@ -1,3 +1,4 @@
+import { NativeGenerationId } from "./contract-ids.js";
 import {
   AgentId,
   ConnectionId,
@@ -216,7 +217,7 @@ export const PublicCheckout = z.object({
   run_id: RunId,
   agent_id: AgentId,
   conversation_id: ConversationId,
-  generation: MaybeText,
+  generation: NativeGenerationId.nullable(),
   directory: Text,
   source: Text,
   branch: Text,

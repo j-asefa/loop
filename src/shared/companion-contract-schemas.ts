@@ -1,3 +1,4 @@
+import { ActivityKey } from "./contract-ids.js";
 import { NativeGenerationId } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
@@ -252,7 +253,7 @@ export const ActivityQuery = z.object({
     .optional(),
 });
 const PublicActivityItem = z.object({
-  key: Text,
+  key: ActivityKey,
   kind: z.enum([...ActivityKind.options, "capabilities"]),
   run: Text.nullable(),
   sequence: z.number(),

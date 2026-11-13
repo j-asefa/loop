@@ -28,8 +28,8 @@ const Choice = z.object({ id: z.string(), name: z.string() });
 export const PersonalFilesPage = z.object({
   items: z.array(PersonalFile),
   next: z.number().nullable(),
-  agents: z.array(Choice),
-  projects: z.array(Choice),
+  agents: z.array(Choice.extend({ id: AgentId })),
+  projects: z.array(Choice.extend({ id: ProjectId })),
 });
 type PersonalFile = z.infer<typeof PersonalFile>;
 export type PersonalFilesPage = z.infer<typeof PersonalFilesPage>;

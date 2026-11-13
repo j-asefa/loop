@@ -1,3 +1,4 @@
+import { OwnerId } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createSessionCheck } from "../src/client/app/Session";
 import { setShellSource } from "../src/client/sourceRouting";
@@ -93,7 +94,7 @@ it.each([
     href: "https://loop.test/#pair=current-capability",
   });
   const alice = {
-    user: { id: "alice", name: "Alice" },
+    user: { id: OwnerId.parse("alice"), name: "Alice" },
     mode: "paired" as const,
   };
   ownerSession.setSession(change === "anonymous expiry" ? undefined : alice);
@@ -109,7 +110,7 @@ it.each([
   expect(fetcher).toHaveBeenCalledTimes(1);
   if (change === "another owner" || change === "returning owner") {
     ownerSession.setSession({
-      user: { id: "bob", name: "Bob" },
+      user: { id: OwnerId.parse("bob"), name: "Bob" },
       mode: "paired",
     });
     if (change === "returning owner")

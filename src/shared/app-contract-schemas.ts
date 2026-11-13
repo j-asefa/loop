@@ -1,3 +1,4 @@
+import { OwnerId, RunId } from "./contract-ids.js";
 import { z } from "zod";
 import { BuildIdentity } from "./build.js";
 
@@ -43,8 +44,8 @@ export const PublicBuild = z.object({
 // event reader normalizes them into the same updates as socket frames.
 export const PublicHttpEvent = z.object({
   id: Count,
-  owner_id: Text,
-  run_id: Text.nullable(),
+  owner_id: OwnerId,
+  run_id: RunId.nullable(),
   type: Text,
   payload: Text,
   created_at: Count,
@@ -54,7 +55,7 @@ export const PublicHttpEvent = z.object({
 // The session read exposes only the display identity used by the shell.
 export const PublicAuthSession = z
   .object({
-    user: z.object({ id: Text, name: Text }),
+    user: z.object({ id: OwnerId, name: Text }),
     mode: z.literal("paired"),
   })
   .nullable();

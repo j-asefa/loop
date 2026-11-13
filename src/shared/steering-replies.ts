@@ -1,8 +1,8 @@
+import { MessageId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 export const PublishReply = z.strictObject({
-  replyTo: z
-    .string()
+  replyTo: requestId(MessageId)
     .min(1)
     .max(150)
     .describe("The message ID supplied with the user's steered message."),
@@ -21,7 +21,7 @@ export const ReplyState = z.union([
 ]);
 
 export const SteeringReplyContext = z.object({
-  message_id: z.string(),
+  message_id: MessageId,
   content: z.string(),
   read_at: z.number().nullable(),
 });
