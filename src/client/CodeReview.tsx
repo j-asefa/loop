@@ -255,6 +255,7 @@ export function CodeReviewStatus({
     };
   }, [context, refresh, revision]);
   const review = snapshot?.context === context ? snapshot.review : null;
+  const checking = busy && context.retryFreshness;
   const notice = (
     <CollectionReadNotice
       error={error}
@@ -300,10 +301,10 @@ export function CodeReviewStatus({
       )}
       <button
         className="text-button"
-        disabled={busy}
+        disabled={checking}
         onClick={() => void refresh(true, true)}
       >
-        {busy ? "Checking…" : "Check for newer edits"}
+        {checking ? "Checking…" : "Check for newer edits"}
       </button>
       {review.current !== null && (
         <p role="status">

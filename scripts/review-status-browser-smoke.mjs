@@ -164,12 +164,21 @@ try {
       } else {
         await expect(report).toContainText("1/3 reviewers completed");
         if (scenario === "freshness") {
+          holdNext = true;
+          await revise();
+          await expect.poll(() => held.length).toBe(1);
+          await expect(
+            report.getByRole("button", { name: "Check for newer edits" }),
+          ).toBeEnabled();
           failure = true;
           const before = requests.length;
           await check();
           await expect(notice).toContainText("Review status unavailable");
           assert.equal(requests.length, before + 1);
           assert.equal(requests.at(-1).searchParams.get("freshness"), "true");
+          held.shift()();
+          await page.waitForTimeout(100);
+          await expect(notice).toContainText("Review status unavailable");
           failure = false;
           holdNext = true;
           await page.getByRole("button", { name: "Retry connection" }).click();
