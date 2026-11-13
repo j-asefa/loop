@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { chromium, expect } from "@playwright/test";
+import { chromium, webkit, expect } from "@playwright/test";
 // Uses the actual production hook, pager, source context and transport. Only
 // HTTP responses are controlled to deliver old scopes after new ones.
 const built = await build({
@@ -26,10 +26,11 @@ const server = createServer((req, res) => {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const origin = "http://127.0.0.1:" + server.address().port;
-const browser = await chromium.launch({
+const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const browser = await engine.launch({
   headless: true,
-  args: ["--no-sandbox"],
-  ...(process.env.CHROMIUM_PATH
+  ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
+  ...(engine === chromium && process.env.CHROMIUM_PATH
     ? { executablePath: process.env.CHROMIUM_PATH }
     : {}),
 });
@@ -255,6 +256,7 @@ try {
   await expect(page.getByRole("listitem")).toHaveText("Loaded card");
   await expect(page.getByRole("status")).toHaveCount(0);
   hold = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
   await waiting;
   await expect(page.getByRole("status")).toHaveCount(0);
   await expect(
@@ -262,6 +264,10 @@ try {
   ).toBeEnabled();
   await page.getByRole("button", { name: "More cards", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("Loading cards");
+  await page.evaluate(() => {
+    for (let n = 0; n < 20; n++)
+      window.dispatchEvent(new Event("loop-refresh"));
+  });
   release();
   await pageWaiting;
   await page.evaluate(
