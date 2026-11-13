@@ -75,7 +75,69 @@ function inventory(
     }
     modules.set(file, { source, program, definitions, imports });
   }
-  function open(file: string, node: any, seen = new Set<string>()): boolean {
+  // Resolve aliases in the lexical environment of each expression, not a
+  // module-wide name table. Inner declarations must not overwrite siblings.
+  const scopes = new WeakMap<object, Map<string, any>>();
+  for (const module of modules.values()) {
+    function bind(node: any, inherited: Map<string, any>) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const child of node) bind(child, inherited);
+        return;
+      }
+      let scope = inherited;
+      if (
+        [
+          "FunctionDeclaration",
+          "FunctionExpression",
+          "ArrowFunctionExpression",
+        ].includes(node.type)
+      ) {
+        scope = new Map(inherited);
+        // var belongs to the function even when declared inside a block.
+        function hoist(value: any) {
+          if (!value || typeof value !== "object") return;
+          if (Array.isArray(value)) {
+            for (const child of value) hoist(child);
+            return;
+          }
+          if (
+            [
+              "FunctionDeclaration",
+              "FunctionExpression",
+              "ArrowFunctionExpression",
+            ].includes(value.type)
+          )
+            return;
+          if (value.type === "VariableDeclaration" && value.kind === "var")
+            for (const entry of value.declarations)
+              if (entry.id.type === "Identifier")
+                scope.set(entry.id.name, entry.init);
+          for (const child of Object.values(value)) hoist(child);
+        }
+        for (const parameter of node.params)
+          if (parameter.type === "Identifier")
+            scope.set(parameter.name, undefined);
+        hoist(node.body);
+      }
+      if (node.type === "BlockStatement") {
+        scope = new Map(scope);
+        for (const statement of node.body)
+          if (statement.type === "VariableDeclaration")
+            for (const declaration of statement.declarations)
+              if (declaration.id.type === "Identifier")
+                scope.set(declaration.id.name, declaration.init);
+      }
+      scopes.set(node, scope);
+      for (const value of Object.values(node)) bind(value, scope);
+    }
+    bind(module.program, module.definitions);
+  }
+  const imported = (file: string, node: any, name: string) =>
+    scopes.get(node)?.has(name)
+      ? undefined
+      : modules.get(file)?.imports.get(name);
+  function open(file: string, node: any, seen = new Set<any>()): boolean {
     if (!node) return false;
     if (
       [
@@ -87,23 +149,27 @@ function inventory(
       return open(file, node.expression, seen);
     const module = modules.get(file);
     if (node.type === "Identifier") {
-      const key = `${file}:${node.name}`;
+      const scope = scopes.get(node) ?? module?.definitions;
+      const binding = scope?.get(node.name);
+      const key = scope?.has(node.name)
+        ? (binding ?? node)
+        : `${file}:${node.name}`;
       if (seen.has(key)) return false;
-      const next = new Set([...seen, key]),
-        imported = module?.imports.get(node.name);
-      if (imported)
+      const next = new Set([...seen, key]);
+      const reference = imported(file, node, node.name);
+      if (reference)
         return open(
-          imported[0],
-          { type: "Identifier", name: imported[1] },
+          reference[0],
+          { type: "Identifier", name: reference[1] },
           next,
         );
-      return open(file, module?.definitions.get(node.name), next);
+      return open(file, binding, next);
     }
     if (node.type === "MemberExpression" && node.object.type === "Identifier") {
-      const imported = module?.imports.get(node.object.name);
-      if (imported?.[1] === "*")
+      const reference = imported(file, node, node.object.name);
+      if (reference?.[1] === "*")
         return open(
-          imported[0],
+          reference[0],
           {
             type: "Identifier",
             name: node.property.name ?? node.property.value,
@@ -124,7 +190,7 @@ function inventory(
         : object;
     if (
       receiver.type === "Identifier" &&
-      module?.imports.get(receiver.name)?.[0] === "zod"
+      imported(file, node, receiver.name)?.[0] === "zod"
     ) {
       if (method === "string") return true;
       if (method === "union")
@@ -150,6 +216,10 @@ function inventory(
       if (!node || typeof node !== "object") return;
       if (Array.isArray(node)) {
         for (const child of node) walk(child, path);
+        return;
+      }
+      if (node.type === "FunctionDeclaration" && node.id) {
+        walk(node.body, [...path, node.id.name]);
         return;
       }
       if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
@@ -295,5 +365,42 @@ it("finds aliased and multiline schemas while ignoring comments, values and clos
     "check.ts:Schema.mode",
     "check.ts:Schema.origin",
     "nested/check.ts:Schema.kind",
+  ]);
+});
+
+it("resolves function-local aliases, shadowed imports and nested block bindings", () => {
+  const file = resolve("fixture/local.ts");
+  const found = inventory(
+    new Map([
+      [
+        file,
+        `import {z} from 'zod';
+ const Text=z.literal('closed');
+ function build(){const Text=z.string();return z.object({state:Text});}
+ function hoisted(Text){if(true){var Text=z.string();}return z.object({phase:Text});}
+ function sibling(){const Text=z.literal('closed');return z.object({kind:Text});}
+ function nested(){const Alias=z.string();{const Alias=z.literal('closed');const Inner=z.object({role:Alias});}return z.object({status:Alias});}
+ `,
+      ],
+    ]),
+    resolve("fixture"),
+  );
+  expect([...found.keys()]).toEqual([
+    "local.ts:build.state",
+    "local.ts:hoisted.phase",
+    "local.ts:nested.status",
+  ]);
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod';export const Text=z.string();`,
+    ],
+    [
+      file,
+      `import {z} from 'zod';import {Text} from './base.js';function closed(){const Text=z.literal('ready');return z.object({state:Text});}function opaque(){const Alias=Text.optional();return z.object({origin:Alias});}`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "local.ts:opaque.origin",
   ]);
 });
