@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { RunId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -96,7 +97,11 @@ function PublishedFileView({
   const name = meta.name || title;
   const url = download
     ? sourceApiPath(download)
-    : routeUrl(workspaceApi.artifactFile, { params: { id } }, source);
+    : routeUrl(
+        workspaceApi.artifactFile,
+        { params: { id: ArtifactId.parse(id) } },
+        source,
+      );
   return (
     <div className="published-file">
       {previewImages && image && (

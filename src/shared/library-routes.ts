@@ -1,4 +1,10 @@
-import { ConversationId, RunId, requestId } from "./contract-ids.js";
+import {
+  ArtifactId,
+  FolderId,
+  ConversationId,
+  RunId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
@@ -53,7 +59,7 @@ export const libraryRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id/file",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     query: z.object({ preview: z.unknown().optional() }),
     kind: "stream",
     response: z.custom<Blob>(),
@@ -64,7 +70,7 @@ export const libraryRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id/download",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     kind: "stream",
     response: z.custom<Blob>(),
     status: 303,
@@ -107,7 +113,7 @@ export const libraryRoutes = {
     operation: "folderUpdate",
     method: "PATCH",
     path: "/folders/:id",
-    params: Id,
+    params: z.object({ id: requestId(FolderId) }),
     body: library.FolderUpdateInput,
     response: Ok,
   }),
@@ -135,7 +141,7 @@ export const libraryRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/artifacts/:id",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     response: PublicArtifact,
   }),
   artifactCreate: endpoint({
@@ -152,7 +158,7 @@ export const libraryRoutes = {
     operation: "artifactUpdate",
     method: "PATCH",
     path: "/artifacts/:id",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     body: library.ArtifactUpdateInput,
     response: PublicArtifact,
   }),
@@ -161,7 +167,7 @@ export const libraryRoutes = {
     operation: "artifactMove",
     method: "POST",
     path: "/artifacts/:id/move",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     body: library.ArtifactMoveInput,
     response: z.object({ operation: Text, folderId: MaybeText, message: Text }),
   }),

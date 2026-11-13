@@ -79,6 +79,26 @@ function clientTypeChecks(
   void api(workspaceApi.agentDetail, { params: { id: connection } }, "fixture");
   // @ts-expect-error Agents cannot identify connections.
   void api(workspaceApi.connectionModels, { params: { id: agent } }, "fixture");
+  const artifact = ArtifactId.parse(uuid);
+  const folder = FolderId.parse(uuid);
+  void api(
+    workspaceApi.artifactDetail,
+    { params: { id: artifact } },
+    "fixture",
+  );
+  void api(
+    workspaceApi.folderUpdate,
+    { params: { id: folder }, body: { name: "Folder" } },
+    "fixture",
+  );
+  // @ts-expect-error Folder IDs cannot identify artifacts.
+  void api(workspaceApi.artifactDetail, { params: { id: folder } }, "fixture");
+  void api(
+    workspaceApi.folderUpdate,
+    // @ts-expect-error Artifact IDs cannot identify folders.
+    { params: { id: artifact }, body: { name: "Folder" } },
+    "fixture",
+  );
   const route = workspaceApi.conversation;
   const conversation = ConversationId.parse(uuid);
   const run: RouteResponse<typeof workspaceApi.runMove>["id"] =
@@ -93,8 +113,8 @@ function clientTypeChecks(
   void api(route, { params: { id: "raw" } }, "fixture");
   // @ts-expect-error Only a named branded schema can define a request ID view.
   requestId(z.string());
-  const folder: FolderId = ProjectId.parse(uuid);
-  void folder;
+  const projectFolder: FolderId = ProjectId.parse(uuid);
+  void projectFolder;
   // @ts-expect-error An arbitrary folder is not necessarily a project.
   const project: ProjectId = FolderId.parse(uuid);
   void project;
@@ -148,6 +168,18 @@ it("preserves unrestricted agent and native connection lookup strings", () => {
     workspaceApi.connectionModels.params.parse({ id: "native-codex" }).id,
   ).toBe("native-codex");
   expect(workspaceApi.agentDetail.params.safeParse({ id: 42 }).success).toBe(
+    false,
+  );
+});
+
+it("preserves unrestricted artifact and folder request validators", () => {
+  expect(
+    workspaceApi.artifactDetail.params.parse({ id: "opaque-artifact" }).id,
+  ).toBe("opaque-artifact");
+  expect(
+    workspaceApi.folderUpdate.params.parse({ id: "opaque-folder" }).id,
+  ).toBe("opaque-folder");
+  expect(workspaceApi.artifactDetail.params.safeParse({ id: 42 }).success).toBe(
     false,
   );
 });

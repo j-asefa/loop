@@ -152,20 +152,21 @@ it("keeps thread file summaries download-free while retaining source-scoped prev
   );
 });
 
-it("recognizes source-qualified files for sandboxed HTML previews", () => {
-  vi.stubGlobal("location", {
-    href: "https://loop.test/",
-    origin: "https://loop.test",
-  });
-  expect(
-    loopFileUrl(
-      "/api/agent-sources/docker%3Aalpha/objects/report?preview=html",
-    ),
-  ).toBe("/api/agent-sources/docker%3Aalpha/objects/report?preview=html");
-  expect(
-    loopFileUrl("https://elsewhere.test/api/objects/report"),
-  ).toBeUndefined();
-});
+it.each(["objects/report", "artifacts/report/file"])(
+  "recognizes source-qualified %s for sandboxed HTML previews",
+  (path) => {
+    vi.stubGlobal("location", {
+      href: "https://loop.test/",
+      origin: "https://loop.test",
+    });
+    expect(
+      loopFileUrl(`/api/agent-sources/docker%3Aalpha/${path}?preview=html`),
+    ).toBe(`/api/agent-sources/docker%3Aalpha/${path}?preview=html`);
+    expect(
+      loopFileUrl("https://elsewhere.test/api/objects/report"),
+    ).toBeUndefined();
+  },
+);
 
 it.each(["", "docker:alpha"])(
   "rebases a source-qualified Markdown file into its thread source %s",

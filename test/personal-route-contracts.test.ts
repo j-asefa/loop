@@ -1,3 +1,4 @@
+import { ArtifactId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -255,14 +256,17 @@ it("artifactDownload preserves its owner-checked 303 and the typed client follow
   try {
     const blob = await callRoute(
       workspaceApi.artifactDownload,
-      { params: { id: png.artifactId } },
+      { params: { id: ArtifactId.parse(png.artifactId) } },
       "",
     );
     expect(workspaceApi.artifactDownload.response.parse(blob)).toBe(blob);
     expect(Buffer.from(await blob.arrayBuffer())).toEqual(pngBytes);
     const address = routeUrl(
       workspaceApi.artifactFile,
-      { params: { id: png.artifactId }, query: { preview: "1" } },
+      {
+        params: { id: ArtifactId.parse(png.artifactId) },
+        query: { preview: "1" },
+      },
       "",
     );
     expect((await fetch(address)).headers.get("content-disposition")).toMatch(
@@ -270,7 +274,7 @@ it("artifactDownload preserves its owner-checked 303 and the typed client follow
     );
     const file = await fetchStream(
       workspaceApi.artifactFile,
-      { params: { id: png.artifactId } },
+      { params: { id: ArtifactId.parse(png.artifactId) } },
       "",
     );
     expect(file.headers.get("content-disposition")).toContain(
@@ -282,7 +286,7 @@ it("artifactDownload preserves its owner-checked 303 and the typed client follow
     await expect(
       fetchStream(
         workspaceApi.artifactFile,
-        { params: { id: png.artifactId } },
+        { params: { id: ArtifactId.parse(png.artifactId) } },
         "",
         controller.signal,
       ),

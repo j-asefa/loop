@@ -1,3 +1,4 @@
+import { ArtifactId } from "../../shared/contract-ids.js";
 import { RunId } from "../../shared/contract-ids.js";
 import { useFeedBadge } from "../useFeedBadge";
 import { useComposerDraft, useComposerSend } from "./Composer";
@@ -1330,7 +1331,7 @@ export function useAppController() {
     if (session?.user && artifact)
       void callRoute(
         workspaceApi.artifactDetail,
-        { params: { id: artifact } },
+        { params: { id: ArtifactId.parse(artifact) } },
         executionSourceId(),
       )
         .then((item) => void open(item))

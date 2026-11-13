@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { FolderId } from "../shared/contract-ids.js";
 import {
   recentSearches,
@@ -724,7 +725,7 @@ export function SearchWorkspace({
         onOpen(
           await callRoute(
             workspaceApi.artifactDetail,
-            { params: { id: r.id.slice(9) } },
+            { params: { id: ArtifactId.parse(r.id.slice(9)) } },
             executionSourceId(),
           ),
         );

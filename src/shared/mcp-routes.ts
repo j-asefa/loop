@@ -1,3 +1,4 @@
+import { ArtifactId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as mcp from "./mcp-contract-schemas.js";
 import { Text, Id, endpoint, base } from "./route-contract.js";
@@ -131,7 +132,7 @@ export const mcpRoutes = {
     operation: "artifactToolCall",
     method: "POST",
     path: "/artifacts/:id/tool-call",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     body: mcp.McpToolCallInput,
     response: PublicRun,
   }),
@@ -140,7 +141,7 @@ export const mcpRoutes = {
     operation: "artifactRefresh",
     method: "POST",
     path: "/artifacts/:id/refresh",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     body: mcp.McpToolCallInput.pick({ idempotencyKey: true }),
     response: PublicRun,
   }),
@@ -149,7 +150,7 @@ export const mcpRoutes = {
     operation: "artifactApp",
     method: "GET",
     path: "/artifacts/:id/app",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     kind: "stream",
     contentType: "text/html",
     response: z.custom<Blob>(),

@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
@@ -243,7 +244,7 @@ function TraceList({
     try {
       const artifact = await route(
         workspaceApi.artifactDetail,
-        { params: { id } },
+        { params: { id: ArtifactId.parse(id) } },
         operation.signal,
       );
       if (operation.current()) onArtifact(artifact);
