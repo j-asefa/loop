@@ -15,7 +15,10 @@ import {
   requestId,
 } from "../src/shared/contract-ids.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
-import type { RouteResponse } from "../src/shared/route-contract.js";
+import type {
+  RouteInput,
+  RouteResponse,
+} from "../src/shared/route-contract.js";
 
 const uuid = "11111111-1111-4111-8111-111111111111";
 
@@ -99,6 +102,32 @@ function clientTypeChecks(
     { params: { id: artifact }, body: { name: "Folder" } },
     "fixture",
   );
+  const team = TeamId.parse(uuid);
+  const approval = ApprovalId.parse(uuid);
+  const message = MessageId.parse("opaque-message");
+  void api(
+    workspaceApi.teamDelete,
+    { params: { id: team }, body: {} },
+    "fixture",
+  );
+  void api(
+    workspaceApi.approval,
+    { params: { id: approval }, body: { decision: "approve" } },
+    "fixture",
+  );
+  void api(workspaceApi.messageDetail, { params: { id: message } }, "fixture");
+  // @ts-expect-error Team IDs cannot identify messages.
+  const wrongMessage: RouteInput<
+    typeof workspaceApi.messageDetail
+  >["params"]["id"] = team;
+  // @ts-expect-error Message IDs cannot identify approvals.
+  const wrongApproval: RouteInput<
+    typeof workspaceApi.approval
+  >["params"]["id"] = message;
+  // @ts-expect-error Approval IDs cannot identify teams.
+  const wrongTeam: RouteInput<typeof workspaceApi.teamDelete>["params"]["id"] =
+    approval;
+  void [wrongMessage, wrongApproval, wrongTeam];
   const route = workspaceApi.conversation;
   const conversation = ConversationId.parse(uuid);
   const run: RouteResponse<typeof workspaceApi.runMove>["id"] =
@@ -182,4 +211,15 @@ it("preserves unrestricted artifact and folder request validators", () => {
   expect(workspaceApi.artifactDetail.params.safeParse({ id: 42 }).success).toBe(
     false,
   );
+});
+
+it("preserves opaque team, approval and message path strings", () => {
+  for (const route of [
+    workspaceApi.teamDelete,
+    workspaceApi.approval,
+    workspaceApi.messageDetail,
+  ]) {
+    expect(route.params.parse({ id: "opaque-key" }).id).toBe("opaque-key");
+    expect(route.params.safeParse({ id: 42 }).success).toBe(false);
+  }
 });

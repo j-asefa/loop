@@ -1,3 +1,4 @@
+import { ApprovalId } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { fleetPayloadDigest } from "../src/server/fleet-crypto";
@@ -419,7 +420,7 @@ it("keeps owner and machine identities separate despite identical local IDs and 
     throw new TypeError("Fixture disconnect");
   };
   const input = {
-    params: { id: "same-local-decision" },
+    params: { id: ApprovalId.parse("same-local-decision") },
     body: { decision: "approve" as const },
   };
   await expect(
@@ -443,7 +444,10 @@ it("refuses unavailable, corrupt or full browser storage before any fetch", asyn
   const call = () =>
     api.callRoute(
       workspaceApi.approval,
-      { params: { id: "decision" }, body: { decision: "approve" } },
+      {
+        params: { id: ApprovalId.parse("decision") },
+        body: { decision: "approve" },
+      },
       source,
     );
   vi.stubGlobal("localStorage", {
@@ -498,7 +502,7 @@ it("two concurrent callers share one original intent and at most one action requ
     return json({ error: "Fixture unknown", executionOutcome: "unknown" }, 503);
   };
   const input = {
-    params: { id: "decision" },
+    params: { id: ApprovalId.parse("decision") },
     body: { decision: "approve" as const },
   };
   const result = await Promise.allSettled([
@@ -684,7 +688,10 @@ it("rechecks owner generation after asynchronous device authorization before for
   await expect(
     api.callRoute(
       workspaceApi.approval,
-      { params: { id: "decision" }, body: { decision: "approve" } },
+      {
+        params: { id: ApprovalId.parse("decision") },
+        body: { decision: "approve" },
+      },
       source,
     ),
   ).rejects.toThrow("session changed");
@@ -719,7 +726,7 @@ it("does not settle uncertainty from a missing, wrong or malformed completion re
     );
   };
   const input = {
-    params: { id: "decision" },
+    params: { id: ApprovalId.parse("decision") },
     body: { decision: "approve" as const },
   };
   for (mode of ["missing", "wrong", "malformed", "admission"]) {
@@ -756,7 +763,10 @@ it("a late response after an owner switch cannot finish the old browser intent",
   await expect(
     api.callRoute(
       workspaceApi.approval,
-      { params: { id: "decision" }, body: { decision: "approve" } },
+      {
+        params: { id: ApprovalId.parse("decision") },
+        body: { decision: "approve" },
+      },
       source,
     ),
   ).rejects.toThrow("session changed");

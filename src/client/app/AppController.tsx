@@ -799,7 +799,7 @@ export function useAppController() {
     try {
       await callRoute(
         workspaceApi.resultUpdate,
-        { params: { id }, body: { hidden } },
+        { params: { id: ArtifactId.parse(id) }, body: { hidden } },
         source,
       );
       if (source !== executionSourceId() || owner !== ownerRef.current) return;

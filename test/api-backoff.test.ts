@@ -174,7 +174,7 @@ it("retries one-shot GETs after a cooldown, but cancels retries with the view an
   fetcher.mockResolvedValueOnce(limited("60"));
   const cancelled = readRoute(
     workspaceApi.reviewStatus,
-    { params: { id: "thread" } },
+    { params: { id: ConversationId.parse("thread") } },
     "",
     controller.signal,
   ).catch((error) => error);

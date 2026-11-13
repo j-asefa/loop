@@ -1,4 +1,9 @@
-import { ConversationId, RunId, requestId } from "./contract-ids.js";
+import {
+  ApprovalId,
+  ConversationId,
+  RunId,
+  requestId,
+} from "./contract-ids.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { z } from "zod";
 import { ApprovalDecision } from "./approvals.js";
@@ -102,7 +107,7 @@ export const conversationRoutes = {
     identity: "idempotencyKey",
     method: "POST",
     path: "/approvals/:id",
-    params: Id,
+    params: z.object({ id: requestId(ApprovalId) }),
     body: z.object({
       decision: ApprovalDecision,
       idempotencyKey: Text.min(8).max(150).optional(),

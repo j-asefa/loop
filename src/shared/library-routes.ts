@@ -1,7 +1,8 @@
 import {
   ArtifactId,
-  FolderId,
   ConversationId,
+  FolderId,
+  MessageId,
   RunId,
   requestId,
 } from "./contract-ids.js";
@@ -41,7 +42,7 @@ export const libraryRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/messages/:id",
-    params: Id,
+    params: z.object({ id: requestId(MessageId) }),
     response: PublicMessage,
   }),
   resultUpdate: endpoint({
@@ -49,7 +50,7 @@ export const libraryRoutes = {
     operation: "resultUpdate",
     method: "PATCH",
     path: "/results/:id",
-    params: Id,
+    params: z.object({ id: requestId(ArtifactId) }),
     body: z.object({ hidden: z.boolean() }),
     response: Ok,
   }),
