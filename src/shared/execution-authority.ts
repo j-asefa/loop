@@ -1,3 +1,4 @@
+import { NativeDecisionId } from "./contract-ids.js";
 import { NativeCommand } from "./native-commands.js";
 import { Billing } from "./protocol.js";
 import { z } from "zod";
@@ -299,7 +300,10 @@ export const executionOperations = {
     { effect: "existing" },
   ),
   "native.answer": method(
-    z.strictObject({ decisionId: Id, answer: JsonObject }),
+    z.strictObject({
+      decisionId: NativeDecisionId.min(1).max(200),
+      answer: JsonObject,
+    }),
     // The reply state spans stored transitions and live deliver stages the
     // harness controls (D5-exempt: harness-confirmed answer state).
     z.strictObject({ state: z.string() }),

@@ -1,3 +1,4 @@
+import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import {
   ConnectionId,
   FolderId,
@@ -29,7 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 const answer = {
-  params: { id: "decision/id" },
+  params: { id: NativeDecisionId.parse("decision/id") },
   body: {
     commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12",
     answer: { choice: "allow" },
