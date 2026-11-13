@@ -253,7 +253,7 @@ export function useWorkspaceEvents(
               ...(broad ? [bootstrap()] : []),
               ...(refreshRuns ? [loadRuns()] : []),
               ...(refreshResults && resultsVisible.current
-                ? [loadResults(false, false, false, "change")]
+                ? [loadResults(false, false, false)]
                 : []),
             ]);
           }

@@ -3,16 +3,15 @@ import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
 import { ContentCard } from "../ContentCard";
 import { resultAction, type ResultAction } from "../card-actions";
 import { CardPager, type CardWindow } from "../card-pager";
-import { CollectionReadNotice } from "../CollectionRead";
+import { CollectionReadNotice, useCollectionRead } from "../CollectionRead";
 import { contractCardReader } from "../../shared/card-client";
-import { useProjectionRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 import { cacheView, cachedView } from "../viewCache";
 import { ResultsPager } from "../results";
 import type { SavedMessage } from "../card-actions";
 
 import { parse } from "../json";
-import { callRoute } from "../api";
+import { callRoute, readRoute } from "../api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";
 
@@ -30,18 +29,19 @@ type ResultsProps = {
     key: string;
     retryAppend?: boolean;
     pending?: number;
+    foreground?: number;
+    failed?: boolean;
+    notify?: boolean;
   }>;
   resultsPager: RefObject<ResultsPager<ResultItem>>;
   cardsPager: RefObject<CardPager>;
   setItems(value: ResultItem[] | ResultAction[]): void;
   setNext(value: string | number | null): void;
   setResultsLoading(value: boolean): void;
-  setResultsError(value: string): void;
-  readContract: ReturnType<typeof useProjectionRoute>;
   setRevision: Dispatch<SetStateAction<number>>;
 };
 
-export function createResultsLoader(props: ResultsProps) {
+export function useResultsLoader(props: ResultsProps) {
   const {
     ownerRef,
     profile,
@@ -55,16 +55,18 @@ export function createResultsLoader(props: ResultsProps) {
     setItems,
     setNext,
     setResultsLoading,
-    setResultsError,
-    readContract,
     setRevision,
   } = props;
-  async function loadResults(
-    append = false,
-    notify = true,
-    manual = false,
-    reason?: "change" | "fallback",
-  ) {
+  const scope = JSON.stringify([
+    ownerRef.current,
+    executionSourceId(),
+    profile?.id,
+    view,
+    teamKey,
+    projectFilter,
+  ]);
+  const { load: execute, error } = useCollectionRead(scope);
+  async function loadResults(append = false, notify = true, manual = false) {
     if (manual) append = resultsSelection.current.retryAppend ?? false;
     const owner = ownerRef.current,
       source = executionSourceId(),
@@ -82,7 +84,6 @@ export function createResultsLoader(props: ResultsProps) {
       // Both transports publish into the same list. Restore only this exact
       // owner/source/selection's committed window before reconciling changes.
       resultsSelection.current = { key };
-      setResultsError("");
       resultsPager.current = new ResultsPager<ResultItem>();
       cardsPager.current.reset();
       const saved = view !== "files" && cachedView<CardWindow>(cacheKey);
@@ -99,139 +100,158 @@ export function createResultsLoader(props: ResultsProps) {
       }
     }
     const selectionContext = resultsSelection.current;
-    if ((manual || reason === "fallback") && selectionContext.pending) return;
     selectionContext.pending = (selectionContext.pending || 0) + 1;
-    if (manual || selectionContext.retryAppend !== undefined)
-      setResultsLoading(true);
-    if (
+    selectionContext.notify ||= notify;
+    const missing =
       (view === "files" ? resultsPager.current : cardsPager.current).key !==
         key ||
-      (view !== "files" && !cardsPager.current.snapshot())
-    ) {
+      (view !== "files" && !cardsPager.current.snapshot());
+    const foreground =
+      manual || append || (missing && !selectionContext.failed);
+    if (foreground)
+      selectionContext.foreground = (selectionContext.foreground ?? 0) + 1;
+    setResultsLoading((selectionContext.foreground ?? 0) > 0);
+    if (missing && !selectionContext.failed) {
       setItems([]);
       setNext(null);
-      setResultsLoading(true);
     }
-    if (reason === "change") setResultsError("");
     try {
-      const query = () => {
-        const q = new URLSearchParams({
-          view: ["traces", "messages", "threads"].includes(view) ? "all" : view,
-          teams: profile ? "" : teamKey,
-        });
-        if (profile) q.set("agent", profile.id);
-        if (projectFilter && !profile) q.set("folder", projectFilter);
-        return q;
-      };
-      const mode = manual ? "manual" : "automatic";
-      const reader = contractCardReader((contract, input) =>
-        readContract(contract, input, source, mode),
-      );
-      const selection = {
-        view: "results" as const,
-        agent: profile?.id,
-        teams: profile ? undefined : teamKey || undefined,
-        project: parseId(
-          ProjectId,
-          !profile && projectFilter ? projectFilter : undefined,
-        ),
-      };
-      const cardPage =
-        view !== "files"
-          ? await cardsPager.current.load(
-              key,
-              "results",
-              append,
-              (before) =>
-                reader.list({ ...selection, ...(before ? { before } : {}) }),
-              (after, through) =>
-                reader.changes({ ...selection, after, through }),
-            )
-          : null;
-      const result =
-        view !== "files"
-          ? cardPage && {
-              ...cardPage,
-              items: cardPage.items.flatMap((entry) =>
-                entry.card.type === "result"
-                  ? [resultAction(entry.card, source, owner)]
-                  : [],
-              ),
-            }
-          : await resultsPager.current.load(
-              key,
-              append,
-              async (before) => {
-                const q = query();
-                if (before !== null) q.set("before", String(before));
-                return readContract(
-                  workspaceApi.results,
-                  { query: Object.fromEntries(q) },
-                  source,
-                  mode,
-                );
-              },
-              async (after, through) => {
-                const q = query();
-                q.set("after", String(after));
-                q.set("through", String(through));
-                return readContract(
-                  workspaceApi.resultUpdates,
-                  {
-                    query: {
-                      ...Object.fromEntries(q),
-                      after: String(after),
-                      through: String(through),
-                      view: "files",
-                    },
-                  },
-                  source,
-                  mode,
-                );
-              },
+      await execute(
+        async (signal, mode) => {
+          try {
+            const query = () => {
+              const q = new URLSearchParams({
+                view: ["traces", "messages", "threads"].includes(view)
+                  ? "all"
+                  : view,
+                teams: profile ? "" : teamKey,
+              });
+              if (profile) q.set("agent", profile.id);
+              if (projectFilter && !profile) q.set("folder", projectFilter);
+              return q;
+            };
+            const reader = contractCardReader((contract, input) =>
+              readRoute(contract, input, source, signal, undefined, mode),
             );
-      if (
-        selectionContext !== resultsSelection.current ||
-        owner !== ownerRef.current ||
-        key !== resultsContext.current
-      )
-        return;
-      if (view !== "files") {
-        const saved = cardsPager.current.snapshot();
-        if (saved) cacheView(cacheKey, saved, owner);
-      }
-      // A successful unchanged page also resolves the connection failure.
-      setResultsError("");
-      delete selectionContext.retryAppend;
-      if (!result) return;
-      setItems(result.items);
-      setNext(result.next);
-      if (notify) setRevision((v) => v + 1);
-    } catch (e) {
-      // While Loop restarts, the status line reports it; keep the feed as is.
-      if (
-        selectionContext === resultsSelection.current &&
-        key === resultsContext.current &&
-        !(e as { reconnecting?: boolean }).reconnecting
-      ) {
-        if (view !== "files" && (e as { status?: number }).status === 409) {
-          cacheView(cacheKey, undefined, owner);
-          setItems([]);
-          setNext(null);
-        }
-        setResultsError((e as Error).message);
-        selectionContext.retryAppend = append;
-      }
+            const selection = {
+              view: "results" as const,
+              agent: profile?.id,
+              teams: profile ? undefined : teamKey || undefined,
+              project: parseId(
+                ProjectId,
+                !profile && projectFilter ? projectFilter : undefined,
+              ),
+            };
+            const cardPage =
+              view !== "files"
+                ? await cardsPager.current.load(
+                    key,
+                    "results",
+                    append,
+                    (before) =>
+                      reader.list({
+                        ...selection,
+                        ...(before ? { before } : {}),
+                      }),
+                    (after, through) =>
+                      reader.changes({ ...selection, after, through }),
+                  )
+                : null;
+            const result =
+              view !== "files"
+                ? cardPage && {
+                    ...cardPage,
+                    items: cardPage.items.flatMap((entry) =>
+                      entry.card.type === "result"
+                        ? [resultAction(entry.card, source, owner)]
+                        : [],
+                    ),
+                  }
+                : await resultsPager.current.load(
+                    key,
+                    append,
+                    async (before) => {
+                      const q = query();
+                      if (before !== null) q.set("before", String(before));
+                      return readRoute(
+                        workspaceApi.results,
+                        { query: Object.fromEntries(q) },
+                        source,
+                        signal,
+                        undefined,
+                        mode,
+                      );
+                    },
+                    async (after, through) => {
+                      const q = query();
+                      q.set("after", String(after));
+                      q.set("through", String(through));
+                      return readRoute(
+                        workspaceApi.resultUpdates,
+                        {
+                          query: {
+                            ...Object.fromEntries(q),
+                            after: String(after),
+                            through: String(through),
+                            view: "files",
+                          },
+                        },
+                        source,
+                        signal,
+                        undefined,
+                        mode,
+                      );
+                    },
+                  );
+            return result;
+          } catch (failure) {
+            if (
+              !signal.aborted &&
+              selectionContext === resultsSelection.current &&
+              owner === ownerRef.current &&
+              key === resultsContext.current
+            ) {
+              selectionContext.failed = true;
+              selectionContext.retryAppend = append;
+              if (
+                view !== "files" &&
+                (failure as { status?: number }).status === 409
+              ) {
+                cacheView(cacheKey, undefined, owner);
+                setItems([]);
+                setNext(null);
+              }
+            }
+            throw failure;
+          }
+        },
+        (result) => {
+          if (view !== "files") {
+            const saved = cardsPager.current.snapshot();
+            if (saved) cacheView(cacheKey, saved, owner);
+          }
+          selectionContext.failed = false;
+          delete selectionContext.retryAppend;
+          if (!result) return;
+          setItems(result.items);
+          setNext(result.next);
+          if (selectionContext.notify) setRevision((v) => v + 1);
+        },
+        manual,
+        append ? 1 : 0,
+      );
     } finally {
       selectionContext.pending!--;
+      if (foreground) selectionContext.foreground!--;
+      if (!selectionContext.pending) selectionContext.notify = false;
       if (
         selectionContext === resultsSelection.current &&
         key === resultsContext.current
       )
-        setResultsLoading(selectionContext.pending! > 0);
+        setResultsLoading((selectionContext.foreground ?? 0) > 0);
     }
   }
-  return loadResults;
+  return { loadResults, error };
 }
 
 export function renderResults(

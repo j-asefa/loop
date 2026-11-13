@@ -75,7 +75,7 @@ import {
   useSessionLifecycle,
   useOwnerSession,
 } from "./Session";
-import { createResultsLoader } from "./Results";
+import { useResultsLoader } from "./Results";
 import {
   useWorkspaceData,
   useWorkspaceEvents,
@@ -765,7 +765,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   }
   const [searchAgent, setSearchAgent] = useState("");
   const [resultsLoading, setResultsLoading] = useState(true);
-  const [resultsError, setResultsError] = useState("");
   const [workspaceLoadErrors, setWorkspaceLoadErrors] = useState<
     Partial<Record<"bootstrap" | "runs", string>>
   >({});
@@ -1072,7 +1071,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   const check = createSessionCheck({
     setSession,
   });
-  const loadResults = createResultsLoader({
+  const { loadResults, error: resultsError } = useResultsLoader({
     ownerRef,
     profile,
     view,
@@ -1085,8 +1084,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setItems,
     setNext,
     setResultsLoading,
-    setResultsError,
-    readContract,
     setRevision,
   });
   const { bootstrap, loadRuns, runsGeneration, refresh } = useWorkspaceData({
