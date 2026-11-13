@@ -308,3 +308,17 @@ it("requires the core domain at actual typed route inputs", () => {
   const wrongShare: Share["newAgentId"] = FolderId.parse("folder");
   void [wrongProject, wrongConversation, wrongFilter, wrongShare];
 });
+
+it("carries nominal domains through feature response references", () => {
+  type Trace = z.output<
+    typeof workspaceApi.agentTraces.response
+  >["items"][number];
+  expectTypeOf<Trace["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<
+    Trace["conversation_id"]
+  >().toEqualTypeOf<ConversationId | null>();
+  type Saved = z.output<typeof workspaceApi.conversation.response>;
+  expectTypeOf<
+    Saved["position_message_id"]
+  >().toEqualTypeOf<MessageId | null>();
+});
