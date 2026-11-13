@@ -6,6 +6,8 @@ import {
   RunId,
   requestId,
   AgentId,
+  ImportId,
+  ObjectId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -218,7 +220,7 @@ export const libraryRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/objects/:id",
-    params: Id,
+    params: z.object({ id: requestId(ObjectId) }),
     query: z.object({ preview: z.unknown().optional() }),
     kind: "stream",
     response: z.custom<Blob>(),
@@ -274,7 +276,7 @@ export const libraryRoutes = {
     operation: "importStart",
     method: "POST",
     path: "/imports/:id/start",
-    params: Id,
+    params: z.object({ id: requestId(ImportId) }),
     body: z.unknown(),
     response: z.union([
       PublicRun,
@@ -286,7 +288,7 @@ export const libraryRoutes = {
     operation: "importCancel",
     method: "POST",
     path: "/imports/:id/cancel",
-    params: Id,
+    params: z.object({ id: requestId(ImportId) }),
     body: z.unknown(),
     response: Ok,
   }),

@@ -382,3 +382,43 @@ it("preserves string rules for each additional public record identity", () => {
   const wrongImport: Import["id"] = ObjectId.parse("object");
   void wrongImport;
 });
+
+it("requires record domains at concrete typed request paths without tightening HTTP strings", () => {
+  for (const route of [
+    workspaceApi.objectFile,
+    workspaceApi.importStart,
+    workspaceApi.importCancel,
+    workspaceApi.laterFinish,
+    workspaceApi.laterSnooze,
+    workspaceApi.laterReopen,
+    workspaceApi.scheduledSendCancel,
+    workspaceApi.scheduledSendUpdate,
+    workspaceApi.scheduledSendRetry,
+    workspaceApi.prWatchResume,
+    workspaceApi.prWatchDelete,
+  ]) {
+    expect(route.params.parse({ id: "opaque-record" })).toEqual({
+      id: "opaque-record",
+    });
+    expect(route.params.safeParse({ id: 42 }).success).toBe(false);
+  }
+  const wrongObject: RouteInput<typeof workspaceApi.objectFile>["params"] = {
+    // @ts-expect-error Artifact IDs do not identify object-store rows.
+    id: ArtifactId.parse("artifact"),
+  };
+  const wrongImport: RouteInput<typeof workspaceApi.importStart>["params"] = {
+    // @ts-expect-error An object is not an import job.
+    id: ObjectId.parse("object"),
+  };
+  const wrongLater: RouteInput<typeof workspaceApi.laterSnooze>["params"] = {
+    // @ts-expect-error Scheduled sends are not Later items.
+    id: ScheduledSendId.parse("scheduled"),
+  };
+  const wrongScheduled: RouteInput<
+    typeof workspaceApi.scheduledSendCancel
+  >["params"] = {
+    // @ts-expect-error A PR watch is not a scheduled send.
+    id: PrWatchId.parse("watch"),
+  };
+  void [wrongObject, wrongImport, wrongLater, wrongScheduled];
+});

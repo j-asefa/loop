@@ -4,6 +4,7 @@ import {
   MessageId,
   ProjectId,
   parseId,
+  LaterItemId,
 } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
@@ -370,7 +371,7 @@ export function LaterSheet({
       const created: CreatedReminder = itemId
         ? await callRoute(
             workspaceApi.laterSnooze,
-            { params: { id: itemId }, body: trigger },
+            { params: { id: LaterItemId.parse(itemId) }, body: trigger },
             sourceId ?? scopedSource,
           ).then((row) => ({ id: row.id, replaced: null }))
         : await callRoute(

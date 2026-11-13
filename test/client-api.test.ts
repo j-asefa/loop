@@ -1,4 +1,4 @@
-import { ArtifactId } from "../src/shared/contract-ids.js";
+import { ArtifactId, ObjectId } from "../src/shared/contract-ids.js";
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
@@ -11,7 +11,7 @@ it("fetches object downloads through their source-bound contract", async () => {
   vi.stubGlobal("fetch", fetcher);
   await fetchStream(
     workspaceApi.objectFile,
-    { params: { id: "object" } },
+    { params: { id: ObjectId.parse("object") } },
     "docker:one",
   );
   expect(fetcher.mock.calls[0][0]).toBe(
