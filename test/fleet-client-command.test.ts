@@ -1,3 +1,4 @@
+import { ModelId } from "../src/shared/contract-ids.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import {
@@ -383,7 +384,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
         body: {
           name: "fixture",
           connectionId: parseId(ConnectionId, randomUUID()),
-          model: "fixture",
+          model: ModelId.parse("fixture"),
           effort: null,
           instructions: "",
           initialPrompt: "",

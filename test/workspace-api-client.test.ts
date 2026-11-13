@@ -1,3 +1,4 @@
+import { ModelId } from "../src/shared/contract-ids.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import {
@@ -235,6 +236,7 @@ it("keeps request defaults off the wire after ID ingress parsing", async () => {
   };
   const body = {
     ...raw,
+    model: ModelId.parse(raw.model),
     connectionId: parseId(ConnectionId, raw.connectionId),
     folderId: parseId(FolderId, undefined),
   };

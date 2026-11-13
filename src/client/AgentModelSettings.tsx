@@ -1,3 +1,4 @@
+import { ModelId } from "../shared/contract-ids.js";
 import { ConnectionId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useSourceOperation, useSourceRoute } from "./SourceContext";
@@ -136,7 +137,7 @@ export function AgentModelSettings({
         params: { id: agent.id },
         body: {
           connectionId: parseId(ConnectionId, connectionId),
-          model,
+          model: parseId(ModelId, model),
           effort,
         },
       });

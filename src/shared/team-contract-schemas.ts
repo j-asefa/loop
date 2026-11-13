@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import {
   AgentId,
   ConnectionId,
@@ -26,7 +27,7 @@ export const TeamCreateInput = z.object({
 });
 const Selection = z.object({
   connectionId: requestId(ConnectionId),
-  model: Text.min(1),
+  model: requestId(ModelId).min(1),
   effort: Text.nullable().optional(),
 });
 export const TeamPresetInput = z.object({
@@ -104,7 +105,7 @@ const PublicDefinitionRole = z.object({
   description: Text,
   instructions: Text,
   // Definition metadata has always allowed provider defaults for model and effort.
-  model: Text.optional(),
+  model: ModelId.optional(),
   effort: Text.nullable().optional(),
 });
 const PublicDefinitionSpec = z.discriminatedUnion("kind", [
@@ -168,7 +169,7 @@ export const PublicSharePreview = z.object({
       id: AgentId,
       name: Text,
       provider: ProviderSchema,
-      model: Text,
+      model: ModelId,
       effort: Text.nullable(),
     })
     .nullable(),

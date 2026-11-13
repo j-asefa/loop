@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import {
   RunId,
   AgentId,
@@ -25,8 +26,8 @@ const RunPresentation = {
   updated_at: time,
   error: text,
   connection_id: ConnectionId.nullable(),
-  model: text,
-  resolved_model: text,
+  model: ModelId.nullable(),
+  resolved_model: ModelId.nullable(),
   queue_position: z.number().nullable(),
   can_move_up: z.boolean(),
   can_move_down: z.boolean(),

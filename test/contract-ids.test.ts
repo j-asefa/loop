@@ -1,3 +1,9 @@
+import { ModelId } from "../src/shared/contract-ids.js";
+import {
+  AgentCreateInput,
+  AgentUpdateInput,
+  PublicModel,
+} from "../src/shared/agent-contract-schemas.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import {
   NativeProviderId,
@@ -710,4 +716,48 @@ it("keeps execution command receipts distinct and preserves automatic IDs", () =
     answer: {},
   };
   void wrong;
+});
+
+it("keeps model tokens distinct while retaining existing selection limits", () => {
+  for (const token of [
+    "native-default",
+    "provider/model:variant",
+    "Imported history",
+    "",
+  ]) {
+    expect(
+      PublicModel.parse({
+        id: token,
+        name: "Display label",
+        resolvedModel: token,
+      }),
+    ).toEqual({ id: token, name: "Display label", resolvedModel: token });
+  }
+  const create = {
+    name: "fixture-agent",
+    connectionId: "native-codex",
+    model: "native-default",
+  };
+  expect(AgentCreateInput.parse(create).model).toBe("native-default");
+  expect(AgentCreateInput.safeParse({ ...create, model: "" }).success).toBe(
+    false,
+  );
+  expect(
+    AgentCreateInput.safeParse({ ...create, model: "x".repeat(151) }).success,
+  ).toBe(false);
+  expect(AgentUpdateInput.parse({ model: null })).toEqual({ model: null });
+  expect(AgentUpdateInput.safeParse({ model: "x".repeat(200) }).success).toBe(
+    true,
+  );
+  expect(AgentUpdateInput.safeParse({ model: "x".repeat(201) }).success).toBe(
+    false,
+  );
+  expect(ModelId.safeParse(42).success).toBe(false);
+  type Create = RouteInput<typeof workspaceApi.agentCreate>["body"];
+  const model: Create["model"] = ModelId.parse("native-default");
+  // @ts-expect-error A connection does not identify a model.
+  const wrong: Create["model"] = ConnectionId.parse("native-codex");
+  // @ts-expect-error A raw catalog token must be parsed at client ingress.
+  const raw: Create["model"] = "native-default";
+  void [model, wrong, raw];
 });
