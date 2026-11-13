@@ -1,3 +1,13 @@
+import {
+  ArtifactId,
+  MessageId,
+  ConversationId,
+  RunId,
+  AgentId,
+  FolderId,
+  ProjectId,
+  TeamId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import { DoneDisplaySchema } from "./done-card.js";
 import { ArtifactKindSchema } from "./artifact-kind.js";
@@ -29,12 +39,12 @@ const CardAttachmentSchema = z.object({
 const common = {
   id: CardIdSchema,
   source: z.object({
-    artifact_id: nullableText,
-    message_id: nullableText,
-    conversation_id: nullableText,
-    run_id: nullableText,
+    artifact_id: ArtifactId.nullable(),
+    message_id: MessageId.nullable(),
+    conversation_id: ConversationId.nullable(),
+    run_id: RunId.nullable(),
     // The source thread's agent target is separate from the message's author.
-    agent_id: nullableText,
+    agent_id: AgentId.nullable(),
   }),
   author: CardAgentSchema.extend({
     kind: z.enum(["owner", "agent", "system", "unknown"]),
@@ -42,10 +52,10 @@ const common = {
   recipient: CardAgentSchema.nullable(),
   context: z.object({
     conversation_title: nullableText,
-    folder_id: nullableText,
-    project_id: nullableText,
+    folder_id: FolderId.nullable(),
+    project_id: ProjectId.nullable(),
     project_name: nullableText,
-    team_id: nullableText,
+    team_id: TeamId.nullable(),
   }),
   content: z.string(),
   format: z.string(),

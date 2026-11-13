@@ -1,3 +1,4 @@
+import { PublicConnection } from "../src/shared/workspace-contract-schemas.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -54,11 +55,13 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     owner_id: OWNER,
   });
   expect(
-    harnessName({
-      ...connection,
-      metadata: JSON.stringify(connection.metadata),
-      models: JSON.stringify(connection.models),
-    }),
+    harnessName(
+      PublicConnection.parse({
+        ...connection,
+        metadata: JSON.stringify(connection.metadata),
+        models: JSON.stringify(connection.models),
+      }),
+    ),
   ).toBe("Muse Code");
   // Replies during a turn reach Muse through turn/steer, not the queue.
   expect(connection.metadata).toMatchObject({

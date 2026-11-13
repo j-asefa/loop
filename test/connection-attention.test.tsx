@@ -1,3 +1,4 @@
+import { PublicConnection } from "../src/shared/workspace-contract-schemas.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import { NativeConnections } from "../src/client/NativeConnections";
@@ -9,7 +10,7 @@ vi.mock("../src/client/ConnectionNotice", () => ({
 }));
 
 it("exposes every connection counted by the settings badge before the tabs", () => {
-  const connections: Connection[] = [
+  const connections: Connection[] = PublicConnection.array().parse([
     {
       id: "api",
       provider: "openai",
@@ -34,7 +35,7 @@ it("exposes every connection counted by the settings badge before the tabs", () 
       models: "[]",
       metadata: "{}",
     },
-  ];
+  ]);
   const home = renderToStaticMarkup(
     <SettingsHome
       open={() => {}}

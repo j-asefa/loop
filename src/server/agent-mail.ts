@@ -85,7 +85,9 @@ import {
   fleetOutgoingStatus,
 } from "./fleet-mail-origin.js";
 import { MAIL_STATUS_LABELS } from "../shared/agent-mail.js";
-import type { Agent } from "../shared/types.js";
+type Agent = import("zod").input<
+  typeof import("../shared/workspace-contract-schemas.js").PublicAgent
+>;
 import type { Automation, MailStatus } from "../shared/agent-mail.js";
 import {
   FleetMailEnvelope,

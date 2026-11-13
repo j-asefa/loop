@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { renderResults } from "../src/client/app/Results";
 import { resultAction } from "../src/client/card-actions";
-import type { ResultCard } from "../src/shared/cards";
+import { ResultCardSchema, type ResultCard } from "../src/shared/cards";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { callRoute } from "../src/client/workspace-api";
 
@@ -15,7 +15,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const card: ResultCard = {
+const card: ResultCard = ResultCardSchema.parse({
   id: "a:result",
   type: "result",
   title: "Answer",
@@ -58,7 +58,7 @@ const card: ResultCard = {
     refreshable: false,
     app: false,
   },
-};
+});
 function fixture() {
   vi.stubGlobal("window", { dispatchEvent: vi.fn() });
   const props = {

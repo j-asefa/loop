@@ -28,12 +28,13 @@ import {
   CardChangesQuerySchema,
   CardIdSchema,
   CardListQuerySchema,
-  type Card,
-  type CardEntry,
   type CardSelection,
   type CardView,
 } from "../shared/cards.js";
 
+// Builders supply wire strings; the HTTP registrar projects branded outputs.
+type Card = z.input<typeof import("../shared/cards.js").CardSchema>;
+type CardEntry = z.input<typeof import("../shared/cards.js").CardEntrySchema>;
 type Selection = CardQuerySelection;
 type Row = CardQueryRow;
 const text = (value: unknown): string | null =>

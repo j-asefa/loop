@@ -1,3 +1,4 @@
+import { PublicAgent } from "../src/shared/workspace-contract-schemas.js";
 import { expect, it } from "vitest";
 import { matchingAgents } from "../src/client/agentSearch";
 
@@ -5,7 +6,9 @@ const agents = [
   { id: "a", name: "Orion", folder_id: "one" },
   { id: "b", name: "orion-review", folder_id: "two" },
   { id: "c", name: "Builder", folder_id: "one" },
-];
+].map((value) =>
+  PublicAgent.pick({ id: true, name: true, folder_id: true }).parse(value),
+);
 
 it("finds agent profiles by partial name or @handle without requiring searchable work", () => {
   expect(matchingAgents(agents, " ORI ")).toEqual(agents.slice(0, 2));

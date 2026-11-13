@@ -1,3 +1,4 @@
+import { PublicConnection } from "../src/shared/workspace-contract-schemas.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -129,11 +130,13 @@ it("registers Antigravity with honest capabilities and owner isolation", async (
   });
   expect(() => ownedConnection(connection.id, "other-owner")).toThrow();
   expect(
-    harnessName({
-      ...connection,
-      metadata: JSON.stringify(connection.metadata),
-      models: JSON.stringify(connection.models),
-    }),
+    harnessName(
+      PublicConnection.parse({
+        ...connection,
+        metadata: JSON.stringify(connection.metadata),
+        models: JSON.stringify(connection.models),
+      }),
+    ),
   ).toBe("Antigravity");
   const { agent } = task("agy-capabilities");
   expect(() => eligibleMailAgent(OWNER, agent.id)).toThrow(/workspace tools/);

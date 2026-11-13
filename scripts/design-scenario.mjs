@@ -1,3 +1,4 @@
+import { projectNavigationSmoke } from "./helpers/project-navigation-smoke.mjs";
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
 import { agentThreadFeedSmoke } from "./helpers/agent-thread-feed-smoke.mjs";
@@ -87,6 +88,7 @@ const scenarios = {
   antigravity: antigravitySmoke,
   "harness-providers": harnessProvidersSmoke,
   "workspace-project": workspaceProjectSmoke,
+  "project-navigation": projectNavigationSmoke,
   "execution-environments": executionEnvironmentsSmoke,
   "clear-search": async (page, fixture) => {
     await page.goto(fixture.base);

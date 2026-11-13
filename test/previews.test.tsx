@@ -1,3 +1,4 @@
+import { ResultCardSchema } from "../src/shared/cards.js";
 import { expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ArtifactCard, ResultPreview } from "../src/client/components";
@@ -192,7 +193,7 @@ it.each([
 ])(
   "keeps the typed card classification and heading for %s",
   (title, kind, tool, eyebrow, heading) => {
-    const result: ResultCard = {
+    const result: ResultCard = ResultCardSchema.parse({
       id: "a:presentation",
       type: "result",
       title: title!,
@@ -244,7 +245,7 @@ it.each([
         refreshable: false,
         app: false,
       },
-    };
+    });
     const html = renderToStaticMarkup(
       <ContentCard card={result} onOpen={() => {}} />,
     );
