@@ -1,4 +1,4 @@
-import { EventId, ApprovalId, NativeDecisionId } from "./contract-ids.js";
+import { EventId, WebhookDecisionId } from "./contract-ids.js";
 import {
   WebhookSubscriptionId,
   WebhookDeliveryId,
@@ -39,10 +39,7 @@ export const WebhookStop = z
     needs: z
       .object({
         kind: z.enum(["approval", "answer"]),
-        id: z.union([
-          ApprovalId.min(1).max(300),
-          NativeDecisionId.min(1).max(300),
-        ]),
+        id: WebhookDecisionId,
       })
       .strict()
       .optional(),

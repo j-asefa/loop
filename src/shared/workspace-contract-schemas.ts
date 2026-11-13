@@ -1,4 +1,4 @@
-import { ArtifactId } from "./contract-ids.js";
+import { ResultEntityId } from "./contract-ids.js";
 import {
   MessageUpdateKey,
   ExternalConversationId,
@@ -261,7 +261,7 @@ export const ResultsPage = z.object({
 });
 export const ResultsUpdates = z.object({
   items: z.array(ResultItem),
-  removed: z.array(z.union([ArtifactId, MessageId])),
+  removed: z.array(ResultEntityId),
   revision: z.number(),
   more: z.boolean(),
   projection: WorkspaceClock.optional(),

@@ -202,19 +202,27 @@ export const CoercedPairedDeviceId = z.coerce
 export const CoercedGitHubPullNumber = z.coerce
   .number<string | number>()
   .brand<"GitHubPullNumber", "inout">();
-export const LaterTargetId = z.union([
-  ConversationId,
-  ArtifactId,
-  MessageId,
-  SocialStoryId,
-]);
-export type LaterTargetId = z.output<typeof LaterTargetId>;
-export const LaterTargetInput = z.union([
-  requestId(ConversationId).min(1).max(150),
-  requestId(ArtifactId).min(1).max(150),
-  requestId(MessageId).min(1).max(150),
-  requestId(SocialStoryId).min(1).max(150),
-]);
+// Each string is a valid representation in every member domain. These views
+// keep the original scalar validators (including errors and OpenAPI shape),
+// while exposing the contextual union instead of intersecting nominal marks.
+export type LaterTargetId =
+  ConversationId | ArtifactId | MessageId | SocialStoryId;
+export const LaterTargetId = z.string() as unknown as z.ZodType<
+  LaterTargetId,
+  string
+>;
+export const LaterTargetInput = z
+  .string()
+  .min(1)
+  .max(150) as unknown as z.ZodType<LaterTargetId, LaterTargetId>;
+export const WebhookDecisionId = z
+  .string()
+  .min(1)
+  .max(300) as unknown as z.ZodType<ApprovalId | NativeDecisionId, string>;
+export const ResultEntityId = z.string() as unknown as z.ZodType<
+  ArtifactId | MessageId,
+  string
+>;
 
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {

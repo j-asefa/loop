@@ -1070,6 +1070,17 @@ it("keeps coercion and bounds at the request boundary", () => {
     workspaceApi.laterCreate.body.parse({ ...later, targetId: "opaque" })
       .targetId,
   ).toBe("opaque");
+  for (const value of ["", "x".repeat(151), 42]) {
+    expect(Remaining.LaterTargetInput.safeParse(value).error?.issues).toEqual(
+      z.string().min(1).max(150).safeParse(value).error?.issues,
+    );
+    expect(Remaining.WebhookDecisionId.safeParse(value).error?.issues).toEqual(
+      z.string().min(1).max(300).safeParse(value).error?.issues,
+    );
+    expect(Remaining.ResultEntityId.safeParse(value).error?.issues).toEqual(
+      z.string().safeParse(value).error?.issues,
+    );
+  }
   for (const targetId of ["", "x".repeat(151), 42])
     expect(
       workspaceApi.laterCreate.body.safeParse({ ...later, targetId }).success,
