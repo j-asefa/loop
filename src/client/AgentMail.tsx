@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useCollectionRead } from "./CollectionRead";
 import { ArrowUpRight } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { Agent } from "../shared/types";
 import {

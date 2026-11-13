@@ -1,12 +1,7 @@
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
-import {
-  callRoute,
-  readRoute,
-  routeUrl,
-  fetchStream,
-} from "../src/client/workspace-api";
+import { callRoute, readRoute, routeUrl, fetchStream } from "../src/client/api";
 import { workspaceApi } from "../src/shared/workspace-api";
 beforeEach(() => vi.stubGlobal("location", { search: "" }));
 afterEach(() => vi.unstubAllGlobals());

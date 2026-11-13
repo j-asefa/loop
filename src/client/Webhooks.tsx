@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Webhook } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import {
   webhookRequest,

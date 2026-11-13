@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { workspaceApi } from "../shared/workspace-api";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import {
   listenWorkspaceChanges,
   workspaceChangeAffects,

@@ -6,7 +6,7 @@ import {
   readRoute,
   routePath,
   UnavailableResponse,
-} from "../src/client/workspace-api";
+} from "../src/client/api";
 import { setViewOwner } from "../src/client/viewCache";
 import { planSend, settleFailure } from "../src/client/sendIntent";
 const fetcher = vi.fn<typeof fetch>();

@@ -8,7 +8,7 @@ import {
   useSourceRoute,
   useSourceId,
 } from "./SourceContext";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { commandStorageKey, storedCommandAt } from "./pendingCommandStorage";
 import { viewOwner } from "./viewCache";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";

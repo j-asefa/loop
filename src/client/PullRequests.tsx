@@ -15,7 +15,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { executionSourceId } from "./sourceRouting";

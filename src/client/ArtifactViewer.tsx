@@ -1,5 +1,5 @@
 import { proseEntry } from "./textEntry";
-import { routeUrl } from "./workspace-api";
+import { routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import type { ResultCard } from "../shared/cards";
 import { resultTarget, type ResultAction } from "./card-actions";

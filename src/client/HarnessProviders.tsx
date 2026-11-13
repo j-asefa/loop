@@ -5,7 +5,7 @@ import { CircleCheck } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
 import type { NativeProviderView } from "../shared/native-providers";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { performStoredEffect, UncertainEffect } from "./pendingCommands";
 import { EffectRecovery } from "./EffectRecovery";
 import { viewGeneration, viewOwner } from "./viewCache";

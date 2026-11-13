@@ -29,7 +29,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { callRoute, readRoute, routeUrl } from "./workspace-api";
+import { callRoute, readRoute, routeUrl } from "./api";
 import {
   workspaceApi,
   type RouteInput,

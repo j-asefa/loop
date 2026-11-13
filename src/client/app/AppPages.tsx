@@ -39,7 +39,7 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
-import { callRoute } from "../workspace-api";
+import { callRoute } from "../api";
 import { workspaceApi } from "../../shared/workspace-api";
 import { SearchWorkspace } from "../Workspace";
 import { Avatar, Badge } from "../components";

@@ -1,7 +1,7 @@
 import { proseEntry } from "./textEntry";
 import { useEffect, useId, useRef, useState } from "react";
 import { KeyRound } from "lucide-react";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import {
   SettingsCommand,

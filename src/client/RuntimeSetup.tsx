@@ -1,7 +1,7 @@
 import { harnesses, isManagedHarness } from "../shared/harnesses";
 import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { runtimeSetupMessages } from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";

@@ -4,7 +4,7 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { performStoredEffect, settleStoredEffect } from "./pendingCommands";
 import { useSourceId } from "./SourceContext";
 import { viewGeneration, viewOwner } from "./viewCache";

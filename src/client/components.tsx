@@ -1,6 +1,6 @@
 import { harnessLabel } from "../shared/harnesses";
 import { LoopLogo } from "./LoopLogo";
-import { routeUrl } from "./workspace-api";
+import { routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceId, useSourcePath } from "./SourceContext";
 import { Avatar } from "./Avatar";

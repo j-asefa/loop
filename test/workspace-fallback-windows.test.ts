@@ -1,4 +1,4 @@
-import { readRoute } from "../src/client/workspace-api";
+import { readRoute } from "../src/client/api";
 import { FeedReadRecovery } from "../src/client/feed-read-recovery";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

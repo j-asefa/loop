@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
-import { callRoute } from "../src/client/workspace-api";
+import { callRoute } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-agent-contracts-"));
 const project = join(directory, "project"),

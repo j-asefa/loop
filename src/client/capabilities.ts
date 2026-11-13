@@ -1,5 +1,5 @@
 import { boundSourceCapabilities } from "./fleetCapabilities";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import {
   workspaceCapabilities,

@@ -1,4 +1,4 @@
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 
 /** Opt-in, short-lived physical-device capture. No text, URLs, IDs or form

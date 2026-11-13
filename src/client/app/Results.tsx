@@ -11,7 +11,7 @@ import { ResultsPager } from "../results";
 import type { SavedMessage } from "../card-actions";
 
 import { parse } from "../json";
-import { callRoute } from "../workspace-api";
+import { callRoute } from "../api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";
 

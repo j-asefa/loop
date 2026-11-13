@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useProjectionRoute } from "./SourceContext";

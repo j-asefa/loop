@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
-import { callRoute, fetchStream, routeUrl } from "../src/client/workspace-api";
+import { callRoute, fetchStream, routeUrl } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-personal-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
