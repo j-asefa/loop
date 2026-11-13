@@ -72,7 +72,7 @@ export async function projectNavigationSmoke(page, fixture) {
       assert.equal(updated.parent_id, parentId);
     } finally {
       release();
-      await page.unroute("**/api/bootstrap", refresh);
+      await page.unrouteAll({ behavior: "wait" });
     }
     await page.reload();
     await expect(page.locator(".project-heading h2")).toHaveText(project.name);
