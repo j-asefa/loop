@@ -1,9 +1,10 @@
+import { usePagedProjectionQuery } from "./CollectionRead";
+import { readRoute } from "./api";
 import { AgentId, ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
-import { listenWorkspaceChanges } from "./workspace-changes";
-import { useEffect, useRef, useState } from "react";
-import { useSourceRoute, useSourceId } from "./SourceContext";
+import { useEffect, useState } from "react";
+import { useSourceId } from "./SourceContext";
 import { PublishedFile } from "./PublishedFiles";
 import type { PersonalFilesPage } from "../shared/personal-files";
 
@@ -22,7 +23,6 @@ export function PersonalFiles({
 }: {
   onConversation: (id: string) => void;
 }) {
-  const call = useSourceRoute();
   const source = useSourceId();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState<{
@@ -36,11 +36,6 @@ export function PersonalFiles({
     project: "",
     type: "all",
   });
-  const actions = useRef({ more: () => {}, retry: () => {} });
-  const [page, setPage] = useState(empty);
-  const [loading, setLoading] = useState(true);
-  const [appending, setAppending] = useState(false);
-  const [error, setError] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => {
       const q = search.trim();
@@ -48,48 +43,22 @@ export function PersonalFiles({
     }, 300);
     return () => clearTimeout(timer);
   }, [search]);
-  useEffect(() => {
-    const controller = new AbortController();
-    let current = empty;
-    let busy = false;
-    let appendPending = false;
-    let pending = false;
-    let urgent = false;
-    let refreshAfter = 0;
-    let retryBefore: number | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = () => {
-      pending = true;
-      if (busy || timer || controller.signal.aborted) return;
-      // Files can span many pages. Coalesce streaming notifications so a
-      // library refresh does not repeat all those reads for every token.
-      timer = setTimeout(
-        () => void load(),
-        urgent ? 0 : Math.max(0, refreshAfter - Date.now()),
-      );
-    };
-    const load = async (before?: number) => {
-      if (busy || controller.signal.aborted) return;
-      clearTimeout(timer);
-      timer = undefined;
-      busy = true;
-      retryBefore = before;
-      if (!before) {
-        pending = false;
-        urgent = false;
-      }
-      setLoading(true);
-      setAppending(!!before || appendPending);
-      setError("");
-      const boundary = before ? undefined : current.items.at(-1)?.cursor;
-      let cursor = before;
-      let result: PersonalFilesPage | undefined;
-      const items: PersonalFilesPage["items"] = [];
-      let reads = 0;
-      let complete = false;
-      try {
+  const { page, loading, appending, error, more, retry } =
+    usePagedProjectionQuery<PersonalFilesPage, number>({
+      key: JSON.stringify(query),
+      source,
+      empty,
+      collections: ["results"],
+      queueMore: true,
+      refreshDelay: (reads) => Math.max(5000, reads * 1800),
+      read: async (current, before, signal, mode) => {
+        const boundary = before ? undefined : current.items.at(-1)?.cursor;
+        let cursor = before;
+        let result: PersonalFilesPage | undefined;
+        const items: PersonalFilesPage["items"] = [];
+        let reads = 0;
         do {
-          result = await call(
+          result = await readRoute(
             workspaceApi.personalFiles,
             {
               query: {
@@ -100,9 +69,12 @@ export function PersonalFiles({
                 before: cursor ? String(cursor) : undefined,
               },
             },
-            controller.signal,
+            source,
+            signal,
+            undefined,
+            mode,
           );
-          if (controller.signal.aborted) return;
+          if (signal.aborted) throw new DOMException("Aborted", "AbortError");
           reads++;
           if (cursor && result.next && result.next >= cursor)
             throw new Error("Files pagination did not advance. Please retry.");
@@ -112,7 +84,7 @@ export function PersonalFiles({
           // spanning multiple pages. Commit together to retain rows and scroll
           // during refresh, with a contiguous Load more boundary afterwards.
         } while (!before && boundary && cursor && cursor > boundary);
-        current = {
+        const page = {
           ...result,
           items: [
             ...new Map(
@@ -123,59 +95,9 @@ export function PersonalFiles({
             ).values(),
           ],
         };
-        setPage(current);
-        complete = true;
-      } catch (error) {
-        if (!controller.signal.aborted)
-          setError(error instanceof Error ? error.message : String(error));
-      } finally {
-        busy = false;
-        if (!before) refreshAfter = Date.now() + Math.max(5000, reads * 1800);
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          setAppending(false);
-          // A click during refresh uses the newly reconciled cursor. Preserve
-          // it across a failed read until Retry succeeds; source/query changes
-          // abort this lifetime and discard its pending action.
-          const append = complete && appendPending ? current.next : null;
-          if (complete) appendPending = false;
-          if (append) void load(append);
-          else if (pending) schedule();
-        }
-      }
-    };
-    const refresh = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
-      if (sources && !sources.includes(source)) return;
-      if (event.type === "loop-refresh") {
-        urgent = true;
-        clearTimeout(timer);
-        timer = undefined;
-      }
-      schedule();
-    };
-    actions.current = {
-      more: () => {
-        if (!current.next || controller.signal.aborted) return;
-        if (busy) {
-          appendPending = true;
-          setAppending(true);
-        } else void load(current.next);
+        return { page, reads };
       },
-      retry: () => void load(retryBefore),
-    };
-    setPage(empty);
-    void load();
-    window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges("results", refresh, source);
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-      window.removeEventListener("loop-refresh", refresh);
-      stopChanges();
-    };
-  }, [call, query, source]);
+    });
   function filter(key: "agent" | "project" | "type", value: string) {
     if (key === "type") {
       const parsed =
@@ -270,7 +192,7 @@ export function PersonalFiles({
       {error && (
         <div role="alert">
           <p>{error}</p>
-          <button onClick={() => actions.current.retry()}>Retry</button>
+          <button onClick={() => retry()}>Retry</button>
         </div>
       )}
       {!loading && !error && !page.items.length && (
@@ -281,7 +203,7 @@ export function PersonalFiles({
         </p>
       )}
       {!error && page.next && (
-        <button disabled={appending} onClick={() => actions.current.more()}>
+        <button disabled={appending} onClick={() => more()}>
           Load more files
         </button>
       )}
