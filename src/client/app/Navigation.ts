@@ -52,12 +52,20 @@ export function readAppNavigation(url = new URL(location.href)) {
     project: q.get("projectView") || "",
     pull: q.get("pull") || "",
     agentId: q.get("agent"),
+    compose: q.has("compose"),
+    artifactId: q.get("artifact"),
+    later: q.get("later"),
+    laterItem: q.get("laterItem") || undefined,
+    projectFilter: q.get("project") || "",
+    shareRequested: q.has("share") || url.pathname === "/share",
     sharedDraft: initialShare(url),
   };
 }
 
-export function useAppNavigation() {
-  const [initial] = useState(readAppNavigation);
+export type AppNavigationInitial = ReturnType<typeof readAppNavigation>;
+
+export function useAppNavigation(seed?: AppNavigationInitial) {
+  const [initial] = useState(() => seed ?? readAppNavigation());
   useEffect(() => {
     const url = new URL(location.href);
     if (!url.searchParams.has("connect")) return;
@@ -79,6 +87,7 @@ export function useAppNavigation() {
     initial.conversationSource,
   );
   const [teamSelection, setTeamSelection] = useState(initial.teamSelection);
+  const [projectFilter, setProjectFilter] = useState(initial.projectFilter);
   const [project, setProject] = useState(initial.project);
   const [pull, setPull] = useState(initial.pull);
   return {
@@ -103,6 +112,8 @@ export function useAppNavigation() {
     setTeamSelection,
     project,
     setProject,
+    projectFilter,
+    setProjectFilter,
     pull,
     setPull,
   };

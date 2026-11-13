@@ -260,6 +260,21 @@ export function useComposerDraft({
     setUploading(false);
     draftLoadedFor.current = draftKey;
   }, [draftKey, session?.user?.id]);
+  // Flush before the debounce cleanup clears its captured draft on unmount.
+  // An accepted send has already cancelled this entry and must not reappear.
+  useLayoutEffect(
+    () => () => {
+      const pending = pendingDraftSave.current;
+      if (pending)
+        writeThreadDraft(
+          pending.key,
+          pending.text,
+          pending.files,
+          pending.owner,
+        );
+    },
+    [],
+  );
   // Bind the pending save to the committed composer before it can send.
   // Acceptance cancels it synchronously, before a passive cleanup could run.
   useLayoutEffect(() => {
@@ -434,7 +449,10 @@ export function useComposerSend({
       (conversation && !conversationTarget)
     )
       return;
-    const currentView = () => viewIdentity === threadIdentityRef.current;
+    const owner = ownerRef.current;
+    if (!owner) return;
+    const currentView = () =>
+      owner === ownerRef.current && viewIdentity === threadIdentityRef.current;
     const sameComposer = () =>
       threadIdentity === composerIdentityRef.current &&
       sameDraft(
@@ -505,7 +523,6 @@ export function useComposerSend({
     if (!draft.trim()) return;
     setBusy(true);
     setComposerError("");
-    const owner = ownerRef.current;
     let sentReceipt: SendReceipt | undefined;
     try {
       let recipient = activeAgent;

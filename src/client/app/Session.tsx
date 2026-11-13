@@ -1,9 +1,9 @@
-import { emptySharedDraft } from "../workspace-drafts";
 import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
 import { readRoute } from "../api";
 import { workspaceApi } from "../../shared/workspace-api";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { replaceConversationLocation } from "./Navigation";
 import { ownerSession, type BrowserSession } from "../ownerSession";
 
 import { Pairing } from "../Pairing";
@@ -11,11 +11,32 @@ import { Pairing } from "../Pairing";
 import type { AppModel } from "./AppController";
 
 export function useOwnerSession() {
-  const { session } = useSyncExternalStore(
+  const { session, owner, generation } = useSyncExternalStore(
     ownerSession.subscribe,
     () => ownerSession.current,
   );
-  return { session, setSession: ownerSession.setSession };
+  const scope = useMemo(
+    () => ({ owner, generation, active: true }),
+    [owner, generation],
+  );
+  useEffect(() => {
+    scope.active = true;
+    return () => {
+      scope.active = false;
+    };
+  }, [scope]);
+  const ownerRef = useMemo(
+    () => ({
+      get current() {
+        return scope.active &&
+          ownerSession.current.generation === scope.generation
+          ? scope.owner
+          : undefined;
+      },
+    }),
+    [scope],
+  );
+  return { session, generation, ownerRef, setSession: ownerSession.setSession };
 }
 
 function discardPairingFragment() {
@@ -64,67 +85,9 @@ export function createSessionCheck(props: {
 }
 
 export function useSessionLifecycle(
-  props: Pick<
-    AppModel,
-    | "session"
-    | "check"
-    | "setError"
-    | "setSession"
-    | "setData"
-    | "setItems"
-    | "setRuns"
-    | "setSendNotice"
-    | "setWorkspaceLoadErrors"
-    | "setTeamSelection"
-    | "setArchivedCard"
-    | "setComposerExpanded"
-    | "setDraft"
-    | "setSelected"
-    | "setFolderChoice"
-    | "setSharedDraft"
-    | "setProfile"
-    | "setConversation"
-    | "setActiveArtifact"
-    | "setContextArtifact"
-    | "setReplyContext"
-    | "setRoutePreview"
-    | "setFiling"
-    | "setLaterCard"
-    | "setSettingsParent"
-    | "setSheet"
-    | "composerFocusRequest"
-    | "setBootstrapOwner"
-  >,
+  props: Pick<AppModel, "session" | "check" | "setError" | "setSession">,
 ) {
-  const {
-    check,
-    setError,
-    setSession,
-    setData,
-    setItems,
-    setRuns,
-    setSendNotice,
-    setWorkspaceLoadErrors,
-    setTeamSelection,
-    setArchivedCard,
-    setComposerExpanded,
-    setDraft,
-    setSelected,
-    setFolderChoice,
-    setSharedDraft,
-    setProfile,
-    setConversation,
-    setActiveArtifact,
-    setContextArtifact,
-    setReplyContext,
-    setRoutePreview,
-    setFiling,
-    setLaterCard,
-    setSettingsParent,
-    setSheet,
-    composerFocusRequest,
-    setBootstrapOwner,
-  } = props;
+  const { check, setError, setSession } = props;
   useEffect(() => {
     if (!props.session?.user) return;
     // Opening another fragment at this origin can be a same-document
@@ -136,36 +99,14 @@ export function useSessionLifecycle(
   }, [props.session?.user]);
   useEffect(() => {
     const controller = new AbortController();
-    void check(controller.signal).catch((e) => {
-      if (!controller.signal.aborted) setError(e.message);
-    });
+    if (props.session === undefined)
+      void check(controller.signal).catch((e) => {
+        if (!controller.signal.aborted) setError(e.message);
+      });
     const expire = () => {
-      setSession(null);
-      composerFocusRequest.current = null;
-      setData({ agents: [], connections: [], folders: [] });
-      setBootstrapOwner(undefined);
-      setItems([]);
-      setRuns([]);
-      setSendNotice(null);
-      setWorkspaceLoadErrors({});
       sessionStorage.clear();
-      setTeamSelection([]);
-      setArchivedCard(null);
-      setComposerExpanded(false);
-      setDraft("");
-      setSelected("");
-      setFolderChoice(undefined);
-      setSharedDraft(emptySharedDraft());
-      setProfile(null);
-      setConversation(null);
-      setActiveArtifact(null);
-      setContextArtifact(null);
-      setReplyContext(null);
-      setRoutePreview(null);
-      setFiling(null);
-      setLaterCard(null);
-      setSettingsParent(false);
-      setSheet("");
+      replaceConversationLocation(executionSourceId(), null);
+      setSession(null);
     };
     window.addEventListener("loop-auth-expired", expire);
     return () => {
