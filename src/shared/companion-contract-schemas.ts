@@ -1,3 +1,4 @@
+import { NativeGenerationId } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
@@ -262,7 +263,7 @@ const PublicActivityItem = z.object({
       v: z.literal(1),
       kind: z.literal("capabilities"),
       source: z.object({ transport: Text, harness: Text.optional() }),
-      generation: Text.optional(),
+      generation: NativeGenerationId.optional(),
       capabilities: z.record(
         SessionCapabilities.keyType,
         SessionCapabilities.valueType.strip(),

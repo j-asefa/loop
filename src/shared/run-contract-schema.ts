@@ -1,3 +1,4 @@
+import { SteeringId, WorkerId } from "./contract-ids.js";
 import { AgentId, ConversationId, OwnerId, RunId } from "./contract-ids.js";
 import { z } from "zod";
 import { Text, MaybeText, Time } from "./route-contract.js";
@@ -21,14 +22,14 @@ const RunBaseSchema = z.object({
   // Native error events write this independently of run state; transitions do
   // not generally clear it, including a later successful completion.
   error: MaybeText.optional(),
-  steeringId: Text.optional(),
+  steeringId: SteeringId.optional(),
   queue_rank: z.number().nullable().optional(),
   queue_position: z.number().nullable().optional(),
   preview: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(),
 });
 const RunLeaseSchema = z.object({
-  worker_id: MaybeText.optional(),
+  worker_id: WorkerId.nullable().optional(),
   heartbeat: Time.nullable().optional(),
 });
 const RunOutcomeSchema = z.object({
@@ -63,7 +64,7 @@ export const PublicRun = z.discriminatedUnion("state", [
     ...RunLeaseSchema.shape,
   }),
   runArm("awaiting_approval", {
-    worker_id: MaybeText,
+    worker_id: WorkerId.nullable(),
     heartbeat: Time.nullable().optional(),
   }),
   runArm("interrupted", RunOutcomeSchema.shape)
@@ -71,7 +72,7 @@ export const PublicRun = z.discriminatedUnion("state", [
     .extend(RunAttentionSchema.shape),
   runArm("completed", {
     result: MaybeText.optional(),
-    worker_id: MaybeText.optional(),
+    worker_id: WorkerId.nullable().optional(),
     heartbeat: Time.nullable().optional(),
   }),
   runArm("failed", RunOutcomeSchema.shape)

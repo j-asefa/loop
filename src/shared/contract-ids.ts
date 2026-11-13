@@ -109,6 +109,25 @@ export type ExecutionCommandId = z.output<typeof ExecutionCommandId>;
 export const ModelId = z.string().brand<"ModelId">();
 export type ModelId = z.output<typeof ModelId>;
 
+export const SteeringId = z.string().brand<"SteeringId">();
+export type SteeringId = z.output<typeof SteeringId>;
+export const WorkerId = z.string().brand<"WorkerId">();
+export type WorkerId = z.output<typeof WorkerId>;
+export const NativeGenerationId = z.string().brand<"NativeGenerationId">();
+export type NativeGenerationId = z.output<typeof NativeGenerationId>;
+export const NativeRequestId = z.string().brand<"NativeRequestId">();
+export type NativeRequestId = z.output<typeof NativeRequestId>;
+export const NativeItemId = z.string().brand<"NativeItemId">();
+export type NativeItemId = z.output<typeof NativeItemId>;
+export const SessionSettingId = z.string().brand<"SessionSettingId">();
+export type SessionSettingId = z.output<typeof SessionSettingId>;
+export const ExecutionGenerationId = z
+  .string()
+  .brand<"ExecutionGenerationId">();
+export type ExecutionGenerationId = z.output<typeof ExecutionGenerationId>;
+export const ExecutionRequestId = z.string().brand<"ExecutionRequestId">();
+export type ExecutionRequestId = z.output<typeof ExecutionRequestId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

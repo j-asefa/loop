@@ -1,3 +1,7 @@
+import {
+  NativeGenerationId,
+  SessionSettingId,
+} from "../shared/contract-ids.js";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -193,11 +197,11 @@ export function SessionActivityControls({
     commands.current.set(commandKey, commandId);
     try {
       const next = await call(workspaceApi.setting, {
-        params: { id: conversationId, setting: id },
+        params: { id: conversationId, setting: SessionSettingId.parse(id) },
         body: {
           value,
           revision: data.settings.revision,
-          generation: data.generation,
+          generation: NativeGenerationId.parse(data.generation),
           commandId: ExecutionCommandId.parse(commandId),
         },
       });

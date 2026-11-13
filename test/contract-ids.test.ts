@@ -1,3 +1,17 @@
+import {
+  SteeringId,
+  WorkerId,
+  NativeGenerationId,
+  NativeRequestId,
+  NativeItemId,
+  SessionSettingId,
+  ExecutionGenerationId,
+  ExecutionRequestId,
+} from "../src/shared/contract-ids.js";
+import {
+  ExecutionReady,
+  ExecutionRequest,
+} from "../src/shared/execution-authority.js";
 import { ModelId } from "../src/shared/contract-ids.js";
 import {
   AgentCreateInput,
@@ -760,4 +774,67 @@ it("keeps model tokens distinct while retaining existing selection limits", () =
   // @ts-expect-error A raw catalog token must be parsed at client ingress.
   const raw: Create["model"] = "native-default";
   void [model, wrong, raw];
+});
+
+it("separates native sessions and execution correlations without tightening tokens", () => {
+  for (const schema of [
+    SteeringId,
+    WorkerId,
+    NativeGenerationId,
+    NativeRequestId,
+    NativeItemId,
+    SessionSettingId,
+    ExecutionGenerationId,
+    ExecutionRequestId,
+  ]) {
+    expect(schema.parse("opaque:provider-token")).toBe("opaque:provider-token");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  expect(
+    workspaceApi.setting.params.parse({ id: uuid, setting: "custom:key" })
+      .setting,
+  ).toBe("custom:key");
+  const setting = {
+    value: "fixture",
+    revision: 0,
+    generation: "opaque-session",
+  };
+  expect(workspaceApi.setting.body.parse(setting)).toEqual(setting);
+  expect(
+    workspaceApi.setting.body.safeParse({ ...setting, generation: "" }).success,
+  ).toBe(false);
+  expect(
+    workspaceApi.setting.body.safeParse({
+      ...setting,
+      generation: "g".repeat(201),
+    }).success,
+  ).toBe(false);
+  expect(
+    ExecutionReady.parse({ v: 1, generation: uuid, state: "ready" }).generation,
+  ).toBe(uuid);
+  expect(
+    ExecutionReady.safeParse({ v: 1, generation: "opaque", state: "ready" })
+      .success,
+  ).toBe(false);
+  expect(ExecutionRequest.shape.requestId.safeParse("opaque").success).toBe(
+    false,
+  );
+  const wrongSetting: RouteInput<typeof workspaceApi.setting>["body"] = {
+    value: "fixture",
+    revision: 0,
+    // @ts-expect-error An execution worker generation is not a native session generation.
+    generation: ExecutionGenerationId.parse(uuid),
+  };
+  // @ts-expect-error A request correlation is not an execution generation.
+  const wrongReady: z.output<typeof ExecutionReady>["generation"] =
+    ExecutionRequestId.parse(uuid);
+  // @ts-expect-error A native request is not a displayed native item.
+  const wrongItem: NativeItemId = NativeRequestId.parse("opaque");
+  // @ts-expect-error A steering receipt is not a worker lease identity.
+  const wrongWorker: WorkerId = SteeringId.parse(uuid);
+  // @ts-expect-error A model token is not a setting key.
+  const wrongKey: RouteInput<typeof workspaceApi.setting>["params"]["setting"] =
+    ModelId.parse("default");
+  void [wrongSetting, wrongReady, wrongItem, wrongWorker, wrongKey];
 });

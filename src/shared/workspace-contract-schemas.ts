@@ -1,3 +1,4 @@
+import { NativeGenerationId, NativeRequestId } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import { NativeDecisionId } from "./contract-ids.js";
@@ -262,8 +263,8 @@ export const NativeDecision = z.object({
   id: NativeDecisionId,
   run_id: RunId,
   conversation_id: ConversationId,
-  generation: Text,
-  native_id: Text,
+  generation: NativeGenerationId,
+  native_id: NativeRequestId,
   request: Text,
   state: NativeDecisionState,
   command_id: ExecutionCommandId.nullable(),

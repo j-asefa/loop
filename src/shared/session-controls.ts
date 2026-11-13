@@ -1,10 +1,11 @@
+import { NativeGenerationId } from "./contract-ids.js";
 import { z } from "zod";
 import { SessionSetting } from "./control-settings.js";
 import { ActivityCapabilities } from "./agent-activities.js";
 export { ActivityCapabilities as SessionCapabilities } from "./agent-activities.js";
 
 export const SessionControls = z.strictObject({
-  generation: z.string().nullable(),
+  generation: NativeGenerationId.nullable(),
   state: z.string().optional(),
   settings: z.strictObject({
     options: z.array(SessionSetting),
@@ -16,4 +17,4 @@ export const SessionControls = z.strictObject({
   }),
   capabilities: ActivityCapabilities,
 });
-export type SessionControls = z.infer<typeof SessionControls>;
+export type SessionControls = z.input<typeof SessionControls>;

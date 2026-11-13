@@ -37,7 +37,7 @@ function passiveInput<M extends ExecutionMethod>(
 }
 
 export type ExecutionTransport = {
-  status(): z.infer<typeof ExecutionReady>;
+  status(): z.input<typeof ExecutionReady>;
   send(request: ExecutionRequest): Promise<unknown>;
 };
 const unavailable = () =>
