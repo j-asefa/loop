@@ -1,3 +1,4 @@
+import { MailThreadId } from "../shared/contract-ids.js";
 import { AgentId, TeamId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -124,13 +125,25 @@ function MailThreadsView({
         mailTarget.kind === "team"
           ? callRoute(
               workspaceApi.teamThreadResume,
-              { params: { id: mailTarget.id, threadId }, body: {} },
+              {
+                params: {
+                  id: mailTarget.id,
+                  threadId: MailThreadId.parse(threadId),
+                },
+                body: {},
+              },
               sourceId,
               signal,
             )
           : callRoute(
               workspaceApi.agentMailResume,
-              { params: { id: mailTarget.id, threadId }, body: {} },
+              {
+                params: {
+                  id: mailTarget.id,
+                  threadId: MailThreadId.parse(threadId),
+                },
+                body: {},
+              },
               sourceId,
               signal,
             ),

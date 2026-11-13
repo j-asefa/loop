@@ -1,3 +1,4 @@
+import { MailId, MailThreadId } from "../src/shared/contract-ids.js";
 import {
   DefinitionId,
   DoneThreadId,
@@ -498,4 +499,23 @@ it("keeps stored-record domains primitive and field-specific validators unchange
     z.output<typeof workspaceApi.socialList.response>["stories"][number]["id"]
   >().toEqualTypeOf<SocialStoryId>();
   void [wrongCatalog, wrongMemory];
+});
+
+it("distinguishes mail from thread identities without tightening string paths", () => {
+  for (const schema of [MailId, MailThreadId]) {
+    expect(schema.parse("opaque:mail")).toBe("opaque:mail");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  expect(
+    workspaceApi.agentThreadDetail.params.parse({ id: "opaque:thread" }),
+  ).toEqual({ id: "opaque:thread" });
+  expect(
+    workspaceApi.agentThreadDetail.params.safeParse({ id: 42 }).success,
+  ).toBe(false);
+  const wrong: RouteInput<typeof workspaceApi.agentThreadDetail>["params"] = {
+    // @ts-expect-error A mail message is not its thread.
+    id: MailId.parse("mail"),
+  };
+  void wrong;
 });

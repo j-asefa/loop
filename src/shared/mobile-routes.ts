@@ -10,6 +10,7 @@ import {
   LaterItemId,
   ScheduledSendId,
   DoneThreadId,
+  MailThreadId,
 } from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
@@ -97,7 +98,7 @@ export const mobileRoutes = {
     operation: "agentThreadDetail",
     method: "GET",
     path: "/feed/agent-threads/:id",
-    params: Id,
+    params: z.object({ id: requestId(MailThreadId) }),
     query: AgentThreadMessagesQuery,
     response: AgentThreadDetail,
   }),

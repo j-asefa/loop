@@ -1398,7 +1398,7 @@ function describe(mail: Mail, agentId: string | null) {
 export function mailStatus(
   run: Run,
   input: unknown,
-): z.infer<typeof ToolMailStatus> {
+): z.input<typeof ToolMailStatus> {
   const args = statusSchema.parse(input);
   run = assertMailRun(run);
   const team = teamOf(run);
@@ -1738,7 +1738,7 @@ export function publicMailAgentReference(
   owner: string,
   thread: string,
   address: string,
-): PublicMailAgentReference {
+): z.input<typeof PublicMailAgentReference> {
   const peer = parseFleetAgentAddress(address);
   if (peer) {
     const binding = fleetMailThreadsQueries.remoteName(
@@ -1810,7 +1810,7 @@ export function publicMailMessage(mail: Mail) {
   };
 }
 
-function describeThreads(threads: Thread[]): z.infer<typeof PublicMailThreads> {
+function describeThreads(threads: Thread[]): z.input<typeof PublicMailThreads> {
   return {
     threads: threads.map((thread) => ({
       id: thread.id,

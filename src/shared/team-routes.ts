@@ -4,6 +4,7 @@ import {
   TeamId,
   requestId,
   DefinitionId,
+  MailThreadId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import * as teams from "./team-contract-schemas.js";
@@ -107,7 +108,9 @@ export const teamRoutes = {
     operation: "teamThreadResume",
     method: "POST",
     path: "/teams/:id/threads/:threadId/resume",
-    params: z.object({ id: requestId(TeamId) }).extend({ threadId: Text }),
+    params: z
+      .object({ id: requestId(TeamId) })
+      .extend({ threadId: requestId(MailThreadId) }),
     body: z.unknown(),
     response: PublicMailResume,
   }),
@@ -124,7 +127,9 @@ export const teamRoutes = {
     operation: "agentMailResume",
     method: "POST",
     path: "/agents/:id/mail/:threadId/resume",
-    params: z.object({ id: requestId(AgentId) }).extend({ threadId: Text }),
+    params: z
+      .object({ id: requestId(AgentId) })
+      .extend({ threadId: requestId(MailThreadId) }),
     body: z.unknown(),
     response: PublicMailResume,
   }),

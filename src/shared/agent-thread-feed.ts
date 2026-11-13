@@ -1,3 +1,4 @@
+import { MailThreadId, MessageId, ArtifactId } from "./contract-ids.js";
 import { z } from "zod";
 import { PublicMailMessage, PublicMailAgentReference } from "./agent-mail.js";
 import { CardSelectionSchema } from "./cards.js";
@@ -18,7 +19,7 @@ export const AgentThreadMessagesQuery = AgentThreadQuery.pick({
   limit: true,
 });
 export const AgentThreadSummary = z.object({
-  id: z.string(),
+  id: MailThreadId,
   subject: z.string(),
   scope: z.enum(["direct", "team"]),
   updated_at: z.number(),
@@ -40,8 +41,8 @@ export const AgentThreadPage = z.object({
 });
 export const AgentThreadMessage = PublicMailMessage.extend({
   content: z.string(),
-  message_id: z.string().nullable(),
-  attachments: z.array(z.object({ id: z.string(), name: z.string() })),
+  message_id: MessageId.nullable(),
+  attachments: z.array(z.object({ id: ArtifactId, name: z.string() })),
 });
 export const AgentThreadDetail = z.object({
   thread: AgentThreadSummary,
