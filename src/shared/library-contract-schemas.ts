@@ -1,3 +1,10 @@
+import {
+  AgentId,
+  ConnectionId,
+  FolderId,
+  MessageId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import { SearchExcerptSchema } from "./search-excerpt.js";
 import { ProviderSchema } from "./provider-schema.js";
@@ -14,8 +21,8 @@ const Text = z.string(),
   Num = z.number();
 const FolderName = Text.trim().min(1).max(80);
 export const UploadOptions = z.object({
-  folderId: Text.uuid().optional(),
-  agentId: Text.uuid().optional(),
+  folderId: requestId(FolderId).uuid().optional(),
+  agentId: requestId(AgentId).uuid().optional(),
 });
 export const FolderCreateInput = z.object({
   name: FolderName.refine(
@@ -23,13 +30,13 @@ export const FolderCreateInput = z.object({
     "Use a name without slashes",
   ),
   path: Text.max(4096).optional(),
-  parentId: MaybeText.default(null),
+  parentId: requestId(FolderId).nullable().default(null),
   kind: z.enum(["project", "folder"]).default("folder"),
 });
 export const FolderUpdateInput = z.object({
   name: FolderName.refine((x) => !x.includes("/")).optional(),
   path: Text.max(4096).optional(),
-  parentId: MaybeText.optional(),
+  parentId: requestId(FolderId).nullable().optional(),
 });
 export const ArtifactCreateInput = z.object({
   title: Text.min(1).max(180),
@@ -49,16 +56,16 @@ export const ArtifactUpdateInput = z.object({
   version: Num.int(),
 });
 export const ArtifactMoveInput = z.object({
-  folderId: MaybeText.optional(),
+  folderId: requestId(FolderId).nullable().optional(),
   command: Text.max(400).optional(),
 });
 export const PreferencesInput = z.object({
   embeddingEnabled: z.boolean(),
-  connectionId: MaybeText,
+  connectionId: requestId(ConnectionId).nullable(),
 });
 export const ContinueInput = z.object({
-  agentId: Text,
-  messageIds: z.array(Text).min(1).max(200),
+  agentId: requestId(AgentId),
+  messageIds: z.array(requestId(MessageId)).min(1).max(200),
   start: z.object({
     input: Text.trim().min(1).max(30000),
     idempotencyKey: Text.min(8).max(150),

@@ -1,4 +1,8 @@
-import { ApprovalId } from "../src/shared/contract-ids.js";
+import {
+  ApprovalId,
+  ConnectionId,
+  parseId,
+} from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { fleetPayloadDigest } from "../src/server/fleet-crypto";
@@ -358,7 +362,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
       {
         body: {
           name: "fixture",
-          connectionId: randomUUID(),
+          connectionId: parseId(ConnectionId, randomUUID()),
           model: "fixture",
           effort: null,
           instructions: "",

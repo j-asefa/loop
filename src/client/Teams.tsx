@@ -1,3 +1,4 @@
+import { AgentId, parseId } from "../shared/contract-ids.js";
 import { MAX_TEAM_WORKERS } from "../shared/team-limits";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useRef, useState } from "react";
@@ -810,7 +811,15 @@ export function CreateTeam({
                 onCreated(
                   await callRoute(
                     workspaceApi.teamCreate,
-                    { body: { name, managerId: manager, members } },
+                    {
+                      body: {
+                        name,
+                        managerId: parseId(AgentId, manager),
+                        members: members.map((value) =>
+                          parseId(AgentId, value),
+                        ),
+                      },
+                    },
                     executionSourceId(),
                   ),
                 );

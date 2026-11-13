@@ -1,3 +1,4 @@
+import { FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 
 import { fleetOperationReason } from "./fleetCapabilities";
@@ -310,9 +311,12 @@ export function CreateAgent({
       instructions,
       initialPrompt: initialPrompt.trim(),
       attachmentIds: attachments.map((file) => file.id),
-      folderId: availableFolders.some((folder) => folder.id === folderChoice)
-        ? folderChoice
-        : undefined,
+      folderId: parseId(
+        FolderId,
+        availableFolders.some((folder) => folder.id === folderChoice)
+          ? folderChoice
+          : undefined,
+      ),
     };
 
     locked.current = true;

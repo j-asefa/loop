@@ -1,4 +1,5 @@
 import type { SharedDraft } from "./workspace-drafts";
+import { FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { useState, useRef, useEffect } from "react";
@@ -128,7 +129,7 @@ function ShareForm({
     source: draft.url
       ? { url: draft.url, title: draft.title, excerpt: draft.excerpt }
       : undefined,
-    folderId: draft.folderId || undefined,
+    folderId: parseId(FolderId, draft.folderId || undefined),
   };
   async function review() {
     if (busy || previewUnavailable) return;
@@ -188,7 +189,9 @@ function ShareForm({
         Project
         <select
           value={draft.folderId}
-          onChange={(e) => update({ folderId: e.target.value })}
+          onChange={(e) =>
+            update({ folderId: parseId(FolderId, e.target.value) })
+          }
         >
           <option value="">Unfiled</option>
           {folders.map((f) => (

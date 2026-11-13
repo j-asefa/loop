@@ -1,3 +1,4 @@
+import { FolderId, parseId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
@@ -667,7 +668,10 @@ it("typed multipart and binary clients preserve bytes, repeated queries, respons
     await expect(
       callRoute(
         workspaceApi.uploadCreate,
-        { body: { folderId: "invalid" }, file: new Blob([bytes]) },
+        {
+          body: { folderId: parseId(FolderId, "invalid") },
+          file: new Blob([bytes]),
+        },
         "",
       ),
     ).rejects.toMatchObject({ status: 400 });

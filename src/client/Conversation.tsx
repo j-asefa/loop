@@ -1,5 +1,10 @@
-import { MessageId } from "../shared/contract-ids.js";
-import { ConversationId, RunId } from "../shared/contract-ids.js";
+import {
+  AgentId,
+  ConversationId,
+  MessageId,
+  RunId,
+  parseId,
+} from "../shared/contract-ids.js";
 import {
   continuationStorageKey,
   storedContinuation,
@@ -500,8 +505,10 @@ function ConversationView({
     // At the latest output there is no position to keep: the thread opens
     // at its latest messages anyway.
     const body = {
-      positionMessageId:
+      positionMessageId: parseId(
+        MessageId,
         followLatest.current || !visible.length ? null : visible[0],
+      ),
     };
     const signature = JSON.stringify(body);
     if (positionSent.current === signature) return;
@@ -2222,8 +2229,10 @@ function ConversationView({
                 setBusy(true);
                 setError("");
                 const request = pendingContinuation || {
-                  agentId: destination,
-                  messageIds: included,
+                  agentId: parseId(AgentId, destination),
+                  messageIds: included.map((value) =>
+                    parseId(MessageId, value),
+                  ),
                   start: {
                     input: continuationPrompt.trim(),
                     idempotencyKey: crypto.randomUUID(),

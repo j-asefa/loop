@@ -1,4 +1,10 @@
-import { ConversationId } from "../shared/contract-ids.js";
+import {
+  AgentId,
+  ConversationId,
+  MessageId,
+  ProjectId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -355,7 +361,10 @@ export function LaterSheet({
     const trigger = {
       condition,
       dueAt,
-      projectId: condition === "project_open" ? project?.id : undefined,
+      projectId: parseId(
+        ProjectId,
+        condition === "project_open" ? project?.id : undefined,
+      ),
     };
     try {
       const created: CreatedReminder = itemId
@@ -798,7 +807,10 @@ export function ForkSheet({
           try {
             const result = await call(workspaceApi.conversationFork, {
               params: { id: ConversationId.parse(conversationId) },
-              body: { messageId, agentId },
+              body: {
+                messageId: parseId(MessageId, messageId),
+                agentId: parseId(AgentId, agentId),
+              },
             });
             onForked(result.id, result.agentId);
           } catch (e) {

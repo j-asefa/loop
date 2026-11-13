@@ -136,7 +136,7 @@ function createFromDefinition(
           )
         )
           throw new Problem(400, "Unknown definition role");
-        let folderId = data.folderId;
+        let folderId: string | null | undefined = data.folderId;
         if (data.teamId) {
           const team = ownedTeam(data.teamId, owner);
           if (team.deleted_at != null)
@@ -188,7 +188,7 @@ function createFromDefinition(
           return createAgent(owner, settings);
         };
         let agentId: string | undefined,
-          teamId = data.teamId;
+          teamId: string | undefined = data.teamId;
         if (spec.kind === "agent") {
           agentId = makeAgent(spec).id;
           if (teamId) addTeamMember(owner, teamId, { agentId });

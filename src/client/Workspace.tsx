@@ -1,5 +1,9 @@
-import { ArtifactId } from "../shared/contract-ids.js";
-import { FolderId } from "../shared/contract-ids.js";
+import {
+  ArtifactId,
+  ConnectionId,
+  FolderId,
+  parseId,
+} from "../shared/contract-ids.js";
 import {
   recentSearches,
   rememberSearch,
@@ -91,7 +95,10 @@ export function FolderForm({
             const body = {
               path: String(f.get("path") || "") || undefined,
               name: String(f.get("name") || ""),
-              parentId: String(f.get("parent") || "") || null,
+              parentId: parseId(
+                FolderId,
+                String(f.get("parent") || "") || null,
+              ),
             };
             if (existing) {
               await callRoute(
@@ -204,7 +211,9 @@ export function FileSheet({
     try {
       const r = await call(workspaceApi.artifactMove, {
         params: { id: item.id },
-        body: natural ? { command } : { folderId: destination || null },
+        body: natural
+          ? { command }
+          : { folderId: parseId(FolderId, destination || null) },
       });
       if (!current()) return;
       setResult(r);
@@ -1385,7 +1394,7 @@ export function SearchSettings({
               {
                 body: {
                   embeddingEnabled: enabled,
-                  connectionId: connection || null,
+                  connectionId: parseId(ConnectionId, connection || null),
                 },
               },
               executionSourceId(),

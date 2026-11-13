@@ -1,4 +1,9 @@
-import { ArtifactId } from "../shared/contract-ids.js";
+import {
+  AgentId,
+  ArtifactId,
+  FolderId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { callRoute, routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceId, useSourceCapabilities } from "./SourceContext";
@@ -239,8 +244,8 @@ export function UploadButton({
             workspaceApi.uploadCreate,
             {
               body: {
-                folderId: folderId || undefined,
-                agentId: agentId || undefined,
+                folderId: parseId(FolderId, folderId || undefined),
+                agentId: parseId(AgentId, agentId || undefined),
               },
               file,
             },

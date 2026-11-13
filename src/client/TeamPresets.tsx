@@ -1,3 +1,4 @@
+import { ConnectionId, FolderId, parseId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./api";
@@ -8,7 +9,7 @@ import { viewOwner, viewGeneration } from "./viewCache";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Connection, Folder, Team } from "../shared/types";
 
-type Choice = { connectionId: string; model: string };
+type Choice = { connectionId: ConnectionId; model: string };
 const models = (c?: Connection): { id: string; name?: string }[] => {
   try {
     return JSON.parse(c?.models || "[]");
@@ -72,7 +73,7 @@ export function PresetTeamForm({
     initialFolder || folders.find((f) => f.kind === "project")?.id || "",
   );
   const [selection, setSelection] = useState<Choice>({
-    connectionId: first?.id || "",
+    connectionId: parseId(ConnectionId, first?.id || ""),
     model: models(first)[0]?.id || "",
   });
   const [roles, setRoles] = useState<Record<string, Choice>>({});
@@ -105,7 +106,7 @@ export function PresetTeamForm({
             onChange={(e) => {
               const c = available.find((c) => c.id === e.target.value);
               change({
-                connectionId: c?.id || "",
+                connectionId: parseId(ConnectionId, c?.id || ""),
                 model: models(c)[0]?.id || "",
               });
             }}
@@ -148,7 +149,7 @@ export function PresetTeamForm({
         const body = {
           presetId: preset.id,
           name,
-          folderId: folder,
+          folderId: parseId(FolderId, folder),
           selection,
           roles,
         };

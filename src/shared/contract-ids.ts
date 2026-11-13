@@ -43,3 +43,16 @@ export function requestId<S extends z.ZodString>(
 ) {
   return schema.brand<BrandNames<S>, "inout">();
 }
+
+// Parse only the identity value at ingress. Keep null/undefined and every
+// other request field unchanged: transport serializes the original inputs.
+export function parseId<
+  S extends z.ZodString,
+  V extends string | null | undefined,
+>(
+  schema: S & (BrandNames<S> extends never ? never : unknown),
+  value: V,
+): z.output<S> | Extract<V, null | undefined> {
+  if (value == null) return value as Extract<V, null | undefined>;
+  return schema.parse(value);
+}

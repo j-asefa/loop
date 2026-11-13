@@ -131,7 +131,8 @@ routes.on(workspaceApi.folderUpdate, (req, res) => {
     d.parentId = null;
   // A rename or directory edit does not change ancestry. Validate the chain
   // only when changing the parent, including forms that resend the same ID.
-  let p = d.parentId === f.parent_id ? null : (d.parentId ?? null);
+  let p: string | null =
+    d.parentId === f.parent_id ? null : (d.parentId ?? null);
   const visited = new Set([f.id]);
   while (p) {
     if (visited.has(p))

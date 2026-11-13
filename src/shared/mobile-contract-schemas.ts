@@ -1,3 +1,11 @@
+import {
+  AgentId,
+  ConversationId,
+  FolderId,
+  MessageId,
+  ProjectId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import { RunDisplayState } from "./run-state.js";
 import { MessageRole } from "./message-roles.js";
@@ -10,7 +18,9 @@ const Text = z.string(),
   Time = z.number();
 const Target = Text.min(1).max(150);
 const FutureTime = Time.int().positive().max(Number.MAX_SAFE_INTEGER);
-export const PositionInput = z.object({ positionMessageId: Target.nullable() });
+export const PositionInput = z.object({
+  positionMessageId: requestId(MessageId).min(1).max(150).nullable(),
+});
 export const FeedUpdateInput = z.object({
   hidden: z.boolean(),
   cardKey: Text.regex(/^(run|message):.+$/).max(200),
@@ -43,16 +53,16 @@ export const LaterInput = z.object({
   targetId: Target,
   condition: z.enum(["time", "run_finished", "project_open"]),
   dueAt: FutureTime.optional(),
-  projectId: Target.optional(),
+  projectId: requestId(ProjectId).min(1).max(150).optional(),
 });
 export const ScheduleInput = z
   .object({
-    agentId: Target,
-    conversationId: Target.optional(),
-    folderId: Target.nullish(),
+    agentId: requestId(AgentId).min(1).max(150),
+    conversationId: requestId(ConversationId).min(1).max(150).optional(),
+    folderId: requestId(FolderId).min(1).max(150).nullish(),
     input: Text.trim().min(1).max(30000),
     attachmentIds: AttachmentIds,
-    replyToMessageId: Target.optional(),
+    replyToMessageId: requestId(MessageId).min(1).max(150).optional(),
     replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
     idempotencyKey: Text.min(8).max(150),
     sendAt: FutureTime,
@@ -77,12 +87,12 @@ export const RunWithdrawInput = z.object({
   draftAttachmentIds: z.array(Target).max(MAX_MESSAGE_FILES).default([]),
 });
 export const RunMoveInput = z.object({
-  agentId: Target,
+  agentId: requestId(AgentId).min(1).max(150),
   idempotencyKey: Text.min(8).max(150),
 });
 export const ConversationForkInput = z.object({
-  messageId: Target,
-  agentId: Target.optional(),
+  messageId: requestId(MessageId).min(1).max(150),
+  agentId: requestId(AgentId).min(1).max(150).optional(),
 });
 
 export const PublicAwayItem = z.object({
