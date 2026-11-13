@@ -1,3 +1,4 @@
+import { ConnectionId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./api";
@@ -455,7 +456,7 @@ export function CreateFromDefinition({
       if (cached[connectionId]) continue;
       void callRoute(
         workspaceApi.connectionModels,
-        { params: { id: connectionId } },
+        { params: { id: ConnectionId.parse(connectionId) } },
         sourceId,
         controller.signal,
       ).then(

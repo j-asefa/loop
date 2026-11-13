@@ -1,3 +1,4 @@
+import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import {
@@ -94,13 +95,14 @@ function TraceSearch(props: Props) {
   );
 }
 function TraceList({
-  agentId,
+  agentId: rawAgentId,
   runId,
   revision,
   onConversation,
   onArtifact,
   query,
 }: Props & { query: string }) {
+  const agentId = AgentId.parse(rawAgentId);
   const route = useSourceRoute();
   const downloadReason = useSourceOperation(workspaceApi.agentTracesExport);
   const artifactReason = useSourceOperation(workspaceApi.artifactDetail);

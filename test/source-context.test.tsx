@@ -1,3 +1,4 @@
+import { ConnectionId } from "../src/shared/contract-ids.js";
 import { RunId } from "../src/shared/contract-ids.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
@@ -81,7 +82,7 @@ it("binds conversation actions and file URLs to their source across later naviga
     "/api/agent-sources/docker%3Aalpha/runs/same/cancel",
   );
   await typed(workspaceApi.connectionRefresh, {
-    params: { id: "same" },
+    params: { id: ConnectionId.parse("same") },
     body: { generation: 4, decision: "approve" },
   });
   expect(fetch.mock.calls[1][0]).toBe(
