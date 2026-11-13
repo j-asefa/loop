@@ -1,3 +1,4 @@
+import { emptySharedDraft } from "../workspace-drafts";
 import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
 import { readRoute } from "../api";
@@ -154,13 +155,7 @@ export function useSessionLifecycle(
       setDraft("");
       setSelected("");
       setFolderChoice(undefined);
-      setSharedDraft({
-        url: "",
-        title: "",
-        excerpt: "",
-        question: "",
-        folderId: "",
-      });
+      setSharedDraft(emptySharedDraft());
       setProfile(null);
       setConversation(null);
       setActiveArtifact(null);

@@ -1,7 +1,6 @@
 import { withOptionalStorage } from "./browserStorage";
 import { viewGeneration, viewOwner } from "./viewCache";
 import type { ComposerContext } from "./composerContext";
-import type { SharedDraft } from "./Sharing";
 
 export type WorkspaceComposerDraft = {
   selected: string;
@@ -55,3 +54,26 @@ export const emptySharedDraft = (): SharedDraft => ({
   question: "",
   folderId: "",
 });
+
+export type SharedDraft = {
+  url: string;
+  title: string;
+  excerpt: string;
+  question: string;
+  folderId: string;
+};
+export function initialShare(url = new URL(location.href)): SharedDraft {
+  const q = url.searchParams;
+  return q.has("share") || url.pathname === "/share"
+    ? {
+        url:
+          q.get("url") ||
+          (q.get("text") || "").trim().match(/^https?:\/\/\S+$/)?.[0] ||
+          "",
+        title: q.get("title") || "",
+        excerpt: q.get("text") || "",
+        question: q.get("question") || "",
+        folderId: q.get("folder") || "",
+      }
+    : emptySharedDraft();
+}

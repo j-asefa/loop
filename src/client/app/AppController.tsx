@@ -1,3 +1,4 @@
+import { useAppNavigation, replaceConversationLocation } from "./Navigation";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import { RunId } from "../../shared/contract-ids.js";
 import { useFeedBadge } from "../useFeedBadge";
@@ -19,7 +20,7 @@ import { type MyProfileData } from "../MyProfile";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { useProjectionRoute } from "../SourceContext";
 import { useThreadSource } from "../useThreadSource";
-import { executionSourceId, routeSourceId, sourceUrl } from "../sourceRouting";
+import { executionSourceId, sourceUrl } from "../sourceRouting";
 import { useAgentSources, type EnvironmentAgent } from "../agentSources";
 import { currentAgentWork } from "../AgentWork";
 import { belongsToProject } from "../../shared/projects";
@@ -30,6 +31,8 @@ import { viewGeneration } from "../viewCache";
 import {
   sessionDraft,
   emptySharedDraft,
+  initialShare,
+  type SharedDraft,
   type WorkspaceComposerDraft,
 } from "../workspace-drafts";
 import type { SendReceipt } from "../sendIntent";
@@ -42,12 +45,7 @@ import {
   type LatestAgentMessage,
 } from "../composerContext";
 import { ResultsPager } from "../results";
-import { initialShare, type SharedDraft } from "../Sharing";
 import { OPEN_PULL } from "../PullRequests";
-import {
-  feedCategories,
-  type FeedView as FeedFilter,
-} from "../../shared/feed-categories";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
 import { useLongPress, type ScheduledSend } from "../ThreadTools";
@@ -58,13 +56,6 @@ import {
   threadDraft as readThreadDraft,
 } from "../drafts";
 import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
-import {
-  UserRound,
-  Newspaper,
-  Search,
-  Folder,
-  GitPullRequest,
-} from "lucide-react";
 import { parse } from "../json";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
@@ -82,41 +73,34 @@ import {
   type Bootstrap,
 } from "./WorkspaceData";
 
-export const tabs = [
-  { id: "feed", label: "Feed", icon: Newspaper },
-  { id: "projects", label: "Projects", icon: Folder },
-  { id: "pulls", label: "Pull requests", icon: GitPullRequest },
-  { id: "search", label: "Search", icon: Search },
-  { id: "profile", label: "Your profile", icon: UserRound },
-];
-function initialPage() {
-  const params = new URLSearchParams(location.search);
-  if (params.has("social")) return { tab: "profile" };
-  const page = params.get("page") || "";
-  if (tabs.some((t) => t.id === page)) return { tab: page };
-  return { tab: params.has("folder") ? "profile" : "feed" };
-}
-function initialFilter(): FeedFilter {
-  const params = new URLSearchParams(location.search);
-  const value = params.get("filter");
-  return feedCategories.some((f) => f.id === value)
-    ? (value as FeedFilter)
-    : "done";
-}
 export function useAppController() {
-  useEffect(() => {
-    const url = new URL(location.href);
-    if (!url.searchParams.has("connect")) return;
-    url.searchParams.delete("connect");
-    history.replaceState(
-      history.state,
-      "",
-      url.pathname + url.search + url.hash,
-    );
-  }, []);
-  const [sharedDraft, setSharedDraft] = useState<SharedDraft>(initialShare);
-  const [returnTo, setReturnTo] = useState(
-    new URLSearchParams(location.search).has("connect") ? "create" : "",
+  const {
+    initial,
+    tab,
+    setTab,
+    feedFilter,
+    setFeedFilter,
+    sheet,
+    setSheet,
+    folder,
+    setFolder,
+    conversation,
+    updateConversation,
+    messageId,
+    setMessageId,
+    teamSelection,
+    setTeamSelection,
+    project,
+    setProject,
+    pull,
+    setPull,
+    conversationSource,
+    setConversationSource,
+    returnTo,
+    setReturnTo,
+  } = useAppNavigation();
+  const [sharedDraft, setSharedDraft] = useState<SharedDraft>(
+    initial.sharedDraft,
   );
   const [reviewTarget, setReviewTarget] = useState<{
     team?: string;
@@ -133,22 +117,8 @@ export function useAppController() {
       connections: [],
       folders: [],
     }),
-    [tab, setTab] = useState(() => initialPage().tab),
-    [feedFilter, setFeedFilter] = useState<FeedFilter>(initialFilter),
     [feedHomeKey, setFeedHomeKey] = useState(0),
     [searchScope, setSearchScope] = useState<"all" | "mine">("all"),
-    [sheet, setSheet] = useState(
-      new URLSearchParams(location.search).has("memory")
-        ? "memory"
-        : new URLSearchParams(location.search).has("tools")
-          ? "mcp"
-          : new URLSearchParams(location.search).has("share") ||
-              location.pathname === "/share"
-            ? "share"
-            : new URLSearchParams(location.search).has("connect")
-              ? "connections"
-              : "",
-    ),
     [error, setError] = useState(""),
     [profile, setProfile] = useState<Agent | null>(null),
     [view, setView] = useState("all"),
@@ -156,14 +126,8 @@ export function useAppController() {
     [next, setNext] = useState<string | number | null>(null),
     [runs, setRuns] = useState<Run[]>([]),
     [selected, setSelected] = useState(""),
-    [folder, setFolder] = useState(
-      new URLSearchParams(location.search).get("folder") || "",
-    ),
     [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
-    [conversation, updateConversation] = useState<string | null>(
-      new URLSearchParams(location.search).get("conversation"),
-    ),
     [activeArtifact, setActiveArtifact] = useState<ResultAction | null>(null),
     [theme, setTheme] = useState(
       localStorage.getItem("loop-theme") || "system",
@@ -172,17 +136,9 @@ export function useAppController() {
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
-  const [teamSelection, setTeamSelection] = useState<string[]>(() =>
-    (new URLSearchParams(location.search).get("teams") || "")
-      .split(",")
-      .filter(Boolean),
-  );
   const teamKey = [...teamSelection].sort().join(",");
   const [teamMessages, setTeamMessages] = useState<Team | null>(null);
   const availableAgents = data.agents.filter((a) => !a.retired_at);
-  const [messageId, setMessageId] = useState<string | null>(
-    new URLSearchParams(location.search).get("message"),
-  );
   const [composerExpanded, setComposerExpanded] = useState(false);
   const composerFocusRequest = useRef<number | null>(null);
   const [bootstrapOwner, setBootstrapOwner] = useState<string>();
@@ -190,9 +146,7 @@ export function useAppController() {
   useEffect(() => {
     if (!composerExpanded && !conversation) setComposerOptions(false);
   }, [composerExpanded, conversation]);
-  const initialAgentId = useRef(
-    new URLSearchParams(location.search).get("agent"),
-  );
+  const initialAgentId = useRef(initial.agentId);
   const [replyContext, setReplyContext] = useState<ComposerContext | null>(
     null,
   );
@@ -204,15 +158,8 @@ export function useAppController() {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
   }, [selected]);
-  const [project, setProject] = useState(
-    new URLSearchParams(location.search).get("projectView") || "",
-  );
-  // The pull request open in the Pull requests tab: owner/repo/number.
-  const [pull, setPull] = useState(
-    new URLSearchParams(location.search).get("pull") || "",
-  );
   const [folderChoice, setFolderChoice] = useState<string | undefined>(
-    () => new URLSearchParams(location.search).get("folder") ?? undefined,
+    initial.folderChoice,
   );
   const [modelAgent, setModelAgent] = useState<Agent | null>(null);
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
@@ -258,7 +205,6 @@ export function useAppController() {
     !conversation,
     { onControls: true },
   );
-  const [conversationSource, setConversationSource] = useState(routeSourceId);
   const actionSource = conversation ? conversationSource : executionSourceId();
   const threadApi = useMemo(
     () =>
@@ -418,13 +364,7 @@ export function useAppController() {
     setMessageId(message || null);
     updateConversation(id);
     if (id) {
-      const url = new URL(location.href);
-      url.searchParams.set("conversation", id);
-      if (source) url.searchParams.set("source", source);
-      else url.searchParams.delete("source");
-      if (message) url.searchParams.set("message", message);
-      else url.searchParams.delete("message");
-      history.replaceState(history.state, "", url.pathname + url.search);
+      replaceConversationLocation(source, id, message);
     } else {
       const team =
         teamSelection.length === 1
@@ -435,8 +375,6 @@ export function useAppController() {
         if (profile) setSelected(profile.id);
         else if (team) setSelected(team.manager_id);
       }
-      const url = new URL(location.href);
-      url.searchParams.delete("conversation");
       if (conversationSource !== executionSourceId()) {
         const previous = globalComposer.current;
         setSelected(previous.selected);
@@ -444,11 +382,7 @@ export function useAppController() {
         setContextArtifact(previous.contextArtifact);
         setFolderChoice(previous.folderChoice);
       }
-      if (executionSourceId())
-        url.searchParams.set("source", executionSourceId());
-      else url.searchParams.delete("source");
-      url.searchParams.delete("message");
-      history.replaceState(history.state, "", url.pathname + url.search);
+      replaceConversationLocation(executionSourceId(), null);
     }
   }
   function focusRequestedComposer() {

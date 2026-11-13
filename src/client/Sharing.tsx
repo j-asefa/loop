@@ -1,3 +1,4 @@
+import type { SharedDraft } from "./workspace-drafts";
 import { literalEntry, proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { useState, useRef, useEffect } from "react";
@@ -19,28 +20,6 @@ import {
   SettingsSteps,
 } from "./SettingsUI";
 import type { Agent, Folder, RunView as Run } from "../shared/types";
-export type SharedDraft = {
-  url: string;
-  title: string;
-  excerpt: string;
-  question: string;
-  folderId: string;
-};
-export function initialShare(): SharedDraft {
-  const q = new URLSearchParams(location.search);
-  return q.has("share") || location.pathname === "/share"
-    ? {
-        url:
-          q.get("url") ||
-          (q.get("text") || "").trim().match(/^https?:\/\/\S+$/)?.[0] ||
-          "",
-        title: q.get("title") || "",
-        excerpt: q.get("text") || "",
-        question: q.get("question") || "",
-        folderId: q.get("folder") || "",
-      }
-    : { url: "", title: "", excerpt: "", question: "", folderId: "" };
-}
 export function SourceCard({
   source,
 }: {

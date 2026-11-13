@@ -174,9 +174,57 @@ try {
       await page.unroute("**/api/auth/get-session", handler);
     }
   }
+  await page.goto(
+    `http://127.0.0.1:${server.address().port}/?connect=1&page=projects`,
+  );
+  await expect(page.locator("#owner")).toHaveText("alice");
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      tab: window.model.tab,
+      sheet: window.model.sheet,
+      returnTo: window.model.returnTo,
+      connect: new URL(location.href).searchParams.has("connect"),
+    })),
+    {
+      tab: "projects",
+      sheet: "connections",
+      returnTo: "create",
+      connect: false,
+    },
+  );
+  await page.evaluate(() => {
+    window.model.setSheet("memory");
+    window.changeOwner("alice");
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.model.sheet))
+    .toBe("memory");
+  assert.equal(await page.evaluate(() => window.model.returnTo), "create");
+  await page.goto(
+    `http://127.0.0.1:${server.address().port}/?share=1&text=https%3A%2F%2Fexample.com%2Farticle&title=Article&folder=project`,
+  );
+  await expect(page.locator("#owner")).toHaveText("alice");
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      sheet: window.model.sheet,
+      folder: window.model.folderChoice,
+      draft: window.model.sharedDraft,
+    })),
+    {
+      sheet: "share",
+      folder: "project",
+      draft: {
+        url: "https://example.com/article",
+        title: "Article",
+        excerpt: "https://example.com/article",
+        question: "",
+        folderId: "project",
+      },
+    },
+  );
   assert.deepEqual(errors, []);
   console.log(
-    "Session snapshot: suspended render, owner replacement, expiry, delayed auth responses and durable draft isolation passed",
+    "Session snapshot and navigation: suspended render, owner replacement, expiry, delayed auth responses, draft isolation and deep-link initialization passed",
   );
 } finally {
   await browser?.close();
