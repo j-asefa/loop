@@ -1,11 +1,12 @@
 import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
-import { isRateLimited, RATE_LIMITED, readRoute } from "./api";
+import { isRateLimited, RATE_LIMITED, readRoute, retryAfter } from "./api";
 import { useCallback, useEffect, useState } from "react";
 import { cacheView, cachedView, viewGeneration, viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
 import { useCollectionRead } from "./CollectionRead";
 import { broadWorkspaceChange } from "./workspace-changes";
+import { beginWorkspaceRead } from "./workspace-read-recovery";
 
 type Snapshot = { data: Bootstrap; capabilities: Capabilities };
 
@@ -29,7 +30,21 @@ export function useThreadSource(source: string | null, owner?: string) {
           const abort = () => pair.abort();
           signal.addEventListener("abort", abort, { once: true });
           if (signal.aborted) abort();
-          const timeout = setTimeout(abort, 20_000);
+          let deadline = Date.now() + 20_000;
+          let timeout = setTimeout(abort, 20_000);
+          const waiting = (error: unknown) => {
+            if (!isRateLimited(error)) return;
+            deadline = Math.max(
+              deadline,
+              Date.now() + retryAfter(error) + 20_000,
+            );
+            clearTimeout(timeout);
+            timeout = setTimeout(
+              abort,
+              Math.min(2_147_483_647, deadline - Date.now()),
+            );
+          };
+          const settle = beginWorkspaceRead(source!, "thread-source", signal);
           try {
             const [data, capabilities] = await Promise.all([
               readRoute(
@@ -37,7 +52,7 @@ export function useThreadSource(source: string | null, owner?: string) {
                 {},
                 source!,
                 pair.signal,
-                undefined,
+                waiting,
                 mode,
               ),
               readRoute(
@@ -45,11 +60,19 @@ export function useThreadSource(source: string | null, owner?: string) {
                 {},
                 source!,
                 pair.signal,
-                undefined,
+                waiting,
                 mode,
               ),
             ]);
+            settle(false);
             return { data, capabilities };
+          } catch (error) {
+            const failure = error as { status?: number; network?: boolean };
+            settle(
+              failure.network === true ||
+                (failure.status !== undefined && failure.status >= 500),
+            );
+            throw error;
           } finally {
             // A rejected read must cancel its sibling as well as its timeout.
             pair.abort();
