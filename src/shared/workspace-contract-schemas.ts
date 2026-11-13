@@ -166,7 +166,7 @@ export const FeedItem = DoneDisplaySchema.extend({
   queued_runs: z
     .array(
       z.object({
-        id: Text,
+        id: RunId,
         input: Text,
         created_at: Time,
         queue_position: z.number().nullable(),
@@ -181,8 +181,8 @@ export const FeedItem = DoneDisplaySchema.extend({
   next_action: z
     .object({
       kind: z.enum(["approve", "answer", "result"]),
-      message_id: MaybeText,
-      run_id: Text,
+      message_id: MessageId.nullable(),
+      run_id: RunId,
       ref: Text.optional(),
     })
     .nullable()
@@ -218,13 +218,13 @@ export const ConversationPage = z.object({
     before: ProjectedMessage.shape.cursor,
   }),
   position_message_id: MessageId.nullable(),
-  saved: z.array(Text),
+  saved: z.array(MessageId),
   steerable_run_id: RunId.nullable(),
   resumed: z.boolean(),
   projection: WorkspaceClock.optional(),
   // The agent's latest visible message, beyond this page if need be.
   latest_agent_message: z
-    .object({ id: Text, cursor: ProjectedMessage.shape.cursor })
+    .object({ id: MessageId, cursor: ProjectedMessage.shape.cursor })
     .nullable(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
