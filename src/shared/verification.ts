@@ -1,3 +1,4 @@
+import { VerificationId } from "./contract-ids.js";
 import { z } from "zod";
 import { shellWords } from "./shell-words.js";
 
@@ -25,7 +26,7 @@ export const VerificationSummarySchema = z.object({
   unknown: z.number(),
   items: z.array(
     z.object({
-      id: z.string(),
+      id: VerificationId,
       kind: z.enum(["test", "typecheck", "lint"]),
       tools: z.array(z.string()),
       status: z.enum(["passed", "failed", "unknown"]),
@@ -279,7 +280,9 @@ export function chainLength(command: string) {
   return tokens.filter((t) => t === null).length + 1;
 }
 
-export function summarize(items: VerificationItem[]): VerificationSummary {
+export function summarize(
+  items: VerificationItem[],
+): z.input<typeof VerificationSummarySchema> {
   return {
     passed: items.filter((i) => i.status === "passed").length,
     failed: items.filter((i) => i.status === "failed").length,

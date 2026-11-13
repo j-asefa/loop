@@ -1,3 +1,4 @@
+import { TeamPresetId } from "./contract-ids.js";
 import {
   AgentId,
   ConnectionId,
@@ -74,7 +75,7 @@ export const PublicTeam = z.object({
   members: z.array(AgentId),
   created_at: Time.optional(),
   deleted_at: Time.nullable().optional(),
-  preset_id: MaybeText.optional(),
+  preset_id: TeamPresetId.nullable().optional(),
   preset_version: z.number().nullable().optional(),
   preset_config: MaybeText.optional(),
   folder_id: FolderId.nullable().optional(),

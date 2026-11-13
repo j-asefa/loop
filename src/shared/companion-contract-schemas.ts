@@ -1,4 +1,10 @@
-import { ProjectId, RunId, requestId } from "./contract-ids.js";
+import {
+  ProjectId,
+  RunId,
+  requestId,
+  FolderId,
+  OwnerId,
+} from "./contract-ids.js";
 import { NativeSessionState } from "./native-session-state.js";
 import { z } from "zod";
 import { ActivityKind, ActivityRecordSchema } from "./agent-activities.js";
@@ -93,7 +99,7 @@ export const PublicWorkspace = z.object({
   concurrency: z.number(),
   hostLifetime: z.literal("foreground"),
   tunnelOrigin: Text,
-  projectPaths: z.array(z.object({ folder_id: Text, path: Text })),
+  projectPaths: z.array(z.object({ folder_id: FolderId, path: Text })),
 });
 export const PublicRuntimes = z.object({
   computer: Text,
@@ -153,7 +159,7 @@ export const ProjectCreateInput = z.object({
 });
 export const ProjectUpdateInput = ProjectCreateInput.pick({ path: true });
 const CreatedProject = z.object({
-  id: Text,
+  id: ProjectId,
   name: Text,
   kind: z.literal("project"),
   path: Text,
@@ -161,8 +167,8 @@ const CreatedProject = z.object({
 // Reusing an existing project returns its public folder fields as well.
 export const PublicProject = z.union([
   CreatedProject.extend({
-    owner_id: Text,
-    parent_id: Text.nullable(),
+    owner_id: OwnerId,
+    parent_id: FolderId.nullable(),
     created_at: z.number(),
   }),
   CreatedProject,

@@ -1,7 +1,11 @@
 import { collapse } from "./collapse.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../shared/run-state.js";
-import type { CheckoutSummary } from "../shared/checkout.js";
-import type { VerificationSummary } from "../shared/verification.js";
+type CheckoutSummary = import("zod").input<
+  typeof import("../shared/checkout.js").CheckoutSummarySchema
+>;
+type VerificationSummary = import("zod").input<
+  typeof import("../shared/verification.js").VerificationSummarySchema
+>;
 import type { PullState } from "../shared/pull-state.js";
 
 export type FeedRow = {

@@ -6,6 +6,7 @@ import {
   MessageId,
   ProjectId,
   TeamId,
+  LaterItemId,
 } from "./contract-ids.js";
 import { PullStateSchema } from "./pull-state.js";
 import { VerificationSummarySchema } from "./verification.js";
@@ -109,7 +110,7 @@ export const DoneDisplaySchema = z.object({
   position_message_id: z.null().default(null),
   later: z
     .object({
-      id: z.string(),
+      id: LaterItemId,
       due_at: time.nullable(),
       condition: z.string(),
       surfaced_at: time.nullable(),

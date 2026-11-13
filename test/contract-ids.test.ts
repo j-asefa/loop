@@ -1,3 +1,7 @@
+import { CheckoutSummarySchema } from "../src/shared/checkout.js";
+import { VerificationSummarySchema } from "../src/shared/verification.js";
+import { DoneDisplaySchema } from "../src/shared/done-card.js";
+import { PublicTeam } from "../src/shared/workspace-contract-schemas.js";
 import {
   CardTokenId,
   WebhookSubscriptionId,
@@ -552,4 +556,27 @@ it("preserves token and webhook validators with distinct request domains", () =>
     id: WebhookDeliveryId.parse("delivery"),
   };
   void wrong;
+});
+
+it("retains record identities in embedded public summaries", () => {
+  expectTypeOf<
+    z.output<typeof CheckoutSummarySchema>["id"]
+  >().toEqualTypeOf<CheckoutId>();
+  expectTypeOf<
+    z.output<typeof VerificationSummarySchema>["items"][number]["id"]
+  >().toEqualTypeOf<VerificationId>();
+  expectTypeOf<
+    NonNullable<z.output<typeof DoneDisplaySchema>["later"]>["id"]
+  >().toEqualTypeOf<LaterItemId>();
+  expectTypeOf<z.output<typeof PublicTeam>["preset_id"]>().toEqualTypeOf<
+    TeamPresetId | null | undefined
+  >();
+  expect(CheckoutSummarySchema.shape.id.parse("opaque:checkout")).toBe(
+    "opaque:checkout",
+  );
+  expect(
+    VerificationSummarySchema.shape.items.element.shape.id.parse(
+      "opaque:verification",
+    ),
+  ).toBe("opaque:verification");
 });

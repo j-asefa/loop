@@ -1,7 +1,8 @@
+import { CheckoutId } from "./contract-ids.js";
 import { z } from "zod";
 /** The one-line view of a run's checkout record; everything else is a tap away. */
 export const CheckoutSummarySchema = z.object({
-  id: z.string(),
+  id: CheckoutId,
   state: z.enum(["started", "captured", "failed"]),
   // Absent on cumulative comparisons with the source checkout.
   scope: z.literal("run").optional(),
@@ -77,7 +78,7 @@ export type CheckoutDetail = {
 };
 
 /** The card line. */
-function checkoutParts(summary: CheckoutSummary) {
+function checkoutParts(summary: z.input<typeof CheckoutSummarySchema>) {
   const parts: (
     string | { files: number; additions: number; deletions: number }
   )[] = [summary.branch];
@@ -115,7 +116,7 @@ function checkoutParts(summary: CheckoutSummary) {
   return parts;
 }
 
-export function checkoutLine(summary: CheckoutSummary) {
+export function checkoutLine(summary: z.input<typeof CheckoutSummarySchema>) {
   return checkoutParts(summary)
     .map((part) =>
       typeof part === "string"
