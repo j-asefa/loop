@@ -64,7 +64,7 @@ import {
   Folder,
   GitPullRequest,
 } from "lucide-react";
-import { parse } from "../api";
+import { parse } from "../json";
 import { callRoute } from "../workspace-api";
 import { type ThreadWork } from "../Conversation";
 import type { Agent, Artifact, RunView as Run, Team } from "../../shared/types";

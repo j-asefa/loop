@@ -8,7 +8,7 @@ import {
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { readRoute } from "./workspace-api";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { Sheet } from "./components";

@@ -8,7 +8,8 @@ import {
 } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
-import { isRateLimited, parse } from "./api";
+import { parse } from "./json";
+import { isRateLimited } from "./api";
 import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";

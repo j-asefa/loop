@@ -1,5 +1,5 @@
 import type { Message } from "../shared/types";
-import { parse } from "./api";
+import { parse } from "./json";
 
 export type ConversationMessage = Message & {
   cursor: [number, number, number];

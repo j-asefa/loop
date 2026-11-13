@@ -14,7 +14,7 @@ import {
   MessageSquare,
   Search,
 } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { viewGeneration } from "./viewCache";
 import { watchWorkspaceDetail } from "./workspace-multiplex";
 import { Empty, RichText } from "./components";

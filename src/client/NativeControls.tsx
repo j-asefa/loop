@@ -15,7 +15,8 @@ import {
   useProjectionRoute,
 } from "./SourceContext";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { parse, clearAuthorization, isExecutionRefused } from "./api";
+import { parse } from "./json";
+import { clearAuthorization, isExecutionRefused } from "./api";
 import type { Request } from "../shared/protocol";
 import { Check, X } from "lucide-react";
 import { SessionActivityControls } from "./SessionActivityControls";

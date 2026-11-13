@@ -30,7 +30,7 @@ import { runModelName } from "./modelChoices";
 import { PublishedFile, CardFile, RunFiles } from "./PublishedFiles";
 import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
-import { parse } from "./api";
+import { parse } from "./json";
 import { AutofillBoundary } from "./AutofillBoundary";
 import type { Agent, Artifact, Connection } from "../shared/types";
 function ArtifactContent({ item }: { item: Artifact }) {

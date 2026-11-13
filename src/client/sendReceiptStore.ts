@@ -1,4 +1,4 @@
-import { parse } from "./api";
+import { parse } from "./json";
 import {
   commandStorageKey,
   storedCommandAt,

@@ -10,7 +10,7 @@ import { cacheView, cachedView } from "../viewCache";
 import { ResultsPager } from "../results";
 import type { SavedMessage } from "../card-actions";
 
-import { parse } from "../api";
+import { parse } from "../json";
 import { callRoute } from "../workspace-api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";

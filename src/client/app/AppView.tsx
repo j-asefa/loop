@@ -55,7 +55,7 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { parse } from "../api";
+import { parse } from "../json";
 import { NativeConnections } from "../NativeConnections";
 import { CreateAgent } from "../CreateAgent";
 import {

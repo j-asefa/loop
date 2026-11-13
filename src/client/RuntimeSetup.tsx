@@ -5,7 +5,7 @@ import { callRoute } from "./workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { runtimeSetupMessages } from "../shared/runtime-setup";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { Sheet } from "./components";
 import { ConnectionDetails } from "./ConnectionDetails";
 import type { Connection } from "../shared/types";

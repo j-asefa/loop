@@ -1,5 +1,5 @@
 import { withOptionalStorage } from "./browserStorage";
-import { parse } from "./api";
+import { parse } from "./json";
 
 export const GLOBAL_DRAFT = "__global__";
 

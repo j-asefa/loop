@@ -12,7 +12,7 @@ import type { ModelOption } from "../shared/models";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import {
   performStoredEffect,
   creationFailureSettled,
