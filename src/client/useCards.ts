@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { contractCardReader } from "../shared/card-client";
 import type { CardPage, CardSelection } from "../shared/cards";
-import { useProjectionRoute, useSourceId } from "./SourceContext";
-import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { useSourceId } from "./SourceContext";
+import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
 import { CardPager, type CardWindow } from "./card-pager";
+import { useCollectionRead } from "./CollectionRead";
+import { readRoute } from "./api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 
 const noItems: CardPage["items"] = [];
@@ -11,10 +13,9 @@ const noItems: CardPage["items"] = [];
 /** Every continuation captures one owner, source and normalized selection.
  * Polling updates the loaded window; it never restarts pagination. */
 export function useCards(selection: CardSelection, revision = 0) {
-  const source = useSourceId(),
-    read = useProjectionRoute();
+  const source = useSourceId();
   const owner = viewOwner(),
-    key = JSON.stringify([owner, source, selection]);
+    key = JSON.stringify([viewGeneration(), owner, source, selection]);
   const context = useMemo(
     () => ({ key, foreground: 0, pending: 0, retryAppend: false }),
     [key],
@@ -28,14 +29,12 @@ export function useCards(selection: CardSelection, revision = 0) {
   const [shown, setShown] = useState<{ key: string; page: CardPage } | null>(
     restored ? { key, page: restored.page } : null,
   );
-  const [status, setStatus] = useState({ key, loading: !restored, error: "" });
+  const { load: execute, error, busy, isBusy } = useCollectionRead(key);
+  const [, update] = useState(0);
   const load = useCallback(
     async (append = false, manual = false) => {
       if (!owner || current.current !== context) return;
-      if (manual && context.pending) return;
-      const reader = contractCardReader((contract, input) =>
-        read(contract, input, source, manual ? "manual" : "automatic"),
-      );
+      if (manual && isBusy()) return;
       if (pager.current.key !== key) {
         const saved = cachedView<CardWindow>(cacheKey);
         if (saved) {
@@ -47,58 +46,57 @@ export function useCards(selection: CardSelection, revision = 0) {
       const foreground = manual || append || loaded.current !== key;
       if (foreground) context.foreground++;
       context.pending++;
-      setStatus((old) => ({
-        key,
-        loading: context.foreground > 0,
-        error: old.key === key ? old.error : "",
-      }));
+      update((value) => value + 1);
       try {
-        const page = await pager.current.load(
-          key,
-          selection.view,
-          append,
-          (before) =>
-            reader.list({ ...selection, ...(before ? { before } : {}) }),
-          (after, through) => reader.changes({ ...selection, after, through }),
+        await execute(
+          async (signal, mode) => {
+            const reader = contractCardReader((contract, input) =>
+              readRoute(contract, input, source, signal, undefined, mode),
+            );
+            try {
+              return await pager.current.load(
+                key,
+                selection.view,
+                append,
+                (before) =>
+                  reader.list({ ...selection, ...(before ? { before } : {}) }),
+                (after, through) =>
+                  reader.changes({ ...selection, after, through }),
+              );
+            } catch (error) {
+              if (!signal.aborted && current.current === context) {
+                context.retryAppend = append;
+                if ((error as { status?: number }).status === 409) {
+                  cacheView(cacheKey, undefined, owner);
+                  loaded.current = "";
+                  setShown(null);
+                }
+              }
+              throw error;
+            }
+          },
+          (page) => {
+            loaded.current = key;
+            if (page) setShown({ key, page });
+            const saved = pager.current.snapshot();
+            if (saved) cacheView(cacheKey, saved, owner);
+          },
+          manual,
+          append ? 1 : 0,
         );
-        if (current.current === context && viewOwner() === owner) {
-          loaded.current = key;
-          if (page) setShown({ key, page });
-          const saved = pager.current.snapshot();
-          if (saved) cacheView(cacheKey, saved, owner);
-          setStatus({ key, loading: context.foreground > 0, error: "" });
-        }
-      } catch (error) {
-        if (current.current === context && viewOwner() === owner) {
-          context.retryAppend = append;
-          if ((error as { status?: number }).status === 409) {
-            cacheView(cacheKey, undefined, owner);
-            loaded.current = "";
-            setShown(null);
-          }
-          setStatus({
-            key,
-            loading: context.foreground > 0,
-            error: (error as Error).message,
-          });
-        }
       } finally {
         if (foreground) context.foreground--;
         context.pending--;
-        if (current.current === context && viewOwner() === owner)
-          setStatus((old) =>
-            old.key === key ? { ...old, loading: context.foreground > 0 } : old,
-          );
+        if (current.current === context) update((value) => value + 1);
       }
     },
-    [context, read],
+    [context, execute, isBusy],
   );
   useEffect(() => {
     current.current = context;
     void load();
     const refresh = () => {
       if (document.visibilityState === "visible") {
-        setStatus((old) => (old.key === key ? { ...old, error: "" } : old));
         void load();
       }
     };
@@ -127,9 +125,9 @@ export function useCards(selection: CardSelection, revision = 0) {
   return {
     items: shown?.key === key ? shown.page.items : noItems,
     next: shown?.key === key ? shown.page.next : null,
-    loading: status.key !== key || status.loading,
-    busy: status.key !== key || context.pending > 0,
-    error: status.key === key ? status.error : "",
+    loading: (!error && loaded.current !== key) || context.foreground > 0,
+    busy: busy || context.pending > 0,
+    error,
     load,
     retry: () => load(context.retryAppend, true),
     key,

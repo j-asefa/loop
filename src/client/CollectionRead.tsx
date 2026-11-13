@@ -271,6 +271,8 @@ export function useCollectionRead(key: string) {
       active: true,
       running: false,
       queued: undefined as (() => Promise<void>) | undefined,
+      priority: 0,
+      waiters: [] as (() => void)[],
     }),
     [key, owner],
   );
@@ -281,6 +283,7 @@ export function useCollectionRead(key: string) {
       context.active = false;
       context.running = false;
       context.queued = undefined;
+      context.waiters.splice(0).forEach((resolve) => resolve());
       context.controller?.abort();
     };
   }, [context]);
@@ -289,15 +292,20 @@ export function useCollectionRead(key: string) {
       read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
       receive: (value: T) => void,
       manual = false,
+      priority = 0,
     ): Promise<void> {
       if (!context.active || owner !== viewGeneration()) return;
       // Recovery or event bursts must let a healthy slow read finish. Keep
       // one trailing refresh so changes during that read are not lost.
       if (context.running && !manual) {
-        context.queued = () => load(read, receive);
-        return;
+        if (!context.queued || priority >= context.priority) {
+          context.queued = () => load(read, receive, false, priority);
+          context.priority = priority;
+        }
+        return new Promise<void>((resolve) => context.waiters.push(resolve));
       }
       context.queued = undefined;
+      context.waiters.splice(0).forEach((resolve) => resolve());
       context.running = true;
       context.controller?.abort();
       const controller = new AbortController();
@@ -336,7 +344,12 @@ export function useCollectionRead(key: string) {
           // Another load can queue a refresh across the await above.
           const queued = context.queued as (() => Promise<void>) | undefined;
           context.queued = undefined;
-          if (current()) void queued?.();
+          const waiters = context.waiters.splice(0);
+          if (current() && queued)
+            void queued().finally(() =>
+              waiters.forEach((resolve) => resolve()),
+            );
+          else waiters.forEach((resolve) => resolve());
         }
       }
     },
@@ -344,6 +357,7 @@ export function useCollectionRead(key: string) {
   );
   return {
     load,
+    isBusy: useCallback(() => context.running, [context]),
     error: state.context === context ? state.error : "",
     busy: state.context === context && state.busy,
   };
