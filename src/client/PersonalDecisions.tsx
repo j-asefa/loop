@@ -1,6 +1,11 @@
+import { readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
-import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
-import { useEffect, useRef, useState } from "react";
+import {
+  CollectionReadNotice,
+  useProjectionQuery,
+  usePagedProjectionQuery,
+} from "./CollectionRead";
+import { useState } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -12,8 +17,7 @@ import { Avatar } from "./Avatar";
 import { Sheet } from "./components";
 import { ApprovalRequestDetails } from "./ApprovalRequest";
 import { NativeRequestDetails } from "./NativeRequestDetails";
-import { useSourceRoute, useSourceId } from "./SourceContext";
-import { listenWorkspaceChanges } from "./workspace-changes";
+import { useSourceId } from "./SourceContext";
 import { viewGeneration } from "./viewCache";
 import type {
   PersonalDecision,
@@ -126,12 +130,8 @@ export function PersonalDecisions({
   kind: "approval" | "answer";
   onConversation: (id: string) => void;
 }) {
-  const call = useSourceRoute(),
-    source = useSourceId(),
+  const source = useSourceId(),
     generation = viewGeneration();
-  const [page, setPage] = useState(empty);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [selected, setSelected] = useState<{
     item: PersonalDecision;
     source: string;
@@ -139,38 +139,17 @@ export function PersonalDecisions({
   } | null>(null);
   const openApproval = (item: PersonalDecision) =>
     setSelected({ item, source, generation });
-  const actions = useRef({ more: () => {}, retry: () => {} });
-  useEffect(() => {
-    const controller = new AbortController();
-    const stale = () =>
-      controller.signal.aborted || generation !== viewGeneration();
-    let current = empty,
-      busy = false,
-      pending = false,
-      refreshImmediately = false,
-      refreshAfter = 0;
-    let retryBefore: string | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = () => {
-      pending = true;
-      if (busy || timer || stale()) return;
-      timer = setTimeout(
-        () => void load(),
-        Math.max(0, refreshAfter - Date.now()),
-      );
-    };
-    const load = async (before?: string) => {
-      if (busy || stale()) return;
-      clearTimeout(timer);
-      timer = undefined;
-      busy = true;
-      retryBefore = before;
-      if (!before) {
-        pending = false;
-        refreshImmediately = false;
-      }
-      setLoading(true);
-      setError("");
+  const { page, loading, error, more, retry } = usePagedProjectionQuery<
+    PersonalDecisionsPage,
+    string
+  >({
+    key: kind,
+    source,
+    empty,
+    collections: [kind === "approval" ? "approvals" : "decisions", "metadata"],
+    queueMore: false,
+    refreshDelay: () => 5000,
+    read: async (current, before, signal, mode, readComplete) => {
       // Reconcile only the loaded range. A deleted boundary ID must not make
       // one invalidation scan the owner's entire older history.
       const boundary = !before ? current.items.at(-1) : undefined;
@@ -178,106 +157,60 @@ export function PersonalDecisions({
       let cursor = before;
       let next: string | null = null;
       const items: PersonalDecisionsPage["items"] = [];
-      try {
-        let result: PersonalDecisionsPage;
-        do {
-          result = await call(
-            workspaceApi.personalDecisions,
-            {
-              query: { kind, before: cursor },
-            },
-            controller.signal,
-          );
-          if (stale()) return;
-          const visible = boundary
-            ? result.items.filter(
-                (item) =>
-                  item.created_at > boundary.created_at ||
-                  (item.created_at === boundary.created_at &&
-                    item.id >= boundary.id),
-              )
-            : result.items;
-          items.push(...visible);
-          // A fetched page may cross the loaded boundary. Keep its older rows
-          // behind Load more, with a server-issued cursor that does not skip them.
-          next =
-            visible.length < result.items.length
-              ? (items.at(-1)?.cursor ?? boundary!.cursor)
-              : result.next;
-          const last = result.items.at(-1);
-          reachedBoundary = !!(
-            boundary &&
-            last &&
-            (last.created_at < boundary.created_at ||
-              (last.created_at === boundary.created_at &&
-                last.id <= boundary.id))
-          );
-          if (result.next && result.next === cursor)
-            throw new Error(
-              "History pagination did not advance. Please retry.",
-            );
-          cursor = result.next ?? undefined;
-        } while (!before && boundary && cursor && !reachedBoundary);
-        current = {
-          items: [
-            ...new Map(
-              [...(before ? current.items : []), ...items].map((item) => [
-                item.id,
-                item,
-              ]),
-            ).values(),
-          ],
-          next,
-        };
-        setPage(current);
-      } catch (e) {
-        if (!stale()) setError((e as Error).message);
-      } finally {
-        busy = false;
-        refreshAfter = refreshImmediately ? 0 : Date.now() + 5000;
-        if (!stale()) {
-          setLoading(false);
-          if (pending) schedule();
-        }
-      }
-    };
-    const refresh = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
-      if (sources && !sources.includes(source)) return;
-      if (event.type === "loop-refresh") {
-        refreshImmediately = true;
-        refreshAfter = 0;
-        clearTimeout(timer);
-        timer = undefined;
-      }
-      schedule();
-    };
-    actions.current = {
-      more: () => {
-        if (current.next) void load(current.next);
-      },
-      retry: () => void load(retryBefore),
-    };
-    // Subscribe before starting the snapshot; changes arriving during any
-    // page read queue a follow-up instead of being swallowed by its result.
-    const stop = listenWorkspaceChanges(
-      kind === "approval" ? "approvals" : "decisions",
-      refresh,
-      source,
-    );
-    const stopMetadata = listenWorkspaceChanges("metadata", refresh, source);
-    window.addEventListener("loop-refresh", refresh);
-    setPage(empty);
-    void load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-      stop();
-      stopMetadata();
-      window.removeEventListener("loop-refresh", refresh);
-    };
-  }, [call, source, kind, generation]);
+      let result: PersonalDecisionsPage;
+      do {
+        result = await readRoute(
+          workspaceApi.personalDecisions,
+          {
+            query: { kind, before: cursor },
+          },
+          source,
+          signal,
+          undefined,
+          mode,
+        );
+        if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+        readComplete();
+        const visible = boundary
+          ? result.items.filter(
+              (item) =>
+                item.created_at > boundary.created_at ||
+                (item.created_at === boundary.created_at &&
+                  item.id >= boundary.id),
+            )
+          : result.items;
+        items.push(...visible);
+        // A fetched page may cross the loaded boundary. Keep its older rows
+        // behind Load more, with a server-issued cursor that does not skip them.
+        next =
+          visible.length < result.items.length
+            ? (items.at(-1)?.cursor ?? boundary!.cursor)
+            : result.next;
+        const last = result.items.at(-1);
+        reachedBoundary = !!(
+          boundary &&
+          last &&
+          (last.created_at < boundary.created_at ||
+            (last.created_at === boundary.created_at && last.id <= boundary.id))
+        );
+        if (result.next && result.next === cursor)
+          throw new Error("History pagination did not advance. Please retry.");
+        cursor = result.next ?? undefined;
+      } while (!before && boundary && cursor && !reachedBoundary);
+      const page = {
+        items: [
+          ...new Map(
+            [...(before ? current.items : []), ...items].map((item) => [
+              item.id,
+              item,
+            ]),
+          ).values(),
+        ],
+        next,
+      };
+      return page;
+    },
+  });
   return (
     <section
       className="feed personal-decisions"
@@ -460,7 +393,7 @@ export function PersonalDecisions({
       {error && (
         <div role="alert">
           <p>{error}</p>
-          <button onClick={() => actions.current.retry()}>Retry</button>
+          <button onClick={() => retry()}>Retry</button>
         </div>
       )}
       {!loading && !error && !page.items.length && !page.next && (
@@ -471,7 +404,7 @@ export function PersonalDecisions({
         </p>
       )}
       {page.next && !error && (
-        <button disabled={loading} onClick={() => actions.current.more()}>
+        <button disabled={loading} onClick={() => more()}>
           Load more {kind === "approval" ? "approvals" : "answers"}
         </button>
       )}

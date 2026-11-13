@@ -232,7 +232,18 @@ for (const engine of process.env.LOOP_BROWSER
         const retryGate = new Promise((resolve) => {
           releaseRetry = resolve;
         });
+        let releaseQuery;
+        const queryGate = new Promise((resolve) => {
+          releaseQuery = resolve;
+        });
         await page.route("**/api/me/files?*", async (route) => {
+          if (
+            new URL(route.request().url()).searchParams.get("q") ===
+            "report-001"
+          ) {
+            await queryGate;
+            return route.continue();
+          }
           if (retryHeld) return route.continue();
           const response = await route.fetch();
           retryHeld = true;
@@ -247,8 +258,14 @@ for (const engine of process.env.LOOP_BROWSER
           await page
             .getByRole("searchbox", { name: "Search files" })
             .fill("report-001");
+          await expect(rows).toHaveCount(0);
+          await expect(
+            page.getByText("Loading files…", { exact: true }),
+          ).toBeVisible();
+          releaseQuery();
           await expect(rows).toHaveCount(1);
         } finally {
+          releaseQuery();
           releaseRetry();
           await page.unrouteAll({ behavior: "wait" });
         }
