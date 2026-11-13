@@ -337,3 +337,14 @@ it("brands route response aliases without requiring branded server inputs", () =
   expectTypeOf(parsed.agentId).toEqualTypeOf<AgentId>();
   expectTypeOf(parsed.runId).toEqualTypeOf<RunId>();
 });
+
+it("retains nominal identities in Done and operational Feed projections", () => {
+  type Row = z.output<typeof workspaceApi.feed.response>["items"][number];
+  expectTypeOf<Row["conversation_id"]>().toEqualTypeOf<ConversationId>();
+  expectTypeOf<Row["connection_id"]>().toEqualTypeOf<ConnectionId | null>();
+  type Action = NonNullable<Row["next_action"]>;
+  expectTypeOf<Action["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<Action["message_id"]>().toEqualTypeOf<MessageId | null>();
+  type Page = z.output<typeof workspaceApi.conversation.response>;
+  expectTypeOf<Page["saved"][number]>().toEqualTypeOf<MessageId>();
+});
