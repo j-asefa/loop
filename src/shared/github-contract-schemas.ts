@@ -4,6 +4,7 @@ import {
   AgentId,
   ConversationId,
   OwnerId,
+  PrWatchId,
 } from "./contract-ids.js";
 import { PullFileStatus } from "./pull-file-status.js";
 import { z } from "zod";
@@ -178,7 +179,7 @@ export const PublicCommitFiles = z.object({
   fetchedAt: Time,
 });
 export const PublicPrWatch = z.object({
-  id: Text,
+  id: PrWatchId,
   conversation_id: ConversationId,
   agent_id: AgentId,
   repo_owner: Text,
