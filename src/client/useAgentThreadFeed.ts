@@ -1,14 +1,11 @@
 import { feedItemOrder } from "../shared/feed-order";
-import { useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import type { AgentThreadSummary } from "../shared/agent-thread-feed";
 import { readRoute } from "./api";
 import { cachedView, cacheView, viewGeneration, viewOwner } from "./viewCache";
-import {
-  listenWorkspaceChanges,
-  workspaceChangeAffects,
-} from "./workspace-changes";
 import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import { usePagedProjectionQuery } from "./CollectionRead";
 
 export type SourcedAgentThread = AgentThreadSummary & { source: string };
 // Status depends on runs and steering receipts; visibility and names depend on
@@ -22,84 +19,78 @@ type Page = { items: Row[]; next: string | null };
 type Query = NonNullable<
   RouteInput<typeof workspaceApi.agentThreadFeed>["query"]
 >;
+type Window = {
+  pages: Map<string, Page>;
+  progress: Map<string, DoneRefresh>;
+  errors: Map<string, string>;
+  next: string | null;
+};
+const cursor = (pages: Map<string, Page>) => {
+  const next = [...pages]
+    .filter(([, page]) => page.next)
+    .map(([source, page]) => [source, page.next]);
+  return next.length ? JSON.stringify(next) : null;
+};
 
 export function useAgentThreadFeed(
   sources: string[],
   enabled: boolean,
   query: Query,
 ) {
-  const generation = viewGeneration();
-  const key = JSON.stringify([sources, query, generation]);
-  const [state, setState] = useState({
-    key,
-    items: [] as Row[],
-    more: false,
-    loading: enabled,
-    error: "",
-  });
-  const actions = useRef({ refresh: () => {}, more: () => {} });
-  useEffect(() => {
-    if (!enabled) return;
-    const controller = new AbortController();
-    const owner = viewOwner();
-    const current = () =>
-      !controller.signal.aborted &&
-      generation === viewGeneration() &&
-      owner === viewOwner();
-    const cacheKey = (source: string) =>
-      "agent-thread-feed:" + JSON.stringify([source, query]);
+  const generation = viewGeneration(),
+    owner = viewOwner();
+  const key = JSON.stringify([sources, query, enabled, generation]);
+  const cacheKey = (source: string) =>
+    "agent-thread-feed:" + JSON.stringify([source, query]);
+  const empty = useMemo<Window>(() => {
     const pages = new Map(
       sources.map((source) => [
         source,
         cachedView<Page>(cacheKey(source)) ?? { items: [], next: null },
       ]),
     );
-    const progress = new Map<string, DoneRefresh>();
-    const errors = new Map<string, string>();
-    let busy = false,
-      pending = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const publish = () => {
-      if (!current()) return;
-      setState({
-        key,
-        items: [...pages.values()]
-          .flatMap((page) => page.items)
-          .sort(feedItemOrder),
-        more: [...pages.values()].some((page) => !!page.next),
-        loading: busy,
-        error: errors.size
-          ? "Couldn’t load some agent threads. Try again."
-          : "",
-      });
+    return {
+      pages,
+      progress: new Map(),
+      errors: new Map(),
+      next: cursor(pages),
     };
-    const schedule = () => {
-      pending = true;
-      if (busy || timer || !current()) return;
-      timer = setTimeout(() => void load(), 400);
-    };
-    const load = async (more = false) => {
-      if (!current()) return;
-      if (busy) {
-        if (!more) pending = true;
-        return;
-      }
-      clearTimeout(timer);
-      timer = undefined;
-      busy = true;
-      if (!more) pending = false;
-      publish();
+  }, [key]);
+  const reader = usePagedProjectionQuery<Window, string>({
+    key,
+    source: sources,
+    enabled,
+    empty,
+    collections: AGENT_THREAD_SURFACES,
+    events: ["focus"],
+    coalesceDelay: 400,
+    refreshDelay: () => 400,
+    needsRefresh: (page) =>
+      [...page.progress.keys()].some((source) => !page.errors.has(source)),
+    read: async (previous, before, signal, mode, readComplete) => {
+      const pages = new Map(previous.pages),
+        progress = new Map(previous.progress),
+        errors = new Map(previous.errors);
+      const current = () =>
+        !signal.aborted &&
+        generation === viewGeneration() &&
+        owner === viewOwner();
       await Promise.all(
         sources.map(async (source) => {
-          const previous = pages.get(source)!;
-          if (more && !previous.next) return;
+          const old = pages.get(source)!;
+          if (before !== undefined && !old.next) return;
           const read = async (before?: string): Promise<Page> => {
             const page = await readRoute(
               workspaceApi.agentThreadFeed,
               { query: { ...query, before } },
               source,
-              controller.signal,
+              signal,
+              undefined,
+              mode,
             );
+            readComplete();
+            if (before && page.next === before)
+              throw new Error("The page did not advance. Try again.");
             return {
               ...page,
               items: page.items.map((thread) => ({
@@ -112,20 +103,20 @@ export function useAgentThreadFeed(
           };
           try {
             let page: Page;
-            if (more) {
-              const incoming = await read(previous.next!);
+            if (before !== undefined) {
+              const incoming = await read(old.next!);
               const known = new Set(incoming.items.map((thread) => thread.id));
               page = {
                 ...incoming,
                 items: [
-                  ...previous.items.filter((thread) => !known.has(thread.id)),
+                  ...old.items.filter((thread) => !known.has(thread.id)),
                   ...incoming.items,
                 ].sort(feedItemOrder),
               };
             } else {
               const refreshed = await refreshDonePage(
                 read,
-                previous,
+                old,
                 progress.get(source),
                 current,
               );
@@ -138,49 +129,33 @@ export function useAgentThreadFeed(
             cacheView(cacheKey(source), page, owner);
             errors.delete(source);
           } catch (error) {
-            if (!current()) return;
-            errors.set(source, (error as Error).message);
+            if (current()) errors.set(source, (error as Error).message);
           }
         }),
       );
-      if (!current()) return;
-      busy = false;
-      publish();
-      if (pending || [...progress.keys()].some((source) => !errors.has(source)))
-        schedule();
-    };
-    actions.current = {
-      refresh: () => void load(),
-      more: () => void load(true),
-    };
-    const stops = AGENT_THREAD_SURFACES.map((surface) =>
-      listenWorkspaceChanges(surface, (event) => {
-        if (
-          sources.some((source) =>
-            workspaceChangeAffects(event, surface, source),
-          )
-        )
-          schedule();
-      }),
-    );
-    const focus = () => schedule();
-    window.addEventListener("focus", focus);
-    void load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-      stops.forEach((stop) => stop());
-      window.removeEventListener("focus", focus);
-      actions.current = { refresh: () => {}, more: () => {} };
-    };
-  }, [key, enabled]);
-  const shown = enabled && state.key === key;
+      return { pages, progress, errors, next: cursor(pages) };
+    },
+  });
+  const items = useMemo(
+    () =>
+      enabled
+        ? [...reader.page.pages.values()]
+            .flatMap((page) => page.items)
+            .sort(feedItemOrder)
+        : [],
+    [enabled, reader.page.pages],
+  );
   return {
-    items: shown ? state.items : [],
-    hasMore: shown && state.more,
-    loading: enabled && (!shown || state.loading),
-    error: shown ? state.error : "",
-    refresh: () => actions.current.refresh(),
-    loadMore: () => actions.current.more(),
+    items,
+    hasMore: enabled && reader.page.next !== null,
+    loading: enabled && reader.loading,
+    error: enabled
+      ? reader.error ||
+        (reader.page.errors.size
+          ? "Couldn’t load some agent threads. Try again."
+          : "")
+      : "",
+    refresh: () => reader.refresh(true),
+    loadMore: reader.more,
   };
 }
