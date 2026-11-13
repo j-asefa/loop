@@ -1,8 +1,8 @@
 import { literalEntry, proseEntry } from "./textEntry";
-import { listenWorkspaceChanges } from "./workspace-changes";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { callRoute, readRoute } from "./api";
+import { callRoute } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
@@ -67,37 +67,16 @@ export function MyProfile({
   /** Open the Projects tab, from the Projects count. */
   onProjects: () => void;
 }) {
-  const [socialUnread, setSocialUnread] = useState<number>();
-  useEffect(() => {
-    const owner = viewOwner(),
-      controller = new AbortController();
-    let ticket = 0;
-    const load = async () => {
-      const current = ++ticket;
-      try {
-        const result = await readRoute(
-          workspaceApi.socialUnread,
-          {},
-          "",
-          controller.signal,
-        );
-        if (
-          !controller.signal.aborted &&
-          current === ticket &&
-          owner === viewOwner()
-        )
-          setSocialUnread(result.unread);
-      } catch {}
-    };
-    const stopChanges = listenWorkspaceChanges("social", load, "");
-    void load();
-    window.addEventListener("loop-social-read", load);
-    return () => {
-      controller.abort();
-      stopChanges();
-      window.removeEventListener("loop-social-read", load);
-    };
-  }, []);
+  const unread = useProjectionQuery(
+    workspaceApi.socialUnread,
+    {},
+    {
+      source: "",
+      collections: ["social"],
+      events: ["loop-social-read"],
+    },
+  );
+  const socialUnread = unread.data?.unread;
   const [tab, setTabState] = useState<ProfileTab>(() => {
     const params = new URLSearchParams(location.search);
     const value = params.has("social")
@@ -130,6 +109,7 @@ export function MyProfile({
   const counts = profile?.counts;
   return (
     <section className="my-profile" aria-label="Your profile">
+      <CollectionReadNotice {...unread} />
       <header className="my-profile-card">
         <ProfileCover name={name} />
         <div className="my-profile-top">

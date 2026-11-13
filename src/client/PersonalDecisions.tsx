@@ -1,4 +1,5 @@
 import { workspaceApi } from "../shared/workspace-api";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -17,7 +18,6 @@ import { viewGeneration } from "./viewCache";
 import type {
   PersonalDecision,
   PersonalDecisionsPage,
-  PersonalApproval,
 } from "../shared/personal-decisions";
 
 const empty: PersonalDecisionsPage = { items: [], next: null };
@@ -36,30 +36,13 @@ function PersonalApprovalSheet({
   onClose: () => void;
   onConversation: (id: string) => void;
 }) {
-  const call = useSourceRoute();
-  const generation = viewGeneration();
-  const [approval, setApproval] = useState<PersonalApproval | null>(null);
-  const [error, setError] = useState("");
-  const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    setApproval(null);
-    setError("");
-    const controller = new AbortController();
-    void call(
-      workspaceApi.personalApproval,
-      { params: { id: item.id } },
-      controller.signal,
-    )
-      .then((value) => {
-        if (!controller.signal.aborted && generation === viewGeneration())
-          setApproval(value);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted && generation === viewGeneration())
-          setError((e as Error).message);
-      });
-    return () => controller.abort();
-  }, [call, item.id, generation, retry]);
+  const source = useSourceId();
+  const query = useProjectionQuery(
+    workspaceApi.personalApproval,
+    { params: { id: item.id } },
+    { source },
+  );
+  const approval = query.data;
   return (
     <Sheet title="Original approval" onClose={onClose}>
       <div className="approval-detail">
@@ -83,15 +66,8 @@ function PersonalApprovalSheet({
             <NativeRequestDetails request={approval.request} />
           </>
         )}
-        {!approval && !error && <p role="status">Loading approval…</p>}
-        {error && (
-          <div role="alert">
-            <p>{error}</p>
-            <button onClick={() => setRetry((value) => value + 1)}>
-              Retry
-            </button>
-          </div>
-        )}
+        {query.loading && <p role="status">Loading approval…</p>}
+        <CollectionReadNotice {...query} />
         {item.conversation_id && (
           <button
             className="text-button"

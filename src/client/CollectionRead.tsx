@@ -1,6 +1,96 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReadMode } from "./api";
+import { readRoute, type ReadMode } from "./api";
+import type {
+  RouteContract,
+  RouteInput,
+  RouteResponse,
+} from "../shared/workspace-api";
 import { viewGeneration } from "./viewCache";
+import { listenWorkspaceChanges } from "./workspace-changes";
+
+type QueryOptions = {
+  source: string;
+  conversation?: string;
+  collections?: readonly Parameters<typeof listenWorkspaceChanges>[0][];
+  events?: readonly string[];
+  revision?: string | number;
+  enabled?: boolean;
+};
+
+/** Inputs identify a snapshot; revisions invalidate it without hiding its rows. */
+export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
+  contract: C,
+  input: RouteInput<C>,
+  {
+    source,
+    conversation,
+    collections = [],
+    events = [],
+    revision = 0,
+    enabled = true,
+  }: QueryOptions,
+) {
+  const key = JSON.stringify([
+    viewGeneration(),
+    source,
+    contract.path,
+    input,
+    enabled,
+  ]);
+  const context = useMemo(() => ({ contract, input, source, enabled }), [key]);
+  const { load, error, busy } = useCollectionRead(key);
+  const [result, setResult] = useState<{
+    context: typeof context;
+    value: RouteResponse<C>;
+  }>();
+  const refresh = useCallback(
+    (manual = false) => {
+      if (!context.enabled) return Promise.resolve();
+      return load(
+        (signal, mode) =>
+          readRoute(
+            context.contract,
+            context.input,
+            context.source,
+            signal,
+            undefined,
+            mode,
+          ),
+        (value) => setResult({ context, value }),
+        manual,
+      );
+    },
+    [context, load],
+  );
+  const subscriptions = JSON.stringify([collections, events, conversation]);
+  useEffect(() => {
+    if (!enabled) return;
+    const update = (event: Event) => {
+      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
+        ?.sources;
+      if (!sources || sources.includes(source)) void refresh();
+    };
+    // A notification during the initial snapshot must queue another read.
+    const stops = collections.map((collection) =>
+      listenWorkspaceChanges(collection, update, source, conversation),
+    );
+    for (const event of events) window.addEventListener(event, update);
+    void refresh();
+    return () => {
+      for (const stop of stops) stop();
+      for (const event of events) window.removeEventListener(event, update);
+    };
+  }, [refresh, subscriptions, revision]);
+  const data = result?.context === context ? result.value : undefined;
+  return {
+    data,
+    error,
+    busy,
+    loading: enabled && data === undefined && !error,
+    refresh,
+    retry: () => refresh(true),
+  };
+}
 
 /** Read failures belong to this owner/source/selection, independently of actions.
  * Signals start the normal bounded read; a button tries just one more read. */
