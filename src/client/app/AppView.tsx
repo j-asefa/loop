@@ -126,6 +126,7 @@ export function renderApp(props: AppViewProps) {
     attachments,
     setContextArtifact,
     setFolderChoice,
+    editingFolder,
     setFolder,
     focusComposer,
     setReplyContext,
@@ -1416,13 +1417,11 @@ export function renderApp(props: AppViewProps) {
       {(sheet === "project" || sheet === "folder-edit") && (
         <FolderForm
           kind={tab === "projects" ? "project" : "folder"}
-          existing={
-            sheet === "folder-edit"
-              ? data.folders.find((f) => f.id === folder)
-              : undefined
-          }
+          existing={sheet === "folder-edit" ? editingFolder! : undefined}
           folders={data.folders}
-          parent={folder}
+          parent={
+            sheet === "folder-edit" ? editingFolder?.parent_id || "" : folder
+          }
           onClose={closeSheet}
           onCreated={(created) => {
             if (tab === "projects") {

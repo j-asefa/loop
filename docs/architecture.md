@@ -574,7 +574,13 @@ Session composer choices, quoted context, shared-link drafts and agent tabs are
 qualified by authenticated owner, source and entity. They hydrate only after the
 owner is known; an obsolete view cannot write after that owner's generation
 changes. A fresh OS share URL belongs to the first authenticated owner opening
-it.
+it. The app controller remounts on an owner-generation change; a same-owner
+session refresh retains its state. Initial navigation survives the first
+authentication remount, while replacement owners start without the previous
+owner's URL targets. Expiry stays signed out until explicit pairing. Pending
+thread draft saves flush to their captured owner before unmount; accepted sends
+cancel that pending save. References held by old controller work become invalid
+when the owner generation changes, including a change away and back.
 Existing thread drafts and durable send identities retain their separate owning
 keys.
 

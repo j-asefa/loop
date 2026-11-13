@@ -2,6 +2,8 @@ import type { AppModel } from "./AppController";
 
 export type AppViewProps = Pick<
   AppModel,
+  | "editingFolder"
+  | "editFolder"
   | "bootstrapOwner"
   | "setBootstrapOwner"
   | "composerUnavailable"

@@ -75,6 +75,7 @@ export function renderAppPages(
     | "openTeamFeed"
     | "setSelected"
     | "setFolderChoice"
+    | "editFolder"
     | "setFolder"
     | "setReplyContext"
     | "focusComposer"
@@ -159,6 +160,7 @@ export function renderAppPages(
     openTeamFeed,
     setSelected,
     setFolderChoice,
+    editFolder,
     setFolder,
     setReplyContext,
     focusComposer,
@@ -787,18 +789,12 @@ export function renderAppPages(
                   setFolder(id);
                   setSheet("project");
                 }}
-                onEdit={() => {
-                  setFolder(id);
-                  setSheet("folder-edit");
-                }}
+                onEdit={() => editFolder(id)}
                 version={revisionFor("results")}
               />
             </>
           )}
-          onEdit={() => {
-            setFolder(project);
-            setSheet("folder-edit");
-          }}
+          onEdit={() => editFolder(project)}
           revision={revision}
           renderThreads={(id) => (
             <Feed

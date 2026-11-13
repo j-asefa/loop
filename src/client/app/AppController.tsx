@@ -1,4 +1,8 @@
-import { useAppNavigation, replaceConversationLocation } from "./Navigation";
+import {
+  useAppNavigation,
+  replaceConversationLocation,
+  type AppNavigationInitial,
+} from "./Navigation";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import { RunId } from "../../shared/contract-ids.js";
 import { useFeedBadge } from "../useFeedBadge";
@@ -31,7 +35,6 @@ import { viewGeneration } from "../viewCache";
 import {
   sessionDraft,
   emptySharedDraft,
-  initialShare,
   type SharedDraft,
   type WorkspaceComposerDraft,
 } from "../workspace-drafts";
@@ -59,7 +62,13 @@ import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { parse } from "../json";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
-import type { Agent, Artifact, RunView as Run, Team } from "../../shared/types";
+import type {
+  Agent,
+  Artifact,
+  Folder,
+  RunView as Run,
+  Team,
+} from "../../shared/types";
 
 import {
   createSessionCheck,
@@ -73,7 +82,7 @@ import {
   type Bootstrap,
 } from "./WorkspaceData";
 
-export function useAppController() {
+export function useAppController(seed?: AppNavigationInitial) {
   const {
     initial,
     tab,
@@ -98,7 +107,9 @@ export function useAppController() {
     setConversationSource,
     returnTo,
     setReturnTo,
-  } = useAppNavigation();
+    projectFilter,
+    setProjectFilter,
+  } = useAppNavigation(seed);
   const [sharedDraft, setSharedDraft] = useState<SharedDraft>(
     initial.sharedDraft,
   );
@@ -111,7 +122,7 @@ export function useAppController() {
   const [environmentToOpen, setEnvironmentToOpen] = useState("");
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
-  const { session, setSession } = useOwnerSession();
+  const { session, setSession, ownerRef } = useOwnerSession();
   const [data, setData] = useState<Bootstrap>({
       agents: [],
       connections: [],
@@ -158,6 +169,13 @@ export function useAppController() {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
   }, [selected]);
+  const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  function editFolder(id: string) {
+    const target = data.folders.find((folder) => folder.id === id);
+    if (!target) return;
+    setEditingFolder(target);
+    setSheet("folder-edit");
+  }
   const [folderChoice, setFolderChoice] = useState<string | undefined>(
     initial.folderChoice,
   );
@@ -287,19 +305,13 @@ export function useAppController() {
     if (!session?.user?.id) return;
     const saved = composerStorage.read();
     const firstOwner = !incomingShareClaimed.current;
-    const incoming =
-      firstOwner &&
-      (new URLSearchParams(location.search).has("share") ||
-        location.pathname === "/share");
+    const incoming = firstOwner && initial.shareRequested;
     incomingShareClaimed.current = true;
     const restored = {
       selected: saved?.selected || "",
       replyContext: saved?.replyContext || null,
       folderChoice:
-        saved?.folderChoice ??
-        (firstOwner
-          ? (new URLSearchParams(location.search).get("folder") ?? undefined)
-          : undefined),
+        saved?.folderChoice ?? (firstOwner ? initial.folderChoice : undefined),
       contextArtifact: null,
     };
     setSelected(restored.selected);
@@ -309,7 +321,9 @@ export function useAppController() {
     setRoutePreview(null);
     globalComposer.current = restored;
     setSharedDraft(
-      incoming ? initialShare() : shareStorage.read() || emptySharedDraft(),
+      incoming
+        ? initial.sharedDraft
+        : shareStorage.read() || emptySharedDraft(),
     );
     setHydratedDraftScope(draftScope);
   }, [composerStorage, shareStorage, draftScope]);
@@ -386,6 +400,7 @@ export function useAppController() {
     }
   }
   function focusRequestedComposer() {
+    if (!ownerRef.current) return;
     if (composerFocusRequest.current !== navigationGeneration.current) return;
     const input = document.querySelector<HTMLTextAreaElement>("#composer");
     input?.focus();
@@ -398,6 +413,7 @@ export function useAppController() {
     if (composerExpanded) focusRequestedComposer();
   });
   function focusComposer() {
+    if (!ownerRef.current) return;
     composerFocusRequest.current = navigationGeneration.current;
     setComposerExpanded(true);
     requestAnimationFrame(focusRequestedComposer);
@@ -481,10 +497,9 @@ export function useAppController() {
   }
   useEffect(() => {
     if (!session?.user) return;
-    const url = new URL(location.href);
-    const section = url.searchParams.get("later");
+    const section = initial.later;
     if (section !== "scheduled" && section !== "reminders") return;
-    openLater(section, url.searchParams.get("laterItem") || undefined);
+    openLater(section, initial.laterItem);
     const current = new URL(location.href);
     current.searchParams.delete("later");
     current.searchParams.delete("laterItem");
@@ -749,9 +764,6 @@ export function useAppController() {
     }
   }
   const [searchAgent, setSearchAgent] = useState("");
-  const [projectFilter, setProjectFilter] = useState(
-    new URLSearchParams(location.search).get("project") || "",
-  );
   const [resultsLoading, setResultsLoading] = useState(true);
   const [resultsError, setResultsError] = useState("");
   const [workspaceLoadErrors, setWorkspaceLoadErrors] = useState<
@@ -949,8 +961,6 @@ export function useAppController() {
   }
   // Each in-flight continuation keeps its originating box after navigation.
   const request = receiptBox.current.box;
-  const ownerRef = useRef<string | undefined>(undefined);
-  ownerRef.current = session?.user?.id;
   const readContract = useProjectionRoute();
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   const resultsPager = useRef(new ResultsPager<ResultItem>());
@@ -1085,6 +1095,7 @@ export function useAppController() {
     readContract,
     setData,
     initialAgentId,
+    initialCompose: initial.compose,
     setProfile,
     setTeamSelection,
     setRuns,
@@ -1092,36 +1103,7 @@ export function useAppController() {
     setBootstrapOwner,
     openAgentChat,
   });
-  useSessionLifecycle({
-    session,
-    check,
-    setError,
-    setSession,
-    setData,
-    setItems,
-    setRuns,
-    setSendNotice,
-    setWorkspaceLoadErrors,
-    setTeamSelection,
-    setArchivedCard,
-    setComposerExpanded,
-    setDraft,
-    setSelected,
-    setFolderChoice,
-    setSharedDraft,
-    setProfile,
-    setConversation,
-    setActiveArtifact,
-    setContextArtifact,
-    setReplyContext,
-    setRoutePreview,
-    setFiling,
-    setLaterCard,
-    setSettingsParent,
-    setSheet,
-    composerFocusRequest,
-    setBootstrapOwner,
-  });
+  useSessionLifecycle({ session, check, setError, setSession });
   useWorkspaceEvents({
     session,
     refresh,
@@ -1223,6 +1205,7 @@ export function useAppController() {
   }
   const openRequest = useRef(0);
   async function open(item: ResultAction) {
+    if (!ownerRef.current) return;
     setFolderChoice(undefined);
     const owner = ownerRef.current,
       source = item.sourceId ?? executionSourceId(),
@@ -1264,7 +1247,7 @@ export function useAppController() {
     setActiveArtifact(item);
   }
   useEffect(() => {
-    const artifact = new URLSearchParams(location.search).get("artifact");
+    const artifact = initial.artifactId;
     if (session?.user && artifact)
       void callRoute(
         workspaceApi.artifactDetail,
@@ -1309,6 +1292,8 @@ export function useAppController() {
     }
   }, [projectFilter, teamKey, data.agents, conversation]);
   return {
+    editingFolder,
+    editFolder,
     bootstrapOwner,
     setBootstrapOwner,
     composerOptions,

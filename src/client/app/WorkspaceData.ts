@@ -36,6 +36,7 @@ type WorkspaceProps = {
   setBootstrapOwner(owner: string | undefined): void;
   openAgentChat(agent: Agent): void;
   initialAgentId: RefObject<string | null>;
+  initialCompose: boolean;
   setProfile: Dispatch<SetStateAction<Agent | null>>;
   setTeamSelection: Dispatch<SetStateAction<string[]>>;
   setRuns: Dispatch<SetStateAction<Run[]>>;
@@ -49,6 +50,7 @@ export function useWorkspaceData(props: WorkspaceProps) {
     readContract,
     setData,
     initialAgentId,
+    initialCompose,
     setProfile,
     setTeamSelection,
     setRuns,
@@ -95,7 +97,7 @@ export function useWorkspaceData(props: WorkspaceProps) {
         );
         initialAgentId.current = null;
         const url = new URL(location.href);
-        if (match && url.searchParams.has("compose")) openAgentChat(match);
+        if (match && initialCompose) openAgentChat(match);
         else if (match) setProfile(match);
         url.searchParams.delete("agent");
         url.searchParams.delete("compose");

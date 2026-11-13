@@ -39,6 +39,7 @@ it.each([
       uploading: false,
       draft,
       conversation: false,
+      ownerRef: { current: "fixture-owner" },
       projectFilter: "fixture-folder",
       setNewAgentPrompt,
       setFolder,

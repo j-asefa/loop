@@ -16,37 +16,53 @@ try {
     entry,
     `
     import React, {Suspense, startTransition, useState} from ${JSON.stringify(resolve("node_modules/react/index.js"))};
+    import {flushSync} from ${JSON.stringify(resolve("node_modules/react-dom/index.js"))};
+    import {OwnerSessionBoundary} from ${JSON.stringify(resolve("src/client/app/OwnerSessionBoundary.tsx"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {useAppController} from ${JSON.stringify(resolve("src/client/app/AppController.tsx"))};
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {cacheView, cachedView, viewOwner, viewGeneration} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
-    import {saveThreadDraft, threadDraft} from ${JSON.stringify(resolve("src/client/drafts.ts"))};
+    import {saveThreadDraft, threadDraft, sourceDraftId, GLOBAL_DRAFT} from ${JSON.stringify(resolve("src/client/drafts.ts"))};
     import {loadCapabilities} from ${JSON.stringify(resolve("src/client/capabilities.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     setShellSource("");
     await loadCapabilities();
     let blocked = false;
-    const pending = new Promise(() => {});
-    function Probe() {
+    let resolvePending;
+    const pending = new Promise(resolve => { resolvePending = resolve; });
+    function Probe({initial}) {
       const [, render] = useState(0);
       window.rerender = () => render(value => value + 1);
-      const model = useAppController();
+      const model = useAppController(initial);
       window.model = model;
       if (blocked) { window.suspended = true; throw pending; }
-      return React.createElement("output", {id:"owner"}, model.session?.user.id || "anonymous");
+      return React.createElement(React.Fragment, null, React.createElement("output", {id:"owner"}, model.session?.user.id || "anonymous"), React.createElement("textarea", {id:"composer"}));
     }
     window.inspect = () => ({owner:viewOwner(), generation:viewGeneration(), sessionOwner:ownerSession.current.session?.user.id, cached:cachedView("fixture"), draft:threadDraft("fixture").text});
     window.save = text => { cacheView("fixture", text, viewOwner()); saveThreadDraft("fixture", text, []); };
     window.changeOwner = id => window.model.setSession({user:{id,name:id},mode:"paired"});
     window.suspend = () => { blocked = true; startTransition(() => window.rerender()); };
-    window.resume = () => { blocked = false; window.rerender(); };
-    createRoot(document.getElementById("root")).render(React.createElement(Suspense, {fallback:React.createElement("p",{id:"fallback"},"Waiting")}, React.createElement(Probe)));
+    window.resume = () => { blocked = false; resolvePending(); };
+    window.pendingDraftSwitch = () => {
+      flushSync(() => {
+        window.model.setDraft("Alice unsaved");
+        window.model.setError("Alice private error");
+        window.model.setSheet("memory");
+      });
+      const before = threadDraft(sourceDraftId(GLOBAL_DRAFT, ""), "alice").text;
+      window.oldOwnerRef = window.model.ownerRef;
+      window.oldFocus = window.model.focusComposer;
+      window.changeOwner("bob");
+      return {before, oldOwner:window.oldOwnerRef.current};
+    };
+    window.savedComposer = owner => threadDraft(sourceDraftId(GLOBAL_DRAFT, ""), owner).text;
+    createRoot(document.getElementById("root")).render(React.createElement(Suspense, {fallback:React.createElement("p",{id:"fallback"},"Waiting")}, React.createElement(OwnerSessionBoundary, null, initial => React.createElement(Probe, {initial}))));
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
   server = createServer((req, res) => {
     const path = new URL(req.url, "http://fixture.invalid").pathname;
-    if (path === "/") {
+    if (path === "/" || path === "/share") {
       res.writeHead(200, { "content-type": "text/html" });
       res.end(
         '<!doctype html><link rel="stylesheet" href="/client.css"><div id="root"></div><script type="module" src="/client.mjs"></script>',
@@ -127,6 +143,35 @@ try {
   assert.equal(returned.generation, first.generation + 3);
   assert.equal(returned.draft, "Alice draft");
   assert.equal(returned.cached, undefined);
+  const switched = await page.evaluate(() => window.pendingDraftSwitch());
+  assert.equal(switched.before, "");
+  assert.equal(switched.oldOwner, undefined);
+  await expect(page.locator("#owner")).toHaveText("bob");
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      saved: window.savedComposer("alice"),
+      draft: window.model.draft,
+      error: window.model.error,
+      sheet: window.model.sheet,
+    })),
+    { saved: "Alice unsaved", draft: "", error: "", sheet: "" },
+  );
+  await page.evaluate(async () => {
+    window.oldFocus();
+    await new Promise((done) =>
+      requestAnimationFrame(() => requestAnimationFrame(done)),
+    );
+  });
+  await expect(page.locator("#composer")).not.toBeFocused();
+  await page.evaluate(() => window.changeOwner("alice"));
+  await expect(page.locator("#owner")).toHaveText("alice");
+  await expect
+    .poll(() => page.evaluate(() => window.model.draft))
+    .toBe("Alice unsaved");
+  assert.equal(
+    await page.evaluate(() => window.oldOwnerRef.current),
+    undefined,
+  );
   for (const transition of ["owner", "expiry"]) {
     let release;
     let arrived;
@@ -201,7 +246,7 @@ try {
     .toBe("memory");
   assert.equal(await page.evaluate(() => window.model.returnTo), "create");
   await page.goto(
-    `http://127.0.0.1:${server.address().port}/?share=1&text=https%3A%2F%2Fexample.com%2Farticle&title=Article&folder=project`,
+    `http://127.0.0.1:${server.address().port}/share?text=https%3A%2F%2Fexample.com%2Farticle&title=Article&folder=project`,
   );
   await expect(page.locator("#owner")).toHaveText("alice");
   assert.deepEqual(
@@ -222,6 +267,25 @@ try {
       },
     },
   );
+  await page.evaluate(() => window.changeOwner("bob"));
+  await expect(page.locator("#owner")).toHaveText("bob");
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      sheet: window.model.sheet,
+      url: window.model.sharedDraft.url,
+      folder: window.model.folderChoice,
+      path: location.pathname,
+      share: new URL(location.href).searchParams.has("share"),
+    })),
+    { sheet: "", url: "", folder: undefined, path: "/", share: false },
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("loop-auth-expired")),
+  );
+  await expect(page.locator("#owner")).toHaveText("anonymous");
+  // The fixture's cookie still authenticates Alice: an expiry remount must not
+  // automatically issue a new session read and sign straight back in.
+  assert.equal(await page.evaluate(() => window.model.session), null);
   assert.deepEqual(errors, []);
   console.log(
     "Session snapshot and navigation: suspended render, owner replacement, expiry, delayed auth responses, draft isolation and deep-link initialization passed",
