@@ -1,3 +1,4 @@
+import { PublicMailMessage } from "../src/shared/agent-mail.js";
 import { createHost } from "./helpers/gateway.js";
 import { afterAll, afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -359,7 +360,9 @@ const remote = () =>
     agentId: id(),
   });
 function visible(agentId: string) {
-  return agentMessages(owner, agentId).threads[0].messages.at(-1)!;
+  return PublicMailMessage.parse(
+    agentMessages(owner, agentId).threads[0].messages.at(-1)!,
+  );
 }
 function wake() {
   time += 300_001;

@@ -17,8 +17,10 @@ import {
 import type {
   AgentThreadQuery,
   AgentThreadMessagesQuery,
-  AgentThreadSummary,
+  AgentThreadSummary as AgentThreadSummarySchema,
 } from "../shared/agent-thread-feed.js";
+
+type AgentThreadSummary = z.input<typeof AgentThreadSummarySchema>;
 
 type Thread = {
   id: string;

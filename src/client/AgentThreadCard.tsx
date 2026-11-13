@@ -1,3 +1,4 @@
+import { MailThreadId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -162,7 +163,10 @@ export function AgentThreadReader({
         do {
           result = await readRoute(
             workspaceApi.agentThreadDetail,
-            { params: { id: thread.id }, query: { before } },
+            {
+              params: { id: MailThreadId.parse(thread.id) },
+              query: { before },
+            },
             thread.source,
             controller.signal,
           );

@@ -1,3 +1,9 @@
+import {
+  AgentId,
+  ConversationId,
+  MailId,
+  MailThreadId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import { MachineId } from "./fleet.js";
 
@@ -47,18 +53,22 @@ export const MailStatusSchema = z.enum([
 export type MailStatus = z.infer<typeof MailStatusSchema>;
 const Text = z.string();
 export const PublicMailAgentReference = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local"), agentId: Text, name: Text.nullable() }),
+  z.object({
+    kind: z.literal("local"),
+    agentId: AgentId,
+    name: Text.nullable(),
+  }),
   z.object({
     kind: z.literal("peer"),
     machineId: MachineId,
-    agentId: Text,
+    agentId: AgentId,
     name: Text.nullable(),
   }),
 ]);
 export type PublicMailAgentReference = z.infer<typeof PublicMailAgentReference>;
 const PublicMailConversationReference = z.object({
   machineId: MachineId,
-  conversationId: z.string().uuid(),
+  conversationId: ConversationId.uuid(),
 });
 const ThreadFields = { scope: z.enum(["direct", "team"]), subject: Text };
 const MessageFields = {
@@ -67,14 +77,14 @@ const MessageFields = {
 };
 export const PublicMailMessage = z.object({
   ...MessageFields,
-  id: Text,
+  id: MailId,
   from: Text,
   to: Text,
   preview: Text,
   created_at: z.number(),
   error: Text.nullable(),
   files: z.number(),
-  conversation_id: Text.nullable(),
+  conversation_id: ConversationId.nullable(),
   // Machine-qualified references are present only for fleet mail.
   from_ref: PublicMailAgentReference.optional(),
   to_ref: PublicMailAgentReference.optional(),
@@ -82,7 +92,7 @@ export const PublicMailMessage = z.object({
 });
 const PublicMailThread = z.object({
   ...ThreadFields,
-  id: Text,
+  id: MailThreadId,
   paused_at: z.number().nullable(),
   paused_reason: Text.nullable(),
   updated_at: z.number(),
@@ -104,7 +114,7 @@ export const PublicMailResume = z.object({
 // without changing either wire format or granting the agent the owner's view.
 const ToolMailMessage = z.object({
   ...MessageFields,
-  messageId: Text,
+  messageId: MailId,
   from: Text,
   to: Text,
   sentAt: Text,
@@ -113,7 +123,7 @@ const ToolMailMessage = z.object({
 });
 const ToolMailThread = z.object({
   ...ThreadFields,
-  threadId: Text,
+  threadId: MailThreadId,
   paused: z.boolean(),
 });
 export const ToolMailStatus = z.union([

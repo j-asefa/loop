@@ -71,6 +71,11 @@ export type TeamPresetId = z.output<typeof TeamPresetId>;
 export const TeamRoleId = z.string().brand<"TeamRoleId">();
 export type TeamRoleId = z.output<typeof TeamRoleId>;
 
+export const MailId = z.string().brand<"MailId">();
+export type MailId = z.output<typeof MailId>;
+export const MailThreadId = z.string().brand<"MailThreadId">();
+export type MailThreadId = z.output<typeof MailThreadId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;
