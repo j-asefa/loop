@@ -1,3 +1,4 @@
+import { McpCatalogEntryId } from "../src/shared/contract-ids.js";
 import { expect, it } from "vitest";
 import { catalogResults } from "../src/client/catalogSearch";
 import { searchExcerpt } from "../src/shared/search-excerpt";
@@ -8,7 +9,7 @@ const entry = (
   name: string,
   description = "Useful tools",
 ): CatalogEntry => ({
-  id,
+  id: McpCatalogEntryId.parse(id),
   name,
   description,
   publisher: name,

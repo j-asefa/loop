@@ -1,3 +1,4 @@
+import { DoneThreadId } from "./contract-ids.js";
 import { MAX_DONE_THREAD_MEMBERS } from "./done-threads.js";
 import { workspaceApi, type RouteInput } from "./workspace-api.js";
 import type {
@@ -68,7 +69,7 @@ export function contractDoneThreadReader(request: ThreadReadTransport) {
           page = workspaceApi.doneThreadDetailPage.response.parse(
             await request(
               workspaceApi.doneThreadDetailPage,
-              { params: { id }, query: { cursor } },
+              { params: { id: DoneThreadId.parse(id) }, query: { cursor } },
               signal,
             ),
           );

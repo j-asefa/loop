@@ -1,7 +1,12 @@
-import { ConversationId, RunId, requestId } from "./contract-ids.js";
+import {
+  ConversationId,
+  RunId,
+  requestId,
+  MemorySourceId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import * as memory from "./memory-contract-schemas.js";
-import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
+import { Ok, endpoint, base } from "./route-contract.js";
 
 export const memoryRoutes = {
   conversationMemory: endpoint({
@@ -32,7 +37,7 @@ export const memoryRoutes = {
     operation: "memorySource",
     method: "GET",
     path: "/memory/sources/:id",
-    params: Id,
+    params: z.object({ id: requestId(MemorySourceId) }),
     response: memory.PublicMemorySource,
   }),
   memorySourceDelete: endpoint({
@@ -40,7 +45,7 @@ export const memoryRoutes = {
     operation: "memorySourceDelete",
     method: "DELETE",
     path: "/memory/sources/:id",
-    params: Id,
+    params: z.object({ id: requestId(MemorySourceId) }),
     body: z.unknown(),
     response: Ok.extend({ originalHistoryRetained: z.literal(true) }),
   }),
@@ -50,14 +55,14 @@ export const memoryRoutes = {
     method: "POST",
     path: "/memory/notes",
     body: memory.MemoryNoteInput,
-    response: z.object({ id: Text }),
+    response: z.object({ id: MemorySourceId }),
   }),
   memoryNoteUpdate: endpoint({
     ...base,
     operation: "memoryNoteUpdate",
     method: "PATCH",
     path: "/memory/notes/:id",
-    params: Id,
+    params: z.object({ id: requestId(MemorySourceId) }),
     body: memory.MemoryNoteUpdateInput,
     response: Ok,
   }),
@@ -66,7 +71,7 @@ export const memoryRoutes = {
     operation: "memoryNoteVersions",
     method: "GET",
     path: "/memory/notes/:id/versions",
-    params: Id,
+    params: z.object({ id: requestId(MemorySourceId) }),
     response: memory.PublicMemoryVersions,
   }),
   runMemory: endpoint({

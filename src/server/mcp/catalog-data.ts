@@ -1,4 +1,8 @@
-import type { CatalogEntry, CatalogInput } from "../../shared/mcp-catalog.js";
+import type { z } from "zod";
+import type { PublicMcpCatalog } from "../../shared/mcp-contract-schemas.js";
+import type { CatalogInput } from "../../shared/mcp-catalog.js";
+
+type CatalogEntry = z.input<typeof PublicMcpCatalog>["entries"][number];
 
 // Curated entries are reviewed against publisher documentation. Community entries
 // come from the official MCP Registry and are pinned to verified npm versions.

@@ -1,3 +1,17 @@
+import {
+  DefinitionId,
+  DoneThreadId,
+  MemorySourceId,
+  McpConnectionId,
+  McpCatalogEntryId,
+  McpCandidateId,
+  SocialStoryId,
+  SocialFeedId,
+  SocialWatchId,
+  SocialDigestId,
+  TeamPresetId,
+  TeamRoleId,
+} from "../src/shared/contract-ids.js";
 import { expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
@@ -421,4 +435,67 @@ it("requires record domains at concrete typed request paths without tightening H
     id: PrWatchId.parse("watch"),
   };
   void [wrongObject, wrongImport, wrongLater, wrongScheduled];
+});
+
+it("keeps stored-record domains primitive and field-specific validators unchanged", () => {
+  for (const schema of [
+    DefinitionId,
+    DoneThreadId,
+    MemorySourceId,
+    McpConnectionId,
+    McpCatalogEntryId,
+    McpCandidateId,
+    SocialStoryId,
+    SocialFeedId,
+    SocialWatchId,
+    SocialDigestId,
+    TeamPresetId,
+    TeamRoleId,
+  ]) {
+    expect(schema.parse("opaque:fixture")).toBe("opaque:fixture");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  for (const route of [
+    workspaceApi.definitionRead,
+    workspaceApi.memorySource,
+    workspaceApi.mcpTest,
+    workspaceApi.mcpNativeImport,
+    workspaceApi.mcpCatalogInstall,
+    workspaceApi.socialFeedAdd,
+    workspaceApi.socialWatchDelete,
+    workspaceApi.socialDigestDelete,
+    workspaceApi.doneThreadDetail,
+  ]) {
+    expect(route.params.parse({ id: "opaque:fixture" })).toEqual({
+      id: "opaque:fixture",
+    });
+    expect(route.params.safeParse({ id: 42 }).success).toBe(false);
+  }
+  expect(
+    workspaceApi.definitionSave.params.safeParse({ id: "opaque:fixture" })
+      .success,
+  ).toBe(false);
+  expect(
+    workspaceApi.doneThreadCreate.body.safeParse({
+      id: "opaque:fixture",
+      title: "Fixture",
+      cardIds: ["d:run:fixture"],
+    }).success,
+  ).toBe(false);
+  type CatalogRequest = RouteInput<
+    typeof workspaceApi.mcpCatalogInstall
+  >["params"];
+  const wrongCatalog: CatalogRequest = {
+    // @ts-expect-error A saved MCP connection is not a catalog entry.
+    id: McpConnectionId.parse("connection"),
+  };
+  const wrongMemory: RouteInput<typeof workspaceApi.memorySource>["params"] = {
+    // @ts-expect-error A message is not a memory source.
+    id: MessageId.parse("message"),
+  };
+  expectTypeOf<
+    z.output<typeof workspaceApi.socialList.response>["stories"][number]["id"]
+  >().toEqualTypeOf<SocialStoryId>();
+  void [wrongCatalog, wrongMemory];
 });

@@ -1,3 +1,4 @@
+import { DoneThreadId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -177,7 +178,10 @@ export function OrganizeCards({
       if (target)
         await callRoute(
           workspaceApi.doneThreadMove,
-          { params: { id: target }, body: { cardIds: selection.cardIds } },
+          {
+            params: { id: DoneThreadId.parse(target) },
+            body: { cardIds: selection.cardIds },
+          },
           selection.source,
         );
       else
@@ -185,7 +189,7 @@ export function OrganizeCards({
           workspaceApi.doneThreadCreate,
           {
             body: {
-              id: id.current,
+              id: DoneThreadId.parse(id.current),
               title: title.trim(),
               cardIds: selection.cardIds,
             },

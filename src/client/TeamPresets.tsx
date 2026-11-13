@@ -1,4 +1,9 @@
-import { ConnectionId, FolderId, parseId } from "../shared/contract-ids.js";
+import {
+  ConnectionId,
+  FolderId,
+  parseId,
+  TeamPresetId,
+} from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./api";
@@ -147,7 +152,7 @@ export function PresetTeamForm({
         setBusy(true);
         setError("");
         const body = {
-          presetId: preset.id,
+          presetId: TeamPresetId.parse(preset.id),
           name,
           folderId: parseId(FolderId, folder),
           selection,

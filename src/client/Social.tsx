@@ -1,4 +1,10 @@
-import { AgentId, parseId, ConversationId } from "../shared/contract-ids.js";
+import {
+  AgentId,
+  parseId,
+  ConversationId,
+  SocialFeedId,
+  SocialStoryId,
+} from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import {
@@ -826,7 +832,7 @@ function DigestSheet({
             agentId: parseId(AgentId, agent),
             minuteOfDay: hours * 60 + minutes,
             zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            feeds: chosen.length ? chosen : null,
+            feeds: chosen.length ? SocialFeedId.array().parse(chosen) : null,
             unreadOnly,
           },
         },
@@ -853,7 +859,9 @@ function DigestSheet({
           body: {
             agentId: parseId(AgentId, digest.agent_id),
             conversationId: parseId(ConversationId, digest.conversation_id),
-            feeds: digest.feeds ? JSON.parse(digest.feeds) : null,
+            feeds: digest.feeds
+              ? SocialFeedId.array().parse(JSON.parse(digest.feeds))
+              : null,
             minuteOfDay: digest.minute_of_day,
             zone: digest.zone,
             unreadOnly: !!digest.unread_only,
@@ -1119,7 +1127,7 @@ export function Social({
     try {
       const { unread } = await callRoute(
         read ? workspaceApi.socialRead : workspaceApi.socialUnreadSet,
-        { body: { stories: ids } },
+        { body: { stories: SocialStoryId.array().parse(ids) } },
         "",
       );
       setView((old) => old && { ...old, unread });
@@ -1152,7 +1160,7 @@ export function Social({
     try {
       const { unread } = await callRoute(
         removed ? workspaceApi.socialDismiss : workspaceApi.socialRestore,
-        { body: { stories: ids } },
+        { body: { stories: SocialStoryId.array().parse(ids) } },
         "",
       );
       setView((old) => old && { ...old, unread });
@@ -1207,7 +1215,7 @@ export function Social({
         {
           query: {
             q: query,
-            feed: chosenFeed || undefined,
+            feed: parseId(SocialFeedId, chosenFeed || undefined),
             unread: unreadOnly ? "1" : undefined,
           },
         },
@@ -1233,7 +1241,7 @@ export function Social({
     try {
       const { own } = await callRoute(
         workspaceApi.socialSourceDelete,
-        { params: { id: feed.id } },
+        { params: { id: SocialFeedId.parse(feed.id) } },
         "",
       );
       setView((old) => old && { ...old, own });
@@ -1250,7 +1258,7 @@ export function Social({
     try {
       const { added } = await callRoute(
         adding ? workspaceApi.socialFeedAdd : workspaceApi.socialFeedDelete,
-        { params: { id: feed.id } },
+        { params: { id: SocialFeedId.parse(feed.id) } },
         "",
       );
       if (adding && !view?.added.length && !view?.own.length) setPicking(true);
@@ -1650,7 +1658,7 @@ export function Social({
                           // picture should not tell its site who is reading.
                           src={routeUrl(
                             workspaceApi.socialImage,
-                            { query: { story: story.id } },
+                            { query: { story: SocialStoryId.parse(story.id) } },
                             "",
                           )}
                           alt=""

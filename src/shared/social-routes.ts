@@ -1,6 +1,13 @@
+import {
+  SocialDigestId,
+  SocialFeedId,
+  SocialStoryId,
+  SocialWatchId,
+  requestId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import * as social from "./social-contract-schemas.js";
-import { Text, Id, endpoint, base } from "./route-contract.js";
+import { Text, endpoint, base } from "./route-contract.js";
 
 export const socialRoutes = {
   socialUnread: endpoint({
@@ -31,7 +38,7 @@ export const socialRoutes = {
     operation: "socialImage",
     method: "GET",
     path: "/social/image",
-    query: z.object({ story: Text.min(3).max(600) }),
+    query: z.object({ story: requestId(SocialStoryId).min(3).max(600) }),
     kind: "stream",
     response: z.custom<Blob>(),
   }),
@@ -119,7 +126,7 @@ export const socialRoutes = {
     method: "GET",
     path: "/social/feeds",
     response: z.object({
-      added: z.array(Text),
+      added: z.array(SocialFeedId),
       own: z.array(social.PublicFeedEntry),
     }),
   }),
@@ -147,7 +154,7 @@ export const socialRoutes = {
     operation: "socialSourceDelete",
     method: "DELETE",
     path: "/social/sources/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialFeedId) }),
     body: z.unknown(),
     response: z.object({ own: z.array(social.PublicFeedEntry) }),
   }),
@@ -176,18 +183,18 @@ export const socialRoutes = {
     operation: "socialFeedAdd",
     method: "PUT",
     path: "/social/feeds/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialFeedId) }),
     body: z.unknown(),
-    response: z.object({ added: z.array(Text) }),
+    response: z.object({ added: z.array(SocialFeedId) }),
   }),
   socialFeedDelete: endpoint({
     ...base,
     operation: "socialFeedDelete",
     method: "DELETE",
     path: "/social/feeds/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialFeedId) }),
     body: z.unknown(),
-    response: z.object({ added: z.array(Text) }),
+    response: z.object({ added: z.array(SocialFeedId) }),
   }),
   socialWatches: endpoint({
     ...base,
@@ -218,7 +225,7 @@ export const socialRoutes = {
     operation: "socialWatchUpdate",
     method: "PATCH",
     path: "/social/watches/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialWatchId) }),
     body: social.WatchInput,
     response: social.PublicWatch,
   }),
@@ -227,7 +234,7 @@ export const socialRoutes = {
     operation: "socialWatchDelete",
     method: "DELETE",
     path: "/social/watches/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialWatchId) }),
     body: z.unknown(),
     response: z.object({ watches: z.array(social.PublicWatch) }),
   }),
@@ -252,7 +259,7 @@ export const socialRoutes = {
     operation: "socialDigestUpdate",
     method: "PATCH",
     path: "/social/digests/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialDigestId) }),
     body: social.DigestInput,
     response: social.PublicDigest,
   }),
@@ -261,7 +268,7 @@ export const socialRoutes = {
     operation: "socialDigestDelete",
     method: "DELETE",
     path: "/social/digests/:id",
-    params: Id,
+    params: z.object({ id: requestId(SocialDigestId) }),
     body: z.unknown(),
     response: z.object({ digests: z.array(social.PublicDigest) }),
   }),

@@ -1,8 +1,14 @@
-import { AgentId, ConversationId, TeamId, requestId } from "./contract-ids.js";
+import {
+  AgentId,
+  ConversationId,
+  TeamId,
+  requestId,
+  DefinitionId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import * as teams from "./team-contract-schemas.js";
 import { PublicMailThreads, PublicMailResume } from "./agent-mail.js";
-import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
+import { Text, Ok, endpoint, base } from "./route-contract.js";
 import {
   PublicAgent,
   PublicTeam,
@@ -134,7 +140,7 @@ export const teamRoutes = {
     operation: "definitionRead",
     method: "GET",
     path: "/agent-definitions/:id",
-    params: Id,
+    params: z.object({ id: requestId(DefinitionId) }),
     response: teams.PublicDefinition,
   }),
   definitionSave: endpoint({
@@ -142,7 +148,7 @@ export const teamRoutes = {
     operation: "definitionSave",
     method: "PUT",
     path: "/agent-definitions/:id",
-    params: z.object({ id: Text.uuid() }),
+    params: z.object({ id: requestId(DefinitionId).uuid() }),
     body: teams.DefinitionSaveInput,
     response: teams.PublicDefinition,
   }),
@@ -151,7 +157,7 @@ export const teamRoutes = {
     operation: "definitionDelete",
     method: "DELETE",
     path: "/agent-definitions/:id",
-    params: Id,
+    params: z.object({ id: requestId(DefinitionId) }),
     body: z.strictObject({ version: teams.DefinitionVersion }),
     response: Ok,
   }),
@@ -160,7 +166,7 @@ export const teamRoutes = {
     operation: "definitionCreate",
     method: "POST",
     path: "/agent-definitions/:id/create",
-    params: Id,
+    params: z.object({ id: requestId(DefinitionId) }),
     body: teams.DefinitionCreateInput,
     response: z.union([
       z.object({ agent: PublicAgent, team: PublicTeam.optional() }),
