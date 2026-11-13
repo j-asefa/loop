@@ -146,13 +146,11 @@ export async function createAgentLayoutSmoke(page, fixture, capture) {
       response.request().method() === "POST" &&
       response.url().endsWith("/api/uploads"),
   );
-  await sheet
-    .getByLabel("Attach files", { exact: true })
-    .setInputFiles({
-      name: "creation-attachment.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("Fixture creation attachment"),
-    });
+  await sheet.getByLabel("Attach files", { exact: true }).setInputFiles({
+    name: "creation-attachment.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Fixture creation attachment"),
+  });
   const descriptor = await (await upload).json();
   await expect(
     sheet.getByRole("list", { name: "Attached files" }),
