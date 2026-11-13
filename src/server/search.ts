@@ -146,6 +146,25 @@ export async function indexPending() {
       );
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
+      const docs = searchDocumentsQueries.pendingIndex(
+        db,
+        owner_id,
+        c.embedding_model || modelDefault,
+        now() - 5000,
+      );
+      // An idle pass changes no visible counts; avoid scanning the whole index.
+      // Clearing an earlier error still needs a snapshot and notification.
+      if (!docs.length && previous?.state !== "error") {
+        searchIndexStatusQueries.replace(
+          db,
+          owner_id,
+          configuration(c),
+          "ready",
+          null,
+          now(),
+        );
+        continue;
+      }
       let published = JSON.stringify(searchStatus(owner_id));
       const status = (state: string, error: string | null = null) =>
         db.transaction(() => {
@@ -165,12 +184,6 @@ export async function indexPending() {
             published = snapshot;
           }
         })();
-      const docs = searchDocumentsQueries.pendingIndex(
-        db,
-        owner_id,
-        c.embedding_model || modelDefault,
-        now() - 5000,
-      );
       if (!docs.length) {
         status("ready");
         continue;
