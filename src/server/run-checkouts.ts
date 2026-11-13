@@ -1,3 +1,6 @@
+type CheckoutSummary = import("zod").input<
+  typeof import("../shared/checkout.js").CheckoutSummarySchema
+>;
 import {
   TERMINAL_RUN_STATES,
   STARTED_RUN_STATES,
@@ -31,7 +34,6 @@ import {
   type CheckoutFile,
   type CheckoutStat,
   type CheckoutRemote,
-  type CheckoutSummary,
 } from "../shared/checkout.js";
 export { checkoutLine };
 

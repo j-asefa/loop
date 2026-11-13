@@ -26,7 +26,7 @@ import {
   PublicAgentMessages,
   PublicAgentTraces,
 } from "./agent-contract-schemas.js";
-import { Text, MaybeText, Ok, endpoint, base } from "./route-contract.js";
+import { Text, Ok, endpoint, base } from "./route-contract.js";
 import {
   PublicAgent,
   PublicConnection,
@@ -92,7 +92,9 @@ export const agentRoutes = {
     path: "/agents",
     body: AgentCreateInput,
     response: PublicAgent.extend({
-      initialRun: z.object({ id: Text, conversation_id: MaybeText }).optional(),
+      initialRun: z
+        .object({ id: RunId, conversation_id: ConversationId.nullable() })
+        .optional(),
     }),
     status: 201,
   }),
