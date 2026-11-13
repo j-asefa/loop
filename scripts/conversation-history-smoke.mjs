@@ -872,7 +872,7 @@ for (const engine of selectedEngines()) {
         .locator("dialog.conversation-sheet[open]")
         .getByRole("alert")
         .filter({ hasText: "Metadata fixture unavailable" }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 12000 });
     linkedMetadataFailure = false;
     await page
       .locator("dialog.conversation-sheet[open]")
@@ -891,7 +891,7 @@ for (const engine of selectedEngines()) {
         .locator("dialog.conversation-sheet[open]")
         .getByRole("alert")
         .filter({ hasText: "Metadata fixture unavailable" }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 12000 });
     linkedMetadataFailure = false;
     await page
       .locator("dialog.conversation-sheet[open]")

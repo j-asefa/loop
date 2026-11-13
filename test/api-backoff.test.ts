@@ -261,7 +261,10 @@ it("recovers a signal-driven snapshot from a transient server error without retr
     retry,
   );
   await vi.advanceTimersByTimeAsync(0);
-  expect(retry).toHaveBeenCalledWith(expect.objectContaining({ status: 503 }));
+  expect(retry).toHaveBeenCalledWith(
+    expect.objectContaining({ status: 503 }),
+    2000,
+  );
   await vi.advanceTimersByTimeAsync(2000);
   await expect(pending).resolves.toEqual({ items: [], failed_next: null });
   fetcher.mockImplementation(
