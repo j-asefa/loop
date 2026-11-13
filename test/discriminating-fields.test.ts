@@ -1,10 +1,9 @@
 import { expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
+import { parseSync } from "rolldown/utils";
 
-// D1: discriminating fields are closed sets. A property with one of these
-// names whose schema is an unconstrained string is a failure, unless it is on
-// the exemption list below with a reason reviewers can verify (D5).
-const NAMES = [
+const names = new Set([
   "state",
   "status",
   "kind",
@@ -14,170 +13,276 @@ const NAMES = [
   "outcome",
   "mode",
   "phase",
-];
+]);
+type Module = {
+  source: string;
+  program: any;
+  definitions: Map<string, any>;
+  imports: Map<string, [string, string]>;
+};
+function inventory(sources: Map<string, string>) {
+  const modules = new Map<string, Module>();
+  for (const [file, source] of sources) {
+    const { program, errors } = parseSync(file, source);
+    if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
+    const definitions = new Map<string, any>(),
+      imports = new Map<string, [string, string]>();
+    for (const statement of (program as any).body) {
+      const declaration =
+        statement.type === "ExportNamedDeclaration"
+          ? statement.declaration
+          : statement;
+      if (declaration?.type === "VariableDeclaration")
+        for (const entry of declaration.declarations)
+          if (entry.id.type === "Identifier")
+            definitions.set(entry.id.name, entry.init);
+      if (statement.type === "ExportNamedDeclaration" && statement.source) {
+        const target = resolve(
+          dirname(file),
+          statement.source.value.replace(/\.js$/, ".ts"),
+        );
+        for (const spec of statement.specifiers)
+          if (spec.type === "ExportSpecifier")
+            imports.set(spec.exported.name ?? spec.exported.value, [
+              target,
+              spec.local.name ?? spec.local.value,
+            ]);
+      }
+      if (
+        statement.type === "ImportDeclaration" &&
+        statement.importKind !== "type"
+      ) {
+        const target = statement.source.value.startsWith(".")
+          ? resolve(
+              dirname(file),
+              statement.source.value.replace(/\.js$/, ".ts"),
+            )
+          : statement.source.value;
+        for (const spec of statement.specifiers) {
+          if (spec.type === "ImportSpecifier" && spec.importKind !== "type")
+            imports.set(spec.local.name, [
+              target,
+              spec.imported.name ?? spec.imported.value,
+            ]);
+          else if (spec.type === "ImportNamespaceSpecifier")
+            imports.set(spec.local.name, [target, "*"]);
+        }
+      }
+    }
+    modules.set(file, { source, program, definitions, imports });
+  }
+  function open(file: string, node: any, seen = new Set<string>()): boolean {
+    if (!node) return false;
+    if (
+      [
+        "TSAsExpression",
+        "TSSatisfiesExpression",
+        "TSNonNullExpression",
+      ].includes(node.type)
+    )
+      return open(file, node.expression, seen);
+    const module = modules.get(file);
+    if (node.type === "Identifier") {
+      const key = `${file}:${node.name}`;
+      if (seen.has(key)) return false;
+      const next = new Set([...seen, key]),
+        imported = module?.imports.get(node.name);
+      if (imported)
+        return open(
+          imported[0],
+          { type: "Identifier", name: imported[1] },
+          next,
+        );
+      return open(file, module?.definitions.get(node.name), next);
+    }
+    if (node.type === "MemberExpression" && node.object.type === "Identifier") {
+      const imported = module?.imports.get(node.object.name);
+      if (imported?.[1] === "*")
+        return open(
+          imported[0],
+          {
+            type: "Identifier",
+            name: node.property.name ?? node.property.value,
+          },
+          seen,
+        );
+    }
+    if (
+      node.type !== "CallExpression" ||
+      node.callee.type !== "MemberExpression"
+    )
+      return false;
+    const { object, property } = node.callee,
+      method = property.name ?? property.value;
+    if (method === "brand") return false; // Identity domains are not open case selectors.
+    const receiver =
+      object.type === "MemberExpression" && object.property.name === "coerce"
+        ? object.object
+        : object;
+    if (
+      receiver.type === "Identifier" &&
+      module?.imports.get(receiver.name)?.[0] === "zod"
+    ) {
+      if (method === "string") return true;
+      if (method === "union")
+        return (
+          node.arguments[0]?.elements?.some((part: any) =>
+            open(file, part, seen),
+          ) ?? false
+        );
+      return false;
+    }
+    if (method === "or")
+      return (
+        open(file, object, seen) ||
+        node.arguments.some((part: any) => open(file, part, seen))
+      );
+    return open(file, object, seen);
+  }
+  const found = new Map<string, string>();
+  for (const [file, module] of modules) {
+    // Fleet schemas remain outside this package, including fleet.ts.
+    if (/^fleet(?:-|\.)/.test(basename(file))) continue;
+    function walk(node: any, path: string[] = []) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const child of node) walk(child, path);
+        return;
+      }
+      if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
+        walk(node.init, [node.id.name]);
+        return;
+      }
+      if (node.type === "Property") {
+        const field = node.key.name ?? node.key.value;
+        const next = typeof field === "string" ? [...path, field] : path;
+        if (names.has(field) && open(file, node.value)) {
+          const key = `${basename(file)}:${next.join(".")}`;
+          if (found.has(key))
+            throw new Error(`Ambiguous schema declaration: ${key}`);
+          found.set(key, module.source.slice(node.value.start, node.value.end));
+        }
+        walk(node.value, next);
+        return;
+      }
+      for (const value of Object.values(node)) walk(value, path);
+    }
+    walk(module.program);
+  }
+  return found;
+}
 
-// An open string schema: z.string() with optional chained refiners/shorteners,
-// or the Text/text/nullableText/MaybeText aliases with optional/nullable
-// presence and refined (Text.min(1), Text.max(300)) modifiers. Declarations
-// are matched inline (z.strictObject({ state: z.string() })) and across lines
-// (state:\n  z.string()), with whitespace allowed around dots and parens.
-// enum/literal/union/uuid/template-typed fields do not match, so they are not
-// flagged.
-const DOT = String.raw`\s*\.\s*`;
-const ARGS = String.raw`\([^)]*\)`;
-const OPEN = String.raw`z${DOT}string${ARGS}(?:${DOT}(?:trim|min|max|optional|nullable|nullish|catch|default)${ARGS})*|Text(?:${DOT}(?:min|max|trim|optional|nullable|nullish)${ARGS})*|text(?:${DOT}(?:min|max|trim|optional|nullable)${ARGS})*|nullableText(?:${DOT}(?:optional|nullable)${ARGS})?|MaybeText(?:${DOT}(?:optional|nullable)${ARGS})?`;
-const LINE = new RegExp(
-  String.raw`(?:[A-Za-z_][A-Za-z0-9_]*${DOT})?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\s*:\s*(${OPEN})\s*(?:[,;\}\]])`,
-  "g",
-);
-
-type Exemption = { count: number; reason: string };
-
-// Exemptions: file:field, expected occurrence count, reason. The list only
-// shrinks, and each exemption covers a fixed number of declarations, so a new
-// `phase: Text` elsewhere in the same file cannot inherit it (D5).
-const EXPLICIT_EXEMPTIONS: Array<[string, Exemption]> = [
+// Exact declaration paths, with source-verifiable reasons; no count allowance.
+const exemptions = new Map<string, string>([
   [
-    "agent-activities.ts:origin",
-    {
-      count: 1,
-      reason:
-        "harness producer origin string (broker/loop_plan/codex/adapter ids)",
-    },
+    "agent-activities.ts:ActivitySource.origin",
+    "Harness producer origin (broker, loop_plan, codex or adapter identity).",
   ],
   [
-    "agent-contract-schemas.ts:kind",
-    {
-      count: 2,
-      reason: "harness-defined command kinds and diagnostics entry kinds",
-    },
+    "agent-contract-schemas.ts:PublicHarnessCommand.kind",
+    "Harness-defined command kinds.",
   ],
   [
-    "agent-contract-schemas.ts:origin",
-    { count: 1, reason: "harness command source origin text" },
+    "agent-contract-schemas.ts:PublicHarnessCommand.sourceInfo.origin",
+    "Harness command provenance text.",
   ],
   [
-    "conversation-routes.ts:state",
-    {
-      count: 1,
-      reason:
-        "native answer outcome state from the harness/authority (answered, declined, error...)",
-    },
+    "agent-contract-schemas.ts:PublicPiInventory.diagnostics.kind",
+    "Pi-provided diagnostic entry kinds.",
   ],
   [
-    "companion-contract-schemas.ts:state",
-    {
-      count: 1,
-      reason:
-        "companion-reported native history entry state (no in-repo producer)",
-    },
+    "companion-contract-schemas.ts:PublicNativeHistory.managed.state",
+    "Companion-reported native history state; no in-repository producer.",
   ],
   [
-    "execution-authority.ts:state",
-    {
-      count: 1,
-      reason:
-        "native answer reply state spans stored transitions and harness-confirmed live stages",
-    },
+    "conversation-routes.ts:conversationRoutes.nativeAnswer.response.state",
+    "Harness answer outcome; not a Loop run state.",
   ],
   [
-    "execution-authority.ts:origin",
-    { count: 1, reason: "execution request origin text" },
+    "execution-authority.ts:executionOperations.native.answer.state",
+    "Native answer reply spans harness-confirmed outcome stages.",
   ],
   [
-    "library-contract-schemas.ts:kind",
-    {
-      count: 1,
-      reason:
-        "search document discriminator spanning message and artifact kinds",
-    },
+    "execution-authority.ts:ExecutionParentMessage.origin",
+    "Execution parent request origin text.",
   ],
   [
-    "mcp-contract-schemas.ts:kind",
-    {
-      count: 1,
-      reason:
-        "agent source transport kind from wire discovery; local entries have none",
-    },
+    "library-contract-schemas.ts:SearchQuery.kind",
+    "Existing request accepts arbitrary exact-match kind filters; nonstrings fall back to undefined. Preserve D1 acceptance (workspace-routes search, sql/search-documents filterSql).",
   ],
   [
-    "native-commands.ts:kind",
-    { count: 1, reason: "harness-defined command kinds" },
+    "library-contract-schemas.ts:PublicSearchItem.kind",
+    "Search document kind spans message and artifact domains.",
   ],
   [
-    "native-commands.ts:origin",
-    { count: 1, reason: "command source origin text" },
+    "mcp-contract-schemas.ts:PublicAgentSources.kind",
+    "Transport kind supplied by source discovery.",
+  ],
+  ["native-commands.ts:NativeCommand.kind", "Harness-defined command kind."],
+  [
+    "native-commands.ts:NativeCommand.sourceInfo.origin",
+    "Harness command provenance text.",
   ],
   [
-    "session-controls.ts:state",
-    {
-      count: 1,
-      reason: "companion-reported session-controls state (no in-repo producer)",
-    },
+    "session-controls.ts:SessionControls.state",
+    "Companion session-control state; no in-repository producer.",
   ],
   [
-    "social-contract-schemas.ts:kind",
-    { count: 1, reason: "social feed source kind from the catalog" },
+    "social-contract-schemas.ts:PublicFeedEntry.kind",
+    "Feed source kind supplied by catalog.",
   ],
   [
-    "workspace-events.ts:phase",
-    { count: 1, reason: "run failure phase free text" },
+    "workspace-events.ts:Payloads.run.failed.phase",
+    "Failure phase is free diagnostic text.",
   ],
-];
-
-const EXEMPTIONS = new Map<string, Exemption>([
-  ...EXPLICIT_EXEMPTIONS,
-  // Fleet files are removed with the fleet feature; until then every field in
-  // them is exempt (count is enforced, disappearance is not).
-  ...readdirSync("src/shared")
-    .filter((file) => file.startsWith("fleet-"))
-    .flatMap((file) =>
-      NAMES.map(
-        (name) =>
-          [
-            `${file}:${name}`,
-            { count: 1, reason: "fleet removal pending" },
-          ] as const,
-      ),
-    ),
 ]);
 
 it("keeps discriminating fields in src/shared as closed sets", () => {
-  const seen = new Map<string, string[]>();
-  for (const file of readdirSync("src/shared").filter((f) =>
-    f.endsWith(".ts"),
-  )) {
-    const text = readFileSync("src/shared/" + file, "utf8");
-    // The quoted property name (e.g. "connection.status"), or the bare name.
-    // Only properties whose name is one of the discriminating fields count.
-    // The whole file is scanned so multiline declarations cannot bypass it.
-    for (const match of text.matchAll(LINE)) {
-      const field = match[1];
-      if (!field || !NAMES.includes(field)) continue;
-      const key = `${file}:${field}`;
-      const list = seen.get(key) ?? [];
-      list.push(`${key} :: ${match[0].replace(/\s+/g, " ").trim()}`);
-      seen.set(key, list);
-    }
-  }
-  const failures: string[] = [];
-  for (const [key, lines] of seen) {
-    const allowed = EXEMPTIONS.get(key)?.count ?? 0;
-    if (lines.length === allowed) continue;
-    failures.push(
-      `${key} (${lines.length} match${lines.length === 1 ? "" : "es"}, ` +
-        `${allowed} allowed):\n` +
-        lines.map((l) => `  ${l}`).join("\n"),
-    );
-  }
-  // An explicit exemption whose declaration disappeared is a sign to review
-  // it (D5); the fleet wildcard only enforces counts.
-  for (const [key] of EXPLICIT_EXEMPTIONS) {
-    if (!seen.has(key)) failures.push(`${key} (exempted but not found)`);
-  }
+  const directory = resolve("src/shared");
+  const sources = new Map(
+    readdirSync(directory)
+      .filter((file) => file.endsWith(".ts"))
+      .map((file) => {
+        const path = resolve(directory, file);
+        return [path, readFileSync(path, "utf8")];
+      }),
+  );
+  const found = inventory(sources);
   expect(
-    failures,
-    "open discriminating fields need a closed schema or an exemption:\n" +
-      failures.join("\n"),
+    [...found.keys()].filter((key) => !exemptions.has(key)),
+    "Open selectors need a named schema exemption",
   ).toEqual([]);
+  expect(
+    [...exemptions.keys()].filter((key) => !found.has(key)),
+    "Remove obsolete exceptions",
+  ).toEqual([]);
+});
+
+it("finds aliased and multiline schemas while ignoring comments, values and closed domains", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod'; export const Text=z.string();`,
+    ],
+    [
+      resolve("fixture/forward.ts"),
+      `export {Text as Forward} from "./base.js";`,
+    ],
+    [
+      resolve("fixture/check.ts"),
+      `import {z} from 'zod'; import {Text as Value} from './base.js'; import * as Base from './base.js'; import {Forward} from './forward.js';
+      const Alias=Value.optional().catch(undefined);
+      // state: z.string(),
+      const description="kind: z.string()";
+      const Schema=z.object({state:\n Alias, nested:z.object({kind:z.union([z.literal('a'),Value])}),
+        outcome: Forward, phase: Base.Text, mode:z.coerce.string().optional(), role:z.enum(['user','agent']), status:z.literal('ready'), origin:z.string().brand<'Identity'>()});`,
+    ],
+  ]);
+  expect([...inventory(sources).keys()]).toEqual([
+    "check.ts:Schema.state",
+    "check.ts:Schema.nested.kind",
+    "check.ts:Schema.outcome",
+    "check.ts:Schema.phase",
+    "check.ts:Schema.mode",
+  ]);
 });
