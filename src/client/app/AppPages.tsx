@@ -46,7 +46,8 @@ import { SearchWorkspace } from "../Workspace";
 import { Avatar, Badge } from "../components";
 
 import type { ReactNode } from "react";
-import { tabs, type AppModel } from "./AppController";
+import { tabs } from "./Navigation";
+import type { AppModel } from "./AppController";
 import type { renderResults } from "./Results";
 import type { renderComposer } from "./Composer";
 

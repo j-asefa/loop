@@ -1,3 +1,4 @@
+import { emptySharedDraft } from "../workspace-drafts";
 import { resultTarget } from "../card-actions";
 import { LoopLogo } from "../LoopLogo";
 import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
@@ -69,7 +70,7 @@ import { Conversation } from "../Conversation";
 import { Avatar, Sheet } from "../components";
 import { PreviewBanner } from "../PreviewBanner";
 
-import { tabs } from "./AppController";
+import { tabs } from "./Navigation";
 import type { AppViewProps } from "./AppViewProps";
 import { renderResults } from "./Results";
 import { renderSessionGate } from "./Session";
@@ -753,13 +754,7 @@ export function renderApp(props: AppViewProps) {
             setSheet("create");
           }}
           onSent={(r) => {
-            setSharedDraft({
-              url: "",
-              title: "",
-              excerpt: "",
-              question: "",
-              folderId: "",
-            });
+            setSharedDraft(emptySharedDraft());
             setShareAgent(undefined);
             setSheet("");
             setConversation(r.conversation_id);
