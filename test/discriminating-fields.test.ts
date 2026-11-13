@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { parseSync } from "rolldown/utils";
 
 const names = new Set([
@@ -20,7 +20,10 @@ type Module = {
   definitions: Map<string, any>;
   imports: Map<string, [string, string]>;
 };
-function inventory(sources: Map<string, string>) {
+function inventory(
+  sources: Map<string, string>,
+  directory = resolve("src/shared"),
+) {
   const modules = new Map<string, Module>();
   const importTarget = (file: string, specifier: string) => {
     if (!specifier.startsWith(".")) return specifier;
@@ -157,7 +160,7 @@ function inventory(sources: Map<string, string>) {
         const field = node.key.name ?? node.key.value;
         const next = typeof field === "string" ? [...path, field] : path;
         if (names.has(field) && open(file, node.value)) {
-          const key = `${basename(file)}:${next.join(".")}`;
+          const key = `${relative(directory, file).split("\\").join("/")}:${next.join(".")}`;
           if (found.has(key))
             throw new Error(`Ambiguous schema declaration: ${key}`);
           found.set(key, module.source.slice(node.value.start, node.value.end));
@@ -239,14 +242,16 @@ const exemptions = new Map<string, string>([
 
 it("keeps discriminating fields in src/shared as closed sets", () => {
   const directory = resolve("src/shared");
-  const sources = new Map(
-    readdirSync(directory)
-      .filter((file) => file.endsWith(".ts"))
-      .map((file) => {
-        const path = resolve(directory, file);
-        return [path, readFileSync(path, "utf8")];
-      }),
-  );
+  const readSources = (folder: string): [string, string][] =>
+    readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+      const path = resolve(folder, entry.name);
+      return entry.isDirectory()
+        ? readSources(path)
+        : path.endsWith(".ts")
+          ? [[path, readFileSync(path, "utf8")]]
+          : [];
+    });
+  const sources = new Map(readSources(directory));
   const found = inventory(sources);
   expect(
     [...found.keys()].filter((key) => !exemptions.has(key)),
@@ -277,13 +282,18 @@ it("finds aliased and multiline schemas while ignoring comments, values and clos
       const Schema=z.object({state:\n Alias, nested:z.object({kind:z.union([z.literal('a'),Value])}),
         outcome: Forward, phase: Base.Text, mode:z.coerce.string().optional(), role:z.enum(['user','agent']), status:z.literal('ready'), origin:z.string().brand<'Identity'>()});`,
     ],
+    [
+      resolve("fixture/nested/check.ts"),
+      `import {z} from 'zod'; import {Text} from '../base.js'; const Schema=z.object({kind:Text});`,
+    ],
   ]);
-  expect([...inventory(sources).keys()]).toEqual([
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
     "check.ts:Schema.state",
     "check.ts:Schema.nested.kind",
     "check.ts:Schema.outcome",
     "check.ts:Schema.phase",
     "check.ts:Schema.mode",
     "check.ts:Schema.origin",
+    "nested/check.ts:Schema.kind",
   ]);
 });
