@@ -102,8 +102,15 @@ function inventory(
         }
       if (statement.type === "ExportDefaultDeclaration")
         exports.set("default", statement.declaration);
-      if (statement.type === "ExportAllDeclaration")
-        stars.push(importTarget(file, statement.source.value));
+      if (statement.type === "ExportAllDeclaration") {
+        const target = importTarget(file, statement.source.value);
+        if (statement.exported)
+          exports.set(statement.exported.name ?? statement.exported.value, {
+            type: "NamespaceReference",
+            file: target,
+          });
+        else stars.push(target);
+      }
       if (statement.type === "ExportNamedDeclaration")
         for (const spec of statement.specifiers) {
           if (spec.type !== "ExportSpecifier") continue;
@@ -233,6 +240,10 @@ function inventory(
       ].includes(node.type)
     )
       return open(file, node.expression, seen, path);
+    if (node.type === "NamespaceReference")
+      return path.length
+        ? exported(node.file, path[0], seen, path.slice(1))
+        : false;
     if (node.type === "ExportReference")
       return exported(node.file, node.name, seen, path);
     if (node.type === "BindingProjection")
@@ -278,7 +289,9 @@ function inventory(
       if (
         node.type === "CallExpression" &&
         path[0] === "shape" &&
-        node.callee?.property?.name === "object"
+        ["object", "strictObject", "looseObject"].includes(
+          node.callee?.property?.name,
+        )
       )
         return open(file, node.arguments[0], seen, path.slice(1));
       return false;
@@ -296,9 +309,24 @@ function inventory(
         : object;
     if (
       receiver.type === "Identifier" &&
-      imported(file, node, receiver.name)?.[0] === "zod"
+      imported(file, node, receiver.name)?.[0].split("/")[0] === "zod"
     ) {
       if (method === "string") return true;
+      if (
+        [
+          "optional",
+          "nullable",
+          "nullish",
+          "readonly",
+          "nonoptional",
+          "default",
+          "prefault",
+          "catch",
+        ].includes(method)
+      )
+        return open(file, node.arguments[0], seen);
+      if (method === "preprocess") return open(file, node.arguments[1], seen);
+      if (method === "pipe") return open(file, node.arguments.at(-1), seen);
       if (method === "union")
         return (
           node.arguments[0]?.elements?.some((part: any) =>
@@ -323,8 +351,21 @@ function inventory(
         for (const child of node) walk(child, path);
         return;
       }
-      if (node.type === "FunctionDeclaration" && node.id) {
-        walk(node.body, [...path, node.id.name]);
+      if (
+        [
+          "FunctionDeclaration",
+          "FunctionExpression",
+          "ArrowFunctionExpression",
+        ].includes(node.type)
+      ) {
+        const context =
+          node.type === "FunctionDeclaration" && node.id
+            ? [...path, node.id.name]
+            : path;
+        node.params.forEach((parameter: any, index: number) =>
+          walk(parameter, [...context, `parameter[${index}]`]),
+        );
+        walk(node.body, context);
         return;
       }
       if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
@@ -374,6 +415,10 @@ function inventory(
 
 // Exact declaration paths, with source-verifiable reasons; no count allowance.
 const exemptions = new Map<string, string>([
+  [
+    "agent-activities.ts:CatalogCommand.kind",
+    "Catalog copies the harness-defined NativeCommand.kind; existing max40 and optional acceptance are retained.",
+  ],
   [
     "agent-activities.ts:ActivitySource.origin",
     "Harness producer origin (broker, loop_plan, codex or adapter identity).",
@@ -614,5 +659,57 @@ it("distinguishes function-local declarations and union variants", () => {
     "identities.ts:Variants.variant[1].kind",
     "identities.ts:Alternative.variant[0].kind",
     "identities.ts:Alternative.variant[1].kind",
+  ]);
+});
+
+it("visits schema defaults in named arrow and expression function parameters", () => {
+  const file = resolve("fixture/defaults.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ function build(schema=z.object({role:z.string()})){return schema;}
+ const Arrow=(schema=z.object({kind:z.string()}))=>schema;
+ const Expression=function(schema=z.object({state:z.string()})){return schema;};
+ function closed(schema=z.object({role:z.literal('user')})){return schema;}`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "defaults.ts:build.parameter[0].role",
+    "defaults.ts:Arrow.parameter[0].kind",
+    "defaults.ts:Expression.parameter[0].state",
+  ]);
+});
+it("resolves strict-object shapes and functional string wrappers", () => {
+  const file = resolve("fixture/shapes.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod/v4';
+ const Source=z.strictObject({command:z.string(),status:z.enum(['ready'])});
+ const Schema=z.object({kind:Source.shape.command,role:z.optional(z.string()),origin:z.preprocess(x=>x,z.string()),status:Source.shape.status});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "shapes.ts:Schema.kind",
+    "shapes.ts:Schema.role",
+    "shapes.ts:Schema.origin",
+  ]);
+});
+
+it("follows namespace re-exports used by destructured schema aliases", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod/v4';export const Text=z.string();`,
+    ],
+    [resolve("fixture/barrel.ts"), `export * as Schemas from './base.js';`],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import {Schemas} from './barrel.js';const {Text}=Schemas;const Schema=z.object({state:Text});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
   ]);
 });
