@@ -17,6 +17,8 @@ import { SearchExcerpt } from "./SearchExcerpt";
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
 import { executionSourceId } from "./sourceRouting";
 import { callRoute, routeUrl } from "./api";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
+import { viewGeneration } from "./viewCache";
 import {
   workspaceApi,
   type RouteInput,
@@ -1296,17 +1298,25 @@ export function SearchSettings({
   connections: Connection[];
   onClose: () => void;
 }) {
-  const [enabled, setEnabled] = useState(false),
-    [connection, setConnection] = useState(""),
-    [error, setError] = useState("");
-  useEffect(() => {
-    void callRoute(workspaceApi.preferences, {}, executionSourceId())
-      .then((p) => {
-        setEnabled(!!p.embedding_enabled);
-        setConnection(p.embedding_connection || "");
-      })
-      .catch((e) => setError(e.message));
-  }, []);
+  const source = executionSourceId();
+  const key = JSON.stringify([viewGeneration(), source]);
+  const preferences = useProjectionQuery(
+    workspaceApi.preferences,
+    {},
+    { source },
+  );
+  type Draft = { enabled: boolean; connection: string };
+  const [draft, setDraft] = useState<{ key: string; values: Partial<Draft> }>();
+  const [error, setError] = useState("");
+  const edits = draft?.key === key ? draft.values : {};
+  const enabled = edits.enabled ?? !!preferences.data?.embedding_enabled;
+  const connection =
+    edits.connection ?? preferences.data?.embedding_connection ?? "";
+  const edit = (patch: Partial<Draft>) =>
+    setDraft((previous) => ({
+      key,
+      values: { ...(previous?.key === key ? previous.values : {}), ...patch },
+    }));
   const embedding = connections.filter(
     (c) => c.provider === "openai" && c.status === "connected",
   );
@@ -1314,6 +1324,12 @@ export function SearchSettings({
   return (
     <Sheet title="Search preferences" onClose={onClose}>
       <p className="settings-intro">How Loop finds your past work.</p>
+      {preferences.loading && <p role="status">Loading search preferences…</p>}
+      <CollectionReadNotice
+        error={preferences.error}
+        busy={preferences.busy}
+        retry={preferences.retry}
+      />
       <SettingsList>
         <SettingsRow
           icon={Search}
@@ -1326,7 +1342,7 @@ export function SearchSettings({
           title="Enable semantic search"
           description="Finds related ideas by meaning"
           checked={enabled}
-          onChange={setEnabled}
+          onChange={(enabled) => edit({ enabled })}
         />
       </SettingsList>
       {enabled && (
@@ -1344,7 +1360,7 @@ export function SearchSettings({
               </span>
               <select
                 value={connection}
-                onChange={(e) => setConnection(e.target.value)}
+                onChange={(e) => edit({ connection: e.target.value })}
               >
                 <option value="">Local model · private, no API key</option>
                 {embedding.map((c) => (
@@ -1389,6 +1405,7 @@ export function SearchSettings({
       )}
       <button
         className="primary"
+        disabled={!preferences.data}
         onClick={async () => {
           try {
             await callRoute(
@@ -1399,7 +1416,7 @@ export function SearchSettings({
                   connectionId: parseId(ConnectionId, connection || null),
                 },
               },
-              executionSourceId(),
+              source,
             );
             onClose();
           } catch (e) {
