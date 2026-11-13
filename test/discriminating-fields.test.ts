@@ -114,7 +114,6 @@ function inventory(sources: Map<string, string>) {
       return false;
     const { object, property } = node.callee,
       method = property.name ?? property.value;
-    if (method === "brand") return false; // Identity domains are not open case selectors.
     const receiver =
       object.type === "MemberExpression" && object.property.name === "coerce"
         ? object.object
@@ -258,7 +257,7 @@ it("keeps discriminating fields in src/shared as closed sets", () => {
   ).toEqual([]);
 });
 
-it("finds aliased and multiline schemas while ignoring comments, values and closed domains", () => {
+it("finds aliased and multiline schemas while ignoring comments, values and closed sets", () => {
   const sources = new Map([
     [
       resolve("fixture/base.ts"),
@@ -284,5 +283,6 @@ it("finds aliased and multiline schemas while ignoring comments, values and clos
     "check.ts:Schema.outcome",
     "check.ts:Schema.phase",
     "check.ts:Schema.mode",
+    "check.ts:Schema.origin",
   ]);
 });
