@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceId, useSourceRoute } from "./SourceContext";
@@ -7,12 +8,13 @@ import {
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 export function McpApp({
-  artifactId,
+  artifactId: rawArtifactId,
   metadata,
 }: {
   artifactId: string;
   metadata?: any;
 }) {
+  const artifactId = ArtifactId.parse(rawArtifactId);
   const call = useSourceRoute();
   const sourceId = useSourceId();
   const frame = useRef<HTMLIFrameElement>(null),

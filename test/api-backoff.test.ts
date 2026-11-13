@@ -1,3 +1,4 @@
+import { ArtifactId } from "../src/shared/contract-ids.js";
 import { ConversationId } from "../src/shared/contract-ids.js";
 import { callRoute, readRoute } from "../src/client/api";
 import { workspaceApi } from "../src/shared/workspace-api";
@@ -36,7 +37,7 @@ const write = () =>
   callRoute(
     workspaceApi.artifactRefresh,
     {
-      params: { id: "artifact" },
+      params: { id: ArtifactId.parse("artifact") },
       body: { idempotencyKey: "fixture-request" },
     },
     "",

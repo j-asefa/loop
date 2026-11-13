@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { callRoute, routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceId, useSourceCapabilities } from "./SourceContext";
@@ -88,7 +89,7 @@ export function AttachmentList({
             preview.published
               ? routeUrl(
                   workspaceApi.artifactFile,
-                  { params: { id: preview.id } },
+                  { params: { id: ArtifactId.parse(preview.id) } },
                   sourceId,
                 )
               : routeUrl(

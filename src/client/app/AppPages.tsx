@@ -1,3 +1,4 @@
+import { ArtifactId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
 import { PersonalProfile } from "../PersonalProfile";
@@ -674,7 +675,7 @@ export function renderAppPages(
                 onArtifact={(id) =>
                   void callRoute(
                     workspaceApi.artifactDetail,
-                    { params: { id } },
+                    { params: { id: ArtifactId.parse(id) } },
                     executionSourceId(),
                   )
                     .then((item) => void open(item))
@@ -822,7 +823,7 @@ export function renderAppPages(
                 onArtifact={(artifact) =>
                   void callRoute(
                     workspaceApi.artifactDetail,
-                    { params: { id: artifact } },
+                    { params: { id: ArtifactId.parse(artifact) } },
                     executionSourceId(),
                   )
                     .then((item) => void open(item))

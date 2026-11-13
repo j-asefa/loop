@@ -1,3 +1,4 @@
+import { ArtifactId } from "../src/shared/contract-ids.js";
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
@@ -41,7 +42,7 @@ it.each([
     await expect(
       callRoute(
         workspaceApi.artifactDownload,
-        { params: { id: "file" } },
+        { params: { id: ArtifactId.parse("file") } },
         "docker:one",
       ),
     ).rejects.toThrow("Sign in to Loop");
