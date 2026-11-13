@@ -9,7 +9,8 @@ import {
   useSourceId,
 } from "./SourceContext";
 import { readRoute } from "./workspace-api";
-import { storedCommandAt } from "./pendingCommandStorage";
+import { commandStorageKey, storedCommandAt } from "./pendingCommandStorage";
+import { viewOwner } from "./viewCache";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { Sheet, RichText } from "./components";
 import {
@@ -194,7 +195,10 @@ export function NativeHistory({
             onClick={async () => {
               setBusy(true);
               setError("");
-              const key = "loop-fork-" + selected.id;
+              const key = commandStorageKey(viewOwner(), sourceId, [
+                "native-history-fork",
+                selected.id,
+              ]);
               const receipt = storedCommandAt(
                 sessionStorage,
                 key,

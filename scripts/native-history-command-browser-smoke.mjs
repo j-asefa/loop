@@ -22,10 +22,14 @@ try {
     import {SourceProvider} from ${JSON.stringify(resolve("src/client/SourceContext.tsx"))};
     import {workspaceCapabilities} from ${JSON.stringify(resolve("src/shared/capabilities.ts"))};
     import {setViewOwner} from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
-    setViewOwner('alice');
-    createRoot(document.getElementById('root')).render(React.createElement(SourceProvider,
-      {sourceId:'',capabilities:workspaceCapabilities()}, React.createElement(NativeHistory,
-      {onClose:()=>{},onOpen:id=>{window.opened=id}})));
+    const root = createRoot(document.getElementById('root'));
+    window.mountHistory = (owner, sourceId='') => {
+      setViewOwner(owner);
+      root.render(React.createElement(SourceProvider,
+        {key:JSON.stringify([owner,sourceId]),sourceId,capabilities:workspaceCapabilities()}, React.createElement(NativeHistory,
+        {onClose:()=>{},onOpen:id=>{window.opened=id}})));
+    };
+    window.mountHistory('alice');
   `,
   );
   const bundle = await browserFixtureBundle(entry);
@@ -103,7 +107,9 @@ try {
   await expect(page.getByRole("alert")).toContainText("Fixture uncertain fork");
   assert.equal(posts.length, 1);
   const retained = await page.evaluate(() =>
-    sessionStorage.getItem("loop-fork-fixture-history"),
+    sessionStorage.getItem(
+      'loop-effect:["alice","","native-history-fork","fixture-history"]',
+    ),
   );
   assert.equal(
     retained,
@@ -113,22 +119,45 @@ try {
   await page.reload();
   await selectHistory();
   assert.equal(posts.length, 1, "reload does not dispatch a fork");
+  await page.evaluate(() => window.mountHistory("bob"));
+  await selectHistory();
+  await fork.click();
+  await expect(page.getByRole("alert")).toContainText("Fixture uncertain fork");
+  assert.equal(posts.length, 2);
+  assert.notEqual(
+    posts[1].commandId,
+    posts[0].commandId,
+    "owners have separate pending forks",
+  );
+  await page.evaluate(() => window.mountHistory("alice"));
+  await selectHistory();
   mode = "success";
   await fork.click();
   await expect
     .poll(() => page.evaluate(() => window.opened))
     .toBe("forked-conversation");
-  assert.equal(posts.length, 2);
+  assert.equal(posts.length, 3);
   assert.deepEqual(
-    posts[1],
+    posts[2],
     posts[0],
     "uncertain fork keeps its identity after reload",
   );
   assert.equal(
     await page.evaluate(() =>
-      sessionStorage.getItem("loop-fork-fixture-history"),
+      sessionStorage.getItem(
+        'loop-effect:["alice","","native-history-fork","fixture-history"]',
+      ),
     ),
     null,
+  );
+  assert.equal(
+    await page.evaluate(() =>
+      sessionStorage.getItem(
+        'loop-effect:["bob","","native-history-fork","fixture-history"]',
+      ),
+    ),
+    posts[1].commandId,
+    "settling Alice leaves Bob's uncertain receipt",
   );
   assert.deepEqual(failures, []);
   console.log(
