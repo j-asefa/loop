@@ -1,3 +1,4 @@
+import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
@@ -33,6 +34,7 @@ export function PiCustomizations({
     (agent) => agent.provider === "pi" && !agent.retired_at,
   );
   const [selected, setSelected] = useState(agentId || piAgents[0]?.id || "");
+  const selectedId = AgentId.parse(selected);
   useEffect(() => {
     if (!selected && piAgents[0]) setSelected(piAgents[0].id);
   }, [selected, piAgents[0]?.id]);
@@ -67,7 +69,7 @@ export function PiCustomizations({
   useEffect(() => {
     if (!selected) return;
     let active = true;
-    void route(workspaceApi.agentPiPackages, { params: { id: selected } })
+    void route(workspaceApi.agentPiPackages, { params: { id: selectedId } })
       .then((result) => {
         if (active) {
           setPackages(result.packages);
@@ -85,7 +87,7 @@ export function PiCustomizations({
     setError("");
     try {
       const result = await route(workspaceApi.agentPiTrust, {
-        params: { id: selected },
+        params: { id: selectedId },
         body: {
           trusted,
           fingerprint: configuration.trust.fingerprint,
@@ -110,7 +112,7 @@ export function PiCustomizations({
     try {
       setInspection(
         await route(workspaceApi.agentPiInspect, {
-          params: { id: selected },
+          params: { id: selectedId },
           body: {
             source: source.trim(),
           },
@@ -134,7 +136,7 @@ export function PiCustomizations({
           .filter(Boolean);
     try {
       const result = await route(workspaceApi.agentPiFilters, {
-        params: { id: selected },
+        params: { id: selectedId },
         body: {
           source: editing.source,
           scope: editing.scope,
@@ -167,7 +169,7 @@ export function PiCustomizations({
     setError("");
     try {
       const result = await route(workspaceApi.agentPiRollback, {
-        params: { id: selected },
+        params: { id: selectedId },
         body: { source: pkg.source, scope: pkg.scope },
       });
       setConfiguration(result);
@@ -187,7 +189,7 @@ export function PiCustomizations({
     setError("");
     try {
       const result = await route(workspaceApi.agentPiPreview, {
-        params: { id: selected },
+        params: { id: selectedId },
         body: {
           name: resource.name,
           args: promptArgs,
@@ -226,7 +228,7 @@ export function PiCustomizations({
     setNotice("");
     try {
       const result = await route(workspaceApi.agentPiAction, {
-        params: { id: selected },
+        params: { id: selectedId },
         body: { action, source: packageSource, scope: packageScope },
       });
       setPackages(result.packages);
@@ -251,7 +253,7 @@ export function PiCustomizations({
     setCatalog(null);
     setError("");
     void route(workspaceApi.agentHarness, {
-      params: { id: selected },
+      params: { id: selectedId },
       query: {
         conversation:
           conversationId && selected === agentId ? conversationId : undefined,

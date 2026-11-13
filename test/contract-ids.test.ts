@@ -67,6 +67,18 @@ it("allows raw server response builders but projects a nominal output", () => {
 function clientTypeChecks(
   api: typeof import("../src/client/api.js").callRoute,
 ) {
+  const agent = AgentId.parse(uuid);
+  const connection = ConnectionId.parse("native-codex");
+  void api(workspaceApi.agentDetail, { params: { id: agent } }, "fixture");
+  void api(
+    workspaceApi.connectionModels,
+    { params: { id: connection } },
+    "fixture",
+  );
+  // @ts-expect-error Connections cannot identify agents.
+  void api(workspaceApi.agentDetail, { params: { id: connection } }, "fixture");
+  // @ts-expect-error Agents cannot identify connections.
+  void api(workspaceApi.connectionModels, { params: { id: agent } }, "fixture");
   const route = workspaceApi.conversation;
   const conversation = ConversationId.parse(uuid);
   const run: RouteResponse<typeof workspaceApi.runMove>["id"] =
@@ -126,4 +138,16 @@ it("projects nominal core entity IDs while allowing raw server builders", () => 
   expectTypeOf<Artifact["folder_id"]>().toEqualTypeOf<FolderId | null>();
   type Raw = z.input<typeof workspaceApi.bootstrap.response>;
   expectTypeOf<Raw["agents"][number]["id"]>().toEqualTypeOf<string>();
+});
+
+it("preserves unrestricted agent and native connection lookup strings", () => {
+  expect(workspaceApi.agentDetail.params.parse({ id: "opaque-agent" }).id).toBe(
+    "opaque-agent",
+  );
+  expect(
+    workspaceApi.connectionModels.params.parse({ id: "native-codex" }).id,
+  ).toBe("native-codex");
+  expect(workspaceApi.agentDetail.params.safeParse({ id: 42 }).success).toBe(
+    false,
+  );
 });
