@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import {
   ConnectionId,
   FolderId,
@@ -37,7 +38,7 @@ export const AgentHandle = Text.trim()
 export const AgentInput = z.object({
   name: AgentHandle,
   connectionId: requestId(ConnectionId),
-  model: Text.min(1).max(150),
+  model: requestId(ModelId).min(1).max(150),
   effort: Text.regex(/^[a-z][a-z0-9_-]{0,31}$/)
     .nullable()
     .optional(),
@@ -57,7 +58,7 @@ export const AgentUpdateInput = z.object({
   instructions: Text.max(12000).optional(),
   // The existing patch handler treats null like an omitted model/connection.
   connectionId: requestId(ConnectionId).nullish(),
-  model: Text.min(1).max(200).nullish(),
+  model: requestId(ModelId).min(1).max(200).nullish(),
   effort: AgentInput.shape.effort,
 });
 // Inbound credential material. Never reuse these schemas for a response.
@@ -70,9 +71,9 @@ export const ConnectionReconnectInput = z.object({
   secret: Text.min(8).max(4096),
 });
 export const PublicModel = z.object({
-  id: Text,
+  id: ModelId,
   name: Text,
-  resolvedModel: Text.optional(),
+  resolvedModel: ModelId.optional(),
   capabilities: Text.optional(),
   effortLevels: z
     .array(z.object({ value: Text, description: Text.optional() }))
@@ -88,7 +89,7 @@ export const PublicConnectionRefresh = PublicModels.extend({
       mode: z.enum(["subscription", "existing"]),
       description: Text,
       provider: Text.optional(),
-      model: Text.nullish(),
+      model: ModelId.nullish(),
     })
     .optional(),
   capabilities: z.record(Text, z.json()).optional(),
@@ -132,7 +133,7 @@ const PublicPiInventory = z.object({
   model: z
     .object({
       provider: Text.optional(),
-      id: Text.optional(),
+      id: ModelId.optional(),
       name: Text.optional(),
     })
     .optional(),
@@ -254,7 +255,7 @@ export const PublicAgentMessages = z.object({
       conversation_id: ConversationId.nullable(),
       run_id: RunId.nullable(),
       final: z.number(),
-      model: Text.nullable(),
+      model: ModelId.nullable(),
     }),
   ),
   next: Text.nullable(),

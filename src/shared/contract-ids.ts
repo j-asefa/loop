@@ -106,6 +106,9 @@ export type AuthOptionId = z.output<typeof AuthOptionId>;
 export const ExecutionCommandId = z.string().brand<"ExecutionCommandId">();
 export type ExecutionCommandId = z.output<typeof ExecutionCommandId>;
 
+export const ModelId = z.string().brand<"ModelId">();
+export type ModelId = z.output<typeof ModelId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

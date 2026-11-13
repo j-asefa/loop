@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
   NativeProviderId,
@@ -44,9 +45,9 @@ const Empty = z.strictObject({});
 const JsonObject = z.record(z.string(), z.json());
 const Model = z
   .object({
-    id: z.string(),
+    id: ModelId,
     name: z.string(),
-    resolvedModel: z.string().optional(),
+    resolvedModel: ModelId.optional(),
     effortLevels: z
       .array(
         z.strictObject({

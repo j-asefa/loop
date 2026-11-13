@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import { NativeDecisionId } from "./contract-ids.js";
 import { TeamPresetId } from "./contract-ids.js";
@@ -42,7 +43,7 @@ export const PublicAgent = z.object({
   normalized_name: Text.optional(),
   provider: Provider,
   connection_id: ConnectionId.nullable(),
-  model: Text,
+  model: ModelId,
   effort: MaybeText.optional(),
   instructions: Text,
   folder_id: FolderId.nullable().optional(),

@@ -1,3 +1,4 @@
+import { ModelId } from "../shared/contract-ids.js";
 import {
   ConnectionId,
   FolderId,
@@ -155,8 +156,13 @@ export function PresetTeamForm({
           presetId: TeamPresetId.parse(preset.id),
           name,
           folderId: parseId(FolderId, folder),
-          selection,
-          roles,
+          selection: { ...selection, model: parseId(ModelId, selection.model) },
+          roles: Object.fromEntries(
+            Object.entries(roles).map(([role, choice]) => [
+              role,
+              { ...choice, model: parseId(ModelId, choice.model) },
+            ]),
+          ),
         };
         const encoded = JSON.stringify(body);
         try {

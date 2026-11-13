@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
   NativeProviderId,
@@ -201,7 +202,7 @@ export const PublicNativeConversation = z.object({
     .object({
       harness: Harness,
       project: Text,
-      model: Text.nullable(),
+      model: ModelId.nullable(),
       state: NativeSessionState,
       updated_at: z.number(),
     })

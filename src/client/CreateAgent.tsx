@@ -1,3 +1,4 @@
+import { ModelId } from "../shared/contract-ids.js";
 import { FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 
@@ -351,6 +352,7 @@ export function CreateAgent({
             {
               body: {
                 ...data,
+                model: parseId(ModelId, data.model),
                 name: generatedName ?? data.name,
                 idempotencyKey,
               },

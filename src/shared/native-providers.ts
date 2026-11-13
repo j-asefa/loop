@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "./contract-ids.js";
 import { ProjectId, requestId } from "./contract-ids.js";
 import { z } from "zod";
@@ -23,8 +24,8 @@ export const NativeProvider = z.object({
 });
 export const NativeProviderView = z.object({
   providers: z.array(NativeProvider),
-  models: z.array(z.object({ id: z.string(), name: z.string() })),
-  agents: z.array(z.object({ name: z.string(), model: z.string() })),
+  models: z.array(z.object({ id: ModelId, name: z.string() })),
+  agents: z.array(z.object({ name: z.string(), model: ModelId })),
   billing: z.enum(["existing", "subscription"]),
   enabled: z.boolean(),
   updatedAt: z.number(),

@@ -1,3 +1,4 @@
+import { ModelId } from "./contract-ids.js";
 import { NativeItemState } from "./native-item-state.js";
 import { z } from "zod";
 
@@ -16,9 +17,9 @@ export const Billing = z.strictObject({
   description: z.string(),
   provider: z.string().optional(),
   // Codex config/read reports an unset default model as null.
-  model: z.string().nullish(),
+  model: ModelId.nullish(),
 });
-export type Billing = z.infer<typeof Billing>;
+export type Billing = z.input<typeof Billing>;
 export type Capabilities = {
   approvals: boolean;
   questions: boolean;

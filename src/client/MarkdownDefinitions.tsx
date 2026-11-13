@@ -1,3 +1,4 @@
+import { ModelId } from "../shared/contract-ids.js";
 import {
   ConnectionId,
   FolderId,
@@ -552,7 +553,12 @@ export function CreateFromDefinition({
                 choices[roles[0].name].connectionId,
               ),
             },
-            roles: choices,
+            roles: Object.fromEntries(
+              Object.entries(choices).map(([role, choice]) => [
+                role,
+                { ...choice, model: parseId(ModelId, choice.model) },
+              ]),
+            ),
           };
           const encoded = JSON.stringify({
             sourceId,
