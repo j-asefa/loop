@@ -247,6 +247,48 @@ it("applies the same folder, kind, date and owner filters to keyword and semanti
   ).toHaveLength(0);
 });
 
+it("announces a query credential failure while indexed and pending documents coexist", async () => {
+  const owner = id(),
+    connection = id();
+  for (let i = 0; i < 17; i++)
+    saveArtifact(owner, {
+      title: "Travel " + i,
+      content: "A car",
+      role: "answer",
+    });
+  enable(owner);
+  advance();
+  await indexPending();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)",
+  ).run(connection, owner, "not-a-sealed-envelope", now());
+  db.prepare(
+    "UPDATE preferences SET embedding_connection=?,embedding_model='fixture-embedding' WHERE owner_id=?",
+  ).run(connection, owner);
+  db.prepare(
+    "UPDATE embeddings SET model='fixture-embedding' WHERE owner_id=?",
+  ).run(owner);
+  expect(searchStatus(owner)).toMatchObject({
+    state: "indexing",
+    indexed: 16,
+    pending: 1,
+  });
+  const before = searchSignals(owner).length;
+  const request = vi
+    .spyOn(globalThis, "fetch")
+    .mockRejectedValue(new Error("Unexpected external effect"));
+  try {
+    expect((await search(owner, "Travel")).mode).toBe("keyword");
+    expect(request).not.toHaveBeenCalled();
+    expect(searchStatus(owner)).toMatchObject({ state: "error", pending: 1 });
+    expect(searchSignals(owner)).toHaveLength(before + 1);
+    await search(owner, "Travel");
+    expect(searchSignals(owner)).toHaveLength(before + 1);
+  } finally {
+    request.mockRestore();
+  }
+});
+
 it.each(["metadata", "secret"] as const)(
   "records invalid saved embedding %s without contacting a provider",
   async (column) => {

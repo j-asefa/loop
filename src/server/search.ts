@@ -307,14 +307,21 @@ export async function search(
           : "Keyword + semantic results. Embeddings and this query go to your selected OpenAI API account.";
     } catch (error) {
       if (error instanceof InvalidRow)
-        searchIndexStatusQueries.replace(
-          db,
-          owner,
-          configuration(c),
-          "error",
-          error.message,
-          now(),
-        );
+        db.transaction(() => {
+          const before = JSON.stringify(searchStatus(owner));
+          searchIndexStatusQueries.replace(
+            db,
+            owner,
+            configuration(c),
+            "error",
+            error.message,
+            now(),
+          );
+          if (JSON.stringify(searchStatus(owner)) !== before)
+            emit(owner, { kind: "collection", id: "search" }, "invalidate", {
+              scope: { kind: "collection", id: "search" },
+            });
+        })();
       detail = "Semantic service unavailable; showing keyword results.";
     }
   }
