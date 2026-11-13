@@ -158,7 +158,7 @@ const PublicImportSummary = z.object({
   titles: z.array(Text),
   completed: Num,
   // Added by execution only after the preview has been accepted.
-  agentId: Text.optional(),
+  agentId: AgentId.optional(),
   attachmentsStored: z.boolean().optional(),
 });
 export const PublicImportPreview = z.union([

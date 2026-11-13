@@ -1,3 +1,4 @@
+import { ConversationId } from "./contract-ids.js";
 import { z } from "zod";
 
 export const PersonalDecisionsQuery = z.object({
@@ -37,7 +38,7 @@ const PersonalDecisionSchema = z.strictObject({
   response_truncated: z.boolean(),
   state: z.enum(["pending", "deciding", "resolved", "unknown", "expired"]),
   created_at: z.number().int().nonnegative().safe(),
-  conversation_id: z.string().nullable(),
+  conversation_id: ConversationId.nullable(),
   conversation_title: z.string().max(1024).nullable(),
   agent_name: z.string().max(256).nullable(),
 });

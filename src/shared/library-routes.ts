@@ -5,6 +5,7 @@ import {
   MessageId,
   RunId,
   requestId,
+  AgentId,
 } from "./contract-ids.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -151,7 +152,7 @@ export const libraryRoutes = {
     method: "POST",
     path: "/artifacts",
     body: library.ArtifactCreateInput,
-    response: z.object({ id: Text }),
+    response: z.object({ id: ArtifactId }),
     status: 201,
   }),
   artifactUpdate: endpoint({
@@ -170,7 +171,11 @@ export const libraryRoutes = {
     path: "/artifacts/:id/move",
     params: z.object({ id: requestId(ArtifactId) }),
     body: library.ArtifactMoveInput,
-    response: z.object({ operation: Text, folderId: MaybeText, message: Text }),
+    response: z.object({
+      operation: Text,
+      folderId: FolderId.nullable(),
+      message: Text,
+    }),
   }),
   runCheckout: endpoint({
     ...base,
@@ -194,7 +199,9 @@ export const libraryRoutes = {
     method: "GET",
     path: "/runs/:id/files",
     params: z.object({ id: requestId(RunId) }),
-    response: z.array(z.object({ id: Text, title: Text, metadata: Text })),
+    response: z.array(
+      z.object({ id: ArtifactId, title: Text, metadata: Text }),
+    ),
   }),
   operationUndo: endpoint({
     ...base,
@@ -203,7 +210,7 @@ export const libraryRoutes = {
     path: "/operations/:id/undo",
     params: Id,
     body: z.unknown(),
-    response: Ok.extend({ folderId: MaybeText }),
+    response: Ok.extend({ folderId: FolderId.nullable() }),
   }),
   objectFile: endpoint({
     ...base,
@@ -291,9 +298,9 @@ export const libraryRoutes = {
     params: z.object({ id: requestId(ConversationId) }),
     body: library.ContinueInput,
     response: z.object({
-      id: Text,
-      agentId: Text,
-      runId: Text,
+      id: ConversationId,
+      agentId: AgentId,
+      runId: RunId,
       unavailable: z.literal(true).optional(),
     }),
   }),

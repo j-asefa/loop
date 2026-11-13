@@ -1,4 +1,10 @@
-import { AgentId, ProjectId, requestId } from "./contract-ids.js";
+import {
+  AgentId,
+  ProjectId,
+  requestId,
+  ArtifactId,
+  ConversationId,
+} from "./contract-ids.js";
 import { z } from "zod";
 
 export const PersonalFilesQuery = z.object({
@@ -9,11 +15,11 @@ export const PersonalFilesQuery = z.object({
   type: z.enum(["all", "image", "video", "html", "other"]).default("all"),
 });
 const PersonalFile = z.object({
-  id: z.string(),
+  id: ArtifactId,
   title: z.string(),
   metadata: z.string(),
   created_at: z.number(),
-  conversation_id: z.string().nullable(),
+  conversation_id: ConversationId.nullable(),
   agent_name: z.string().nullable(),
   project_name: z.string().nullable(),
   cursor: z.number(),
