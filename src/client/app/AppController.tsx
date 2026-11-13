@@ -26,7 +26,7 @@ import { belongsToProject } from "../../shared/projects";
 
 import { afterSheetsClose, closeTopSheet } from "../sheetHistory";
 import { restoreScroll, usePageHistory } from "../usePageHistory";
-import { setViewOwner, viewGeneration } from "../viewCache";
+import { viewGeneration } from "../viewCache";
 import {
   sessionDraft,
   emptySharedDraft,
@@ -70,7 +70,11 @@ import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
 import type { Agent, Artifact, RunView as Run, Team } from "../../shared/types";
 
-import { createSessionCheck, useSessionLifecycle } from "./Session";
+import {
+  createSessionCheck,
+  useSessionLifecycle,
+  useOwnerSession,
+} from "./Session";
 import { createResultsLoader } from "./Results";
 import {
   useWorkspaceData,
@@ -123,8 +127,8 @@ export function useAppController() {
   const [environmentToOpen, setEnvironmentToOpen] = useState("");
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
-  const [session, setSession] = useState<any>(undefined),
-    [data, setData] = useState<Bootstrap>({
+  const { session, setSession } = useOwnerSession();
+  const [data, setData] = useState<Bootstrap>({
       agents: [],
       connections: [],
       folders: [],
@@ -165,7 +169,6 @@ export function useAppController() {
       localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
-  setViewOwner(session?.user?.id);
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);

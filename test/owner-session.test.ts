@@ -1,3 +1,4 @@
+import { ownerSession } from "../src/client/ownerSession";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   cacheView,
@@ -17,7 +18,7 @@ import {
 import { acquireWorkspacePoll } from "../src/client/workspace-poll-budget";
 
 beforeEach(() => {
-  setViewOwner(undefined);
+  ownerSession.setSession(undefined);
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => values.get(key) ?? null,
@@ -108,4 +109,62 @@ it("keeps late poll releases and unread responses out of a returning owner's sta
   expect(doneReadVersion("local", "card")).toBe(0);
   releases.slice(1).forEach((release) => release!());
   releaseNext!();
+});
+
+it("publishes paired identity and cleared caches in one snapshot before notifying readers", () => {
+  ownerSession.setSession({
+    user: { id: "alice", name: "Alice" },
+    mode: "paired",
+  });
+  const original = ownerSession.current;
+  cacheView("page", "Alice private page", "alice");
+  saveThreadDraft("thread", "Alice draft", []);
+  const observed: unknown[] = [];
+  const stop = ownerSession.subscribe(() =>
+    observed.push({
+      owner: ownerSession.current.owner,
+      sessionOwner: ownerSession.current.session?.user.id,
+      generation: ownerSession.current.generation,
+      page: cachedView("page"),
+      draft: threadDraft("thread").text,
+    }),
+  );
+  try {
+    ownerSession.setSession({
+      user: { id: "alice", name: "Renamed Alice" },
+      mode: "paired",
+    });
+    expect(observed[0]).toEqual({
+      owner: "alice",
+      sessionOwner: "alice",
+      generation: original.generation,
+      page: "Alice private page",
+      draft: "Alice draft",
+    });
+    ownerSession.setSession({
+      user: { id: "bob", name: "Bob" },
+      mode: "paired",
+    });
+    expect(observed[1]).toEqual({
+      owner: "bob",
+      sessionOwner: "bob",
+      generation: original.generation + 1,
+      page: undefined,
+      draft: "",
+    });
+    expect(original.session?.user.name).toBe("Alice");
+    expect(original.owner).toBe("alice");
+  } finally {
+    stop();
+  }
+  ownerSession.setSession(null);
+  expect(observed).toHaveLength(2);
+  expect(ownerSession.current.session).toBeNull();
+  expect(ownerSession.current.owner).toBeUndefined();
+  expect(threadDraft("thread").text).toBe("");
+  ownerSession.setSession({
+    user: { id: "alice", name: "Alice" },
+    mode: "paired",
+  });
+  expect(threadDraft("thread").text).toBe("Alice draft");
 });

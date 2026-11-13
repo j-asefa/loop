@@ -2,11 +2,20 @@ import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
 import { readRoute } from "../api";
 import { workspaceApi } from "../../shared/workspace-api";
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { ownerSession, type BrowserSession } from "../ownerSession";
 
 import { Pairing } from "../Pairing";
 
 import type { AppModel } from "./AppController";
+
+export function useOwnerSession() {
+  const { session } = useSyncExternalStore(
+    ownerSession.subscribe,
+    () => ownerSession.current,
+  );
+  return { session, setSession: ownerSession.setSession };
+}
 
 function discardPairingFragment() {
   const url = new URL(location.href);
@@ -16,7 +25,7 @@ function discardPairingFragment() {
 }
 
 export function createSessionCheck(props: {
-  setSession(value: unknown): void;
+  setSession(value: BrowserSession): void;
 }) {
   const { setSession } = props;
   async function check(signal = new AbortController().signal) {

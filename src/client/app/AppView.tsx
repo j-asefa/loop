@@ -536,6 +536,7 @@ export function renderApp(props: AppViewProps) {
         )}
         {renderAppPages({
           ...props,
+          session,
           projectScope,
           resultsList,
           resultCard,
