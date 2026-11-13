@@ -129,6 +129,7 @@ export function renderAppPages(
     | "setDismissNotice"
   > &
     ReturnType<typeof renderResults> & {
+      session: NonNullable<AppModel["session"]>;
       projectScope: ReactNode;
       launchComposer: ReturnType<typeof renderComposer>["launchComposer"];
     },

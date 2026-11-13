@@ -396,7 +396,12 @@ mail; ineligible results retain their metadata until source deletion.
 ### Browser owner generation
 
 [`ownerSession.ts`](../src/client/ownerSession.ts) owns the current owner and
-generation. Re-selecting the same owner leaves the generation and caches alone;
+generation together with the paired-session projection. Session reads and expiry
+publish through that store; AppController subscribes to its stable snapshot with
+`useSyncExternalStore` instead of setting global ownership during render.
+Cache resets finish before subscribers observe an owner change. A suspended or
+abandoned render does not publish a session. Re-selecting the same owner leaves
+the generation and caches alone;
 signing out or selecting another owner advances it before clearing registered
 module caches. View snapshots, read cooldowns, unread versions, failed-read
 interests, poll capacity and detail selections register their reset at module
