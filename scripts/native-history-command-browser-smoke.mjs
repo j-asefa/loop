@@ -34,7 +34,10 @@ try {
   );
   const bundle = await browserFixtureBundle(entry);
   server = createServer(async (req, res) => {
-    const path = new URL(req.url, "http://fixture.invalid").pathname;
+    const path = new URL(req.url, "http://fixture.invalid").pathname.replace(
+      "/api/agent-sources/fixture%3Asecond/",
+      "/api/",
+    );
     const reply = (body, status = 200) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
@@ -129,6 +132,16 @@ try {
     posts[0].commandId,
     "owners have separate pending forks",
   );
+  await page.evaluate(() => window.mountHistory("alice", "fixture:second"));
+  await selectHistory();
+  await fork.click();
+  await expect(page.getByRole("alert")).toContainText("Fixture uncertain fork");
+  assert.equal(posts.length, 3);
+  assert.notEqual(
+    posts[2].commandId,
+    posts[0].commandId,
+    "sources have separate pending forks",
+  );
   await page.evaluate(() => window.mountHistory("alice"));
   await selectHistory();
   mode = "success";
@@ -136,9 +149,9 @@ try {
   await expect
     .poll(() => page.evaluate(() => window.opened))
     .toBe("forked-conversation");
-  assert.equal(posts.length, 3);
+  assert.equal(posts.length, 4);
   assert.deepEqual(
-    posts[2],
+    posts[3],
     posts[0],
     "uncertain fork keeps its identity after reload",
   );
@@ -158,6 +171,15 @@ try {
     ),
     posts[1].commandId,
     "settling Alice leaves Bob's uncertain receipt",
+  );
+  assert.equal(
+    await page.evaluate(() =>
+      sessionStorage.getItem(
+        'loop-effect:["alice","fixture:second","native-history-fork","fixture-history"]',
+      ),
+    ),
+    posts[2].commandId,
+    "settling local leaves the other source receipt",
   );
   assert.deepEqual(failures, []);
   console.log(

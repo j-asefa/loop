@@ -425,6 +425,15 @@ without turning acceptance into a reported failure. The conversation UI retains
 its outcome policy: an ordinary refusal during recovery cannot settle an earlier
 uncertain request.
 
+### Native history fork receipts
+
+[`NativeHistory.tsx`](../src/client/NativeHistory.tsx) stores a pending fork's
+command ID in an owner/source/history-entry-scoped session slot through the
+shared command adapter. An uncertain response retains the ID across reloads;
+retrying the same slot reuses it. Success removes only that slot before opening
+the returned conversation, leaving other owners' and sources' pending forks
+intact. The receipt stores an ID, not harness-owned session context.
+
 ### Native answer receipts
 
 [`NativeControls.tsx`](../src/client/NativeControls.tsx) uses the shared command
