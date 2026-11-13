@@ -184,15 +184,15 @@ function sameWorkspaceRedirect(response: Response, requested: string) {
     return false;
   }
 }
-async function requestInWorkspace<T>(
-  path: string,
-  sourceId: string,
-  body?: unknown,
-  method?: string,
-  signal?: AbortSignal,
-  kind?: "stream",
-  multipart = false,
-  empty = false,
+type WorkspaceRequestOptions = {
+  path: string;
+  sourceId: string;
+  body?: unknown;
+  method?: string;
+  signal?: AbortSignal;
+  kind?: "stream";
+  multipart?: boolean;
+  empty?: boolean;
   command?: Pick<
     Awaited<ReturnType<typeof prepareFleetCommand>>,
     "current" | "observe" | "dispatch"
@@ -200,8 +200,19 @@ async function requestInWorkspace<T>(
     headers?: Partial<
       Awaited<ReturnType<typeof prepareFleetCommand>>["headers"]
     >;
-  },
-): Promise<T> {
+  };
+};
+async function requestInWorkspace<T>({
+  path,
+  sourceId,
+  body,
+  method,
+  signal,
+  kind,
+  multipart = false,
+  empty = false,
+  command,
+}: WorkspaceRequestOptions): Promise<T> {
   const generation = viewGeneration();
   const requestId = ++clockRequestId;
   if (generation !== backoffGeneration) {
@@ -359,14 +370,13 @@ async function readRequest<T>(
   let failures = 0;
   for (;;) {
     try {
-      return await requestInWorkspace<T>(
+      return await requestInWorkspace<T>({
         path,
         sourceId,
-        undefined,
-        "GET",
+        method: "GET",
         signal,
         kind,
-      );
+      });
     } catch (error) {
       if (signal.aborted) throw error;
       const status = (error as { status?: number }).status;
@@ -478,17 +488,17 @@ export async function callRoute<C extends ClientRouteContract>(
       }
       const value = response(
         contract,
-        await requestInWorkspace<unknown>(
+        await requestInWorkspace<unknown>({
           path,
           sourceId,
           body,
-          contract.method,
+          method: contract.method,
           signal,
-          contract.kind === "stream" ? "stream" : undefined,
-          contract.multipart,
-          contract.status === 204,
-          guarded,
-        ),
+          kind: contract.kind === "stream" ? "stream" : undefined,
+          multipart: contract.multipart,
+          empty: contract.status === 204,
+          command: guarded,
+        }),
       );
       guarded.current();
       await command?.settle(true);
