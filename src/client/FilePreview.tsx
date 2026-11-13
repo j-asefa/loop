@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { fetchStream, routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { useEffect, useState, type ReactNode } from "react";
@@ -28,14 +29,18 @@ export function loopFileUrl(href?: string, source?: string, preview?: "html") {
       query[key] = values.length === 1 ? values[0] : values;
     }
     if (preview) query.preview = preview;
-    return routeUrl(
-      artifact ? workspaceApi.artifactFile : workspaceApi.objectFile,
-      {
-        params: { id: decodeURIComponent(target[2]) },
-        query,
-      },
-      source ?? decodeURIComponent(target[1] ?? ""),
-    );
+    const id = decodeURIComponent(target[2]);
+    const sourceId = source ?? decodeURIComponent(target[1] ?? "");
+    return artifact
+      ? routeUrl(
+          workspaceApi.artifactFile,
+          {
+            params: { id: ArtifactId.parse(id) },
+            query,
+          },
+          sourceId,
+        )
+      : routeUrl(workspaceApi.objectFile, { params: { id }, query }, sourceId);
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
@@ -180,15 +185,28 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
         const previews = new URL(url, location.href).searchParams.getAll(
           "preview",
         );
-        const response = await fetchStream(
-          artifact ? workspaceApi.artifactFile : workspaceApi.objectFile,
-          {
-            params: { id: decodeURIComponent(target[2]) },
-            query: { preview: previews.length > 1 ? previews : previews[0] },
-          },
-          decodeURIComponent(target[1] ?? ""),
-          controller.signal,
-        );
+        const id = decodeURIComponent(target[2]);
+        const sourceId = decodeURIComponent(target[1] ?? "");
+        const query = { preview: previews.length > 1 ? previews : previews[0] };
+        const response = await (artifact
+          ? fetchStream(
+              workspaceApi.artifactFile,
+              {
+                params: { id: ArtifactId.parse(id) },
+                query,
+              },
+              sourceId,
+              controller.signal,
+            )
+          : fetchStream(
+              workspaceApi.objectFile,
+              {
+                params: { id },
+                query,
+              },
+              sourceId,
+              controller.signal,
+            ));
         if (response.redirected || response.status === 401)
           throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)
