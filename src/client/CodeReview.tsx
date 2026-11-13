@@ -1,3 +1,4 @@
+import { ConversationId, TeamId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
 import { callRoute } from "./api";
@@ -81,7 +82,10 @@ export function StartCodeReview({
               (idempotencyKey) =>
                 callRoute(
                   workspaceApi.teamReview,
-                  { params: { id: teamId }, body: { ...body, idempotencyKey } },
+                  {
+                    params: { id: TeamId.parse(teamId) },
+                    body: { ...body, idempotencyKey },
+                  },
                   source,
                 ),
               creationFailureSettled,
@@ -174,12 +178,13 @@ export function StartCodeReview({
 }
 
 export function CodeReviewStatus({
-  conversationId,
+  conversationId: rawConversationId,
   revision,
 }: {
   conversationId: string;
   revision: number;
 }) {
+  const conversationId = ConversationId.parse(rawConversationId);
   const sourceRoute = useSourceRoute();
   const read = useSourceRouteRead();
   const [review, setReview] = useState<Status | null>(null),

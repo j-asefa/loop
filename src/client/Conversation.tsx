@@ -1,3 +1,4 @@
+import { MessageId } from "../shared/contract-ids.js";
 import { ConversationId, RunId } from "../shared/contract-ids.js";
 import {
   continuationStorageKey,
@@ -1074,7 +1075,7 @@ function ConversationView({
   }
   async function setSavedOnServer(messageId: string, saved: boolean) {
     await call(saved ? workspaceApi.messageSave : workspaceApi.messageUnsave, {
-      params: { id: messageId },
+      params: { id: MessageId.parse(messageId) },
       body: saved ? {} : undefined,
     });
     window.dispatchEvent(new Event("loop-later-change"));

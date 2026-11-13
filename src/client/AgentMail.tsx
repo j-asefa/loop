@@ -1,3 +1,4 @@
+import { AgentId, TeamId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useCollectionRead } from "./CollectionRead";
@@ -44,6 +45,10 @@ function MailThreadsView({
   onOpenConversation,
   onChanged,
 }: Props) {
+  const mailTarget =
+    target.kind === "team"
+      ? { kind: "team" as const, id: TeamId.parse(target.id) }
+      : { kind: "agent" as const, id: AgentId.parse(target.id) };
   const fleet = useFleet();
   const resumeRoute =
     target.kind === "team"
@@ -74,16 +79,23 @@ function MailThreadsView({
   const load = () =>
     collection.load(
       (signal, mode) =>
-        readRoute(
-          target.kind === "team"
-            ? workspaceApi.teamMessages
-            : workspaceApi.agentMail,
-          { params: { id: target.id } },
-          sourceId,
-          signal,
-          undefined,
-          mode,
-        ),
+        mailTarget.kind === "team"
+          ? readRoute(
+              workspaceApi.teamMessages,
+              { params: { id: mailTarget.id } },
+              sourceId,
+              signal,
+              undefined,
+              mode,
+            )
+          : readRoute(
+              workspaceApi.agentMail,
+              { params: { id: mailTarget.id } },
+              sourceId,
+              signal,
+              undefined,
+              mode,
+            ),
       (response) => {
         setThreads(response.threads);
         setError("");
@@ -109,12 +121,19 @@ function MailThreadsView({
     setNotice("");
     try {
       const result = await request((signal) =>
-        callRoute(
-          resumeRoute,
-          { params: { id: target.id, threadId }, body: {} },
-          sourceId,
-          signal,
-        ),
+        mailTarget.kind === "team"
+          ? callRoute(
+              workspaceApi.teamThreadResume,
+              { params: { id: mailTarget.id, threadId }, body: {} },
+              sourceId,
+              signal,
+            )
+          : callRoute(
+              workspaceApi.agentMailResume,
+              { params: { id: mailTarget.id, threadId }, body: {} },
+              sourceId,
+              signal,
+            ),
       );
       if (!active.current) return;
       setNotice(

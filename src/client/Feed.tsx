@@ -1,3 +1,4 @@
+import { MessageId } from "../shared/contract-ids.js";
 import { ConversationId, RunId } from "../shared/contract-ids.js";
 import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
@@ -301,7 +302,7 @@ function FeedCard({
     setReadError("");
     void callRoute(
       workspaceApi.messageDetail,
-      { params: { id: messageId } },
+      { params: { id: MessageId.parse(messageId) } },
       item.sourceId ?? scopedSource,
       controller.signal,
     )
@@ -2953,7 +2954,7 @@ export function Feed({
     await callRoute(
       saved ? workspaceApi.messageSave : workspaceApi.messageUnsave,
       {
-        params: { id: messageId },
+        params: { id: MessageId.parse(messageId) },
         body: saved ? {} : undefined,
       },
       item.sourceId ?? scopedSource,

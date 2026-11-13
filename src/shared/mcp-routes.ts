@@ -1,4 +1,4 @@
-import { ArtifactId, requestId } from "./contract-ids.js";
+import { AgentId, ArtifactId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as mcp from "./mcp-contract-schemas.js";
 import { Text, Id, endpoint, base } from "./route-contract.js";
@@ -114,7 +114,7 @@ export const mcpRoutes = {
     operation: "agentTools",
     method: "GET",
     path: "/agents/:id/tools",
-    params: Id,
+    params: z.object({ id: requestId(AgentId) }),
     response: z.array(z.object({ connection_id: Text, tool: Text })),
   }),
   agentToolsUpdate: endpoint({
@@ -122,7 +122,7 @@ export const mcpRoutes = {
     operation: "agentToolsUpdate",
     method: "PUT",
     path: "/agents/:id/tools",
-    params: Id,
+    params: z.object({ id: requestId(AgentId) }),
     body: z.unknown(),
     response: CardErrorSchema,
     status: 410,

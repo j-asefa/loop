@@ -1,4 +1,4 @@
-import { ConversationId, RunId, requestId } from "./contract-ids.js";
+import { ConversationId, MessageId, RunId, requestId } from "./contract-ids.js";
 import { ReplyState } from "./steering-replies.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
@@ -199,7 +199,7 @@ export const mobileRoutes = {
     operation: "messageSave",
     method: "POST",
     path: "/messages/:id/saved",
-    params: Id,
+    params: z.object({ id: requestId(MessageId) }),
     body: z.unknown(),
     response: Ok.extend({ saved: z.boolean() }),
   }),
@@ -208,7 +208,7 @@ export const mobileRoutes = {
     operation: "messageUnsave",
     method: "DELETE",
     path: "/messages/:id/saved",
-    params: Id,
+    params: z.object({ id: requestId(MessageId) }),
     body: z.unknown(),
     response: Ok.extend({ saved: z.boolean() }),
   }),
