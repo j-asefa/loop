@@ -16,17 +16,58 @@ export async function projectNavigationSmoke(page, fixture) {
   });
   await expect(page.locator(".project-heading h2")).toHaveText(project.name);
   for (const parentId of [parent.id, null]) {
-    await page
-      .getByRole("button", { name: "Edit project", exact: true })
-      .click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
-      project.name,
+    let release;
+    let arrived = false;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      "**/api/bootstrap",
+      async (route) => {
+        const response = await route.fetch();
+        const value = await response.json();
+        value.folders.find((folder) => folder.id === parent.id).name =
+          "Refreshed parent";
+        arrived = true;
+        await gate;
+        await route.fulfill({ response, json: value });
+      },
+      { times: 1 },
     );
+    const dialog = page.getByRole("dialog");
+    try {
+      await page.evaluate(() => window.dispatchEvent(new Event("online")));
+      await expect.poll(() => arrived).toBe(true);
+      await page
+        .getByRole("button", { name: "Edit project", exact: true })
+        .click();
+      await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue(
+        project.name,
+      );
+    } finally {
+      release();
+    }
+    await expect(
+      dialog
+        .getByLabel(/^Location/)
+        .locator("option")
+        .filter({ hasText: "Refreshed parent" }),
+    ).toHaveCount(1);
     await dialog.getByLabel(/^Location/).selectOption(parentId || "");
+    const submitted = page.waitForRequest(
+      (request) =>
+        request.method() === "PATCH" &&
+        new URL(request.url()).pathname.startsWith("/api/folders/"),
+    );
     await dialog
       .getByRole("button", { name: "Save changes", exact: true })
       .click();
+    const request = await submitted;
+    assert.equal(
+      new URL(request.url()).pathname,
+      `/api/folders/${project.id}`,
+      "A bootstrap refresh must not retarget the open editor",
+    );
     await expect(dialog).toHaveCount(0);
     const updated = (await fixture.api("/bootstrap")).folders.find(
       (folder) => folder.id === project.id,

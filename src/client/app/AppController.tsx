@@ -62,7 +62,13 @@ import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
 import { parse } from "../json";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
-import type { Agent, Artifact, RunView as Run, Team } from "../../shared/types";
+import type {
+  Agent,
+  Artifact,
+  Folder,
+  RunView as Run,
+  Team,
+} from "../../shared/types";
 
 import {
   createSessionCheck,
@@ -163,6 +169,13 @@ export function useAppController(seed?: AppNavigationInitial) {
     if (replyContext && selected !== replyContext.agentId)
       setReplyContext(null);
   }, [selected]);
+  const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
+  function editFolder(id: string) {
+    const target = data.folders.find((folder) => folder.id === id);
+    if (!target) return;
+    setEditingFolder(target);
+    setSheet("folder-edit");
+  }
   const [folderChoice, setFolderChoice] = useState<string | undefined>(
     initial.folderChoice,
   );
@@ -1279,6 +1292,8 @@ export function useAppController(seed?: AppNavigationInitial) {
     }
   }, [projectFilter, teamKey, data.agents, conversation]);
   return {
+    editingFolder,
+    editFolder,
     bootstrapOwner,
     setBootstrapOwner,
     composerOptions,
