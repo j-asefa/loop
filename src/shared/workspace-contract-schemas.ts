@@ -8,6 +8,7 @@ import {
   ProjectId,
   RunId,
   TeamId,
+  requestId,
 } from "./contract-ids.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
 import { PublicRun } from "./run-contract-schema.js";
@@ -279,8 +280,8 @@ export const CreatedCardTokenSchema = z.object({
 export const Teams = Text.max(2000).optional();
 
 export const ResultSelection = {
-  agent: Text.optional(),
-  folder: Text.optional(),
+  agent: requestId(AgentId).optional(),
+  folder: requestId(FolderId).optional(),
   teams: Teams,
   view: z.enum(["all", "prompts", "files"]).default("all"),
   saved: z.enum(["1", "0"]).optional(),

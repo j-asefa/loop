@@ -1,4 +1,10 @@
-import { AgentId, ConnectionId, requestId } from "./contract-ids.js";
+import {
+  AgentId,
+  ConnectionId,
+  requestId,
+  ConversationId,
+  RunId,
+} from "./contract-ids.js";
 import { z } from "zod";
 import {
   AgentCreateInput,
@@ -118,7 +124,9 @@ export const agentRoutes = {
     method: "GET",
     path: "/agents/:id/harness",
     params: z.object({ id: requestId(AgentId) }),
-    query: z.object({ conversation: Text.uuid().optional() }),
+    query: z.object({
+      conversation: requestId(ConversationId).uuid().optional(),
+    }),
     response: PublicHarnessCatalog,
   }),
   agentMessages: endpoint({
@@ -145,7 +153,7 @@ export const agentRoutes = {
         .positive()
         .max(Number.MAX_SAFE_INTEGER)
         .optional(),
-      run: Text.min(1).max(100).optional(),
+      run: requestId(RunId).min(1).max(100).optional(),
       q: Text.max(500).optional(),
     }),
     response: PublicAgentTraces,
@@ -157,7 +165,7 @@ export const agentRoutes = {
     method: "GET",
     path: "/agents/:id/traces/export",
     params: z.object({ id: requestId(AgentId) }),
-    query: z.object({ run: Text.min(1).max(100) }),
+    query: z.object({ run: requestId(RunId).min(1).max(100) }),
     kind: "stream",
     contentType: "application/json",
     response: z.custom<Blob>(),

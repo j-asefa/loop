@@ -1,3 +1,4 @@
+import { AgentId, ProjectId } from "../src/shared/contract-ids.js";
 type CardEntry = import("zod").input<
   typeof import("../src/shared/cards.js").CardEntrySchema
 >;
@@ -225,12 +226,19 @@ it("uses personal-history provenance and keeps truthful attribution and historic
     author: { kind: "agent", id: "personal" },
     recipient: null,
   });
-  const received = all("personal", { view: "saved", agent: "personal" });
+  const received = all("personal", {
+    view: "saved",
+    agent: AgentId.parse("personal"),
+  });
   expect([...received.items.keys()]).toEqual(["m:personal-explicit"]);
   db.prepare(
     "UPDATE messages SET role='assistant' WHERE id='personal-explicit'",
   ).run();
-  expectCurrent("personal", { view: "saved", agent: "personal" }, received);
+  expectCurrent(
+    "personal",
+    { view: "saved", agent: AgentId.parse("personal") },
+    received,
+  );
   expect(received.items.size).toBe(0);
   db.prepare(
     "UPDATE messages SET role='user' WHERE id='personal-explicit'",
@@ -499,12 +507,26 @@ it("invalidates joined display, scope, personal provenance, canonical saves and 
     JSON.stringify({ folderId: "joined-child" }),
   );
   check();
-  const filtered = all("joined", { view: "sent", project: "joined" });
+  const filtered = all("joined", {
+    view: "sent",
+    project: ProjectId.parse("joined"),
+  });
   const workspace = ensureWorkspaceProject("joined");
-  const workspaceCache = all("joined", { view: "sent", project: workspace });
+  const workspaceCache = all("joined", {
+    view: "sent",
+    project: ProjectId.parse(workspace),
+  });
   db.prepare("UPDATE folders SET parent_id=NULL WHERE id='joined-child'").run();
-  expectCurrent("joined", { view: "sent", project: "joined" }, filtered);
-  expectCurrent("joined", { view: "sent", project: workspace }, workspaceCache);
+  expectCurrent(
+    "joined",
+    { view: "sent", project: ProjectId.parse("joined") },
+    filtered,
+  );
+  expectCurrent(
+    "joined",
+    { view: "sent", project: ProjectId.parse(workspace) },
+    workspaceCache,
+  );
   expect(filtered.items.size).toBe(0);
   expect(workspaceCache.items.size).toBe(1);
   check();
@@ -828,7 +850,10 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
       "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,?,'folder','Child',1)",
     ).run(child, owner, scenario.endsWith("-out") ? owner : other);
     const id = result(owner, { folder: child });
-    const selection = { view: "results" as const, project: owner };
+    const selection = {
+      view: "results" as const,
+      project: ProjectId.parse(owner),
+    };
     let cache = all(owner, selection);
     db.prepare(
       "UPDATE artifacts SET content='Changed before folder move' WHERE id=?",
@@ -948,7 +973,7 @@ it.each(["project", "folder"] as const)(
     db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(id);
     setSaved(owner, prompt, true);
     for (const view of ["results", "saved", "sent"] as const) {
-      const cache = all(owner, { view, project });
+      const cache = all(owner, { view, project: ProjectId.parse(project) });
       expect(cache.items.size).toBeGreaterThan(0);
       for (const { card } of cache.items.values())
         expect(card.context).toMatchObject({
@@ -958,7 +983,7 @@ it.each(["project", "folder"] as const)(
       db.prepare("UPDATE folders SET name='Renamed nested' WHERE id=?").run(
         project,
       );
-      expectCurrent(owner, { view, project }, cache);
+      expectCurrent(owner, { view, project: ProjectId.parse(project) }, cache);
       for (const { card } of cache.items.values())
         expect(card.context.project_name).toBe("Renamed nested");
       db.prepare("UPDATE folders SET name='Nested project' WHERE id=?").run(

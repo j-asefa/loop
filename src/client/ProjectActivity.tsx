@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { Empty } from "./components";
 import { ContentCard } from "./ContentCard";
 import { resultAction, type ResultAction } from "./card-actions";
@@ -37,7 +38,7 @@ function ProjectActivityFeed({
 }: Props) {
   const source = useSourceId();
   const { items, next, loading, busy, error, load, retry } = useCards(
-    { view: "results", project: projectId },
+    { view: "results", project: parseId(ProjectId, projectId) },
     revision,
   );
   return (

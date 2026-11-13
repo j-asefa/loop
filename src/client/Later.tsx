@@ -1,3 +1,4 @@
+import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -267,7 +268,12 @@ function SavedCollection({
     retry,
     key,
   } = useCards(
-    { view: "saved", project, teams, q: filter || undefined },
+    {
+      view: "saved",
+      project: parseId(ProjectId, project),
+      teams,
+      q: filter || undefined,
+    },
     revision,
   );
   const [error, setError] = useState("");

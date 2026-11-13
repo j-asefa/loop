@@ -1,3 +1,4 @@
+import { RunId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
@@ -396,7 +397,7 @@ it("agentTracesExport keeps its attachment writer and returns a Blob through the
   try {
     const blob = await callRoute(
       workspaceApi.agentTracesExport,
-      { params: { id: apiAgent.id }, query: { run: run.id } },
+      { params: { id: apiAgent.id }, query: { run: RunId.parse(run.id) } },
       "",
     );
     expect(blob).toBeInstanceOf(Blob);

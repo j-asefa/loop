@@ -1,3 +1,4 @@
+import { ArtifactId, requestId } from "./contract-ids.js";
 import { PullFileStatus } from "./pull-file-status.js";
 import { z } from "zod";
 import { isRepoPath, MAX_REVIEW_BODY } from "./pull-requests.js";
@@ -43,7 +44,7 @@ export const PullMergeInput = z.object({
   headSha: CommitSha,
 });
 export const PrWatchInput = z.object({
-  artifactId: Text.min(1).max(150),
+  artifactId: requestId(ArtifactId).min(1).max(150),
   owner: Text.min(1).max(39),
   repo: Text.min(1).max(100),
   number: z.number().int().positive().max(999_999_999),

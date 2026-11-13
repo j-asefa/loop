@@ -149,7 +149,7 @@ export const ShareInput = z.object({
   folderId: requestId(FolderId).optional(),
 });
 export const ShareSendInput = ShareInput.extend({
-  newAgentId: Text.optional(),
+  newAgentId: requestId(AgentId).optional(),
   idempotencyKey: Text.min(10).max(150),
 });
 export const RoutingInput = z.object({

@@ -566,10 +566,10 @@ function ConversationView({
       let fresh = await readSnapshot(
         initial
           ? anchor
-            ? { message: anchor }
+            ? { message: parseId(MessageId, anchor) }
             : { resume: "1" }
           : recovery
-            ? { message: recovery }
+            ? { message: parseId(MessageId, recovery) }
             : {},
       );
       if (

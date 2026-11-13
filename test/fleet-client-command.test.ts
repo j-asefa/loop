@@ -2,6 +2,7 @@ import {
   ApprovalId,
   ConnectionId,
   parseId,
+  AgentId,
 } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -380,7 +381,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
       workspaceApi.submit,
       {
         body: {
-          agentId,
+          agentId: AgentId.parse(agentId),
           input: "unchanged message",
           conversationId: undefined,
           replyToMessageId: undefined,
@@ -403,7 +404,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
       workspaceApi.submit,
       {
         body: {
-          agentId,
+          agentId: AgentId.parse(agentId),
           input: "unchanged message",
           attachmentIds: [],
           idempotencyKey: randomUUID(),

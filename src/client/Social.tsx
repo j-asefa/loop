@@ -1,3 +1,4 @@
+import { AgentId, parseId, ConversationId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import {
@@ -822,7 +823,7 @@ function DigestSheet({
         workspaceApi.socialDigestCreate,
         {
           body: {
-            agentId: agent,
+            agentId: parseId(AgentId, agent),
             minuteOfDay: hours * 60 + minutes,
             zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             feeds: chosen.length ? chosen : null,
@@ -850,8 +851,8 @@ function DigestSheet({
         {
           params: { id: digest.id },
           body: {
-            agentId: digest.agent_id,
-            conversationId: digest.conversation_id,
+            agentId: parseId(AgentId, digest.agent_id),
+            conversationId: parseId(ConversationId, digest.conversation_id),
             feeds: digest.feeds ? JSON.parse(digest.feeds) : null,
             minuteOfDay: digest.minute_of_day,
             zone: digest.zone,

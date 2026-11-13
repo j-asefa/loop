@@ -1,4 +1,4 @@
-import { ConversationId, requestId } from "./contract-ids.js";
+import { ConversationId, requestId, ProjectId } from "./contract-ids.js";
 import { z } from "zod";
 import {
   ManagedHarness,
@@ -32,7 +32,7 @@ export const companionRoutes = {
     method: "GET",
     path: "/workspace/runtimes/:name/auth",
     params: companion.RuntimeAuthName,
-    query: z.object({ projectId: Text.min(1) }),
+    query: z.object({ projectId: requestId(ProjectId).min(1) }),
     response: companion.PublicRuntimeAuth,
   }),
   runtimeAuthStatus: endpoint({
@@ -76,7 +76,7 @@ export const companionRoutes = {
     method: "GET",
     path: "/workspace/runtimes/:name/providers",
     params: z.object({ name: ManagedHarness }),
-    query: z.object({ projectId: Text.min(1) }),
+    query: z.object({ projectId: requestId(ProjectId).min(1) }),
     response: NativeProviderView,
   }),
   runtimeProviderKey: endpoint({
@@ -171,7 +171,7 @@ export const companionRoutes = {
     operation: "workspaceProjectUpdate",
     method: "PATCH",
     path: "/workspace/projects/:id",
-    params: Id,
+    params: z.object({ id: requestId(ProjectId) }),
     body: companion.ProjectUpdateInput,
     response: z.object({ ok: z.literal(true), path: Text, note: Text }),
   }),

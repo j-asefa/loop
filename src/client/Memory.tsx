@@ -1,4 +1,9 @@
-import { ConversationId, RunId } from "../shared/contract-ids.js";
+import {
+  ConversationId,
+  RunId,
+  ProjectId,
+  parseId,
+} from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {
@@ -170,7 +175,7 @@ export function Memory({
                         body: {
                           title,
                           content,
-                          projectId: project || null,
+                          projectId: parseId(ProjectId, project || null),
                         },
                       })
                         .then(() => {

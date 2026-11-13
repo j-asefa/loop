@@ -1,3 +1,4 @@
+import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import {
   useSourceRoute,
@@ -33,7 +34,9 @@ function useWatchState(conversation: string | null | undefined) {
       latest = 0;
     const load = () => {
       const request = ++latest;
-      return read(workspaceApi.prWatchList, { query: { conversation } })
+      return read(workspaceApi.prWatchList, {
+        query: { conversation: parseId(ConversationId, conversation) },
+      })
         .then((r) => {
           if (!live || request !== latest) return;
           setWatches(r.watches);

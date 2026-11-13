@@ -247,3 +247,64 @@ it("parses nullable identity values without changing their wire representation",
   const wrongConnection: Body["connectionId"] = RunId.parse("run");
   void wrongConnection;
 });
+
+it("keeps route-specific ID acceptance and query fallback rules", () => {
+  const opaque = "native-opaque";
+  expect(workspaceApi.projectOpened.params.parse({ id: opaque })).toEqual({
+    id: opaque,
+  });
+  expect(
+    workspaceApi.runtimeAuthProviders.query.safeParse({ projectId: "" })
+      .success,
+  ).toBe(false);
+  expect(
+    workspaceApi.runtimeAuthProviders.query.parse({ projectId: opaque }),
+  ).toEqual({ projectId: opaque });
+  expect(
+    workspaceApi.nativeDecisions.query.safeParse({ conversation: opaque })
+      .success,
+  ).toBe(false);
+  expect(workspaceApi.conversation.query.parse({ message: "" })).toEqual({
+    message: "",
+  });
+  expect(
+    workspaceApi.search.query.parse({
+      q: "fixture",
+      agent: ["a", "b"],
+      folder: 3,
+      project: opaque,
+    }),
+  ).toEqual({
+    q: "fixture",
+    agent: undefined,
+    folder: undefined,
+    project: opaque,
+  });
+  expect(workspaceApi.artifactList.query.parse({ folder: "unfiled" })).toEqual({
+    folder: "unfiled",
+  });
+  expect(
+    workspaceApi.submit.body.parse({
+      agentId: "",
+      conversationId: "",
+      input: "fixture",
+      idempotencyKey: "fixture-identity",
+    }),
+  ).toMatchObject({ agentId: "", conversationId: "" });
+});
+
+it("requires the core domain at actual typed route inputs", () => {
+  type Opened = RouteInput<typeof workspaceApi.projectOpened>["params"];
+  // @ts-expect-error An agent is not a project.
+  const wrongProject: Opened = { id: AgentId.parse("agent") };
+  type Submit = RouteInput<typeof workspaceApi.submit>["body"];
+  // @ts-expect-error Run IDs cannot identify the target conversation.
+  const wrongConversation: Submit["conversationId"] = RunId.parse("run");
+  type Search = NonNullable<RouteInput<typeof workspaceApi.search>["query"]>;
+  // @ts-expect-error A conversation is not an agent filter.
+  const wrongFilter: Search["agent"] = ConversationId.parse("conversation");
+  type Share = RouteInput<typeof workspaceApi.shareSend>["body"];
+  // @ts-expect-error A folder cannot identify the shared agent.
+  const wrongShare: Share["newAgentId"] = FolderId.parse("folder");
+  void [wrongProject, wrongConversation, wrongFilter, wrongShare];
+});

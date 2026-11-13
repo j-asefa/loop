@@ -1,4 +1,4 @@
-import { ArtifactId } from "../shared/contract-ids.js";
+import { ArtifactId, RunId, parseId } from "../shared/contract-ids.js";
 import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
@@ -164,7 +164,10 @@ function TraceList({
       workspaceApi.agentTraces,
       {
         params: { id: agentId },
-        query: { run: runId || undefined, q: query || undefined },
+        query: {
+          run: parseId(RunId, runId || undefined),
+          q: query || undefined,
+        },
       },
       request.signal,
     )
@@ -195,7 +198,7 @@ function TraceList({
           params: { id: agentId },
           query: {
             before: String(next),
-            run: runId || undefined,
+            run: parseId(RunId, runId || undefined),
             q: query || undefined,
           },
         },
@@ -223,7 +226,7 @@ function TraceList({
     try {
       const file = await route(
         workspaceApi.agentTracesExport,
-        { params: { id: agentId }, query: { run: id } },
+        { params: { id: agentId }, query: { run: parseId(RunId, id) } },
         operation.signal,
       );
       if (!operation.current()) return;

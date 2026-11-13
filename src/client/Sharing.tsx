@@ -1,5 +1,5 @@
 import type { SharedDraft } from "./workspace-drafts";
-import { FolderId, parseId } from "../shared/contract-ids.js";
+import { AgentId, FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { useState, useRef, useEffect } from "react";
@@ -245,7 +245,10 @@ function ShareForm({
                 const request = begin();
                 setBusy(true);
                 try {
-                  const body = { ...payload, newAgentId },
+                  const body = {
+                      ...payload,
+                      newAgentId: parseId(AgentId, newAgentId),
+                    },
                     signature = JSON.stringify(body);
                   if (key.current.signature !== signature)
                     key.current = { signature, key: crypto.randomUUID() };

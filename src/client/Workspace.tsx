@@ -3,6 +3,8 @@ import {
   ConnectionId,
   FolderId,
   parseId,
+  AgentId,
+  ProjectId,
 } from "../shared/contract-ids.js";
 import {
   recentSearches,
@@ -353,7 +355,7 @@ export function Saved({
       const query: RouteInput<typeof workspaceApi.artifactList>["query"] = {};
       if (!embedded && view === "pinned") query.pinned = "1";
       else if (embedded || view === "folders")
-        query.folder = folder || "unfiled";
+        query.folder = parseId(FolderId, folder || "unfiled");
       if (append && next) query.before = String(next);
       const r = await callRoute(
         workspaceApi.artifactList,
@@ -662,8 +664,8 @@ export function SearchWorkspace({
         scope: "all",
         category: category || undefined,
         kind,
-        agent,
-        project: folder || undefined,
+        agent: parseId(AgentId, agent),
+        project: parseId(ProjectId, folder || undefined),
       };
       if (from) query.from = String(Date.parse(from));
       if (to) query.to = String(Date.parse(to) + 86400000 - 1);

@@ -3,6 +3,8 @@ import {
   FolderId,
   parseId,
   ConversationId,
+  AgentId,
+  MessageId,
 } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
@@ -38,7 +40,7 @@ it("encodes route identities and keeps input query values instead of serializing
   expect(
     routePath(workspaceApi.conversation, {
       params: { id: ConversationId.parse("thread/id") },
-      query: { message: "a&b" },
+      query: { message: MessageId.parse("a&b") },
     }),
   ).toBe("/conversations/thread%2Fid?message=a%26b");
   expect(routePath(workspaceApi.results, {})).toBe("/results");
@@ -109,7 +111,7 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
     const conversation = "f7719a2b-dea1-4c80-8c5f-de7c503cab12";
     await readRoute(
       workspaceApi.nativeDecisions,
-      { query: { conversation } },
+      { query: { conversation: ConversationId.parse(conversation) } },
       "",
       new AbortController().signal,
     );
@@ -159,7 +161,7 @@ it("settles local input failures as readable refusals while malformed acknowledg
     workspaceApi.submit,
     {
       body: {
-        agentId: "agent",
+        agentId: AgentId.parse("agent"),
         input: "Draft",
         replyExcerpt: "Excerpt without its message",
         idempotencyKey: planned.receipt.key,
