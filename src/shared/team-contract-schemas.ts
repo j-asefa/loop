@@ -57,7 +57,7 @@ export const PublicReview = z.object({
   omitted: z.array(Text),
   reviewers: z.array(
     z.object({
-      agent_id: Text.nullable(),
+      agent_id: AgentId.nullable(),
       state: RunDisplayState,
       error: Text.nullable(),
     }),

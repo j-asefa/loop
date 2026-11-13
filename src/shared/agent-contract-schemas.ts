@@ -3,6 +3,9 @@ import {
   FolderId,
   requestId,
   ConversationId,
+  ArtifactId,
+  OwnerId,
+  RunId,
 } from "./contract-ids.js";
 import { TraceKind } from "./trace-kind.js";
 import { RunDisplayState } from "./run-state.js";
@@ -247,8 +250,8 @@ export const PublicAgentMessages = z.object({
       id: Text,
       content: Text,
       created_at: z.number(),
-      conversation_id: Text.nullable(),
-      run_id: Text.nullable(),
+      conversation_id: ConversationId.nullable(),
+      run_id: RunId.nullable(),
       final: z.number(),
       model: Text.nullable(),
     }),
@@ -257,19 +260,19 @@ export const PublicAgentMessages = z.object({
 });
 export const PublicAgentTrace = z.object({
   id: z.number(),
-  owner_id: Text,
+  owner_id: OwnerId,
   trace_key: Text,
-  run_id: Text,
+  run_id: RunId,
   kind: TraceKind,
   title: Text,
   content: Text,
   metadata: Text,
-  artifact_id: Text.nullable(),
+  artifact_id: ArtifactId.nullable(),
   created_at: z.number(),
   input: Text,
   run_state: RunDisplayState,
   run_error: Text.nullable(),
-  conversation_id: Text.nullable(),
+  conversation_id: ConversationId.nullable(),
   server: Text.nullable(),
   invocation_state: Text.nullable(),
 });

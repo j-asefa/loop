@@ -1,3 +1,4 @@
+import { OwnerId } from "../src/shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../src/shared/workspace-api";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -5,7 +6,7 @@ import { ImportJobRow } from "../src/client/Workspace";
 
 const job: RouteResponse<typeof workspaceApi.importList>[number] = {
   id: "job-1",
-  owner_id: "owner",
+  owner_id: OwnerId.parse("owner"),
   provider: "openai",
   digest: "digest-1",
   status: "completed",

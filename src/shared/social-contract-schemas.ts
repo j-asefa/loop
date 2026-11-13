@@ -1,4 +1,4 @@
-import { AgentId, ConversationId, requestId } from "./contract-ids.js";
+import { AgentId, ConversationId, requestId, OwnerId } from "./contract-ids.js";
 import { z } from "zod";
 
 const Text = z.string();
@@ -109,7 +109,7 @@ export const PublicPreferences = z.object({
 });
 export const PublicWatch = z.object({
   id: Text,
-  owner_id: Text,
+  owner_id: OwnerId,
   query: Text,
   feeds: MaybeText,
   created_at: Time,
@@ -130,9 +130,9 @@ export const PublicWatchPreview = z.object({
 });
 export const PublicDigest = z.object({
   id: Text,
-  owner_id: Text,
-  agent_id: Text,
-  conversation_id: MaybeText,
+  owner_id: OwnerId,
+  agent_id: AgentId,
+  conversation_id: ConversationId.nullable(),
   feeds: MaybeText,
   minute_of_day: z.number(),
   zone: Text,

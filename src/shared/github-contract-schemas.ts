@@ -1,4 +1,10 @@
-import { ArtifactId, requestId } from "./contract-ids.js";
+import {
+  ArtifactId,
+  requestId,
+  AgentId,
+  ConversationId,
+  OwnerId,
+} from "./contract-ids.js";
 import { PullFileStatus } from "./pull-file-status.js";
 import { z } from "zod";
 import { isRepoPath, MAX_REVIEW_BODY } from "./pull-requests.js";
@@ -173,8 +179,8 @@ export const PublicCommitFiles = z.object({
 });
 export const PublicPrWatch = z.object({
   id: Text,
-  conversation_id: Text,
-  agent_id: Text,
+  conversation_id: ConversationId,
+  agent_id: AgentId,
   repo_owner: Text,
   repo_name: Text,
   number: z.number(),
@@ -192,7 +198,7 @@ export const PublicPrWatch = z.object({
   seen_ci_conclusion: MaybeText,
 });
 export const PublicCreatedPrWatch = PublicPrWatch.extend({
-  owner_id: Text,
+  owner_id: OwnerId,
   login: MaybeText,
   next_poll_at: Time,
   since_at: Time.nullable(),
