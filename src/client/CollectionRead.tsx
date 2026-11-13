@@ -6,7 +6,10 @@ import type {
   RouteResponse,
 } from "../shared/workspace-api";
 import { viewGeneration } from "./viewCache";
-import { listenWorkspaceChanges } from "./workspace-changes";
+import {
+  broadWorkspaceChange,
+  listenWorkspaceChanges,
+} from "./workspace-changes";
 
 type QueryOptions = {
   source: string;
@@ -74,10 +77,19 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     const stops = collections.map((collection) =>
       listenWorkspaceChanges(collection, update, source, conversation),
     );
+    // The shared watcher broadcasts recovery after consuming failed-read
+    // interest, even when a detail query has no collection subscription.
+    const recover = (event: Event) => {
+      if (broadWorkspaceChange(event)) update(event);
+    };
+    if (!collections.length)
+      window.addEventListener("loop-workspace-change", recover);
     for (const event of events) window.addEventListener(event, update);
     void refresh();
     return () => {
       for (const stop of stops) stop();
+      if (!collections.length)
+        window.removeEventListener("loop-workspace-change", recover);
       for (const event of events) window.removeEventListener(event, update);
     };
   }, [refresh, subscriptions, revision]);

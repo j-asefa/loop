@@ -22,6 +22,24 @@ try {
     import {workspaceApi} from ${JSON.stringify(resolve("src/shared/workspace-api.ts"))};
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
+    import {ProjectSearchResults} from ${JSON.stringify(resolve("src/client/Projects.tsx"))};
+    import {watchWorkspaceEvents} from ${JSON.stringify(resolve("src/client/workspace-events.ts"))};
+    import {WorkspaceChangeQueue} from ${JSON.stringify(resolve("src/client/workspace-changes.ts"))};
+    import {readRoute} from ${JSON.stringify(resolve("src/client/api.ts"))};
+    window.startRecovery = () => {
+      const pending = new WorkspaceChangeQueue();
+      const stop = watchWorkspaceEvents({
+        url: new URL("ws://fixture.invalid/ws"),
+        source: "",
+        socket: () => ({readyState:0, close() {this.readyState = 3;}}),
+        read: (after, signal) => readRoute(workspaceApi.events, {query:{after}}, "", signal),
+        changed: events => {
+          pending.add("", events);
+          pending.schedule(detail => window.dispatchEvent(new CustomEvent("loop-workspace-change", {detail})));
+        },
+      });
+      window.stopRecovery = () => {stop(); pending.clear();};
+    };
     setShellSource("");
     ownerSession.change("alice");
     function Probe() {
@@ -36,8 +54,10 @@ try {
     }
     function App() {
       const [shown, setShown] = useState(true);
+      const [searching, setSearching] = useState(false);
+      window.searching = setSearching;
       window.show = value => flushSync(() => setShown(value));
-      return React.createElement(React.Fragment, null, shown && React.createElement(Probe), React.createElement("section", {id:"native"}, React.createElement(NativeDecisions)));
+      return React.createElement(React.Fragment, null, shown && React.createElement(Probe), React.createElement("section", {id:"native"}, React.createElement(NativeDecisions)), searching && React.createElement("section", {id:"recovery"}, React.createElement(ProjectSearchResults, {project:"fixture-project",query:"needle",onConversation:()=>{},onArtifact:()=>{}})));
     }
     createRoot(document.getElementById("root")).render(React.createElement(App));
   `,
@@ -47,6 +67,9 @@ try {
     status = 200,
     holdNext = false;
   let nativeFailure = true;
+  let recoveryHealthy = false,
+    searchReads = 0,
+    eventReads = 0;
   const requests = [];
   server = createServer((req, res) => {
     const path = new URL(req.url, "http://fixture.invalid").pathname;
@@ -62,6 +85,40 @@ try {
         "content-type": path.endsWith(".mjs") ? "text/javascript" : "text/css",
       });
       res.end(path.endsWith(".mjs") ? script : style);
+      return;
+    }
+    if (path === "/api/events") {
+      eventReads++;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("[]");
+      return;
+    }
+    if (path === "/api/search") {
+      searchReads++;
+      res.writeHead(recoveryHealthy ? 200 : 503, {
+        "content-type": "application/json",
+      });
+      res.end(
+        JSON.stringify(
+          recoveryHealthy
+            ? {
+                mode: "keyword",
+                detail: null,
+                pending: 0,
+                next: null,
+                items: [],
+                semantic: {
+                  enabled: false,
+                  state: "disabled",
+                  total: 0,
+                  indexed: 0,
+                  pending: 0,
+                  detail: null,
+                },
+              }
+            : { error: "Search temporarily unavailable" },
+        ),
+      );
       return;
     }
     if (path === "/api/native/decisions") {
@@ -117,6 +174,33 @@ try {
     .getByRole("button", { name: "Retry connection" })
     .click();
   await expect(page.locator("#native [role=alert]")).toHaveCount(0);
+
+  await page.evaluate(() => window.searching(true));
+  await expect(page.locator("#recovery [role=alert]")).toContainText(
+    "Search temporarily unavailable",
+    { timeout: 12000 },
+  );
+  assert.equal(
+    searchReads,
+    3,
+    "automatic search exhausts its bounded retry budget",
+  );
+  recoveryHealthy = true;
+  await page.evaluate(() => window.startRecovery());
+  await expect(page.locator("#recovery")).toContainText(
+    "Nothing found in this project.",
+    { timeout: 8000 },
+  );
+  assert(eventReads > 0, "the production watcher polled the quiet event log");
+  assert.equal(
+    searchReads,
+    4,
+    "recovery invalidation retries the failed query without a click",
+  );
+  await page.evaluate(() => {
+    window.stopRecovery();
+    window.searching(false);
+  });
 
   const before = requests.length;
   title = "Older snapshot";
@@ -225,7 +309,7 @@ try {
   await expect(output).toHaveText(title);
   assert.deepEqual(errors, []);
   console.log(
-    `${engine}: snapshot coalescing, retained data/error retry, selection/source/owner fencing, unmount and native read notice passed`,
+    `${engine}: snapshot coalescing, quiet-log recovery after exhausted search reads, retained data/error retry, selection/source/owner fencing, unmount and native read notice passed`,
   );
 } finally {
   for (const release of held) release();
