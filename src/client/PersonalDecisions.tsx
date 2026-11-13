@@ -149,8 +149,7 @@ export function PersonalDecisions({
     collections: [kind === "approval" ? "approvals" : "decisions", "metadata"],
     queueMore: false,
     refreshDelay: () => 5000,
-    read: async (current, before, signal, mode) => {
-      let reads = 0;
+    read: async (current, before, signal, mode, readComplete) => {
       // Reconcile only the loaded range. A deleted boundary ID must not make
       // one invalidation scan the owner's entire older history.
       const boundary = !before ? current.items.at(-1) : undefined;
@@ -171,7 +170,7 @@ export function PersonalDecisions({
           mode,
         );
         if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-        reads++;
+        readComplete();
         const visible = boundary
           ? result.items.filter(
               (item) =>
@@ -209,7 +208,7 @@ export function PersonalDecisions({
         ],
         next,
       };
-      return { page, reads };
+      return page;
     },
   });
   return (

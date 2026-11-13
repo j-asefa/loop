@@ -51,12 +51,11 @@ export function PersonalFiles({
       collections: ["results"],
       queueMore: true,
       refreshDelay: (reads) => Math.max(5000, reads * 1800),
-      read: async (current, before, signal, mode) => {
+      read: async (current, before, signal, mode, readComplete) => {
         const boundary = before ? undefined : current.items.at(-1)?.cursor;
         let cursor = before;
         let result: PersonalFilesPage | undefined;
         const items: PersonalFilesPage["items"] = [];
-        let reads = 0;
         do {
           result = await readRoute(
             workspaceApi.personalFiles,
@@ -75,7 +74,7 @@ export function PersonalFiles({
             mode,
           );
           if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-          reads++;
+          readComplete();
           if (cursor && result.next && result.next >= cursor)
             throw new Error("Files pagination did not advance. Please retry.");
           items.push(...result.items);
@@ -95,7 +94,7 @@ export function PersonalFiles({
             ).values(),
           ],
         };
-        return { page, reads };
+        return page;
       },
     });
   function filter(key: "agent" | "project" | "type", value: string) {
