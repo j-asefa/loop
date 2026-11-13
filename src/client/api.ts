@@ -362,7 +362,7 @@ async function readRequest<T>(
   path: string,
   sourceId: string,
   signal: AbortSignal,
-  onRetry?: (error: unknown) => void,
+  onRetry?: (error: unknown, delayMs: number) => void,
   kind?: "stream",
   mode: ReadMode = "automatic",
 ): Promise<T> {
@@ -389,7 +389,7 @@ async function readRequest<T>(
           ? 2000 * ++failures
           : undefined;
       if (delay === undefined) throw error;
-      onRetry?.(error);
+      onRetry?.(error, delay);
       await new Promise<void>((resolve, reject) => {
         const abort = () => {
           clearTimeout(timer);
@@ -514,7 +514,7 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
   input: RouteInput<C>,
   sourceId: string,
   signal: AbortSignal,
-  onRetry?: (error: unknown) => void,
+  onRetry?: (error: unknown, delayMs: number) => void,
   mode: ReadMode = "automatic",
 ): Promise<RouteResponse<C>> {
   const generation = viewGeneration();

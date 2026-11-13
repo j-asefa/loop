@@ -1,5 +1,5 @@
 import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
-import { isRateLimited, RATE_LIMITED, readRoute, retryAfter } from "./api";
+import { isRateLimited, RATE_LIMITED, readRoute } from "./api";
 import { useCallback, useEffect, useState } from "react";
 import { cacheView, cachedView, viewGeneration, viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
@@ -17,9 +17,12 @@ export function useThreadSource(source: string | null, owner?: string) {
   const key = JSON.stringify([generation, source, owner]);
   const cacheKey = "thread-source:" + JSON.stringify([source, owner]);
   const enabled = source !== null && source !== executionSourceId() && !!owner;
-  const { load, error, failure } = useCollectionRead(
-    JSON.stringify([key, enabled]),
-  );
+  const scope = JSON.stringify([key, enabled]);
+  const { load, error, failure } = useCollectionRead(scope);
+  const [waitingState, setWaitingState] = useState<{
+    scope: string;
+    signal: AbortSignal;
+  }>();
   const [state, setState] = useState<{ key: string } & Snapshot>();
   const refresh = useCallback(
     (manual = false) => {
@@ -31,17 +34,25 @@ export function useThreadSource(source: string | null, owner?: string) {
           signal.addEventListener("abort", abort, { once: true });
           if (signal.aborted) abort();
           let deadline = Date.now() + 20_000;
-          let timeout = setTimeout(abort, 20_000);
-          const waiting = (error: unknown) => {
-            if (!isRateLimited(error)) return;
-            deadline = Math.max(
-              deadline,
-              Date.now() + retryAfter(error) + 20_000,
-            );
+          let deadlineExpired = false;
+          let timeout: ReturnType<typeof setTimeout>;
+          const arm = () => {
             clearTimeout(timeout);
             timeout = setTimeout(
-              abort,
-              Math.min(2_147_483_647, deadline - Date.now()),
+              () => {
+                if (Date.now() < deadline) return arm();
+                deadlineExpired = true;
+                pair.abort(new Error("This workspace timed out. Try again."));
+              },
+              Math.min(2_147_483_647, Math.max(0, deadline - Date.now())),
+            );
+          };
+          arm();
+          const waiting = (error: unknown, delayMs: number) => {
+            deadline = Math.max(deadline, Date.now() + delayMs + 20_000);
+            arm();
+            setWaitingState(
+              isRateLimited(error) ? { scope, signal } : undefined,
             );
           };
           const settle = beginWorkspaceRead(source!, "thread-source", signal);
@@ -68,8 +79,12 @@ export function useThreadSource(source: string | null, owner?: string) {
             return { data, capabilities };
           } catch (error) {
             const failure = error as { status?: number; network?: boolean };
+            setWaitingState((previous) =>
+              previous?.signal === signal ? undefined : previous,
+            );
             settle(
-              failure.network === true ||
+              deadlineExpired ||
+                failure.network === true ||
                 (failure.status !== undefined && failure.status >= 500),
             );
             throw error;
@@ -83,6 +98,7 @@ export function useThreadSource(source: string | null, owner?: string) {
         (snapshot) => {
           cacheView(cacheKey, snapshot, owner);
           setState({ key, ...snapshot });
+          setWaitingState(undefined);
         },
         manual,
       );
@@ -103,7 +119,9 @@ export function useThreadSource(source: string | null, owner?: string) {
   }, [refresh, enabled]);
   const cached =
     owner === viewOwner() ? cachedView<Snapshot>(cacheKey) : undefined;
-  const rateLimited = isRateLimited(failure);
+  const rateLimited =
+    isRateLimited(failure) ||
+    (waitingState?.scope === scope && !waitingState.signal.aborted);
   return {
     ...(state?.key === key ? state : cached),
     error: rateLimited ? RATE_LIMITED : error,

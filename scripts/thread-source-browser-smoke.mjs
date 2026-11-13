@@ -85,7 +85,13 @@ try {
         teams: [],
         environmentName: label,
       };
-      if (mode === "hold") held.push(() => send(200, body));
+      if (mode === "slow")
+        held.push(() =>
+          reads < 3
+            ? send(503, { error: "Slow metadata failure" })
+            : send(200, body),
+        );
+      else if (mode === "hold") held.push(() => send(200, body));
       else send(200, body);
       return;
     }
@@ -98,13 +104,15 @@ try {
   });
   for (const scenario of process.argv.length > 2
     ? process.argv.slice(2)
-    : ["cooldown", "recovery", "scope"]) {
+    : ["cooldown", "slow", "timeout", "recovery", "scope"]) {
     mode =
       scenario === "cooldown"
         ? "cooldown"
         : scenario === "recovery"
           ? "failure"
-          : "hold";
+          : scenario === "slow"
+            ? "slow"
+            : "hold";
     reads = 0;
     label = "old";
     const context = await browser.newContext(),
@@ -117,7 +125,9 @@ try {
       await expect.poll(() => reads).toBe(1);
       if (scenario === "cooldown") {
         await page.clock.fastForward(21000);
-        await expect(page.locator("#error")).toBeEmpty();
+        await expect(page.locator("#error")).toContainText(
+          "Retrying automatically",
+        );
         mode = "healthy";
         label = "recovered";
         await page.clock.fastForward(40000);
@@ -127,6 +137,44 @@ try {
           2,
           "cooldown resumes automatically without another event",
         );
+      } else if (scenario === "slow") {
+        const release = async () => {
+          const response = page.waitForResponse((r) =>
+            r.url().endsWith("/bootstrap"),
+          );
+          held.shift()();
+          await response;
+          await page.clock.runFor(20);
+        };
+        for (const [index, delay] of [
+          [1, 2100],
+          [2, 4100],
+        ]) {
+          await expect.poll(() => held.length).toBe(1);
+          await page.clock.fastForward(7000);
+          await release();
+          await page.clock.fastForward(delay);
+          await expect.poll(() => reads).toBe(index + 1);
+        }
+        await page.clock.fastForward(7000);
+        await expect(page.locator("#error")).toBeEmpty();
+        await release();
+        await expect(page.locator("#data")).toHaveText("old");
+      } else if (scenario === "timeout") {
+        await expect.poll(() => held.length).toBe(1);
+        await page.clock.fastForward(21000);
+        await expect(page.locator("#error")).toContainText("timed out");
+        assert.equal(await page.evaluate(() => window.needsRecovery()), true);
+        mode = "healthy";
+        label = "after timeout";
+        await page.evaluate(() =>
+          window.dispatchEvent(
+            new CustomEvent("loop-workspace-change", {
+              detail: { sources: ["docker:fixture"] },
+            }),
+          ),
+        );
+        await expect(page.locator("#data")).toHaveText("after timeout");
       } else if (scenario === "recovery") {
         await page.clock.fastForward(2100);
         await expect.poll(() => reads).toBe(2);
