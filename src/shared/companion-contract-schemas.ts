@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "./contract-ids.js";
 import {
   NativeProviderId,
   AuthMethodId,
@@ -36,7 +37,7 @@ export const RuntimeAuthStart = executionOperations["auth.start"].input
   .omit({ name: true })
   .extend({
     projectId: requestId(ProjectId).min(1).max(200),
-    commandId: Text.uuid(),
+    commandId: requestId(ExecutionCommandId).uuid(),
     provider: requestId(NativeProviderId).min(1).max(200),
     method: requestId(AuthMethodId).min(1).max(100),
   });
@@ -67,7 +68,7 @@ export const PublicRuntimeAuth = z.object({
   attempt: z
     .object({
       id: AuthAttemptId,
-      commandId: Text,
+      commandId: ExecutionCommandId,
       provider: NativeProviderId,
       method: AuthMethodId,
       state: z.enum([
@@ -96,7 +97,9 @@ export const PublicRuntimeAuth = z.object({
     })
     .optional(),
 });
-export const CommandIdentity = z.strictObject({ commandId: Text.uuid() });
+export const CommandIdentity = z.strictObject({
+  commandId: requestId(ExecutionCommandId).uuid(),
+});
 export const UpgradeRecoverInput = CommandIdentity.extend({
   confirmedStopped: z.literal(true),
 });
@@ -104,7 +107,7 @@ export const RuntimeEnableInput = executionOperations["runtime.enable"].input
   .omit({ name: true })
   .extend({
     projectId: requestId(ProjectId).min(1).max(200),
-    commandId: Text.uuid().optional(),
+    commandId: requestId(ExecutionCommandId).uuid().optional(),
   });
 export const PublicEnabledRuntime = z.object({
   name: Harness,
@@ -147,7 +150,7 @@ export const PublicRuntimes = z.object({
   ),
 });
 const PublicUpgrade = z.object({
-  commandId: Text,
+  commandId: ExecutionCommandId,
   name: RuntimeHarness,
   state: z.enum([
     "running",

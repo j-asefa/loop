@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { AutofillBoundary } from "./AutofillBoundary";
@@ -294,7 +295,7 @@ function DecisionCard({
       const r = await call(workspaceApi.nativeAnswer, {
         params: { id: item.id },
         body: {
-          commandId,
+          commandId: ExecutionCommandId.parse(commandId),
           answer: value,
         },
       });

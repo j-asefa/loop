@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "./contract-ids.js";
 import { NativeDecisionId } from "./contract-ids.js";
 import { TeamPresetId } from "./contract-ids.js";
 import {
@@ -264,7 +265,7 @@ export const NativeDecision = z.object({
   native_id: Text,
   request: Text,
   state: NativeDecisionState,
-  command_id: MaybeText,
+  command_id: ExecutionCommandId.nullable(),
   digest: MaybeText,
   created_at: Time,
   name: MaybeText,

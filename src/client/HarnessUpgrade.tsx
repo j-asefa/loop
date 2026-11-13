@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { useEffect, useState, useRef } from "react";
 import {
   workspaceApi,
@@ -191,7 +192,10 @@ function HarnessUpgradeControls({
               (commandId) =>
                 callRoute(
                   workspaceApi.runtimeUpgradeStart,
-                  { params: { name: runtime }, body: { commandId } },
+                  {
+                    params: { name: runtime },
+                    body: { commandId: ExecutionCommandId.parse(commandId) },
+                  },
                   sourceId,
                 ),
             );

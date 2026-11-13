@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "../src/shared/contract-ids.js";
 import { ProjectId } from "../src/shared/contract-ids.js";
 import test from "node:test";
@@ -130,7 +131,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
             projectId: ProjectId.parse(projectResult.id),
             provider: NativeProviderId.parse("anthropic"),
             method: AuthMethodId.parse("api"),
-            commandId,
+            commandId: ExecutionCommandId.parse(commandId),
           },
         };
         const transport = globalThis.fetch;
@@ -206,7 +207,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
               projectId: ProjectId.parse(projectResult.id),
               provider: NativeProviderId.parse("xai"),
               method: AuthMethodId.parse("oauth"),
-              commandId: randomUUID(),
+              commandId: ExecutionCommandId.parse(randomUUID()),
             },
           },
           source,

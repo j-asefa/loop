@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import { ArtifactId, ConnectionId } from "../src/shared/contract-ids.js";
 import { RunId } from "../src/shared/contract-ids.js";
@@ -92,7 +93,9 @@ it("binds conversation actions and file URLs to their source across later naviga
   const input = {
     params: { id: NativeDecisionId.parse("same") },
     body: {
-      commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12",
+      commandId: ExecutionCommandId.parse(
+        "f7719a2b-dea1-4c80-8c5f-de7c503cab12",
+      ),
       answer: { choice: "allow" },
     },
   };

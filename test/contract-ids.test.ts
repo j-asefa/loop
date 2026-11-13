@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import {
   NativeProviderId,
   AuthMethodId,
@@ -690,6 +691,23 @@ it("distinguishes native auth identities without tightening their field rules", 
     attemptId: AuthPromptId.parse(uuid),
     promptId: AuthPromptId.parse(uuid),
     value: "fixture",
+  };
+  void wrong;
+});
+
+it("keeps execution command receipts distinct and preserves automatic IDs", () => {
+  expect(ExecutionCommandId.parse("auto:" + uuid)).toBe("auto:" + uuid);
+  expect(ExecutionCommandId.parse("")).toBe("");
+  expect(ExecutionCommandId.safeParse(42).success).toBe(false);
+  expect(workspaceApi.nativeAnswer.body.shape.commandId.parse(uuid)).toBe(uuid);
+  expect(
+    workspaceApi.nativeAnswer.body.shape.commandId.safeParse("auto:" + uuid)
+      .success,
+  ).toBe(false);
+  const wrong: RouteInput<typeof workspaceApi.nativeAnswer>["body"] = {
+    // @ts-expect-error An authentication attempt is not an execution command.
+    commandId: AuthAttemptId.parse(uuid),
+    answer: {},
   };
   void wrong;
 });

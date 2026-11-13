@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "./contract-ids.js";
 import {
   ApprovalId,
   NativeDecisionId,
@@ -138,7 +139,7 @@ export const conversationRoutes = {
     path: "/native/decisions/:id",
     params: z.object({ id: requestId(NativeDecisionId) }),
     body: z.strictObject({
-      commandId: Text.uuid(),
+      commandId: requestId(ExecutionCommandId).uuid(),
       answer: z.record(Text, z.json()),
     }),
     response: z.object({ state: Text }),
@@ -161,7 +162,7 @@ export const conversationRoutes = {
       value: z.union([Text.max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),
       generation: Text.min(1).max(200),
-      commandId: Text.uuid().optional(),
+      commandId: requestId(ExecutionCommandId).uuid().optional(),
     }),
     response: SessionControls,
   }),

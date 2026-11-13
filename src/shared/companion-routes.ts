@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "./contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "./contract-ids.js";
 import { NativeCatalogId } from "./contract-ids.js";
 import { ConversationId, requestId, ProjectId } from "./contract-ids.js";
@@ -89,7 +90,7 @@ export const companionRoutes = {
     params: z.object({ name: ManagedHarness }),
     body: ProviderKey.omit({ name: true })
       .extend({
-        commandId: Text.uuid(),
+        commandId: requestId(ExecutionCommandId).uuid(),
         provider: requestId(NativeProviderId).min(1).max(200),
         method: requestId(AuthMethodId).min(1).max(100),
       })
@@ -104,7 +105,7 @@ export const companionRoutes = {
     params: z.object({ name: ManagedHarness }),
     body: ProviderRemove.omit({ name: true })
       .extend({
-        commandId: Text.uuid(),
+        commandId: requestId(ExecutionCommandId).uuid(),
         provider: requestId(NativeProviderId).min(1).max(200),
       })
       .strict(),
@@ -117,7 +118,7 @@ export const companionRoutes = {
     path: "/workspace/runtimes/:name/providers/refresh",
     params: z.object({ name: ManagedHarness }),
     body: ProviderRefresh.omit({ name: true })
-      .extend({ commandId: Text.uuid() })
+      .extend({ commandId: requestId(ExecutionCommandId).uuid() })
       .strict(),
     response: NativeProviderView,
   }),

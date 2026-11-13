@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ActivityRecords } from "./ActivityRecords";
 import type { ActivityRecord } from "../shared/agent-activities";
 import { useEffect, useRef, useState } from "react";
@@ -213,7 +214,7 @@ export function NativeHistory({
               try {
                 const r = await call(workspaceApi.nativeHistoryFork, {
                   params: { id: selected.id },
-                  body: { commandId },
+                  body: { commandId: ExecutionCommandId.parse(commandId) },
                 });
                 receipt.remove();
                 onOpen(r.id);

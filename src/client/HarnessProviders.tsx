@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, type ManagedHarness as Harness } from "../shared/harnesses";
@@ -60,7 +61,7 @@ export function HarnessProviders({
     generation === viewGeneration();
   const command = async <T,>(
     target: string[],
-    dispatch: (id: string) => Promise<T>,
+    dispatch: (id: ExecutionCommandId) => Promise<T>,
   ) => {
     const scope = JSON.stringify(target);
     try {
@@ -70,7 +71,7 @@ export function HarnessProviders({
         sourceId,
         target,
         current,
-        dispatch,
+        (id) => dispatch(ExecutionCommandId.parse(id)),
       );
       if (current())
         setRecoveries((previous) =>
