@@ -1,3 +1,4 @@
+import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import {
   ApprovalId,
   ConnectionId,
@@ -230,7 +231,7 @@ it.each(["abort", "owner change"])(
   async (cancel) => {
     const key = "loop:fleet-commands:v1:fixture-owner";
     const previous = {
-      params: { id: randomUUID() },
+      params: { id: NativeDecisionId.parse(randomUUID()) },
       body: { commandId: randomUUID(), answer: { message: "older intent" } },
     };
     beforeFetch = async () => json({ error: "Older outcome is unknown" }, 503);
@@ -254,7 +255,7 @@ it.each(["abort", "owner change"])(
     };
     const controller = new AbortController();
     const input = {
-      params: { id: randomUUID() },
+      params: { id: NativeDecisionId.parse(randomUUID()) },
       body: { commandId: randomUUID(), answer: { message: "unsent intent" } },
     };
     const pending = api
@@ -318,7 +319,7 @@ it("persists before IO and reconciles the same native decision after reload even
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: decision },
+        params: { id: NativeDecisionId.parse(decision) },
         body: { commandId: original, answer: { message: "private reply" } },
       },
       source,
@@ -330,7 +331,7 @@ it("persists before IO and reconciles the same native decision after reload even
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: decision },
+        params: { id: NativeDecisionId.parse(decision) },
         body: { commandId: replacement, answer: { message: "private reply" } },
       },
       source,
@@ -481,7 +482,7 @@ it("does not reuse an unresolved command ID for another payload", async () => {
     throw new TypeError("Fixture disconnect");
   };
   const input = {
-    params: { id: "decision" },
+    params: { id: NativeDecisionId.parse("decision") },
     body: { commandId: id, answer: { value: "first" } },
   };
   await expect(
@@ -528,7 +529,7 @@ it("releases a new intent when device authorization fails before the action fetc
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: decision },
+        params: { id: NativeDecisionId.parse(decision) },
         body: { commandId: id, answer: { message: "retry unchanged answer" } },
       },
       source,
@@ -558,7 +559,7 @@ it("releases only its captured unsent entry when authorization aborts the reques
     id = randomUUID();
   beforeSession = () => controller.abort();
   const input = {
-    params: { id: "aborted-decision" },
+    params: { id: NativeDecisionId.parse("aborted-decision") },
     body: { commandId: id, answer: { message: "retry after abort" } },
   };
   await expect(
@@ -588,7 +589,7 @@ it("cancels one stalled authorization waiter without cancelling the shared reque
   const firstId = randomUUID(),
     secondId = randomUUID();
   const input = (id: string) => ({
-    params: { id },
+    params: { id: NativeDecisionId.parse(id) },
     body: { commandId: id, answer: { message: "isolated authorization" } },
   });
   let aborted: unknown, continued: unknown;
@@ -642,7 +643,7 @@ it("keeps an uncertain original intent if a later receipt query fails authorizat
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: decision },
+        params: { id: NativeDecisionId.parse(decision) },
         body: { commandId: id, answer: { message: "accepted answer" } },
       },
       source,
@@ -792,7 +793,7 @@ it("queries a persisted receipt after reload without retaining its body and keep
   await expect(
     api.callRoute(
       workspaceApi.nativeAnswer,
-      { params: { id: decision }, body },
+      { params: { id: NativeDecisionId.parse(decision) }, body },
       source,
     ),
   ).rejects.toThrow();
@@ -802,7 +803,11 @@ it("queries a persisted receipt after reload without retaining its body and keep
   expect(pending.payloadDigest).toBe(
     fleetPayloadDigest(
       fleetActionInput(
-        { route: "nativeAnswer", params: { id: decision }, body },
+        {
+          route: "nativeAnswer",
+          params: { id: NativeDecisionId.parse(decision) },
+          body,
+        },
         id,
       ),
     ),
@@ -851,7 +856,7 @@ it("does not query an old owner's receipt when authorization changes the browser
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: "decision" },
+        params: { id: NativeDecisionId.parse("decision") },
         body: { commandId: id, answer: { value: "keep" } },
       },
       source,
@@ -921,7 +926,7 @@ async function lostReceipt() {
     api.callRoute(
       workspaceApi.nativeAnswer,
       {
-        params: { id: randomUUID() },
+        params: { id: NativeDecisionId.parse(randomUUID()) },
         body: {
           commandId: randomUUID(),
           answer: { message: "private original reply" },

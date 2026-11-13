@@ -1,3 +1,4 @@
+import { NativeDecisionId } from "./contract-ids.js";
 import { TeamPresetId } from "./contract-ids.js";
 import {
   AgentId,
@@ -256,7 +257,7 @@ export const ResultsUpdates = z.object({
   projection: WorkspaceClock.optional(),
 });
 export const NativeDecision = z.object({
-  id: Text,
+  id: NativeDecisionId,
   run_id: RunId,
   conversation_id: ConversationId,
   generation: Text,

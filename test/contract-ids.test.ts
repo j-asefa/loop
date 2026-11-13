@@ -1,3 +1,7 @@
+import {
+  NativeCatalogId,
+  NativeDecisionId,
+} from "../src/shared/contract-ids.js";
 import { CheckoutSummarySchema } from "../src/shared/checkout.js";
 import { VerificationSummarySchema } from "../src/shared/verification.js";
 import { DoneDisplaySchema } from "../src/shared/done-card.js";
@@ -579,4 +583,30 @@ it("retains record identities in embedded public summaries", () => {
       "opaque:verification",
     ),
   ).toBe("opaque:verification");
+});
+
+it("keeps native catalog, managed conversation and decision identities distinct", () => {
+  for (const schema of [NativeCatalogId, NativeDecisionId]) {
+    expect(schema.parse("opaque:native")).toBe("opaque:native");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  expect(
+    workspaceApi.nativeHistoryDetail.params.parse({ id: "opaque:catalog" }),
+  ).toEqual({ id: "opaque:catalog" });
+  expect(
+    workspaceApi.nativeAnswer.params.parse({ id: "opaque:decision" }),
+  ).toEqual({ id: "opaque:decision" });
+  type History = RouteResponse<typeof workspaceApi.nativeHistoryList>;
+  expectTypeOf<
+    History["managed"][number]["id"]
+  >().toEqualTypeOf<ConversationId>();
+  expectTypeOf<
+    History["external"][number]["id"]
+  >().toEqualTypeOf<NativeCatalogId>();
+  const wrong: RouteInput<typeof workspaceApi.nativeHistoryFork>["params"] = {
+    // @ts-expect-error A conversation is not an external catalog entry.
+    id: ConversationId.parse("conversation"),
+  };
+  void wrong;
 });

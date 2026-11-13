@@ -1,3 +1,4 @@
+import { NativeCatalogId, ConversationId } from "./contract-ids.js";
 import {
   ProjectId,
   RunId,
@@ -196,8 +197,8 @@ const HistoryEntry = z.object({
   title: Text,
 });
 export const PublicNativeHistory = z.object({
-  managed: z.array(HistoryEntry.extend({ state: Text })),
-  external: z.array(HistoryEntry),
+  managed: z.array(HistoryEntry.extend({ id: ConversationId, state: Text })),
+  external: z.array(HistoryEntry.extend({ id: NativeCatalogId })),
   next: Text.nullable(),
   // The non-discovery branch has no external-history note.
   note: Text.optional(),

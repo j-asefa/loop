@@ -1,5 +1,6 @@
 import {
   ApprovalId,
+  NativeDecisionId,
   ConversationId,
   RunId,
   requestId,
@@ -13,7 +14,7 @@ import { ApprovalDecision } from "./approvals.js";
 import { SessionControls } from "./session-controls.js";
 import { AttachmentIds } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
-import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
+import { Text, Ok, endpoint, base } from "./route-contract.js";
 import {
   PublicRun,
   ConversationPage,
@@ -135,7 +136,7 @@ export const conversationRoutes = {
     identity: "commandId",
     method: "POST",
     path: "/native/decisions/:id",
-    params: Id,
+    params: z.object({ id: requestId(NativeDecisionId) }),
     body: z.strictObject({
       commandId: Text.uuid(),
       answer: z.record(Text, z.json()),

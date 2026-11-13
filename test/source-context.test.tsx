@@ -1,3 +1,4 @@
+import { NativeDecisionId } from "../src/shared/contract-ids.js";
 import { ArtifactId, ConnectionId } from "../src/shared/contract-ids.js";
 import { RunId } from "../src/shared/contract-ids.js";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -89,7 +90,7 @@ it("binds conversation actions and file URLs to their source across later naviga
     "/api/agent-sources/docker%3Abeta/connections/same/refresh",
   );
   const input = {
-    params: { id: "same" },
+    params: { id: NativeDecisionId.parse("same") },
     body: {
       commandId: "f7719a2b-dea1-4c80-8c5f-de7c503cab12",
       answer: { choice: "allow" },

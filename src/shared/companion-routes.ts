@@ -1,3 +1,4 @@
+import { NativeCatalogId } from "./contract-ids.js";
 import { ConversationId, requestId, ProjectId } from "./contract-ids.js";
 import { z } from "zod";
 import {
@@ -8,7 +9,7 @@ import {
   ProviderRefresh,
 } from "./native-providers.js";
 import * as companion from "./companion-contract-schemas.js";
-import { Text, Id, endpoint, base } from "./route-contract.js";
+import { Text, endpoint, base } from "./route-contract.js";
 
 export const companionRoutes = {
   workspace: endpoint({
@@ -199,7 +200,7 @@ export const companionRoutes = {
     operation: "nativeHistoryDetail",
     method: "GET",
     path: "/native/history/:id",
-    params: Id,
+    params: z.object({ id: requestId(NativeCatalogId) }),
     response: companion.PublicNativeHistoryDetail,
   }),
   nativeHistoryFork: endpoint({
@@ -207,9 +208,9 @@ export const companionRoutes = {
     operation: "nativeHistoryFork",
     method: "POST",
     path: "/native/history/:id/fork",
-    params: Id,
+    params: z.object({ id: requestId(NativeCatalogId) }),
     body: companion.CommandIdentity,
-    response: z.object({ id: Text }),
+    response: z.object({ id: ConversationId }),
     additionalStatuses: [201],
   }),
   conversationActivities: endpoint({

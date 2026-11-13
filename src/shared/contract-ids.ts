@@ -87,6 +87,11 @@ export type WebhookDeliveryId = z.output<typeof WebhookDeliveryId>;
 export const WebhookRequestId = z.string().brand<"WebhookRequestId">();
 export type WebhookRequestId = z.output<typeof WebhookRequestId>;
 
+export const NativeCatalogId = z.string().brand<"NativeCatalogId">();
+export type NativeCatalogId = z.output<typeof NativeCatalogId>;
+export const NativeDecisionId = z.string().brand<"NativeDecisionId">();
+export type NativeDecisionId = z.output<typeof NativeDecisionId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;
