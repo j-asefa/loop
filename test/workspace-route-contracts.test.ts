@@ -482,6 +482,16 @@ it("validates approvals before a decision and preserves owner checks", async () 
     other = requestApproval(foreign.run, { tool: "fixture" });
   const listed = await request("/approvals");
   expect(listed.status).toBe(200);
+  expect(listed.data).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: approval.id,
+        state: "pending",
+        result: null,
+        expires_at: approval.expires_at,
+      }),
+    ]),
+  );
   const items = workspaceApi.approvals.response.parse(listed.data);
   expect(items.some((row) => row.id === approval.id)).toBe(true);
   expect(items.some((row) => row.id === other.id)).toBe(false);
@@ -739,4 +749,69 @@ it("preserves native error events in running and subsequently completed HTTP run
       ]),
     );
   }
+});
+
+it("projects every approval lifecycle result from the production writers without losing expiry", async () => {
+  const queries = await import("../src/server/sql/approvals");
+  const { approve, decide } = await import("../src/server/approvals");
+  const { resumeAfterApproval } = await import("../src/server/sql/runs");
+  const { Approval } = await import("../src/shared/approval-contract-schema");
+  const make = () => {
+    const f = fixture();
+    db.prepare("UPDATE runs SET state='awaiting_approval' WHERE id=?").run(
+      f.run.id,
+    );
+    const approval = requestApproval(f.run, { tool: "fixture" });
+    const joined = queries
+      .pendingTeams(db, owner, [])
+      .find((row) => row.id === approval.id)!;
+    const project = () => {
+      const result = Approval.parse({
+        ...joined,
+        ...queries.owned(db, approval.id, owner),
+      });
+      expect(result.expires_at).toBe(approval.expires_at);
+      return result;
+    };
+    const execute = () => {
+      approve(owner, approval.id, { by: "user" });
+      expect(project()).toMatchObject({ state: "approved", result: null });
+      resumeAfterApproval(db, f.run.id);
+      queries.startApproved(db, approval.id);
+      expect(project()).toMatchObject({ state: "executing", result: null });
+    };
+    return { approval, project, execute };
+  };
+  const completed = make();
+  expect(completed.project()).toMatchObject({ state: "pending", result: null });
+  completed.execute();
+  queries.complete(db, "fixture result", completed.approval.id);
+  expect(completed.project()).toMatchObject({
+    state: "completed",
+    result: "fixture result",
+  });
+  const uncertain = make();
+  uncertain.execute();
+  queries.unknownExecuting(
+    db,
+    "uncertain fixture outcome",
+    uncertain.approval.id,
+  );
+  expect(uncertain.project()).toMatchObject({
+    state: "unknown",
+    result: "uncertain fixture outcome",
+  });
+  const rejected = make();
+  decide(owner, rejected.approval.id, "reject");
+  expect(rejected.project()).toMatchObject({ state: "rejected", result: null });
+  queries.previewDecision(
+    db,
+    "rejected",
+    "simulated rejection",
+    rejected.approval.id,
+  );
+  expect(rejected.project()).toMatchObject({
+    state: "rejected",
+    result: "simulated rejection",
+  });
 });

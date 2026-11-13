@@ -14,7 +14,8 @@ import { RunDisplayState } from "./run-state.js";
 import { MessageRole } from "./message-roles.js";
 import { AgentOrigin, ConversationOrigin } from "./origins.js";
 import { ConnectionStatus } from "./connection-status.js";
-import { ApprovalState } from "./approvals.js";
+import { Approval } from "./approval-contract-schema.js";
+export { Approval };
 import { NativeDecisionState } from "./native-decision-state.js";
 
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
@@ -241,22 +242,6 @@ export const ResultsUpdates = z.object({
   more: z.boolean(),
   projection: WorkspaceClock.optional(),
 });
-export const Approval = z.object({
-  id: Text,
-  owner_id: Text,
-  run_id: Text,
-  digest: Text,
-  request: Text,
-  state: ApprovalState,
-  result: MaybeText,
-  created_at: Time,
-  expires_at: Time,
-  conversation_id: MaybeText,
-  input: Text,
-  name: MaybeText,
-  provider: Provider.nullable(),
-});
-export type Approval = z.infer<typeof Approval>;
 export const NativeDecision = z.object({
   id: Text,
   run_id: Text,

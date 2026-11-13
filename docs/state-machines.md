@@ -93,9 +93,15 @@ public arm preserves that stored error field.
 ### `approvals.state`
 
 States: `pending`, `approved`, `executing`, **`rejected`**, **`completed`**,
-**`unknown`**. `pending` has an `expires_at`; its run is `awaiting_approval`.
+**`unknown`**. Expiry remains stored in every state; only a pending decision
+uses that deadline. A pending approval's run is `awaiting_approval`.
 `executing` means the external call may be in flight; `unknown` means its
 outcome is uncertain and it is never replayed.
+The public [approval union](../src/shared/approval-contract-schema.ts) requires
+null results for pending/approved/executing records, result text for completed
+and unknown records, and null or text for rejected records (design preview
+rejections retain a simulation message). Request and result text stay opaque.
+
 
 | From → to | Code | Guard |
 | --------- | ---- | ----- |
