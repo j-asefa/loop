@@ -122,7 +122,7 @@ export const mcpRoutes = {
     method: "GET",
     path: "/agents/:id/tools",
     params: z.object({ id: requestId(AgentId) }),
-    response: z.array(z.object({ connection_id: Text, tool: Text })),
+    response: z.array(z.object({ connection_id: McpConnectionId, tool: Text })),
   }),
   agentToolsUpdate: endpoint({
     ...base,

@@ -3,6 +3,11 @@ import {
   WebhookDeliveryId,
   WebhookRequestId,
   requestId,
+  RunId,
+  ConversationId,
+  AgentId,
+  ProjectId,
+  TeamId,
 } from "./contract-ids.js";
 import { z } from "zod";
 
@@ -35,11 +40,14 @@ export const WebhookStop = z
       .object({ kind: z.enum(["approval", "answer"]), id: Id })
       .strict()
       .optional(),
-    run_id: Id,
-    conversation_id: Id.nullable(),
-    agent: z.object({ id: Id, name: z.string() }).strict().nullable(),
-    project_id: Id.optional(),
-    team_id: Id.optional(),
+    run_id: RunId.min(1).max(300),
+    conversation_id: ConversationId.min(1).max(300).nullable(),
+    agent: z
+      .object({ id: AgentId.min(1).max(300), name: z.string() })
+      .strict()
+      .nullable(),
+    project_id: ProjectId.min(1).max(300).optional(),
+    team_id: TeamId.min(1).max(300).optional(),
     title: z.string().max(240),
     result_preview: z.string().max(180),
     url: z.string().url(),

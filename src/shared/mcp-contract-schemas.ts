@@ -1,5 +1,6 @@
 import {
   AgentId,
+  OwnerId,
   requestId,
   McpCandidateId,
   McpCatalogEntryId,
@@ -75,7 +76,7 @@ export const McpToolCallInput = toolInvocationSchema.extend({
 });
 export const PublicMcpConnection = z.object({
   id: McpConnectionId,
-  owner_id: Text,
+  owner_id: OwnerId,
   name: Text,
   url: Text,
   status: McpConnectionStatus,
