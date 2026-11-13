@@ -4,7 +4,7 @@ import { useSourceRoute } from "./SourceContext";
 import { ConnectionDetails } from "./ConnectionDetails";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { useState } from "react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { Sheet, Badge } from "./components";
 import type { Connection } from "../shared/types";
 export function NativeConnections({

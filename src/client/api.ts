@@ -400,13 +400,6 @@ async function readRequest<T>(
     }
   }
 }
-export const parse = <T = any>(value: string | undefined, fallback: T): T => {
-  try {
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
-};
 
 // Callers can keep their existing invalid-snapshot recovery policy without
 // exposing validation details or treating malformed output as a transient GET.

@@ -1,4 +1,4 @@
-import { parse } from "./api";
+import { parse } from "./json";
 
 // GitHub writes from the official GitHub connection. The approval shows the
 // exact target and arguments; the broker refuses merges without a head SHA.

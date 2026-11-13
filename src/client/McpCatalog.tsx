@@ -2,7 +2,7 @@ import { literalEntry } from "./textEntry";
 import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { catalogResults } from "./catalogSearch";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 type CatalogEntry = RouteResponse<

@@ -77,8 +77,8 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
+import { parse } from "./json";
 import {
-  parse,
   retryAfter,
   isRateLimited,
   RATE_LIMITED,

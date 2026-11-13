@@ -1,4 +1,4 @@
-import { parse } from "./api";
+import { parse } from "./json";
 import { RichText } from "./components";
 import { codexToolApproval } from "../shared/codex-approval";
 

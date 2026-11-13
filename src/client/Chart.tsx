@@ -1,4 +1,4 @@
-import { parse } from "./api";
+import { parse } from "./json";
 import { chartSchema } from "../shared/chart";
 export function Chart({
   content,

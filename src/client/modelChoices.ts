@@ -1,7 +1,7 @@
 import { harnesses, isHarness } from "../shared/harnesses";
 import type { Connection } from "../shared/types";
 import type { ModelOption } from "../shared/models";
-import { parse } from "./api";
+import { parse } from "./json";
 import { modelDisplayName } from "../shared/model-display";
 export { modelDisplayName, runModelName } from "../shared/model-display";
 

@@ -3,7 +3,7 @@ import { useSourceRoute, useProjectionRoute } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { Sheet } from "./components";
 import { SettingsNote } from "./SettingsUI";
 import { McpCatalog } from "./McpCatalog";

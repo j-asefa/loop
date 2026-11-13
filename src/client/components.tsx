@@ -32,7 +32,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
-import { parse } from "./api";
+import { parse } from "./json";
 import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";

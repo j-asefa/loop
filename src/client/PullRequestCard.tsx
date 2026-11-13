@@ -8,7 +8,7 @@ import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
-import { parse } from "./api";
+import { parse } from "./json";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { openPull } from "./PullRequests";
 

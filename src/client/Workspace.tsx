@@ -32,7 +32,7 @@ import {
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
-import { parse } from "./api";
+import { parse } from "./json";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { useSourceRoute } from "./SourceContext";
 import { Sheet, Empty, Badge } from "./components";
