@@ -44,6 +44,8 @@ function inventory(
         statement.type === "ExportNamedDeclaration"
           ? statement.declaration
           : statement;
+      if (statement.type === "ExportDefaultDeclaration")
+        definitions.set("default", statement.declaration);
       if (declaration?.type === "VariableDeclaration")
         for (const entry of declaration.declarations)
           if (entry.id.type === "Identifier")
@@ -68,6 +70,8 @@ function inventory(
               target,
               spec.imported.name ?? spec.imported.value,
             ]);
+          else if (spec.type === "ImportDefaultSpecifier")
+            imports.set(spec.local.name, [target, "default"]);
           else if (spec.type === "ImportNamespaceSpecifier")
             imports.set(spec.local.name, [target, "*"]);
         }
@@ -141,6 +145,7 @@ function inventory(
     if (!node) return false;
     if (
       [
+        "ParenthesizedExpression",
         "TSAsExpression",
         "TSSatisfiesExpression",
         "TSNonNullExpression",
@@ -402,5 +407,26 @@ it("resolves function-local aliases, shadowed imports and nested block bindings"
   ]);
   expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
     "local.ts:opaque.origin",
+  ]);
+});
+
+it("follows default schema imports and their named re-exports", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/default.ts"),
+      `import {z} from 'zod';export default (z.string());`,
+    ],
+    [
+      resolve("fixture/reexport.ts"),
+      `export {default as Text} from './default.js';`,
+    ],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import Text from './default.js';import {Text as Alias} from './reexport.js';const Schema=z.object({state:(Text),mode:Alias});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
+    "use.ts:Schema.mode",
   ]);
 });
