@@ -1,3 +1,10 @@
+import {
+  NativeProviderId,
+  AuthMethodId,
+  AuthAttemptId,
+  AuthPromptId,
+  AuthOptionId,
+} from "../src/shared/contract-ids.js";
 import { WebhookStop } from "../src/shared/webhooks.js";
 import { chartSchema } from "../src/shared/chart.js";
 import { artifactRefreshSource } from "../src/shared/artifact-refresh.js";
@@ -646,4 +653,43 @@ it("keeps MCP and webhook reference domains and existing field bounds", () => {
       arguments: {},
     }),
   ).toBeNull();
+});
+
+it("distinguishes native auth identities without tightening their field rules", () => {
+  for (const schema of [
+    NativeProviderId,
+    AuthMethodId,
+    AuthAttemptId,
+    AuthPromptId,
+    AuthOptionId,
+  ]) {
+    expect(schema.parse("external:opaque")).toBe("external:opaque");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  const base = {
+    attemptId: uuid,
+    promptId: uuid,
+    value: "fixture",
+  };
+  expect(
+    workspaceApi.runtimeAuthInput.body.parse({
+      attemptId: uuid,
+      promptId: uuid,
+      value: "fixture",
+    }),
+  ).toEqual({ attemptId: uuid, promptId: uuid, value: "fixture" });
+  expect(
+    workspaceApi.runtimeAuthInput.body.safeParse({
+      ...base,
+      attemptId: "opaque",
+    }).success,
+  ).toBe(false);
+  const wrong: RouteInput<typeof workspaceApi.runtimeAuthInput>["body"] = {
+    // @ts-expect-error A prompt is not its sign-in attempt.
+    attemptId: AuthPromptId.parse(uuid),
+    promptId: AuthPromptId.parse(uuid),
+    value: "fixture",
+  };
+  void wrong;
 });

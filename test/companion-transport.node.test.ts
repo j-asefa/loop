@@ -1,3 +1,4 @@
+import { NativeProviderId, AuthMethodId } from "../src/shared/contract-ids.js";
 import { ProjectId } from "../src/shared/contract-ids.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -127,8 +128,8 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
           params: { name: "pi" as const },
           body: {
             projectId: ProjectId.parse(projectResult.id),
-            provider: "anthropic",
-            method: "api",
+            provider: NativeProviderId.parse("anthropic"),
+            method: AuthMethodId.parse("api"),
             commandId,
           },
         };
@@ -203,8 +204,8 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
             params: { name: "grok" },
             body: {
               projectId: ProjectId.parse(projectResult.id),
-              provider: "xai",
-              method: "oauth",
+              provider: NativeProviderId.parse("xai"),
+              method: AuthMethodId.parse("oauth"),
               commandId: randomUUID(),
             },
           },

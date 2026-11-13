@@ -1,10 +1,11 @@
+import { NativeProviderId, AuthMethodId } from "./contract-ids.js";
 import { ProjectId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 import { ManagedHarness } from "./harnesses.js";
 export { ManagedHarness };
 export const NativeProvider = z.object({
-  id: z.string(),
+  id: NativeProviderId,
   name: z.string(),
   configured: z.boolean().optional(),
   source: z
@@ -14,7 +15,7 @@ export const NativeProvider = z.object({
   removable: z.boolean().optional(),
   methods: z.array(
     z.object({
-      id: z.string(),
+      id: AuthMethodId,
       label: z.string(),
       type: z.enum(["api", "oauth"]),
     }),
@@ -35,8 +36,8 @@ export const ProviderTarget = z.object({
   projectId: requestId(ProjectId).min(1),
 });
 export const ProviderKey = ProviderTarget.extend({
-  provider: z.string().min(1).max(200),
-  method: z.string().min(1).max(100),
+  provider: NativeProviderId.min(1).max(200),
+  method: AuthMethodId.min(1).max(100),
   // A browser key field accepts a literal credential, never Pi's !command syntax.
   secret: z
     .string()
@@ -46,7 +47,7 @@ export const ProviderKey = ProviderTarget.extend({
     .regex(/^[^!\r\n][^\r\n]*$/),
 });
 export const ProviderRemove = ProviderTarget.extend({
-  provider: z.string().min(1).max(200),
+  provider: NativeProviderId.min(1).max(200),
 });
 export const ProviderRefresh = ProviderTarget.extend({
   useProviderBilling: z.boolean().optional(),

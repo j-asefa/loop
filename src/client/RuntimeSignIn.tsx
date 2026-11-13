@@ -1,3 +1,4 @@
+import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { isManagedHarness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
@@ -274,8 +275,8 @@ function RuntimeSignInSession({
       try {
         const body = {
           projectId: parseId(ProjectId, projectId || ""),
-          provider,
-          method,
+          provider: NativeProviderId.parse(provider),
+          method: AuthMethodId.parse(method),
           commandId,
         };
         const next = await callRoute(

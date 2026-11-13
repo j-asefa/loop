@@ -1,3 +1,10 @@
+import {
+  NativeProviderId,
+  AuthMethodId,
+  AuthAttemptId,
+  AuthPromptId,
+  AuthOptionId,
+} from "./contract-ids.js";
 import { NativeDecisionId } from "./contract-ids.js";
 import { NativeCommand } from "./native-commands.js";
 import { Billing } from "./protocol.js";
@@ -78,12 +85,12 @@ const Enabled = z.strictObject({
 const SignIn = z.strictObject({
   providers: z.array(
     NativeProvider.extend({
-      id: Id,
+      id: NativeProviderId.min(1).max(200),
       name: z.string(),
       configured: z.boolean().optional(),
       methods: z.array(
         z.strictObject({
-          id: Id,
+          id: AuthMethodId.min(1).max(200),
           label: z.string(),
           type: z.enum(["oauth", "api"]),
         }),
@@ -92,10 +99,10 @@ const SignIn = z.strictObject({
   ),
   attempt: z
     .strictObject({
-      id: Id,
+      id: AuthAttemptId.min(1).max(200),
       commandId: Id,
-      provider: Id,
-      method: Id,
+      provider: NativeProviderId.min(1).max(200),
+      method: AuthMethodId.min(1).max(200),
       state: z.enum([
         "starting",
         "waiting",
@@ -110,11 +117,16 @@ const SignIn = z.strictObject({
       instructions: z.string().optional(),
       prompt: z
         .strictObject({
-          id: Id,
+          id: AuthPromptId.min(1).max(200),
           type: z.enum(["text", "secret", "select", "manual_code"]),
           message: z.string(),
           options: z
-            .array(z.strictObject({ id: Id, label: z.string() }))
+            .array(
+              z.strictObject({
+                id: AuthOptionId.min(1).max(200),
+                label: z.string(),
+              }),
+            )
             .optional(),
         })
         .optional(),
@@ -255,8 +267,8 @@ export const executionOperations = {
     z.strictObject({
       name: AuthHarness,
       projectId: Id,
-      provider: Id,
-      method: z.string().min(1).max(100),
+      provider: NativeProviderId.min(1).max(200),
+      method: AuthMethodId.min(1).max(100),
     }),
     SignIn,
     { effect: "session", reconcile: "authStart" },
@@ -264,8 +276,8 @@ export const executionOperations = {
   "auth.input": method(
     z.strictObject({
       name: AuthHarness,
-      attemptId: z.uuid(),
-      promptId: z.uuid(),
+      attemptId: AuthAttemptId.uuid(),
+      promptId: AuthPromptId.uuid(),
       value: z
         .string()
         .min(1)
@@ -276,7 +288,7 @@ export const executionOperations = {
     { effect: "session", reconcile: "authAttempt" },
   ),
   "auth.cancel": method(
-    z.strictObject({ name: AuthHarness, attemptId: z.uuid() }),
+    z.strictObject({ name: AuthHarness, attemptId: AuthAttemptId.uuid() }),
     SignIn,
     { effect: "session", reconcile: "authAttempt" },
   ),

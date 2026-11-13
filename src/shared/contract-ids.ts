@@ -92,6 +92,17 @@ export type NativeCatalogId = z.output<typeof NativeCatalogId>;
 export const NativeDecisionId = z.string().brand<"NativeDecisionId">();
 export type NativeDecisionId = z.output<typeof NativeDecisionId>;
 
+export const NativeProviderId = z.string().brand<"NativeProviderId">();
+export type NativeProviderId = z.output<typeof NativeProviderId>;
+export const AuthMethodId = z.string().brand<"AuthMethodId">();
+export type AuthMethodId = z.output<typeof AuthMethodId>;
+export const AuthAttemptId = z.string().brand<"AuthAttemptId">();
+export type AuthAttemptId = z.output<typeof AuthAttemptId>;
+export const AuthPromptId = z.string().brand<"AuthPromptId">();
+export type AuthPromptId = z.output<typeof AuthPromptId>;
+export const AuthOptionId = z.string().brand<"AuthOptionId">();
+export type AuthOptionId = z.output<typeof AuthOptionId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;
