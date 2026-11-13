@@ -54,7 +54,6 @@ import { notify } from "../toast";
 import {
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
-  setDraftOwner,
   threadDraft as readThreadDraft,
 } from "../drafts";
 import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
@@ -165,7 +164,6 @@ export function useAppController() {
       localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
-  setDraftOwner(session?.user?.id);
   setViewOwner(session?.user?.id);
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
@@ -1015,9 +1013,6 @@ export function useAppController() {
   const request = receiptBox.current.box;
   const ownerRef = useRef<string | undefined>(undefined);
   ownerRef.current = session?.user?.id;
-  // Drafts are read and written only for the signed-in owner.
-  setDraftOwner(session?.user?.id);
-  setViewOwner(session?.user?.id);
   const readContract = useProjectionRoute();
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   const resultsPager = useRef(new ResultsPager<ResultItem>());
