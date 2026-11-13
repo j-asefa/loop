@@ -1,5 +1,5 @@
 import { ConversationId } from "../src/shared/contract-ids.js";
-import { callRoute, readRoute } from "../src/client/workspace-api";
+import { callRoute, readRoute } from "../src/client/api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { retryAfter } from "../src/client/api";

@@ -2,7 +2,7 @@ import { feedItemOrder } from "../shared/feed-order";
 import { useEffect, useRef, useState } from "react";
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import type { AgentThreadSummary } from "../shared/agent-thread-feed";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { cachedView, cacheView, viewGeneration, viewOwner } from "./viewCache";
 import {
   listenWorkspaceChanges,

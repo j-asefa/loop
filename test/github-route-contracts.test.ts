@@ -11,7 +11,7 @@ import {
   workspaceRoutes,
   type RouteContract,
 } from "../src/shared/workspace-api";
-import { readRoute } from "../src/client/workspace-api";
+import { readRoute } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-github-contracts-"));
 process.env.LOOP_DATA_DIR = directory;

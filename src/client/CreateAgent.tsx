@@ -2,7 +2,7 @@ import { literalEntry, proseEntry } from "./textEntry";
 
 import { fleetOperationReason } from "./fleetCapabilities";
 import { workspaceApi } from "../shared/workspace-api";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import {
   CreateAgentModelOptions,
   connectionKey,

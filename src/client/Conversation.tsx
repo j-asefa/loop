@@ -19,7 +19,7 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { readRoute, UnavailableResponse } from "./workspace-api";
+import { readRoute, UnavailableResponse } from "./api";
 import { CollectionReadNotice } from "./CollectionRead";
 import {
   listenWorkspaceChanges,

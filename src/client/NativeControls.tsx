@@ -1,6 +1,6 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { AutofillBoundary } from "./AutofillBoundary";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { storedCommandAt } from "./pendingCommandStorage";
 import {
   workspaceApi,

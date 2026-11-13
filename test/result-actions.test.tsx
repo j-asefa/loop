@@ -3,9 +3,12 @@ import { renderResults } from "../src/client/app/Results";
 import { resultAction } from "../src/client/card-actions";
 import type { ResultCard } from "../src/shared/cards";
 import { workspaceApi } from "../src/shared/workspace-api";
-import { callRoute } from "../src/client/workspace-api";
+import { callRoute } from "../src/client/api";
 
-vi.mock("../src/client/workspace-api", () => ({ callRoute: vi.fn() }));
+vi.mock("../src/client/api", async (original) => ({
+  ...(await original<object>()),
+  callRoute: vi.fn(),
+}));
 vi.mock("../src/client/sourceRouting", async (original) => ({
   ...(await original<object>()),
   executionSourceId: () => "remote",

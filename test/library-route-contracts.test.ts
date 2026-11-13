@@ -14,7 +14,7 @@ import type { AddressInfo } from "node:net";
 import { gitProject } from "./git-project.js";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
-import { callRoute, fetchStream, readRoute } from "../src/client/workspace-api";
+import { callRoute, fetchStream, readRoute } from "../src/client/api";
 
 vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "fixture-local",

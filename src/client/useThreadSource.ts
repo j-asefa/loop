@@ -1,5 +1,5 @@
 import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { useEffect, useState } from "react";
 import { retryAfter, isRateLimited, RATE_LIMITED } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";

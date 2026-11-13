@@ -9,7 +9,7 @@ import {
   Search,
   Tag,
 } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";

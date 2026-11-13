@@ -4,7 +4,7 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState } from "react";
 import type {

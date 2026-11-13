@@ -1,6 +1,6 @@
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { parse } from "./json";
 import { Sheet } from "./components";

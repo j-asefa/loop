@@ -6,7 +6,7 @@ import {
   readRoute,
   routeUrl,
   fetchStream,
-} from "../src/client/workspace-api";
+} from "../src/client/api";
 import { workspaceApi } from "../src/shared/workspace-api";
 beforeEach(() => vi.stubGlobal("location", { search: "" }));
 afterEach(() => vi.unstubAllGlobals());

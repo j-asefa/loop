@@ -1,5 +1,5 @@
 import { RunId } from "../shared/contract-ids.js";
-import { routeUrl } from "./workspace-api";
+import { routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {

@@ -1,6 +1,6 @@
 import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
-import { readRoute } from "../workspace-api";
+import { readRoute } from "../api";
 import { workspaceApi } from "../../shared/workspace-api";
 import { useEffect } from "react";
 

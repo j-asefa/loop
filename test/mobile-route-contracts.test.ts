@@ -8,7 +8,7 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
-import { callRoute, readRoute } from "../src/client/workspace-api";
+import { callRoute, readRoute } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-mobile-contracts-"));
 process.env.LOOP_DATA_DIR = directory;

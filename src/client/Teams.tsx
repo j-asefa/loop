@@ -1,7 +1,7 @@
 import { MAX_TEAM_WORKERS } from "../shared/team-limits";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useRef, useState } from "react";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { Avatar, Sheet } from "./components";
 import {

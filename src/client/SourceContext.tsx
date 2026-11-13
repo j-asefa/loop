@@ -14,7 +14,7 @@ import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
 import { viewGeneration } from "./viewCache";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import type {
   RouteContract,
   ClientRouteContract,

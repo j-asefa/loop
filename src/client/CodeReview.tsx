@@ -1,6 +1,6 @@
 import { literalEntry } from "./textEntry";
 import { useEffect, useRef, useState } from "react";
-import { callRoute } from "./workspace-api";
+import { callRoute } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { performStoredEffect, creationFailureSettled } from "./pendingCommands";

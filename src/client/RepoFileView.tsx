@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import createDOMPurify from "dompurify";
 import { marked } from "marked";
-import { routeUrl, fetchStream } from "./workspace-api";
+import { routeUrl, fetchStream } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";

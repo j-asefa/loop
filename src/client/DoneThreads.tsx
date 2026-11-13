@@ -15,7 +15,7 @@ import type {
 } from "../shared/done-threads";
 import { workspaceApi } from "../shared/workspace-api";
 import { contractDoneThreadReader } from "../shared/done-thread-client";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { Sheet } from "./components";
 import { CardBody } from "./ContentCard";
 import { SourceProvider, useSourceCapabilities } from "./SourceContext";

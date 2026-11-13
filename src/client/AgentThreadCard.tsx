@@ -17,7 +17,7 @@ import type {
   AgentThreadMessage,
 } from "../shared/agent-thread-feed";
 import { Avatar, RichText, Sheet } from "./components";
-import { readRoute } from "./workspace-api";
+import { readRoute } from "./api";
 import { relativeTime, preview } from "./threadView";
 import { viewGeneration } from "./viewCache";
 import { sourceUrl } from "./sourceRouting";

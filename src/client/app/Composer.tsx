@@ -26,7 +26,7 @@ import {
 } from "../../shared/workspace-api";
 import type { Agent, RunView as Run } from "../../shared/types";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
-import { callRoute } from "../workspace-api";
+import { callRoute } from "../api";
 import type { useSourceRoute } from "../SourceContext";
 import { executionSourceId } from "../sourceRouting";
 import { lastRecipient, rememberRecipient } from "../deviceHistory";

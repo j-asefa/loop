@@ -5,7 +5,7 @@ import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
 import { literalEntry, proseEntry } from "../textEntry";
 import { renderComposer, renderComposerSendSheets } from "./Composer";
 import { workspaceApi } from "../../shared/workspace-api";
-import { callRoute } from "../workspace-api";
+import { callRoute } from "../api";
 import { StartCodeReview } from "../CodeReview";
 import { FleetSettings } from "../FleetSettings";
 import { WhenFleetAvailable } from "../FleetContext";

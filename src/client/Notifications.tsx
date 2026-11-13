@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff, Info, TriangleAlert } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
 import { PushSubscription } from "../shared/team-contract-schemas";
 import { executionSourceId } from "./sourceRouting";

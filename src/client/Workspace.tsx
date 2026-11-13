@@ -8,7 +8,7 @@ import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
 import { executionSourceId } from "./sourceRouting";
-import { callRoute, routeUrl } from "./workspace-api";
+import { callRoute, routeUrl } from "./api";
 import {
   workspaceApi,
   type RouteInput,

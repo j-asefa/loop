@@ -2,7 +2,7 @@ import { literalEntry, proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { callRoute, readRoute } from "./workspace-api";
+import { callRoute, readRoute } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { Sheet } from "./components";
