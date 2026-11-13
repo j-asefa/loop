@@ -1,3 +1,10 @@
+import {
+  NativeProviderId,
+  AuthMethodId,
+  AuthAttemptId,
+  AuthPromptId,
+  AuthOptionId,
+} from "./contract-ids.js";
 import { NativeCatalogId, ConversationId } from "./contract-ids.js";
 import {
   ProjectId,
@@ -30,30 +37,39 @@ export const RuntimeAuthStart = executionOperations["auth.start"].input
   .extend({
     projectId: requestId(ProjectId).min(1).max(200),
     commandId: Text.uuid(),
+    provider: requestId(NativeProviderId).min(1).max(200),
+    method: requestId(AuthMethodId).min(1).max(100),
   });
-export const RuntimeAuthInput = executionOperations["auth.input"].input.omit({
-  name: true,
-});
-export const RuntimeAuthCancel = executionOperations["auth.cancel"].input.omit({
-  name: true,
-});
+export const RuntimeAuthInput = executionOperations["auth.input"].input
+  .omit({ name: true })
+  .extend({
+    attemptId: requestId(AuthAttemptId).uuid(),
+    promptId: requestId(AuthPromptId).uuid(),
+  });
+export const RuntimeAuthCancel = executionOperations["auth.cancel"].input
+  .omit({ name: true })
+  .extend({ attemptId: requestId(AuthAttemptId).uuid() });
 export const PublicRuntimeAuth = z.object({
   providers: z.array(
     NativeProvider.extend({
-      id: Text,
+      id: NativeProviderId,
       name: Text,
       configured: z.boolean().optional(),
       methods: z.array(
-        z.object({ id: Text, label: Text, type: z.enum(["oauth", "api"]) }),
+        z.object({
+          id: AuthMethodId,
+          label: Text,
+          type: z.enum(["oauth", "api"]),
+        }),
       ),
     }),
   ),
   attempt: z
     .object({
-      id: Text,
+      id: AuthAttemptId,
       commandId: Text,
-      provider: Text,
-      method: Text,
+      provider: NativeProviderId,
+      method: AuthMethodId,
       state: z.enum([
         "starting",
         "waiting",
@@ -69,10 +85,12 @@ export const PublicRuntimeAuth = z.object({
       instructions: Text.optional(),
       prompt: z
         .object({
-          id: Text,
+          id: AuthPromptId,
           type: z.enum(["text", "secret", "select", "manual_code"]),
           message: Text,
-          options: z.array(z.object({ id: Text, label: Text })).optional(),
+          options: z
+            .array(z.object({ id: AuthOptionId, label: Text }))
+            .optional(),
         })
         .optional(),
     })

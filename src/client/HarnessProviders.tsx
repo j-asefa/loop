@@ -1,3 +1,4 @@
+import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, type ManagedHarness as Harness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
@@ -227,8 +228,8 @@ export function HarnessProviders({
                   params: { name: target.name },
                   body: {
                     projectId: parseId(ProjectId, target.projectId),
-                    provider,
-                    method: targetMethod,
+                    provider: NativeProviderId.parse(provider),
+                    method: AuthMethodId.parse(targetMethod),
                     secret: key,
                     commandId,
                   },

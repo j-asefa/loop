@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import type { NativeProvider } from "./native-providers.js";
 
-export type AuthProvider = z.infer<typeof NativeProvider>;
+export type AuthProvider = z.input<typeof NativeProvider>;
 export type AuthPrompt = {
   id: string;
   type: "text" | "secret" | "select" | "manual_code";
