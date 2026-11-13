@@ -333,6 +333,14 @@ function inventory(
       }
       if (
         node.type === "CallExpression" &&
+        node.callee?.property?.name === "or"
+      ) {
+        walk(node.callee.object, [...path, "variant[0]"]);
+        walk(node.arguments[0], [...path, "variant[1]"]);
+        return;
+      }
+      if (
+        node.type === "CallExpression" &&
         ["union", "discriminatedUnion"].includes(node.callee?.property?.name)
       ) {
         const branches = node.arguments.find(
@@ -595,7 +603,8 @@ it("distinguishes function-local declarations and union variants", () => {
       `import {z} from 'zod';
  function first(){const Schema=z.object({kind:z.string()});return Schema;}
  function second(){const Schema=z.object({kind:z.string()});return Schema;}
- const Variants=z.union([z.object({kind:z.string()}),z.object({kind:z.string()})]);`,
+ const Variants=z.union([z.object({kind:z.string()}),z.object({kind:z.string()})]);
+ const Alternative=z.object({kind:z.string()}).or(z.object({kind:z.string()}));`,
     ],
   ]);
   expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
@@ -603,5 +612,7 @@ it("distinguishes function-local declarations and union variants", () => {
     "identities.ts:second.Schema.kind",
     "identities.ts:Variants.variant[0].kind",
     "identities.ts:Variants.variant[1].kind",
+    "identities.ts:Alternative.variant[0].kind",
+    "identities.ts:Alternative.variant[1].kind",
   ]);
 });
