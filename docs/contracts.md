@@ -50,6 +50,13 @@ directly, never the registry. Shared workspace projections live in
 `workspace-contract-schemas.ts`; route types, defaults and scalar schemas live in
 `route-contract.ts`.
 
+Nominal identity schemas live in `contract-ids.ts`. Response fields use their
+output brands; server builders use `z.input<typeof Schema>` so database IDs
+remain strings until projection. Request fields use `requestId(Schema)` to
+require the same brand in typed client inputs. Preserve each field's existing
+UUID, length, nullability and optionality rules. Parse raw URL, form or stored
+strings at client ingress; do not cast them into an ID type.
+
 Direct execution-authority forwards use `executionRoute` in
 `src/server/execution-routes.ts`. Each table entry declares its contract, operation
 and preparation of authority input and options. Keep owner checks and durable

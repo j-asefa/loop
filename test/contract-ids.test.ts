@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   OwnerId,
@@ -72,6 +72,9 @@ function clientTypeChecks(
   const run: RouteResponse<typeof workspaceApi.runMove>["id"] =
     RunId.parse(uuid);
   void api(route, { params: { id: conversation } }, "fixture");
+  void api(workspaceApi.session, { params: { id: conversation } }, "fixture");
+  // @ts-expect-error UUID validation retains the nominal input requirement.
+  void api(workspaceApi.session, { params: { id: uuid } }, "fixture");
   // @ts-expect-error A run identity cannot be passed as a conversation identity.
   void api(route, { params: { id: run } }, "fixture");
   // @ts-expect-error Parse raw URL/storage strings at the ingress boundary.
@@ -85,3 +88,42 @@ function clientTypeChecks(
   void project;
 }
 void clientTypeChecks;
+
+it("projects nominal core entity IDs while allowing raw server builders", () => {
+  type Bootstrap = RouteResponse<typeof workspaceApi.bootstrap>;
+  type Agent = Bootstrap["agents"][number];
+  type Folder = Bootstrap["folders"][number];
+  type Team = Bootstrap["teams"][number];
+  type Conversation = RouteResponse<
+    typeof workspaceApi.conversation
+  >["conversation"];
+  type Message = RouteResponse<
+    typeof workspaceApi.conversation
+  >["messages"][number];
+  type Run = RouteResponse<typeof workspaceApi.runs>[number];
+  type Approval = RouteResponse<typeof workspaceApi.approvals>[number];
+  type Artifact = z.output<
+    typeof import("../src/shared/artifact-contract-schema.js").PublicArtifact
+  >;
+  expectTypeOf<Agent["id"]>().toEqualTypeOf<AgentId>();
+  expectTypeOf<Agent["owner_id"]>().toEqualTypeOf<OwnerId>();
+  expectTypeOf<Agent["connection_id"]>().toEqualTypeOf<ConnectionId | null>();
+  expectTypeOf<
+    Bootstrap["connections"][number]["id"]
+  >().toEqualTypeOf<ConnectionId>();
+  expectTypeOf<Folder["id"]>().toEqualTypeOf<FolderId>();
+  expectTypeOf<Folder["parent_id"]>().toEqualTypeOf<FolderId | null>();
+  expectTypeOf<Team["id"]>().toEqualTypeOf<TeamId>();
+  expectTypeOf<Team["members"][number]>().toEqualTypeOf<AgentId>();
+  expectTypeOf<Conversation["id"]>().toEqualTypeOf<ConversationId>();
+  expectTypeOf<Conversation["project_id"]>().toEqualTypeOf<ProjectId | null>();
+  expectTypeOf<Message["id"]>().toEqualTypeOf<MessageId>();
+  expectTypeOf<Message["run_id"]>().toEqualTypeOf<RunId | null>();
+  expectTypeOf<Run["agent_id"]>().toEqualTypeOf<AgentId | null>();
+  expectTypeOf<Approval["id"]>().toEqualTypeOf<ApprovalId>();
+  expectTypeOf<Approval["run_id"]>().toEqualTypeOf<RunId>();
+  expectTypeOf<Artifact["id"]>().toEqualTypeOf<ArtifactId>();
+  expectTypeOf<Artifact["folder_id"]>().toEqualTypeOf<FolderId | null>();
+  type Raw = z.input<typeof workspaceApi.bootstrap.response>;
+  expectTypeOf<Raw["agents"][number]["id"]>().toEqualTypeOf<string>();
+});

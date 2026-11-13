@@ -1,4 +1,4 @@
-import { RunId } from "./contract-ids.js";
+import { AgentId, ConversationId, OwnerId, RunId } from "./contract-ids.js";
 import { z } from "zod";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { RunDisplayState, RunKind } from "./run-state.js";
@@ -8,9 +8,9 @@ import { PublicArtifact } from "./artifact-contract-schema.js";
 // and queue_rank is retained when a queued run starts.
 const RunBaseSchema = z.object({
   id: RunId,
-  owner_id: Text.optional(),
-  agent_id: MaybeText,
-  conversation_id: MaybeText,
+  owner_id: OwnerId.optional(),
+  agent_id: AgentId.nullable(),
+  conversation_id: ConversationId.nullable(),
   kind: RunKind.optional(),
   input: Text,
   idempotency_key: Text.optional(),

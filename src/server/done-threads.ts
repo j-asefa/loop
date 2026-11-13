@@ -20,14 +20,7 @@ import {
   DONE_THREAD_PAGE_BYTES,
   DONE_THREAD_PAGE_ITEMS,
 } from "../shared/done-threads.js";
-import type {
-  DoneThread,
-  DoneThreadDetail,
-  DoneThreadQuery,
-  DoneThreadSummary,
-  DoneThreadListPage,
-  DoneThreadDetailPage,
-} from "../shared/done-threads.js";
+import type { DoneThread, DoneThreadQuery } from "../shared/done-threads.js";
 
 type ThreadRow = NonNullable<ReturnType<typeof doneThreadsQueries.owned>>;
 function owned(owner: string, id: string): ThreadRow {
@@ -382,3 +375,19 @@ export function removeDoneThread(owner: string, id: string, card?: string) {
     })
     .immediate();
 }
+
+type DoneThreadSummary = z.input<
+  typeof import("../shared/done-threads.js").DoneThreadSummary
+>;
+
+type DoneThreadDetail = z.input<
+  typeof import("../shared/done-threads.js").DoneThreadDetail
+>;
+
+type DoneThreadDetailPage = z.input<
+  typeof import("../shared/done-threads.js").DoneThreadDetailPage
+>;
+
+type DoneThreadListPage = z.input<
+  typeof import("../shared/done-threads.js").DoneThreadListPage
+>;

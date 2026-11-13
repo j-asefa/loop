@@ -12,6 +12,7 @@ const names = [
   "agent-mail",
   "agent-thread-feed",
   "workspace-project",
+  "project-navigation",
   "execution-environments",
   "main-composer-keyboard",
   "composer-typing",

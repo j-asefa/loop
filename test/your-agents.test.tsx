@@ -1,10 +1,11 @@
+import { PublicAgent } from "../src/shared/workspace-contract-schemas.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { YourAgents } from "../src/client/YourAgents";
 import type { Agent, RunView as Run } from "../src/shared/types";
 
 function agent(id: string, name: string): Agent {
-  return {
+  return PublicAgent.parse({
     id,
     owner_id: "owner",
     name,
@@ -14,7 +15,7 @@ function agent(id: string, name: string): Agent {
     instructions: "",
     origin: "loop",
     created_at: 0,
-  };
+  });
 }
 
 function run(agentId: string, state: Run["state"], created_at: number): Run {

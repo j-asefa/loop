@@ -1,10 +1,11 @@
+import { PublicAgent } from "../src/shared/workspace-contract-schemas.js";
 import { describe, expect, it, vi } from "vitest";
 import { composerLaunchRecipient } from "../src/client/composerLaunch";
 import { renderComposer } from "../src/client/app/Composer";
 import type { Agent } from "../src/shared/types";
 
 function agent(id: string, name: string): Agent {
-  return {
+  return PublicAgent.parse({
     id,
     owner_id: "owner",
     name,
@@ -14,7 +15,7 @@ function agent(id: string, name: string): Agent {
     instructions: "",
     origin: "loop",
     created_at: 0,
-  };
+  });
 }
 
 describe("composer launch recipient", () => {

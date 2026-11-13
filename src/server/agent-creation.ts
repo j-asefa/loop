@@ -10,7 +10,9 @@ import {
   Problem,
 } from "./domain.js";
 import { submit } from "./agent-runtime.js";
-import type { CreatedAgent } from "../shared/types.js";
+type CreatedAgent = import("zod").input<
+  typeof import("../shared/agent-routes.js").agentRoutes.agentCreate.response
+>;
 
 export function createWithPrompt(owner: string, value: unknown): CreatedAgent {
   const { idempotencyKey = id(), ...data } = AgentCreateInput.parse(value);

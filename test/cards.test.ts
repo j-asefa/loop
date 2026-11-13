@@ -1,3 +1,6 @@
+type CardEntry = import("zod").input<
+  typeof import("../src/shared/cards.js").CardEntrySchema
+>;
 import { afterAll, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
@@ -10,7 +13,6 @@ import {
   CardSchema,
   CardPageSchema,
   CardChangesSchema,
-  type CardEntry,
   type CardSelection,
 } from "../src/shared/cards";
 const dir = mkdtempSync(join(tmpdir(), "loop-cards-"));

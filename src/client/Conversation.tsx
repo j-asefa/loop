@@ -597,7 +597,12 @@ function ConversationView({
         }, delay);
         return;
       }
-      fresh = { ...fresh, messages: projection.projection.rows() };
+      fresh = {
+        ...fresh,
+        messages: workspaceApi.conversation.response.shape.messages.parse(
+          projection.projection.rows(),
+        ),
+      };
       if (initial && !anchor) {
         // The initial route chooses the saved-position page in one request.
         const target = fresh.position_message_id;
@@ -863,7 +868,13 @@ function ConversationView({
       if (changed && transcriptHandoff.current.ready)
         setData((old) =>
           old
-            ? { ...old, messages: transcriptHandoff.current.projection.rows() }
+            ? {
+                ...old,
+                messages:
+                  workspaceApi.conversation.response.shape.messages.parse(
+                    transcriptHandoff.current.projection.rows(),
+                  ),
+              }
             : old,
         );
       if (refresh || transcriptHandoff.current.projection.needsLatest())
@@ -1673,7 +1684,10 @@ function ConversationView({
                     );
                     return;
                   }
-                  older.messages = projection.projection.rows();
+                  older.messages =
+                    workspaceApi.conversation.response.shape.messages.parse(
+                      projection.projection.rows(),
+                    );
                   setData((previous) =>
                     previous
                       ? {

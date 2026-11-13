@@ -1,7 +1,9 @@
 import { workspaceLink } from "../shared/workspace-links.js";
 import { doneCardId, idleDoneKey } from "../shared/done-card-id.js";
 import { cardAttachments } from "./card-attachments.js";
-import type { CardEntry } from "../shared/cards.js";
+type CardEntry = import("zod").input<
+  typeof import("../shared/cards.js").CardEntrySchema
+>;
 import { DoneDisplaySchema } from "../shared/done-card.js";
 import { doneCardRows } from "./mobile-return.js";
 

@@ -65,7 +65,9 @@ import {
   steeringReceipt,
   SteeringInbox,
 } from "./steering.js";
-import type { Agent } from "../shared/types.js";
+type Agent = import("zod").input<
+  typeof import("../shared/workspace-contract-schemas.js").PublicAgent
+>;
 import type { Automation } from "../shared/agent-mail.js";
 import { nativeSessions } from "./native-sessions.js";
 import { harnessHolds } from "./harness-holds.js";

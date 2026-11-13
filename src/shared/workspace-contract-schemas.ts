@@ -1,4 +1,14 @@
-import { ConversationId } from "./contract-ids.js";
+import {
+  AgentId,
+  ConnectionId,
+  ConversationId,
+  FolderId,
+  MessageId,
+  OwnerId,
+  ProjectId,
+  RunId,
+  TeamId,
+} from "./contract-ids.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
 import { PublicRun } from "./run-contract-schema.js";
 export { PublicArtifact, PublicRun };
@@ -22,22 +32,22 @@ import { NativeDecisionState } from "./native-decision-state.js";
 // Owner-session HTTP projections. Never import a storage row or credential schema here.
 
 export const PublicAgent = z.object({
-  id: Text,
-  owner_id: Text,
+  id: AgentId,
+  owner_id: OwnerId,
   name: Text,
   normalized_name: Text.optional(),
   provider: Provider,
-  connection_id: MaybeText,
+  connection_id: ConnectionId.nullable(),
   model: Text,
   effort: MaybeText.optional(),
   instructions: Text,
-  folder_id: MaybeText.optional(),
+  folder_id: FolderId.nullable().optional(),
   origin: AgentOrigin,
   retired_at: Time.nullable().optional(),
   created_at: Time,
 });
 export const PublicConnection = z.object({
-  id: Text,
+  id: ConnectionId,
   provider: Provider,
   label: Text,
   status: ConnectionStatus,
@@ -45,37 +55,37 @@ export const PublicConnection = z.object({
   metadata: Text,
 });
 export const PublicFolder = z.object({
-  id: Text,
-  owner_id: Text.optional(),
+  id: FolderId,
+  owner_id: OwnerId.optional(),
   name: Text,
-  parent_id: MaybeText,
+  parent_id: FolderId.nullable(),
   kind: z.enum(["folder", "project"]),
   created_at: Time.optional(),
   path: MaybeText.optional(),
   is_workspace: z.union([z.boolean(), z.number()]).optional(),
 });
 export const PublicTeam = z.object({
-  id: Text,
-  owner_id: Text.optional(),
+  id: TeamId,
+  owner_id: OwnerId.optional(),
   name: Text,
-  manager_id: Text,
-  conversation_id: MaybeText,
-  members: z.array(Text),
+  manager_id: AgentId,
+  conversation_id: ConversationId.nullable(),
+  members: z.array(AgentId),
   created_at: Time.optional(),
   deleted_at: Time.nullable().optional(),
   preset_id: MaybeText.optional(),
   preset_version: z.number().nullable().optional(),
   preset_config: MaybeText.optional(),
-  folder_id: MaybeText.optional(),
+  folder_id: FolderId.nullable().optional(),
   hide_results_from_feed: z.number().optional(),
   // Message threads between its agents that hit a limit and await Resume.
   paused_threads: z.number().optional(),
 });
 export const PublicMessage = z.object({
-  id: Text,
-  owner_id: Text,
-  conversation_id: Text,
-  run_id: MaybeText,
+  id: MessageId,
+  owner_id: OwnerId,
+  conversation_id: ConversationId,
+  run_id: RunId.nullable(),
   role: MessageRole,
   content: Text,
   metadata: Text,
@@ -92,15 +102,15 @@ export const PublicMessage = z.object({
 });
 export const PublicConversation = z.object({
   id: ConversationId,
-  owner_id: Text,
-  agent_id: MaybeText,
+  owner_id: OwnerId,
+  agent_id: AgentId.nullable(),
   title: Text,
   origin: ConversationOrigin,
   external_id: MaybeText,
   created_at: Time,
-  team_id: MaybeText,
-  execution_connection_id: MaybeText,
-  project_id: MaybeText,
+  team_id: TeamId.nullable(),
+  execution_connection_id: ConnectionId.nullable(),
+  project_id: ProjectId.nullable(),
   feed_hidden: z.number(),
 });
 export const Bootstrap = z.object({

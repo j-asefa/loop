@@ -4,7 +4,12 @@ import * as cardTokenIdsQueries from "./sql/card-token-ids.js";
 import * as cardTokenReadsQueries from "./sql/card-token-reads.js";
 import * as cardOwnerLimitsQueries from "./sql/card-owner-limits.js";
 import { createHash } from "node:crypto";
-import type { CardChanges, CardPage } from "../shared/cards.js";
+type CardChanges = import("zod").input<
+  typeof import("../shared/cards.js").CardChangesSchema
+>;
+type CardPage = import("zod").input<
+  typeof import("../shared/cards.js").CardPageSchema
+>;
 import type { IncomingMessage } from "node:http";
 import { db } from "./db.js";
 import { OWNER } from "./workspace-identity.js";

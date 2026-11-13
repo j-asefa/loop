@@ -1,3 +1,4 @@
+import { FolderId } from "../shared/contract-ids.js";
 import {
   recentSearches,
   rememberSearch,
@@ -100,7 +101,7 @@ export function FolderForm({
               onCreated({
                 ...existing,
                 name: String(f.get("name")),
-                parent_id: body.parentId,
+                parent_id: FolderId.nullable().parse(body.parentId),
               });
             } else {
               onCreated(
