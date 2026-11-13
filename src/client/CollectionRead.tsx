@@ -173,6 +173,7 @@ export function usePagedProjectionQuery<
       setState((old) => ({
         ...old,
         context,
+        page: old.context === context ? old.page : empty,
         loading: true,
         appending: before !== undefined || appendPending,
         error: "",
