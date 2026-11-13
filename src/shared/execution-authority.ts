@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "./contract-ids.js";
 import {
   NativeProviderId,
   AuthMethodId,
@@ -100,7 +101,7 @@ const SignIn = z.strictObject({
   attempt: z
     .strictObject({
       id: AuthAttemptId.min(1).max(200),
-      commandId: Id,
+      commandId: ExecutionCommandId.min(1).max(200),
       provider: NativeProviderId.min(1).max(200),
       method: AuthMethodId.min(1).max(200),
       state: z.enum([
@@ -134,7 +135,7 @@ const SignIn = z.strictObject({
     .optional(),
 });
 const Upgrade = z.strictObject({
-  commandId: Id,
+  commandId: ExecutionCommandId.min(1).max(200),
   name: RuntimeHarness,
   state: z.enum([
     "running",
@@ -409,10 +410,10 @@ export const ExecutionRequest = z.strictObject({
   method: z.enum(
     Object.keys(executionOperations) as [ExecutionMethod, ...ExecutionMethod[]],
   ),
-  commandId: Id.optional(),
+  commandId: ExecutionCommandId.min(1).max(200).optional(),
   input: z.json(),
 });
-export type ExecutionRequest = z.infer<typeof ExecutionRequest>;
+export type ExecutionRequest = z.input<typeof ExecutionRequest>;
 export const ExecutionReady = z.strictObject({
   v: z.literal(1),
   generation: z.uuid(),

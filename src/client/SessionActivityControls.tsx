@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
@@ -197,7 +198,7 @@ export function SessionActivityControls({
           value,
           revision: data.settings.revision,
           generation: data.generation,
-          commandId,
+          commandId: ExecutionCommandId.parse(commandId),
         },
       });
       if (own === epoch.current) {

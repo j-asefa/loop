@@ -103,6 +103,9 @@ export type AuthPromptId = z.output<typeof AuthPromptId>;
 export const AuthOptionId = z.string().brand<"AuthOptionId">();
 export type AuthOptionId = z.output<typeof AuthOptionId>;
 
+export const ExecutionCommandId = z.string().brand<"ExecutionCommandId">();
+export type ExecutionCommandId = z.output<typeof ExecutionCommandId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

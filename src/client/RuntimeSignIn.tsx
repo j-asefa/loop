@@ -1,3 +1,4 @@
+import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { isManagedHarness } from "../shared/harnesses";
@@ -269,7 +270,9 @@ function RuntimeSignInSession({
     if (busy || !selectedMethod) return;
     acceptExistingAttempt.current = true;
     if (newAttempt) requestId.current = undefined;
-    const commandId = (requestId.current ||= crypto.randomUUID());
+    const commandId = ExecutionCommandId.parse(
+      (requestId.current ||= crypto.randomUUID()),
+    );
     setStartRecovery(undefined);
     void perform(async () => {
       try {

@@ -252,7 +252,7 @@ export class ExecutionProcess
   }
   private exchange(
     message: Exclude<
-      z.infer<typeof ExecutionParentMessage>,
+      z.input<typeof ExecutionParentMessage>,
       { type: "fleet-mail-response" }
     >,
     timeout = 300_000,
