@@ -1,3 +1,4 @@
+import { ConversationId } from "../src/shared/contract-ids.js";
 import { callRoute, readRoute } from "../src/client/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -28,7 +29,7 @@ afterEach(() => {
 const read = (source = "") =>
   callRoute(
     workspaceApi.conversationMemory,
-    { params: { id: "thread" } },
+    { params: { id: ConversationId.parse("thread") } },
     source,
   );
 const write = () =>
@@ -284,7 +285,7 @@ it.each(["<html>Gateway unavailable</html>", ""])(
     fetcher.mockResolvedValueOnce(new Response(body, { status: 503 }));
     const pending = readRoute(
       workspaceApi.conversationMemory,
-      { params: { id: "completed" } },
+      { params: { id: ConversationId.parse("completed") } },
       "",
       new AbortController().signal,
     );

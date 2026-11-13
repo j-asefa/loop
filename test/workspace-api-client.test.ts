@@ -1,3 +1,4 @@
+import { ConversationId } from "../src/shared/contract-ids.js";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
@@ -31,7 +32,7 @@ const answer = {
 it("encodes route identities and keeps input query values instead of serializing coercion defaults", async () => {
   expect(
     routePath(workspaceApi.conversation, {
-      params: { id: "thread/id" },
+      params: { id: ConversationId.parse("thread/id") },
       query: { message: "a&b" },
     }),
   ).toBe("/conversations/thread%2Fid?message=a%26b");

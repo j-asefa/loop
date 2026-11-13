@@ -1,3 +1,4 @@
+import { ConversationId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import {
   ManagedHarness,
@@ -179,7 +180,7 @@ export const companionRoutes = {
     operation: "conversationNative",
     method: "GET",
     path: "/conversations/:id/native",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     response: companion.PublicNativeConversation,
   }),
   nativeHistoryList: endpoint({
@@ -216,7 +217,7 @@ export const companionRoutes = {
     operation: "conversationActivities",
     method: "GET",
     path: "/conversations/:id/activities",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     query: companion.ActivityQuery,
     response: companion.PublicActivityPage,
   }),

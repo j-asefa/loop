@@ -1,3 +1,4 @@
+import { RunId } from "../src/shared/contract-ids.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import {
@@ -73,7 +74,7 @@ it("binds conversation actions and file URLs to their source across later naviga
     href: "https://loop.test/?source=docker:beta",
   });
   await remoteTypedAction(workspaceApi.runAction, {
-    params: { id: "same", action: "cancel" },
+    params: { id: RunId.parse("same"), action: "cancel" },
     body: {},
   });
   expect(fetch.mock.calls[0][0]).toBe(

@@ -1,3 +1,4 @@
+import { ConversationId, RunId } from "../shared/contract-ids.js";
 import { feedItemOrder } from "../shared/feed-order";
 import { doneCardId } from "../shared/done-card-id";
 import {
@@ -928,7 +929,7 @@ export function EditQueued({
             await callRoute(
               workspaceApi.runUpdate,
               {
-                params: { id: message.id },
+                params: { id: RunId.parse(message.id) },
                 body: { input: text },
               },
               message.sourceId ?? scopedSource,
@@ -1001,7 +1002,7 @@ function MoveQueued({
             const result = await callRoute(
               workspaceApi.runMove,
               {
-                params: { id: message.id },
+                params: { id: RunId.parse(message.id) },
                 body: { agentId, idempotencyKey: key.current },
               },
               message.sourceId ?? scopedSource,
@@ -2548,19 +2549,20 @@ export function Feed({
         ]
       | [action: "cancel" | "pause" | "resume" | "dismiss", sourceId: string]
   ) {
+    const id = RunId.parse(runId);
     const [action, sourceId, body] = command;
     const owner = viewOwner();
     try {
       if (action === "reorder")
         await callRoute(
           workspaceApi.runReorder,
-          { params: { id: runId }, body },
+          { params: { id }, body },
           sourceId,
         );
       else
         await callRoute(
           workspaceApi.runAction,
-          { params: { id: runId, action }, body: {} },
+          { params: { id, action }, body: {} },
           sourceId,
         );
       if (owner !== viewOwner()) return;
@@ -2606,7 +2608,10 @@ export function Feed({
           )
         : callRoute(
             workspaceApi.feedUpdate,
-            { params: { id: item.conversation_id }, body: { hidden, cardKey } },
+            {
+              params: { id: ConversationId.parse(item.conversation_id) },
+              body: { hidden, cardKey },
+            },
             source,
           );
     const updateCard = (hidden: boolean) => {
@@ -2720,7 +2725,7 @@ export function Feed({
         callRoute(
           workspaceApi.feedRead,
           {
-            params: { id: item.conversation_id },
+            params: { id: ConversationId.parse(item.conversation_id) },
             body: {
               cardKey,
               unreadVersion: doneReadVersion(
@@ -2764,7 +2769,7 @@ export function Feed({
           callRoute(
             workspaceApi.feedUnread,
             {
-              params: { id: item.conversation_id },
+              params: { id: ConversationId.parse(item.conversation_id) },
               body: { cardKey },
             },
             source,

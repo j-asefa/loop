@@ -1,3 +1,4 @@
+import { ConversationId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -515,7 +516,7 @@ const outlineFilters = [
  * points, and a search across the text of every message in it.
  */
 export function OutlineSheet({
-  conversationId,
+  conversationId: rawConversationId,
   onJump,
   onClose,
 }: {
@@ -523,6 +524,7 @@ export function OutlineSheet({
   onJump: (messageId: string) => void;
   onClose: () => void;
 }) {
+  const conversationId = ConversationId.parse(rawConversationId);
   const call = useSourceRoute();
   const [items, setItems] = useState<OutlineItem[] | null>(null);
   const [error, setError] = useState("");
@@ -534,7 +536,9 @@ export function OutlineSheet({
   const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    call(workspaceApi.conversationOutline, { params: { id: conversationId } })
+    call(workspaceApi.conversationOutline, {
+      params: { id: conversationId },
+    })
       .then((result) => active && setItems(result.items))
       .catch((e) => active && setError((e as Error).message));
     return () => {
@@ -793,7 +797,7 @@ export function ForkSheet({
           setError("");
           try {
             const result = await call(workspaceApi.conversationFork, {
-              params: { id: conversationId },
+              params: { id: ConversationId.parse(conversationId) },
               body: { messageId, agentId },
             });
             onForked(result.id, result.agentId);

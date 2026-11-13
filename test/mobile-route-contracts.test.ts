@@ -1,3 +1,4 @@
+import { ConversationId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -662,7 +663,7 @@ it("typed mobile clients consume production receipts, saved envelopes and cancel
     await expect(
       readRoute(
         workspaceApi.conversationUsage,
-        { params: { id: conversation } },
+        { params: { id: ConversationId.parse(conversation) } },
         "",
         controller.signal,
       ),

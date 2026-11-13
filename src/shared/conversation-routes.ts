@@ -1,3 +1,4 @@
+import { ConversationId, RunId, requestId } from "./contract-ids.js";
 import { ConversationPulls } from "./conversation-pulls.js";
 import { z } from "zod";
 import { ApprovalDecision } from "./approvals.js";
@@ -20,7 +21,7 @@ export const conversationRoutes = {
     access: { admits: ["read"] },
     method: "GET",
     path: "/conversations/:id",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     query: z.object({
       before: Text.max(512).optional(),
       message: Text.max(150).optional(),
@@ -33,7 +34,7 @@ export const conversationRoutes = {
     operation: "conversationPulls",
     method: "GET",
     path: "/conversations/:id/pulls",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     query: z.object({ refresh: z.enum(["1"]).optional() }),
     response: ConversationPulls,
   }),
@@ -79,7 +80,7 @@ export const conversationRoutes = {
     identity: "idempotencyKey",
     method: "POST",
     path: "/runs/:id/:action",
-    params: Id.extend({ action: Text }),
+    params: z.object({ id: requestId(RunId) }).extend({ action: Text }),
     body: z
       .object({ idempotencyKey: Text.min(8).max(150).optional() })
       .optional(),
@@ -136,7 +137,7 @@ export const conversationRoutes = {
     operation: "session",
     method: "GET",
     path: "/conversations/:id/settings",
-    params: z.object({ id: Text.uuid() }),
+    params: z.object({ id: requestId(ConversationId).uuid() }),
     response: SessionControls,
   }),
   setting: endpoint({
@@ -144,7 +145,7 @@ export const conversationRoutes = {
     operation: "setting",
     method: "PATCH",
     path: "/conversations/:id/settings/:setting",
-    params: z.object({ id: Text.uuid(), setting: Text }),
+    params: z.object({ id: requestId(ConversationId).uuid(), setting: Text }),
     body: z.strictObject({
       value: z.union([Text.max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),

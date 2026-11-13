@@ -1,3 +1,4 @@
+import { ConversationId } from "../src/shared/contract-ids.js";
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { routePath } from "../src/shared/route-path";
@@ -47,7 +48,7 @@ it("loads one recent page on open and keeps historical and live cursors independ
   const loader = new ActivityHistory(
     async (query) => {
       const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "thread" },
+        params: { id: ConversationId.parse("thread") },
         query,
       });
       requests.push(url);
@@ -94,7 +95,7 @@ it("fetches file history only for displayed runs and does not advance the live c
   const loader = new ActivityHistory(
     async (query) => {
       const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "thread" },
+        params: { id: ConversationId.parse("thread") },
         query,
       });
       requests.push(url);
@@ -159,7 +160,7 @@ it("retries a failed older-page read with the same cursor", async () => {
     async (query, mode) => {
       modes.push(mode);
       const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "thread" },
+        params: { id: ConversationId.parse("thread") },
         query,
       });
       requests.push(url);
@@ -250,7 +251,7 @@ it("follows a change signalled during a read with one more read", async () => {
   const loader = new ActivityHistory(
     (query) => {
       const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "thread" },
+        params: { id: ConversationId.parse("thread") },
         query,
       });
       requests.push(url);
@@ -311,7 +312,7 @@ it("loads conversation controls and displayed files without requesting tool hist
   const loader = new ActivityHistory(
     async (query) => {
       const url = routePath(workspaceApi.conversationActivities, {
-        params: { id: "thread" },
+        params: { id: ConversationId.parse("thread") },
         query,
       });
       requests.push(url);

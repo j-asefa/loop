@@ -1,3 +1,4 @@
+import { ConversationId, RunId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as mobile from "./mobile-contract-schemas.js";
 import * as library from "./library-contract-schemas.js";
@@ -169,7 +170,7 @@ export const libraryRoutes = {
     operation: "runCheckout",
     method: "GET",
     path: "/runs/:id/checkout",
-    params: Id,
+    params: z.object({ id: requestId(RunId) }),
     response: library.PublicCheckout,
   }),
   runVerifications: endpoint({
@@ -177,7 +178,7 @@ export const libraryRoutes = {
     operation: "runVerifications",
     method: "GET",
     path: "/runs/:id/verifications",
-    params: Id,
+    params: z.object({ id: requestId(RunId) }),
     response: z.array(library.PublicVerification),
   }),
   runFiles: endpoint({
@@ -185,7 +186,7 @@ export const libraryRoutes = {
     operation: "runFiles",
     method: "GET",
     path: "/runs/:id/files",
-    params: Id,
+    params: z.object({ id: requestId(RunId) }),
     response: z.array(z.object({ id: Text, title: Text, metadata: Text })),
   }),
   operationUndo: endpoint({
@@ -280,7 +281,7 @@ export const libraryRoutes = {
     operation: "conversationContinueStart",
     method: "POST",
     path: "/conversations/:id/continue/start",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     body: library.ContinueInput,
     response: z.object({
       id: Text,

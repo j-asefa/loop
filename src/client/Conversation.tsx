@@ -1,3 +1,4 @@
+import { ConversationId, RunId } from "../shared/contract-ids.js";
 import {
   continuationStorageKey,
   storedContinuation,
@@ -192,7 +193,7 @@ export function Conversation(props: Parameters<typeof ConversationView>[0]) {
 }
 
 function ConversationView({
-  id,
+  id: rawId,
   messageId,
   revision,
   agents,
@@ -252,6 +253,7 @@ function ConversationView({
   onWork?: (work: ThreadWork | null) => void;
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
+  const id = ConversationId.parse(rawId);
   const call = useSourceRoute();
   const continuationReason = useSourceOperation(
     workspaceApi.conversationContinueStart,
@@ -504,7 +506,7 @@ function ConversationView({
     if (positionSent.current === signature) return;
     positionSent.current = signature;
     void call(workspaceApi.conversationPosition, {
-      params: { id },
+      params: { id: id },
       body,
     }).catch(() => {
       positionSent.current = "";
@@ -537,7 +539,7 @@ function ConversationView({
     ) =>
       readRoute(
         workspaceApi.conversation,
-        { params: { id }, query },
+        { params: { id: id }, query },
         sourceId,
         readController.current!.signal,
         (error) => {
@@ -901,7 +903,7 @@ function ConversationView({
     let latest = 0;
     const refresh = () => {
       const request = ++latest;
-      return readUsage(workspaceApi.conversationUsage, { params: { id } })
+      return readUsage(workspaceApi.conversationUsage, { params: { id: id } })
         .then((result) => {
           if (active && request === latest)
             setUsage({ ...result, conversationId: id, sourceId });
@@ -1489,7 +1491,9 @@ function ConversationView({
         <VerificationSheet
           runId={verification}
           load={(runId) =>
-            call(workspaceApi.runVerifications, { params: { id: runId } })
+            call(workspaceApi.runVerifications, {
+              params: { id: RunId.parse(runId) },
+            })
           }
           onClose={() => setVerification(null)}
         />
@@ -1498,7 +1502,9 @@ function ConversationView({
         <CheckoutSheet
           runId={checkout}
           load={(runId) =>
-            call(workspaceApi.runCheckout, { params: { id: runId } })
+            call(workspaceApi.runCheckout, {
+              params: { id: RunId.parse(runId) },
+            })
           }
           agentName={agent?.name}
           projectName={project?.name}
@@ -1648,7 +1654,7 @@ function ConversationView({
                 try {
                   const older = await readRoute(
                     workspaceApi.conversation,
-                    { params: { id }, query: { before: data.next! } },
+                    { params: { id: id }, query: { before: data.next! } },
                     sourceId,
                     readController.current!.signal,
                   ).then(browserTranscript);
@@ -1879,7 +1885,10 @@ function ConversationView({
                           onClick={async () => {
                             try {
                               await call(workspaceApi.runAction, {
-                                params: { id: m.run_id!, action: "cancel" },
+                                params: {
+                                  id: RunId.parse(m.run_id!),
+                                  action: "cancel",
+                                },
                                 body: {},
                               });
                               onSubmitted();
@@ -1958,7 +1967,10 @@ function ConversationView({
                                 isCurrent,
                                 (key) =>
                                   call(workspaceApi.runAction, {
-                                    params: { id: m.run_id!, action: "retry" },
+                                    params: {
+                                      id: RunId.parse(m.run_id!),
+                                      action: "retry",
+                                    },
                                     body: { idempotencyKey: key },
                                   }),
                               );
@@ -2212,7 +2224,7 @@ function ConversationView({
                   setPendingContinuation(request);
                   setSavedContinuations(storedContinuations(continuationKey));
                   const r = await call(workspaceApi.conversationContinueStart, {
-                    params: { id },
+                    params: { id: id },
                     body: request,
                   });
                   if (r.unavailable) {

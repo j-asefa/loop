@@ -1,3 +1,4 @@
+import { ConversationId } from "../shared/contract-ids.js";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { useSourceId, useProjectionRoute } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
@@ -89,7 +90,7 @@ export function useConversationActivities(
         read(
           workspaceApi.conversationActivities,
           {
-            params: { id: conversation },
+            params: { id: ConversationId.parse(conversation) },
             query,
           },
           sourceId,
