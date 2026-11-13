@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { chromium, expect } from "@playwright/test";
+import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { seedCards } from "../test/helpers/seed-cards.ts";
-const browser = await chromium.launch({
+const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const browser = await engine.launch({
   headless: true,
-  args: ["--no-sandbox"],
-  ...(process.env.CHROMIUM_PATH
+  ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
+  ...(engine === chromium && process.env.CHROMIUM_PATH
     ? { executablePath: process.env.CHROMIUM_PATH }
     : {}),
 });
@@ -83,6 +84,12 @@ try {
         const page = await context.newPage();
         const errors = [],
           reads = [];
+        let holdRecovery = false,
+          recoveryHeld = false,
+          releaseRecovery;
+        const recoveryGate = new Promise((resolve) => {
+          releaseRecovery = resolve;
+        });
         page.on("pageerror", (error) => errors.push(error.message));
         page.on("request", (request) => {
           if (request.method() === "GET")
@@ -95,6 +102,10 @@ try {
           await page.route("**/api/v1/cards?*", async (route) => {
             if (await page.evaluate(() => !!window.__cardsManualRetry))
               return route.fallback();
+            if (holdRecovery && !recoveryHeld) {
+              recoveryHeld = true;
+              await recoveryGate;
+            }
             return route.fulfill({
               status: 503,
               json: { error: "Temporary Cards read failure" },
@@ -116,6 +127,19 @@ try {
           // the route before clicking lets a background read remove the
           // button between Playwright's visibility check and its input.
           await expect(retryCards).toBeEnabled({ timeout: 20000 });
+          holdRecovery = true;
+          await page.evaluate(() =>
+            window.dispatchEvent(
+              new CustomEvent("loop-workspace-change", {
+                detail: { sources: [""] },
+              }),
+            ),
+          );
+          await expect.poll(() => recoveryHeld, { timeout: 15000 }).toBe(true);
+          await expect(page.getByRole("alert")).toContainText(
+            "Temporary Cards read failure",
+          );
+          await expect(retryCards).toBeEnabled();
           await page.evaluate(() => {
             document.addEventListener(
               "click",
@@ -141,6 +165,7 @@ try {
             );
           }).toPass({ timeout: 30000 });
           await expect(cards).toHaveCount(40, { timeout: 20000 });
+          releaseRecovery();
           await page.unroute("**/api/v1/cards?*");
           await page
             .getByRole("button", { name: "Earlier results", exact: true })
@@ -657,6 +682,7 @@ try {
           });
           throw error;
         } finally {
+          releaseRecovery();
           await context.close();
         }
       }

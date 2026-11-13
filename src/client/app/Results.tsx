@@ -6,7 +6,7 @@ import { CardPager, type CardWindow } from "../card-pager";
 import { CollectionReadNotice, useCollectionRead } from "../CollectionRead";
 import { contractCardReader } from "../../shared/card-client";
 import { executionSourceId } from "../sourceRouting";
-import { cacheView, cachedView } from "../viewCache";
+import { cacheView, cachedView, viewGeneration } from "../viewCache";
 import { ResultsPager } from "../results";
 import type { SavedMessage } from "../card-actions";
 
@@ -15,70 +15,64 @@ import { callRoute, readRoute } from "../api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";
 
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import {
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import type { AppModel } from "./AppController";
 
+type ResultsSelection = {
+  key: string;
+  retryAppend?: boolean;
+  pending?: number;
+  foreground?: number;
+  failed?: boolean;
+  notify?: boolean;
+};
 type ResultsProps = {
   ownerRef: RefObject<string | undefined>;
   profile: Agent | null;
   view: string;
   teamKey: string;
   projectFilter: string;
-  resultsContext: RefObject<string>;
-  resultsSelection: RefObject<{
-    key: string;
-    retryAppend?: boolean;
-    pending?: number;
-    foreground?: number;
-    failed?: boolean;
-    notify?: boolean;
-  }>;
-  resultsPager: RefObject<ResultsPager<ResultItem>>;
-  cardsPager: RefObject<CardPager>;
-  setItems(value: ResultItem[] | ResultAction[]): void;
-  setNext(value: string | number | null): void;
-  setResultsLoading(value: boolean): void;
   setRevision: Dispatch<SetStateAction<number>>;
 };
 
 export function useResultsLoader(props: ResultsProps) {
-  const {
-    ownerRef,
-    profile,
-    view,
-    teamKey,
-    projectFilter,
-    resultsContext,
-    resultsSelection,
-    resultsPager,
-    cardsPager,
-    setItems,
-    setNext,
-    setResultsLoading,
-    setRevision,
-  } = props;
+  const { ownerRef, profile, view, teamKey, projectFilter, setRevision } =
+    props;
+  const [items, setItems] = useState<any[]>([]);
+  const [next, setNext] = useState<string | number | null>(null);
+  const [loading, setResultsLoading] = useState(true);
+  const resultsPager = useRef(new ResultsPager<ResultItem>());
+  const cardsPager = useRef(new CardPager());
+  const resultsSelection = useRef<ResultsSelection>({ key: "" });
+  const source = executionSourceId();
   const scope = JSON.stringify([
+    viewGeneration(),
     ownerRef.current,
-    executionSourceId(),
+    source,
     profile?.id,
     view,
     teamKey,
     projectFilter,
   ]);
+  const resultsContext = useRef(scope);
+  resultsContext.current = scope;
   const { load: execute, error } = useCollectionRead(scope);
   async function loadResults(append = false, notify = true, manual = false) {
     if (manual) append = resultsSelection.current.retryAppend ?? false;
     const owner = ownerRef.current,
-      source = executionSourceId(),
-      key = JSON.stringify([
-        owner,
-        source,
-        profile?.id,
-        view,
-        teamKey,
-        projectFilter,
-      ]);
-    if (!owner || key !== resultsContext.current) return;
+      key = scope;
+    if (
+      !owner ||
+      key !== resultsContext.current ||
+      source !== executionSourceId()
+    )
+      return;
     const cacheKey = "app-cards:" + key;
     if (resultsSelection.current.key !== key) {
       // Both transports publish into the same list. Restore only this exact
@@ -251,7 +245,7 @@ export function useResultsLoader(props: ResultsProps) {
         setResultsLoading((selectionContext.foreground ?? 0) > 0);
     }
   }
-  return { loadResults, error };
+  return { items, setItems, next, loading, loadResults, error };
 }
 
 export function renderResults(
