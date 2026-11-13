@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import type { SharedDraft } from "./workspace-drafts";
 import { AgentId, FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -257,7 +258,7 @@ function ShareForm({
                     {
                       body: {
                         ...body,
-                        idempotencyKey: key.current.key,
+                        idempotencyKey: IdempotencyKey.parse(key.current.key),
                       },
                     },
                     request.signal,

@@ -1,3 +1,4 @@
+import { ViewportSessionId } from "../src/shared/contract-ids.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
@@ -94,7 +95,7 @@ test("typed multipart routes use the compiled app without replaying writes", asy
           workspaceApi.viewportDiagnostics,
           {
             body: {
-              session: randomUUID(),
+              session: ViewportSessionId.parse(randomUUID()),
               samples: [
                 {
                   elapsed: 1,

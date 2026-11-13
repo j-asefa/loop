@@ -1651,7 +1651,7 @@
    "conversationOutlineBody": {"not":{}},
    "laterCreateParams": {"type":"object","properties":{}},
    "laterCreateQuery": {"type":"object","properties":{}},
-   "laterCreateBody": {"type":"object","properties":{"kind":{"type":"string","enum":["conversation","artifact","message","story"]},"targetId":{"type":"string","minLength":1,"maxLength":150},"condition":{"type":"string","enum":["time","run_finished","project_open"]},"dueAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"projectId":{"type":"string","minLength":1,"maxLength":150}},"required":["kind","targetId","condition"]},
+   "laterCreateBody": {"type":"object","properties":{"kind":{"type":"string","enum":["conversation","artifact","message","story"]},"targetId":{"anyOf":[{"type":"string","minLength":1,"maxLength":150},{"type":"string","minLength":1,"maxLength":150},{"type":"string","minLength":1,"maxLength":150},{"type":"string","minLength":1,"maxLength":150}]},"condition":{"type":"string","enum":["time","run_finished","project_open"]},"dueAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"projectId":{"type":"string","minLength":1,"maxLength":150}},"required":["kind","targetId","condition"]},
    "laterListParams": {"type":"object","properties":{}},
    "laterListQuery": {"type":"object","properties":{}},
    "laterListBody": {"not":{}},

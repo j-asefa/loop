@@ -1,3 +1,10 @@
+import {
+  PairedDeviceId,
+  CoercedPairedDeviceId,
+  ProcessInstanceId,
+  EventId,
+  EventSubjectId,
+} from "./contract-ids.js";
 import { OwnerId, RunId } from "./contract-ids.js";
 import { z } from "zod";
 import { BuildIdentity } from "./build.js";
@@ -5,12 +12,12 @@ import { BuildIdentity } from "./build.js";
 const Text = z.string(),
   Count = z.number();
 export const PublicPairedDevice = z.object({
-  id: Text,
+  id: PairedDeviceId,
   name: Text,
   expires: Count,
 });
 // The host has always stringified the supplied ID before attempting revocation.
-export const PairedDeviceRevokeInput = z.object({ id: z.coerce.string() });
+export const PairedDeviceRevokeInput = z.object({ id: CoercedPairedDeviceId });
 export const PublicHealth = z.object({
   ok: z.boolean(),
   database: z.literal(true),
@@ -20,7 +27,7 @@ export const PublicBuild = z.object({
   serving: BuildIdentity,
   processes: z.array(
     z.object({
-      instance: Text,
+      instance: ProcessInstanceId,
       role: z.enum(["api", "worker"]),
       startedAt: Count,
       observedAt: Count,
@@ -43,14 +50,14 @@ export const PublicBuild = z.object({
 // HTTP polling returns stored events with serialized payloads; the browser
 // event reader normalizes them into the same updates as socket frames.
 export const PublicHttpEvent = z.object({
-  id: Count,
+  id: EventId,
   owner_id: OwnerId,
   run_id: RunId.nullable(),
   type: Text,
   payload: Text,
   created_at: Count,
   subject_kind: Text,
-  subject_id: Text.nullable(),
+  subject_id: EventSubjectId.nullable(),
 });
 // The session read exposes only the display identity used by the shell.
 export const PublicAuthSession = z

@@ -1,3 +1,4 @@
+import { PersonalDecisionId } from "./contract-ids.js";
 import { ConversationId } from "./contract-ids.js";
 import { z } from "zod";
 
@@ -15,7 +16,7 @@ const jsonBytes = (value: unknown) =>
 
 // A public display contract, independent of execution receipts and raw rows.
 const PersonalDecisionSchema = z.strictObject({
-  id: z.string(),
+  id: PersonalDecisionId,
   cursor: z.string().min(1).max(512),
   kind: z.enum(["approval", "answer"]),
   title: z.string().max(1024),

@@ -1,3 +1,4 @@
+import { AgentAddressId } from "./contract-ids.js";
 import { MailThreadId, MessageId, ArtifactId } from "./contract-ids.js";
 import { z } from "zod";
 import { PublicMailMessage, PublicMailAgentReference } from "./agent-mail.js";
@@ -27,7 +28,7 @@ export const AgentThreadSummary = z.object({
   paused_reason: z.string().nullable(),
   participants: z.array(
     z.object({
-      id: z.string(),
+      id: AgentAddressId,
       name: z.string(),
       reference: PublicMailAgentReference.optional(),
     }),

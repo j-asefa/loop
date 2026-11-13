@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import { ObjectId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { routeUrl } from "./api";
@@ -286,7 +287,10 @@ export function ArtifactViewer({
                         (idempotencyKey) =>
                           call(workspaceApi.artifactRefresh, {
                             params: { id: target.id },
-                            body: { idempotencyKey },
+                            body: {
+                              idempotencyKey:
+                                IdempotencyKey.parse(idempotencyKey),
+                            },
                           }),
                         (error, recovering) => {
                           const failure = error as {

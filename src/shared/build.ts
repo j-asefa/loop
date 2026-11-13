@@ -1,20 +1,21 @@
+import { BuildId, GitCommitId } from "./contract-ids.ts";
 import { z } from "zod";
 
 export const LOOP_REPOSITORY = "github.com/j-asefa/loop";
-export const Commit = z.string().regex(/^[0-9a-f]{40}$/);
+export const Commit = GitCommitId.regex(/^[0-9a-f]{40}$/);
 export const BuildIdentity = z.object({
-  id: z.string().min(1).max(100),
+  id: BuildId.min(1).max(100),
   repository: z.literal(LOOP_REPOSITORY).nullable(),
   commit: Commit.nullable(),
   clean: z.boolean(),
   builtAt: z.number().int().nonnegative(),
 });
-export type BuildIdentity = z.infer<typeof BuildIdentity>;
+export type BuildIdentity = z.input<typeof BuildIdentity>;
 export const BuildStamp = BuildIdentity.extend({
   ancestors: z.array(Commit).max(10000),
   release: z.string().min(1).max(100),
 });
-export type BuildStamp = z.infer<typeof BuildStamp>;
+export type BuildStamp = z.input<typeof BuildStamp>;
 
 // Replaced in both browser and server outputs by the build orchestrator.
 declare const __LOOP_BUILD__: unknown;

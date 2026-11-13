@@ -1,3 +1,5 @@
+import * as Remaining from "../src/shared/contract-ids.js";
+import * as Multiplex from "../src/shared/workspace-multiplex.js";
 import {
   ActivityId,
   ActivityKey,
@@ -947,6 +949,166 @@ it("projects shell and event owners with the canonical label bounds", () => {
     workspaceApi.authSession.response.safeParse({
       ...session,
       user: { id: "x".repeat(201), name: "Fixture" },
+    }).success,
+  ).toBe(false);
+});
+
+it("retains remaining identity formats and separates their nominal domains", () => {
+  for (const schema of [
+    Remaining.PairedDeviceId,
+    Remaining.AgentSourceId,
+    Remaining.WorkspaceSubscriptionId,
+    Remaining.WorkspaceEpochId,
+    Remaining.ViewportSessionId,
+    Remaining.BuildId,
+    Remaining.ProcessInstanceId,
+    Remaining.PreviewBuildId,
+    Remaining.GitCommitId,
+    Remaining.GitHubThreadId,
+    Remaining.EventSubjectId,
+    Remaining.FeedProjectionId,
+    Remaining.PersonalDecisionId,
+    Remaining.SearchDocumentId,
+    Remaining.MemoryOriginId,
+    Remaining.AgentAddressId,
+    Remaining.ExternalConversationId,
+    Remaining.MessageUpdateKey,
+    Remaining.IdempotencyKey,
+  ]) {
+    expect(schema.parse("opaque:source/value")).toBe("opaque:source/value");
+    expect(schema.parse("")).toBe("");
+    expect(schema.safeParse(42).success).toBe(false);
+  }
+  expect(Remaining.AgentAddressId.parse(`peer:machine:${uuid}`)).toBe(
+    `peer:machine:${uuid}`,
+  );
+  expect(Remaining.PersonalDecisionId.parse(`approval:${uuid}`)).toBe(
+    `approval:${uuid}`,
+  );
+  expect(Remaining.PersonalDecisionId.parse(`native:${uuid}`)).toBe(
+    `native:${uuid}`,
+  );
+  expect(Remaining.FeedProjectionId.parse(JSON.stringify([uuid, null]))).toBe(
+    JSON.stringify([uuid, null]),
+  );
+  for (const schema of [Remaining.EventId, Remaining.GitHubPullNumber]) {
+    expect(schema.parse(17)).toBe(17);
+    expect(schema.safeParse("17").success).toBe(false);
+  }
+  expectTypeOf<
+    import("../src/client/agentSources").AgentSource["id"]
+  >().toEqualTypeOf<Remaining.AgentSourceId>();
+  expectTypeOf<
+    RouteResponse<typeof workspaceApi.build>["processes"][number]["instance"]
+  >().toEqualTypeOf<Remaining.ProcessInstanceId>();
+  expectTypeOf<
+    keyof NonNullable<
+      RouteInput<typeof workspaceApi.teamFromPreset>["body"]["roles"]
+    >
+  >().toEqualTypeOf<TeamRoleId>();
+  type Revoke = RouteInput<typeof workspaceApi.workspaceRevoke>["body"];
+  // @ts-expect-error Process identities cannot revoke a paired device.
+  const wrongDevice: Revoke = { id: Remaining.ProcessInstanceId.parse(uuid) };
+  // @ts-expect-error GitHub pull numbers and event row IDs are different domains.
+  const wrongNumber: RouteInput<
+    typeof workspaceApi.prWatchCreate
+  >["body"]["number"] = Remaining.EventId.parse(1);
+  // @ts-expect-error A personal decision path is not the raw approval record ID.
+  const wrongDecision: RouteInput<
+    typeof workspaceApi.personalApproval
+  >["params"]["id"] = ApprovalId.parse(uuid);
+  // @ts-expect-error Object storage IDs are not valid reminder targets.
+  const wrongTarget: RouteInput<
+    typeof workspaceApi.laterCreate
+  >["body"]["targetId"] = ObjectId.parse(uuid);
+  // @ts-expect-error An execution command identity is not a generic receipt key.
+  const wrongReceipt: RouteInput<
+    typeof workspaceApi.submit
+  >["body"]["idempotencyKey"] = ExecutionCommandId.parse(uuid);
+  // @ts-expect-error Preview manifests and compiled builds have separate identities.
+  const wrongBuild: Remaining.BuildId = Remaining.PreviewBuildId.parse(uuid);
+  // @ts-expect-error A source identity is not a multiplex subscription identity.
+  const wrongSubscription: Remaining.WorkspaceSubscriptionId =
+    Remaining.AgentSourceId.parse("docker:fixture");
+  void [
+    wrongDevice,
+    wrongNumber,
+    wrongDecision,
+    wrongTarget,
+    wrongReceipt,
+    wrongBuild,
+    wrongSubscription,
+  ];
+});
+
+it("keeps coercion and bounds at the request boundary", () => {
+  expect(
+    workspaceApi.viewportDiagnostics.body.shape.session.safeParse("bad")
+      .success,
+  ).toBe(false);
+  expect(workspaceApi.viewportDiagnostics.body.shape.session.parse(uuid)).toBe(
+    uuid,
+  );
+  const revoke = workspaceApi.workspaceRevoke.body;
+  for (const id of [42, null, undefined, "", uuid])
+    expect(revoke.parse({ id }).id).toBe(String(id));
+  const pull = workspaceApi.githubPullDetail.params;
+  for (const number of [64, "064", "6.4e1"])
+    expect(pull.parse({ owner: "acme", repo: "api", number }).number).toBe(64);
+  expect(Remaining.parsePullNumber("064")).toBe(64);
+  expect(Remaining.parsePullNumber(64)).toBe(64);
+  for (const number of [0, -1, 1.5, 1e9, "nope"])
+    expect(pull.safeParse({ owner: "acme", repo: "api", number }).success).toBe(
+      false,
+    );
+  const later = {
+    kind: "message",
+    condition: "time",
+    dueAt: Date.now() + 60000,
+  };
+  expect(
+    workspaceApi.laterCreate.body.parse({ ...later, targetId: "opaque" })
+      .targetId,
+  ).toBe("opaque");
+  for (const targetId of ["", "x".repeat(151), 42])
+    expect(
+      workspaceApi.laterCreate.body.safeParse({ ...later, targetId }).success,
+    ).toBe(false);
+  const sha = "A".repeat(40);
+  expect(workspaceApi.githubPullFiles.query.parse({ head: sha }).head).toBe(
+    sha,
+  );
+  expect(
+    workspaceApi.githubPullFiles.query.safeParse({ head: "bad" }).success,
+  ).toBe(false);
+  expect(
+    Multiplex.WorkspaceMuxRequest.safeParse({
+      v: 1,
+      type: "unsubscribe",
+      id: "bad",
+    }).success,
+  ).toBe(false);
+  const request = {
+    v: 1,
+    type: "subscribe",
+    conversations: [],
+    runs: [],
+    id: uuid,
+    source: "",
+    epoch: "",
+    cursor: 0,
+  };
+  expect(Multiplex.WorkspaceMuxRequest.safeParse(request).success).toBe(true);
+  expect(
+    Multiplex.WorkspaceMuxRequest.safeParse({
+      ...request,
+      source: "bad source",
+    }).success,
+  ).toBe(false);
+  expect(
+    Multiplex.WorkspaceMuxRequest.safeParse({
+      ...request,
+      epoch: "x".repeat(201),
     }).success,
   ).toBe(false);
 });

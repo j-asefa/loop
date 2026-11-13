@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../src/shared/contract-ids.js";
 import { ModelId } from "../src/shared/contract-ids.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
 import { NativeDecisionId } from "../src/shared/contract-ids.js";
@@ -390,7 +391,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
           initialPrompt: "",
           attachmentIds: [],
           folderId: undefined,
-          idempotencyKey: created,
+          idempotencyKey: IdempotencyKey.parse(created),
         },
       },
       source,
@@ -408,7 +409,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
           replyExcerpt: undefined,
           folderId: undefined,
           attachmentIds: [],
-          idempotencyKey: sent,
+          idempotencyKey: IdempotencyKey.parse(sent),
         },
       },
       source,
@@ -427,7 +428,7 @@ it("normalizes optional create/composer fields to their JSON representation befo
           agentId: AgentId.parse(agentId),
           input: "unchanged message",
           attachmentIds: [],
-          idempotencyKey: randomUUID(),
+          idempotencyKey: IdempotencyKey.parse(randomUUID()),
         },
       },
       source,
@@ -1039,7 +1040,7 @@ it("uses read-only POST previews without retaining a command, while shared sends
       {
         body: {
           question: "Inspect shared content",
-          idempotencyKey: id,
+          idempotencyKey: IdempotencyKey.parse(id),
           source: undefined,
           folderId: undefined,
           newAgentId: undefined,
@@ -1055,7 +1056,7 @@ it("uses read-only POST previews without retaining a command, while shared sends
       {
         body: {
           question: "Inspect shared content",
-          idempotencyKey: randomUUID(),
+          idempotencyKey: IdempotencyKey.parse(randomUUID()),
         },
       },
       source,

@@ -1,3 +1,5 @@
+import { ViewportSessionId } from "./contract-ids.js";
+import { IdempotencyKey } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import {
   AgentId,
@@ -35,8 +37,8 @@ export const TeamPresetInput = z.object({
   name: Text.trim().min(1).max(80),
   folderId: requestId(FolderId).min(1),
   selection: Selection,
-  roles: z.record(Text, Selection).default({}),
-  idempotencyKey: Text.min(8).max(150),
+  roles: z.record(requestId(TeamRoleId), Selection).default({}),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
 });
 export const PublicTeamPreset = z.object({
   id: TeamPresetId,
@@ -49,7 +51,7 @@ export const ReviewInput = z.object({
   folderId: requestId(FolderId).min(1),
   scope: z.enum(["uncommitted", "staged", "branch"]),
   base: Text.trim().min(1).max(200).default("main"),
-  idempotencyKey: Text.min(8).max(150),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
 });
 // HTTP uses id; the agent tool exposes the same identity as reviewId.
 export const PublicReview = z.object({
@@ -98,7 +100,7 @@ export const DefinitionCreateInput = z.strictObject({
         .strict(),
     )
     .default({}),
-  idempotencyKey: Text.min(8).max(150),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
 });
 const PublicDefinitionRole = z.object({
   name: Text,
@@ -156,7 +158,7 @@ export const ShareInput = z.object({
 });
 export const ShareSendInput = ShareInput.extend({
   newAgentId: requestId(AgentId).optional(),
-  idempotencyKey: Text.min(10).max(150),
+  idempotencyKey: requestId(IdempotencyKey).min(10).max(150),
 });
 export const RoutingInput = z.object({
   input: Text.min(1).max(30000),
@@ -246,6 +248,6 @@ const ViewportSample = z.strictObject({
   flags: z.array(Geometry).length(8),
 });
 export const ViewportInput = z.strictObject({
-  session: Text.uuid(),
+  session: requestId(ViewportSessionId).uuid(),
   samples: z.array(ViewportSample).min(1).max(8),
 });

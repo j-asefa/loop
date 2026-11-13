@@ -647,7 +647,14 @@ it("typed mobile clients consume production receipts, saved envelopes and cancel
     for (const item of saved.items) expect(item).toHaveProperty("label");
     const row = await callRoute(
       workspaceApi.laterCreate,
-      { body: { ...laterInput(), kind: "conversation", condition: "time" } },
+      {
+        body: {
+          ...laterInput(),
+          targetId: ConversationId.parse(laterInput().targetId),
+          kind: "conversation",
+          condition: "time",
+        },
+      },
       "",
     );
     expect(row).toEqual({ ...laterRow(row.id)!, replaced: row.replaced });

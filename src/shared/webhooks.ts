@@ -1,3 +1,4 @@
+import { EventId, ApprovalId, NativeDecisionId } from "./contract-ids.js";
 import {
   WebhookSubscriptionId,
   WebhookDeliveryId,
@@ -11,7 +12,6 @@ import {
 } from "./contract-ids.js";
 import { z } from "zod";
 
-const Id = z.string().min(1).max(300);
 const Time = z.number().int().nonnegative();
 const WebhookKind = z.literal("run.stopped");
 const WebhookKinds = z.array(WebhookKind).max(1);
@@ -24,7 +24,7 @@ const WebhookState = z.enum([
 export const WebhookStop = z
   .object({
     id: WebhookDeliveryId.uuid(),
-    event_id: z.number().int().positive(),
+    event_id: EventId.int().positive(),
     kind: WebhookKind,
     version: z.literal(1),
     occurred_at: Time,
@@ -37,7 +37,13 @@ export const WebhookStop = z
       "needs_input",
     ]),
     needs: z
-      .object({ kind: z.enum(["approval", "answer"]), id: Id })
+      .object({
+        kind: z.enum(["approval", "answer"]),
+        id: z.union([
+          ApprovalId.min(1).max(300),
+          NativeDecisionId.min(1).max(300),
+        ]),
+      })
       .strict()
       .optional(),
     run_id: RunId.min(1).max(300),
@@ -77,7 +83,7 @@ const WebhookOutcome = z.enum([
 ]);
 export const WebhookDelivery = z.object({
   id: WebhookDeliveryId.min(1).max(300),
-  event_id: z.number().int().nullable(),
+  event_id: EventId.int().nullable(),
   kind: z.enum(["run.stopped", "control"]),
   purpose: z.enum(["activation", "test"]).nullable(),
   attempts: z.number().int().nonnegative(),

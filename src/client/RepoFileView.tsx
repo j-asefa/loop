@@ -1,3 +1,4 @@
+import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import createDOMPurify from "dompurify";
@@ -26,7 +27,10 @@ const encodePath = (path: string) =>
 const repoFileUrl = (ref: PullRequestRef, head: string, path: string) =>
   routeUrl(
     workspaceApi.githubPullFile,
-    { params: ref, query: { head, path } },
+    {
+      params: { ...ref, number: parsePullNumber(ref.number) },
+      query: { head: GitCommitId.parse(head), path },
+    },
     executionSourceId(),
   );
 
@@ -294,7 +298,10 @@ export function RepoFileSheet({
     const controller = new AbortController();
     fetchStream(
       workspaceApi.githubPullFile,
-      { params: pullRef, query: { head: headSha, path } },
+      {
+        params: { ...pullRef, number: parsePullNumber(pullRef.number) },
+        query: { head: GitCommitId.parse(headSha), path },
+      },
       executionSourceId(),
       controller.signal,
     )

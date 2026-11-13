@@ -1,3 +1,5 @@
+import { IdempotencyKey } from "./contract-ids.js";
+import { AgentSourceId } from "./contract-ids.js";
 import {
   AgentId,
   OwnerId,
@@ -15,7 +17,7 @@ const Text = z.string(),
   Count = z.number();
 const Permission = z.enum(PERMISSION_MODES.map((mode) => mode.value));
 export const PublicAgentSources = z.array(
-  z.object({ id: Text, name: Text, kind: Text }),
+  z.object({ id: AgentSourceId, name: Text, kind: Text }),
 );
 export const McpPreferencesInput = z
   .strictObject({
@@ -72,7 +74,7 @@ export const McpUpdateInput = z.object({
   auth: AuthInput.optional(),
 });
 export const McpToolCallInput = toolInvocationSchema.extend({
-  idempotencyKey: Text.min(10).max(200),
+  idempotencyKey: requestId(IdempotencyKey).min(10).max(200),
 });
 export const PublicMcpConnection = z.object({
   id: McpConnectionId,

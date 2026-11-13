@@ -1,3 +1,5 @@
+import { IdempotencyKey } from "./contract-ids.js";
+import { LaterTargetId, LaterTargetInput } from "./contract-ids.js";
 import {
   AgentId,
   ConversationId,
@@ -22,7 +24,6 @@ import { REPLY_EXCERPT_LIMIT } from "./replies.js";
 const Text = z.string(),
   MaybeText = Text.nullable(),
   Time = z.number();
-const Target = Text.min(1).max(150);
 const FutureTime = Time.int().positive().max(Number.MAX_SAFE_INTEGER);
 export const PositionInput = z.object({
   positionMessageId: requestId(MessageId).min(1).max(150).nullable(),
@@ -56,7 +57,7 @@ export const SavedLabelInput = z.object({
 });
 export const LaterInput = z.object({
   kind: z.enum(["conversation", "artifact", "message", "story"]),
-  targetId: Target,
+  targetId: LaterTargetInput,
   condition: z.enum(["time", "run_finished", "project_open"]),
   dueAt: FutureTime.optional(),
   projectId: requestId(ProjectId).min(1).max(150).optional(),
@@ -70,7 +71,7 @@ export const ScheduleInput = z
     attachmentIds: AttachmentIds,
     replyToMessageId: requestId(MessageId).min(1).max(150).optional(),
     replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
-    idempotencyKey: Text.min(8).max(150),
+    idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
     sendAt: FutureTime,
   })
   .refine((d) => !d.replyExcerpt || d.replyToMessageId, {
@@ -83,18 +84,21 @@ export const ScheduleUpdateInput = z.object({
 });
 export const RunReorderInput = z.object({
   direction: z.enum(["up", "down"]),
-  idempotencyKey: Text.min(8).max(150).optional(),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150).optional(),
 });
 export const QueuedRunInput = z.object({
   input: Text.trim().min(1).max(30000),
 });
 export const RunWithdrawInput = z.object({
-  idempotencyKey: Text.min(8).max(150).optional(),
-  draftAttachmentIds: z.array(Target).max(MAX_MESSAGE_FILES).default([]),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150).optional(),
+  draftAttachmentIds: z
+    .array(requestId(ArtifactId).min(1).max(150))
+    .max(MAX_MESSAGE_FILES)
+    .default([]),
 });
 export const RunMoveInput = z.object({
   agentId: requestId(AgentId).min(1).max(150),
-  idempotencyKey: Text.min(8).max(150),
+  idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
 });
 export const ConversationForkInput = z.object({
   messageId: requestId(MessageId).min(1).max(150),
@@ -154,7 +158,7 @@ export const PublicLater = z.object({
   id: LaterItemId,
   owner_id: OwnerId,
   kind: LaterInput.shape.kind,
-  target_id: Text,
+  target_id: LaterTargetId,
   condition: LaterInput.shape.condition,
   due_at: Time.nullable(),
   project_id: ProjectId.nullable(),
@@ -204,7 +208,7 @@ export const PublicScheduledSend = z.object({
   reply_to_message_id: MessageId.nullable(),
 
   reply_excerpt: MaybeText,
-  idempotency_key: Text,
+  idempotency_key: IdempotencyKey,
   send_at: Time,
   state: ScheduledSendState,
   run_id: RunId.nullable(),

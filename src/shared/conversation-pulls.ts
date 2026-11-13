@@ -1,12 +1,13 @@
+import { GitHubPullNumber, GitCommitId } from "./contract-ids.js";
 import { z } from "zod";
 
 export const ConversationPull = z.object({
   owner: z.string(),
   repo: z.string(),
-  number: z.number().int().positive(),
+  number: GitHubPullNumber.int().positive(),
   title: z.string().optional(),
   state: z.enum(["draft", "open", "closed", "merged"]).optional(),
-  headSha: z.string().optional(),
+  headSha: GitCommitId.optional(),
   changedFiles: z.number().optional(),
   additions: z.number().optional(),
   deletions: z.number().optional(),
@@ -24,7 +25,7 @@ export const ConversationPull = z.object({
           "commented",
           "dismissed",
         ]),
-        headSha: z.string().optional(),
+        headSha: GitCommitId.optional(),
       }),
     )
     .optional(),
@@ -32,10 +33,10 @@ export const ConversationPull = z.object({
   fetchedAt: z.number().optional(),
   error: z.string().optional(),
 });
-export type ConversationPull = z.infer<typeof ConversationPull>;
+export type ConversationPull = z.input<typeof ConversationPull>;
 export const ConversationPulls = z.object({
   connected: z.boolean(),
   pulls: z.array(ConversationPull),
   hasMore: z.boolean(),
 });
-export type ConversationPulls = z.infer<typeof ConversationPulls>;
+export type ConversationPulls = z.input<typeof ConversationPulls>;

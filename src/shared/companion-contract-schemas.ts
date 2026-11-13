@@ -231,10 +231,14 @@ export const PublicNativeHistoryDetail = z.object({
   items: z.array(ItemSchema),
   note: Text,
   activities: z.array(
-    z.object({ key: Text, kind: ActivityKind, record: ActivityRecordSchema }),
+    z.object({
+      key: ActivityKey,
+      kind: ActivityKind,
+      record: ActivityRecordSchema,
+    }),
   ),
 });
-const ActivityRunIds = z.array(Text.min(1).max(150)).min(1).max(50);
+const ActivityRunIds = z.array(RunId.min(1).max(150)).min(1).max(50);
 export const ActivityQuery = z.object({
   after: z.coerce.number<string>().int().nonnegative().optional(),
   run: requestId(RunId).max(100).optional(),
@@ -255,7 +259,7 @@ export const ActivityQuery = z.object({
 const PublicActivityItem = z.object({
   key: ActivityKey,
   kind: z.enum([...ActivityKind.options, "capabilities"]),
-  run: Text.nullable(),
+  run: RunId.nullable(),
   sequence: z.number(),
   // Only synthesized pre-activity traces carry this marker.
   record: z.union([

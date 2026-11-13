@@ -1,7 +1,16 @@
+import { z } from "zod";
+import {
+  ConversationId,
+  RunId,
+  AgentSourceId,
+  WorkspaceEpochId,
+  WorkspaceSubscriptionId,
+} from "../shared/contract-ids";
 import { ownerSession } from "./ownerSession";
 import {
   WORKSPACE_MULTIPLEX_PATH,
   WorkspaceMuxResponse,
+  WorkspaceMuxRequest,
 } from "../shared/workspace-multiplex";
 import { viewGeneration } from "./viewCache";
 
@@ -22,12 +31,14 @@ function selection(source: string) {
     conversations: [
       ...new Set(
         values.flatMap((value) =>
-          value.conversation ? [value.conversation] : [],
+          value.conversation ? [ConversationId.parse(value.conversation)] : [],
         ),
       ),
     ],
     runs: [
-      ...new Set(values.flatMap((value) => (value.run ? [value.run] : []))),
+      ...new Set(
+        values.flatMap((value) => (value.run ? [RunId.parse(value.run)] : [])),
+      ),
     ],
   };
 }
@@ -49,19 +60,21 @@ export function watchWorkspaceDetail(source: string, detail: Detail) {
   };
 }
 class SourceSocket implements WorkspaceSocket {
-  readonly id = crypto.randomUUID();
+  readonly id = WorkspaceSubscriptionId.parse(crypto.randomUUID());
   readyState: number = WebSocket.CONNECTING;
   onmessage: WorkspaceSocket["onmessage"] = null;
   onclose: WorkspaceSocket["onclose"] = null;
   onerror: WorkspaceSocket["onerror"] = null;
-  epoch: string;
+  readonly source: AgentSourceId;
+  epoch: WorkspaceEpochId;
   cursor: number;
   constructor(
     readonly transport: MultiplexTransport,
-    readonly source: string,
+    source: string,
     url: URL,
   ) {
-    this.epoch = url.searchParams.get("epoch") ?? "";
+    this.source = AgentSourceId.parse(source);
+    this.epoch = WorkspaceEpochId.parse(url.searchParams.get("epoch") ?? "");
     this.cursor = Number(url.searchParams.get("cursor") ?? 0);
   }
   closed(code: number, reason = "Source disconnected", notify = true) {
@@ -80,7 +93,10 @@ class MultiplexTransport {
   readonly generation = viewGeneration();
   private readonly socket: WebSocket;
   private readonly sources = new Map<string, SourceSocket>();
-  private readonly pending = new Map<string, object>();
+  private readonly pending = new Map<
+    string,
+    z.input<typeof WorkspaceMuxRequest>
+  >();
   private readonly subscribed = new Set<string>();
   private timer?: ReturnType<typeof setTimeout>;
   private tokens = 32;
@@ -110,7 +126,7 @@ class MultiplexTransport {
           source.closed(packet.code, packet.reason, false);
         else {
           source.readyState = WebSocket.OPEN;
-          source.epoch = packet.frame.epoch;
+          source.epoch = WorkspaceEpochId.parse(packet.frame.epoch);
           source.cursor = packet.frame.cursor;
           source.onmessage?.(
             new MessageEvent("message", { data: JSON.stringify(packet.frame) }),
@@ -153,7 +169,7 @@ class MultiplexTransport {
       ...selection(source.source),
     });
   }
-  private enqueue(id: string, packet: object) {
+  private enqueue(id: string, packet: z.input<typeof WorkspaceMuxRequest>) {
     if (!this.pending.has(id) && this.pending.size >= 256) {
       this.socket.close();
       return;
@@ -179,7 +195,7 @@ class MultiplexTransport {
       this.pending.delete(id);
       this.tokens--;
       let value = queued;
-      if ((value as { type: string }).type === "subscribe") {
+      if (value.type === "subscribe") {
         const source = this.sources.get(id);
         if (!source) continue;
         value = {

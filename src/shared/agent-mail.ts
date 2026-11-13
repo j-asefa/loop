@@ -1,3 +1,4 @@
+import { AgentAddressId } from "./contract-ids.js";
 import {
   AgentId,
   ConversationId,
@@ -78,8 +79,8 @@ const MessageFields = {
 export const PublicMailMessage = z.object({
   ...MessageFields,
   id: MailId,
-  from: Text,
-  to: Text,
+  from: AgentAddressId,
+  to: AgentAddressId,
   preview: Text,
   created_at: z.number(),
   error: Text.nullable(),
@@ -96,7 +97,7 @@ const PublicMailThread = z.object({
   paused_at: z.number().nullable(),
   paused_reason: Text.nullable(),
   updated_at: z.number(),
-  participants: z.array(Text),
+  participants: z.array(AgentAddressId),
   participant_refs: z.array(PublicMailAgentReference).optional(),
   messages: z.array(PublicMailMessage),
 });

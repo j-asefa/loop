@@ -1,3 +1,5 @@
+import { AgentSourceId } from "../shared/contract-ids";
+import { IdempotencyKey } from "../shared/contract-ids";
 import {
   AgentId,
   ConversationId,
@@ -1013,7 +1015,7 @@ function MoveQueued({
                 params: { id: RunId.parse(message.id) },
                 body: {
                   agentId: parseId(AgentId, agentId),
-                  idempotencyKey: key.current,
+                  idempotencyKey: IdempotencyKey.parse(key.current),
                 },
               },
               message.sourceId ?? scopedSource,
@@ -1207,7 +1209,13 @@ export function Feed({
   const combined = !!sources && !project && !teams && !scopedAgent;
   const allSources: AgentSource[] = combined
     ? sources
-    : [{ id: scopedSource, name: "", capabilities: scopedCapabilities }];
+    : [
+        {
+          id: AgentSourceId.parse(scopedSource),
+          name: "",
+          capabilities: scopedCapabilities,
+        },
+      ];
   const needsSourceKey = JSON.stringify(
     allSources.map((source) => source.id).sort(),
   );
@@ -1727,7 +1735,7 @@ export function Feed({
               executionEnvironment: id ? source.name : undefined,
             }))
           : page.items;
-        const selected = new Set(allSources.map((source) => source.id));
+        const selected = new Set<string>(allSources.map((source) => source.id));
         // A failed source keeps its cached page. A successful source replaces only
         // its own rows, including an empty page, without waiting for another peer.
         const retained = (cachedView<FeedItem[]>(key) ?? []).filter(
@@ -2134,7 +2142,9 @@ export function Feed({
             summary,
           });
         }
-        const activeIds = new Set(activeSources.map((source) => source.id));
+        const activeIds = new Set<string>(
+          activeSources.map((source) => source.id),
+        );
         for (const id of sourcePages.current.failures)
           if (!activeIds.has(id)) sourcePages.current.failures.delete(id);
         // Initial pages may be visible before a combined view can be cached.
@@ -2510,7 +2520,7 @@ export function Feed({
     // retry budget. Only this view's notice retries the failed operation once.
     window.addEventListener("loop-source-refresh", update);
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
-      const affected = activeSources
+      const affected: string[] = activeSources
         .filter((source) => workspaceChangeAffects(event, "feed", source.id))
         .map((source) => source.id);
       if (affected.length) {

@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../src/shared/contract-ids.js";
 import { ArtifactId } from "../src/shared/contract-ids.js";
 import { ModelId } from "../src/shared/contract-ids.js";
 import { ExecutionCommandId } from "../src/shared/contract-ids.js";
@@ -171,7 +172,7 @@ it("settles local input failures as readable refusals while malformed acknowledg
         agentId: AgentId.parse("agent"),
         input: "Draft",
         replyExcerpt: "Excerpt without its message",
-        idempotencyKey: planned.receipt.key,
+        idempotencyKey: IdempotencyKey.parse(planned.receipt.key),
       },
     },
     "",

@@ -1,3 +1,10 @@
+import { GitHubPullNumberInput } from "./contract-ids.js";
+import {
+  GitCommitId,
+  GitHubPullNumber,
+  CoercedGitHubPullNumber,
+  GitHubThreadId,
+} from "./contract-ids.js";
 import {
   ArtifactId,
   requestId,
@@ -14,14 +21,14 @@ const Text = z.string();
 const MaybeText = Text.nullable();
 const Time = z.number();
 const Name = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/;
-export const CommitSha = Text.regex(
+export const CommitSha = requestId(GitCommitId).regex(
   /^[0-9a-f]{40}$/i,
   "Refresh the pull request first",
 );
 export const PullParams = z.object({
   owner: Text.regex(Name, "Unknown repository owner").max(39),
   repo: Text.regex(Name, "Unknown repository").max(100),
-  number: z.coerce.number<string | number>().int().positive().max(999_999_999),
+  number: CoercedGitHubPullNumber.int().positive().max(999_999_999),
 });
 export const PullQuery = z.object({
   filter: z.enum(["review", "authored", "involved"]).optional(),
@@ -54,14 +61,14 @@ export const PrWatchInput = z.object({
   artifactId: requestId(ArtifactId).min(1).max(150),
   owner: Text.min(1).max(39),
   repo: Text.min(1).max(100),
-  number: z.number().int().positive().max(999_999_999),
+  number: GitHubPullNumberInput.int().positive().max(999_999_999),
 });
 
 const Checks = z.enum(["success", "failure", "pending"]);
 const PublicPullItem = z.object({
   owner: Text,
   repo: Text,
-  number: z.number(),
+  number: GitHubPullNumber,
   title: Text,
   url: Text,
   state: z.enum(["draft", "open", "merged", "closed"]),
@@ -105,13 +112,13 @@ const PublicComment = z.object({
 });
 export const PublicPullDetail = PublicPullItem.extend({
   body: Text,
-  headSha: Text,
+  headSha: GitCommitId,
   mergeState: Text.optional(),
   conflicts: z.boolean(),
   commits: z.number().optional(),
   commitHistory: z.array(
     z.object({
-      sha: Text,
+      sha: GitCommitId,
       message: Text,
       author: Text.optional(),
       committedAt: Text.optional(),
@@ -141,7 +148,7 @@ export const PublicPullDetail = PublicPullItem.extend({
   ),
   threads: z.array(
     z.object({
-      id: Text,
+      id: GitHubThreadId,
       path: Text,
       line: z.number().optional(),
       resolved: z.boolean(),
@@ -169,12 +176,12 @@ const PublicPullFile = z.object({
 export const PublicPullFiles = z.object({
   files: z.array(PublicPullFile),
   total: z.number().optional(),
-  headSha: Text,
+  headSha: GitCommitId,
   fetchedAt: Time,
 });
 export const PublicCommitFiles = z.object({
   files: z.array(PublicPullFile),
-  sha: Text,
+  sha: GitCommitId,
   hasMore: z.boolean(),
   fetchedAt: Time,
 });
@@ -184,18 +191,18 @@ export const PublicPrWatch = z.object({
   agent_id: AgentId,
   repo_owner: Text,
   repo_name: Text,
-  number: z.number(),
+  number: GitHubPullNumber,
   state: z.enum(["watching", "paused", "stopped"]),
   ended_reason: MaybeText,
   error: MaybeText,
-  head_sha: MaybeText,
-  ci_sha: MaybeText,
+  head_sha: GitCommitId.nullable(),
+  ci_sha: GitCommitId.nullable(),
   ci_conclusion: MaybeText,
   created_at: Time,
   updated_at: Time,
   ci_pending: z.number(),
   read_at: Time.nullable(),
-  seen_ci_sha: MaybeText,
+  seen_ci_sha: GitCommitId.nullable(),
   seen_ci_conclusion: MaybeText,
 });
 export const PublicCreatedPrWatch = PublicPrWatch.extend({

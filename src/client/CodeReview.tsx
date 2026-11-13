@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "../shared/contract-ids";
 import {
   ConversationId,
   FolderId,
@@ -91,7 +92,10 @@ export function StartCodeReview({
                   workspaceApi.teamReview,
                   {
                     params: { id: TeamId.parse(teamId) },
-                    body: { ...body, idempotencyKey },
+                    body: {
+                      ...body,
+                      idempotencyKey: IdempotencyKey.parse(idempotencyKey),
+                    },
                   },
                   source,
                 ),

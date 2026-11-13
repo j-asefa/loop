@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "./contract-ids.js";
 import { NativeGenerationId, SessionSettingId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
@@ -73,7 +74,7 @@ export const conversationRoutes = {
         replyExcerpt: Text.trim().min(1).max(REPLY_EXCERPT_LIMIT).optional(),
         input: Text.trim().min(1).max(30000),
         attachmentIds: AttachmentIds,
-        idempotencyKey: Text.min(8).max(150),
+        idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
         folderId: requestId(FolderId).min(1).nullable().optional(),
         queue: z.boolean().optional(),
       })
@@ -93,7 +94,9 @@ export const conversationRoutes = {
     path: "/runs/:id/:action",
     params: z.object({ id: requestId(RunId) }).extend({ action: Text }),
     body: z
-      .object({ idempotencyKey: Text.min(8).max(150).optional() })
+      .object({
+        idempotencyKey: requestId(IdempotencyKey).min(8).max(150).optional(),
+      })
       .optional(),
     response: z.union([PublicRun, Ok]),
   }),
@@ -116,7 +119,7 @@ export const conversationRoutes = {
     params: z.object({ id: requestId(ApprovalId) }),
     body: z.object({
       decision: ApprovalDecision,
-      idempotencyKey: Text.min(8).max(150).optional(),
+      idempotencyKey: requestId(IdempotencyKey).min(8).max(150).optional(),
     }),
     response: Ok,
   }),
