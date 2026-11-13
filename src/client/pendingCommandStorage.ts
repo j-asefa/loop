@@ -32,16 +32,17 @@ function commandStore<T>(storage: CommandStorage<T>) {
     commandSlot(storage, commandStorageKey(owner, source, target));
 }
 
-function jsonStorage<T>(
+function browserStorage<T>(
   storage: BrowserCommandStorage,
   decode: (raw: string) => T = JSON.parse,
+  encode: (value: T) => string = JSON.stringify,
 ): CommandStorage<T> {
   return {
     read: (key) => {
       const raw = storage.getItem(key);
       return raw === null ? undefined : decode(raw);
     },
-    write: (key, value) => storage.setItem(key, JSON.stringify(value)),
+    write: (key, value) => storage.setItem(key, encode(value)),
     remove: (key) => storage.removeItem(key),
   };
 }
@@ -49,15 +50,16 @@ function jsonStorage<T>(
 // Callers validate stored records and hold their Web Lock across read/write.
 // Storage errors must reach preparation so an unrecorded command cannot run.
 export function storedCommands<T>(storage: BrowserCommandStorage) {
-  return commandStore(jsonStorage<T>(storage));
+  return commandStore(browserStorage<T>(storage));
 }
 
 export function storedCommandAt<T>(
   storage: BrowserCommandStorage,
   key: string,
   decode?: (raw: string) => T,
+  encode?: (value: T) => string,
 ) {
-  return commandSlot(jsonStorage<T>(storage, decode), key);
+  return commandSlot(browserStorage<T>(storage, decode, encode), key);
 }
 
 export function withCommandLock<T>(
