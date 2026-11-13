@@ -30,7 +30,7 @@ type ResultsSelection = {
   pending?: number;
   foreground?: number;
   failed?: boolean;
-  notify?: boolean;
+  hasSnapshot?: boolean;
 };
 type ResultsProps = {
   ownerRef: RefObject<string | undefined>;
@@ -83,6 +83,7 @@ export function useResultsLoader(props: ResultsProps) {
       const saved = view !== "files" && cachedView<CardWindow>(cacheKey);
       if (saved) {
         cardsPager.current.restore(key, saved);
+        resultsSelection.current.hasSnapshot = true;
         setItems(
           saved.page.items.flatMap((entry) =>
             entry.card.type === "result"
@@ -95,7 +96,6 @@ export function useResultsLoader(props: ResultsProps) {
     }
     const selectionContext = resultsSelection.current;
     selectionContext.pending = (selectionContext.pending || 0) + 1;
-    selectionContext.notify ||= notify;
     const missing =
       (view === "files" ? resultsPager.current : cardsPager.current).key !==
         key ||
@@ -211,6 +211,7 @@ export function useResultsLoader(props: ResultsProps) {
                 view !== "files" &&
                 (failure as { status?: number }).status === 409
               ) {
+                selectionContext.hasSnapshot = false;
                 cacheView(cacheKey, undefined, owner);
                 setItems([]);
                 setNext(null);
@@ -225,19 +226,19 @@ export function useResultsLoader(props: ResultsProps) {
             if (saved) cacheView(cacheKey, saved, owner);
           }
           selectionContext.failed = false;
+          selectionContext.hasSnapshot = true;
           delete selectionContext.retryAppend;
           if (!result) return;
           setItems(result.items);
           setNext(result.next);
-          if (selectionContext.notify) setRevision((v) => v + 1);
+          if (notify) setRevision((v) => v + 1);
         },
         manual,
-        append ? 1 : 0,
+        append ? 2 : notify ? 1 : 0,
       );
     } finally {
       selectionContext.pending!--;
       if (foreground) selectionContext.foreground!--;
-      if (!selectionContext.pending) selectionContext.notify = false;
       if (
         selectionContext === resultsSelection.current &&
         key === resultsContext.current
@@ -245,15 +246,15 @@ export function useResultsLoader(props: ResultsProps) {
         setResultsLoading((selectionContext.foreground ?? 0) > 0);
     }
   }
+  const reconnecting = !!(failure as { reconnecting?: boolean } | undefined)
+    ?.reconnecting;
   return {
     items,
     setItems,
     next,
-    loading,
+    loading: loading || (!resultsSelection.current.hasSnapshot && reconnecting),
     loadResults,
-    error: (failure as { reconnecting?: boolean } | undefined)?.reconnecting
-      ? ""
-      : error,
+    error: reconnecting ? "" : error,
   };
 }
 
