@@ -22,6 +22,15 @@ type Module = {
 };
 function inventory(sources: Map<string, string>) {
   const modules = new Map<string, Module>();
+  const importTarget = (file: string, specifier: string) => {
+    if (!specifier.startsWith(".")) return specifier;
+    const path = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
+    return sources.has(path)
+      ? path
+      : sources.has(path + ".ts")
+        ? path + ".ts"
+        : path;
+  };
   for (const [file, source] of sources) {
     const { program, errors } = parseSync(file, source);
     if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
@@ -37,10 +46,7 @@ function inventory(sources: Map<string, string>) {
           if (entry.id.type === "Identifier")
             definitions.set(entry.id.name, entry.init);
       if (statement.type === "ExportNamedDeclaration" && statement.source) {
-        const target = resolve(
-          dirname(file),
-          statement.source.value.replace(/\.js$/, ".ts"),
-        );
+        const target = importTarget(file, statement.source.value);
         for (const spec of statement.specifiers)
           if (spec.type === "ExportSpecifier")
             imports.set(spec.exported.name ?? spec.exported.value, [
@@ -52,12 +58,7 @@ function inventory(sources: Map<string, string>) {
         statement.type === "ImportDeclaration" &&
         statement.importKind !== "type"
       ) {
-        const target = statement.source.value.startsWith(".")
-          ? resolve(
-              dirname(file),
-              statement.source.value.replace(/\.js$/, ".ts"),
-            )
-          : statement.source.value;
+        const target = importTarget(file, statement.source.value);
         for (const spec of statement.specifiers) {
           if (spec.type === "ImportSpecifier" && spec.importKind !== "type")
             imports.set(spec.local.name, [
@@ -269,7 +270,7 @@ it("finds aliased and multiline schemas while ignoring comments, values and clos
     ],
     [
       resolve("fixture/check.ts"),
-      `import {z} from 'zod'; import {Text as Value} from './base.js'; import * as Base from './base.js'; import {Forward} from './forward.js';
+      `import {z} from 'zod'; import {Text as Value} from './base'; import * as Base from './base.js'; import {Forward} from './forward.js';
       const Alias=Value.optional().catch(undefined);
       // state: z.string(),
       const description="kind: z.string()";
