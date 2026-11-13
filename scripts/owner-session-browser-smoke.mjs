@@ -15,7 +15,7 @@ try {
   await writeFile(
     entry,
     `
-    import React, {Suspense, startTransition} from ${JSON.stringify(resolve("node_modules/react/index.js"))};
+    import React, {Suspense, startTransition, useState} from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {useAppController} from ${JSON.stringify(resolve("src/client/app/AppController.tsx"))};
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
@@ -28,6 +28,8 @@ try {
     let blocked = false;
     const pending = new Promise(() => {});
     function Probe() {
+      const [, render] = useState(0);
+      window.rerender = () => render(value => value + 1);
       const model = useAppController();
       window.model = model;
       if (blocked) { window.suspended = true; throw pending; }
@@ -36,8 +38,8 @@ try {
     window.inspect = () => ({owner:viewOwner(), generation:viewGeneration(), sessionOwner:ownerSession.current.session?.user.id, cached:cachedView("fixture"), draft:threadDraft("fixture").text});
     window.save = text => { cacheView("fixture", text, viewOwner()); saveThreadDraft("fixture", text, []); };
     window.changeOwner = id => window.model.setSession({user:{id,name:id},mode:"paired"});
-    window.suspend = () => { blocked = true; startTransition(() => window.model.setQuery("blocked")); };
-    window.resume = () => { blocked = false; window.model.setQuery("resumed"); };
+    window.suspend = () => { blocked = true; startTransition(() => window.rerender()); };
+    window.resume = () => { blocked = false; window.rerender(); };
     createRoot(document.getElementById("root")).render(React.createElement(Suspense, {fallback:React.createElement("p",{id:"fallback"},"Waiting")}, React.createElement(Probe)));
   `,
   );
