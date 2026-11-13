@@ -1,10 +1,9 @@
 import { expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
+import { basename, dirname, relative, resolve } from "node:path";
+import { parseSync } from "rolldown/utils";
 
-// D1: discriminating fields are closed sets. A property with one of these
-// names whose schema is an unconstrained string is a failure, unless it is on
-// the exemption list below with a reason reviewers can verify (D5).
-const NAMES = [
+const names = new Set([
   "state",
   "status",
   "kind",
@@ -14,170 +13,703 @@ const NAMES = [
   "outcome",
   "mode",
   "phase",
-];
+]);
+type Module = {
+  source: string;
+  program: any;
+  definitions: Map<string, any>;
+  imports: Map<string, [string, string]>;
+  exports: Map<string, any>;
+  stars: string[];
+};
+function inventory(
+  sources: Map<string, string>,
+  directory = resolve("src/shared"),
+) {
+  const modules = new Map<string, Module>(),
+    scopes = new WeakMap<object, Map<string, any>>();
+  const importTarget = (file: string, specifier: string) => {
+    if (!specifier.startsWith(".")) return specifier;
+    const path = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
+    return sources.has(path)
+      ? path
+      : sources.has(path + ".ts")
+        ? path + ".ts"
+        : path;
+  };
+  // A projection retains the initializer's lexical scope, including renames,
+  // nested object/array patterns and default values.
+  function declare(
+    pattern: any,
+    expression: any,
+    scope: Map<string, any>,
+    path: string[] = [],
+  ): string[] {
+    if (!pattern) return [];
+    if (pattern.type === "Identifier") {
+      const binding = path.length
+        ? { type: "BindingProjection", expression, path }
+        : expression;
+      if (binding && path.length) scopes.set(binding, scope);
+      scope.set(pattern.name, binding);
+      return [pattern.name];
+    }
+    if (pattern.type === "AssignmentPattern") {
+      const binding = {
+        type: "BindingDefault",
+        expression,
+        path,
+        fallback: pattern.right,
+      };
+      scopes.set(binding, scope);
+      return declare(pattern.left, binding, scope);
+    }
+    if (pattern.type === "ObjectPattern")
+      return pattern.properties.flatMap((part: any) =>
+        part.type === "RestElement"
+          ? declare(part.argument, undefined, scope)
+          : declare(part.value, expression, scope, [
+              ...path,
+              String(part.key.name ?? part.key.value),
+            ]),
+      );
+    if (pattern.type === "ArrayPattern")
+      return pattern.elements.flatMap((part: any, index: number) =>
+        declare(part, expression, scope, [...path, String(index)]),
+      );
+    if (pattern.type === "RestElement")
+      return declare(pattern.argument, undefined, scope);
+    return [];
+  }
+  for (const [file, source] of sources) {
+    const { program, errors } = parseSync(file, source);
+    if (errors.length) throw Error(`${file}: ${errors[0].message}`);
+    const definitions = new Map<string, any>(),
+      imports = new Map<string, [string, string]>(),
+      exports = new Map<string, any>(),
+      stars: string[] = [];
+    for (const statement of (program as any).body) {
+      const declaration =
+        statement.type === "ExportNamedDeclaration"
+          ? statement.declaration
+          : statement;
+      if (declaration?.type === "VariableDeclaration")
+        for (const entry of declaration.declarations) {
+          const bound = declare(entry.id, entry.init, definitions);
+          if (statement.type === "ExportNamedDeclaration")
+            for (const name of bound)
+              exports.set(name, { type: "Identifier", name });
+        }
+      if (statement.type === "ExportDefaultDeclaration")
+        exports.set("default", statement.declaration);
+      if (statement.type === "ExportAllDeclaration") {
+        const target = importTarget(file, statement.source.value);
+        if (statement.exported)
+          exports.set(statement.exported.name ?? statement.exported.value, {
+            type: "NamespaceReference",
+            file: target,
+          });
+        else stars.push(target);
+      }
+      if (statement.type === "ExportNamedDeclaration")
+        for (const spec of statement.specifiers) {
+          if (spec.type !== "ExportSpecifier") continue;
+          const local = spec.local.name ?? spec.local.value;
+          exports.set(
+            spec.exported.name ?? spec.exported.value,
+            statement.source
+              ? {
+                  type: "ExportReference",
+                  file: importTarget(file, statement.source.value),
+                  name: local,
+                }
+              : spec.local,
+          );
+        }
+      if (
+        statement.type === "ImportDeclaration" &&
+        statement.importKind !== "type"
+      )
+        for (const spec of statement.specifiers) {
+          const target = importTarget(file, statement.source.value);
+          if (spec.type === "ImportSpecifier" && spec.importKind !== "type")
+            imports.set(spec.local.name, [
+              target,
+              spec.imported.name ?? spec.imported.value,
+            ]);
+          else if (spec.type === "ImportDefaultSpecifier")
+            imports.set(spec.local.name, [target, "default"]);
+          else if (spec.type === "ImportNamespaceSpecifier")
+            imports.set(spec.local.name, [target, "*"]);
+        }
+    }
+    modules.set(file, {
+      source,
+      program,
+      definitions,
+      imports,
+      exports,
+      stars,
+    });
+  }
+  for (const module of modules.values()) {
+    function bind(node: any, inherited: Map<string, any>) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const child of node) bind(child, inherited);
+        return;
+      }
+      let scope = inherited;
+      if (
+        [
+          "FunctionDeclaration",
+          "FunctionExpression",
+          "ArrowFunctionExpression",
+        ].includes(node.type)
+      ) {
+        scope = new Map(inherited);
+        for (const parameter of node.params)
+          declare(parameter, undefined, scope);
+        function hoist(value: any) {
+          if (!value || typeof value !== "object") return;
+          if (Array.isArray(value)) {
+            for (const child of value) hoist(child);
+            return;
+          }
+          if (
+            [
+              "FunctionDeclaration",
+              "FunctionExpression",
+              "ArrowFunctionExpression",
+            ].includes(value.type)
+          )
+            return;
+          if (value.type === "VariableDeclaration" && value.kind === "var")
+            for (const entry of value.declarations)
+              declare(entry.id, entry.init, scope);
+          for (const child of Object.values(value)) hoist(child);
+        }
+        hoist(node.body);
+      }
+      if (node.type === "BlockStatement") {
+        scope = new Map(scope);
+        for (const statement of node.body)
+          if (statement.type === "VariableDeclaration")
+            for (const entry of statement.declarations)
+              declare(entry.id, entry.init, scope);
+      }
+      scopes.set(node, scope);
+      for (const value of Object.values(node)) bind(value, scope);
+    }
+    bind(module.program, module.definitions);
+  }
+  const imported = (file: string, node: any, name: string) =>
+    scopes.get(node)?.has(name)
+      ? undefined
+      : modules.get(file)?.imports.get(name);
+  function exported(
+    file: string,
+    name: string,
+    seen: Set<any>,
+    path: string[],
+  ): boolean {
+    const key = `export:${file}:${name}:${path.join(".")}`;
+    if (seen.has(key)) return false;
+    const next = new Set([...seen, key]),
+      module = modules.get(file);
+    if (module?.exports.has(name))
+      return open(file, module.exports.get(name), next, path);
+    return (
+      module?.stars.some((target) => exported(target, name, next, path)) ??
+      false
+    );
+  }
+  function open(
+    file: string,
+    node: any,
+    seen = new Set<any>(),
+    path: string[] = [],
+  ): boolean {
+    if (!node) return false;
+    if (
+      [
+        "ParenthesizedExpression",
+        "TSAsExpression",
+        "TSSatisfiesExpression",
+        "TSNonNullExpression",
+      ].includes(node.type)
+    )
+      return open(file, node.expression, seen, path);
+    if (node.type === "NamespaceReference")
+      return path.length
+        ? exported(node.file, path[0], seen, path.slice(1))
+        : false;
+    if (node.type === "ExportReference")
+      return exported(node.file, node.name, seen, path);
+    if (node.type === "BindingProjection")
+      return open(file, node.expression, seen, [...node.path, ...path]);
+    if (node.type === "BindingDefault")
+      return (
+        open(file, node.expression, seen, [...node.path, ...path]) ||
+        open(file, node.fallback, seen, path)
+      );
+    if (node.type === "Identifier") {
+      const scope = scopes.get(node) ?? modules.get(file)?.definitions,
+        binding = scope?.get(node.name),
+        key = scope?.has(node.name)
+          ? (binding ?? node)
+          : `${file}:${node.name}:${path.join(".")}`;
+      if (seen.has(key)) return false;
+      const next = new Set([...seen, key]),
+        reference = imported(file, node, node.name);
+      if (reference) {
+        if (reference[1] === "*")
+          return path.length
+            ? exported(reference[0], path[0], next, path.slice(1))
+            : false;
+        return exported(reference[0], reference[1], next, path);
+      }
+      return open(file, binding, next, path);
+    }
+    if (node.type === "MemberExpression")
+      return open(file, node.object, seen, [
+        String(node.property.name ?? node.property.value),
+        ...path,
+      ]);
+    if (path.length) {
+      if (node.type === "ObjectExpression")
+        return node.properties.some(
+          (part: any) =>
+            part.type === "Property" &&
+            String(part.key.name ?? part.key.value) === path[0] &&
+            open(file, part.value, seen, path.slice(1)),
+        );
+      if (node.type === "ArrayExpression")
+        return open(file, node.elements[Number(path[0])], seen, path.slice(1));
+      if (
+        node.type === "CallExpression" &&
+        path[0] === "shape" &&
+        ["object", "strictObject", "looseObject"].includes(
+          node.callee?.property?.name,
+        )
+      )
+        return open(file, node.arguments[0], seen, path.slice(1));
+      return false;
+    }
+    if (
+      node.type !== "CallExpression" ||
+      node.callee.type !== "MemberExpression"
+    )
+      return false;
+    const { object, property } = node.callee,
+      method = property.name ?? property.value;
+    const receiver =
+      object.type === "MemberExpression" && object.property.name === "coerce"
+        ? object.object
+        : object;
+    if (
+      receiver.type === "Identifier" &&
+      imported(file, node, receiver.name)?.[0].split("/")[0] === "zod"
+    ) {
+      if (method === "string") return true;
+      if (
+        [
+          "optional",
+          "nullable",
+          "nullish",
+          "readonly",
+          "nonoptional",
+          "default",
+          "prefault",
+          "catch",
+        ].includes(method)
+      )
+        return open(file, node.arguments[0], seen);
+      if (method === "preprocess") return open(file, node.arguments[1], seen);
+      if (method === "pipe") return open(file, node.arguments.at(-1), seen);
+      if (method === "union")
+        return (
+          node.arguments[0]?.elements?.some((part: any) =>
+            open(file, part, seen),
+          ) ?? false
+        );
+      return false;
+    }
+    if (method === "or")
+      return (
+        open(file, object, seen) ||
+        node.arguments.some((part: any) => open(file, part, seen))
+      );
+    return open(file, object, seen);
+  }
+  const found = new Map<string, string>();
+  for (const [file, module] of modules) {
+    if (/^fleet(?:-|\.)/.test(basename(file))) continue;
+    function walk(node: any, path: string[] = []) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (const child of node) walk(child, path);
+        return;
+      }
+      if (
+        [
+          "FunctionDeclaration",
+          "FunctionExpression",
+          "ArrowFunctionExpression",
+        ].includes(node.type)
+      ) {
+        const context =
+          node.type === "FunctionDeclaration" && node.id
+            ? [...path, node.id.name]
+            : path;
+        node.params.forEach((parameter: any, index: number) =>
+          walk(parameter, [...context, `parameter[${index}]`]),
+        );
+        walk(node.body, context);
+        return;
+      }
+      if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
+        walk(node.init, [...path, node.id.name]);
+        return;
+      }
+      if (
+        node.type === "CallExpression" &&
+        node.callee?.property?.name === "or"
+      ) {
+        walk(node.callee.object, [...path, "variant[0]"]);
+        walk(node.arguments[0], [...path, "variant[1]"]);
+        return;
+      }
+      if (
+        node.type === "CallExpression" &&
+        ["union", "discriminatedUnion"].includes(node.callee?.property?.name)
+      ) {
+        const branches = node.arguments.find(
+          (part: any) => part.type === "ArrayExpression",
+        );
+        if (branches) {
+          branches.elements.forEach((part: any, index: number) =>
+            walk(part, [...path, `variant[${index}]`]),
+          );
+          return;
+        }
+      }
+      if (node.type === "Property") {
+        const field = node.key.name ?? node.key.value,
+          next = typeof field === "string" ? [...path, field] : path;
+        if (names.has(field) && open(file, node.value)) {
+          const key = `${relative(directory, file).split("\\").join("/")}:${next.join(".")}`;
+          if (found.has(key))
+            throw Error(`Ambiguous schema declaration: ${key}`);
+          found.set(key, module.source.slice(node.value.start, node.value.end));
+        }
+        walk(node.value, next);
+        return;
+      }
+      for (const value of Object.values(node)) walk(value, path);
+    }
+    walk(module.program);
+  }
+  return found;
+}
 
-// An open string schema: z.string() with optional chained refiners/shorteners,
-// or the Text/text/nullableText/MaybeText aliases with optional/nullable
-// presence and refined (Text.min(1), Text.max(300)) modifiers. Declarations
-// are matched inline (z.strictObject({ state: z.string() })) and across lines
-// (state:\n  z.string()), with whitespace allowed around dots and parens.
-// enum/literal/union/uuid/template-typed fields do not match, so they are not
-// flagged.
-const DOT = String.raw`\s*\.\s*`;
-const ARGS = String.raw`\([^)]*\)`;
-const OPEN = String.raw`z${DOT}string${ARGS}(?:${DOT}(?:trim|min|max|optional|nullable|nullish|catch|default)${ARGS})*|Text(?:${DOT}(?:min|max|trim|optional|nullable|nullish)${ARGS})*|text(?:${DOT}(?:min|max|trim|optional|nullable)${ARGS})*|nullableText(?:${DOT}(?:optional|nullable)${ARGS})?|MaybeText(?:${DOT}(?:optional|nullable)${ARGS})?`;
-const LINE = new RegExp(
-  String.raw`(?:[A-Za-z_][A-Za-z0-9_]*${DOT})?(?:["']?([A-Za-z_][A-Za-z0-9_-]*)["']?)?\s*:\s*(${OPEN})\s*(?:[,;\}\]])`,
-  "g",
-);
-
-type Exemption = { count: number; reason: string };
-
-// Exemptions: file:field, expected occurrence count, reason. The list only
-// shrinks, and each exemption covers a fixed number of declarations, so a new
-// `phase: Text` elsewhere in the same file cannot inherit it (D5).
-const EXPLICIT_EXEMPTIONS: Array<[string, Exemption]> = [
+// Exact declaration paths, with source-verifiable reasons; no count allowance.
+const exemptions = new Map<string, string>([
   [
-    "agent-activities.ts:origin",
-    {
-      count: 1,
-      reason:
-        "harness producer origin string (broker/loop_plan/codex/adapter ids)",
-    },
+    "agent-activities.ts:CatalogCommand.kind",
+    "Catalog copies the harness-defined NativeCommand.kind; existing max40 and optional acceptance are retained.",
   ],
   [
-    "agent-contract-schemas.ts:kind",
-    {
-      count: 2,
-      reason: "harness-defined command kinds and diagnostics entry kinds",
-    },
+    "agent-activities.ts:ActivitySource.origin",
+    "Harness producer origin (broker, loop_plan, codex or adapter identity).",
   ],
   [
-    "agent-contract-schemas.ts:origin",
-    { count: 1, reason: "harness command source origin text" },
+    "agent-contract-schemas.ts:PublicHarnessCommand.kind",
+    "Harness-defined command kinds.",
   ],
   [
-    "conversation-routes.ts:state",
-    {
-      count: 1,
-      reason:
-        "native answer outcome state from the harness/authority (answered, declined, error...)",
-    },
+    "agent-contract-schemas.ts:PublicHarnessCommand.sourceInfo.origin",
+    "Harness command provenance text.",
   ],
   [
-    "companion-contract-schemas.ts:state",
-    {
-      count: 1,
-      reason:
-        "companion-reported native history entry state (no in-repo producer)",
-    },
+    "agent-contract-schemas.ts:PublicPiInventory.diagnostics.kind",
+    "Pi-provided diagnostic entry kinds.",
   ],
   [
-    "execution-authority.ts:state",
-    {
-      count: 1,
-      reason:
-        "native answer reply state spans stored transitions and harness-confirmed live stages",
-    },
+    "companion-contract-schemas.ts:PublicNativeHistory.managed.state",
+    "Companion-reported native history state; no in-repository producer.",
   ],
   [
-    "execution-authority.ts:origin",
-    { count: 1, reason: "execution request origin text" },
+    "conversation-routes.ts:conversationRoutes.nativeAnswer.response.state",
+    "Harness answer outcome; not a Loop run state.",
   ],
   [
-    "library-contract-schemas.ts:kind",
-    {
-      count: 1,
-      reason:
-        "search document discriminator spanning message and artifact kinds",
-    },
+    "execution-authority.ts:executionOperations.native.answer.state",
+    "Native answer reply spans harness-confirmed outcome stages.",
   ],
   [
-    "mcp-contract-schemas.ts:kind",
-    {
-      count: 1,
-      reason:
-        "agent source transport kind from wire discovery; local entries have none",
-    },
+    "execution-authority.ts:ExecutionParentMessage.variant[3].origin",
+    "Execution parent request origin text.",
   ],
   [
-    "native-commands.ts:kind",
-    { count: 1, reason: "harness-defined command kinds" },
+    "library-contract-schemas.ts:SearchQuery.kind",
+    "Existing request accepts arbitrary exact-match kind filters; nonstrings fall back to undefined. Preserve D1 acceptance (workspace-routes search, sql/search-documents filterSql).",
   ],
   [
-    "native-commands.ts:origin",
-    { count: 1, reason: "command source origin text" },
+    "library-contract-schemas.ts:PublicSearchItem.kind",
+    "Search document kind spans message and artifact domains.",
   ],
   [
-    "session-controls.ts:state",
-    {
-      count: 1,
-      reason: "companion-reported session-controls state (no in-repo producer)",
-    },
+    "mcp-contract-schemas.ts:PublicAgentSources.kind",
+    "Transport kind supplied by source discovery.",
+  ],
+  ["native-commands.ts:NativeCommand.kind", "Harness-defined command kind."],
+  [
+    "native-commands.ts:NativeCommand.sourceInfo.origin",
+    "Harness command provenance text.",
   ],
   [
-    "social-contract-schemas.ts:kind",
-    { count: 1, reason: "social feed source kind from the catalog" },
+    "session-controls.ts:SessionControls.state",
+    "Companion session-control state; no in-repository producer.",
   ],
   [
-    "workspace-events.ts:phase",
-    { count: 1, reason: "run failure phase free text" },
+    "social-contract-schemas.ts:PublicFeedEntry.kind",
+    "Feed source kind supplied by catalog.",
   ],
-];
-
-const EXEMPTIONS = new Map<string, Exemption>([
-  ...EXPLICIT_EXEMPTIONS,
-  // Fleet files are removed with the fleet feature; until then every field in
-  // them is exempt (count is enforced, disappearance is not).
-  ...readdirSync("src/shared")
-    .filter((file) => file.startsWith("fleet-"))
-    .flatMap((file) =>
-      NAMES.map(
-        (name) =>
-          [
-            `${file}:${name}`,
-            { count: 1, reason: "fleet removal pending" },
-          ] as const,
-      ),
-    ),
+  [
+    "workspace-events.ts:Payloads.run.failed.phase",
+    "Failure phase is free diagnostic text.",
+  ],
 ]);
 
 it("keeps discriminating fields in src/shared as closed sets", () => {
-  const seen = new Map<string, string[]>();
-  for (const file of readdirSync("src/shared").filter((f) =>
-    f.endsWith(".ts"),
-  )) {
-    const text = readFileSync("src/shared/" + file, "utf8");
-    // The quoted property name (e.g. "connection.status"), or the bare name.
-    // Only properties whose name is one of the discriminating fields count.
-    // The whole file is scanned so multiline declarations cannot bypass it.
-    for (const match of text.matchAll(LINE)) {
-      const field = match[1];
-      if (!field || !NAMES.includes(field)) continue;
-      const key = `${file}:${field}`;
-      const list = seen.get(key) ?? [];
-      list.push(`${key} :: ${match[0].replace(/\s+/g, " ").trim()}`);
-      seen.set(key, list);
-    }
-  }
-  const failures: string[] = [];
-  for (const [key, lines] of seen) {
-    const allowed = EXEMPTIONS.get(key)?.count ?? 0;
-    if (lines.length === allowed) continue;
-    failures.push(
-      `${key} (${lines.length} match${lines.length === 1 ? "" : "es"}, ` +
-        `${allowed} allowed):\n` +
-        lines.map((l) => `  ${l}`).join("\n"),
-    );
-  }
-  // An explicit exemption whose declaration disappeared is a sign to review
-  // it (D5); the fleet wildcard only enforces counts.
-  for (const [key] of EXPLICIT_EXEMPTIONS) {
-    if (!seen.has(key)) failures.push(`${key} (exempted but not found)`);
-  }
+  const directory = resolve("src/shared");
+  const readSources = (folder: string): [string, string][] =>
+    readdirSync(folder, { withFileTypes: true }).flatMap((entry) => {
+      const path = resolve(folder, entry.name);
+      return entry.isDirectory()
+        ? readSources(path)
+        : path.endsWith(".ts")
+          ? [[path, readFileSync(path, "utf8")]]
+          : [];
+    });
+  const sources = new Map(readSources(directory));
+  const found = inventory(sources);
   expect(
-    failures,
-    "open discriminating fields need a closed schema or an exemption:\n" +
-      failures.join("\n"),
+    [...found.keys()].filter((key) => !exemptions.has(key)),
+    "Open selectors need a named schema exemption",
   ).toEqual([]);
+  expect(
+    [...exemptions.keys()].filter((key) => !found.has(key)),
+    "Remove obsolete exceptions",
+  ).toEqual([]);
+});
+
+it("finds aliased and multiline schemas while ignoring comments, values and closed sets", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod'; export const Text=z.string();`,
+    ],
+    [
+      resolve("fixture/forward.ts"),
+      `export {Text as Forward} from "./base.js";`,
+    ],
+    [
+      resolve("fixture/check.ts"),
+      `import {z} from 'zod'; import {Text as Value} from './base'; import * as Base from './base.js'; import {Forward} from './forward.js';
+      const Alias=Value.optional().catch(undefined);
+      // state: z.string(),
+      const description="kind: z.string()";
+      const Schema=z.object({state:\n Alias, nested:z.object({kind:z.union([z.literal('a'),Value])}),
+        outcome: Forward, phase: Base.Text, mode:z.coerce.string().optional(), role:z.enum(['user','agent']), status:z.literal('ready'), origin:z.string().brand<'Identity'>()});`,
+    ],
+    [
+      resolve("fixture/nested/check.ts"),
+      `import {z} from 'zod'; import {Text} from '../base.js'; const Schema=z.object({kind:Text});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "check.ts:Schema.state",
+    "check.ts:Schema.nested.kind",
+    "check.ts:Schema.outcome",
+    "check.ts:Schema.phase",
+    "check.ts:Schema.mode",
+    "check.ts:Schema.origin",
+    "nested/check.ts:Schema.kind",
+  ]);
+});
+
+it("resolves function-local aliases, shadowed imports and nested block bindings", () => {
+  const file = resolve("fixture/local.ts");
+  const found = inventory(
+    new Map([
+      [
+        file,
+        `import {z} from 'zod';
+ const Text=z.literal('closed');
+ function build(){const Text=z.string();return z.object({state:Text});}
+ function hoisted(Text){if(true){var Text=z.string();}return z.object({phase:Text});}
+ function sibling(){const Text=z.literal('closed');return z.object({kind:Text});}
+ function nested(){const Alias=z.string();{const Alias=z.literal('closed');const Inner=z.object({role:Alias});}return z.object({status:Alias});}
+ `,
+      ],
+    ]),
+    resolve("fixture"),
+  );
+  expect([...found.keys()]).toEqual([
+    "local.ts:build.state",
+    "local.ts:hoisted.phase",
+    "local.ts:nested.status",
+  ]);
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod';export const Text=z.string();`,
+    ],
+    [
+      file,
+      `import {z} from 'zod';import {Text} from './base.js';function closed(){const Text=z.literal('ready');return z.object({state:Text});}function opaque(){const Alias=Text.optional();return z.object({origin:Alias});}`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "local.ts:opaque.origin",
+  ]);
+});
+
+it("follows default schema imports and their named re-exports", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/default.ts"),
+      `import {z} from 'zod';export default (z.string());`,
+    ],
+    [
+      resolve("fixture/reexport.ts"),
+      `export {default as Text} from './default.js';`,
+    ],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import Text from './default.js';import {Text as Alias} from './reexport.js';const Schema=z.object({state:(Text),mode:Alias});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
+    "use.ts:Schema.mode",
+  ]);
+});
+
+it("resolves local export aliases and cyclic star barrels without changing local bindings", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod';const Text=z.literal('closed');const Open=z.string();export {Open as Text};const Local=z.object({state:Text});`,
+    ],
+    [
+      resolve("fixture/a.ts"),
+      `export * from './b.js';export * from './base.js';`,
+    ],
+    [resolve("fixture/b.ts"), `export * from './a.js';`],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import {Text} from './a.js';import * as Barrel from './a.js';const Schema=z.object({state:Text,kind:Barrel.Text});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
+    "use.ts:Schema.kind",
+  ]);
+});
+it("resolves renamed nested and array destructuring and parameter defaults", () => {
+  const file = resolve("fixture/pattern.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ const {Text:Alias}={Text:z.string()};
+ const {nested:{Status},list:[Kind]}={nested:{Status:z.string()},list:[z.string()]};
+ const Schema=z.object({state:Alias,status:Status,kind:Kind});
+ function build({Text}={Text:z.string()}){return z.object({origin:Text});}
+ function closed(){const {Text}={Text:z.literal('ready')};return z.object({state:Text});}
+ `,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "pattern.ts:Schema.state",
+    "pattern.ts:Schema.status",
+    "pattern.ts:Schema.kind",
+    "pattern.ts:build.origin",
+  ]);
+});
+it("distinguishes function-local declarations and union variants", () => {
+  const file = resolve("fixture/identities.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ function first(){const Schema=z.object({kind:z.string()});return Schema;}
+ function second(){const Schema=z.object({kind:z.string()});return Schema;}
+ const Variants=z.union([z.object({kind:z.string()}),z.object({kind:z.string()})]);
+ const Alternative=z.object({kind:z.string()}).or(z.object({kind:z.string()}));`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "identities.ts:first.Schema.kind",
+    "identities.ts:second.Schema.kind",
+    "identities.ts:Variants.variant[0].kind",
+    "identities.ts:Variants.variant[1].kind",
+    "identities.ts:Alternative.variant[0].kind",
+    "identities.ts:Alternative.variant[1].kind",
+  ]);
+});
+
+it("visits schema defaults in named arrow and expression function parameters", () => {
+  const file = resolve("fixture/defaults.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod';
+ function build(schema=z.object({role:z.string()})){return schema;}
+ const Arrow=(schema=z.object({kind:z.string()}))=>schema;
+ const Expression=function(schema=z.object({state:z.string()})){return schema;};
+ function closed(schema=z.object({role:z.literal('user')})){return schema;}`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "defaults.ts:build.parameter[0].role",
+    "defaults.ts:Arrow.parameter[0].kind",
+    "defaults.ts:Expression.parameter[0].state",
+  ]);
+});
+it("resolves strict-object shapes and functional string wrappers", () => {
+  const file = resolve("fixture/shapes.ts");
+  const sources = new Map([
+    [
+      file,
+      `import {z} from 'zod/v4';
+ const Source=z.strictObject({command:z.string(),status:z.enum(['ready'])});
+ const Schema=z.object({kind:Source.shape.command,role:z.optional(z.string()),origin:z.preprocess(x=>x,z.string()),status:Source.shape.status});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "shapes.ts:Schema.kind",
+    "shapes.ts:Schema.role",
+    "shapes.ts:Schema.origin",
+  ]);
+});
+
+it("follows namespace re-exports used by destructured schema aliases", () => {
+  const sources = new Map([
+    [
+      resolve("fixture/base.ts"),
+      `import {z} from 'zod/v4';export const Text=z.string();`,
+    ],
+    [resolve("fixture/barrel.ts"), `export * as Schemas from './base.js';`],
+    [
+      resolve("fixture/use.ts"),
+      `import {z} from 'zod';import {Schemas} from './barrel.js';const {Text}=Schemas;const Schema=z.object({state:Text});`,
+    ],
+  ]);
+  expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
+    "use.ts:Schema.state",
+  ]);
 });
