@@ -1,3 +1,4 @@
+import { RunId } from "../../shared/contract-ids.js";
 import { useFeedBadge } from "../useFeedBadge";
 import { useComposerDraft, useComposerSend } from "./Composer";
 import {
@@ -607,7 +608,7 @@ export function useAppController() {
     const owner = session?.user?.id;
     const key = draftKey;
     const held = await threadApi(workspaceApi.runWithdraw, {
-      params: { id: runId },
+      params: { id: RunId.parse(runId) },
       body: {
         draftAttachmentIds: attachmentsRef.current.map((file) => file.id),
       },

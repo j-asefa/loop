@@ -1,3 +1,4 @@
+import { RunId } from "../shared/contract-ids.js";
 import { routeUrl } from "./workspace-api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -207,7 +208,7 @@ export function RunFiles({
       pending = true;
       void read(
         workspaceApi.runFiles,
-        { params: { id: runId } },
+        { params: { id: RunId.parse(runId) } },
         controller.signal,
         (error) => {
           // Keep the existing immediate error and manual retry while a bounded

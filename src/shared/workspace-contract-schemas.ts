@@ -1,3 +1,4 @@
+import { ConversationId } from "./contract-ids.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
 import { PublicRun } from "./run-contract-schema.js";
 export { PublicArtifact, PublicRun };
@@ -90,7 +91,7 @@ export const PublicMessage = z.object({
   run_verification: MaybeText.optional(),
 });
 export const PublicConversation = z.object({
-  id: Text,
+  id: ConversationId,
   owner_id: Text,
   agent_id: MaybeText,
   title: Text,

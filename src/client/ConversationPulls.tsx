@@ -1,3 +1,4 @@
+import { ConversationId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, GitPullRequest, RefreshCw } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
@@ -150,7 +151,7 @@ function PullReader({
       setBusy(true);
       try {
         const next = await call(workspaceApi.conversationPulls, {
-          params: { id: conversationId },
+          params: { id: ConversationId.parse(conversationId) },
           query: refresh ? { refresh: "1" } : {},
         });
         if (live) {

@@ -1,3 +1,4 @@
+import { ConversationId, RunId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 import * as memory from "./memory-contract-schemas.js";
 import { Text, Id, Ok, endpoint, base } from "./route-contract.js";
@@ -8,7 +9,7 @@ export const memoryRoutes = {
     operation: "conversationMemory",
     method: "GET",
     path: "/conversations/:id/memory",
-    params: Id,
+    params: z.object({ id: requestId(ConversationId) }),
     response: z.object({ memoryIncluded: z.boolean() }),
   }),
   memoryStatus: endpoint({
@@ -73,7 +74,7 @@ export const memoryRoutes = {
     operation: "runMemory",
     method: "GET",
     path: "/runs/:id/memory",
-    params: Id,
+    params: z.object({ id: requestId(RunId) }),
     response: memory.PublicMemoryReceipt,
   }),
 } as const;

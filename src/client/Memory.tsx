@@ -1,3 +1,4 @@
+import { ConversationId, RunId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {
@@ -346,7 +347,7 @@ export function MemoryUsed({ runId }: { runId: string }) {
     if (!opened) return;
     let active = true;
     setError("");
-    void read(workspaceApi.runMemory, { params: { id: runId } })
+    void read(workspaceApi.runMemory, { params: { id: RunId.parse(runId) } })
       .then((value) => {
         if (active) setReceipt(value);
       })
@@ -389,7 +390,7 @@ export function NativeConversation({ id }: { id: string }) {
       (signal, mode) =>
         readRoute(
           workspaceApi.conversationMemory,
-          { params: { id } },
+          { params: { id: ConversationId.parse(id) } },
           sourceId,
           signal,
           undefined,

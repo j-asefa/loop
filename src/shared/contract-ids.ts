@@ -1,0 +1,45 @@
+import { z } from "zod";
+
+// Nominal identity does not replace existing field validators. Most request
+// IDs were unrestricted strings, so those domains keep that runtime rule.
+// Owner labels are fixed companion/profile identities, not necessarily UUIDs.
+export const OwnerId = z.string().min(1).max(200).brand<"OwnerId">();
+export type OwnerId = z.output<typeof OwnerId>;
+export const AgentId = z.string().brand<"AgentId">();
+export type AgentId = z.output<typeof AgentId>;
+export const ConversationId = z.string().brand<"ConversationId">();
+export type ConversationId = z.output<typeof ConversationId>;
+export const RunId = z.string().brand<"RunId">();
+export type RunId = z.output<typeof RunId>;
+export const MessageId = z.string().brand<"MessageId">();
+export type MessageId = z.output<typeof MessageId>;
+export const ArtifactId = z.string().brand<"ArtifactId">();
+export type ArtifactId = z.output<typeof ArtifactId>;
+export const ApprovalId = z.string().brand<"ApprovalId">();
+export type ApprovalId = z.output<typeof ApprovalId>;
+export const TeamId = z.string().brand<"TeamId">();
+export type TeamId = z.output<typeof TeamId>;
+export const FolderId = z.string().brand<"FolderId">();
+export type FolderId = z.output<typeof FolderId>;
+export const ConnectionId = z.string().brand<"ConnectionId">();
+export type ConnectionId = z.output<typeof ConnectionId>;
+// A project is a folder of kind project; it can be used where a folder is
+// accepted, while an arbitrary folder is not a project without validation.
+export const ProjectId = FolderId.brand<"ProjectId">();
+export type ProjectId = z.output<typeof ProjectId>;
+
+type BrandNames<S extends z.ZodType> =
+  z.output<S> extends {
+    readonly [z.$brand]: infer Marks;
+  }
+    ? keyof Marks
+    : never;
+
+// Request views require the same nominal brand in typed client inputs. Raw
+// HTTP is still parsed from unknown. Response schemas retain output-only
+// brands so server builders and SQL internals keep supplying plain strings.
+export function requestId<S extends z.ZodString>(
+  schema: S & (BrandNames<S> extends never ? never : unknown),
+) {
+  return schema.brand<BrandNames<S>, "inout">();
+}

@@ -1,3 +1,4 @@
+import { RunId } from "../shared/contract-ids.js";
 import { workspaceApi, type Approval } from "../shared/workspace-api";
 import {
   useSourceOperation,
@@ -255,7 +256,7 @@ export function Approvals({
                 setError("");
                 try {
                   await call(workspaceApi.runAction, {
-                    params: { id: item.run_id, action: "dismiss" },
+                    params: { id: RunId.parse(item.run_id), action: "dismiss" },
                     body: {},
                   });
                   decided.current.add(item.id);

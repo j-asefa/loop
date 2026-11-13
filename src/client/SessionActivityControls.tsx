@@ -1,3 +1,4 @@
+import { ConversationId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { isExecutionRefused } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -21,7 +22,7 @@ type Controls = Pick<SessionControls, "state" | "settings" | "capabilities"> & {
   readOnly?: boolean;
 };
 export function SessionActivityControls({
-  conversationId,
+  conversationId: rawConversationId,
   recorded,
 }: {
   conversationId: string;
@@ -31,6 +32,7 @@ export function SessionActivityControls({
     capabilityGeneration?: string;
   };
 }) {
+  const conversationId = ConversationId.parse(rawConversationId);
   const call = useSourceRoute();
   const unavailable = useSourceOperation(workspaceApi.setting);
   const read = useSourceRouteRead();

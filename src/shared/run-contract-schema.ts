@@ -1,3 +1,4 @@
+import { RunId } from "./contract-ids.js";
 import { z } from "zod";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { RunDisplayState, RunKind } from "./run-state.js";
@@ -6,7 +7,7 @@ import { PublicArtifact } from "./artifact-contract-schema.js";
 // queue fields are shared: attention(active=false) returns them for every state,
 // and queue_rank is retained when a queued run starts.
 const RunBaseSchema = z.object({
-  id: Text,
+  id: RunId,
   owner_id: Text.optional(),
   agent_id: MaybeText,
   conversation_id: MaybeText,
