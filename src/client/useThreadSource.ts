@@ -16,7 +16,9 @@ export function useThreadSource(source: string | null, owner?: string) {
   const key = JSON.stringify([generation, source, owner]);
   const cacheKey = "thread-source:" + JSON.stringify([source, owner]);
   const enabled = source !== null && source !== executionSourceId() && !!owner;
-  const { load, error, failure } = useCollectionRead(key);
+  const { load, error, failure } = useCollectionRead(
+    JSON.stringify([key, enabled]),
+  );
   const [state, setState] = useState<{ key: string } & Snapshot>();
   const refresh = useCallback(
     (manual = false) => {
