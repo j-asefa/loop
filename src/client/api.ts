@@ -168,17 +168,19 @@ export function fetchStream<
 >(contract: C, input: RouteInput<C>, sourceId: string, signal?: AbortSignal) {
   return sendRequest(routeUrl(contract, input, sourceId), { signal });
 }
+function encodedSourceFromPath(path: string) {
+  return /^\/api\/agent-sources\/([^/]+)\//.exec(path)?.[1] ?? "";
+}
 function sameWorkspaceRedirect(response: Response, requested: string) {
   try {
     const target = new URL(response.url),
       start = new URL(requested, location.href);
-    const source = (path: string) =>
-      /^\/api\/agent-sources\/([^/]+)\//.exec(path)?.[1] ?? "";
     return (
       response.ok &&
       target.origin === start.origin &&
       target.pathname.startsWith("/api/") &&
-      source(target.pathname) === source(start.pathname)
+      encodedSourceFromPath(target.pathname) ===
+        encodedSourceFromPath(start.pathname)
     );
   } catch {
     return false;
@@ -222,7 +224,7 @@ async function requestInWorkspace<T>({
   const url = sourceApiPathAt("/api" + path, sourceId);
   // Social and already-routed requests may have a different destination from
   // their caller's source. The cooldown belongs to the actual upstream.
-  const destination = /^\/api\/agent-sources\/([^/]+)\//.exec(url)?.[1] ?? "";
+  const destination = encodedSourceFromPath(url);
   const verb = method || (body ? "POST" : "GET");
   if (signal?.aborted)
     throw signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -439,9 +441,7 @@ export async function callRoute<C extends ClientRouteContract>(
   const generation = viewGeneration();
   const path = routePath(contract, input);
   const routed = sourceApiPathAt("/api" + path, sourceId);
-  const destination = decodeURIComponent(
-    /^\/api\/agent-sources\/([^/]+)\//.exec(routed)?.[1] ?? "",
-  );
+  const destination = decodeURIComponent(encodedSourceFromPath(routed));
   const command =
     destination.startsWith("peer:") &&
     contract.method !== "GET" &&
