@@ -1,3 +1,4 @@
+import { NativeGenerationId, SessionSettingId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
   ApprovalId,
@@ -157,11 +158,14 @@ export const conversationRoutes = {
     operation: "setting",
     method: "PATCH",
     path: "/conversations/:id/settings/:setting",
-    params: z.object({ id: requestId(ConversationId).uuid(), setting: Text }),
+    params: z.object({
+      id: requestId(ConversationId).uuid(),
+      setting: requestId(SessionSettingId),
+    }),
     body: z.strictObject({
       value: z.union([Text.max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),
-      generation: Text.min(1).max(200),
+      generation: requestId(NativeGenerationId).min(1).max(200),
       commandId: requestId(ExecutionCommandId).uuid().optional(),
     }),
     response: SessionControls,

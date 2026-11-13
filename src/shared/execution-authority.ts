@@ -1,3 +1,9 @@
+import {
+  NativeGenerationId,
+  SessionSettingId,
+  ExecutionGenerationId,
+  ExecutionRequestId,
+} from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { ExecutionCommandId } from "./contract-ids.js";
 import {
@@ -334,10 +340,10 @@ export const executionOperations = {
   "native.setting": method(
     z.strictObject({
       conversationId: z.uuid(),
-      setting: Id,
+      setting: SessionSettingId.min(1).max(200),
       value: z.union([z.string().max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),
-      generation: Id,
+      generation: NativeGenerationId.min(1).max(200),
     }),
     Controls,
     { effect: "receipt" },
@@ -405,8 +411,8 @@ export const ExecutionRequest = z.strictObject({
   // Trusted host-to-worker delegation; never accepted from a browser header.
   fleet: FleetGrantContext.optional(),
   v: z.literal(1),
-  requestId: z.uuid(),
-  generation: z.uuid(),
+  requestId: ExecutionRequestId.uuid(),
+  generation: ExecutionGenerationId.uuid(),
   owner: Id,
   method: z.enum(
     Object.keys(executionOperations) as [ExecutionMethod, ...ExecutionMethod[]],
@@ -417,21 +423,21 @@ export const ExecutionRequest = z.strictObject({
 export type ExecutionRequest = z.input<typeof ExecutionRequest>;
 export const ExecutionReady = z.strictObject({
   v: z.literal(1),
-  generation: z.uuid(),
+  generation: ExecutionGenerationId.uuid(),
   state: z.enum(["starting", "ready", "stopping", "disconnected"]),
 });
 export const ExecutionResponse = z.discriminatedUnion("ok", [
   z.strictObject({
     v: z.literal(1),
-    requestId: z.uuid(),
-    generation: z.uuid(),
+    requestId: ExecutionRequestId.uuid(),
+    generation: ExecutionGenerationId.uuid(),
     ok: z.literal(true),
     result: z.json(),
   }),
   z.strictObject({
     v: z.literal(1),
-    requestId: z.uuid(),
-    generation: z.uuid(),
+    requestId: ExecutionRequestId.uuid(),
+    generation: ExecutionGenerationId.uuid(),
     ok: z.literal(false),
     error: z.strictObject({
       status: z.number().int().min(400).max(599),
@@ -440,7 +446,7 @@ export const ExecutionResponse = z.discriminatedUnion("ok", [
     }),
   }),
 ]);
-export type ExecutionResponse = z.infer<typeof ExecutionResponse>;
+export type ExecutionResponse = z.input<typeof ExecutionResponse>;
 
 // The inherited IPC channel carries only these envelopes. Lifecycle commands
 // are parent-owned and generation-bound; they cannot submit native effects.
@@ -456,8 +462,8 @@ export const ExecutionParentMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("request"), request: ExecutionRequest }),
   z.strictObject({
     type: z.literal("lifecycle"),
-    requestId: z.uuid(),
-    generation: z.uuid(),
+    requestId: ExecutionRequestId.uuid(),
+    generation: ExecutionGenerationId.uuid(),
     action: z.enum(["schedule", "origin", "stop"]),
     origin: z.string().max(4096).optional(),
   }),
@@ -471,8 +477,8 @@ export const ExecutionChildMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("response"), response: ExecutionResponse }),
   z.strictObject({
     type: z.literal("ack"),
-    requestId: z.uuid(),
-    generation: z.uuid(),
+    requestId: ExecutionRequestId.uuid(),
+    generation: ExecutionGenerationId.uuid(),
     ok: z.boolean(),
   }),
 ]);

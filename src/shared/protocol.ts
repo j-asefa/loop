@@ -1,3 +1,4 @@
+import { NativeItemId } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import { NativeItemState } from "./native-item-state.js";
 import { z } from "zod";
@@ -46,14 +47,14 @@ export type Request = {
   }[];
 };
 export const ItemSchema = z.object({
-  id: z.string(),
+  id: NativeItemId,
   kind: z.enum(["user", "assistant", "tool", "notice"]),
   text: z.string(),
   title: z.string().optional(),
   status: NativeItemState.optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
 });
-export type Item = z.infer<typeof ItemSchema>;
+export type Item = z.input<typeof ItemSchema>;
 export function validateAnswer(
   request: Request,
   answer: Record<string, unknown>,

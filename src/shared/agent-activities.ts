@@ -1,3 +1,4 @@
+import { NativeGenerationId, SessionSettingId } from "./contract-ids.js";
 import { settingSchema } from "./control-settings.js";
 import type { Setting } from "./control-settings.js";
 export type { Setting, SettingValue } from "./control-settings.js";
@@ -270,7 +271,10 @@ const SettingsPatch = z
   .object({
     // Upsert by id; each option merges field-by-field.
     options: z.array(Setting).max(ACTIVITY_LIMITS.settings).optional(),
-    remove: z.array(Id).max(ACTIVITY_LIMITS.settings).optional(),
+    remove: z
+      .array(SessionSettingId.min(1).max(ACTIVITY_LIMITS.id))
+      .max(ACTIVITY_LIMITS.settings)
+      .optional(),
     // Producer revision; older revisions are ignored.
     revision: z.number().int().nonnegative().optional(),
   })
@@ -312,7 +316,7 @@ const base = {
   id: Id,
   source: ActivitySource,
   // Producer process generation. Ingestion rejects non-current generations.
-  generation: z.string().max(200).optional(),
+  generation: NativeGenerationId.max(200).optional(),
   // Monotonic per (generation, activity). Enables duplicate/out-of-order handling.
   seq: z.number().int().nonnegative().optional(),
   // Native history hydration: display-only, never regresses newer state.
