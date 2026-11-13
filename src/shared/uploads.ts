@@ -1,3 +1,4 @@
+import { ArtifactId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
 export type UploadedFile = {
@@ -14,7 +15,7 @@ export const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)} MB`;
 export const MAX_MESSAGE_FILES = 8;
 
 export const AttachmentIds = z
-  .array(z.string().uuid())
+  .array(requestId(ArtifactId).uuid())
   .max(MAX_MESSAGE_FILES)
   .default([])
   .transform((ids) => [...new Set(ids)]);

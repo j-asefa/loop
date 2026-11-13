@@ -1,3 +1,4 @@
+import { ArtifactId } from "../shared/contract-ids.js";
 import { ModelId } from "../shared/contract-ids.js";
 import { FolderId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -353,6 +354,9 @@ export function CreateAgent({
               body: {
                 ...data,
                 model: parseId(ModelId, data.model),
+                attachmentIds: data.attachmentIds.map((id) =>
+                  ArtifactId.parse(id),
+                ),
                 name: generatedName ?? data.name,
                 idempotencyKey,
               },

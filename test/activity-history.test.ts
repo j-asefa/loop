@@ -1,3 +1,4 @@
+import { ActivityKey } from "../src/shared/contract-ids.js";
 import { ConversationId } from "../src/shared/contract-ids.js";
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
@@ -14,7 +15,7 @@ import {
 } from "../src/client/activityView";
 
 const item = (key: string, sequence: number): ActivityItem => ({
-  key,
+  key: ActivityKey.parse(key),
   sequence,
   kind: "tool",
   run: "run",

@@ -1,4 +1,11 @@
 import {
+  AgentId,
+  ProjectId,
+  ConnectionId,
+  ConversationId,
+  OwnerId,
+} from "./contract-ids.js";
+import {
   NativeGenerationId,
   SessionSettingId,
   ExecutionGenerationId,
@@ -45,7 +52,6 @@ export const EXECUTION_REQUEST_BYTES = 12 * 1024 * 1024 + 64 * 1024;
 // Native frames may contain 8 MiB of commands or models. Catalogs combine
 // those frames with derived inventory, so allow expansion without truncation.
 export const EXECUTION_RESPONSE_BYTES = 64 * 1024 * 1024;
-const Id = z.string().min(1).max(200);
 const Path = z.string().min(1).max(4096);
 const Empty = z.strictObject({});
 const JsonObject = z.record(z.string(), z.json());
@@ -176,7 +182,7 @@ const PiMutation = z.strictObject({
   status: z.literal("configured"),
   application: z.literal("new-session"),
 });
-const Agent = { agentId: Id };
+const Agent = { agentId: AgentId.min(1).max(200) };
 const Package = {
   ...Agent,
   source: z.string().min(1).max(512),
@@ -248,15 +254,18 @@ export const executionOperations = {
   "runtime.enable": method(
     z.strictObject({
       name: RuntimeHarness,
-      projectId: Id,
+      projectId: ProjectId.min(1).max(200),
       billing: z.enum(["subscription", "existing"]),
     }),
     Enabled,
     { effect: "receipt" },
   ),
-  "runtime.refresh": method(z.strictObject({ connectionId: Id }), Enabled),
+  "runtime.refresh": method(
+    z.strictObject({ connectionId: ConnectionId.min(1).max(200) }),
+    Enabled,
+  ),
   "auth.catalog": method(
-    z.strictObject({ name: AuthHarness, projectId: Id }),
+    z.strictObject({ name: AuthHarness, projectId: ProjectId.min(1).max(200) }),
     SignIn,
   ),
   "provider.catalog": method(ProviderTarget.strict(), NativeProviderView),
@@ -274,7 +283,7 @@ export const executionOperations = {
   "auth.start": method(
     z.strictObject({
       name: AuthHarness,
-      projectId: Id,
+      projectId: ProjectId.min(1).max(200),
       provider: NativeProviderId.min(1).max(200),
       method: AuthMethodId.min(1).max(100),
     }),
@@ -331,7 +340,7 @@ export const executionOperations = {
   ),
   "native.controls": method(
     z.strictObject({
-      conversationId: z.uuid(),
+      conversationId: ConversationId.uuid(),
       cachedOnly: z.boolean().optional(),
     }),
     Controls,
@@ -339,7 +348,7 @@ export const executionOperations = {
   ),
   "native.setting": method(
     z.strictObject({
-      conversationId: z.uuid(),
+      conversationId: ConversationId.uuid(),
       setting: SessionSettingId.min(1).max(200),
       value: z.union([z.string().max(1000), z.boolean(), z.number()]),
       revision: z.number().int().nonnegative(),
@@ -351,7 +360,7 @@ export const executionOperations = {
   "native.catalog": method(
     z.strictObject({
       ...Agent,
-      conversationId: z.uuid().optional(),
+      conversationId: ConversationId.uuid().optional(),
       cachedOnly: z.boolean().optional(),
     }),
     Catalog,
@@ -372,7 +381,7 @@ export const executionOperations = {
       ...Agent,
       name: z.string().min(1).max(100),
       args: z.string().max(2000),
-      conversationId: z.uuid().optional(),
+      conversationId: ConversationId.uuid().optional(),
     }),
     z.strictObject({ token: z.string(), expanded: z.string() }),
   ),
@@ -413,7 +422,7 @@ export const ExecutionRequest = z.strictObject({
   v: z.literal(1),
   requestId: ExecutionRequestId.uuid(),
   generation: ExecutionGenerationId.uuid(),
-  owner: Id,
+  owner: OwnerId,
   method: z.enum(
     Object.keys(executionOperations) as [ExecutionMethod, ...ExecutionMethod[]],
   ),

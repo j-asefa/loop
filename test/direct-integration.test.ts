@@ -1,3 +1,4 @@
+import { ActivityKey } from "../src/shared/contract-ids.js";
 import { describe, it, expect } from "vitest";
 import { Codex } from "../src/adapters/codex";
 import { Claude } from "../src/adapters/claude";
@@ -329,7 +330,7 @@ it("catalog rediscovery replaces removals and disposal drops late results", asyn
 it("retains previous turns across activity pages and ignores overlapping older sequences", async () => {
   const { mergeActivities } = await import("../src/client/activityView");
   const item = (run: string, sequence: number) => ({
-    key: `${run}:plan`,
+    key: ActivityKey.parse(`${run}:plan`),
     run,
     sequence,
     kind: "plan" as const,

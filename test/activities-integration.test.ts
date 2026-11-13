@@ -1,3 +1,4 @@
+import { ActivityKey } from "../src/shared/contract-ids.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ActivityRecords } from "../src/client/ActivityRecords";
@@ -256,7 +257,7 @@ it("persisted records equal the pure fold for duplicated, out-of-order delivery"
 
 it("client merge keeps the newest record per key and renders the production activity components", () => {
   const item = (key: string, sequence: number, record: any): ActivityItem => ({
-    key,
+    key: ActivityKey.parse(key),
     kind: record.kind,
     run: "r",
     sequence,

@@ -1,3 +1,4 @@
+import { ArtifactId } from "../../shared/contract-ids.js";
 import {
   AgentId,
   ConversationId,
@@ -594,7 +595,7 @@ export function useComposerSend({
           replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
           input: draft,
           idempotencyKey: request.current.key,
-          attachmentIds: attachments.map((file) => file.id),
+          attachmentIds: attachments.map((file) => ArtifactId.parse(file.id)),
           folderId: parseId(
             FolderId,
             folderChoice !== undefined

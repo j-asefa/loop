@@ -128,6 +128,25 @@ export type ExecutionGenerationId = z.output<typeof ExecutionGenerationId>;
 export const ExecutionRequestId = z.string().brand<"ExecutionRequestId">();
 export type ExecutionRequestId = z.output<typeof ExecutionRequestId>;
 
+export const ActivityId = z.string().brand<"ActivityId">();
+export type ActivityId = z.output<typeof ActivityId>;
+export const ActivityKey = z.string().brand<"ActivityKey">();
+export type ActivityKey = z.output<typeof ActivityKey>;
+export const PlanStepId = z.string().brand<"PlanStepId">();
+export type PlanStepId = z.output<typeof PlanStepId>;
+export const CatalogCommandId = z.string().brand<"CatalogCommandId">();
+export type CatalogCommandId = z.output<typeof CatalogCommandId>;
+export const ToolCallId = z.string().brand<"ToolCallId">();
+export type ToolCallId = z.output<typeof ToolCallId>;
+export const TerminalId = z.string().brand<"TerminalId">();
+export type TerminalId = z.output<typeof TerminalId>;
+export const TraceKey = z.string().brand<"TraceKey">();
+export type TraceKey = z.output<typeof TraceKey>;
+export const OperationId = z.string().brand<"OperationId">();
+export type OperationId = z.output<typeof OperationId>;
+export const TraceId = z.number().brand<"TraceId">();
+export type TraceId = z.output<typeof TraceId>;
+
 type BrandNames<S extends z.ZodType> =
   z.output<S> extends {
     readonly [z.$brand]: infer Marks;

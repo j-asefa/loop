@@ -1,11 +1,12 @@
 import { workspaceLink, downloadLink } from "../shared/workspace-links.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import { db } from "./db.js";
-import type { Card } from "../shared/cards.js";
+import type { CardSchema } from "../shared/cards.js";
+import type { z } from "zod";
 export function cardAttachments(
   owner: string,
   meta: Record<string, unknown>,
-): Card["attachments"] {
+): z.input<typeof CardSchema>["attachments"] {
   if (!Array.isArray(meta.attachments)) return [];
   return meta.attachments.flatMap((file: unknown) => {
     if (!file || typeof file !== "object") return [];

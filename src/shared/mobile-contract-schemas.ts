@@ -227,7 +227,7 @@ export const PublicWithdrawnDraft = z.object({
   input: Text,
   agent_id: AgentId.nullable(),
   conversation_id: ConversationId.nullable(),
-  attachment_ids: z.array(Text),
+  attachment_ids: z.array(ArtifactId),
   attachments: z.array(PublicUploadDescriptor),
 });
 const Tokens = z.object({
@@ -235,10 +235,10 @@ const Tokens = z.object({
   output_tokens: z.number(),
 });
 export const PublicUsage = z.object({
-  runs: z.record(Text, Tokens),
+  runs: z.record(RunId, Tokens),
   total: Tokens,
 
-  memory: z.array(Text),
+  memory: z.array(RunId),
 });
 export const PublicSnippets = z.object({
   items: z.array(

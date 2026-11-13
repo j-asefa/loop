@@ -23,12 +23,12 @@ export const CardIdSchema = z
 const nullableText = z.string().nullable();
 const time = z.number().int().nonnegative();
 const CardAgentSchema = z.object({
-  id: nullableText,
+  id: AgentId.nullable(),
   name: nullableText,
   provider: nullableText,
 });
 const CardAttachmentSchema = z.object({
-  id: z.string(),
+  id: ArtifactId,
   name: z.string(),
   mime: z.string(),
   size: z.number().nonnegative(),

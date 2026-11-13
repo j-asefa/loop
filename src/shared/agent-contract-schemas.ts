@@ -1,3 +1,5 @@
+import { NativeGenerationId } from "./contract-ids.js";
+import { TraceId, TraceKey } from "./contract-ids.js";
 import { ModelId } from "./contract-ids.js";
 import {
   ConnectionId,
@@ -155,7 +157,7 @@ export const PublicHarnessCatalog = z.object({
   // Claude's subscription runtime also includes its model catalog.
   models: z.array(PublicModel).optional(),
   // Runtime catalogs without a session version omit these display fences.
-  generation: Text.optional(),
+  generation: NativeGenerationId.optional(),
   revision: z.number().optional(),
   capabilities: SessionCapabilities.optional(),
   inventory: PublicPiInventory.optional(),
@@ -261,9 +263,9 @@ export const PublicAgentMessages = z.object({
   next: Text.nullable(),
 });
 export const PublicAgentTrace = z.object({
-  id: z.number(),
+  id: TraceId,
   owner_id: OwnerId,
-  trace_key: Text,
+  trace_key: TraceKey,
   run_id: RunId,
   kind: TraceKind,
   title: Text,
