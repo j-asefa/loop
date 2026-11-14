@@ -511,8 +511,14 @@ it("importList leaves stored summary JSON opaque", async () => {
 it("importStart retains new, active and completed branches", async () => {
   const path = `/imports/${importId}/start`;
   expect(await invalid(path, "POST")).toMatchObject(bad);
+  const before = eventPage(db, owner, 0).at(-1)?.id || 0;
   const started = await request(path, {});
   valid(workspaceApi.importStart, started);
+  expect(
+    eventPage(db, owner, before).some(
+      (e) => e.subject_id === "imports" && e.type === "invalidate",
+    ),
+  ).toBe(true);
   const active = await request(path, {});
   valid(workspaceApi.importStart, active);
   expect(active.data.id).toBe(started.data.id);
@@ -551,8 +557,14 @@ it("importCancel cancels only the owned job and its queued run", async () => {
   const started = await request(`/imports/${staged.id}/start`, {}),
     path = `/imports/${staged.id}/cancel`;
   expect(await invalid(path, "POST")).toMatchObject(bad);
+  const before = eventPage(db, owner, 0).at(-1)?.id || 0;
   const result = await request(path, {});
   valid(workspaceApi.importCancel, result);
+  expect(
+    eventPage(db, owner, before).some(
+      (e) => e.subject_id === "imports" && e.type === "invalidate",
+    ),
+  ).toBe(true);
   expect(
     db.prepare("SELECT state FROM runs WHERE id=?").get(started.data.id),
   ).toEqual({ state: "cancelled" });

@@ -1159,22 +1159,21 @@ export function ImportSheet({
   onClose: () => void;
   onChange: () => void;
 }) {
-  const [jobs, setJobs] = useState<
-      RouteResponse<typeof workspaceApi.importList>
-    >([]),
-    [preview, setPreview] = useState<RouteResponse<
+  const history = useProjectionQuery(
+    workspaceApi.importList,
+    {},
+    {
+      source: executionSourceId(),
+      collections: ["imports"],
+    },
+  );
+  const jobs = history.data ?? [];
+  const load = () => history.refresh();
+  const [preview, setPreview] = useState<RouteResponse<
       typeof workspaceApi.importPreview
     > | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  async function load() {
-    setJobs(await callRoute(workspaceApi.importList, {}, executionSourceId()));
-  }
-  useEffect(() => {
-    void load();
-    const t = setInterval(() => void load(), 2000);
-    return () => clearInterval(t);
-  }, []);
   async function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setBusy(true);
@@ -1277,6 +1276,11 @@ export function ImportSheet({
           {error}
         </SettingsNote>
       )}
+      <CollectionReadNotice
+        error={history.error}
+        busy={history.busy}
+        retry={history.retry}
+      />
       {!!jobs.length && (
         <SettingsSection title="Import history">
           <SettingsList>

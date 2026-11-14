@@ -509,6 +509,40 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
           (await api("/search?q=unique-native-workspace-evidence")).length,
       );
     });
+    await t.test(
+      "import preview publishes its scoped notification over the paired socket",
+      async () => {
+        const signals = () =>
+          frames
+            .flatMap((frame) => frame.events || [])
+            .filter(
+              (entry) =>
+                entry.event?.type === "invalidate" &&
+                entry.event.scope.kind === "collection" &&
+                entry.event.scope.id === "imports",
+            );
+        const before = signals().length;
+        const form = new FormData();
+        form.set(
+          "file",
+          new Blob([await readFile("test/fixtures/chatgpt-export.json")]),
+          "conversations.json",
+        );
+        const response = await fetch(host.origin + "/api/imports/preview", {
+          method: "POST",
+          headers: { cookie, Origin: host.origin, "x-loop-csrf": csrf },
+          body: form,
+        });
+        assert.equal(response.status, 200);
+        const preview = (await response.json()) as { id: string };
+        await until(() => signals().length === before + 1);
+        assert(
+          (await api("/imports")).some(
+            (job: { id: string }) => job.id === preview.id,
+          ),
+        );
+      },
+    );
     await t.test("host reuse and WebSocket replay", async () => {
       const status = await control(dir, "status");
       assert.equal(status.agents, 3);

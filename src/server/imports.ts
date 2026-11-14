@@ -287,49 +287,55 @@ export async function readArchive(
   }
   return { ...parsed, attachments: entries.filter((e) => e !== json) };
 }
+export function writeImports<T>(owner: string, write: () => T): T {
+  return db
+    .transaction(() => {
+      const result = write();
+      emit(owner, { kind: "collection", id: "imports" }, "invalidate", {
+        scope: { kind: "collection", id: "imports" },
+      });
+      return result;
+    })
+    .immediate();
+}
 export async function stageImport(owner: string, bytes: Buffer, name: string) {
   const checksum = digest(bytes);
   const prior = importsQueries.byDigest(db, owner, checksum);
   if (prior)
     return { ...prior, summary: JSON.parse(prior.summary), duplicate: true };
   const parsed = await readArchive(bytes, name);
-  return db
-    .transaction(() => {
-      const objectId = id(),
-        job = id();
-      objectsQueries.insert(
-        db,
-        objectId,
-        owner,
-        name.slice(0, 180),
-        "application/octet-stream",
-        bytes,
-        now(),
-      );
-      const summary = {
-        objectId,
-        conversations: parsed.conversations.length,
-        messages: parsed.conversations.reduce(
-          (n, c) => n + c.messages.length,
-          0,
-        ),
-        attachments: parsed.attachments.length,
-        warnings: parsed.warnings.slice(0, 100),
-        titles: parsed.conversations.slice(0, 5).map((c) => c.title),
-        completed: 0,
-      };
-      importsQueries.insertPreview(
-        db,
-        job,
-        owner,
-        parsed.provider,
-        checksum,
-        JSON.stringify(summary),
-        now(),
-      );
-      return { id: job, provider: parsed.provider, status: "preview", summary };
-    })
-    .immediate();
+  return writeImports(owner, () => {
+    const objectId = id(),
+      job = id();
+    objectsQueries.insert(
+      db,
+      objectId,
+      owner,
+      name.slice(0, 180),
+      "application/octet-stream",
+      bytes,
+      now(),
+    );
+    const summary = {
+      objectId,
+      conversations: parsed.conversations.length,
+      messages: parsed.conversations.reduce((n, c) => n + c.messages.length, 0),
+      attachments: parsed.attachments.length,
+      warnings: parsed.warnings.slice(0, 100),
+      titles: parsed.conversations.slice(0, 5).map((c) => c.title),
+      completed: 0,
+    };
+    importsQueries.insertPreview(
+      db,
+      job,
+      owner,
+      parsed.provider,
+      checksum,
+      JSON.stringify(summary),
+      now(),
+    );
+    return { id: job, provider: parsed.provider, status: "preview", summary };
+  });
 }
 export async function executeImport(run: Run) {
   const importId = z.string().min(1).parse(run.payload.importId);
@@ -338,12 +344,12 @@ export async function executeImport(run: Run) {
   const object = objectsQueries.owned(db, summary.objectId, run.owner_id);
   if (!object) throw new Error("Import file missing");
   const parsed = await readArchive(object.bytes, object.name);
-  importsQueries.markRunning(db, importId);
+  writeImports(run.owner_id, () => importsQueries.markRunning(db, importId));
   let agentId = summary.agentId;
   if (!agentId) {
     agentId = id();
     const name = `import-${parsed.provider}-${agentId.slice(0, 8)}`;
-    db.transaction(() => {
+    writeImports(run.owner_id, () => {
       agentsQueries.insertImported(
         db,
         agentId,
@@ -355,21 +361,25 @@ export async function executeImport(run: Run) {
       handlesQueries.insert(db, name, agentId, now());
       summary.agentId = agentId;
       importsQueries.setSummary(db, JSON.stringify(summary), importId);
-    }).immediate();
+    });
   }
   for (let index = 0; index < parsed.conversations.length; index++) {
     const state = runsQueries.state(db, run.id)!.state;
     if (state === "pausing") {
-      importsQueries.markPaused(db, importId);
-      transition(run, "paused");
+      writeImports(run.owner_id, () => {
+        importsQueries.markPaused(db, importId);
+        transition(run, "paused");
+      });
       return false;
     }
     if (state === "cancelled") {
-      importsQueries.markCancelled(db, importId);
+      writeImports(run.owner_id, () =>
+        importsQueries.markCancelled(db, importId),
+      );
       return false;
     }
     const c = parsed.conversations[index];
-    db.transaction(() => {
+    writeImports(run.owner_id, () => {
       let conversation = conversationsQueries.byOriginExternal(
         db,
         run.owner_id,
@@ -457,15 +467,15 @@ export async function executeImport(run: Run) {
         });
       summary.completed = index + 1;
       importsQueries.setSummary(db, JSON.stringify(summary), importId);
-    }).immediate();
-    emit(run.owner_id, run.id, "import.progress", {
-      completed: index + 1,
-      total: parsed.conversations.length,
+      emit(run.owner_id, run.id, "import.progress", {
+        completed: index + 1,
+        total: parsed.conversations.length,
+      });
     });
     await new Promise((resolve) => setImmediate(resolve));
   }
   if (!summary.attachmentsStored) {
-    db.transaction(() => {
+    writeImports(run.owner_id, () => {
       for (const attachment of parsed.attachments) {
         const objectId = id();
         objectsQueries.insert(
@@ -495,7 +505,7 @@ export async function executeImport(run: Run) {
       }
       summary.attachmentsStored = true;
       importsQueries.setSummary(db, JSON.stringify(summary), importId);
-    }).immediate();
+    });
   }
-  importsQueries.markCompleted(db, importId);
+  writeImports(run.owner_id, () => importsQueries.markCompleted(db, importId));
 }

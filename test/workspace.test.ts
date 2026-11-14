@@ -6,6 +6,11 @@ import { randomBytes } from "node:crypto";
 const dir = mkdtempSync(join(tmpdir(), "loop-workspace-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const { page: eventPage } = await import("../src/server/sql/events");
+const importSignals = (owner: string) =>
+  eventPage(db, owner, 0).filter(
+    (e) => e.subject_kind === "collection" && e.subject_id === "imports",
+  );
 const { db, id, now } = await import("../src/server/db");
 const { parseConversations, stageImport, executeImport, readArchive } =
   await import("../src/server/imports");
@@ -47,13 +52,20 @@ it("rejects archive traversal and imports retained attachments", async () => {
 it("deduplicates repeated uploads and safely restarts import work", async () => {
   const bytes = readFileSync("test/fixtures/chatgpt-export.zip");
   const a = await stageImport("alice", bytes, "export.zip");
+  expect(importSignals("alice")).toHaveLength(1);
+  expect(JSON.parse(importSignals("alice")[0].payload)).toEqual({
+    scope: { kind: "collection", id: "imports" },
+  });
   expect((await stageImport("alice", bytes, "export.zip")).id).toBe(a.id);
+  expect(importSignals("alice")).toHaveLength(1);
   enqueue("alice", "Import", "import-test-key", {
     kind: "import",
     payload: { importId: a.id },
   });
   const claimed = claim("importer")!;
   await executeImport(claimed);
+  expect(importSignals("alice").length).toBeGreaterThan(3);
+  expect(importSignals("bob")).toHaveLength(0);
   transition(claimed, "completed");
   const count = db.prepare("SELECT count(*) n FROM messages").get();
   await executeImport({ ...claimed, state: "running" });
@@ -262,3 +274,79 @@ it("skips null conversations before detecting an export provider", () => {
     "Unrecognized export format",
   );
 });
+
+it("rolls back preview storage when its import notification cannot commit", async () => {
+  db.exec(
+    "CREATE TEMP TRIGGER refuse_import_signal BEFORE INSERT ON events WHEN NEW.owner_id='rollback-import' AND NEW.subject_id='imports' BEGIN SELECT RAISE(ABORT,'fixture event failure'); END",
+  );
+  try {
+    await expect(
+      stageImport(
+        "rollback-import",
+        readFileSync("test/fixtures/chatgpt-export.zip"),
+        "export.zip",
+      ),
+    ).rejects.toThrow("fixture event failure");
+    expect(
+      db
+        .prepare("SELECT id FROM imports WHERE owner_id=?")
+        .all("rollback-import"),
+    ).toEqual([]);
+    expect(
+      db
+        .prepare("SELECT id FROM objects WHERE owner_id=?")
+        .all("rollback-import"),
+    ).toEqual([]);
+    expect(importSignals("rollback-import")).toHaveLength(0);
+  } finally {
+    db.exec("DROP TRIGGER refuse_import_signal");
+  }
+});
+it("notifies import history when the production worker fails reading an export", async () => {
+  const owner = "failed-import",
+    job = await stageImport(
+      owner,
+      readFileSync("test/fixtures/chatgpt-export.zip"),
+      "export.zip",
+    );
+  db.prepare("UPDATE objects SET bytes=? WHERE owner_id=?").run(
+    Buffer.from("broken archive"),
+    owner,
+  );
+  const run = enqueue(owner, "Import failure", id(), {
+    kind: "import",
+    payload: { importId: job.id },
+  });
+  const { tick } = await import("../src/server/worker");
+  expect(await tick(executeImport)).toBe(true);
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "failed",
+  });
+  expect(
+    db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
+  ).toEqual({ status: "failed" });
+  expect(importSignals(owner)).toHaveLength(2);
+});
+
+it.each(["pausing", "cancelled"] as const)(
+  "notifies history when import execution observes %s",
+  async (state) => {
+    const owner = "import-" + state,
+      job = await stageImport(
+        owner,
+        readFileSync("test/fixtures/chatgpt-export.zip"),
+        "export.zip",
+      );
+    enqueue(owner, "Import status", id(), {
+      kind: "import",
+      payload: { importId: job.id },
+    });
+    const run = claim("fixture-" + state)!;
+    transition(run, state);
+    expect(await executeImport(run)).toBe(false);
+    expect(
+      db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
+    ).toEqual({ status: state === "pausing" ? "paused" : "cancelled" });
+    expect(importSignals(owner).length).toBeGreaterThanOrEqual(4);
+  },
+);
