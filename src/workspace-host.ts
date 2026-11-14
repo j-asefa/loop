@@ -340,13 +340,19 @@ export class WorkspaceHost {
   setOrigin(origin: string) {
     this.gateway.setOrigin(origin);
   }
-  async start(
-    options: Options,
-    beforeWorker?: () => Promise<void>,
-    prepare?: () => Promise<any>,
+  async start({
+    options,
+    beforeWorker,
+    prepare,
     runtimeNeutral = false,
-    onListening?: () => Promise<void>,
-  ) {
+    onListening,
+  }: {
+    options: Options;
+    beforeWorker?: () => Promise<void>;
+    prepare?: () => Promise<any>;
+    runtimeNeutral?: boolean;
+    onListening?: () => Promise<void>;
+  }) {
     if (this.closing) throw new Error("Workspace is stopping");
     if (designPreview) {
       const { seedDesignPreview, startDesignSimulation } =

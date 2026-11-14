@@ -46,7 +46,7 @@ test(
       db.close();
       rmSync(directory, { recursive: true, force: true });
     });
-    await host.start(options);
+    await host.start({ options: options });
     const origin = host.origin;
     const pair = await fetch(origin + "/pair", {
       method: "POST",

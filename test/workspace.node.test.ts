@@ -46,7 +46,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
   const host = new WorkspaceHost(dir, options, inProcessExecution);
   const sockets: WebSocket[] = [];
   try {
-    await host.start(options);
+    await host.start({ options: options });
     const pair = host.pair(),
       secret = new URLSearchParams(new URL(pair.url).hash.slice(1)).get("pair");
     assert.deepEqual(

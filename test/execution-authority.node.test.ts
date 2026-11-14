@@ -58,11 +58,13 @@ test(
       rmSync(directory, { recursive: true, force: true });
     });
     await host.start({
-      harness: "claude",
-      executable: resolve("test/harness.mjs"),
-      project,
-      version: "fixture",
-      billing: "existing",
+      options: {
+        harness: "claude",
+        executable: resolve("test/harness.mjs"),
+        project,
+        version: "fixture",
+        billing: "existing",
+      },
     });
     const origin = host.origin;
     const pair = await fetch(origin + "/pair", {

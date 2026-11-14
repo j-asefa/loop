@@ -1,5 +1,5 @@
 import { launchArguments } from "./launch-record.js";
-import { testWait } from "./test-seams.js";
+import { lifecycleWaits, type LifecycleWaits } from "./lifecycle-waits.js";
 import {
   PROCESS_FILES,
   LockBusyError,
@@ -68,6 +68,7 @@ async function spawnConnection(
   dir: string,
   mode: TunnelMode,
   release: string,
+  waits: LifecycleWaits,
 ) {
   privateDir(dir);
   const log = join(dir, PROCESS_FILES.log);
@@ -88,7 +89,7 @@ async function spawnConnection(
     {
       execArgv: entry.execArgv,
       cwd: dir,
-      timeout: testWait("LOOP_TEST_CONNECTION_START_MS"),
+      timeout: waits.connectionStart,
       timeoutMessage: "The tunnel did not start in time. See " + log,
       exitMessage: (code) =>
         `Connection service exited during startup${code ? ` (code ${code})` : ""}. See ${log}.`,
@@ -121,9 +122,11 @@ export async function ensureConnection(options: {
   release: string;
   external: boolean;
   log?: (message: string) => void;
+  waits?: LifecycleWaits;
 }): Promise<Connection> {
   const { root, dir, mode, release, external } = options;
-  const deadline = Date.now() + testWait("LOOP_TEST_CONNECTION_WAIT_MS");
+  const waits = options.waits ?? lifecycleWaits();
+  const deadline = Date.now() + waits.connection;
   let created = false;
   let waiting = "";
   for (;;) {
@@ -157,8 +160,8 @@ export async function ensureConnection(options: {
         "The connection service exited after starting. See loop logs.",
       );
     else {
-      if (found.state === "exited") await clearStaleConnection(dir);
-      const started = await spawnConnection(root, dir, mode, release);
+      if (found.state === "exited") await clearStaleConnection(dir, waits);
+      const started = await spawnConnection(root, dir, mode, release, waits);
       if (started.state === "ready") {
         created = true;
         continue;
@@ -177,11 +180,11 @@ export async function ensureConnection(options: {
 }
 
 /** A crashed service may leave its cloudflared behind; stop only recorded, confirmed processes. */
-async function clearStaleConnection(dir: string) {
+async function clearStaleConnection(dir: string, waits: LifecycleWaits) {
   const { unresolved, survivors } = await terminateWorkspace(
     dir,
     undefined,
-    testWait("LOOP_TEST_STOP_GRACE_MS"),
+    waits.stopGrace,
   );
   if (survivors.length || unresolved.length)
     throw new Error(
@@ -201,12 +204,13 @@ async function clearStaleConnection(dir: string) {
  */
 export async function stopConnection(
   dir: string,
+  waits: LifecycleWaits = lifecycleWaits(),
 ): Promise<boolean | "external"> {
   if (!existsSync(dir)) return false;
   const found = await inspectConnection(dir);
   if (found.state === "absent") {
     if (!(await recordedChildren(dir)).length) return false;
-    await clearStaleConnection(dir);
+    await clearStaleConnection(dir, waits);
     return true;
   }
   if (!found.local) return "external";
@@ -216,8 +220,8 @@ export async function stopConnection(
     );
   if (found.state === "running") {
     await connectionControl(found.record, "shutdown").catch(() => {});
-    if (await exited(found.record.pid, testWait("LOOP_TEST_STOP_WAIT_MS"))) {
-      await clearStaleConnection(dir);
+    if (await exited(found.record.pid, waits.stop)) {
+      await clearStaleConnection(dir, waits);
       return true;
     }
   }
@@ -225,13 +229,13 @@ export async function stopConnection(
     const { unresolved, survivors } = await terminateWorkspace(
       dir,
       { pid: found.record.pid, identity: found.record.identity },
-      testWait("LOOP_TEST_STOP_GRACE_MS"),
+      waits.stopGrace,
     );
     if (survivors.length || unresolved.length)
       throw new Error(
         `Connection service process(es) ${[...survivors, ...unresolved.map((r) => r.pid)].join(", ")} did not stop. Its record was kept; check them with ps.`,
       );
   }
-  await clearStaleConnection(dir);
+  await clearStaleConnection(dir, waits);
   return true;
 }

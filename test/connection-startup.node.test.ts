@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { workspaceLock, LockBusyError } from "../src/process-records.js";
 import { CONNECTION_LOCK } from "../src/connection.js";
-import { testWait } from "../src/test-seams.js";
+import { lifecycleWaits } from "../src/lifecycle-waits.js";
 
 test(
   "connection startup reports lock contention with a machine-readable outcome",
@@ -45,23 +45,9 @@ test(
   },
 );
 
-test("lifecycle waits accept positive integer overrides and reject invalid values", (t) => {
-  const name = "LOOP_TEST_STOP_WAIT_MS";
-  const priorStop = process.env[name];
-  const priorConnection = process.env.LOOP_TEST_CONNECTION_WAIT_MS;
-  t.after(() => {
-    if (priorStop === undefined) delete process.env[name];
-    else process.env[name] = priorStop;
-    if (priorConnection === undefined)
-      delete process.env.LOOP_TEST_CONNECTION_WAIT_MS;
-    else process.env.LOOP_TEST_CONNECTION_WAIT_MS = priorConnection;
-  });
-  for (const value of ["", "0", "-1", "1.5", "invalid", "Infinity"]) {
-    process.env[name] = value;
-    assert.equal(testWait(name), 20000);
-  }
-  process.env[name] = "37";
-  assert.equal(testWait(name), 37);
-  delete process.env.LOOP_TEST_CONNECTION_WAIT_MS;
-  assert.equal(testWait("LOOP_TEST_CONNECTION_WAIT_MS"), 180000);
+test("lifecycle waits accept positive integer overrides and reject invalid values", () => {
+  for (const value of ["", "0", "-1", "1.5", "invalid", "Infinity"])
+    assert.equal(lifecycleWaits({ LOOP_TEST_STOP_WAIT_MS: value }).stop, 20000);
+  assert.equal(lifecycleWaits({ LOOP_TEST_STOP_WAIT_MS: "37" }).stop, 37);
+  assert.equal(lifecycleWaits({}).connection, 180000);
 });

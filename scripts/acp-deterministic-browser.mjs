@@ -125,7 +125,7 @@ async function closeConversation() {
 }
 const results = [];
 try {
-  await host.start(options);
+  await host.start({ options });
   await nativeSessions.projects.enable(acp);
   browser = await chromium.launch({
     headless: true,

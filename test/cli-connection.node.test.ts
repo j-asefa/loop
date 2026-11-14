@@ -566,9 +566,10 @@ test("restart from another directory repeats a foreground launch's project and p
     }
     w.pids.add(before.pid);
     assert.equal(before.project, project);
-    const launch = JSON.parse(
-      readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
-    );
+    // The status endpoint is live before startup persists its ready launch.
+    const launchPath = join(w.env.LOOP_HOME, "workspace", "launch.json");
+    await until(() => existsSync(launchPath));
+    const launch = JSON.parse(readFileSync(launchPath, "utf8"));
     assert.equal(launch.project, project);
     assert.equal(launch.executable, join(w.base, "codex"));
     assert.equal(launch.foreground, undefined);

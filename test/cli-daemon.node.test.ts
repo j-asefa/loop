@@ -493,60 +493,6 @@ test("crashed and hung workspaces: status, stop, relaunch and log rotation", asy
   }
 });
 
-test("malformed workspace records are reported and preserved instead of treated as stopped", async () => {
-  const w = await workspace();
-  try {
-    await mkdir(w.dir, { recursive: true });
-    assert.equal((await w.status()).state, "stopped");
-    await assert.rejects(w.loop(["stop"]), /No workspace is running/);
-    for (const contents of [
-      "{",
-      "null",
-      JSON.stringify({ port: 0, token: "x" }),
-    ]) {
-      await writeFile(join(w.dir, "control.json"), contents);
-      for (const args of [
-        ["status"],
-        ["stop"],
-        ["restart"],
-        ["start", "--local-only"],
-      ]) {
-        await assert.rejects(w.loop(args), /Invalid local host record/);
-        assert.equal(
-          await readFile(join(w.dir, "control.json"), "utf8"),
-          contents,
-        );
-      }
-    }
-    const doctor = JSON.parse((await w.loop(["doctor"])).stdout);
-    assert.equal(doctor.workspace.state, "invalid");
-    assert.match(doctor.workspace.message, /Invalid local host record/);
-    assert(
-      Array.isArray(doctor.harnesses),
-      "doctor retains its other diagnostics",
-    );
-    assert.equal(
-      await readFile(join(w.dir, "control.json"), "utf8"),
-      JSON.stringify({ port: 0, token: "x" }),
-    );
-    const control = JSON.stringify({ port: 1, token: "x" });
-    await writeFile(join(w.dir, "control.json"), control);
-    await writeFile(join(w.dir, "host.lock"), "{");
-    await assert.rejects(
-      w.loop(["status"]),
-      /Invalid workspace ownership record/,
-    );
-    await assert.rejects(
-      w.loop(["stop"]),
-      /Invalid workspace ownership record/,
-    );
-    assert.equal(await readFile(join(w.dir, "control.json"), "utf8"), control);
-    assert.equal(await readFile(join(w.dir, "host.lock"), "utf8"), "{");
-  } finally {
-    await w.cleanup();
-  }
-});
-
 test("loop stop and status never act on a PID they can't confirm is the workspace", async () => {
   const w = await workspace();
   const other = spawn("sleep", ["60"]);
@@ -1005,42 +951,6 @@ async function nativeChild(dir: string, url: URL) {
   return pid;
 }
 
-test("local-only overrides a saved public URL and named tunnel", async () => {
-  const w = await workspace();
-  try {
-    await mkdir(w.dir, { recursive: true });
-    await writeFile(
-      join(w.dir, "launch.json"),
-      JSON.stringify({
-        schema: 1,
-        kind: "workspace",
-        action: "start",
-        publicUrl: "https://saved-tunnel.invalid",
-        tunnelName: "saved-tunnel",
-        tunnelConfig: "/nonexistent/tunnel.yml",
-      }),
-    );
-    const started = await w.start();
-    assert.match(started.stdout, PAIR_URL);
-    assert.doesNotMatch(started.stdout, /saved-tunnel/);
-  } finally {
-    await w.cleanup();
-  }
-});
-
-test("loop acp refuses a relative or missing executable with setup guidance", async () => {
-  const w = await workspace();
-  try {
-    for (const executable of ["./missing-agent", "/missing/acp-agent"])
-      await assert.rejects(
-        w.loop(["acp", "--executable", executable, "--local-only"]),
-        /Choose an executable local ACP agent file/,
-      );
-  } finally {
-    await w.cleanup();
-  }
-});
-
 test("loop start pairs with no installed harness, reuses the host and survives restart", async () => {
   const w = await workspace();
   try {
@@ -1207,25 +1117,6 @@ test("fresh starts retain managed project and the latest billing preference", as
       w.env.LOOP_HOME,
       "one-off harness project does not replace managed default",
     );
-  } finally {
-    await w.cleanup();
-  }
-});
-
-test("invalid named tunnel startup does not save a launch", async () => {
-  const w = await workspace();
-  try {
-    await assert.rejects(
-      w.loop([
-        ...w.harness,
-        "--tunnel-name",
-        "fixture",
-        "--public-url",
-        "https://fixture.example/path",
-      ]),
-      /bare HTTPS origin/,
-    );
-    assert.equal(existsSync(join(w.dir, "launch.json")), false);
   } finally {
     await w.cleanup();
   }

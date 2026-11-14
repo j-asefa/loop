@@ -28,7 +28,7 @@ await withGithubClient(
       close: async () => {},
     };
     const host = new WorkspaceHost(dir, options, inert);
-    await host.start(options, undefined, undefined, true);
+    await host.start({ options, runtimeNeutral: true });
     console.log(JSON.stringify({ origin: host.origin, pair: host.pair().url }));
     const stop = () => {
       void host.close().finally(() => process.exit(0));
