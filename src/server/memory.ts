@@ -291,6 +291,7 @@ routes.on(workspaceApi.memorySource, (req, res) => {
       typeof workspaceApi.memorySource.response
     >,
   );
+  return undefined;
 });
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {
   const s = ownedMemorySource(req.params.id, res.locals.owner);

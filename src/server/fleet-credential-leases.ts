@@ -53,6 +53,7 @@ export class FleetCredentialLeases {
     void Promise.resolve()
       .then(() => {
         if (!this.stopped) return this.options.reconcile!();
+        return undefined;
       })
       .catch(() => {})
       .finally(() => {

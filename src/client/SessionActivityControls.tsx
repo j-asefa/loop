@@ -125,6 +125,7 @@ export function SessionActivityControls({
         }
       }
     }
+    return undefined;
   }
   useEffect(() => {
     epoch.current++;

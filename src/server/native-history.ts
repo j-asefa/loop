@@ -119,6 +119,7 @@ routes.on(workspaceApi.nativeHistoryList, async (req, res) => {
     next: result.nextCursor || null,
     note: "Saved native Codex history across directories. External live ownership cannot be established; read or fork without taking over the original.",
   });
+  return undefined;
 });
 routes.on(workspaceApi.nativeHistoryDetail, async (req, res) => {
   const record = nativeCatalogQueries.get(db, req.params.id);
@@ -187,4 +188,5 @@ routes.on(workspaceApi.nativeHistoryFork, async (req, res) => {
       .immediate();
   });
   res.status(201).json({ id: conversation });
+  return undefined;
 });

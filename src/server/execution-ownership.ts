@@ -122,6 +122,7 @@ export function recordedExecutionOwner(data: string) {
         "Execution ownership is unreadable. Preserve the workspace and inspect execution/owner.json.",
       );
   }
+  return undefined;
 }
 
 /** Explicit offline recovery: a PID namespace outside this process's view

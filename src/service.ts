@@ -245,6 +245,7 @@ export async function installedServiceNames(root: string) {
     ? contents.match(/<key>LOOP_HOME<\/key><string>([^<]*)<\/string>/)?.[1]
     : contents.match(/^Environment="LOOP_HOME=((?:\\.|[^"\\])*)"/m)?.[1];
   if (home === (mac ? xml(root) : unit(root).slice(1, -1))) return names;
+  return undefined;
 }
 export async function installedSupervisor(root: string) {
   if (!(await installedServiceNames(root))) return undefined;

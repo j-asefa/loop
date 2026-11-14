@@ -219,6 +219,7 @@ export function mergeHeadProblem(tool: string, args: unknown) {
   const sha = (args as any)?.expectedHeadSha;
   if (typeof sha !== "string" || !/^[0-9a-f]{40}$/i.test(sha))
     return "Merging a pull request requires expectedHeadSha: read the pull request first and pass its full 40-character head commit SHA.";
+  return undefined;
 }
 
 // Agent guidance added when GitHub pull request tools are available. It
