@@ -1,4 +1,14 @@
 #!/usr/bin/env node
+import {
+  defaultLaunch,
+  readLaunch,
+  writeLaunch,
+  launchArguments,
+  parseLaunchArguments,
+  launchCommandLine,
+  tunnelArguments,
+  type WorkspaceLaunch,
+} from "./launch-record.js";
 import { testWait } from "./test-seams.js";
 import { LOOP_REPOSITORY } from "./shared/build.js";
 import {
@@ -35,11 +45,7 @@ import {
   tunnelModeFromFlags,
   type TunnelMode,
 } from "./connection.js";
-import {
-  ensureConnection,
-  stopConnection,
-  tunnelArgs,
-} from "./connection-launch.js";
+import { ensureConnection, stopConnection } from "./connection-launch.js";
 import type { Options } from "./adapters/types.js";
 import { discover, control, inspectWorkspace } from "./host-control.js";
 import { installDaemonLog, retireLog } from "./daemon.js";
@@ -250,25 +256,6 @@ async function stopAll(dir: string, connection: string) {
 }
 
 const execFileAsync = promisify(execFile);
-/** The last ready launch to repeat on restart. */
-async function launchArgs(dir: string) {
-  const saved = await readFile(join(dir, PROCESS_FILES.launch), "utf8")
-    .then(JSON.parse)
-    .catch(() => undefined);
-  if (
-    saved?.schema === 1 &&
-    Array.isArray(saved.args) &&
-    saved.args.every((a: unknown) => typeof a === "string")
-  )
-    return saved.args as string[];
-  return ["start"];
-}
-
-function launchOption(args: string[], name: string) {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
 /**
  * Replaces the application with this CLI's installed build. The connection
  * service, its cloudflared and the public address stay; so do paired devices.
@@ -332,14 +319,14 @@ async function restartWorkspace(
     if (supervisor)
       return restartService(dir, root, { ...status, supervisor }, upgradedFrom);
   }
-  const args = await launchArgs(dir);
+  const launch = (await readLaunch(dir)) ?? defaultLaunch;
   if (status || hung) {
     console.log("Restarting the Loop application…");
     // Application and runners only: the connection service is in its own
     // process group and absent from the application's ownership records.
     await stopWorkspace(dir);
   }
-  await daemonize(dir, args, { restart: true, upgradedFrom });
+  await daemonize(dir, launch, undefined, { restart: true, upgradedFrom });
 }
 
 /** An installed service restarts only its application unit. */
@@ -534,14 +521,15 @@ async function upgradeWorkspace(
 }
 async function daemonize(
   dir: string,
-  args: string[],
+  launch: WorkspaceLaunch,
+  resume?: string,
   restart?: { restart: true; upgradedFrom?: string },
 ) {
   const log = join(dir, PROCESS_FILES.log);
   await retireLog(log);
   const ready = await spawnReady<Ready>(
     fileURLToPath(import.meta.url),
-    args,
+    launchArguments(launch, resume),
     log,
     {
       env: {
@@ -624,12 +612,8 @@ async function logs(dir: string, follow: boolean) {
   clearInterval(timer);
   await handle.close();
 }
-async function main() {
-  if (process.argv[2] === "preview") {
-    const { previewCli } = await import("./preview-cli.js");
-    return previewCli(process.argv.slice(3));
-  }
-  const { values, positionals } = parseArgs({
+function parseUserArguments() {
+  return parseArgs({
     allowPositionals: true,
     options: {
       help: { type: "boolean", short: "h" },
@@ -654,6 +638,19 @@ async function main() {
       fleet: { type: "boolean" },
     },
   });
+}
+
+async function main() {
+  if (process.argv[2] === "preview") {
+    const { previewCli } = await import("./preview-cli.js");
+    return previewCli(process.argv.slice(3));
+  }
+  const { values, positionals }: ReturnType<typeof parseUserArguments> =
+    daemonChild
+      ? launchCommandLine(
+          parseLaunchArguments("workspace", process.argv.slice(2)),
+        )
+      : parseUserArguments();
   if (values.version) {
     console.log(VERSION);
     return;
@@ -839,15 +836,14 @@ Uninstall removes the package separately; workspace/native history is retained.`
         "loop connection --foreground runs the connection service for a service manager. Use loop start instead.",
       );
     const { runConnectionService } = await import("./connection-daemon.js");
-    await runConnectionService([
-      "--dir",
-      connection,
-      "--root",
+    await runConnectionService({
+      schema: 1,
+      kind: "connection",
+      dir: connection,
       root,
-      "--release",
-      VERSION,
-      ...tunnelArgs(tunnelModeFromFlags(values)),
-    ]);
+      release: VERSION,
+      mode: tunnelModeFromFlags(values),
+    });
     return;
   }
   if (action === "service") {
@@ -861,30 +857,27 @@ Uninstall removes the package separately; workspace/native history is retained.`
     if (positionals[1] === "install" && !launched)
       throw new Error("Run loop start once before installing the service.");
     // The service repeats the saved launch, as loop restart does.
-    const launch = await launchArgs(dir);
-    const option = (name: string) => launchOption(launch, name);
-    const tunnelName = option("--tunnel-name");
-    const publicUrl = option("--public-url");
+    const launch = (await readLaunch(dir)) ?? defaultLaunch;
     const mode =
       positionals[1] === "install"
         ? tunnelModeOf({
-            "local-only": launch.includes("--local-only"),
-            "public-url": publicUrl,
-            "tunnel-name": tunnelName,
-            "tunnel-config": option("--tunnel-config"),
+            "local-only": launch.localOnly,
+            "public-url": launch.publicUrl,
+            "tunnel-name": launch.tunnelName,
+            "tunnel-config": launch.tunnelConfig,
           })
         : undefined;
     // Validate before stopping the current connection service for installation.
     if (positionals[1] === "install") await stopAll(dir, connection);
-    const tunnel = mode ? tunnelArgs(mode) : null;
+    const tunnel = mode ? tunnelArguments(mode) : null;
     const { userService } = await import("./service.js");
     await userService(
       positionals[1],
       fileURLToPath(import.meta.url),
       root,
-      option("--project") ?? project,
+      launch.project ?? project,
       tunnel,
-      launch,
+      launchArguments(launch),
     );
     console.log(
       "Loop user service " +
@@ -1055,20 +1048,27 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const preferences = await readFile(preferencesPath, "utf8")
     .then(JSON.parse)
     .catch(() => ({}));
+  const savedLaunch = await readLaunch(dir);
   const selected = (neutral ? "codex" : action) as Harness;
   const running = (await workspaceStatus(dir)).status;
-  if (neutral && !values.project && preferences.project)
-    project = await realpath(preferences.project);
+  if (
+    neutral &&
+    !values.project &&
+    (savedLaunch?.project ?? preferences.project)
+  )
+    project = await realpath(savedLaunch?.project ?? preferences.project);
   const { selectedHarnesses, selectedBilling } =
     await import("./start-selection.js");
   const providers = selectedHarnesses(
-    values.providers ?? preferences.providers ?? "installed",
+    values.providers ??
+      savedLaunch?.providers?.join(",") ??
+      preferences.providers ??
+      "installed",
   );
-  const savedLaunch = await launchArgs(dir);
   if (!values["local-only"]) {
-    values["public-url"] ??= launchOption(savedLaunch, "--public-url");
-    values["tunnel-name"] ??= launchOption(savedLaunch, "--tunnel-name");
-    values["tunnel-config"] ??= launchOption(savedLaunch, "--tunnel-config");
+    values["public-url"] ??= savedLaunch?.publicUrl;
+    values["tunnel-name"] ??= savedLaunch?.tunnelName;
+    values["tunnel-config"] ??= savedLaunch?.tunnelConfig;
     // A path: resolved once, so a restart from another directory reads the same file.
     if (values["tunnel-config"])
       values["tunnel-config"] = resolve(values["tunnel-config"]);
@@ -1113,7 +1113,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
   let billing: Options["billing"] = selectedBilling(
     selected,
     values.billing,
-    preferences.billing?.[selected],
+    (savedLaunch?.action === selected ? savedLaunch.billing : undefined) ??
+      preferences.billing?.[selected],
   );
   if (selected === "acp" && billing !== "existing")
     throw new Error(
@@ -1160,7 +1161,10 @@ Uninstall removes the package separately; workspace/native history is retained.`
     atomic(preferencesPath, {
       project: neutral ? project : preferences.project,
       providers: neutral
-        ? (values.providers ?? preferences.providers ?? "installed")
+        ? (values.providers ??
+          savedLaunch?.providers?.join(",") ??
+          preferences.providers ??
+          "installed")
         : preferences.providers,
       billing: neutral
         ? preferences.billing
@@ -1169,7 +1173,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   if (running) {
     await recoverConnection(dir, root, connection, running, tunnelMode);
     // Fleets are a start option of the running launch, never a live change.
-    if (values.fleet && !(await launchArgs(dir)).includes("--fleet"))
+    if (values.fleet && !savedLaunch?.fleet)
       throw new Error(
         "Fleets are off in the running workspace. Run loop stop, then loop start --fleet.",
       );
@@ -1177,10 +1181,15 @@ Uninstall removes the package separately; workspace/native history is retained.`
       if (
         (values.providers &&
           [...providers].sort().join() !==
-            selectedHarnesses(preferences.providers ?? "installed")
+            selectedHarnesses(
+              savedLaunch?.providers?.join(",") ??
+                preferences.providers ??
+                "installed",
+            )
               .sort()
               .join()) ||
-        project !== (running.project ?? preferences.project)
+        project !==
+          (running.project ?? savedLaunch?.project ?? preferences.project)
       )
         throw new Error(
           "Run loop stop before changing the running workspace's providers or project.",
@@ -1208,30 +1217,25 @@ Uninstall removes the package separately; workspace/native history is retained.`
   // The resolved launch (absolute project, executable and tunnel config):
   // repeated by the background child, loop restart and loop upgrade from any
   // working directory. A --resume handoff is one-time and not repeated.
-  const launch = [
-    neutral ? "start" : selected,
-    "--project",
+  const launch: WorkspaceLaunch = {
+    schema: 1,
+    kind: "workspace",
+    action: neutral ? "start" : selected,
     project,
-    ...(neutral
-      ? []
-      : ["--executable", probe.executable, "--billing", billing]),
-    ...(selected === "acp"
-      ? (values["acp-arg"] ?? []).map((arg) => "--acp-arg=" + arg)
-      : []),
-    ...(neutral ? ["--providers", providers.join(",")] : []),
-    ...(values["local-only"] ? ["--local-only"] : []),
-    ...(values["public-url"] ? ["--public-url", values["public-url"]] : []),
-    ...(values["tunnel-name"] ? ["--tunnel-name", values["tunnel-name"]] : []),
+    ...(neutral ? { providers } : { executable: probe.executable, billing }),
+    ...(selected === "acp" && values["acp-arg"]?.length
+      ? { acpArgs: values["acp-arg"] }
+      : {}),
+    ...(values["local-only"] ? { localOnly: true } : {}),
+    ...(values["public-url"] ? { publicUrl: values["public-url"] } : {}),
+    ...(values["tunnel-name"] ? { tunnelName: values["tunnel-name"] } : {}),
     ...(values["tunnel-config"]
-      ? ["--tunnel-config", values["tunnel-config"]]
-      : []),
-    ...(values.fleet ? ["--fleet"] : []),
-  ];
+      ? { tunnelConfig: values["tunnel-config"] }
+      : {}),
+    ...(values.fleet ? { fleet: true } : {}),
+  };
   if (!values.foreground && !daemonChild)
-    return daemonize(dir, [
-      ...launch,
-      ...(values.resume ? ["--resume", values.resume] : []),
-    ]);
+    return daemonize(dir, launch, values.resume);
   const { workspaceLock } = await import("./process-records.js");
   const release = workspaceLock(dir);
   recordOwnedProcesses(join(dir, PROCESS_FILES.children));
@@ -1339,11 +1343,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
         url: gateway.origin,
         ...(quiet ? {} : { pair: gateway.pair() }),
       };
-      atomic(join(dir, PROCESS_FILES.launch), {
-        schema: 1,
-        args: launch,
-        version: VERSION,
-      });
+      writeLaunch(dir, launch);
       // Persist the project before returning pairing while preparation continues.
       // Automatic runtime choices remain ephemeral in remember().
       remember();

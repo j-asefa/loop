@@ -549,6 +549,13 @@ service retains sockets, locks, relay and tunnel supervision. The registry
 publishes relay changes synchronously with its decisions; its clock and probe
 are dependencies. See the [lease state machine](state-machines.md#connection-backend-lease).
 
+The typed [launch record](../src/launch-record.ts) owns workspace and connection
+launch settings, saved workspace launch validation and subprocess argument
+encoding/decoding. Start, restart and service installation read fields from that
+record; the in-process connection entrypoint accepts its connection variant.
+Preferences remain separate fallbacks. User CLI validation and command effects
+stay in the CLI; OS service definitions receive rendered arguments.
+
 ### Agent sources and execution environments
 
 An agent belongs to one owner on one Loop API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and Feed projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host. Opening a conversation on another source keeps the Feed mounted. The thread binds its reads, controls, uploads and file links to that source; the shell retains its original source. Drafts and pending send receipts include the owner, source and conversation, and late responses cannot overwrite the newly opened thread. Source failures appear in the thread with a retry action.

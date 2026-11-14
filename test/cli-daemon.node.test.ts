@@ -294,9 +294,8 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     );
     // Fleets are a start option of the running launch, never a live change.
     assert.equal(
-      JSON.parse(
-        await readFile(join(w.dir, "launch.json"), "utf8"),
-      ).args.includes("--fleet"),
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).fleet ??
+        false,
       false,
     );
     await assert.rejects(
@@ -331,9 +330,8 @@ test("loop start --fleet records the option for restart and upgrade", async () =
     await w.start("--fleet");
     assert.equal((await w.status()).state, "ready");
     assert(
-      JSON.parse(
-        await readFile(join(w.dir, "launch.json"), "utf8"),
-      ).args.includes("--fleet"),
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).fleet ??
+        false,
     );
     // Repeating the same option on the running workspace is not a change.
     assert.match(
@@ -1015,15 +1013,11 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
       join(w.dir, "launch.json"),
       JSON.stringify({
         schema: 1,
-        args: [
-          "start",
-          "--public-url",
-          "https://saved-tunnel.invalid",
-          "--tunnel-name",
-          "saved-tunnel",
-          "--tunnel-config",
-          "/nonexistent/tunnel.yml",
-        ],
+        kind: "workspace",
+        action: "start",
+        publicUrl: "https://saved-tunnel.invalid",
+        tunnelName: "saved-tunnel",
+        tunnelConfig: "/nonexistent/tunnel.yml",
       }),
     );
     const started = await w.start();
@@ -1159,7 +1153,7 @@ test("loop start pairs with no installed harness, reuses the host and survives r
   }
 });
 
-test("bare loop restores a saved managed project from another directory", async () => {
+test("bare loop restores its typed launch before conflicting preferences", async () => {
   const w = await workspace();
   try {
     await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
@@ -1170,7 +1164,8 @@ test("bare loop restores a saved managed project from another directory", async 
       preferencesPath,
       JSON.stringify({
         ...preferences,
-        providers: "openai",
+        project: join(w.env.LOOP_HOME, "missing-preference-project"),
+        providers: "invalid-preference-provider",
       }),
     );
     const bare = await w.loop(["--local-only"]);
@@ -1229,13 +1224,10 @@ test("service uninstall removes units even with invalid saved tunnel flags", asy
       join(w.dir, "launch.json"),
       JSON.stringify({
         schema: 1,
-        args: [
-          "start",
-          "--tunnel-name",
-          "fixture",
-          "--public-url",
-          "https://fixture.example/path",
-        ],
+        kind: "workspace",
+        action: "start",
+        tunnelName: "fixture",
+        publicUrl: "https://fixture.example/path",
       }),
     );
     const result = await w.loop(["service", "uninstall"]);
