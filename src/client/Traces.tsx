@@ -3,11 +3,7 @@ import { ArtifactId, RunId, parseId } from "../shared/contract-ids.js";
 import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
-import {
-  useSourceId,
-  useSourceOperation,
-  useSourceRoute,
-} from "./SourceContext";
+import { useSourceId, useSourceOperation } from "./SourceContext";
 import type { RouteResponse } from "../shared/workspace-api";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -107,30 +103,17 @@ function TraceList({
   const readProjection = useProjectionRoute();
 
   const agentId = AgentId.parse(rawAgentId);
-  const route = useSourceRoute();
   const downloadReason = useSourceOperation(workspaceApi.agentTracesExport);
   const artifactReason = useSourceOperation(workspaceApi.artifactDetail);
   const generation = useRef(viewGeneration()).current;
   const active = useRef(true);
-  const pending = useRef(new Set<AbortController>());
   useLayoutEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
-      for (const request of pending.current) request.abort();
-      pending.current.clear();
     };
   }, []);
   const current = () => active.current && generation === viewGeneration();
-  const request = () => {
-    const controller = new AbortController();
-    pending.current.add(controller);
-    return {
-      signal: controller.signal,
-      current: () => current() && !controller.signal.aborted,
-      done: () => pending.current.delete(controller),
-    };
-  };
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -189,10 +172,9 @@ function TraceList({
       live = false;
       request.abort();
     };
-  }, [agentId, runId, query, revision, moreBusy, route]);
+  }, [agentId, runId, query, revision, moreBusy]);
   const earlier = async () => {
     if (!next || moreBusy || !current()) return;
-    const operation = request();
     setMoreBusy(true);
     try {
       const page = await readProjection(
@@ -205,16 +187,15 @@ function TraceList({
             q: query || undefined,
           },
         },
-        { mode: "once", signal: operation.signal },
+        { mode: "once" },
       );
-      if (!operation.current()) return;
+      if (!current()) return;
       merge(page);
       setError("");
     } catch (e) {
-      if (operation.current()) setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      operation.done();
-      if (operation.current()) setMoreBusy(false);
+      if (current()) setMoreBusy(false);
     }
   };
   const download = (trace: Trace) => {
@@ -225,39 +206,33 @@ function TraceList({
     if (!current() || downloadReason || downloading.current) return;
     downloading.current = true;
     setDownloadBusy(true);
-    const operation = request();
     try {
       const file = await readProjection(
         workspaceApi.agentTracesExport,
         { params: { id: agentId }, query: { run: parseId(RunId, id) } },
-        { mode: "once", signal: operation.signal },
+        { mode: "once" },
       );
-      if (!operation.current()) return;
+      if (!current()) return;
       const text = await file.text();
-      if (operation.current())
-        saveJson(`loop-run-${id}-traces.json`, JSON.parse(text));
+      if (current()) saveJson(`loop-run-${id}-traces.json`, JSON.parse(text));
     } catch (e) {
-      if (operation.current()) setError((e as Error).message);
+      if (current()) setError((e as Error).message);
     } finally {
-      operation.done();
       downloading.current = false;
-      if (operation.current()) setDownloadBusy(false);
+      if (current()) setDownloadBusy(false);
     }
   };
   const openArtifact = async (id: string) => {
     if (!current() || artifactReason) return;
-    const operation = request();
     try {
       const artifact = await readProjection(
         workspaceApi.artifactDetail,
         { params: { id: ArtifactId.parse(id) } },
-        { mode: "once", signal: operation.signal },
+        { mode: "once" },
       );
-      if (operation.current()) onArtifact(artifact);
+      if (current()) onArtifact(artifact);
     } catch (e) {
-      if (operation.current()) setError((e as Error).message);
-    } finally {
-      operation.done();
+      if (current()) setError((e as Error).message);
     }
   };
   return (
