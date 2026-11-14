@@ -1,3 +1,4 @@
+import { useProjectionQuery } from "./CollectionRead";
 import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
@@ -20,7 +21,6 @@ import {
   MAX_DEFINITION_BYTES,
   type AgentDefinition,
   type DefinitionCreation,
-  type DefinitionSummary,
 } from "../shared/agent-definitions";
 import type { Connection, Folder } from "../shared/types";
 import type { ModelOption } from "../shared/models";
@@ -36,14 +36,13 @@ export function MarkdownDefinitions({
   onClose: () => void;
   onUse: (definition: AgentDefinition) => void;
 }) {
-  const [items, setItems] = useState<DefinitionSummary[]>();
   const [editing, setEditing] = useState<{
     id: string;
     version: number;
     markdown: string;
   }>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [actionError, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const locked = useRef(false);
   const alive = useRef(true);
@@ -55,34 +54,18 @@ export function MarkdownDefinitions({
       alive.current = false;
     };
   }, []);
-  useEffect(() => {
-    const controller = new AbortController();
-    const owner = viewOwner();
-    readRoute(
-      workspaceApi.definitionList,
-      {},
-      sourceId,
-      controller.signal,
-      (failure) => {
-        // Keep refresh failures visible while the bounded GET recovery runs;
-        // a successful save/delete remains authoritative during that wait.
-        if (!controller.signal.aborted && owner === viewOwner())
-          setError((failure as Error).message);
-      },
-    )
-      .then((rows) => {
-        if (!controller.signal.aborted && owner === viewOwner()) {
-          setItems(rows);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted && owner === viewOwner()) {
-          setError(e.message);
-        }
-      });
-    return () => controller.abort();
-  }, [sourceId, revision]);
+  const definitions = useProjectionQuery(
+    workspaceApi.definitionList,
+    {},
+    {
+      source: sourceId,
+      revision,
+      reportRetries: true,
+    },
+  );
+  const items = definitions.data;
+  const setItems = definitions.replace;
+  const error = actionError || definitions.error;
   const reads = useRef(new Set<AbortController>());
   useEffect(
     () => () => {
@@ -338,8 +321,9 @@ export function MarkdownDefinitions({
                             throw error;
                         }
                         return () => {
-                          setItems((rows) =>
-                            rows?.filter((row) => row.id !== item.id),
+                          setItems(
+                            (rows) =>
+                              rows?.filter((row) => row.id !== item.id) ?? [],
                           );
                           setRevision((value) => value + 1);
                         };

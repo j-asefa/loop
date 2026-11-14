@@ -49,7 +49,11 @@ try {
       window.select = value => flushSync(() => setId(value));
       window.source = value => flushSync(() => setSource(value));
       window.owner = value => flushSync(() => {ownerSession.change(value); setRevision(n => n + 1);});
-      const query = useProjectionQuery(workspaceApi.personalApproval, id === undefined ? undefined : {params:{id}}, {source, revision, collections:["approvals"], events:["fixture-refresh"]});
+      const query = useProjectionQuery(workspaceApi.personalApproval, id === undefined ? undefined : {params:{id}}, {source, revision, collections:["approvals"], events:["fixture-refresh"], reportRetries:true});
+      window.updateSnapshot = () => flushSync(() => {
+        query.replace(previous => ({source:'native',request:{title:previous.request.title + ' saved'}}));
+        query.replace(previous => ({source:'native',request:{title:previous.request.title + ' twice'}}));
+      });
       window.captureReplace = () => { window.capturedReplace = query.replace; };
       window.probeState = () => ({loading:query.loading, busy:query.busy, error:query.error});
       window.probeRetry = () => query.retry();
@@ -251,6 +255,26 @@ try {
   await page.locator("#probe button").click();
   await expect(output).toHaveText(title);
   await expect(notice).toHaveCount(0);
+
+  status = 503;
+  const beforeEarlyFailure = requests.length;
+  await refresh();
+  await expect(notice).toContainText("Snapshot unavailable");
+  assert.equal(
+    requests.length,
+    beforeEarlyFailure + 1,
+    "the first failure is visible before automatic retry",
+  );
+  status = 200;
+  await page.evaluate(() => window.updateSnapshot());
+  await expect(output).toHaveText("Recovered snapshot saved twice");
+  await expect(notice).toHaveCount(0);
+  await page.waitForTimeout(2200);
+  assert.equal(
+    requests.length,
+    beforeEarlyFailure + 1,
+    "an authoritative update cancels the pending read retry",
+  );
 
   for (const change of ["selection", "source", "owner"]) {
     title = "Late old snapshot";

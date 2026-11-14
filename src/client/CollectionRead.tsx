@@ -24,6 +24,7 @@ type QueryOptions = {
   events?: readonly string[];
   revision?: string | number;
   enabled?: boolean;
+  reportRetries?: boolean;
 };
 
 /** Inputs identify a snapshot; revisions invalidate it without hiding its rows. */
@@ -36,6 +37,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     collections = [],
     events = [],
     revision = 0,
+    reportRetries = false,
     enabled: requestedEnabled = true,
   }: QueryOptions,
 ) {
@@ -46,12 +48,20 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     contract.path,
     input,
     enabled,
+    reportRetries,
   ]);
-  const context = useMemo(() => ({ contract, input, source, enabled }), [key]);
+  const context = useMemo(
+    () => ({ contract, input, source, enabled, reportRetries }),
+    [key],
+  );
   const { load, error, busy, cancel } = useCollectionRead(key);
   const [result, setResult] = useState<{
     context: typeof context;
     value: RouteResponse<C>;
+  }>();
+  const [retryFailure, setRetryFailure] = useState<{
+    context: typeof context;
+    message: string;
   }>();
   const refresh = useCallback(
     (manual = false) => {
@@ -64,10 +74,21 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
             input,
             context.source,
             signal,
-            undefined,
+            context.reportRetries
+              ? (failure) => {
+                  if (!signal.aborted)
+                    setRetryFailure({
+                      context,
+                      message: (failure as Error).message,
+                    });
+                }
+              : undefined,
             mode,
           ),
-        (value) => setResult({ context, value }),
+        (value) => {
+          setResult({ context, value });
+          setRetryFailure(undefined);
+        },
         manual,
       );
     },
@@ -104,16 +125,37 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
   }, [refresh, subscriptions, revision]);
   const data = result?.context === context ? result.value : undefined;
   const replace = useCallback(
-    (value: RouteResponse<C>) => {
-      if (context.enabled && cancel()) setResult({ context, value });
+    (
+      value:
+        | RouteResponse<C>
+        | ((previous: RouteResponse<C> | undefined) => RouteResponse<C>),
+    ) => {
+      if (!context.enabled || !cancel()) return;
+      setRetryFailure(undefined);
+      setResult((previous) => ({
+        context,
+        value:
+          typeof value === "function"
+            ? (
+                value as (
+                  previous: RouteResponse<C> | undefined,
+                ) => RouteResponse<C>
+              )(previous?.context === context ? previous.value : undefined)
+            : value,
+      }));
     },
     [cancel, context],
   );
   return {
     data,
-    error,
+    error:
+      error || (retryFailure?.context === context ? retryFailure.message : ""),
     busy,
-    loading: enabled && data === undefined && !error,
+    loading:
+      enabled &&
+      data === undefined &&
+      !error &&
+      retryFailure?.context !== context,
     refresh,
     retry: () => refresh(true),
     replace,
