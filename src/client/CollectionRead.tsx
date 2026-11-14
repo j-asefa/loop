@@ -166,6 +166,8 @@ type PagedOptions<P, C> = {
   key: string;
   source: string | readonly string[];
   enabled?: boolean;
+  // WebKit can tear down the document before passive cleanup runs.
+  pauseOnPageHide?: boolean;
   events?: readonly string[];
   coalesceDelay?: number;
   revision?: string | number;
@@ -195,6 +197,7 @@ export function usePagedProjectionQuery<
     options.source,
     options.key,
     options.enabled !== false,
+    options.pauseOnPageHide === true,
   ]);
   const context = useMemo(
     () => ({
@@ -220,6 +223,7 @@ export function usePagedProjectionQuery<
       read,
       queueMore,
       refreshDelay,
+      pauseOnPageHide = false,
       enabled = true,
       events = ["loop-refresh"],
       coalesceDelay = 0,
@@ -228,8 +232,10 @@ export function usePagedProjectionQuery<
     } = context.options;
     if (!enabled) return;
     const sourceList = typeof source === "string" ? [source] : source;
-    let active = true;
-    const stale = () => !active || generation !== viewGeneration();
+    let active = true,
+      paused = false,
+      requestEpoch = 0;
+    const stale = () => !active || paused || generation !== viewGeneration();
     const reader = createReadExecutor({
       current: () => !stale(),
       changed: () => {},
@@ -253,6 +259,7 @@ export function usePagedProjectionQuery<
     };
     const load = async (before?: C, manual = false) => {
       if (busy || stale()) return;
+      const epoch = requestEpoch;
       clearTimeout(timer);
       timer = undefined;
       busy = true;
@@ -280,7 +287,7 @@ export function usePagedProjectionQuery<
             }),
           { mode: manual ? "manual" : "automatic" },
         );
-        if (stale()) return;
+        if (stale() || epoch !== requestEpoch) return;
         if (requireAdvance && before !== undefined && page.next === before)
           throw new Error("Pagination did not advance");
         current = page;
@@ -293,7 +300,7 @@ export function usePagedProjectionQuery<
           error: "",
         });
       } catch (error) {
-        if (!stale())
+        if (!stale() && epoch === requestEpoch)
           setState((old) => ({
             ...old,
             context,
@@ -302,15 +309,18 @@ export function usePagedProjectionQuery<
             error: error instanceof Error ? error.message : String(error),
           }));
       } finally {
-        busy = false;
-        if (before === undefined || !queueMore)
-          refreshAfter = urgent ? 0 : Date.now() + refreshDelay(reads);
-        if (!stale()) {
-          if (complete && needsRefresh?.(current)) pending = true;
-          const append = complete && appendPending ? current.next : null;
-          if (complete) appendPending = false;
-          if (append !== null) void load(append);
-          else if (pending) schedule();
+        // A resumed read may already own busy/pending when the cancelled one settles.
+        if (epoch === requestEpoch) {
+          busy = false;
+          if (before === undefined || !queueMore)
+            refreshAfter = urgent ? 0 : Date.now() + refreshDelay(reads);
+          if (!stale()) {
+            if (complete && needsRefresh?.(current)) pending = true;
+            const append = complete && appendPending ? current.next : null;
+            if (complete) appendPending = false;
+            if (append !== null) void load(append);
+            else if (pending) schedule();
+          }
         }
       }
     };
@@ -340,6 +350,29 @@ export function usePagedProjectionQuery<
         schedule();
       } else void load(undefined, manual);
     };
+    const hide = () => {
+      paused = true;
+      requestEpoch++;
+      reader.dispose();
+      clearTimeout(timer);
+      timer = undefined;
+      busy = false;
+      pending = false;
+      pendingManual = false;
+      urgent = false;
+      appendPending = false;
+      setState((old) => ({ ...old, loading: false, appending: false }));
+    };
+    const show = () => {
+      if (!paused || !active || generation !== viewGeneration()) return;
+      paused = false;
+      reader.activate();
+      void load(undefined);
+    };
+    if (pauseOnPageHide) {
+      window.addEventListener("pagehide", hide);
+      window.addEventListener("pageshow", show);
+    }
     const stops = (collections ?? []).map((collection) =>
       listenWorkspaceChanges(collection, (event) => {
         if (
@@ -355,6 +388,10 @@ export function usePagedProjectionQuery<
       active = false;
       reader.dispose();
       clearTimeout(timer);
+      if (pauseOnPageHide) {
+        window.removeEventListener("pagehide", hide);
+        window.removeEventListener("pageshow", show);
+      }
       stops.forEach((stop) => stop());
       for (const event of events) window.removeEventListener(event, refresh);
     };

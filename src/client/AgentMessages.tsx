@@ -1,6 +1,10 @@
-import { useProjectionRoute } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
+import {
+  CollectionReadNotice,
+  usePagedProjectionQuery,
+} from "./CollectionRead";
+import { readRoute } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
-import { useEffect, useState } from "react";
 import { Reply } from "lucide-react";
 import type { Agent } from "../shared/types";
 import type { RouteResponse } from "../shared/workspace-api";
@@ -8,6 +12,7 @@ import { Empty, RichText } from "./components";
 import type { ComposerContext } from "./composerContext";
 
 type Page = RouteResponse<typeof workspaceApi.agentMessages>;
+type MessagePage = Page & { refreshAfterPaging: boolean };
 
 export function AgentMessages({
   agent,
@@ -20,15 +25,29 @@ export function AgentMessages({
   onConversation: (id: string) => void;
   onReply: (context: ComposerContext) => void;
 }) {
-  const readProjection = useProjectionRoute();
-
+  const source = useSourceId();
   const agentId = agent.id;
-  const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
-  const [moreBusy, setMoreBusy] = useState(false);
-  const [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
-  const merge = (page: Page, refresh = false) =>
-    setPage((old) => {
+  const reader = usePagedProjectionQuery<MessagePage, string>({
+    key: agentId,
+    source,
+    revision,
+    pauseOnPageHide: true,
+    empty: { items: [], next: null, refreshAfterPaging: false },
+    collections: [],
+    events: [],
+    queueMore: true,
+    requireAdvance: true,
+    refreshDelay: () => 0,
+    needsRefresh: (page) => page.refreshAfterPaging,
+    read: async (old, before, signal) => {
+      const page = await readRoute(
+        workspaceApi.agentMessages,
+        { params: { id: agentId }, query: { before } },
+        source,
+        signal,
+        undefined,
+        "once",
+      );
       const ids = new Set(old.items.map((item) => item.id));
       const gap =
         page.next !== null && !page.items.some((item) => ids.has(item.id));
@@ -44,68 +63,29 @@ export function AgentMessages({
             (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
         ),
         next:
-          refresh && page.next !== null && old.items.length && !gap
+          before === undefined && page.next !== null && old.items.length && !gap
             ? old.next
             : page.next,
+        refreshAfterPaging: before !== undefined,
       };
-    });
-  useEffect(() => {
-    if (moreBusy) return;
-    let active = true;
-    const request = new AbortController();
-    const cancel = () => request.abort();
-    // Stop reads before WebKit tears down a document during navigation.
-    window.addEventListener("pagehide", cancel);
-    void readProjection(
-      workspaceApi.agentMessages,
-      { params: { id: agentId } },
-      { mode: "once", signal: request.signal },
-    )
-      .then((page) => {
-        if (active) {
-          merge(page, true);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active && !request.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-      cancel();
-      window.removeEventListener("pagehide", cancel);
-    };
-  }, [agentId, revision, moreBusy]);
-  const earlier = async () => {
-    if (!next || moreBusy) return;
-    setMoreBusy(true);
-    try {
-      const page = await readProjection(
-        workspaceApi.agentMessages,
-        {
-          params: { id: agentId },
-          query: { before: next },
-        },
-        { mode: "once" },
-      );
-      merge(page);
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setMoreBusy(false);
-    }
-  };
+    },
+  });
+  const { items, next } = reader.page;
+  const error = reader.error;
+  const loading = reader.loading && !items.length;
+  const moreBusy = reader.appending;
+  const earlier = reader.more;
   return (
     <section className="feed" aria-label="Agent messages">
       <p className="field-hint">
         Intermediate updates and final answers from this agent. Final answers
         are also in Results.
       </p>
-      {error && <p role="alert">{error}</p>}
+      <CollectionReadNotice
+        error={error}
+        busy={reader.loading}
+        retry={reader.retry}
+      />
       {loading && <p role="status">Loading conversation history…</p>}
       {!loading && !items.length && !error && (
         <Empty title="No agent messages yet.">{null}</Empty>
