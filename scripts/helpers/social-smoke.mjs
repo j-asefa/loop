@@ -93,6 +93,57 @@ export async function socialSmoke(page, fixture, shot) {
   const cards = social.locator(".news-card");
   await cards.first().waitFor();
   assert.equal(await cards.count(), total, "Every stored story must show");
+  let snapshotReads = 0;
+  let releaseSnapshot;
+  const snapshotGate = new Promise((resolve) => {
+    releaseSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    snapshotReads++;
+    if (snapshotReads === 1) await snapshotGate;
+    await route.continue();
+  });
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await expect.poll(() => snapshotReads).toBe(1);
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+    window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+  });
+  try {
+    await page.waitForTimeout(150);
+    assert.equal(
+      snapshotReads,
+      1,
+      "notifications coalesce behind the active Social snapshot",
+    );
+  } finally {
+    releaseSnapshot();
+  }
+  await expect.poll(() => snapshotReads).toBe(2);
+  await page.unroute(/\/api\/social\?/);
+  let failSnapshot = true;
+  await page.route(/\/api\/social\?/, async (route) => {
+    if (failSnapshot)
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Snapshot unavailable" }),
+      });
+    else await route.continue();
+  });
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await expect(page.getByRole("alert")).toContainText("Snapshot unavailable");
+  await expect(cards).toHaveCount(total);
+  failSnapshot = false;
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.unroute(/\/api\/social\?/);
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
   // Feed options start closed: Social is the stories alone, without the page
   // heading and agents above them.
@@ -200,7 +251,28 @@ export async function socialSmoke(page, fixture, shot) {
 
   // Searching reaches the store, not just the page.
   const search = page.getByRole("searchbox", { name: /Search your feeds/i });
+  await page.route("**/api/social/search?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("q") === "blocked")
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Search unavailable" }),
+      });
+    else await route.continue();
+  });
+  await search.fill("blocked");
+  await expect(page.getByRole("alert")).toContainText("Search unavailable");
+  const healthySnapshot = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/social",
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await healthySnapshot;
+  await expect(page.getByRole("alert")).toContainText("Search unavailable");
   await search.fill("postgres");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/api/social/search?**");
   await page.waitForFunction(
     () => document.querySelectorAll(".news-card").length === 1,
   );
