@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import {
   readArtifactMetadata,
   type TraceMetadata,
@@ -20,6 +21,8 @@ export function McpApp({
   artifactId: string;
   metadata?: TraceMetadata;
 }) {
+  const readProjection = useProjectionRoute();
+
   const artifactId = ArtifactId.parse(rawArtifactId);
   const call = useSourceRoute();
   const sourceId = useSourceId();
@@ -69,9 +72,13 @@ export function McpApp({
       void (
         metadata
           ? Promise.resolve(metadata)
-          : call(workspaceApi.artifactDetail, {
-              params: { id: artifactId },
-            }).then((item): TraceMetadata =>
+          : readProjection(
+              workspaceApi.artifactDetail,
+              {
+                params: { id: artifactId },
+              },
+              { mode: "manual" },
+            ).then((item): TraceMetadata =>
               item.role === "trace"
                 ? readArtifactMetadata("trace", item.metadata, "fallback")
                     .metadata

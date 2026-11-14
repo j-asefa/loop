@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { ArtifactId, RunId, parseId } from "../shared/contract-ids.js";
 import { AgentId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -103,6 +104,8 @@ function TraceList({
   onArtifact,
   query,
 }: Props & { query: string }) {
+  const readProjection = useProjectionRoute();
+
   const agentId = AgentId.parse(rawAgentId);
   const route = useSourceRoute();
   const downloadReason = useSourceOperation(workspaceApi.agentTracesExport);
@@ -160,7 +163,7 @@ function TraceList({
     if (moreBusy) return;
     let live = true;
     const request = new AbortController();
-    void route(
+    void readProjection(
       workspaceApi.agentTraces,
       {
         params: { id: agentId },
@@ -169,7 +172,7 @@ function TraceList({
           q: query || undefined,
         },
       },
-      request.signal,
+      { mode: "manual", signal: request.signal },
     )
       .then((page) => {
         if (!live || !current()) return;
@@ -192,7 +195,7 @@ function TraceList({
     const operation = request();
     setMoreBusy(true);
     try {
-      const page = await route(
+      const page = await readProjection(
         workspaceApi.agentTraces,
         {
           params: { id: agentId },
@@ -202,7 +205,7 @@ function TraceList({
             q: query || undefined,
           },
         },
-        operation.signal,
+        { mode: "manual", signal: operation.signal },
       );
       if (!operation.current()) return;
       merge(page);
@@ -224,10 +227,10 @@ function TraceList({
     setDownloadBusy(true);
     const operation = request();
     try {
-      const file = await route(
+      const file = await readProjection(
         workspaceApi.agentTracesExport,
         { params: { id: agentId }, query: { run: parseId(RunId, id) } },
-        operation.signal,
+        { mode: "manual", signal: operation.signal },
       );
       if (!operation.current()) return;
       const text = await file.text();
@@ -245,10 +248,10 @@ function TraceList({
     if (!current() || artifactReason) return;
     const operation = request();
     try {
-      const artifact = await route(
+      const artifact = await readProjection(
         workspaceApi.artifactDetail,
         { params: { id: ArtifactId.parse(id) } },
-        operation.signal,
+        { mode: "manual", signal: operation.signal },
       );
       if (operation.current()) onArtifact(artifact);
     } catch (e) {

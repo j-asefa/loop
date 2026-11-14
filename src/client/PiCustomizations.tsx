@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -29,6 +30,8 @@ export function PiCustomizations({
   onClose: () => void;
   onUse?: (agentId: string, token: string) => void;
 }) {
+  const readProjection = useProjectionRoute();
+
   const route = useSourceRoute();
   const piAgents = agents.filter(
     (agent) => agent.provider === "pi" && !agent.retired_at,
@@ -69,7 +72,11 @@ export function PiCustomizations({
   useEffect(() => {
     if (!selected) return;
     let active = true;
-    void route(workspaceApi.agentPiPackages, { params: { id: selectedId } })
+    void readProjection(
+      workspaceApi.agentPiPackages,
+      { params: { id: selectedId } },
+      { mode: "manual" },
+    )
       .then((result) => {
         if (active) {
           setPackages(result.packages);
@@ -252,15 +259,19 @@ export function PiCustomizations({
     let active = true;
     setCatalog(null);
     setError("");
-    void route(workspaceApi.agentHarness, {
-      params: { id: selectedId },
-      query: {
-        conversation: parseId(
-          ConversationId,
-          conversationId && selected === agentId ? conversationId : undefined,
-        ),
+    void readProjection(
+      workspaceApi.agentHarness,
+      {
+        params: { id: selectedId },
+        query: {
+          conversation: parseId(
+            ConversationId,
+            conversationId && selected === agentId ? conversationId : undefined,
+          ),
+        },
       },
-    })
+      { mode: "manual" },
+    )
       .then((result) => active && setCatalog(result))
       .catch((cause) => active && setError((cause as Error).message));
     return () => {

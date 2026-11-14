@@ -1,5 +1,5 @@
+import { useProjectionRoute } from "./SourceContext";
 import { workspaceApi } from "../shared/workspace-api";
-import { useSourceRoute } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Reply } from "lucide-react";
 import type { Agent } from "../shared/types";
@@ -20,7 +20,8 @@ export function AgentMessages({
   onConversation: (id: string) => void;
   onReply: (context: ComposerContext) => void;
 }) {
-  const route = useSourceRoute();
+  const readProjection = useProjectionRoute();
+
   const agentId = agent.id;
   const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
   const [moreBusy, setMoreBusy] = useState(false);
@@ -55,10 +56,10 @@ export function AgentMessages({
     const cancel = () => request.abort();
     // Stop reads before WebKit tears down a document during navigation.
     window.addEventListener("pagehide", cancel);
-    void route(
+    void readProjection(
       workspaceApi.agentMessages,
       { params: { id: agentId } },
-      request.signal,
+      { mode: "manual", signal: request.signal },
     )
       .then((page) => {
         if (active) {
@@ -82,10 +83,14 @@ export function AgentMessages({
     if (!next || moreBusy) return;
     setMoreBusy(true);
     try {
-      const page = await route(workspaceApi.agentMessages, {
-        params: { id: agentId },
-        query: { before: next },
-      });
+      const page = await readProjection(
+        workspaceApi.agentMessages,
+        {
+          params: { id: agentId },
+          query: { before: next },
+        },
+        { mode: "manual" },
+      );
       merge(page);
       setError("");
     } catch (e) {

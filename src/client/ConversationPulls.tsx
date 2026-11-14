@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { ConversationId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, GitPullRequest, RefreshCw } from "lucide-react";
@@ -7,7 +8,7 @@ import type {
   ConversationPulls as Pulls,
 } from "../shared/conversation-pulls";
 import { pullRequestKey, pullRequestUrl } from "../shared/github";
-import { useSourceId, useSourceRoute } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
 import { executionSourceId } from "./sourceRouting";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { openPull } from "./PullRequests";
@@ -130,7 +131,8 @@ function PullReader({
   conversationId: string;
   refreshKey: string;
 }) {
-  const call = useSourceRoute();
+  const readProjection = useProjectionRoute();
+
   const source = useSourceId();
   const [data, setData] = useState<Pulls | null>(null);
   const [error, setError] = useState("");
@@ -150,10 +152,14 @@ function PullReader({
       pending = true;
       setBusy(true);
       try {
-        const next = await call(workspaceApi.conversationPulls, {
-          params: { id: ConversationId.parse(conversationId) },
-          query: refresh ? { refresh: "1" } : {},
-        });
+        const next = await readProjection(
+          workspaceApi.conversationPulls,
+          {
+            params: { id: ConversationId.parse(conversationId) },
+            query: refresh ? { refresh: "1" } : {},
+          },
+          { mode: "manual" },
+        );
         if (live) {
           setData(next);
           setError("");

@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -247,6 +248,8 @@ function SavedCollection({
   renderResult,
   searchLabel = "Search Saved",
 }: SavedListProps) {
+  const readProjection = useProjectionRoute();
+
   const call = useSourceRoute();
   const source = useSourceId();
   const owner = viewOwner();
@@ -328,9 +331,13 @@ function SavedCollection({
           } else {
             const artifactId = item.card.source.artifact_id;
             if (!artifactId) throw new Error("Saved result is unavailable.");
-            const current = await call(workspaceApi.artifactDetail, {
-              params: { id: artifactId },
-            });
+            const current = await readProjection(
+              workspaceApi.artifactDetail,
+              {
+                params: { id: artifactId },
+              },
+              { mode: "manual" },
+            );
             if (viewOwner() !== owner) return;
             await call(workspaceApi.artifactUpdate, {
               params: { id: current.id },

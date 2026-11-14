@@ -255,6 +255,8 @@ function ConversationView({
   onWork?: (work: ThreadWork | null) => void;
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
+  const readProjection = useProjectionRoute();
+
   const id = ConversationId.parse(rawId);
   const call = useSourceRoute();
   const continuationReason = useSourceOperation(
@@ -1486,9 +1488,13 @@ function ConversationView({
         <VerificationSheet
           runId={verification}
           load={(runId) =>
-            call(workspaceApi.runVerifications, {
-              params: { id: RunId.parse(runId) },
-            })
+            readProjection(
+              workspaceApi.runVerifications,
+              {
+                params: { id: RunId.parse(runId) },
+              },
+              { mode: "manual" },
+            )
           }
           onClose={() => setVerification(null)}
         />
@@ -1497,9 +1503,13 @@ function ConversationView({
         <CheckoutSheet
           runId={checkout}
           load={(runId) =>
-            call(workspaceApi.runCheckout, {
-              params: { id: RunId.parse(runId) },
-            })
+            readProjection(
+              workspaceApi.runCheckout,
+              {
+                params: { id: RunId.parse(runId) },
+              },
+              { mode: "manual" },
+            )
           }
           agentName={agent?.name}
           projectName={project?.name}

@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
@@ -260,6 +261,8 @@ function FeedCard({
   selected?: boolean;
   onSelect?: () => void;
 }) {
+  const readProjection = useProjectionRoute();
+
   const scopedSource = useSourceId();
   const inheritedCapabilities = useSourceCapabilities();
   const capabilities = sourceCapabilities || inheritedCapabilities;
@@ -309,11 +312,14 @@ function FeedCard({
       return;
     const controller = new AbortController();
     setReadError("");
-    void callRoute(
+    void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
-      item.sourceId ?? scopedSource,
-      controller.signal,
+      {
+        mode: "manual",
+        source: item.sourceId ?? scopedSource,
+        signal: controller.signal,
+      },
     )
       .then((value) => {
         if (!controller.signal.aborted) setMessage(value);
@@ -760,6 +766,8 @@ function AwaySummary({
   onOpen: (conversation: string, sourceId: string) => void;
   sources: AgentSource[];
 }) {
+  const readProjection = useProjectionRoute();
+
   const [away, setAway] = useState<{
     completed: AwayItem[];
     needs: AwayItem[];
@@ -790,10 +798,10 @@ function AwaySummary({
       void Promise.allSettled(
         sources.map(async (source) => ({
           source,
-          result: await callRoute(
+          result: await readProjection(
             workspaceApi.feedAway,
             { query: { since: String(since) } },
-            source.id,
+            { mode: "manual", source: source.id },
           ),
         })),
       ).then((settled) => {
@@ -1173,6 +1181,8 @@ export function Feed({
   /** Initial discovery has not established the combined Feed's destinations. */
   sourcesLoading?: boolean;
 }) {
+  const readProjection = useProjectionRoute();
+
   const scopedSource = useSourceId();
   const scopedCapabilities = useSourceCapabilities();
   // Browsable histories retain loaded pages while new activity arrives.
@@ -1945,12 +1955,11 @@ export function Feed({
               doneCards.current.delete(doneCards.current.keys().next().value!);
           }
           const transport: CardReadTransport = (contract, input, signal) =>
-            callRoute(
-              contract,
-              input,
-              combined ? source : scopedSource,
+            readProjection(contract, input, {
+              source: combined ? source : scopedSource,
               signal,
-            );
+              mode: "manual",
+            });
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp =
             boundary &&
@@ -2032,10 +2041,10 @@ export function Feed({
             cacheView(cardKey, window, owner);
           // Counters remain conversation-based operational Feed state.
           pages.set(source, { ...pages.get(source)!, doneSummary: true });
-          const operational = await callRoute(
+          const operational = await readProjection(
             workspaceApi.feed,
             { query: query(undefined, "needs") },
-            source,
+            { mode: "manual", source: source },
           );
           // Only a failed operational read needs a summary-only retry. A
           // trailing notification in this queue must read newer card changes.

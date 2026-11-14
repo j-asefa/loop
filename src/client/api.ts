@@ -5,7 +5,7 @@ import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
 import type {
   RouteContract,
-  ClientRouteContract,
+  CommandRouteContract,
   RouteInput,
   RouteResponse,
 } from "../shared/workspace-api";
@@ -430,20 +430,20 @@ function response<C extends RouteContract>(
   if (!parsed.success) throw new UnavailableResponse();
   return parsed.data as RouteResponse<C>;
 }
-export async function callRoute<C extends ClientRouteContract>(
+export async function callRoute<C extends CommandRouteContract>(
   contract: C,
   input: RouteInput<C>,
   sourceId: string,
   signal?: AbortSignal,
 ): Promise<RouteResponse<C>> {
+  if ((contract as RouteContract).method === "GET")
+    throw new TypeError("GET routes must use readRoute.");
   const generation = viewGeneration();
   const path = routePath(contract, input);
   const routed = sourceApiPathAt("/api" + path, sourceId);
   const destination = decodeURIComponent(encodedSourceFromPath(routed));
   const command =
-    destination.startsWith("peer:") &&
-    contract.method !== "GET" &&
-    !isFleetReadContract(contract)
+    destination.startsWith("peer:") && !isFleetReadContract(contract)
       ? await prepareFleetCommand(destination, contract, input, signal)
       : undefined;
   const perform = async () => {

@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ArtifactId } from "../shared/contract-ids.js";
 import { ModelId } from "../shared/contract-ids.js";
@@ -67,6 +68,8 @@ export function CreateAgent({
     sourceId: string,
   ) => void | Promise<void>;
 }) {
+  const readProjection = useProjectionRoute();
+
   const connected = connections
     .filter((c) => c.status === "connected")
     .sort(
@@ -159,7 +162,11 @@ export function CreateAgent({
     let cancelled = false;
     if (!nameTouched) setLoadingName(true);
     setNameError(false);
-    callRoute(workspaceApi.agentSuggestName, {}, source)
+    readProjection(
+      workspaceApi.agentSuggestName,
+      {},
+      { mode: "manual", source: source },
+    )
       .then((suggestion) => {
         if (!cancelled && !nameTouched) setSuggestedName(suggestion.name);
       })
@@ -233,10 +240,10 @@ export function CreateAgent({
     };
     catalogRequest.current = discovery;
     setCatalog({ connectionId: selectedConnection, source });
-    void callRoute(
+    void readProjection(
       workspaceApi.connectionModels,
       { params: { id: selectedConnection } },
-      source,
+      { mode: "manual", source: source },
     ).then(
       ({ models }) => {
         if (current) {

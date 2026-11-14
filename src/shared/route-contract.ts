@@ -63,7 +63,7 @@ export type RouteContract = {
 export type FleetRouteContract = RouteContract & {
   access: PeerAccess | "device:fleet";
 };
-export type ClientRouteContract = RouteContract;
+export type CommandRouteContract = Exclude<RouteContract, { method: "GET" }>;
 
 export const endpoint = <const C extends RouteContract & { operation: string }>(
   contract: C,

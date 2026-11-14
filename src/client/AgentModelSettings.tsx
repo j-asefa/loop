@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { ModelId } from "../shared/contract-ids.js";
 import { ConnectionId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -61,6 +62,8 @@ export function AgentModelSettings({
   onClose: () => void;
   onSaved: (agent: Agent) => void;
 }) {
+  const readProjection = useProjectionRoute();
+
   const route = useSourceRoute();
   const unavailable = useSourceOperation(workspaceApi.agentUpdate);
   const [selected, setSelected] = useState(agent);
@@ -88,9 +91,13 @@ export function AgentModelSettings({
         .filter((c) => c.status === "connected")
         .map(async (connection) => {
           try {
-            const result = await route(workspaceApi.connectionModels, {
-              params: { id: connection.id },
-            });
+            const result = await readProjection(
+              workspaceApi.connectionModels,
+              {
+                params: { id: connection.id },
+              },
+              { mode: "manual" },
+            );
             if (current)
               setCatalog((old) => ({ ...old, [connection.id]: result.models }));
           } catch {

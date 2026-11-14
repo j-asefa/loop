@@ -1,3 +1,4 @@
+import { readRoute } from "../src/client/api";
 import { RunId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
@@ -13,7 +14,6 @@ import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
-import { callRoute } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-agent-contracts-"));
 const project = join(directory, "project"),
@@ -395,10 +395,13 @@ it("agentTracesExport keeps its attachment writer and returns a Blob through the
     realFetch(new URL(path, origin), init),
   );
   try {
-    const blob = await callRoute(
+    const blob = await readRoute(
       workspaceApi.agentTracesExport,
       { params: { id: apiAgent.id }, query: { run: RunId.parse(run.id) } },
       "",
+      new AbortController().signal,
+      undefined,
+      "manual",
     );
     expect(blob).toBeInstanceOf(Blob);
     expect(JSON.parse(await blob.text())).toMatchObject({

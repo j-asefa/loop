@@ -1,8 +1,9 @@
+import { useProjectionRoute } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useSourceRoute } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Sheet } from "./components";
 
@@ -35,7 +36,8 @@ export function HarnessPicker({
   compact?: boolean;
   showTrigger?: boolean;
 }) {
-  const route = useSourceRoute();
+  const readProjection = useProjectionRoute();
+
   const sourceId = useSourceId();
   const [snippets, setSnippets] = useState<Snippet[] | null>(null),
     [allSnippets, setAllSnippets] = useState(false);
@@ -53,7 +55,7 @@ export function HarnessPicker({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    route(workspaceApi.snippetList, {})
+    readProjection(workspaceApi.snippetList, {}, { mode: "manual" })
       .then((result) => active && setSnippets(result.items))
       .catch(() => active && setSnippets([]));
     return () => {
@@ -79,12 +81,17 @@ export function HarnessPicker({
     const refresh = async () => {
       const own = ++request;
       try {
-        const result = await route(workspaceApi.agentHarness, {
-          params: { id: AgentId.parse(agentId) },
-          query: {
-            conversation: parseId(ConversationId, conversationId) || undefined,
+        const result = await readProjection(
+          workspaceApi.agentHarness,
+          {
+            params: { id: AgentId.parse(agentId) },
+            query: {
+              conversation:
+                parseId(ConversationId, conversationId) || undefined,
+            },
           },
-        });
+          { mode: "manual" },
+        );
         if (current === generation.current && own === request) {
           setCatalog((old) =>
             old &&

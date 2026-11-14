@@ -1,4 +1,4 @@
-import { ArtifactId, FolderId, parseId } from "../../shared/contract-ids.js";
+import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
 import { PersonalProfile } from "../PersonalProfile";
@@ -208,7 +208,6 @@ export function renderAppPages(
     setProject,
     projectScope,
     open,
-    setError,
     resultCard,
     replySaved,
     searchAgent,
@@ -679,15 +678,7 @@ export function renderAppPages(
                       : "later",
                 )}
                 onOpen={(c, m) => setConversation(c, m)}
-                onArtifact={(id) =>
-                  void callRoute(
-                    workspaceApi.artifactDetail,
-                    { params: { id: ArtifactId.parse(id) } },
-                    executionSourceId(),
-                  )
-                    .then((item) => void open(item))
-                    .catch((e) => setError(e.message))
-                }
+                onArtifact={(id) => void open(id)}
                 teams={teamKey || undefined}
                 renderResult={(item, options) =>
                   resultCard(item, true, options.onUnsave)
@@ -824,15 +815,7 @@ export function renderAppPages(
                 project={id}
                 query={text}
                 onConversation={(c, m) => setConversation(c, m)}
-                onArtifact={(artifact) =>
-                  void callRoute(
-                    workspaceApi.artifactDetail,
-                    { params: { id: ArtifactId.parse(artifact) } },
-                    executionSourceId(),
-                  )
-                    .then((item) => void open(item))
-                    .catch((e) => setError(e.message))
-                }
+                onArtifact={(artifact) => void open(artifact)}
               />
             ) : view === "saved" ? (
               <SavedList

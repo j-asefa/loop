@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
 import {
@@ -392,6 +393,8 @@ export function CreateFromDefinition({
   onClose: () => void;
   onCreated: (result: DefinitionCreation) => void;
 }) {
+  const readProjection = useProjectionRoute();
+
   const spec = definition.spec;
   const roles = spec.kind === "team" ? [spec.manager, ...spec.members] : [spec];
   const available = connections.filter((c) => c.status === "connected");
@@ -462,11 +465,10 @@ export function CreateFromDefinition({
     );
     for (const connectionId of JSON.parse(nativeIds) as string[]) {
       if (cached[connectionId]) continue;
-      void callRoute(
+      void readProjection(
         workspaceApi.connectionModels,
         { params: { id: ConnectionId.parse(connectionId) } },
-        sourceId,
-        controller.signal,
+        { mode: "manual", source: sourceId, signal: controller.signal },
       ).then(
         ({ models: discovered }) => {
           if (controller.signal.aborted || owner !== viewOwner()) return;
