@@ -49,6 +49,7 @@ const names = [
   "markdown-source",
   "profile",
   "personal-profile-reader",
+  "artifact-read-abort",
   "personal-decisions",
   "models",
   "swipe",

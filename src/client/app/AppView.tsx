@@ -96,6 +96,7 @@ export function renderApp(props: AppViewProps) {
     feedBadgeCount,
     session,
     error,
+    artifactReadNotice,
     check,
     conversation,
     data,
@@ -567,6 +568,9 @@ export function renderApp(props: AppViewProps) {
             ×
           </button>
         </div>
+      )}
+      {!activeArtifact && artifactReadNotice && (
+        <div className="toast">{artifactReadNotice}</div>
       )}
       {error && (
         <div role="alert" className="toast error">
@@ -1352,6 +1356,7 @@ export function renderApp(props: AppViewProps) {
               resultTarget(activeArtifact).id,
             ])}
             item={activeArtifact}
+            readNotice={artifactReadNotice}
             connections={data.connections}
             onProfile={(agent) => {
               setActiveArtifact(null);

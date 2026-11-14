@@ -1,3 +1,4 @@
+import { artifactReadAbortSmoke } from "./helpers/artifact-read-abort-smoke.mjs";
 import { personalProfileReaderSmoke } from "./helpers/personal-profile-reader-smoke.mjs";
 import { projectNavigationSmoke } from "./helpers/project-navigation-smoke.mjs";
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
@@ -172,6 +173,7 @@ const scenarios = {
   "markdown-source": markdownSourceSmoke,
   profile: profileNavigationSmoke,
   "personal-profile-reader": personalProfileReaderSmoke,
+  "artifact-read-abort": artifactReadAbortSmoke,
   "personal-decisions": personalDecisionsSmoke,
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),
   swipe: swipeBackSmoke,
