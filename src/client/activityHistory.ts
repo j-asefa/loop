@@ -1,5 +1,5 @@
 import type { ActivityPage } from "./activityView";
-import type { ReadMode } from "./read-executor";
+import { createReadExecutor, type ReadMode } from "./read-executor";
 import type { RouteInput, workspaceApi } from "../shared/workspace-api";
 type ActivityHistoryQuery = RouteInput<
   typeof workspaceApi.conversationActivities
@@ -17,6 +17,10 @@ type ReadOperation = "refresh" | "files" | "earlier";
 // requested history have independent cursors, so an old page never rewinds sync.
 export class ActivityHistory {
   private stopped = false;
+  private reader = createReadExecutor({
+    current: () => !this.stopped && this.current(),
+    changed: () => {},
+  });
   private initialized = false;
   private cursor = 0;
   private before: number | null = null;
@@ -42,14 +46,17 @@ export class ActivityHistory {
     private fetch: (
       query: ActivityHistoryQuery,
       mode: ReadMode,
+      signal: AbortSignal,
     ) => Promise<ActivityPage>,
     private receive: (page: ActivityPage) => void,
     private changed: (state: ActivityHistoryState) => void,
     private tools = true,
+    private current: () => boolean = () => true,
   ) {}
 
   stop() {
     this.stopped = true;
+    this.reader.dispose();
   }
 
   private publish(patch: Partial<ActivityHistoryState> = {}) {
@@ -58,7 +65,7 @@ export class ActivityHistory {
       ...patch,
       hasEarlier: this.before !== null,
     };
-    if (!this.stopped) this.changed(this.state);
+    if (!this.stopped && this.current()) this.changed(this.state);
   }
 
   retry() {
@@ -78,7 +85,7 @@ export class ActivityHistory {
     job: () => Promise<void>,
     retry: () => Promise<void>,
   ) {
-    if (this.stopped) return;
+    if (this.stopped || !this.current()) return;
     try {
       await job();
       this.failedReads.delete(operation);
@@ -107,12 +114,23 @@ export class ActivityHistory {
     return work;
   }
 
-  private async page(query: ActivityHistoryQuery, manual = false) {
-    if (this.stopped) return null;
-    const page = await this.fetch(query, manual ? "manual" : "automatic");
-    if (this.stopped) return null;
-    this.receive(page);
-    return page;
+  private async page(
+    query: ActivityHistoryQuery,
+    manual = false,
+  ): Promise<ActivityPage | null> {
+    let result: ActivityPage | null = null;
+    const completion = await this.reader.execute(
+      (signal, mode) => this.fetch(query, mode, signal),
+      (page) => {
+        this.receive(page);
+        result = page;
+      },
+      manual,
+    );
+    if (completion.status === "error") throw completion.error;
+    return completion.status === "success" && completion.current()
+      ? result
+      : null;
   }
 
   refresh(manual = false, background = false): Promise<void> {
@@ -145,6 +163,7 @@ export class ActivityHistory {
         } else {
           let page: ActivityPage | null;
           do {
+            const previous = this.cursor;
             page = await this.page(
               {
                 view: "updates",
@@ -154,6 +173,8 @@ export class ActivityHistory {
               manual,
             );
             if (!page) return;
+            if (page.more && page.cursor <= previous)
+              throw new Error("Activity pagination did not advance");
             this.cursor = page.cursor;
           } while (page.more && !this.stopped);
         }
@@ -201,6 +222,8 @@ export class ActivityHistory {
           manual,
         );
         if (!page) return;
+        if (page.more && page.cursor <= after)
+          throw new Error("Activity file pagination did not advance");
         after = page.cursor;
       } while (page.more && !this.stopped);
       batch.forEach((run) => this.loadedRuns.add(run));
