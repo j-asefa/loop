@@ -155,6 +155,7 @@ try {
         .getByRole("button", { name: "Retry connection" })
         .click();
       await expect(page.locator("#reply")).toHaveText("two");
+      await expect(replyNotice).toHaveCount(0);
       await expect(notice).toHaveCount(0);
       await page.evaluate(() => window.replyArtifact("imported"));
       await expect(page.locator("#opened")).toHaveText("imported");
