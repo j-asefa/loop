@@ -293,6 +293,12 @@ it("runtimeList returns real CLI discovery and setup state", async () => {
 it("runtimeEnable keeps its durable command identity and native verification receipt", async () => {
   valid(workspaceApi.runtimeEnable, enabled);
   expect(enabled.data.models.length).toBeGreaterThan(0);
+  const connection = db.prepare("SELECT id FROM connections WHERE owner_id='local-workspace' AND json_extract(metadata,'$.loopHarness')='codex'").get() as {id:string};
+  const refreshed = await request(`/subscriptions/${connection.id}/status`, {});
+  valid(workspaceApi.subscriptionAction, refreshed);
+  expect(refreshed.data.name).toBe("codex");
+  expect(refreshed.data.models.length).toBeGreaterThan(0);
+
   expect(
     await request("/workspace/runtimes/codex/enable", {
       projectId: created.data.id,

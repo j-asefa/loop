@@ -1057,14 +1057,15 @@ Uninstall removes the package separately; workspace/native history is retained.`
     await import("./start-selection.js");
   const providers = selectedHarnesses(
     values.providers ??
-      savedLaunch?.providers?.join(",") ??
       preferences.providers ??
+      savedLaunch?.providers?.join(",") ??
       "installed",
   );
   if (!values["local-only"]) {
-    values["public-url"] ??= savedLaunch?.publicUrl;
-    values["tunnel-name"] ??= savedLaunch?.tunnelName;
-    values["tunnel-config"] ??= savedLaunch?.tunnelConfig;
+    values["public-url"] ??= preferences.publicUrl ?? savedLaunch?.publicUrl;
+    values["tunnel-name"] ??= preferences.tunnelName ?? savedLaunch?.tunnelName;
+    values["tunnel-config"] ??=
+      preferences.tunnelConfig ?? savedLaunch?.tunnelConfig;
     // A path: resolved once, so a restart from another directory reads the same file.
     if (values["tunnel-config"])
       values["tunnel-config"] = resolve(values["tunnel-config"]);
@@ -1154,13 +1155,17 @@ Uninstall removes the package separately; workspace/native history is retained.`
   };
   const remember = () =>
     atomic(preferencesPath, {
+      ...preferences,
       project: neutral ? project : preferences.project,
       providers: neutral
         ? (values.providers ??
-          savedLaunch?.providers?.join(",") ??
           preferences.providers ??
+          savedLaunch?.providers?.join(",") ??
           "installed")
         : preferences.providers,
+      publicUrl: values["public-url"],
+      tunnelName: values["tunnel-name"],
+      tunnelConfig: values["tunnel-config"],
       billing: neutral
         ? preferences.billing
         : { ...preferences.billing, [selected]: billing },
@@ -1177,8 +1182,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
         (values.providers &&
           [...providers].sort().join() !==
             selectedHarnesses(
-              savedLaunch?.providers?.join(",") ??
-                preferences.providers ??
+              preferences.providers ??
+                savedLaunch?.providers?.join(",") ??
                 "installed",
             )
               .sort()

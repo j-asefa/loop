@@ -419,3 +419,49 @@ const connectedHarnessExistsStatement = statement(
 export function connectedHarnessExists(db: Database.Database, owner: string) {
   return connectedHarnessExistsStatement(db).get(owner) !== undefined;
 }
+
+const signingInStatement = statement(
+  "UPDATE connections SET status='signing_in' WHERE id=? AND owner_id=?",
+);
+
+export function signingIn(db: Database.Database, id: string, owner: string) {
+  return signingInStatement(db).run(id, owner);
+}
+
+const resetSigningInStatement = statement(
+  "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=? AND status='signing_in'",
+);
+
+export function resetSigningIn(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  return resetSigningInStatement(db).run(id, owner);
+}
+
+const subscriptionConnectedStatement = statement(
+  "UPDATE connections SET models=?,status='connected',metadata=? WHERE id=? AND owner_id=? AND status<>'disconnected'",
+);
+
+export function subscriptionConnected(
+  db: Database.Database,
+  models: string,
+  metadata: string,
+  id: string,
+  owner: string,
+) {
+  return subscriptionConnectedStatement(db).run(models, metadata, id, owner);
+}
+
+const subscriptionNeedsSignInStatement = statement(
+  "UPDATE connections SET status='needs_sign_in' WHERE id=? AND owner_id=?",
+);
+
+export function subscriptionNeedsSignIn(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  return subscriptionNeedsSignInStatement(db).run(id, owner);
+}

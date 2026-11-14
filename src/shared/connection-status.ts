@@ -6,6 +6,8 @@ export const ConnectionStatuses = [
   "disconnected",
   "needs_reconnect",
   "needs_sign_in",
+  // Released v0.1.0 can leave this persisted if a sign-in request is interrupted.
+  "signing_in",
 ] as const;
 export const ConnectionStatus = z.enum(ConnectionStatuses);
 export type ConnectionStatus = z.infer<typeof ConnectionStatus>;

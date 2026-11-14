@@ -14,6 +14,15 @@ import * as companion from "./companion-contract-schemas.js";
 import { Text, endpoint, base } from "./route-contract.js";
 
 export const companionRoutes = {
+  subscriptionAction: endpoint({
+    ...base,
+    operation: "subscriptionAction",
+    method: "POST",
+    path: "/subscriptions/:id/:action",
+    params: companion.SubscriptionActionParams,
+    body: z.unknown(),
+    response: companion.PublicSubscriptionAction,
+  }),
   workspace: endpoint({
     ...base,
     operation: "workspace",
