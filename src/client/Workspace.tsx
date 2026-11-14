@@ -517,49 +517,51 @@ export function Saved({
   );
 }
 function SearchIndexStatus() {
-  const [status, setStatus] = useState<RouteResponse<
-    typeof workspaceApi.searchStatus
-  > | null>(null);
-  useEffect(() => {
-    let active = true;
-    const load = () =>
-      void callRoute(workspaceApi.searchStatus, {}, executionSourceId())
-        .then((value) => {
-          if (active) setStatus(value);
-        })
-        .catch(() => {});
-    load();
-    const timer = setInterval(load, 2000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, []);
-  if (!status?.enabled) return null;
+  const query = useProjectionQuery(
+    workspaceApi.searchStatus,
+    {},
+    {
+      source: executionSourceId(),
+      // Content writes change the counts; indexing emits its own search signal.
+      events: ["loop-workspace-change"],
+    },
+  );
+  const notice = (
+    <CollectionReadNotice
+      error={query.error}
+      busy={query.busy}
+      retry={query.retry}
+    />
+  );
+  const status = query.data;
+  if (!status?.enabled) return notice;
   return (
-    <div className={"search-index-status " + status.state} role="status">
-      <strong>
-        {status.state === "ready"
-          ? "Semantic search ready"
-          : status.state === "error" || status.state === "needs_connection"
-            ? "Semantic search needs attention"
-            : "Preparing semantic search"}
-      </strong>
-      <span>{status.detail}</span>
-      {status.pending > 0 && (
-        <>
-          <span>
-            {status.indexed} of {status.total} items indexed
-          </span>
-          <SettingsProgress
-            label="Indexing progress"
-            value={status.indexed}
-            total={status.total}
-            running
-          />
-        </>
-      )}
-    </div>
+    <>
+      {notice}
+      <div className={"search-index-status " + status.state} role="status">
+        <strong>
+          {status.state === "ready"
+            ? "Semantic search ready"
+            : status.state === "error" || status.state === "needs_connection"
+              ? "Semantic search needs attention"
+              : "Preparing semantic search"}
+        </strong>
+        <span>{status.detail}</span>
+        {status.pending > 0 && (
+          <>
+            <span>
+              {status.indexed} of {status.total} items indexed
+            </span>
+            <SettingsProgress
+              label="Indexing progress"
+              value={status.indexed}
+              total={status.total}
+              running
+            />
+          </>
+        )}
+      </div>
+    </>
   );
 }
 type SearchScope = "all" | "mine" | "results" | "messages" | "files";

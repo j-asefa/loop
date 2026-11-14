@@ -18,6 +18,7 @@ export const WORKSPACE_COLLECTIONS = [
   "later",
   "scheduled",
   "metadata",
+  "search",
   "mail",
   "social",
   "pulls",

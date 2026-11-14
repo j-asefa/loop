@@ -83,13 +83,14 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     const recover = (event: Event) => {
       if (broadWorkspaceChange(event)) update(event);
     };
-    if (!collections.length)
-      window.addEventListener("loop-workspace-change", recover);
+    const recoverBroad =
+      !collections.length && !events.includes("loop-workspace-change");
+    if (recoverBroad) window.addEventListener("loop-workspace-change", recover);
     for (const event of events) window.addEventListener(event, update);
     void refresh();
     return () => {
       for (const stop of stops) stop();
-      if (!collections.length)
+      if (recoverBroad)
         window.removeEventListener("loop-workspace-change", recover);
       for (const event of events) window.removeEventListener(event, update);
     };

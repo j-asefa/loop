@@ -13,7 +13,7 @@ import { ownedConnection } from "./domain.js";
 import { ftsQuery, searchExcerpt } from "../shared/search-excerpt.js";
 import OpenAI from "openai";
 import { createHash } from "node:crypto";
-import { db, now } from "./db.js";
+import { db, emit, now } from "./db.js";
 import { unseal } from "./secrets.js";
 
 import { localEmbeddings, localModel } from "./local-embeddings.js";
@@ -146,21 +146,44 @@ export async function indexPending() {
       );
       if (previous?.state === "error" && now() - previous.updated_at < 30000)
         continue;
-      const status = (state: string, error: string | null = null) =>
-        searchIndexStatusQueries.replace(
-          db,
-          owner_id,
-          configuration(c),
-          state,
-          error,
-          now(),
-        );
       const docs = searchDocumentsQueries.pendingIndex(
         db,
         owner_id,
         c.embedding_model || modelDefault,
         now() - 5000,
       );
+      // An idle pass changes no visible counts; avoid scanning the whole index.
+      // Clearing an earlier error still needs a snapshot and notification.
+      if (!docs.length && previous?.state !== "error") {
+        searchIndexStatusQueries.replace(
+          db,
+          owner_id,
+          configuration(c),
+          "ready",
+          null,
+          now(),
+        );
+        continue;
+      }
+      let published = JSON.stringify(searchStatus(owner_id));
+      const status = (state: string, error: string | null = null) =>
+        db.transaction(() => {
+          searchIndexStatusQueries.replace(
+            db,
+            owner_id,
+            configuration(c),
+            state,
+            error,
+            now(),
+          );
+          const snapshot = JSON.stringify(searchStatus(owner_id));
+          if (snapshot !== published) {
+            emit(owner_id, { kind: "collection", id: "search" }, "invalidate", {
+              scope: { kind: "collection", id: "search" },
+            });
+            published = snapshot;
+          }
+        })();
       if (!docs.length) {
         status("ready");
         continue;
@@ -181,7 +204,7 @@ export async function indexPending() {
           )
         )
           throw new Error("Invalid embedding response");
-        db.transaction(() =>
+        db.transaction(() => {
           docs.forEach((d, i) => {
             const current = searchDocumentsQueries.owned(db, d.id, owner_id);
             const live = embeddingConfig(owner_id);
@@ -200,9 +223,9 @@ export async function indexPending() {
                 hash(d),
                 now(),
               );
-          }),
-        )();
-        status("ready");
+          });
+          status("ready");
+        })();
       } catch (error) {
         status(
           "error",
@@ -284,14 +307,21 @@ export async function search(
           : "Keyword + semantic results. Embeddings and this query go to your selected OpenAI API account.";
     } catch (error) {
       if (error instanceof InvalidRow)
-        searchIndexStatusQueries.replace(
-          db,
-          owner,
-          configuration(c),
-          "error",
-          error.message,
-          now(),
-        );
+        db.transaction(() => {
+          const before = JSON.stringify(searchStatus(owner));
+          searchIndexStatusQueries.replace(
+            db,
+            owner,
+            configuration(c),
+            "error",
+            error.message,
+            now(),
+          );
+          if (JSON.stringify(searchStatus(owner)) !== before)
+            emit(owner, { kind: "collection", id: "search" }, "invalidate", {
+              scope: { kind: "collection", id: "search" },
+            });
+        }).immediate();
       detail = "Semantic service unavailable; showing keyword results.";
     }
   }

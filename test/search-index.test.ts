@@ -1,3 +1,5 @@
+import Database from "better-sqlite3";
+import * as preferenceQueries from "../src/server/sql/preferences";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +19,11 @@ const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { page: eventPage } = await import("../src/server/sql/events");
+const searchSignals = (owner: string) =>
+  eventPage(db, owner, 0).filter(
+    (e) => e.subject_kind === "collection" && e.subject_id === "search",
+  );
 const { seal } = await import("../src/server/secrets");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { indexPending, search, searchStatus } =
@@ -70,6 +77,11 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
     indexed: 16,
     pending: 3,
   });
+  expect(searchSignals(owner)).toHaveLength(1);
+  expect(JSON.parse(searchSignals(owner)[0].payload)).toEqual({
+    scope: { kind: "collection", id: "search" },
+  });
+  expect(searchSignals("stranger")).toHaveLength(0);
   advance();
   await indexPending();
   expect(searchStatus(owner)).toMatchObject({
@@ -77,6 +89,10 @@ it("reports initial preparation, indexes batches and title-only files, and ignor
     indexed: 19,
     pending: 0,
   });
+  expect(searchSignals(owner)).toHaveLength(2);
+  advance();
+  await indexPending();
+  expect(searchSignals(owner)).toHaveLength(2);
   const result = await search(owner, "automobile");
   expect(result).toMatchObject({ mode: "hybrid", pending: 0 });
   expect(result.items).toHaveLength(18);
@@ -144,6 +160,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
     pending: 1,
   });
   expect(searchStatus(owner).detail).not.toContain("credentials");
+  expect(searchSignals(owner)).toHaveLength(1);
   const result = await search(owner, "Travel");
   expect(result.items).toHaveLength(1);
   expect(result.detail).toContain("indexing failed");
@@ -151,6 +168,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
   advance();
   await indexPending();
   expect(fixture.calls).toBe(calls);
+  expect(searchSignals(owner)).toHaveLength(1);
   fixture.fail = false;
   advance(31000);
   await indexPending();
@@ -159,6 +177,7 @@ it("exposes a sanitized indexing failure, keeps keyword results, and recovers on
     indexed: 1,
     pending: 0,
   });
+  expect(searchSignals(owner)).toHaveLength(3);
   expect((await search(owner, "automobile")).items).toHaveLength(1);
   fixture.stall = true;
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -228,6 +247,73 @@ it("applies the same folder, kind, date and owner filters to keyword and semanti
   expect(
     (await search(owner, "Travel", { ...filters, from: now() + 1 })).items,
   ).toHaveLength(0);
+});
+
+it("announces a query credential failure while indexed and pending documents coexist", async () => {
+  const owner = id(),
+    connection = id();
+  for (let i = 0; i < 17; i++)
+    saveArtifact(owner, {
+      title: "Travel " + i,
+      content: "A car",
+      role: "answer",
+    });
+  enable(owner);
+  advance();
+  await indexPending();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)",
+  ).run(connection, owner, "not-a-sealed-envelope", now());
+  db.prepare(
+    "UPDATE preferences SET embedding_connection=?,embedding_model='fixture-embedding' WHERE owner_id=?",
+  ).run(connection, owner);
+  db.prepare(
+    "UPDATE embeddings SET model='fixture-embedding' WHERE owner_id=?",
+  ).run(owner);
+  expect(searchStatus(owner)).toMatchObject({
+    state: "indexing",
+    indexed: 16,
+    pending: 1,
+  });
+  const before = searchSignals(owner).length;
+  const writer = new Database(db.name);
+  writer.pragma("busy_timeout = 0");
+  const owned = preferenceQueries.owned;
+  let attempted = false;
+  const concurrent = vi
+    .spyOn(preferenceQueries, "owned")
+    .mockImplementation((database, identity) => {
+      const result = owned(database, identity);
+      if (database.inTransaction && identity === owner && !attempted) {
+        attempted = true;
+        try {
+          writer
+            .prepare(
+              "UPDATE connections SET label='Concurrent change' WHERE id=?",
+            )
+            .run(connection);
+        } catch (error) {
+          if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+        }
+      }
+      return result;
+    });
+  const request = vi
+    .spyOn(globalThis, "fetch")
+    .mockRejectedValue(new Error("Unexpected external effect"));
+  try {
+    expect((await search(owner, "Travel")).mode).toBe("keyword");
+    expect(request).not.toHaveBeenCalled();
+    expect(searchStatus(owner)).toMatchObject({ state: "error", pending: 1 });
+    expect(searchSignals(owner)).toHaveLength(before + 1);
+    await search(owner, "Travel");
+    expect(searchSignals(owner)).toHaveLength(before + 1);
+  } finally {
+    expect(attempted).toBe(true);
+    concurrent.mockRestore();
+    writer.close();
+    request.mockRestore();
+  }
 });
 
 it.each(["metadata", "secret"] as const)(

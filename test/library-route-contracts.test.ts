@@ -24,6 +24,7 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 const directory = mkdtempSync(join(tmpdir(), "loop-library-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const { page: eventPage } = await import("../src/server/sql/events");
 const { db, id } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -459,11 +460,21 @@ it("preferencesUpdate retains validation and persisted settings", async () => {
   expect(
     await request("/preferences", { embeddingEnabled: true }),
   ).toMatchObject(bad);
+  const before = eventPage(db, owner, 0).at(-1)?.id || 0;
   const result = await request("/preferences", {
     embeddingEnabled: false,
     connectionId: null,
   });
   valid(workspaceApi.preferencesUpdate, result);
+  expect(eventPage(db, owner, before)).toMatchObject([
+    {
+      owner_id: owner,
+      type: "invalidate",
+      subject_kind: "collection",
+      subject_id: "search",
+      payload: JSON.stringify({ scope: { kind: "collection", id: "search" } }),
+    },
+  ]);
   expect(
     db
       .prepare(
