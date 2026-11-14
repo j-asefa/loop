@@ -11,7 +11,7 @@ import {
 } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
-import { callRoute, readRoute } from "./api";
+import { callRoute } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { parse } from "./json";
 import { Sheet } from "./components";
@@ -66,27 +66,11 @@ export function MarkdownDefinitions({
   const items = definitions.data;
   const setItems = definitions.replace;
   const error = actionError || definitions.error;
-  const reads = useRef(new Set<AbortController>());
-  useEffect(
-    () => () => {
-      for (const controller of reads.current) controller.abort();
-    },
-    [sourceId],
-  );
-  async function readDefinition(id: string) {
-    const controller = new AbortController();
-    reads.current.add(controller);
-    try {
-      return await readRoute(
-        workspaceApi.definitionRead,
-        { params: { id: DefinitionId.parse(id) } },
-        sourceId,
-        controller.signal,
-      );
-    } finally {
-      controller.abort();
-      reads.current.delete(controller);
-    }
+  const readDefinitionRoute = useProjectionRoute({ source: sourceId });
+  function readDefinition(id: string) {
+    return readDefinitionRoute(workspaceApi.definitionRead, {
+      params: { id: DefinitionId.parse(id) },
+    });
   }
   async function action(work: () => Promise<() => void>) {
     if (locked.current) return;
@@ -377,8 +361,6 @@ export function CreateFromDefinition({
   onClose: () => void;
   onCreated: (result: DefinitionCreation) => void;
 }) {
-  const readProjection = useProjectionRoute();
-
   const spec = definition.spec;
   const roles = spec.kind === "team" ? [spec.manager, ...spec.members] : [spec];
   const available = connections.filter((c) => c.status === "connected");
@@ -432,6 +414,10 @@ export function CreateFromDefinition({
       .filter(native)
       .sort(),
   );
+  const readProjection = useProjectionRoute({
+    source: sourceId,
+    key: JSON.stringify([catalogRevision, nativeIds]),
+  });
   const catalogKey = JSON.stringify([sourceId, catalogRevision]);
   const catalogs = catalogState.key === catalogKey ? catalogState.entries : {};
   const models = (connectionId: string) =>
@@ -439,7 +425,7 @@ export function CreateFromDefinition({
       ? catalogs[connectionId]?.models || []
       : storedModels(connectionId);
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     const owner = viewOwner();
     // A role changing connection must not invalidate the other roles' loaded
     // catalogs. An explicit refresh or workspace change still reloads them.
@@ -452,10 +438,10 @@ export function CreateFromDefinition({
       void readProjection(
         workspaceApi.connectionModels,
         { params: { id: ConnectionId.parse(connectionId) } },
-        { mode: "once", source: sourceId, signal: controller.signal },
+        { mode: "once" },
       ).then(
         ({ models: discovered }) => {
-          if (controller.signal.aborted || owner !== viewOwner()) return;
+          if (!active || owner !== viewOwner()) return;
           setCatalogState((current) => ({
             key: catalogKey,
             entries: {
@@ -475,7 +461,7 @@ export function CreateFromDefinition({
           );
         },
         (error: Error) => {
-          if (controller.signal.aborted || owner !== viewOwner()) return;
+          if (!active || owner !== viewOwner()) return;
           setCatalogState((current) => ({
             key: catalogKey,
             entries: {
@@ -486,7 +472,9 @@ export function CreateFromDefinition({
         },
       );
     }
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, [catalogKey, nativeIds, sourceId]);
   useEffect(() => {
     alive.current = true;
