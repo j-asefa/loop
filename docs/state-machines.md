@@ -272,6 +272,7 @@ exhausted (lease). A crashed `sending` row becomes `uncertain` at the next
 claim. A later attempt that fails before dispatch keeps an earlier `uncertain`
 (outcome only downgrades to `unattempted`/`blocked` when it was never
 dispatched), so settings still show the receiver may hold the delivery ID.
+Lease expiry also has a durable workspace-notification obligation. Processing that obligation only refreshes the Settings projection; it never releases a lease, consumes an attempt, or rearms/delivers a webhook.
 Delivery is at-least-once by contract with a stable
 `X-Loop-Delivery` id ([integration API](cards-api.md)).
 

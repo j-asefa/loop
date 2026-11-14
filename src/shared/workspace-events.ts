@@ -23,6 +23,7 @@ export const WORKSPACE_COLLECTIONS = [
   "mail",
   "social",
   "pulls",
+  "webhooks",
 ] as const;
 export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
 const Id = z.string().min(1).max(1000);

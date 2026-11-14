@@ -89,10 +89,10 @@ export function watchWorkspaceEvents(options: {
         deadlineTimer = setTimeout(fire, Math.min(2_147_483_647, remaining));
       else
         options.changed(
-          ["feed", "results", "approvals", "pulls"].map((id) =>
+          ["feed", "results", "approvals", "pulls", "webhooks"].map((id) =>
             invalidate({
               kind: "collection",
-              id: id as "feed" | "results" | "approvals" | "pulls",
+              id: id as "feed" | "results" | "approvals" | "pulls" | "webhooks",
             }),
           ),
         );
