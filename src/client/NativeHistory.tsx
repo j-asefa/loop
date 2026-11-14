@@ -1,18 +1,17 @@
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ActivityRecords } from "./ActivityRecords";
-import type { ActivityRecord } from "../shared/agent-activities";
 import { useEffect, useRef, useState } from "react";
 import { FolderSearch, Info, TerminalSquare } from "lucide-react";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import {
-  useProjectionRoute,
-  useSourceRoute,
-  useSourceId,
-} from "./SourceContext";
+import { useSourceRoute, useSourceId } from "./SourceContext";
 import { readRoute } from "./api";
 import { commandStorageKey, storedCommandAt } from "./pendingCommandStorage";
-import { viewOwner } from "./viewCache";
-import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import { viewOwner, viewGeneration } from "./viewCache";
+import {
+  CollectionReadNotice,
+  useCollectionRead,
+  useProjectionQuery,
+} from "./CollectionRead";
 import { Sheet, RichText } from "./components";
 import {
   SettingsList,
@@ -21,40 +20,43 @@ import {
   SettingsRow,
   SettingsSegmented,
 } from "./SettingsUI";
-export function NativeHistory({
-  onClose,
-  onOpen,
-}: {
-  onClose: () => void;
-  onOpen: (id: string) => void;
-}) {
-  const read = useProjectionRoute(),
-    call = useSourceRoute();
-  const sourceId = useSourceId();
+type NativeHistoryProps = { onClose: () => void; onOpen: (id: string) => void };
+export function NativeHistory(props: NativeHistoryProps) {
+  const source = useSourceId();
+  return (
+    <NativeHistoryView
+      key={JSON.stringify([viewGeneration(), source])}
+      {...props}
+    />
+  );
+}
+function NativeHistoryView({ onClose, onOpen }: NativeHistoryProps) {
+  const call = useSourceRoute(),
+    sourceId = useSourceId();
   const recovery = useCollectionRead(sourceId);
   const lastList = useRef({ discover: false, cursor: "" });
   const [data, setData] = useState<
       RouteResponse<typeof workspaceApi.nativeHistoryList>
     >({ managed: [], external: [], next: null }),
     [source, setSource] = useState<"managed" | "external">("managed"),
-    [selected, setSelected] = useState<
-      RouteResponse<
-        typeof workspaceApi.nativeHistoryList
-      >["external"][number] & { note: string }
-    >(),
-    [activities, setActivities] = useState<ActivityRecord[]>([]),
-    [items, setItems] = useState<
-      RouteResponse<typeof workspaceApi.nativeHistoryDetail>["items"]
-    >([]),
+    [externalSelection, setExternalSelection] =
+      useState<
+        RouteResponse<typeof workspaceApi.nativeHistoryList>["external"][number]
+      >(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const selection = useRef(0);
-  useEffect(
-    () => () => {
-      selection.current++;
-    },
-    [],
+  const detailsRead = useProjectionQuery(
+    workspaceApi.nativeHistoryDetail,
+    externalSelection ? { params: { id: externalSelection.id } } : undefined,
+    { source: sourceId },
   );
+  const selected =
+    externalSelection && detailsRead.data
+      ? { ...externalSelection, note: detailsRead.data.note }
+      : undefined;
+  const items = detailsRead.data?.items ?? [];
+  const activities =
+    detailsRead.data?.activities.map((activity) => activity.record) ?? [];
   async function load(discover = false, cursor = "", manual = false) {
     lastList.current = { discover, cursor };
     await recovery.load(
@@ -90,6 +92,12 @@ export function NativeHistory({
           void load(lastList.current.discover, lastList.current.cursor, true)
         }
       />
+      <CollectionReadNotice
+        error={detailsRead.error && "Native conversation: " + detailsRead.error}
+        busy={detailsRead.busy}
+        retry={detailsRead.retry}
+      />
+      {detailsRead.loading && <p role="status">Loading native conversation…</p>}
       <SettingsSegmented
         label="History source"
         value={source}
@@ -131,7 +139,7 @@ export function NativeHistory({
               icon={FolderSearch}
               title="Discover Codex history"
               description="Saved threads in other directories"
-              disabled={busy || recovery.busy}
+              disabled={busy || recovery.busy || detailsRead.busy}
               onClick={() => void load(true)}
             />
           </SettingsList>
@@ -146,24 +154,11 @@ export function NativeHistory({
                 icon={TerminalSquare}
                 title={c.title}
                 description={c.project}
-                onClick={async () => {
-                  const ticket = ++selection.current;
-                  setBusy(true);
+                onClick={() => {
                   setError("");
-                  try {
-                    const r = await read(workspaceApi.nativeHistoryDetail, {
-                      params: { id: c.id },
-                    });
-                    if (ticket !== selection.current) return;
-                    setSelected({ ...c, note: r.note });
-                    setItems(r.items);
-                    setActivities(r.activities.map((a) => a.record));
-                  } catch (e) {
-                    if (ticket === selection.current)
-                      setError((e as Error).message);
-                  } finally {
-                    if (ticket === selection.current) setBusy(false);
-                  }
+                  if (externalSelection?.id === c.id)
+                    void detailsRead.refresh(true);
+                  else setExternalSelection(c);
                 }}
               />
             ))}
@@ -173,7 +168,7 @@ export function NativeHistory({
       {source === "external" && data.next && (
         <button
           className="secondary"
-          disabled={busy || recovery.busy}
+          disabled={busy || recovery.busy || detailsRead.busy}
           onClick={() => void load(true, data.next || "")}
         >
           Load more
@@ -191,7 +186,7 @@ export function NativeHistory({
           ))}
           <ActivityRecords records={activities} />
           <button
-            disabled={busy}
+            disabled={busy || detailsRead.busy}
             className="primary"
             onClick={async () => {
               setBusy(true);

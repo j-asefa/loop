@@ -1,23 +1,24 @@
 import {
   ConversationId,
   RunId,
+  MemorySourceId,
   ProjectId,
   parseId,
-  MemorySourceId,
 } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import {
-  useSourceRoute,
-  useSourceId,
-  useProjectionRoute,
-} from "./SourceContext";
+import { useSourceRoute, useSourceId } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bookmark, Info, MessageSquare } from "lucide-react";
 import { parse } from "./json";
 import { readRoute } from "./api";
-import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import { viewGeneration } from "./viewCache";
+import {
+  CollectionReadNotice,
+  useCollectionRead,
+  useProjectionQuery,
+} from "./CollectionRead";
 import { Sheet } from "./components";
 import {
   SettingsList,
@@ -27,40 +28,86 @@ import {
   SettingsToggle,
 } from "./SettingsUI";
 import type { Folder } from "../shared/types";
-export function Memory({
-  folders,
-  onClose,
-}: {
-  folders: Folder[];
-  onClose: () => void;
-}) {
+type MemoryProps = { folders: Folder[]; onClose: () => void };
+export function Memory(props: MemoryProps) {
+  const source = useSourceId();
+  return (
+    <MemoryView key={JSON.stringify([viewGeneration(), source])} {...props} />
+  );
+}
+function MemoryView({ folders, onClose }: MemoryProps) {
   const call = useSourceRoute(),
-    read = useProjectionRoute();
-  const [data, setData] = useState<RouteResponse<
-      typeof workspaceApi.memoryStatus
-    > | null>(null),
-    [error, setError] = useState(""),
+    apiSource = useSourceId();
+  const statusRead = useProjectionQuery(
+    workspaceApi.memoryStatus,
+    {},
+    { source: apiSource },
+  );
+  const data = statusRead.data;
+  const [error, setError] = useState(""),
     [title, setTitle] = useState(""),
     [content, setContent] = useState(""),
     [project, setProject] = useState(""),
-    [pinning, setPinning] = useState(false),
-    [source, setSource] = useState<RouteResponse<
-      typeof workspaceApi.memorySource
-    > | null>(null);
-  const load = () =>
-    read(workspaceApi.memoryStatus, {})
-      .then(setData)
-      .catch((e) => setError(e.message));
+    [pinning, setPinning] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    () => new URLSearchParams(location.search).get("memory") || undefined,
+  );
+  const sourceRead = useProjectionQuery(
+    workspaceApi.memorySource,
+    selectedId
+      ? { params: { id: MemorySourceId.parse(selectedId) } }
+      : undefined,
+    { source: apiSource },
+  );
+  const [draft, setDraft] =
+    useState<RouteResponse<typeof workspaceApi.memorySource>>();
+  const source = selectedId ? (draft ?? sourceRead.data ?? null) : null;
+  const selection = useRef(0);
+  const currentReads = useRef({ selectedId, sourceRead, statusRead });
+  currentReads.current = { selectedId, sourceRead, statusRead };
+  const mounted = useRef(true);
   useEffect(() => {
-    void load();
-    const requested = new URLSearchParams(location.search).get("memory");
-    if (requested)
-      void read(workspaceApi.memorySource, {
-        params: { id: MemorySourceId.parse(requested) },
-      })
-        .then(setSource)
-        .catch((e) => setError(e.message));
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
   }, []);
+  const load = () =>
+    mounted.current
+      ? currentReads.current.statusRead.refresh()
+      : Promise.resolve();
+  function openSource(id: string) {
+    selection.current++;
+    setDraft(undefined);
+    if (selectedId === id) void sourceRead.refresh(true);
+    else setSelectedId(id);
+  }
+  function closeSource() {
+    selection.current++;
+    setSelectedId(undefined);
+    setDraft(undefined);
+  }
+  async function saveNote() {
+    if (!source || source.kind !== "note") return;
+    const ticket = selection.current;
+    try {
+      await call(workspaceApi.memoryNoteUpdate, {
+        params: { id: source.id },
+        body: {
+          revision: source.revision,
+          title: source.title,
+          content: source.content,
+        },
+      });
+      if (!mounted.current) return;
+      if (ticket === selection.current) closeSource();
+      else if (currentReads.current.selectedId === source.id)
+        void currentReads.current.sourceRead.refresh();
+      await load();
+    } catch (error) {
+      setError((error as Error).message);
+    }
+  }
   const change = async (scope: string, enabled: boolean) => {
     try {
       await call(workspaceApi.memoryPolicy, { body: { scope, enabled } });
@@ -85,6 +132,19 @@ export function Memory({
         <p className="settings-intro">
           What agents can recall across conversations.
         </p>
+        <CollectionReadNotice
+          error={statusRead.error && "Shared memory: " + statusRead.error}
+          busy={statusRead.busy}
+          retry={statusRead.retry}
+        />
+        <CollectionReadNotice
+          error={sourceRead.error && "Saved source: " + sourceRead.error}
+          busy={sourceRead.busy}
+          retry={sourceRead.retry}
+        />
+        {selectedId && !source && (
+          <button onClick={closeSource}>Close source</button>
+        )}
         {error && (
           <p role="alert" className="error">
             {error}
@@ -204,13 +264,7 @@ export function Memory({
                         className="memory-source-open"
                         aria-label={s.title}
                         disabled={!!s.tombstone || !s.eligible}
-                        onClick={() =>
-                          void read(workspaceApi.memorySource, {
-                            params: { id: s.id },
-                          })
-                            .then(setSource)
-                            .catch((e) => setError(e.message))
-                        }
+                        onClick={() => openSource(s.id)}
                       >
                         <span className="settings-row-icon">
                           {s.kind === "note" ? (
@@ -272,7 +326,7 @@ export function Memory({
                     {...proseEntry}
                     value={source.title}
                     onChange={(e) =>
-                      setSource({ ...source, title: e.target.value })
+                      setDraft({ ...source, title: e.target.value })
                     }
                   />
                 </label>
@@ -284,28 +338,11 @@ export function Memory({
                     value={source.content}
                     rows={6}
                     onChange={(e) =>
-                      setSource({ ...source, content: e.target.value })
+                      setDraft({ ...source, content: e.target.value })
                     }
                   />
                 </label>
-                <button
-                  className="primary"
-                  onClick={() =>
-                    void call(workspaceApi.memoryNoteUpdate, {
-                      params: { id: source.id },
-                      body: {
-                        revision: source.revision,
-                        title: source.title,
-                        content: source.content,
-                      },
-                    })
-                      .then(() => {
-                        setSource(null);
-                        return load();
-                      })
-                      .catch((e) => setError(e.message))
-                  }
-                >
+                <button className="primary" onClick={() => void saveNote()}>
                   Save note revision
                 </button>
               </>
@@ -316,7 +353,7 @@ export function Memory({
               {"link" in source && source.conversation_id && (
                 <a href={source.link}>Open original message</a>
               )}
-              <button onClick={() => setSource(null)}>Close source</button>
+              <button onClick={closeSource}>Close source</button>
             </div>
           </div>
         )}
@@ -345,31 +382,22 @@ export function memoryReceiptText(receipt: MemoryReceipt) {
   );
 }
 export function MemoryUsed({ runId }: { runId: string }) {
-  const read = useProjectionRoute();
-  const [receipt, setReceipt] = useState<RouteResponse<
-      typeof workspaceApi.runMemory
-    > | null>(null),
-    [opened, setOpened] = useState(false),
-    [error, setError] = useState("");
-  useEffect(() => {
-    if (!opened) return;
-    let active = true;
-    setError("");
-    void read(workspaceApi.runMemory, { params: { id: RunId.parse(runId) } })
-      .then((value) => {
-        if (active) setReceipt(value);
-      })
-      .catch((error: Error) => {
-        if (active && error.name !== "AbortError") setError(error.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [runId, opened, read]);
+  const source = useSourceId();
+  const [opened, setOpened] = useState(false);
+  const receiptRead = useProjectionQuery(
+    workspaceApi.runMemory,
+    opened ? { params: { id: RunId.parse(runId) } } : undefined,
+    { source },
+  );
+  const receipt = receiptRead.data;
   return (
     <details onToggle={(e) => setOpened(e.currentTarget.open)}>
       <summary>Memory used</summary>
-      {error && <p role="alert">{error}</p>}
+      <CollectionReadNotice
+        error={receiptRead.error && "Memory used: " + receiptRead.error}
+        busy={receiptRead.busy}
+        retry={receiptRead.retry}
+      />
       {receipt && (
         <>
           <p>{memoryReceiptText(receipt)}</p>
