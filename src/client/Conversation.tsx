@@ -26,7 +26,7 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { readRoute, UnavailableResponse } from "./api";
+import { UnavailableResponse } from "./api";
 import { CollectionReadNotice } from "./CollectionRead";
 import {
   listenWorkspaceChanges,
@@ -261,7 +261,6 @@ function ConversationView({
     workspaceApi.conversationContinueStart,
   );
   const readUsage = useProjectionRoute();
-  const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
@@ -389,6 +388,9 @@ function ConversationView({
   const [newProvider, setNewProvider] = useState<Agent | null>(null);
   // The link target, a jump from the outline, or where you left off.
   const anchor = jump || messageId;
+  const readTranscript = useProjectionRoute({
+    key: JSON.stringify([id, anchor]),
+  });
   // A link target or a jump is highlighted; resuming is not.
   const highlight =
     anchor && (anchor === messageId || jumpKind === "jump") ? anchor : null;
@@ -541,20 +543,20 @@ function ConversationView({
     const readSnapshot = (
       query: RouteInput<typeof workspaceApi.conversation>["query"],
     ) =>
-      readRoute(
+      readTranscript(
         workspaceApi.conversation,
         { params: { id: id }, query },
-        sourceId,
-        readController.current!.signal,
-        (error) => {
-          if (
-            current === generation.current &&
-            owner === viewOwner() &&
-            isRateLimited(error)
-          ) {
-            setLoadError("");
-            setRateLimited(true);
-          }
+        {
+          onRetry: (error) => {
+            if (
+              current === generation.current &&
+              owner === viewOwner() &&
+              isRateLimited(error)
+            ) {
+              setLoadError("");
+              setRateLimited(true);
+            }
+          },
         },
       ).then(browserTranscript);
     if (initial) setLoading(true);
@@ -716,7 +718,6 @@ function ConversationView({
   }, [id, messageId]);
   useEffect(() => {
     generation.current++;
-    readController.current = new AbortController();
     anchoring.current = false;
     followLatest.current = !anchor;
     setAwayFromLatest(false);
@@ -884,7 +885,6 @@ function ConversationView({
     );
     return () => {
       generation.current++;
-      readController.current?.abort();
       window.removeEventListener("loop-refresh", update);
       stopFrames();
       stopDetail();
@@ -1646,11 +1646,9 @@ function ConversationView({
                 const projection = transcriptHandoff.current;
                 const snapshot = projection.begin();
                 try {
-                  const older = await readRoute(
+                  const older = await readTranscript(
                     workspaceApi.conversation,
                     { params: { id: id }, query: { before: data.next! } },
-                    sourceId,
-                    readController.current!.signal,
                   ).then(browserTranscript);
                   if (current !== generation.current) return;
                   const rows = ProjectedMessage.array().parse(older.messages);
