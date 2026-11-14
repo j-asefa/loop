@@ -48,6 +48,7 @@ export function loopFileUrl(href?: string, source?: string, preview?: "html") {
   } catch {
     // Other links keep the normal Markdown link behaviour.
   }
+  return undefined;
 }
 
 export function FileLink({
@@ -101,6 +102,7 @@ function responseName(response: Response) {
       /* Keep the supplied name. */
     }
   }
+  return undefined;
 }
 
 const previewMime: Record<string, string> = {

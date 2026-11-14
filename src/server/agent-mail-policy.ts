@@ -228,6 +228,7 @@ export function authorizeMail(
         member.agent_id,
         member.conversation_id,
       );
+  return undefined;
 }
 
 /** Refuse obsolete queued mail before it can cause an external effect. */
@@ -281,6 +282,7 @@ export function queuedMailFailure(runId: string): string | undefined {
     mailQueries.refuse(db, error.message, mail.id);
     return error.message;
   }
+  return undefined;
 }
 
 export function queuedMailReady(run: {

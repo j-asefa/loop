@@ -129,6 +129,7 @@ export function createFleetPeerHttp(
     res.once("finish", release);
     res.once("close", release);
     next();
+    return undefined;
   });
   app.use(express.json({ limit: "4mb", strict: true }));
   const routes = registrar("fleet-peer-protocol", {

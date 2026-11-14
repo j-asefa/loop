@@ -78,6 +78,7 @@ export function mountedRoute(
         ? match.contract
         : undefined;
   }
+  return undefined;
 }
 
 type ResponseBody<C extends RouteContract> = C extends { kind: "stream" }

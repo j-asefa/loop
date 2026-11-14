@@ -1779,6 +1779,7 @@ export function Feed({
     } finally {
       if (needsReads.current === reading) needsReads.current = undefined;
     }
+    return undefined;
   }
   const pendingRefresh = useRef({ key: "", sources: new Set<string>() });
   const headSources = useRef(new Set<string>());

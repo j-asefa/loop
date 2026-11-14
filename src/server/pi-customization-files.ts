@@ -200,6 +200,7 @@ export function piSavedTrust(
     return { trusted: true, decision: "trusted by Pi default" };
   if (setting === "never")
     return { trusted: false, decision: "declined by Pi default" };
+  return undefined;
 }
 
 export function piInstructionSources(

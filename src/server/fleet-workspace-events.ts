@@ -210,6 +210,7 @@ export class FleetWorkspaceEvents {
     } catch {
       reject(403);
     }
+    return undefined;
   }
   close() {
     if (this.stopped) return;

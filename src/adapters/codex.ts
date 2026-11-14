@@ -34,6 +34,7 @@ function elicitationUrl(params: any): string | undefined {
     if (url.protocol === "https:" && !url.username && !url.password)
       return url.href;
   } catch {}
+  return undefined;
 }
 
 function codexTokens(value: any): Tokens | undefined {

@@ -125,6 +125,7 @@ export function recordFleetEffectEdit(
     JSON.stringify(context.grant),
   );
   if (added) return { owner, kind, effectId, commandId: context.commandId };
+  return undefined;
 }
 
 /** Only definitive non-delivery may discard the new attempt's constraint.

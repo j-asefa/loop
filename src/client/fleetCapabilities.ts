@@ -76,4 +76,5 @@ export function fleetOperationReason(
   )?.[0];
   if (!name || !(read ? catalog.reads : catalog.actions).includes(name))
     return "This machine does not allow this operation through the fleet. Update or re-pair it with the needed access, or open its own workspace.";
+  return undefined;
 }

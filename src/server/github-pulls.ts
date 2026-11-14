@@ -114,6 +114,7 @@ function checksState(value: unknown): ChecksState | undefined {
     case "EXPECTED":
       return "pending";
   }
+  return undefined;
 }
 function reviewDecision(value: unknown): ReviewDecision | undefined {
   switch (value) {
@@ -124,6 +125,7 @@ function reviewDecision(value: unknown): ReviewDecision | undefined {
     case "REVIEW_REQUIRED":
       return "review_required";
   }
+  return undefined;
 }
 
 /** A GraphQL pull request as a list item, or undefined if it isn't one. */
@@ -395,6 +397,7 @@ function githubLink(value: unknown) {
       ? parsed.href
       : undefined;
   } catch {}
+  return undefined;
 }
 function checkLink(value: unknown) {
   const url = text(value, 1000);
@@ -403,6 +406,7 @@ function checkLink(value: unknown) {
     const parsed = new URL(url);
     return parsed.protocol === "https:" ? parsed.href : undefined;
   } catch {}
+  return undefined;
 }
 
 function checkRun(node: any): PullCheck | undefined {
@@ -435,6 +439,7 @@ function checkRun(node: any): PullCheck | undefined {
       description: text(node.description, 200),
     };
   }
+  return undefined;
 }
 
 // Review threads come a page at a time; each says how many comments it has so

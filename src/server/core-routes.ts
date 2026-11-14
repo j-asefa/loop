@@ -169,6 +169,7 @@ routes.on(workspaceApi.connectionRefresh, async (req, res) => {
       "Connection could not be refreshed. Reconnect with a valid API key.",
     );
   }
+  return undefined;
 });
 routes.on(workspaceApi.connectionModels, async (req, res) => {
   const c = ownedConnection(req.params.id, res.locals.owner);

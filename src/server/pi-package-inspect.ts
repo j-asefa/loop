@@ -226,4 +226,5 @@ export function previousPiPackageSource(
       ? `git:github.com/${git[1]}/${git[2]}@${sha}`
       : undefined;
   }
+  return undefined;
 }

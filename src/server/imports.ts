@@ -510,4 +510,5 @@ export async function executeImport(run: Run) {
     });
   }
   writeImports(run.owner_id, () => importsQueries.markCompleted(db, importId));
+  return undefined;
 }

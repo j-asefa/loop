@@ -64,6 +64,7 @@ export async function executionCommand(
         now(),
         now(),
       );
+      return undefined;
     })
     .immediate();
   if (prior) {
