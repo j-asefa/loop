@@ -119,8 +119,10 @@ it("releases exhausted retries without inventing another retry loop", async () =
   await failed;
   slow.reject(new Error("exhausted"));
   await slow.result.catch(() => {});
+  expect(slow.aborted()).toBe(false);
   expect(recovered).not.toHaveBeenCalled();
   await expect(
     reads.read("one", "head", async () => "manual refresh", recovered),
   ).resolves.toBe("manual refresh");
+  expect(slow.aborted()).toBe(true);
 });

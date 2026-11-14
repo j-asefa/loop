@@ -1,8 +1,9 @@
+import { createReadExecutor } from "./read-executor";
 import { viewGeneration } from "./viewCache";
 
-type Pending<T> = {
+type Pending = {
   source: string;
-  controller: AbortController;
+  reader: ReturnType<typeof createReadExecutor>;
   reject: (error: unknown) => void;
   retrying: boolean;
   error?: unknown;
@@ -12,14 +13,14 @@ type Pending<T> = {
  * Report its first failure immediately, but keep one cancellable GET recovery.
  * Recovery requests a fresh head; a delayed page never installs stale state. */
 export class FeedReadRecovery<T> {
-  private pending = new Map<string, Pending<T>>();
+  private pending = new Map<string, Pending>();
   private generation = viewGeneration();
 
   reset(source?: string) {
     for (const [key, entry] of this.pending) {
       if (source !== undefined && source !== entry.source) continue;
       this.pending.delete(key);
-      entry.controller.abort();
+      entry.reader.dispose();
       entry.reject(new DOMException("Obsolete Feed read", "AbortError"));
     }
   }
@@ -45,7 +46,7 @@ export class FeedReadRecovery<T> {
     if (prior?.retrying) return Promise.reject(prior.error);
     if (prior) {
       this.pending.delete(key);
-      prior.controller.abort();
+      prior.reader.dispose();
       prior.reject(new DOMException("Superseded Feed read", "AbortError"));
     }
     let resolve!: (value: T) => void, reject!: (error: unknown) => void;
@@ -53,43 +54,54 @@ export class FeedReadRecovery<T> {
       resolve = yes;
       reject = no;
     });
-    const entry: Pending<T> = {
+    const current = () =>
+      this.pending.get(key) === entry && generation === viewGeneration();
+    const failed = (error: unknown) => {
+      // Exhausted reads retain transport recovery interest until reset or a
+      // new intent. Disposing here would cancel that signal-bound interest.
+      if (current()) entry.retrying = false;
+      else {
+        if (this.pending.get(key) === entry) this.pending.delete(key);
+        entry.reader.dispose();
+      }
+      reject(error);
+    };
+    const entry: Pending = {
       source,
-      controller: new AbortController(),
+      reader: createReadExecutor({
+        current,
+        changed: (state) => {
+          // Success retires the entry in receive before idle publication.
+          if (!state.busy) failed(state.failure);
+        },
+      }),
       reject,
       retrying: false,
     };
     this.pending.set(key, entry);
-    const current = () =>
-      this.pending.get(key) === entry && generation === viewGeneration();
-    void (async () => {
-      try {
-        const value = await fetch(entry.controller.signal, (error) => {
-          if (!current()) {
-            entry.controller.abort();
-            throw new DOMException("Obsolete Feed read", "AbortError");
-          }
-          entry.retrying = true;
-          entry.error = error;
-          reject(error);
-        });
-        if (!current())
-          throw new DOMException("Obsolete Feed read", "AbortError");
-        this.pending.delete(key);
-        entry.controller.abort();
-        if (entry.retrying) recovered();
-        else resolve(value);
-      } catch (error) {
-        // readRoute can retain shared recovery after retry exhaustion. The
-        // view must still be able to cancel it before a manual retry or reset.
-        if (current()) entry.retrying = false;
-        else {
-          if (this.pending.get(key) === entry) this.pending.delete(key);
-          entry.controller.abort();
-        }
-        reject(error);
-      }
-    })();
+    void entry.reader
+      .execute(
+        (signal) =>
+          fetch(signal, (error) => {
+            if (!current()) {
+              entry.reader.dispose();
+              throw new DOMException("Obsolete Feed read", "AbortError");
+            }
+            entry.retrying = true;
+            entry.error = error;
+            reject(error);
+          }),
+        (value) => {
+          this.pending.delete(key);
+          entry.reader.dispose();
+          if (entry.retrying) recovered();
+          else resolve(value);
+        },
+      )
+      .then((completion) => {
+        if (completion.status === "cancelled")
+          failed(new DOMException("Obsolete Feed read", "AbortError"));
+      });
     return delivery;
   }
 }
