@@ -1,3 +1,4 @@
+import { harnesses } from "../../shared/harnesses.js";
 import { writeMessageMetadata } from "../../shared/message-metadata.js";
 import { writeArtifactMetadata } from "../../shared/artifact-metadata.js";
 import { tryWithoutBusyWait } from "../busy-wait.js";
@@ -404,9 +405,7 @@ export class NativeProjector {
       live.binding.conversation_id,
     );
     if (current?.generation !== live.generation) return;
-    const transport = ["acp", "grok"].includes(live.binding.harness)
-      ? "acp"
-      : "native";
+    const transport = harnesses[live.binding.harness].activityTransport;
     if (event.type === "activity_capabilities") {
       ingestNativeCapabilities(live, transport, event.capabilities);
       return;

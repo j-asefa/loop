@@ -1,6 +1,20 @@
 import { z } from "zod";
 
-type HarnessDescriptor = {
+export const apiProviders = ["openai", "anthropic"] as const;
+type ApiProvider = (typeof apiProviders)[number];
+export type CliSignIn = {
+  provider: { id: string; name: string };
+  methods: readonly {
+    id: string;
+    type: "oauth";
+    label: string;
+    args: readonly string[];
+  }[];
+  defaultArgs: readonly string[];
+  response: { kind: "device-code" } | { kind: "manual-code"; prompt: string };
+  domains: readonly { name: string; subdomains: boolean }[];
+};
+type HarnessDescriptor<H extends string> = {
   label: string;
   executable: string | null;
   minimumVersion: string | null;
@@ -21,14 +35,18 @@ type HarnessDescriptor = {
   workspaceTools: boolean;
   agentMail: boolean;
   midTurn: "steer" | "queue";
-  provider: string;
+  // A native provider is its harness identity or an existing API provider.
+  provider: H | ApiProvider;
+  activityTransport: "native" | "acp";
+  launchPermissionMode: boolean;
+  cliSignIn: CliSignIn | null;
   importWorktree: boolean;
   history: string;
 };
 
 // Version floors admit newer stable releases; adapters still verify their live
 // protocol and billing contract before dispatch. These are not release pins.
-export const harnesses = {
+const descriptors = {
   codex: {
     label: "Codex",
     executable: "codex",
@@ -51,6 +69,25 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "codex",
+    activityTransport: "native",
+    launchPermissionMode: false,
+    cliSignIn: {
+      provider: { id: "openai", name: "ChatGPT" },
+      methods: [
+        {
+          id: "oauth",
+          type: "oauth",
+          label: "Sign in with ChatGPT",
+          args: ["login", "--device-auth"],
+        },
+      ],
+      defaultArgs: ["login", "--device-auth"],
+      response: { kind: "device-code" },
+      domains: [
+        { name: "openai.com", subdomains: true },
+        { name: "chatgpt.com", subdomains: true },
+      ],
+    },
     importWorktree: true,
     history: "native read/list/fork",
   },
@@ -76,6 +113,35 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "anthropic",
+    activityTransport: "native",
+    launchPermissionMode: true,
+    cliSignIn: {
+      provider: { id: "anthropic", name: "Claude" },
+      methods: [
+        {
+          id: "oauth",
+          type: "oauth",
+          label: "Sign in with Claude",
+          args: ["auth", "login", "--claudeai"],
+        },
+        {
+          id: "console",
+          type: "oauth",
+          label: "Anthropic Console (API billing)",
+          args: ["auth", "login", "--console"],
+        },
+      ],
+      defaultArgs: ["auth", "login", "--claudeai"],
+      response: {
+        kind: "manual-code",
+        prompt: "Paste the verification code from Claude",
+      },
+      domains: [
+        { name: "anthropic.com", subdomains: true },
+        { name: "claude.ai", subdomains: true },
+        { name: "claude.com", subdomains: true },
+      ],
+    },
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -101,6 +167,9 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "pi",
+    activityTransport: "native",
+    launchPermissionMode: false,
+    cliSignIn: null,
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -126,6 +195,9 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "opencode",
+    activityTransport: "native",
+    launchPermissionMode: false,
+    cliSignIn: null,
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -153,6 +225,9 @@ export const harnesses = {
     agentMail: false,
     midTurn: "queue",
     provider: "antigravity",
+    activityTransport: "native",
+    launchPermissionMode: false,
+    cliSignIn: null,
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -180,6 +255,9 @@ export const harnesses = {
     agentMail: true,
     midTurn: "steer",
     provider: "muse",
+    activityTransport: "native",
+    launchPermissionMode: false,
+    cliSignIn: null,
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -209,6 +287,22 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "grok",
+    activityTransport: "acp",
+    launchPermissionMode: false,
+    cliSignIn: {
+      provider: { id: "xai", name: "Grok" },
+      methods: [
+        {
+          id: "oauth",
+          type: "oauth",
+          label: "Sign in with Grok",
+          args: ["login", "--device-auth"],
+        },
+      ],
+      defaultArgs: ["login", "--device-auth"],
+      response: { kind: "device-code" },
+      domains: [{ name: "accounts.x.ai", subdomains: false }],
+    },
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
@@ -234,17 +328,25 @@ export const harnesses = {
     agentMail: true,
     midTurn: "queue",
     provider: "acp",
+    activityTransport: "acp",
+    launchPermissionMode: false,
+    cliSignIn: null,
     importWorktree: false,
     history: "Loop-managed history; native resume",
   },
-} as const satisfies Record<string, HarnessDescriptor>;
+} as const;
+
+export const harnesses = descriptors satisfies {
+  [H in keyof typeof descriptors]: HarnessDescriptor<H>;
+};
 
 export type Harness = keyof typeof harnesses;
 export const harnessIds = Object.keys(harnesses) as Harness[];
 export const Harness = z.enum(harnessIds);
-type WithProperty<P extends "runtime" | "managed"> = {
+type WithProperty<P extends "runtime" | "managed" | "workspaceTools"> = {
   [H in Harness]: (typeof harnesses)[H][P] extends true ? H : never;
 }[Harness];
+export type WorkspaceToolHarness = WithProperty<"workspaceTools">;
 export type RuntimeHarness = WithProperty<"runtime">;
 export const runtimeHarnessIds = harnessIds.filter(
   (name): name is RuntimeHarness => harnesses[name].runtime,

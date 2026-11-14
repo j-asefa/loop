@@ -1,3 +1,4 @@
+import { harnesses, isHarness } from "./harnesses.js";
 // The workspace's standing approval level for native harness tool calls
 // (Settings → Permissions → Agent tool calls). Harnesses that accept a launch
 // mode start new sessions in it; Loop answers the others' one-call approvals.
@@ -29,9 +30,10 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
   return PERMISSION_MODES.some((mode) => mode.value === value);
 }
 // Only these harnesses accept a permission mode at launch.
-const PERMISSION_MODE_HARNESSES = ["claude"];
 function supportsPermissionMode(harness?: string | null) {
-  return !!harness && PERMISSION_MODE_HARNESSES.includes(harness);
+  return (
+    !!harness && isHarness(harness) && harnesses[harness].launchPermissionMode
+  );
 }
 /**
  * The choice Loop answers for the user, if any. "Never ask" approves single
