@@ -9,6 +9,7 @@ export function createReadExecutor(options: {
   current(): boolean;
   changed(state: ReadState): void;
 }) {
+  const tasks = new Set<() => void>();
   const context = {
     controller: undefined as AbortController | undefined,
     active: true,
@@ -26,6 +27,8 @@ export function createReadExecutor(options: {
   function cancelIO() {
     context.epoch++;
     context.controller?.abort();
+    for (const cancel of tasks) cancel();
+    tasks.clear();
     context.controller = undefined;
     context.running = false;
     context.queued = undefined;
@@ -117,9 +120,55 @@ export function createReadExecutor(options: {
   ): Promise<void> {
     await execute(read, receive, manual, priority);
   }
+  /** Workflow reads return independent results; they do not replace or queue snapshots. */
+  async function request<T>(
+    read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
+    {
+      signal,
+      mode = "automatic",
+    }: { signal?: AbortSignal; mode?: ReadMode } = {},
+  ): Promise<T> {
+    const aborted = () =>
+      new DOMException("The read was cancelled.", "AbortError");
+    if (!context.active || !options.current() || signal?.aborted)
+      throw aborted();
+    const epoch = context.epoch;
+    const child = createReadExecutor({
+      current: () =>
+        context.active &&
+        context.epoch === epoch &&
+        options.current() &&
+        !signal?.aborted,
+      changed: () => {},
+    });
+    const cancel = child.dispose;
+    tasks.add(cancel);
+    signal?.addEventListener("abort", cancel, { once: true });
+    let value!: T;
+    try {
+      if (signal?.aborted) cancel();
+      const completion = await child.execute(
+        read,
+        (next) => {
+          value = next;
+        },
+        mode === "manual",
+      );
+      if (completion.status === "error" && completion.current())
+        throw completion.error;
+      if (completion.status !== "success" || !completion.current())
+        throw aborted();
+      return value;
+    } finally {
+      tasks.delete(cancel);
+      signal?.removeEventListener("abort", cancel);
+      child.dispose();
+    }
+  }
   return {
     load,
     execute,
+    request,
     cancel,
     isBusy: () => context.running,
     activate() {

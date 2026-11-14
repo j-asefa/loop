@@ -3,7 +3,7 @@ import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, type ManagedHarness as Harness } from "../shared/harnesses";
 import { literalEntry } from "./textEntry";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
 import { workspaceApi } from "../shared/workspace-api";
 import type { NativeProviderView } from "../shared/native-providers";
@@ -17,7 +17,19 @@ import { RuntimeSignIn } from "./RuntimeSignIn";
 type Target = { name: Harness; label: string; projectId: string };
 type Provider = NativeProviderView["providers"][number];
 
-export function HarnessProviders({
+export function HarnessProviders(
+  props: Parameters<typeof HarnessProvidersView>[0],
+) {
+  const source = useSourceId();
+  return (
+    <HarnessProvidersView
+      key={JSON.stringify([viewGeneration(), source, props.runtime])}
+      {...props}
+    />
+  );
+}
+
+function HarnessProvidersView({
   runtime,
   projectId,
   location,
@@ -31,7 +43,9 @@ export function HarnessProviders({
   onChange(): Promise<void>;
 }) {
   const sourceId = useSourceId();
-  const read = useProjectionRoute();
+  const read = useProjectionRoute({
+    key: JSON.stringify([runtime, projectId]),
+  });
   const [view, setView] = useState<NativeProviderView>();
   const [adding, setAdding] = useState(false);
   const [provider, setProvider] = useState("");
@@ -114,15 +128,17 @@ export function HarnessProviders({
     if (current()) setView(next);
     return next;
   }
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
     void load().catch(() => {
       if (current())
         setError("Could not load providers. Refresh to try again.");
     });
-    return () => {
-      mounted.current = false;
-    };
   }, [runtime, projectId, sourceId]);
   async function perform(action: () => Promise<void>) {
     setBusy(true);

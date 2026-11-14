@@ -1,12 +1,18 @@
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { harnesses, isManagedHarness } from "../shared/harnesses";
-import { useProjectionRoute } from "./SourceContext";
+import { useProjectionRoute, useSourceId } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { runtimeSetupMessages } from "../shared/runtime-setup";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { parse } from "./json";
 import { Sheet } from "./components";
 import { ConnectionDetails } from "./ConnectionDetails";
@@ -26,7 +32,17 @@ type Runtime = Discovery["runtimes"][number];
 function matchesRuntime(connection: Connection, runtime: Runtime) {
   return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
 }
-export function RuntimeSetup({
+export function RuntimeSetup(props: Parameters<typeof RuntimeSetupView>[0]) {
+  const source = useSourceId();
+  return (
+    <RuntimeSetupView
+      key={JSON.stringify([viewGeneration(), source])}
+      {...props}
+    />
+  );
+}
+
+function RuntimeSetupView({
   onEnabled,
   connections = [],
 }: {
@@ -38,7 +54,7 @@ export function RuntimeSetup({
   const generation = viewGeneration();
   const source = executionSourceId();
   const mounted = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;

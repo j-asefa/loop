@@ -28,6 +28,123 @@ function fixture() {
   };
 }
 
+it("keeps independent task results separate without changing snapshot state", async () => {
+  const { reader, states } = fixture();
+  const a = deferred<string>(),
+    b = deferred<number>();
+  const first = reader.request(() => a.promise);
+  const second = reader.request(() => b.promise);
+  b.resolve(42);
+  expect(await second).toBe(42);
+  a.resolve("provider a");
+  expect(await first).toBe("provider a");
+  expect(states).toEqual([]);
+});
+
+it("cancels every independent task and rejects late results before reuse", async () => {
+  const { reader } = fixture();
+  const a = deferred<string>(),
+    b = deferred<string>();
+  const signals: AbortSignal[] = [];
+  const first = reader.request((signal) => {
+    signals.push(signal);
+    return a.promise;
+  });
+  const second = reader.request((signal) => {
+    signals.push(signal);
+    return b.promise;
+  });
+  const firstRejected = expect(first).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  const secondRejected = expect(second).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  reader.cancel();
+  expect(signals.every((signal) => signal.aborted)).toBe(true);
+  expect(await reader.request(async () => "new intent")).toBe("new intent");
+  a.resolve("old a");
+  b.resolve("old b");
+  await Promise.all([firstRejected, secondRejected]);
+});
+
+it("links external cancellation to only its own task", async () => {
+  const { reader } = fixture();
+  const external = new AbortController(),
+    a = deferred<string>(),
+    b = deferred<string>();
+  let firstSignal!: AbortSignal, secondSignal!: AbortSignal;
+  const first = reader.request(
+    (signal) => {
+      firstSignal = signal;
+      return a.promise;
+    },
+    { signal: external.signal },
+  );
+  const rejected = expect(first).rejects.toMatchObject({ name: "AbortError" });
+  const second = reader.request((signal) => {
+    secondSignal = signal;
+    return b.promise;
+  });
+  external.abort();
+  expect(firstSignal.aborted).toBe(true);
+  expect(secondSignal.aborted).toBe(false);
+  a.resolve("late");
+  b.resolve("current");
+  await rejected;
+  expect(await second).toBe("current");
+});
+
+it("does not dispatch an externally cancelled or disposed task", async () => {
+  const { reader } = fixture(),
+    external = new AbortController();
+  const read = vi.fn(async () => "must not dispatch");
+  external.abort();
+  await expect(
+    reader.request(read, { signal: external.signal }),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  reader.dispose();
+  await expect(reader.request(read)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(read).not.toHaveBeenCalled();
+  reader.activate();
+  expect(await reader.request(async () => "reactivated")).toBe("reactivated");
+});
+
+it("rejects a task result after its owner changes", async () => {
+  const { reader, changeOwner } = fixture(),
+    pending = deferred<string>();
+  const task = reader.request(() => pending.promise);
+  const rejected = expect(task).rejects.toMatchObject({ name: "AbortError" });
+  changeOwner();
+  pending.resolve("private old result");
+  await rejected;
+});
+
+it("forwards task mode and failure without turning it into snapshot state", async () => {
+  const { reader, states } = fixture();
+  const modes: string[] = [];
+  const failure = Object.assign(new Error("forbidden"), { status: 403 });
+  await expect(
+    reader.request(
+      async (_signal, mode) => {
+        modes.push(mode);
+        throw failure;
+      },
+      { mode: "manual" },
+    ),
+  ).rejects.toBe(failure);
+  expect(
+    await reader.request(async (_signal, mode) => {
+      modes.push(mode);
+      return "ok";
+    }),
+  ).toBe("ok");
+  expect(modes).toEqual(["manual", "automatic"]);
+  expect(states).toEqual([]);
+});
+
 it("lets the active read finish, coalesces bursts and settles all trailing callers", async () => {
   const { reader } = fixture();
   const pending = deferred<string>();

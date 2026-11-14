@@ -354,6 +354,7 @@ export function useCollectionRead(key: string) {
   return {
     load: reader.load,
     execute: reader.execute,
+    request: reader.request,
     cancel: reader.cancel,
     isBusy: reader.isBusy,
     error: value?.error ?? "",

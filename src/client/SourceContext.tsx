@@ -2,18 +2,12 @@ import {
   boundSourceCapabilities,
   fleetOperationReason,
 } from "./fleetCapabilities";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { ReadMode } from "./read-executor";
 import { capabilities as shellCapabilities } from "./capabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
-import { viewGeneration } from "./viewCache";
+import { useCollectionRead } from "./CollectionRead";
 import { callRoute, readRoute } from "./api";
 import type {
   RouteContract,
@@ -93,41 +87,42 @@ export function useSourceRouteRead() {
   );
 }
 
-/** Signal-driven snapshots must recover from Retry-After even if no later
- * change arrives. Cancellation belongs to this owner/source view lifetime. */
-function useProjectionScope(sourceId?: string) {
-  const contextSource = useSourceId(),
-    source = sourceId ?? contextSource;
-  const generation = viewGeneration();
-  const handle = useMemo(
-    () => ({ controller: new AbortController(), source }),
-    [source, generation],
-  );
-  useEffect(() => {
-    if (handle.controller.signal.aborted)
-      handle.controller = new AbortController();
-    return () => handle.controller.abort();
-  }, [handle]);
-  return handle;
-}
-export function useProjectionRoute(sourceId?: string) {
-  const handle = useProjectionScope(sourceId);
+export function useProjectionRoute({
+  source: providedSource,
+  key = "",
+}: { source?: string; key?: string } = {}) {
+  const contextSource = useSourceId();
+  const source = providedSource ?? contextSource;
+  const { request } = useCollectionRead(JSON.stringify([source, key]));
   return useMemo(
     () =>
       <C extends RouteContract & { method: "GET" }>(
         contract: C,
         input: RouteInput<C>,
-        source = handle.source,
-        mode: ReadMode = "automatic",
+        {
+          source: destination = source,
+          mode = "automatic",
+          signal,
+          onRetry,
+        }: {
+          source?: string;
+          mode?: ReadMode;
+          signal?: AbortSignal;
+          onRetry?: (error: unknown) => void;
+        } = {},
       ) =>
-        readRoute(
-          contract,
-          input,
-          source,
-          handle.controller.signal,
-          undefined,
-          mode,
+        request(
+          (ownedSignal, actualMode) =>
+            readRoute(
+              contract,
+              input,
+              destination,
+              ownedSignal,
+              onRetry,
+              actualMode,
+            ),
+          { signal, mode },
         ),
-    [handle],
+    [source, request],
   );
 }
