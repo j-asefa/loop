@@ -24,8 +24,8 @@ try {
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change('alice');setShellSource('');
     window.results=[];window.authStates=[];
-    function Tasks({selection}) {
-      const read=useProjectionRoute({key:selection});
+    function Tasks({selection,providedSource}) {
+      const read=useProjectionRoute({source:providedSource,key:selection});
       window.readTask=(id,external=false)=>{
         const controller=new AbortController();
         window.abortTask=()=>controller.abort();
@@ -36,13 +36,15 @@ try {
       return null;
     }
     function App(){
+      const [providedSource,setProvidedSource]=useState(undefined);
       const [selection,setSelection]=useState('a'),[project,setProject]=useState('project-a'),[mode,setMode]=useState('tasks'),[,render]=useState(0);
+      window.providedSource=value=>flushSync(()=>setProvidedSource(value));
       window.select=value=>flushSync(()=>setSelection(value));
       window.project=value=>flushSync(()=>setProject(value));
       window.mode=value=>flushSync(()=>setMode(value));
       window.owner=value=>flushSync(()=>{ownerSession.change(value);render(n=>n+1)});
       window.source=value=>flushSync(()=>{setShellSource(value);render(n=>n+1)});
-      return mode==='tasks'?React.createElement(Tasks,{selection}):mode==='signin'?React.createElement(RuntimeSignIn,{
+      return mode==='tasks'?React.createElement(Tasks,{selection,providedSource}):mode==='signin'?React.createElement(RuntimeSignIn,{
         runtime:'claude',backend:'direct',location:'fixture',name:'claude',label:'Claude Code',projectId:project,
         signedIn:false,enabled:false,enabling:false,enableAction:null,
         onStateChange:(name,state,id)=>window.authStates.push({name,state,id}),onClose:()=>{}
@@ -154,6 +156,7 @@ try {
     "external",
     "selection",
     "source",
+    "provided-source",
     "owner",
     "unmount",
   ]) {
@@ -168,6 +171,8 @@ try {
       if (change === "external") window.abortTask();
       if (change === "selection") window.select("b");
       if (change === "source") window.source("docker:fixture");
+      if (change === "provided-source")
+        window.providedSource("docker:provided");
       if (change === "owner") window.owner("bob");
       if (change === "unmount") window.mode("empty");
     }, change);
@@ -180,11 +185,20 @@ try {
         ),
       )
       .toBe(
-        ["external", "selection", "source", "owner", "unmount"].indexOf(
-          change,
-        ) + 1,
+        [
+          "external",
+          "selection",
+          "source",
+          "provided-source",
+          "owner",
+          "unmount",
+        ].indexOf(change) + 1,
       );
   }
+  assert(
+    reads.some((path) => path.includes("/agent-sources/docker%3Aprovided/")),
+    "an explicitly provided source overrides the ambient source",
+  );
   hold = false;
   await page.evaluate(() => {
     window.source("");
