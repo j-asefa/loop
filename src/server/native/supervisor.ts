@@ -278,7 +278,7 @@ export class NativeSessions {
         confirmed === value
       ) {
         live.sessionMode = confirmed;
-        if (live.binding.harness === "claude") {
+        if (harnesses[live.binding.harness].launchPermissionMode) {
           // Record the workspace level this choice was made against, so a
           // later change to that level supersedes it (see session()).
           const base = live.permissionMode ?? DEFAULT_PERMISSION_MODE;
