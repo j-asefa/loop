@@ -67,6 +67,21 @@ export function seedFeeds(db, owner) {
 }
 
 export async function socialSmoke(page, fixture, shot) {
+  const faultReleased = (key) =>
+    page.evaluate((key) => !!window.__socialFaults?.[key], key);
+  const retryFault = async (button, key) => {
+    await button.evaluate((node, key) => {
+      node.addEventListener(
+        "click",
+        () => {
+          (window.__socialFaults ||= {})[key] = true;
+        },
+        { capture: true, once: true },
+      );
+    }, key);
+    await button.click();
+  };
+
   const { total, titles } = seedFeeds(fixture.db, fixture.owner);
   await page.goto(fixture.base + "/?page=profile&profileTab=messages");
   await expect(
@@ -93,6 +108,56 @@ export async function socialSmoke(page, fixture, shot) {
   const cards = social.locator(".news-card");
   await cards.first().waitFor();
   assert.equal(await cards.count(), total, "Every stored story must show");
+  let snapshotReads = 0;
+  let releaseSnapshot;
+  const snapshotGate = new Promise((resolve) => {
+    releaseSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    snapshotReads++;
+    if (snapshotReads === 1) await snapshotGate;
+    await route.continue();
+  });
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await expect.poll(() => snapshotReads).toBe(1);
+  await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+    window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+  });
+  try {
+    await page.waitForTimeout(150);
+    assert.equal(
+      snapshotReads,
+      1,
+      "notifications coalesce behind the active Social snapshot",
+    );
+  } finally {
+    releaseSnapshot();
+  }
+  await expect.poll(() => snapshotReads).toBe(2);
+  await page.unroute(/\/api\/social\?/);
+  await page.route(/\/api\/social\?/, async (route) => {
+    if (!(await faultReleased("snapshot")))
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Snapshot unavailable" }),
+      });
+    else await route.continue();
+  });
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await expect(page.getByRole("alert")).toContainText("Snapshot unavailable");
+  await expect(cards).toHaveCount(total);
+  await retryFault(
+    page.getByRole("button", { name: "Retry connection", exact: true }),
+    "snapshot",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.unroute(/\/api\/social\?/);
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
   // Feed options start closed: Social is the stories alone, without the page
   // heading and agents above them.
@@ -168,6 +233,37 @@ export async function socialSmoke(page, fixture, shot) {
     total,
   );
 
+  let releaseActionSnapshot;
+  const actionSnapshotGate = new Promise((resolve) => {
+    releaseActionSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    await actionSnapshotGate;
+    await route.continue();
+  });
+  await page.route("**/api/social/read", (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Mark read refused" }),
+    }),
+  );
+  await cards
+    .first()
+    .getByRole("button", { name: /^Mark .* read$/ })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Mark read refused");
+  await page.unroute("**/api/social/read");
+  try {
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+  } finally {
+    releaseActionSnapshot();
+  }
+
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.unroute(/\/api\/social\?/);
+
   // Marking one read drops the count and the accent.
   await cards
     .first()
@@ -200,7 +296,28 @@ export async function socialSmoke(page, fixture, shot) {
 
   // Searching reaches the store, not just the page.
   const search = page.getByRole("searchbox", { name: /Search your feeds/i });
+  await page.route("**/api/social/search?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("q") === "blocked")
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Search unavailable" }),
+      });
+    else await route.continue();
+  });
+  await search.fill("blocked");
+  await expect(page.getByRole("alert")).toContainText("Search unavailable");
+  const healthySnapshot = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/social",
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await healthySnapshot;
+  await expect(page.getByRole("alert")).toContainText("Search unavailable");
   await search.fill("postgres");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/api/social/search?**");
   await page.waitForFunction(
     () => document.querySelectorAll(".news-card").length === 1,
   );
@@ -392,6 +509,68 @@ export async function socialSmoke(page, fixture, shot) {
     (await catalog.locator(".feed-catalog-card").count()) > 20,
     "The catalog must offer its feeds",
   );
+  let releaseOldSnapshot;
+  let oldSnapshotHeld = false;
+  let oldSnapshotFirst = true;
+  const oldSnapshotGate = new Promise((resolve) => {
+    releaseOldSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    if (oldSnapshotFirst) {
+      oldSnapshotFirst = false;
+      const response = await route.fetch();
+      oldSnapshotHeld = true;
+      await oldSnapshotGate;
+      await route.fulfill({ response });
+    } else if (await faultReleased("post-change")) await route.continue();
+    else
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Post-change snapshot unavailable" }),
+      });
+  });
+  const oldFeeds = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/social/feeds",
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await oldFeeds;
+  await expect.poll(() => oldSnapshotHeld).toBe(true);
+  await catalog
+    .getByRole("button", { name: "Remove Lobsters", exact: true })
+    .click();
+  await expect(
+    catalog.getByRole("button", { name: "Add Lobsters", exact: true }),
+  ).toBeVisible();
+  releaseOldSnapshot();
+  await expect(page.getByRole("alert")).toContainText(
+    "Post-change snapshot unavailable",
+  );
+  await expect(
+    catalog.getByRole("button", { name: "Add Lobsters", exact: true }),
+  ).toBeVisible();
+  fixture.db
+    .prepare(
+      "INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES(?, 'lobsters', ?)",
+    )
+    .run(fixture.owner, Date.now());
+  await page
+    .getByRole("dialog", { name: "Add feeds", exact: true })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await retryFault(
+    page.getByRole("button", { name: "Retry connection", exact: true }),
+    "post-change",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add feeds", exact: true }).click();
+  await expect(
+    catalog.getByRole("button", { name: "Remove Lobsters", exact: true }),
+  ).toBeVisible();
+  await page.unroute(/\/api\/social\?/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await shot("social-catalog");
   // OPML keeps its original XML in the existing JSON envelope. An empty
   // import exercises the browser receipt without fetching any public feed.
@@ -436,10 +615,9 @@ export async function socialSmoke(page, fixture, shot) {
   await page.getByRole("button", { name: "Close" }).click();
 
   // Following a word previews against what is stored before creating a watch.
-  let failWatchRead = true;
   let watchReadFailures = 0;
   await page.route("**/api/social/watches", async (route) => {
-    if (route.request().method() === "GET" && failWatchRead) {
+    if (route.request().method() === "GET" && !(await faultReleased("watch"))) {
       watchReadFailures++;
       await route.fulfill({
         status: 400,
@@ -455,10 +633,10 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.getByRole("alert")).toContainText(
     "Watch read unavailable",
   );
-  failWatchRead = false;
-  await watches
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    watches.getByRole("button", { name: "Retry connection", exact: true }),
+    "watch",
+  );
   await expect(watches.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/watches");
   await watches.getByRole("searchbox").fill("rust");
@@ -488,9 +666,8 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.locator(".digest-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
-  let failDigestRead = true;
   await page.route("**/api/social/digests", async (route) => {
-    if (route.request().method() === "GET" && failDigestRead)
+    if (route.request().method() === "GET" && !(await faultReleased("digest")))
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -507,10 +684,10 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(digests.getByRole("alert")).toContainText(
     "Digest read unavailable",
   );
-  failDigestRead = false;
-  await digests
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    digests.getByRole("button", { name: "Retry connection", exact: true }),
+    "digest",
+  );
   await expect(digests.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/digests");
   await digests
@@ -535,9 +712,8 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     digests.getByRole("button", { name: "Pause", exact: true }),
   ).toBeVisible();
-  let failAccessRead = true;
   await page.route("**/api/social/preferences", async (route) => {
-    if (route.request().method() === "GET" && failAccessRead)
+    if (route.request().method() === "GET" && !(await faultReleased("access")))
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -552,10 +728,10 @@ export async function socialSmoke(page, fixture, shot) {
     "Feed access: Access read unavailable",
   );
   await expect(digests.locator(".digest-row")).toHaveCount(1);
-  failAccessRead = false;
-  await digests
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    digests.getByRole("button", { name: "Retry connection", exact: true }),
+    "access",
+  );
   await expect(digests.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/preferences");
   await shot("social-digest");

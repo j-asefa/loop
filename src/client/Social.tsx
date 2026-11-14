@@ -5,9 +5,12 @@ import {
   SocialFeedId,
   SocialStoryId,
 } from "../shared/contract-ids.js";
-import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
+import {
+  CollectionReadNotice,
+  useCollectionRead,
+  useProjectionQuery,
+} from "./CollectionRead";
 import { literalEntry } from "./textEntry";
-import { useProjectionRoute } from "./SourceContext";
 import {
   useCallback,
   useEffect,
@@ -1034,14 +1037,17 @@ function DigestSheetView({
  * Links open the item or its discussion on the source; "Ask an agent" starts
  * a message about it. With no feeds yet it shows the catalog to pick from.
  */
-export function Social({
+export function Social(props: Parameters<typeof SocialView>[0]) {
+  return <SocialView key={viewGeneration()} {...props} />;
+}
+function SocialView({
   onAsk,
   agents = [],
 }: {
   onAsk?: (text: string) => void;
   agents?: { id: string; name: string; retired_at?: number | null }[];
 }) {
-  const readSnapshot = useProjectionRoute("");
+  const snapshotRead = useCollectionRead("social-snapshot");
   const KEY = "social";
   const cached = cachedView<Shown>(KEY);
   const [view, setView] = useState<Shown | null>(cached || null);
@@ -1089,30 +1095,49 @@ export function Social({
   const unread = useRef(false);
   // Picking first feeds from the empty Social keeps the catalog open until Done.
   const [picking, setPicking] = useState(false);
-  const request = useRef(0);
-  async function load(options: { force?: boolean } = {}) {
-    const ticket = ++request.current;
+  async function load(
+    options: { force?: boolean; manual?: boolean; supersede?: boolean } = {},
+  ) {
     const owner = viewOwner();
-    try {
-      const [{ added, own }, social, preferences] = await Promise.all([
-        readSnapshot(workspaceApi.socialFeeds, {}),
-        readSnapshot(workspaceApi.socialList, {
-          query: {
-            refresh: options.force ? "1" : "0",
-            unread: unread.current ? "1" : undefined,
-            muted: muted.current ? "1" : undefined,
-          },
-        }),
-        readSnapshot(workspaceApi.socialPreferences, {}),
-      ]);
-      if (ticket !== request.current || owner !== viewOwner()) return;
-      const next = { ...social, added, own, ...preferences };
-      setView(next);
-      cacheView<Shown>(KEY, next, owner);
-      setError("");
-    } catch (e) {
-      if (ticket === request.current) setError((e as Error).message);
-    }
+    const filters = { unread: unread.current, muted: muted.current };
+    if (options.supersede || options.force) snapshotRead.cancel();
+    await snapshotRead.load(
+      async (signal, mode) => {
+        const [{ added, own }, social, preferences] = await Promise.all([
+          readRoute(workspaceApi.socialFeeds, {}, "", signal, undefined, mode),
+          readRoute(
+            workspaceApi.socialList,
+            {
+              query: {
+                refresh: options.force ? "1" : "0",
+                unread: filters.unread ? "1" : undefined,
+                muted: filters.muted ? "1" : undefined,
+              },
+            },
+            "",
+            signal,
+            undefined,
+            mode,
+          ),
+          readRoute(
+            workspaceApi.socialPreferences,
+            {},
+            "",
+            signal,
+            undefined,
+            mode,
+          ),
+        ]);
+        return { ...social, added, own, ...preferences };
+      },
+      (next) => {
+        setView(next);
+        cacheView<Shown>(KEY, next, owner);
+        setError("");
+      },
+      options.manual,
+      options.force ? 1 : 0,
+    );
   }
   /** Marks stories read (or unread) at once, before the server confirms. */
   async function setRead(ids: string[], read: boolean) {
@@ -1144,7 +1169,7 @@ export function Social({
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
     }
   }
@@ -1152,7 +1177,7 @@ export function Social({
   async function dismiss(ids: string[], removed: boolean) {
     // A list already on its way was read before this change: drop it, and
     // ask again once the server has the change.
-    request.current++;
+    snapshotRead.cancel();
     if (removed) {
       setFound(
         (old) => old?.filter((story) => !ids.includes(story.id)) ?? null,
@@ -1172,7 +1197,7 @@ export function Social({
         "",
       );
       setView((old) => old && { ...old, unread });
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
       if (removed)
@@ -1182,7 +1207,7 @@ export function Social({
         });
     } catch (e) {
       setError((e as Error).message);
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
     }
   }
@@ -1210,40 +1235,48 @@ export function Social({
       setError((e as Error).message);
     }
   }
+  const searchRead = useCollectionRead(
+    JSON.stringify([
+      "social-search",
+      query,
+      chosenFeed,
+      unreadOnly,
+      searchRevision,
+    ]),
+  );
+  const search = (manual = false) =>
+    searchRead.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.socialSearch,
+          {
+            query: {
+              q: query,
+              feed: parseId(SocialFeedId, chosenFeed || undefined),
+              unread: unreadOnly ? "1" : undefined,
+            },
+          },
+          "",
+          signal,
+          undefined,
+          mode,
+        ),
+      ({ stories }) => setFound(stories),
+      manual,
+    );
   useEffect(() => {
     if (!query.trim()) {
       setFound(null);
       return;
     }
-    const controller = new AbortController();
-    const owner = viewOwner();
     const timer = setTimeout(() => {
-      void readRoute(
-        workspaceApi.socialSearch,
-        {
-          query: {
-            q: query,
-            feed: parseId(SocialFeedId, chosenFeed || undefined),
-            unread: unreadOnly ? "1" : undefined,
-          },
-        },
-        "",
-        controller.signal,
-      )
-        .then(({ stories }) => {
-          if (!controller.signal.aborted && owner === viewOwner())
-            setFound(stories);
-        })
-        .catch((error) => {
-          if (!controller.signal.aborted && owner === viewOwner())
-            setError(error.message);
-        });
+      void search();
     }, 200);
     return () => {
       clearTimeout(timer);
-      controller.abort();
+      searchRead.cancel();
     };
-  }, [query, chosenFeed, unreadOnly, searchRevision]);
+  }, [query, chosenFeed, unreadOnly, searchRevision, searchRead.load]);
   async function removeOwn(feed: FeedEntry) {
     setBusy(feed.id);
     try {
@@ -1253,7 +1286,7 @@ export function Social({
         "",
       );
       setView((old) => old && { ...old, own });
-      void load();
+      void load({ supersede: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1272,7 +1305,7 @@ export function Social({
       if (adding && !view?.added.length && !view?.own.length) setPicking(true);
       setView((old) => old && { ...old, added });
       setError("");
-      void load();
+      void load({ supersede: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1293,17 +1326,30 @@ export function Social({
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", pulled);
-      // A load in flight must not write to an unmounted view.
-      request.current++;
+      snapshotRead.cancel();
     };
-  }, []);
-  const errorBox = error && (
-    <div className="error" role="alert">
-      {error}
-      <button className="text-button" onClick={() => void load()}>
-        Try again
-      </button>
-    </div>
+  }, [snapshotRead.load]);
+  const errorBox = (error || snapshotRead.error || searchRead.error) && (
+    <>
+      <CollectionReadNotice
+        error={snapshotRead.error}
+        busy={snapshotRead.busy}
+        retry={() => void load({ manual: true })}
+      />
+      <CollectionReadNotice
+        error={searchRead.error}
+        busy={searchRead.busy}
+        retry={() => void search(true)}
+      />
+      {error && (
+        <div className="error" role="alert">
+          {error}
+          <button className="text-button" onClick={() => void load()}>
+            Try again
+          </button>
+        </div>
+      )}
+    </>
   );
   if (!view)
     return (
@@ -1322,7 +1368,7 @@ export function Social({
       busy={busy}
       onToggle={toggle}
       onRemoveOwn={(feed) => void removeOwn(feed)}
-      onAdded={() => void load()}
+      onAdded={() => void load({ supersede: true })}
     />
   );
   const followed = view.added.length + view.own.length;
@@ -1458,7 +1504,7 @@ export function Social({
               onClick={() => {
                 unread.current = !unreadOnly;
                 setUnreadOnly(!unreadOnly);
-                void load();
+                void load({ supersede: true });
               }}
             >
               Unread
@@ -1532,7 +1578,7 @@ export function Social({
             onClick={() => {
               muted.current = true;
               setShowMuted(true);
-              void load();
+              void load({ supersede: true });
             }}
           >
             Show
@@ -1550,7 +1596,7 @@ export function Social({
           images={view.images}
           onChanged={(next) => {
             setView((old) => old && { ...old, ...next });
-            if (next.mutes) void load();
+            if (next.mutes) void load({ supersede: true });
           }}
           onClose={() => setMuting("")}
         />
