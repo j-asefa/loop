@@ -86,12 +86,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { parse } from "./json";
-import {
-  retryAfter,
-  isRateLimited,
-  RATE_LIMITED,
-  isExecutionRefused,
-} from "./api";
+import { isRateLimited, RATE_LIMITED, isExecutionRefused } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { performStoredEffect } from "./pendingCommands";
 import {
@@ -697,27 +692,6 @@ function ConversationView({
           snapshotFailures.current = 3;
           setRateLimited(false);
           setLoadError("Couldn’t load these messages. Try again.");
-        } else if (isRateLimited(e)) {
-          setLoadError("");
-          setRateLimited(true);
-          initialRequest.current ||= initial;
-          retryAt.current = Date.now() + retryAfter(e);
-          const retry = () => {
-            clearTimeout(retryTimer.current);
-            retryTimer.current = setTimeout(
-              () => {
-                if (current !== generation.current || owner !== viewOwner())
-                  return;
-                if (Date.now() < retryAt.current) retry();
-                else void load(initial);
-              },
-              Math.min(
-                2_147_483_647,
-                Math.max(0, retryAt.current - Date.now()),
-              ),
-            );
-          };
-          retry();
         } else {
           setRateLimited(false);
           setLoadError((e as Error).message);
