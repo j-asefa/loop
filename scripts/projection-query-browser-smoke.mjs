@@ -257,6 +257,8 @@ try {
   await expect(notice).toHaveCount(0);
 
   status = 503;
+  await page.clock.install();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
   const beforeEarlyFailure = requests.length;
   await refresh();
   await expect(notice).toContainText("Snapshot unavailable");
@@ -269,12 +271,14 @@ try {
   await page.evaluate(() => window.updateSnapshot());
   await expect(output).toHaveText("Recovered snapshot saved twice");
   await expect(notice).toHaveCount(0);
-  await page.waitForTimeout(2200);
+  await page.clock.runFor(2200);
   assert.equal(
     requests.length,
     beforeEarlyFailure + 1,
     "an authoritative update cancels the pending read retry",
   );
+
+  await page.clock.resume();
 
   for (const change of ["selection", "source", "owner"]) {
     title = "Late old snapshot";

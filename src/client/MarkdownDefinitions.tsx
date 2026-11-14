@@ -340,7 +340,7 @@ export function MarkdownDefinitions({
               disabled={busy}
               onClick={() => {
                 setError("");
-                setRevision((value) => value + 1);
+                void definitions.retry();
               }}
             >
               Reload definitions
