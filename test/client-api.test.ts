@@ -3,6 +3,7 @@ import {
   ObjectId,
   SocialFeedId,
 } from "../src/shared/contract-ids.js";
+import { setViewOwner } from "../src/client/viewCache";
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
@@ -290,3 +291,63 @@ it("keeps a mutation's session and outcome uncertain while Loop restarts", async
 });
 
 void pathTypes;
+
+it.each(["unauthorized", "redirect", "body"])(
+  "ignores an obsolete owner's %s response before session effects",
+  async (kind) => {
+    const target = new EventTarget(),
+      expired = vi.fn();
+    target.addEventListener("loop-auth-expired", expired);
+    vi.stubGlobal("window", target);
+    let finish!: (value: Response) => void;
+    let finishBody: ((value: unknown) => void) | undefined;
+    const response =
+      kind === "redirect"
+        ? new Response("Sign in", { headers: { "content-type": "text/html" } })
+        : Response.json({ error: "Pair this device" }, { status: 401 });
+    if (kind === "redirect")
+      Object.defineProperty(response, "redirected", { value: true });
+    if (kind === "body") {
+      response.json = () =>
+        new Promise((resolve) => {
+          finishBody = resolve;
+        });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+    } else
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      );
+    setViewOwner("alice");
+    const pending = readRoute(
+      workspaceApi.teamList,
+      {},
+      "",
+      new AbortController().signal,
+      undefined,
+      "once",
+    );
+    const rejected = expect(pending).rejects.toBeInstanceOf(
+      transport.UnavailableResponse,
+    );
+    if (kind === "body")
+      await vi.waitFor(() => expect(finishBody).toBeTypeOf("function"));
+    setViewOwner("bob");
+    if (kind === "body") finishBody!({ error: "Pair this device" });
+    else finish(response);
+    try {
+      await rejected;
+      expect(expired).not.toHaveBeenCalled();
+    } finally {
+      setViewOwner(undefined);
+    }
+  },
+);

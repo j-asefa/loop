@@ -254,6 +254,7 @@ async function requestInWorkspace<T>({
       );
     throw error;
   });
+  if (generation !== viewGeneration()) throw new UnavailableResponse();
   command?.current();
   command?.observe(r);
   // Rejected before forwarding, so it is safe to try again; the caller's
@@ -298,6 +299,7 @@ async function requestInWorkspace<T>({
       error: multipart ? uploadFailure : "Connection unavailable. Try again.",
     };
   });
+  if (generation !== viewGeneration()) throw new UnavailableResponse();
   if (!r.ok || !parsed) {
     if (
       r.status === 401 &&
