@@ -1133,6 +1133,7 @@ function SocialView({
       (next) => {
         setView(next);
         cacheView<Shown>(KEY, next, owner);
+        setError("");
       },
       options.manual,
       options.force ? 1 : 0,
@@ -1168,7 +1169,7 @@ function SocialView({
       window.dispatchEvent(new Event("loop-social-read"));
     } catch (e) {
       setError((e as Error).message);
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
     }
   }
@@ -1196,7 +1197,7 @@ function SocialView({
         "",
       );
       setView((old) => old && { ...old, unread });
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
       window.dispatchEvent(new Event("loop-social-read"));
       if (removed)
@@ -1206,7 +1207,7 @@ function SocialView({
         });
     } catch (e) {
       setError((e as Error).message);
-      void load();
+      void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
     }
   }
@@ -1285,7 +1286,7 @@ function SocialView({
         "",
       );
       setView((old) => old && { ...old, own });
-      void load();
+      void load({ supersede: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1304,7 +1305,7 @@ function SocialView({
       if (adding && !view?.added.length && !view?.own.length) setPicking(true);
       setView((old) => old && { ...old, added });
       setError("");
-      void load();
+      void load({ supersede: true });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1367,7 +1368,7 @@ function SocialView({
       busy={busy}
       onToggle={toggle}
       onRemoveOwn={(feed) => void removeOwn(feed)}
-      onAdded={() => void load()}
+      onAdded={() => void load({ supersede: true })}
     />
   );
   const followed = view.added.length + view.own.length;
@@ -1595,7 +1596,7 @@ function SocialView({
           images={view.images}
           onChanged={(next) => {
             setView((old) => old && { ...old, ...next });
-            if (next.mutes) void load();
+            if (next.mutes) void load({ supersede: true });
           }}
           onClose={() => setMuting("")}
         />

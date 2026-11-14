@@ -233,6 +233,37 @@ export async function socialSmoke(page, fixture, shot) {
     total,
   );
 
+  let releaseActionSnapshot;
+  const actionSnapshotGate = new Promise((resolve) => {
+    releaseActionSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    await actionSnapshotGate;
+    await route.continue();
+  });
+  await page.route("**/api/social/read", (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Mark read refused" }),
+    }),
+  );
+  await cards
+    .first()
+    .getByRole("button", { name: /^Mark .* read$/ })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("Mark read refused");
+  await page.unroute("**/api/social/read");
+  try {
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+  } finally {
+    releaseActionSnapshot();
+  }
+
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  await page.unroute(/\/api\/social\?/);
+
   // Marking one read drops the count and the accent.
   await cards
     .first()
@@ -478,6 +509,68 @@ export async function socialSmoke(page, fixture, shot) {
     (await catalog.locator(".feed-catalog-card").count()) > 20,
     "The catalog must offer its feeds",
   );
+  let releaseOldSnapshot;
+  let oldSnapshotHeld = false;
+  let oldSnapshotFirst = true;
+  const oldSnapshotGate = new Promise((resolve) => {
+    releaseOldSnapshot = resolve;
+  });
+  await page.route(/\/api\/social\?/, async (route) => {
+    if (oldSnapshotFirst) {
+      oldSnapshotFirst = false;
+      const response = await route.fetch();
+      oldSnapshotHeld = true;
+      await oldSnapshotGate;
+      await route.fulfill({ response });
+    } else if (await faultReleased("post-change")) await route.continue();
+    else
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Post-change snapshot unavailable" }),
+      });
+  });
+  const oldFeeds = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/social/feeds",
+  );
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await oldFeeds;
+  await expect.poll(() => oldSnapshotHeld).toBe(true);
+  await catalog
+    .getByRole("button", { name: "Remove Lobsters", exact: true })
+    .click();
+  await expect(
+    catalog.getByRole("button", { name: "Add Lobsters", exact: true }),
+  ).toBeVisible();
+  releaseOldSnapshot();
+  await expect(page.getByRole("alert")).toContainText(
+    "Post-change snapshot unavailable",
+  );
+  await expect(
+    catalog.getByRole("button", { name: "Add Lobsters", exact: true }),
+  ).toBeVisible();
+  fixture.db
+    .prepare(
+      "INSERT INTO feed_subscriptions(owner_id,feed_id,created_at) VALUES(?, 'lobsters', ?)",
+    )
+    .run(fixture.owner, Date.now());
+  await page
+    .getByRole("dialog", { name: "Add feeds", exact: true })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await retryFault(
+    page.getByRole("button", { name: "Retry connection", exact: true }),
+    "post-change",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add feeds", exact: true }).click();
+  await expect(
+    catalog.getByRole("button", { name: "Remove Lobsters", exact: true }),
+  ).toBeVisible();
+  await page.unroute(/\/api\/social\?/);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await shot("social-catalog");
   // OPML keeps its original XML in the existing JSON envelope. An empty
   // import exercises the browser receipt without fetching any public feed.
