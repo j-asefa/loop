@@ -118,7 +118,13 @@ try {
               },
             ],
           };
-    const reply = () => send(failure ? 503 : 200, body);
+    const reply = () => {
+      if (failure === "html") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end("<html>Proxy unavailable</html>");
+      } else if (failure === "snapshot") send(200, { invalid: true });
+      else send(failure ? 503 : 200, body);
+    };
     if (holds[kind]) {
       holds[kind] = false;
       held.push({ kind, reply });
@@ -129,7 +135,7 @@ try {
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });
-  const scenarios = ["coalescing", "receipt", "scope", "recovery"],
+  const scenarios = ["coalescing", "receipt", "scope", "recovery", "malformed"],
     selected = process.argv[2];
   assert(!selected || scenarios.includes(selected));
   const count = (kind) => requests.filter((r) => r.kind === kind).length;
@@ -249,6 +255,40 @@ try {
         JSON.parse(await page.locator("#reports").textContent())[2].error,
         "AbortError",
       );
+    } else if (scenario === "malformed") {
+      for (const kind of ["bootstrap", "runs"])
+        for (const malformed of ["html", "snapshot"]) {
+          if (kind === "bootstrap") failBootstrap = malformed;
+          else failRuns = malformed;
+          await page.evaluate(
+            (kind) =>
+              kind === "bootstrap" ? window.boot("malformed") : window.runs(),
+            kind,
+          );
+          await expect
+            .poll(async () =>
+              Boolean(
+                JSON.parse(await page.locator("#errors").textContent())[kind],
+              ),
+            )
+            .toBe(true);
+          const before = count(kind);
+          failBootstrap = failRuns = false;
+          label = "recovered-" + malformed;
+          await page.evaluate(() => window.startRecovery());
+          await expect
+            .poll(
+              async () =>
+                JSON.parse(await page.locator("#errors").textContent())[kind],
+              { timeout: 10000 },
+            )
+            .toBe("");
+          assert(
+            count(kind) > before,
+            "quiet watcher recovery rereads malformed " + kind,
+          );
+          await page.evaluate(() => window.stopRecovery());
+        }
     } else {
       failRuns = true;
       await page.evaluate(() => window.runs());

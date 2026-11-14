@@ -314,6 +314,7 @@ async function requestInWorkspace<T>({
       ),
       {
         ...(bodyDisconnected ? { network: true } : {}),
+        ...(r.ok && !parsed ? { invalidResponse: true } : {}),
         status:
           parsed || r.status === 429 || r.status >= 500 ? r.status : undefined,
         ...(["refused", "unknown", "completed"].includes(data?.executionOutcome)
@@ -535,12 +536,18 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
     settleRecovery(false);
     return value;
   } catch (error) {
-    const failure = error as { status?: number; network?: boolean };
+    const failure = error as {
+      status?: number;
+      network?: boolean;
+      invalidResponse?: boolean;
+    };
     settleRecovery(
       mode === "automatic" &&
         !signal.aborted &&
         generation === viewGeneration() &&
-        (failure.network === true ||
+        (error instanceof UnavailableResponse ||
+          failure.invalidResponse === true ||
+          failure.network === true ||
           (failure.status !== undefined &&
             failure.status >= 500 &&
             failure.status < 600)),
