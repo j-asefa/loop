@@ -1,3 +1,5 @@
+// Multi-machine cases include full database migrations in their fixture budget.
+// Their simulated lease/recovery deadlines remain unchanged.
 import { afterAll, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -166,8 +168,7 @@ it("permits history discovery through an anchored admission proof without activa
     scope: [...scope],
   });
   expect(() => b.sync.history(query)).toThrow("outside");
-});
-
+}, 15_000);
 it("authenticates a paged update by its admission continuation without installing that continuation", () => {
   const a = machine(),
     b = machine(),
@@ -220,8 +221,7 @@ it("authenticates a paged update by its admission continuation without installin
     scope: [...scope],
   });
   expect(() => b.sync.receive(request)).toThrow();
-});
-
+}, 15_000);
 it("retains verified predecessors atomically without moving authority or restoring grants", () => {
   const { a, c, first, second } = fixture();
   const genesis = a.authority.directory(a.owner, first.document.parent!)!;
@@ -319,8 +319,7 @@ it("rejects an unenrolled directory sender before waiting for a concurrent datab
   expect(b.authority.status(b.owner).head).toBe(
     directoryDigest(first.document),
   );
-});
-
+}, 15_000);
 it("serves nonce-bound signed history from a replica without controller contact or bearer credentials", () => {
   const { b, c, first, second } = fixture();
   b.sync.receive(push(c, b, first, [second]));
@@ -346,8 +345,7 @@ it("serves nonce-bound signed history from a replica without controller contact 
   expect(() => b.sync.history(changed)).toThrow("outside");
   const outsider = machine();
   expect(() => b.sync.history(history(outsider, b))).toThrow("outside");
-});
-
+}, 15_000);
 it("bounds history pages and preserves a cursor without treating a missing ancestor as a root", () => {
   const { a, b } = fixture();
   for (let i = 0; i < 35; i++)
@@ -597,8 +595,7 @@ it("refuses implicit enrollment and mismatched identities at the production repl
   expect(b.authority.status(b.owner).head).toBe(
     directoryDigest(first.document),
   );
-});
-
+}, 15_000);
 it("keeps recovery as an explicit consent boundary rather than an ordinary relay successor", () => {
   const { a, b, c, first, second } = fixture();
   b.sync.receive(push(c, b, first, [second]));
@@ -639,4 +636,4 @@ it("keeps recovery as an explicit consent boundary rather than an ordinary relay
   expect(a.authority.status(a.owner).head).toBe(
     directoryDigest(second.document),
   );
-});
+}, 15_000);

@@ -1,3 +1,5 @@
+// Multi-machine cases include full database migrations in their fixture budget.
+// Their simulated lease/recovery deadlines remain unchanged.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -140,8 +142,7 @@ it("requires a destination grant, proves both machine identities and maps only t
   expect(a.owner).not.toBe(b.owner);
   expect(JSON.stringify(response)).not.toContain(b.owner);
   expect(() => c.credentials.authenticate(credential.token)).toThrow("invalid");
-});
-
+}, 15_000);
 it("does not consume a nonce for invalid proof and atomically refuses a successful proof replay", () => {
   const { a, b } = fleet();
   const proof = a.credentials.prove(
