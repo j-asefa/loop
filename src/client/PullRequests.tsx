@@ -693,11 +693,7 @@ function CommitChanges({
     return (
       <div role="alert">
         <p className="error">{error}</p>
-        <button
-          className="text-button"
-          disabled={query.busy}
-          onClick={query.retry}
-        >
+        <button className="text-button" onClick={query.retry}>
           Try again
         </button>
       </div>

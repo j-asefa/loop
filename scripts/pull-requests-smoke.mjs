@@ -451,6 +451,13 @@ try {
         page.getByRole("link", { name: /View commit on GitHub/ }),
       ).toBeVisible();
       assert.equal(github.state.commitReads || 0, 0, "Commit diffs are lazy");
+      const commitFilesRoute =
+        "**/api/github/pulls/acme/api/64/commits/*/files";
+      await page.route(commitFilesRoute, async (route) => {
+        if (await page.evaluate(() => window.__allowCommitRetry))
+          github.state.commitError = false;
+        await route.continue();
+      });
       github.state.commitError = true;
       const commit = page
         .locator("details")
@@ -472,11 +479,22 @@ try {
         3,
         "GET recovery is bounded to two retries",
       );
-      github.state.commitError = false;
+      await commit
+        .getByRole("button", { name: "Try again" })
+        .evaluate((button) => {
+          button.addEventListener(
+            "click",
+            () => {
+              window.__allowCommitRetry = true;
+            },
+            { capture: true, once: true },
+          );
+        });
       await commit.getByRole("button", { name: "Try again" }).click();
       await expect(
         commit.getByText("// Only in this commit.", { exact: false }),
       ).toBeVisible();
+      await page.unroute(commitFilesRoute);
       await expect(
         commit.getByText("GitHub doesn’t show this diff here", {
           exact: false,
