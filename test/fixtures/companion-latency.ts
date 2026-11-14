@@ -16,7 +16,7 @@ const options = {
   billing: "existing" as const,
 };
 const host = new WorkspaceHost(directory, options);
-await host.start(options);
+await host.start({ options: options });
 process.send!({ origin: host.origin, pair: host.pair().url });
 let stopping = false;
 const stop = async () => {

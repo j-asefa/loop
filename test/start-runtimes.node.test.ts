@@ -53,12 +53,11 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
   try {
     const { prepareLocalHarnesses } =
       await import("../src/server/local-harnesses.js");
-    await host.start(
-      options,
-      undefined,
-      () => prepareLocalHarnesses(dir, [...names]),
-      true,
-    );
+    await host.start({
+      options: options,
+      prepare: () => prepareLocalHarnesses(dir, [...names]),
+      runtimeNeutral: true,
+    });
     const secret = new URL(host.pair().url).hash.slice(6);
     const redemption = await fetch(host.origin + "/pair", {
       method: "POST",
@@ -99,7 +98,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
       // Child environments are fixed at launch, as in the installed CLI.
       await host.close();
       host = new WorkspaceHost(dir, options);
-      await host.start(options, undefined, undefined, true);
+      await host.start({ options: options, runtimeNeutral: true });
       const failure = await fetch(
         host.origin + "/api/workspace/runtimes/codex/enable",
         {
@@ -125,7 +124,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
       else process.env.OPENAI_API_KEY = previousKey;
       await host.close();
       host = new WorkspaceHost(dir, options);
-      await host.start(options, undefined, undefined, true);
+      await host.start({ options: options, runtimeNeutral: true });
     }
     for (const name of names) {
       await api(`/workspace/runtimes/${name}/enable`, {

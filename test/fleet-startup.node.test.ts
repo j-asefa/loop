@@ -108,7 +108,7 @@ async function startup(directory: string, extra: Record<string, string> = {}) {
           host.fleetDistribution.flush = async () => { ticks++; await flush(); };
           const drain = host.fleetMail.drainer.drain.bind(host.fleetMail.drainer);
           host.fleetMail.drainer.drain = async () => { mailTicks++; await drain(); };
-          await host.start(options, undefined, undefined, true);
+          await host.start({ options: options, runtimeNeutral: true });
           const toolsEnabled = !!fleetMailDiscovery(OWNER);
           await new Promise(resolve => setTimeout(resolve, 1200));
           await host.close();

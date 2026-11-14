@@ -38,7 +38,7 @@ test("paired provider authentication protects credentials, checks project owners
   };
   const host = new WorkspaceHost(dir, options);
   try {
-    await host.start(options, undefined, undefined, true);
+    await host.start({ options: options, runtimeNeutral: true });
     const secret = new URL(host.pair().url).hash.slice(6);
     const redemption = await fetch(host.origin + "/pair", {
       method: "POST",

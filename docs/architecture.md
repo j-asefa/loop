@@ -557,6 +557,16 @@ Preferences remain separate fallbacks. User CLI validation and command effects
 stay in the CLI; OS service definitions receive rendered arguments. The reader
 normalizes the v0.1.0 saved argv format, and writes include derived argv for
 released readers; see [pairing and recovery](pairing.md).
+[CLI commands](../src/cli.ts) accept parsed inputs and dependencies for state paths,
+output, discovery, status and lifecycle deadlines. `main()` only parses and dispatches;
+command successes return exit code zero and the entrypoint maps thrown errors as before.
+`resolveStart` reads launch inputs and returns a launch decision or refusal without
+persisting a launch or starting processes. The start command applies effects in their
+existing order; refusals concerning a running workspace remain after connection recovery.
+[Lifecycle waits](../src/lifecycle-waits.ts) supplies production defaults at the calling
+boundary, and process fixtures retain the existing shortened-deadline environment inputs.
+`WorkspaceHost.start` receives one object naming runtime options and lifecycle callbacks.
+
 
 ### Agent sources and execution environments
 

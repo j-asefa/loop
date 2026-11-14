@@ -31,7 +31,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
   };
   const host = new WorkspaceHost(dir, options);
   try {
-    await host.start(options, undefined, undefined, true);
+    await host.start({ options: options, runtimeNeutral: true });
     const pair = await fetch(host.origin + "/pair", {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: host.origin },
