@@ -1,3 +1,4 @@
+import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
@@ -44,7 +45,10 @@ afterAll(() => {
   delete process.env.LOOP_TEST_HARNESS;
   delete process.env.LOOP_TEST_ARGV;
 });
-function run(name: string, permissionMode = "default") {
+function run(
+  name: string,
+  permissionMode: RunPayload["permissionMode"] = "default",
+) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Test',0)",
   ).run(name, OWNER);

@@ -1,3 +1,4 @@
+import { writeRunPayload } from "../shared/run-payload.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as designPreviewSeedQueries from "./sql/design-preview-seed.js";
@@ -277,7 +278,7 @@ export function seedDesignPreview() {
         input: title,
         // Completed fixtures still exercise the completion transition and hooks.
         state: state === "completed" ? "running" : state,
-        payload: JSON.stringify({
+        payload: writeRunPayload({
           agentId: agent.id,
           connectionId: connection,
           provider: "openai",

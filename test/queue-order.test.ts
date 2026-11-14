@@ -299,3 +299,33 @@ it.each([
     clock.mockRestore();
   }
 });
+
+it("rejects invalid payloads before inserting while preserving omitted diagnostic payloads", () => {
+  const owner = id();
+  expect(() =>
+    enqueue(owner, "invalid", "null-payload", {
+      // @ts-expect-error Runtime callers can still provide malformed payloads.
+      payload: null,
+    }),
+  ).toThrow();
+  expect(() =>
+    enqueue(owner, "invalid", "unknown-field", {
+      // @ts-expect-error Writers cannot introduce undeclared payload fields.
+      payload: { temId: "team" },
+    }),
+  ).toThrow();
+  expect(
+    db.prepare("SELECT count(*) AS n FROM runs WHERE owner_id=?").get(owner),
+  ).toEqual({ n: 0 });
+  const run = enqueue(owner, "diagnostic", "diagnostic-payload", {
+    kind: "diagnostic",
+  });
+  expect(run.payload).toEqual({});
+  expect(db.prepare("SELECT payload FROM runs WHERE id=?").get(run.id)).toEqual(
+    { payload: "{}" },
+  );
+  expect(
+    enqueue(owner, "diagnostic", "diagnostic-payload", { kind: "diagnostic" })
+      .id,
+  ).toBe(run.id);
+});
