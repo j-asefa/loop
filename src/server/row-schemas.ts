@@ -26,13 +26,7 @@ import { Billing, Harness } from "../shared/protocol.js";
 
 import { Problem } from "../shared/problem.js";
 
-import {
-  PermissionMode,
-  AgentSnapshot,
-  Reply,
-  Source,
-  UploadedFile,
-} from "../shared/agent-snapshot.js";
+import { PermissionMode, AgentSnapshot } from "../shared/agent-snapshot.js";
 export { AgentSnapshot } from "../shared/agent-snapshot.js";
 import {
   RunPayload,
@@ -53,45 +47,18 @@ function savedRunPayload(
   }
 }
 
-export const MessageMetadata = RunPayload.extend({
-  state: z.string().optional(),
-  personal: z.boolean().optional(),
-  preview: z.boolean().optional(),
-  origin: z.string().optional(),
-  externalId: z.string().optional(),
-  parent: z.string().nullable().optional(),
-  activeBranch: z.boolean().optional(),
-  raw: z.json().optional(),
-  sourceConversation: Id.optional(),
-  sourceMessage: Id.optional(),
-  selectedByUser: z.boolean().optional(),
-  forked: z.boolean().optional(),
-  original: z.record(z.string(), z.json()).optional(),
-  partial: z.boolean().optional(),
-  messageId: Id.optional(),
-  usage: z.json().optional(),
-  completedMessageId: Id.optional(),
-  delivery: z.string().optional(),
-  progress: z.boolean().optional(),
-  final: z.boolean().optional(),
-  native: z.union([z.boolean(), z.record(z.string(), z.json())]).optional(),
-  finalNativeItemId: Id.optional(),
-  itemId: Id.optional(),
-  phase: z.string().optional(),
-  round: z.number().optional(),
-  replyTo: Reply.optional(),
-  attachments: z.array(UploadedFile).optional(),
-  source: Source.optional(),
-  reply: z.strictObject({ to: Id, published: z.literal(true) }).optional(),
-  automation: z.record(z.string(), z.json()).optional(),
-  steeringId: Id.optional(),
-  callId: Id.optional(),
-  toolCalls: z.array(z.json()).optional(),
-  name: z.string().optional(),
-  agentMail: z.record(z.string(), z.json()).optional(),
-  imported: z.boolean().optional(),
-});
-export type MessageMetadata = z.infer<typeof MessageMetadata>;
+import {
+  readMessageMetadata,
+  writeMessageMetadata,
+} from "../shared/message-metadata.js";
+export { MessageMetadata } from "../shared/message-metadata.js";
+function savedMessageMetadata(value: unknown, rowId: string) {
+  try {
+    return readMessageMetadata(value);
+  } catch {
+    throw new InvalidRow("messages", rowId, "metadata");
+  }
+}
 
 import {
   readArtifactMetadata,
@@ -309,13 +276,7 @@ export function parseMessage(value: unknown) {
   const row = parseRecord(MessageRecord, value, "messages");
   return {
     ...row,
-    metadata: readJson(
-      MessageMetadata.passthrough(),
-      row.metadata,
-      "messages",
-      row.id,
-      "metadata",
-    ),
+    metadata: savedMessageMetadata(row.metadata, row.id),
   };
 }
 export type Message = ReturnType<typeof parseMessage>;
@@ -354,7 +315,7 @@ export function requireSealedSecret(connection: Connection) {
 }
 
 export function messageResponse<T extends Message>(row: T) {
-  return { ...row, metadata: JSON.stringify(row.metadata) };
+  return { ...row, metadata: writeMessageMetadata(row.metadata, "preserve") };
 }
 export function artifactResponse<T extends Artifact>(row: T) {
   return { ...row, metadata: writeArtifactMetadata(row) };

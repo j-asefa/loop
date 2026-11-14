@@ -420,7 +420,11 @@ export function Tools({
                     </button>
                     <button
                       disabled={
-                        parse<any>(c.metadata, {}).transport === "stdio" ||
+                        parse<{
+                          transport?: string;
+                          resources?: unknown;
+                          prompts?: unknown;
+                        }>(c.metadata, {}).transport === "stdio" ||
                         c.authType === "query"
                       }
                       title={
@@ -454,15 +458,23 @@ export function Tools({
                   </div>
                   <details>
                     <summary>
-                      {parse<any[]>(c.tools, []).length} tools · resources &
+                      {parse<unknown[]>(c.tools, []).length} tools · resources &
                       prompts
                     </summary>
                     <pre className="code-artifact">
                       {JSON.stringify(
                         {
-                          tools: parse(c.tools, []),
-                          resources: parse<any>(c.metadata, {}).resources,
-                          prompts: parse<any>(c.metadata, {}).prompts,
+                          tools: parse<unknown[]>(c.tools, []),
+                          resources: parse<{
+                            transport?: string;
+                            resources?: unknown;
+                            prompts?: unknown;
+                          }>(c.metadata, {}).resources,
+                          prompts: parse<{
+                            transport?: string;
+                            resources?: unknown;
+                            prompts?: unknown;
+                          }>(c.metadata, {}).prompts,
                         },
                         null,
                         2,

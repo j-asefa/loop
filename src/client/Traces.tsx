@@ -335,7 +335,12 @@ function TraceList({
               <p className="error">{group[0].run_error}</p>
             )}
             {group.map((item) => {
-              const meta = parse<any>(item.metadata, {});
+              const meta = parse<{
+                state?: string;
+                isError?: boolean;
+                final?: boolean;
+                failure?: { phase?: string; code?: unknown };
+              }>(item.metadata, {});
               const state =
                 meta.state === "running" || meta.state === "waiting"
                   ? [

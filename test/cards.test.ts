@@ -576,6 +576,7 @@ it("uses authorized immutable attachment descriptions and invalidates removal of
   ).run();
   const attachment = {
     id: file,
+    objectId: "files-object",
     name: "Snapshot name",
     mime: "text/plain",
     size: 1,

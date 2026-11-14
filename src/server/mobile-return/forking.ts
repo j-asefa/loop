@@ -1,7 +1,11 @@
+import {
+  MessageMetadata,
+  writeMessageMetadata,
+} from "../../shared/message-metadata.js";
 import * as conversationsQueries from "../sql/conversations.js";
 import * as messagesQueries from "../sql/messages.js";
 import { ConversationForkInput } from "../../shared/mobile-contract-schemas.js";
-import { MessageMetadata, parseMessages } from "../row-schemas.js";
+import { parseMessages } from "../row-schemas.js";
 import { db, id, now } from "../db.js";
 import {
   ownedAgent,
@@ -65,17 +69,15 @@ export function forkConversation(
           null,
           m.role,
           m.content,
-          JSON.stringify(
-            MessageMetadata.parse({
-              sourceConversation: c.id,
-              sourceMessage: m.id,
-              forked: true,
-              // Native backends start fresh sessions from these copied turns.
-              selectedByUser: true,
-              attachments: metadata.attachments || [],
-              original: metadata,
-            }),
-          ),
+          writeMessageMetadata({
+            sourceConversation: c.id,
+            sourceMessage: m.id,
+            forked: true,
+            // Native backends start fresh sessions from these copied turns.
+            selectedByUser: true,
+            attachments: metadata.attachments || [],
+            original: MessageMetadata.shape.original.parse(metadata),
+          }),
           m.created_at,
         );
       }

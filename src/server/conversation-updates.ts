@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../shared/message-metadata.js";
 import * as messagesQueries from "./sql/messages.js";
 import { MessageMetadata } from "./row-schemas.js";
 import { db, id, now } from "./db.js";
@@ -7,7 +8,7 @@ import type { Run } from "./queue.js";
 export function recordConversationUpdate(
   run: Pick<Run, "id" | "owner_id">,
   key: string,
-  data: { content?: string; metadata?: unknown },
+  data: { content?: string; metadata?: MessageMetadata },
 ) {
   const metadata = {
     ...MessageMetadata.parse(data.metadata === undefined ? {} : data.metadata),
@@ -17,7 +18,7 @@ export function recordConversationUpdate(
     db,
     id(),
     data.content || "",
-    JSON.stringify(MessageMetadata.parse(metadata)),
+    writeMessageMetadata(metadata),
     now(),
     key,
     run.id,

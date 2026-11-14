@@ -1,3 +1,4 @@
+import { readMessageMetadata } from "../shared/message-metadata.js";
 import { z } from "zod";
 import { ftsQuery } from "../shared/search-excerpt.js";
 import { workspaceLink } from "../shared/workspace-links.js";
@@ -56,7 +57,7 @@ function eligible(s: any) {
       return false;
     if (s.message_id) {
       const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
-      if (!m || JSON.parse(m.metadata).superseded) return false;
+      if (!m || readMessageMetadata(m.metadata).superseded) return false;
     }
   }
   return true;
@@ -115,7 +116,7 @@ export function captureMemory() {
       origin?: string;
     })[];
     for (const m of rows) {
-      const meta = JSON.parse(m.metadata);
+      const meta = readMessageMetadata(m.metadata);
       const include =
         !meta.partial &&
         !meta.superseded &&

@@ -30,7 +30,10 @@ type SignIn = NonNullable<
 type Discovery = RouteResponse<typeof workspaceApi.runtimeList>;
 type Runtime = Discovery["runtimes"][number];
 function matchesRuntime(connection: Connection, runtime: Runtime) {
-  return parse<any>(connection.metadata, {}).loopHarness === runtime.name;
+  return (
+    parse<{ loopHarness?: string; flavor?: string }>(connection.metadata, {})
+      .loopHarness === runtime.name
+  );
 }
 export function RuntimeSetup(props: Parameters<typeof RuntimeSetupView>[0]) {
   const source = useSourceId();
@@ -656,7 +659,10 @@ function RuntimeSetupView({
       {discovery &&
         connections
           .filter((c) => {
-            const metadata = parse<any>(c.metadata, {});
+            const metadata = parse<{ loopHarness?: string; flavor?: string }>(
+              c.metadata,
+              {},
+            );
             return (
               metadata.loopHarness &&
               !discovery.runtimes.some((runtime) => matchesRuntime(c, runtime))
@@ -675,7 +681,10 @@ function RuntimeSetupView({
                 type="button"
                 disabled={busy}
                 onClick={async () => {
-                  const metadata = parse<any>(connection.metadata, {});
+                  const metadata = parse<{
+                    loopHarness?: string;
+                    flavor?: string;
+                  }>(connection.metadata, {});
                   setEnabling(connection.id);
                   setError("");
                   try {
@@ -684,7 +693,8 @@ function RuntimeSetupView({
                       { params: { id: connection.id }, body: {} },
                       executionSourceId(),
                     );
-                    await onEnabled(metadata.loopHarness || metadata.flavor);
+                    const name = metadata.loopHarness || metadata.flavor;
+                    if (name) await onEnabled(name);
                   } catch (cause) {
                     setError((cause as Error).message);
                   } finally {

@@ -79,7 +79,10 @@ function ResultContent({
   // branch makes the never assertion below fail typecheck (D1).
   switch (item.kind) {
     case "image": {
-      const value = parse<any>(item.content, null);
+      const value = parse<{ mimeType: string; data?: unknown } | null>(
+        item.content,
+        null,
+      );
       if (
         value &&
         ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
@@ -113,20 +116,23 @@ function ResultContent({
     case "diagram":
       return <Diagram source={item.content} />;
     case "table": {
-      const d = parse<any>(item.content, null);
+      const d = parse<{ columns: unknown[]; rows: unknown[][] } | null>(
+        item.content,
+        null,
+      );
       if (d && Array.isArray(d.columns) && Array.isArray(d.rows))
         return (
           <div className="table-scroll">
             <table>
               <thead>
                 <tr>
-                  {d.columns.map((c: any, i: number) => (
+                  {d.columns.map((c, i) => (
                     <th key={i}>{String(c)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {d.rows.slice(0, 1000).map((row: any[], i: number) => (
+                {d.rows.slice(0, 1000).map((row, i) => (
                   <tr key={i}>
                     {row.map((v, j) => (
                       <td key={j}>

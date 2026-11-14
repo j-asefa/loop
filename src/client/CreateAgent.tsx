@@ -72,8 +72,14 @@ export function CreateAgent({
     .sort(
       (a, b) =>
         Number(!!a.sourceId) - Number(!!b.sourceId) ||
-        Number(parse<any>(b.metadata, {}).authMode === "subscription") -
-          Number(parse<any>(a.metadata, {}).authMode === "subscription"),
+        Number(
+          parse<{ authMode?: string; loopHarness?: string }>(b.metadata, {})
+            .authMode === "subscription",
+        ) -
+          Number(
+            parse<{ authMode?: string; loopHarness?: string }>(a.metadata, {})
+              .authMode === "subscription",
+          ),
     );
   const preferredConnection = connected.find((item) => {
     return (
@@ -392,7 +398,10 @@ export function CreateAgent({
             const next = updated.find(
               (c) =>
                 c.status === "connected" &&
-                parse<any>(c.metadata, {}).loopHarness === runtimeName,
+                parse<{ authMode?: string; loopHarness?: string }>(
+                  c.metadata,
+                  {},
+                ).loopHarness === runtimeName,
             );
             if (next && !selected) {
               setConnection(connectionKey(next));

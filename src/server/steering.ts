@@ -1,7 +1,12 @@
+import {
+  readMessageMetadata,
+  MessageMetadata,
+  writeMessageMetadata,
+} from "../shared/message-metadata.js";
 import * as runSteeringQueries from "./sql/run-steering.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
-import { MessageMetadata, parseRun } from "./row-schemas.js";
+import { parseRun } from "./row-schemas.js";
 import { recordEffect, inheritEffect, withEffect } from "./effect-authority.js";
 import { ExecutionRefused } from "./execution-refusal.js";
 
@@ -53,7 +58,7 @@ export function saveSteering(
   key: string,
   request: string,
   content: string,
-  metadata: object,
+  metadata: MessageMetadata,
 ) {
   return db
     .transaction(() => {
@@ -68,7 +73,7 @@ export function saveSteering(
         run.conversation_id,
         run.id,
         content,
-        JSON.stringify(MessageMetadata.parse({ ...metadata, steeringId })),
+        writeMessageMetadata({ ...metadata, steeringId }),
         messageAt,
       );
       runSteeringQueries.insert(
@@ -91,7 +96,7 @@ export function saveSteering(
 }
 
 function message(input: Input, replyToolAvailable: boolean): ChatMessage {
-  const metadata = JSON.parse(input.metadata);
+  const metadata = readMessageMetadata(input.metadata);
   const content = replyPrompt(input.content, metadata.replyTo);
   return {
     role: "user",

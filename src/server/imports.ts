@@ -1,3 +1,7 @@
+import {
+  MessageMetadata,
+  writeMessageMetadata,
+} from "../shared/message-metadata.js";
 import * as importsQueries from "./sql/imports.js";
 import * as objectsQueries from "./sql/objects.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -7,7 +11,6 @@ import * as importMessagesQueries from "./sql/import-messages.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
-import { MessageMetadata } from "./row-schemas.js";
 
 import { z } from "zod";
 import { transition, type Run } from "./queue.js";
@@ -421,17 +424,15 @@ export async function executeImport(run: Run) {
           null,
           m.role,
           m.content,
-          JSON.stringify(
-            MessageMetadata.parse({
-              origin: "import",
-              provider: parsed.provider,
-              externalId: m.externalId,
-              parent: m.parent,
-              activeBranch: m.active,
-              importId,
-              raw: m.raw,
-            }),
-          ),
+          writeMessageMetadata({
+            origin: "import",
+            provider: parsed.provider,
+            externalId: m.externalId,
+            parent: m.parent,
+            activeBranch: m.active,
+            importId,
+            raw: MessageMetadata.shape.raw.parse(m.raw),
+          }),
           m.timestamp || c.timestamp || now(),
         );
         importMessagesQueries.insert(

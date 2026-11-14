@@ -45,7 +45,8 @@ export function McpCatalog({
   function connection(entry: CatalogEntry) {
     return (
       connections.find(
-        (c) => parse<any>(c.metadata, {}).catalogId === entry.id,
+        (c) =>
+          parse<{ catalogId?: string }>(c.metadata, {}).catalogId === entry.id,
       ) ||
       connections.find(
         (c) =>

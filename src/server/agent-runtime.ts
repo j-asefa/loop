@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../shared/message-metadata.js";
 import { writeArtifactMetadata } from "../shared/artifact-metadata.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as teamMembersQueries from "./sql/team-members.js";
@@ -12,7 +13,6 @@ import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { assertEffect } from "./effect-authority.js";
 import {
-  MessageMetadata,
   readRunFolder,
   readRunReviewId,
   parseMessages,
@@ -362,14 +362,12 @@ export function submit(
         run.id,
         "user",
         data.input,
-        JSON.stringify(
-          MessageMetadata.parse({
-            attachments,
-            replyTo,
-            personal: data.personal === true,
-            ...(data.automation ? { automation: data.automation } : {}),
-          }),
-        ),
+        writeMessageMetadata({
+          attachments,
+          replyTo,
+          personal: data.personal === true,
+          ...(data.automation ? { automation: data.automation } : {}),
+        }),
         messageAt,
       );
       return run;
@@ -519,7 +517,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         run.owner_id,
         run.conversation_id,
         run.id,
-        JSON.stringify(MessageMetadata.parse({ ...snapshot, partial: true })),
+        writeMessageMetadata({ ...snapshot, partial: true }),
         now(),
       );
       const artifactId = saveArtifact(run.owner_id, {
@@ -558,13 +556,11 @@ export async function executeAgent(run: Run): Promise<boolean> {
     !snapshot.reviewId,
   );
   const persist = db.transaction((partial: boolean) => {
-    const metadata = JSON.stringify(
-      MessageMetadata.parse({
-        ...snapshot,
-        messageId: cp.message_id,
-        partial,
-      }),
-    );
+    const metadata = writeMessageMetadata({
+      ...snapshot,
+      messageId: cp.message_id,
+      partial,
+    });
     messagesQueries.updateContentAndMetadata(
       db,
       output,

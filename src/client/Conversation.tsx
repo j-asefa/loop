@@ -85,7 +85,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import { parse } from "./json";
+import { readMessageMetadata } from "../shared/message-metadata";
 import { isRateLimited, RATE_LIMITED, isExecutionRefused } from "./api";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
 import { performStoredEffect } from "./pendingCommands";
@@ -372,7 +372,7 @@ function ConversationView({
   const toolRecords = () => {
     const kinds = ["tool", "output", "plan", "file_change"];
     const recorded = (data?.messages || []).flatMap((message) => {
-      const meta = parse<any>(message.metadata, {});
+      const meta = readMessageMetadata(message.metadata, "fallback");
       return (
         (meta.activities ||
           (meta.activity ? [meta.activity] : [])) as ActivityRecord[]
@@ -674,8 +674,9 @@ function ConversationView({
           fresh.messages
             .filter(
               (m: Message) =>
-                parse<any>(m.metadata, {}).activeBranch !== false &&
-                !parse<any>(m.metadata, {}).progress,
+                readMessageMetadata(m.metadata, "fallback").activeBranch !==
+                  false &&
+                !readMessageMetadata(m.metadata, "fallback").progress,
             )
             .map((m: Message) => m.id),
         );
@@ -1698,7 +1699,7 @@ function ConversationView({
             </button>
           )}
           {data?.messages.map((m) => {
-            const meta = parse<any>(m.metadata, {});
+            const meta = readMessageMetadata(m.metadata, "fallback");
             const pendingAnswer =
               m.role === "assistant" &&
               !meta.progress &&
@@ -1711,7 +1712,7 @@ function ConversationView({
                 !data.messages.some(
                   (other) =>
                     other.run_id === m.run_id &&
-                    parse<any>(other.metadata, {}).progress,
+                    readMessageMetadata(other.metadata, "fallback").progress,
                 ));
             const newDay = startsNewDay(m.created_at, previousAt);
             previousAt = m.created_at;
@@ -1741,13 +1742,13 @@ function ConversationView({
                     (other) =>
                       other.run_id === m.run_id &&
                       other.role === "assistant" &&
-                      !parse<any>(other.metadata, {}).progress,
+                      !readMessageMetadata(other.metadata, "fallback").progress,
                   )
                   .at(-1) ||
                 data.messages.find(
                   (other) =>
                     other.run_id === m.run_id &&
-                    !parse<any>(other.metadata, {}).progress,
+                    !readMessageMetadata(other.metadata, "fallback").progress,
                 )
               )?.id === m.id;
             return (
@@ -2149,7 +2150,9 @@ function ConversationView({
               <legend>Messages to include</legend>
               {data?.messages
                 .filter(
-                  (m) => m.content && !parse<any>(m.metadata, {}).progress,
+                  (m) =>
+                    m.content &&
+                    !readMessageMetadata(m.metadata, "fallback").progress,
                 )
                 .map((m) => (
                   <label className="checkbox-row" key={m.id}>
@@ -2282,8 +2285,10 @@ function ConversationView({
                         .filter(
                           (m) =>
                             m.content &&
-                            parse<any>(m.metadata, {}).activeBranch !== false &&
-                            !parse<any>(m.metadata, {}).progress,
+                            readMessageMetadata(m.metadata, "fallback")
+                              .activeBranch !== false &&
+                            !readMessageMetadata(m.metadata, "fallback")
+                              .progress,
                         )
                         .map((m) => m.id),
                     );

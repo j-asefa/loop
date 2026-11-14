@@ -37,7 +37,10 @@ export function NativeConnections({
           {connections
             .filter((c) => c.status !== "connected")
             .map((connection) => {
-              const harness = parse<any>(connection.metadata, {}).loopHarness;
+              const harness = parse<{ loopHarness?: string }>(
+                connection.metadata,
+                {},
+              ).loopHarness;
               return (
                 <section key={connection.id} className="native-decision">
                   <h4>{connection.label}</h4>
@@ -104,7 +107,7 @@ export function NativeConnections({
           </p>
           {connections
             .filter((c) => {
-              const m = parse<any>(c.metadata, {});
+              const m = parse<{ loopHarness?: string }>(c.metadata, {});
               return !m.loopHarness;
             })
             .map((c) => (

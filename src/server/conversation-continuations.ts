@@ -1,3 +1,7 @@
+import {
+  MessageMetadata,
+  writeMessageMetadata,
+} from "../shared/message-metadata.js";
 import * as continuationRequestsQueries from "./sql/continuation-requests.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import * as messagesQueries from "./sql/messages.js";
@@ -11,7 +15,6 @@ import {
   ownedMessage,
   Problem,
 } from "./domain.js";
-import { MessageMetadata } from "./row-schemas.js";
 import { submit } from "./agent-runtime.js";
 
 type ContinuationInput = z.infer<typeof ContinueInput>;
@@ -101,15 +104,13 @@ export function continueConversation(
           null,
           message.role,
           message.content,
-          JSON.stringify(
-            MessageMetadata.parse({
-              sourceConversation: source.id,
-              sourceMessage: message.id,
-              selectedByUser: true,
-              attachments: message.metadata.attachments || [],
-              original: message.metadata,
-            }),
-          ),
+          writeMessageMetadata({
+            sourceConversation: source.id,
+            sourceMessage: message.id,
+            selectedByUser: true,
+            attachments: message.metadata.attachments || [],
+            original: MessageMetadata.shape.original.parse(message.metadata),
+          }),
           message.created_at,
         );
       const run = submit(owner, {

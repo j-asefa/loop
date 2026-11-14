@@ -1,3 +1,4 @@
+import { readMessageMetadata } from "../shared/message-metadata.js";
 import {
   readArtifactMetadata,
   artifactDisplayMetadata,
@@ -125,7 +126,7 @@ function toCard(row: Row): Card {
     ? artifactDisplayMetadata(
         readArtifactMetadata(row.artifact_role!, row.metadata),
       )
-    : (JSON.parse(row.metadata) as Record<string, unknown>);
+    : readMessageMetadata(row.metadata);
   const agent = {
     id: row.agent_id,
     name: row.agent_name,

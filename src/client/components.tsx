@@ -531,7 +531,10 @@ function ArtifactPreview({
       );
   }
   if (item.kind === "image") {
-    const bitmap = parse<any>(item.content, null);
+    const bitmap = parse<{ mimeType: string; data?: unknown } | null>(
+      item.content,
+      null,
+    );
     return bitmap &&
       ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
         bitmap.mimeType,

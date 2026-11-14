@@ -11,6 +11,7 @@ import { MachineId } from "./fleet.js";
 // Messages Loop submits on your behalf, not typed by you: a watched pull
 // request, a Social feed digest, or another agent's message or delegated
 // result.
+const AutomationId = z.string().min(1);
 export type Automation =
   | { kind: "review_continuation"; reviewId: string }
   | { kind: "github_watch"; watchId: string }
@@ -22,6 +23,27 @@ export type Automation =
       fromAgentId: string;
       fromName: string;
     };
+// Validate the existing command type while retaining extra serialized JSON fields.
+export const Automation: z.ZodType<Automation> = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("review_continuation"), reviewId: AutomationId })
+    .catchall(z.json()),
+  z
+    .object({ kind: z.literal("github_watch"), watchId: AutomationId })
+    .catchall(z.json()),
+  z
+    .object({ kind: z.literal("feed_digest"), digestId: AutomationId })
+    .catchall(z.json()),
+  z
+    .object({
+      kind: z.enum(["agent_message", "agent_result"]),
+      mailId: AutomationId,
+      threadId: AutomationId,
+      fromAgentId: AutomationId,
+      fromName: z.string(),
+    })
+    .catchall(z.json()),
+]);
 
 export function automationLabel(
   kind: string | null | undefined,
