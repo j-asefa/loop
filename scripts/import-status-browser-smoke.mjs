@@ -120,13 +120,11 @@ try {
         await page.evaluate(() => window.signal());
         await expect(notice).toContainText("History unavailable");
         await expect(history).toContainText("2 of 20");
-        await page
-          .locator("input[type=file]")
-          .setInputFiles({
-            name: "conversations.json",
-            mimeType: "application/json",
-            buffer: Buffer.from("[]"),
-          });
+        await page.locator("input[type=file]").setInputFiles({
+          name: "conversations.json",
+          mimeType: "application/json",
+          buffer: Buffer.from("[]"),
+        });
         await page
           .getByRole("button", { name: "Preview import", exact: true })
           .click();
