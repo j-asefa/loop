@@ -396,6 +396,45 @@ mail; ineligible results retain their metadata until source deletion.
 
 ## Client and host
 
+### Connection backend lease
+
+Owner: [`ConnectionLeases`](../src/connection-leases.ts). The connection
+service supplies the clock, backend probe and socket validation, and wires the
+registry to the relay. It owns the expiry timer, control socket, lock and tunnel.
+
+States: `none`, `pending`, `backend`, `lapsed`. The public hello reports
+`pending` as pending, `backend` as ready, and both `none` and `lapsed` as none.
+
+Invariants:
+
+- One service instance owns a monotonic generation counter and at most one
+  populated slot. A new lease replaces earlier authority and stops forwarding.
+- A pending or lapsed launch must prove its generation-bound secret before
+  forwarding starts. Ownership is checked again after the asynchronous probe.
+- Only the latest lapsed launch may recover. Explicit withdrawal or a newer
+  lease revokes that right; pending and lapsed leases do not expire themselves.
+- Heartbeats renew only an attached backend. Relay failures from an older
+  generation cannot detach its replacement.
+- State changes and relay publication are synchronous within the operation;
+  a completed older probe cannot publish after a newer decision.
+- The hello projection exposes no lease secret. Its `since` changes only on
+  backend attachment or detachment, not pending/lapsed withdrawal.
+
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| any | pending | `lease`: confirmed tunnel address required; detach backend nonrecoverably, clear lapsed, increment generation and issue secret; mem |
+| pending / lapsed | backend | `register`: generation and secret match, allowed socket, valid HMAC probe and ownership re-check after await; lease + mem |
+| backend | backend | `heartbeat`: matching generation and secret renew `seen`; lease |
+| pending / lapsed | unchanged | Matching `heartbeat` reports unregistered; lease |
+| backend | lapsed | `expire`: clock minus `seen` strictly exceeds timeout, or `unreachable`: relay failure matches current generation; mem |
+| backend | none | `withdraw`: matching generation and secret; detach nonrecoverably; lease |
+| pending / lapsed | none | `withdraw`: matching generation and secret clears that slot; lease |
+
+Stale register, heartbeat and withdrawal requests return 409 without mutation.
+An invalid socket returns 400; a failed or superseded probe returns 409 without
+attaching. The relay continues to return unavailable responses while detached;
+no request is queued or replayed by the registry.
+
 ### Browser owner generation
 
 [`ownerSession.ts`](../src/client/ownerSession.ts) owns the current owner and

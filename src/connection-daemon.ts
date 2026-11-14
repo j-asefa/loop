@@ -14,30 +14,25 @@ import {
  * docs/pairing.md for the protocol and recovery rules.
  */
 import { createServer } from "node:http";
-import {
-  jsonClient,
-  jsonServer,
-  equalSecret as equal,
-  BACKEND_PROBE,
-} from "./local-control.js";
+import { jsonClient, jsonServer, BACKEND_PROBE } from "./local-control.js";
 import { chmodSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { reportReady, isEntrypoint } from "./local-startup.js";
-import { randomUUID, randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { atomic, privateDir, secret } from "./state.js";
 
 import { installDaemonLog } from "./daemon.js";
 
 import { Tunnel, TunnelSupervisor, helper } from "./tunnel.js";
 import { Relay } from "./relay.js";
+import { ConnectionLeases } from "./connection-leases.js";
 import {
   CONNECTION_LOCK,
   CONNECTION_PROTOCOL,
   CONNECTION_RECORD,
   backendSocket,
   ensureRunDir,
-  probeProof,
   readConnectionRecord,
   connectionControl,
   type Hello,
@@ -100,39 +95,20 @@ export async function runConnectionService(
   let tunnelState: Hello["tunnel"]["state"] = "starting";
   let tunnelSince = startedAt;
   let current: Tunnel | undefined;
-  let generation = 0;
-  let pending: { generation: number; lease: string } | undefined;
-  let backend:
-    | { generation: number; lease: string; path: string; seen: number }
-    | undefined;
-  // The latest launch after it was withdrawn for silence or a refused
-  // connection. Until a newer lease exists it may prove itself and return.
-  let lapsed: { generation: number; lease: string } | undefined;
-  let backendSince = startedAt;
   let stopping = false;
 
   const log = (message: string) =>
     console.log(`${new Date().toISOString()} ${message}`);
-  const detach = (reason: string, recoverable = false) => {
-    if (!backend) return;
-    log(
-      `Application generation ${backend.generation} ${reason}; requests receive 503 until a launch registers.`,
-    );
-    lapsed = recoverable
-      ? { generation: backend.generation, lease: backend.lease }
-      : undefined;
-    backend = undefined;
-    backendSince = Date.now();
-    relay.setBackend(undefined);
-  };
-  relay.onUnreachable = (stale) => {
-    if (backend?.generation === stale)
-      detach("stopped accepting connections", true);
-  };
-  const expiry = setInterval(() => {
-    if (backend && Date.now() - backend.seen > LEASE_TIMEOUT_MS)
-      detach("stopped sending heartbeats", true);
-  }, 1000);
+  const leases = new ConnectionLeases(instance, startedAt, {
+    now: Date.now,
+    timeout: LEASE_TIMEOUT_MS,
+    socket: (name) => backendSocket(run, name),
+    probe,
+    setBackend: (backend) => relay.setBackend(backend),
+    log,
+  });
+  relay.onUnreachable = (generation) => leases.unreachable(generation);
+  const expiry = setInterval(() => leases.expire(), 1000);
   expiry.unref();
 
   const hello = (): Hello => ({
@@ -150,84 +126,28 @@ export async function runConnectionService(
       identity: current?.pid ? identity(current.pid) : undefined,
       since: tunnelSince,
     },
-    backend: {
-      generation: backend?.generation ?? pending?.generation ?? generation,
-      state: backend ? "ready" : pending ? "pending" : "none",
-      since: backendSince,
-    },
+    backend: leases.status(),
   });
-  const owns = (input: any, entry?: { generation: number; lease: string }) =>
-    !!entry &&
-    input.generation === entry.generation &&
-    typeof input.lease === "string" &&
-    equal(input.lease, entry.lease);
 
   const operations: Record<string, (input: any) => Promise<[number, unknown]>> =
     {
       hello: async () => [200, hello()],
-      // Issued to the launch holding the workspace lock. A new lease ends the
-      // previous generation's forwarding, so two launches never both serve.
       lease: async () => {
         if (tunnelState !== "ready" || !origin)
           return [503, { error: "The tunnel has no confirmed address yet." }];
-        detach("was replaced by a new launch");
-        lapsed = undefined;
-        pending = { generation: ++generation, lease: secret() };
-        return [200, { ...pending, origin, instance }];
+        return [200, { ...leases.lease(), origin, instance }];
       },
       register: async (input) => {
-        // A pending launch, or the latest one returning after a stall.
-        const entry = owns(input, pending)
-          ? pending
-          : owns(input, lapsed)
-            ? lapsed
-            : undefined;
-        if (!entry)
-          return [409, { error: "Stale or unknown application generation." }];
-        const path = backendSocket(run, input.socket);
-        if (!path) return [400, { error: "Invalid application socket." }];
-        const nonce = randomBytes(24).toString("base64url");
-        const proof = await probe(path, nonce).catch(() => "");
-        // Re-check: the lease may have been superseded while probing.
-        if (
-          (entry === pending ? !owns(input, pending) : !owns(input, lapsed)) ||
-          !equal(
-            proof,
-            probeProof(entry.lease, instance, entry.generation, nonce),
-          )
-        )
-          return [409, { error: "Application socket failed verification." }];
-        backend = {
-          generation: entry.generation,
-          lease: entry.lease,
-          path,
-          seen: Date.now(),
-        };
-        backendSince = Date.now();
-        if (entry === pending) pending = undefined;
-        lapsed = undefined;
-        relay.setBackend({ generation: backend.generation, path });
-        log(
-          `Application generation ${backend.generation} registered; forwarding resumed.`,
-        );
-        return [200, { origin }];
+        const [status, result] = await leases.register(input);
+        return status === 200 ? [200, { origin }] : [status, result];
       },
       heartbeat: async (input) => {
-        if (owns(input, backend)) backend!.seen = Date.now();
-        else if (!owns(input, pending) && !owns(input, lapsed))
-          return [409, { error: "Stale application generation." }];
-        return [
-          200,
-          { origin, tunnel: tunnelState, registered: owns(input, backend) },
-        ];
+        const [status, result] = leases.heartbeat(input);
+        return status === 200
+          ? [200, { origin, tunnel: tunnelState, ...result }]
+          : [status, result];
       },
-      withdraw: async (input) => {
-        if (owns(input, pending)) pending = undefined;
-        else if (owns(input, lapsed)) lapsed = undefined;
-        else if (owns(input, backend)) detach("is stopping");
-        else return [409, { error: "Stale application generation." }];
-        return [200, { withdrawn: true }];
-      },
+      withdraw: async (input) => leases.withdraw(input),
       shutdown: async () => {
         setImmediate(() => void shutdown(0));
         return [200, { stopping: true }];

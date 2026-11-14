@@ -542,6 +542,13 @@ The same library handles control-server dispatch, JSON replies and timing-safe a
 
 [Local startup](../src/local-startup.ts) owns detached spawning, private log descriptors, readiness IPC, startup timeout and listener cleanup. The CLI forwards terminal interruptions only while awaiting readiness; the connection service remains in its own process group across application restarts. Callers retain their timeout messages and interpret readiness payloads, including the connection lock-busy outcome. Child entrypoints report once and disconnect IPC after sending; importing an entrypoint does not start it.
 
+The connection service delegates application lease ownership to
+[`ConnectionLeases`](../src/connection-leases.ts): generation-bound admission,
+post-probe ownership checks, heartbeat expiry and recoverable detachment. The
+service retains sockets, locks, relay and tunnel supervision. The registry
+publishes relay changes synchronously with its decisions; its clock and probe
+are dependencies. See the [lease state machine](state-machines.md#connection-backend-lease).
+
 ### Agent sources and execution environments
 
 An agent belongs to one owner on one Loop API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and Feed projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host. Opening a conversation on another source keeps the Feed mounted. The thread binds its reads, controls, uploads and file links to that source; the shell retains its original source. Drafts and pending send receipts include the owner, source and conversation, and late responses cannot overwrite the newly opened thread. Source failures appear in the thread with a retry action.
