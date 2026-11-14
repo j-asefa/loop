@@ -1,6 +1,7 @@
 import { FolderId, parseId } from "../shared/contract-ids.js";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "../shared/workspace-api";
+import { createReadExecutor, type ReadState } from "./read-executor";
 import { readRoute } from "./api";
 import {
   listenWorkspaceChanges,
@@ -24,54 +25,72 @@ export function useFeedBadge(
     folder,
     teams,
   ]);
+  const context = useMemo(() => ({ retry: () => {} }), [key]);
   const [state, setState] = useState<{
     key: string;
     counts: Record<string, number>;
-  }>({ key, counts: {} });
+    reads: Record<string, ReadState>;
+  }>({ key, counts: {}, reads: {} });
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    const controller = new AbortController();
-    const tickets = new Map<string, number>();
-    const load = (selected = sources) => {
-      for (const source of selected) {
-        const ticket = (tickets.get(source) ?? 0) + 1;
-        tickets.set(source, ticket);
-        void readRoute(
-          workspaceApi.feed,
-          {
-            query: {
-              filter: "needs",
-              ...(folder ? { folder: parseId(FolderId, folder) } : {}),
-              ...(teams ? { teams } : {}),
-            },
-          },
-          source,
-          controller.signal,
-        )
-          .then(({ summary }) => {
-            if (
-              !active ||
-              generation !== viewGeneration() ||
-              tickets.get(source) !== ticket
-            )
-              return;
-            const count =
-              summary.working +
-              summary.queued +
-              (summary.replies_unread ?? 0) +
-              (summary.done_unread ?? 0);
+    const current = () => active && generation === viewGeneration();
+    const failures = new Set<string>();
+    const readers = new Map(
+      [...new Set(sources)].map((source) => [
+        source,
+        createReadExecutor({
+          current,
+          changed: (value) => {
+            if (value.error) failures.add(source);
+            else failures.delete(source);
             setState((old) => ({
               key,
+              counts: old.key === key ? old.counts : {},
+              reads: { ...(old.key === key ? old.reads : {}), [source]: value },
+            }));
+          },
+        }),
+      ]),
+    );
+    const load = (selected = sources, manual = false) => {
+      for (const source of selected) {
+        const reader = readers.get(source);
+        if (!reader) continue;
+        void reader.load(
+          (signal, mode) =>
+            readRoute(
+              workspaceApi.feed,
+              {
+                query: {
+                  filter: "needs",
+                  ...(folder ? { folder: parseId(FolderId, folder) } : {}),
+                  ...(teams ? { teams } : {}),
+                },
+              },
+              source,
+              signal,
+              undefined,
+              mode,
+            ),
+          ({ summary }) =>
+            setState((old) => ({
+              key,
+              reads: old.key === key ? old.reads : {},
               counts: {
                 ...(old.key === key ? old.counts : {}),
-                [source]: count,
+                [source]:
+                  summary.working +
+                  summary.queued +
+                  (summary.replies_unread ?? 0) +
+                  (summary.done_unread ?? 0),
               },
-            }));
-          })
-          .catch(() => {});
+            })),
+          manual,
+        );
       }
     };
+    context.retry = () => load([...failures], true);
     const stop = listenWorkspaceChanges("feed", (event) =>
       load(
         sources.filter((source) =>
@@ -85,13 +104,21 @@ export function useFeedBadge(
     load();
     return () => {
       active = false;
-      controller.abort();
+      readers.forEach((reader) => reader.dispose());
+      context.retry = () => {};
       stop();
       window.removeEventListener("loop-source-refresh", update);
       window.removeEventListener("loop-later-change", update);
     };
-  }, [key]);
-  return state.key === key
-    ? Object.values(state.counts).reduce((sum, count) => sum + count, 0)
-    : 0;
+  }, [context]);
+  const reads = state.key === key ? Object.values(state.reads) : [];
+  return {
+    count:
+      state.key === key
+        ? Object.values(state.counts).reduce((sum, count) => sum + count, 0)
+        : 0,
+    error: reads.find((read) => read.error)?.error ?? "",
+    busy: reads.some((read) => read.error && read.busy),
+    retry: () => context.retry(),
+  };
 }

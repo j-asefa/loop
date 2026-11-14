@@ -78,7 +78,19 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     .getByRole("button", { name: "Feed", exact: true });
   const feedPattern = /\/api\/feed(?:\?|$)/;
   let summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 2 };
+  let badgeFailure = false;
   const counts = async (route) => {
+    if (
+      badgeFailure &&
+      new URL(route.request().url()).searchParams.get("filter") === "needs"
+    ) {
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Fixture badge unavailable" }),
+      });
+      return;
+    }
     const response = await route.fetch();
     const body = await response.json();
     await route
@@ -121,6 +133,20 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     summary = { working: 0, queued: 0, replies_unread: 0, done_unread: 0 };
     await page.reload();
     await expect(feedNav.locator("small")).toHaveCount(0);
+    badgeFailure = true;
+    await page.reload();
+    const notice = page
+      .getByRole("alert")
+      .filter({ hasText: "Fixture badge unavailable" });
+    await expect(notice).toBeVisible();
+    badgeFailure = false;
+    summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 5 };
+    await notice.getByRole("button", { name: "Retry connection" }).click();
+    await expect(notice).toHaveCount(0);
+    await expect(feedNav.locator("small")).toHaveAttribute(
+      "aria-label",
+      "11 items in Feed",
+    );
   } finally {
     await page.unroute(feedPattern, counts);
   }
