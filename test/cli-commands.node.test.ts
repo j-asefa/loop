@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  readFile,
+  writeFile,
+  realpath,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -23,7 +30,9 @@ import {
 import { writeLaunch } from "../src/launch-record.js";
 
 async function workspace() {
-  const root = await mkdtemp(join(tmpdir(), "loop-cli-command-"));
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "loop-cli-command-")),
+  );
   const dir = join(root, "workspace");
   await mkdir(dir);
   const output: string[] = [];
