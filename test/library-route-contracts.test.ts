@@ -311,6 +311,23 @@ it("artifactCreate keeps its id-only receipt and rejects private client metadata
   expect(artifact.role).toBe("snippet");
   if (artifact.role !== "snippet") throw new Error("Expected a snippet");
   expect(artifact.metadata.snippet).toBe(true);
+  // v0.1.0 accepted this stored kind; reads and edits must keep its content.
+  db.prepare("UPDATE artifacts SET kind='code',content=? WHERE id=?").run(
+    "<script>historical code</script>",
+    artifact.id,
+  );
+  const historical = await request(`/artifacts/${artifact.id}`);
+  valid(workspaceApi.artifactDetail, historical);
+  expect(historical.data.kind).toBe("code");
+  expect(historical.data.content).toBe("<script>historical code</script>");
+  const edited = await request(
+    `/artifacts/${artifact.id}`,
+    { version: historical.data.version, pinned: true },
+    "PATCH",
+  );
+  valid(workspaceApi.artifactUpdate, edited);
+  expect(edited.data.content).toBe(historical.data.content);
+  expect(edited.data.kind).toBe("code");
 });
 it("artifactCreate rejects kinds outside the owner-creatable set", async () => {
   for (const kind of ["code", "github_pr", "image", "conversation"]) {

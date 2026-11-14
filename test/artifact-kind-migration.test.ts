@@ -30,6 +30,7 @@ it("migrates valid kinds and enforces the set at insert and update", () => {
     priorMigrations().forEach((sql) => db.exec(sql));
     // Rows carrying every kind the current build writes survive the migration.
     for (const kind of [
+      "code",
       "markdown",
       "image",
       "github_pr",
@@ -42,10 +43,29 @@ it("migrates valid kinds and enforces the set at insert and update", () => {
       insertArtifact(db, "ok-" + kind, kind);
     db.transaction(() => db.exec(migration())).immediate();
     expect(db.prepare("SELECT count(*) n FROM artifacts").get()).toEqual({
-      n: 8,
+      n: 9,
     });
+    expect(
+      db.prepare("SELECT kind,content FROM artifacts WHERE id='ok-code'").get(),
+    ).toEqual({ kind: "code", content: "Content" });
+    // Already-upgraded databases need the widened triggers too.
+    db.exec(
+      "DROP TRIGGER artifact_kind_insert; DROP TRIGGER artifact_kind_update",
+    );
+    const oldTriggers = migration()
+      .slice(migration().indexOf("CREATE TRIGGER artifact_kind_insert"))
+      .replaceAll("'code',", "");
+    db.exec(oldTriggers);
+    expect(() => insertArtifact(db, "code-after-upgrade", "code")).toThrow(
+      /Unknown artifact kind/,
+    );
+    db.exec(readFileSync("migrations/163-released-artifact-kinds.sql", "utf8"));
+    insertArtifact(db, "code-after-upgrade", "code");
+    db.prepare(
+      "UPDATE artifacts SET kind='code' WHERE id='code-after-upgrade'",
+    ).run();
     // Insert and update with an unknown kind fail at the database.
-    expect(() => insertArtifact(db, "bad", "code")).toThrow(
+    expect(() => insertArtifact(db, "bad", "unknown-kind")).toThrow(
       /Unknown artifact kind/,
     );
     expect(() =>

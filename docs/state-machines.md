@@ -89,11 +89,7 @@ runs. A paused run can retain its lease and saved answer, and running or pausing
 work can save an answer before its completion transition. These fields are not
 proof that a run is currently executing. Native error events persist errors
 independently of run state, and a later completion does not clear them; every
-public arm preserves that stored error field. Every arm also retains the nullable
-outcome and optional lease/timing fields accepted by released Loop 0.1.0. The
-wire projection always includes `result` and `error` (null when absent), so a
-released client can read queued and waiting-child runs after an upgrade. A stale
-lease or outcome field is not evidence of a current execution.
+public arm preserves that stored error field.
 
 
 ### `approvals.state`

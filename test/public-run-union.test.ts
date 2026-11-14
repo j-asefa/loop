@@ -2,8 +2,9 @@ import { DoneRunSchema, FeedRunSchema } from "../src/shared/done-card.js";
 import { describe, expect, it } from "vitest";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 
-// Preserve the released wire fields while retaining the state discriminator.
-// Historical lease/outcome fields do not establish the current execution state.
+// The public run is keyed on `state` (D2/D3): a field a state's writers never
+// set is absent from its arm. Non-strict arms strip such stray keys, and an
+// arm that requires a lease field rejects a row without it.
 const base = {
   id: "r1",
   owner_id: "owner",
@@ -54,7 +55,7 @@ describe("PublicRun arms", () => {
     }
   });
 
-  it("preserves released nullable outcome and lease fields on queued runs", () => {
+  it("strips fields queued never carries", () => {
     const parsed = run("queued", {
       result: null,
       error: null,
@@ -64,12 +65,12 @@ describe("PublicRun arms", () => {
     if (!parsed.success) throw new Error("expected queued to parse");
     const data = parsed.data;
     if (data.state !== "queued") throw new Error("expected the queued arm");
-    expect(data.result).toBe(null);
+    expect("result" in data).toBe(false);
     expect(data.error).toBe(null);
-    expect(data.worker_id).toBe("w");
+    expect("worker_id" in data).toBe(false);
   });
 
-  it("keeps terminal list projections including released timing fields", () => {
+  it("keeps terminal list projections while stripping inactive timing fields", () => {
     const data = arm("completed", {
       result: "ok",
       queue_rank: 1,
@@ -85,8 +86,8 @@ describe("PublicRun arms", () => {
     expect(data.queue_position).toBe(2);
     expect(data.preview).toBe("p");
     expect(data.preview_artifact).toBe(null);
-    expect(data.active_since).toBe(5);
-    expect(data.attention_dismissed_at).toBe(6);
+    expect("active_since" in data).toBe(false);
+    expect("attention_dismissed_at" in data).toBe(false);
     expect(data.error).toBe("e");
     expect(data.result).toBe("ok");
   });
@@ -113,9 +114,9 @@ describe("PublicRun arms", () => {
     expect(running.queue_rank).toBe(1);
   });
 
-  it("preserves the released optional lease on awaiting_approval", () => {
+  it("requires the lease on awaiting_approval", () => {
     const missing = run("awaiting_approval", { heartbeat: 2 });
-    expect(missing.success).toBe(true);
+    expect(missing.success).toBe(false);
     const kept = arm("awaiting_approval", { worker_id: "w", heartbeat: 2 });
     if (kept.state !== "awaiting_approval")
       throw new Error("expected awaiting_approval arm");

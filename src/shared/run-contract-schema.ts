@@ -5,9 +5,9 @@ import { z } from "zod";
 import { Text, MaybeText, Time } from "./route-contract.js";
 import { RunDisplayState, RunKind } from "./run-state.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
-// State remains discriminated, but the public wire fields preserve v0.1.0.
-// Nullable outcome/lease fields can survive a transition and cannot be stripped
-// just because they are not evidence of work in the current state.
+// Run arms follow storage transitions and every public projection. Preview and
+// queue fields are shared: attention(active=false) returns them for every state,
+// and queue_rank is retained when a queued run starts.
 const RunBaseSchema = z.object({
   id: RunId,
   owner_id: OwnerId.optional(),
@@ -22,30 +22,64 @@ const RunBaseSchema = z.object({
   active_ms: z.number().optional(),
   // Native error events write this independently of run state; transitions do
   // not generally clear it, including a later successful completion.
-  error: MaybeText.default(null),
-  result: MaybeText.default(null),
-  worker_id: WorkerId.nullable().optional(),
-  heartbeat: Time.nullable().optional(),
-  active_since: Time.nullable().optional(),
-  attention_dismissed_at: Time.nullable().optional(),
+  error: MaybeText.optional(),
   steeringId: SteeringId.optional(),
   queue_rank: z.number().nullable().optional(),
   queue_position: z.number().nullable().optional(),
   preview: MaybeText.optional(),
   preview_artifact: PublicArtifact.nullable().optional(),
 });
-function runArm<S extends RunDisplayState>(state: S) {
-  return RunBaseSchema.extend({ state: z.literal(state) });
+const RunLeaseSchema = z.object({
+  worker_id: WorkerId.nullable().optional(),
+  heartbeat: Time.nullable().optional(),
+});
+const RunOutcomeSchema = z.object({
+  result: MaybeText.optional(),
+});
+const RunAttentionSchema = z.object({
+  attention_dismissed_at: Time.nullable().optional(),
+});
+function runArm<
+  S extends RunDisplayState,
+  E extends Record<string, z.ZodTypeAny>,
+>(state: S, extra: E) {
+  return RunBaseSchema.extend({ state: z.literal(state), ...extra });
 }
 export const PublicRun = z.discriminatedUnion("state", [
-  runArm("queued"),
-  runArm("waiting_children"),
-  runArm("running"),
-  runArm("pausing"),
-  runArm("paused"),
-  runArm("awaiting_approval"),
-  runArm("interrupted"),
-  runArm("completed"),
-  runArm("failed"),
-  runArm("cancelled"),
+  runArm("queued", {}),
+  runArm("waiting_children", {}),
+  runArm("running", {
+    ...RunLeaseSchema.shape,
+    result: MaybeText.optional(),
+  }).extend({
+    active_since: Time.nullable().optional(),
+  }),
+  runArm("pausing", {
+    ...RunLeaseSchema.shape,
+    result: MaybeText.optional(),
+  }).extend({
+    active_since: Time.nullable().optional(),
+  }),
+  runArm("paused", {
+    result: MaybeText.optional(),
+    ...RunLeaseSchema.shape,
+  }),
+  runArm("awaiting_approval", {
+    worker_id: WorkerId.nullable(),
+    heartbeat: Time.nullable().optional(),
+  }),
+  runArm("interrupted", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape),
+  runArm("completed", {
+    result: MaybeText.optional(),
+    worker_id: WorkerId.nullable().optional(),
+    heartbeat: Time.nullable().optional(),
+  }),
+  runArm("failed", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape),
+  runArm("cancelled", RunOutcomeSchema.shape)
+    .extend(RunLeaseSchema.shape)
+    .extend(RunAttentionSchema.shape),
 ]);

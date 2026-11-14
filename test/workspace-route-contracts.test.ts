@@ -42,53 +42,10 @@ it("resolves nested production registrars without invoking native history or dia
     );
   }
 });
-it("preserves released subscription actions and isolates connection owners", async () => {
-  expect(mountedRoute(app, "POST", "/api/subscriptions/fixture/status")).toBe(
-    workspaceApi.subscriptionAction,
-  );
-  const local = fixture();
-  const foreign = fixture("subscription-other-owner");
-  const action = (connection: string, name: string, body: unknown = {}) =>
-    request(`/subscriptions/${connection}/${name}`, body);
-  expect((await action(local.connection, "status")).status).toBe(400);
-  expect((await action(foreign.connection, "cancel")).status).toBe(404);
-  db.prepare(
-    "UPDATE connections SET status='disconnected',metadata=? WHERE id=?",
-  ).run(
-    JSON.stringify({ authMode: "subscription", loopHarness: "codex" }),
-    local.connection,
-  );
-  const disconnected = await action(local.connection, "status");
-  expect(disconnected.status).toBe(200);
-  expect(disconnected.data).toEqual({ authenticated: false });
-  db.prepare("UPDATE connections SET status='needs_sign_in' WHERE id=?").run(
-    local.connection,
-  );
+it("does not mount the retired subscription action route", () => {
   expect(
-    (await action(local.connection, "code", { code: "bad\ncode" })).status,
-  ).toBe(400);
-  expect(
-    (await action(local.connection, "code", { code: "valid-code" })).status,
-  ).toBe(409);
-  const login = await action(local.connection, "login");
-  expect(login.status).toBe(409);
-  expect(JSON.stringify(login.data)).toContain(
-    "Sign in with the native harness",
-  );
-  const status = () =>
-    db
-      .prepare("SELECT status FROM connections WHERE id=?")
-      .get(local.connection);
-  expect(status()).toEqual({ status: "needs_sign_in" });
-  const cancelled = await action(local.connection, "cancel");
-  expect(cancelled.status).toBe(200);
-  expect(cancelled.data).toEqual({ ok: true });
-  expect(status()).toEqual({ status: "needs_sign_in" });
-  expect(
-    db
-      .prepare("SELECT status FROM connections WHERE id=?")
-      .get(foreign.connection),
-  ).toEqual({ status: "connected" });
+    mountedRoute(app, "POST", "/api/subscriptions/fixture/status"),
+  ).toBeUndefined();
 });
 async function request(
   path: string,
@@ -707,34 +664,6 @@ it("keeps ordinary and import upload limits distinct", async () => {
 
 it("preserves terminal previews and queue values in the unfiltered run list", async () => {
   const f = fixture();
-  // v0.1.0 PublicRun requires result and error even when null. Assert the
-  // production HTTP bytes before applying any current response defaults.
-  const releasedRequiredFields = z.object({
-    result: z.string().nullable(),
-    error: z.string().nullable(),
-  });
-  for (const state of [
-    "queued",
-    "running",
-    "pausing",
-    "paused",
-    "awaiting_approval",
-    "interrupted",
-    "completed",
-    "failed",
-    "cancelled",
-  ]) {
-    db.prepare(
-      "UPDATE runs SET state=?,worker_id=NULL,result=NULL,error=NULL WHERE id=?",
-    ).run(state, f.run.id);
-    const response = await request("/runs");
-    expect(response.status).toBe(200);
-    const wire = response.data.find(
-      (row: { id: string }) => row.id === f.run.id,
-    );
-    expect(releasedRequiredFields.safeParse(wire).success, state).toBe(true);
-    expect(wire).toHaveProperty("worker_id", null);
-  }
   db.prepare("UPDATE runs SET state='completed',queue_rank=7 WHERE id=?").run(
     f.run.id,
   );

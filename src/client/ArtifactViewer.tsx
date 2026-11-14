@@ -79,6 +79,12 @@ function ResultContent({
   // Exhaustive over the artifact kind enum: adding a kind without a rendering
   // branch makes the never assertion below fail typecheck (D1).
   switch (item.kind) {
+    case "code":
+      return (
+        <pre className="code-artifact">
+          <code>{item.content}</code>
+        </pre>
+      );
     case "image": {
       const value = parse<{ mimeType: string; data?: unknown } | null>(
         item.content,
