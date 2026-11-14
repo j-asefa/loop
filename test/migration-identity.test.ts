@@ -168,12 +168,6 @@ it("records historical completion by name at real startup and restarts without m
     string,
     unknown
   >;
-  for (const column of [
-    "comment_cursor",
-    "review_comment_cursor",
-    "review_cursor",
-  ])
-    delete watch[column];
   released.close();
   const start = () =>
     JSON.parse(
