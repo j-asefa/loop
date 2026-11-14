@@ -21,6 +21,7 @@ import {
   CollectionReadNotice,
   useProjectionQuery,
   usePagedProjectionQuery,
+  useCollectionRead,
 } from "./CollectionRead";
 import { viewGeneration } from "./viewCache";
 import {
@@ -647,7 +648,10 @@ export function SearchWorkspace({
   onOpen: (a: Artifact) => void;
   onConversation: (conversation: string, message?: string) => void;
 }) {
-  const shownKey = "search:" + JSON.stringify([initialScope, initialAgent]);
+  const source = executionSourceId();
+  const generation = viewGeneration();
+  const shownKey =
+    "search:" + JSON.stringify([source, initialScope, initialAgent]);
   const shown = cachedView<{
     query: string;
     scope: SearchScope;
@@ -668,15 +672,44 @@ export function SearchWorkspace({
     [folder, setFolder] = useState(shown?.folder ?? ""),
     [from, setFrom] = useState(shown?.from ?? ""),
     [to, setTo] = useState(shown?.to ?? ""),
-    [result, setResult] = useState<SearchResults | null>(shown?.result ?? null),
     [resultQuery, setResultQuery] = useState(shown?.resultQuery ?? ""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
     [recent, setRecent] = useState(() => recentSearches(viewOwner()));
-  const searchRequest = useRef(0);
+  const key = JSON.stringify([
+    generation,
+    source,
+    scope,
+    category,
+    agent,
+    folder,
+    from,
+    to,
+  ]);
+  type SearchAttempt = {
+    text: string;
+    before?: number;
+    input: RouteInput<typeof workspaceApi.search>;
+  };
+  const context = useMemo(
+    () => ({
+      owner: viewOwner(),
+      last: undefined as SearchAttempt | undefined,
+      open: undefined as SearchItem | undefined,
+    }),
+    [key],
+  );
+  const reader = useCollectionRead(key);
+  const detail = useCollectionRead(key);
+  const [snapshot, setSnapshot] = useState<
+    { context: typeof context; value: SearchResults } | undefined
+  >(() => (shown?.result ? { context, value: shown.result } : undefined));
+  const result = snapshot?.context === context ? snapshot.value : null;
+  const busy = reader.busy;
+  const [openError, setOpenError] = useState<{
+    context: typeof context;
+    message: string;
+  }>();
+  const error = openError?.context === context ? openError.message : "";
   const searched = useRef(!!shown?.result);
-  // Search state belongs to the account that searched; it is never cached
-  // for another account that signs in while this view is still mounted.
   const searchOwner = useRef(viewOwner());
   useEffect(() => {
     cacheView(
@@ -695,12 +728,6 @@ export function SearchWorkspace({
       searchOwner.current,
     );
   }, [query, scope, category, agent, folder, from, to, result, resultQuery]);
-  useEffect(
-    () => () => {
-      searchRequest.current++;
-    },
-    [],
-  );
   const kind =
     scope === "results"
       ? "markdown"
@@ -709,66 +736,79 @@ export function SearchWorkspace({
         : scope === "files"
           ? "file"
           : "";
-  async function run(append = false, text = query) {
-    if (!text.trim() || scope === "mine") return;
-    const request = ++searchRequest.current;
-    searched.current = true;
-    setBusy(true);
-    setError("");
-    if (!append) setResult(null);
-    try {
-      const query: RouteInput<typeof workspaceApi.search>["query"] = {
-        q: text,
-        scope: "all",
-        category: category || undefined,
-        kind,
-        agent: parseId(AgentId, agent),
-        project: parseId(ProjectId, folder || undefined),
-      };
-      if (from) query.from = String(Date.parse(from));
-      if (to) query.to = String(Date.parse(to) + 86400000 - 1);
-      if (append && result?.next) query.before = String(result.next);
-      const r = await callRoute(
-        workspaceApi.search,
-        { query },
-        executionSourceId(),
-      );
-      if (
-        request !== searchRequest.current ||
-        searchOwner.current !== viewOwner()
-      )
-        return;
-      setResultQuery(text);
-      if (!append) {
-        rememberSearch(searchOwner.current, text.trim());
-        setRecent(recentSearches(searchOwner.current));
-      }
-      setResult((previous) =>
-        append
-          ? {
-              ...r,
-              items: [
-                ...new Map(
-                  [...(previous?.items ?? []), ...r.items].map((item) => [
-                    item.id,
-                    item,
-                  ]),
-                ).values(),
-              ],
-            }
-          : r,
-      );
-    } catch (e) {
-      if (request === searchRequest.current) setError((e as Error).message);
-    } finally {
-      if (request === searchRequest.current) setBusy(false);
+  async function attemptSearch(attempt: SearchAttempt, retry = false) {
+    if (searchOwner.current !== viewOwner()) return;
+    context.last = attempt;
+    if (!retry) reader.cancel();
+    if (attempt.before === undefined) {
+      detail.cancel();
+      setOpenError(undefined);
+      setSnapshot(undefined);
     }
+    return reader.load(
+      async (signal, mode) => {
+        const page = await readRoute(
+          workspaceApi.search,
+          attempt.input,
+          source,
+          signal,
+          undefined,
+          mode,
+        );
+        if (attempt.before !== undefined && page.next === attempt.before)
+          throw new Error("Search pagination did not advance");
+        return page;
+      },
+      (page) => {
+        setResultQuery(attempt.text);
+        if (attempt.before === undefined) {
+          rememberSearch(context.owner, attempt.text.trim());
+          setRecent(recentSearches(context.owner));
+        }
+        setSnapshot((previous) => ({
+          context,
+          value:
+            attempt.before !== undefined
+              ? {
+                  ...page,
+                  items: [
+                    ...new Map(
+                      [
+                        ...(previous?.context === context
+                          ? previous.value.items
+                          : []),
+                        ...page.items,
+                      ].map((item) => [item.id, item]),
+                    ).values(),
+                  ],
+                }
+              : page,
+        }));
+      },
+      true,
+    );
+  }
+  function run(append = false, text = append ? resultQuery : query) {
+    if (!text.trim() || scope === "mine" || searchOwner.current !== viewOwner())
+      return;
+    searched.current = true;
+    const params: RouteInput<typeof workspaceApi.search>["query"] = {
+      q: text,
+      scope: "all",
+      category: category || undefined,
+      kind,
+      agent: parseId(AgentId, agent),
+      project: parseId(ProjectId, folder || undefined),
+    };
+    if (from) params.from = String(Date.parse(from));
+    if (to) params.to = String(Date.parse(to) + 86400000 - 1);
+    const before = append ? (result?.next ?? undefined) : undefined;
+    if (before !== undefined) params.before = String(before);
+    return attemptSearch({ text, before, input: { query: params } });
   }
   useEffect(() => {
-    searchRequest.current++;
-    setBusy(false);
     if (scope !== "mine" && searched.current && query.trim()) void run();
-  }, [scope, category, agent, folder, from, to]);
+  }, [source, generation, scope, category, agent, folder, from, to]);
   const rerun = useRef(() => {});
   rerun.current = () => {
     if (resultQuery.trim()) void run(false, resultQuery);
@@ -785,22 +825,34 @@ export function SearchWorkspace({
     if (group) group.items.push(item);
     else groups.push({ key, items: [item] });
   }
-  async function openResult(r: SearchItem) {
-    try {
-      if (r.message_id || r.id.startsWith("message:")) {
+  async function openResult(r: SearchItem, retry = false) {
+    if (context.owner !== viewOwner() || generation !== viewGeneration())
+      return;
+    context.open = r;
+    if (!retry) detail.cancel();
+    setOpenError(undefined);
+    if (r.message_id || r.id.startsWith("message:")) {
+      try {
         if (r.conversation_id)
           onConversation(r.conversation_id, r.message_id || r.id.slice(8));
-      } else
-        onOpen(
-          await callRoute(
-            workspaceApi.artifactDetail,
-            { params: { id: ArtifactId.parse(r.id.slice(9)) } },
-            executionSourceId(),
-          ),
-        );
-    } catch (e) {
-      setError((e as Error).message);
+      } catch (error) {
+        setOpenError({ context, message: (error as Error).message });
+      }
+      return;
     }
+    return detail.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.artifactDetail,
+          { params: { id: ArtifactId.parse(r.id.slice(9)) } },
+          source,
+          signal,
+          undefined,
+          mode,
+        ),
+      onOpen,
+      true,
+    );
   }
   const agentMatches =
     scope === "all" && !category
@@ -841,13 +893,15 @@ export function SearchWorkspace({
             aria-label="Clear search"
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
-              searchRequest.current++;
+              reader.cancel();
+              detail.cancel();
+              context.last = undefined;
+              context.open = undefined;
               searched.current = false;
               setQuery("");
-              setResult(null);
+              setSnapshot(undefined);
               setResultQuery("");
-              setError("");
-              setBusy(false);
+              setOpenError(undefined);
               e.currentTarget.form?.querySelector("input")?.focus();
             }}
           >
@@ -982,6 +1036,20 @@ export function SearchWorkspace({
           </div>
         </section>
       )}
+      <CollectionReadNotice
+        error={reader.error}
+        busy={reader.busy}
+        retry={() => {
+          if (context.last) void attemptSearch(context.last, true);
+        }}
+      />
+      <CollectionReadNotice
+        error={detail.error}
+        busy={detail.busy}
+        retry={() => {
+          if (context.open) void openResult(context.open, true);
+        }}
+      />
       {error && <p className="error">{error}</p>}
       {scope === "mine" ? (
         <PersonalProfile
@@ -1073,7 +1141,11 @@ export function SearchWorkspace({
             </Empty>
           ) : null}
           {result.next && (
-            <button className="secondary" onClick={() => run(true)}>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => run(true)}
+            >
               More results
             </button>
           )}
