@@ -264,6 +264,55 @@ try {
         page.getByText("GitHub doesn’t show this diff here"),
       ).toBeVisible();
       await capture("files");
+      await page
+        .locator(".pull-file")
+        .filter({ hasText: "README.md" })
+        .getByRole("button", { name: "View file" })
+        .click();
+      const retainedViewer = sheet();
+      await expect(
+        retainedViewer.getByRole("heading", { name: "Public API" }),
+      ).toBeVisible();
+      const failingFilesRoute = /\/api\/github\/pulls\/acme\/api\/64\/files\?/;
+      const failingDetailRoute =
+        /\/api\/github\/pulls\/acme\/api\/64(?:\?.*)?$/;
+      await page.route(failingFilesRoute, (route) =>
+        route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "File snapshot refresh unavailable" }),
+        }),
+      );
+      await page.route(failingDetailRoute, (route) =>
+        route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "Detail snapshot refresh unavailable",
+          }),
+        }),
+      );
+      await page.evaluate(() =>
+        window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+      );
+      await expect(
+        page.locator(".pull-detail .collection-read-error"),
+      ).toContainText("File snapshot refresh unavailable");
+      await expect(
+        retainedViewer.getByRole("heading", { name: "Public API" }),
+      ).toBeVisible();
+      await expect(page.locator(".pull-diff-line.add").first()).toBeAttached();
+      await retainedViewer
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      await page.unroute(failingFilesRoute);
+      await page.unroute(failingDetailRoute);
+      await page.getByRole("button", { name: "Refresh", exact: true }).click();
+      await expect(
+        page.locator(".pull-detail .collection-read-error"),
+      ).toHaveCount(0);
+      await expect(page.locator(".pull-diff-line.add").first()).toBeVisible();
+
       // View a file at the head commit: Markdown rendered and sanitized,
       // relative images from the same commit, links to other files opened in
       // the viewer, and video served with the range requests phones need.

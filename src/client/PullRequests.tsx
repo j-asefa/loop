@@ -557,24 +557,30 @@ function FileList({
     { source: useSourceId() },
   );
   const data = query.data;
-  if (query.error)
-    return (
-      <CollectionReadNotice
-        error={query.error}
-        busy={query.busy}
-        retry={query.retry}
-      />
-    );
-  if (!data || data.headSha !== headSha)
-    return <p className="muted">Reading the changed files…</p>;
-  return (
-    <ChangedFiles
-      pullRef={pullRef}
-      sha={headSha}
-      files={data.files}
-      url={url + "/files"}
-      hasMore={data.files.length >= 300}
+  const notice = (
+    <CollectionReadNotice
+      error={query.error}
+      busy={query.busy}
+      retry={query.retry}
     />
+  );
+  if (!data || data.headSha !== headSha)
+    return query.error ? (
+      notice
+    ) : (
+      <p className="muted">Reading the changed files…</p>
+    );
+  return (
+    <>
+      {notice}
+      <ChangedFiles
+        pullRef={pullRef}
+        sha={headSha}
+        files={data.files}
+        url={url + "/files"}
+        hasMore={data.files.length >= 300}
+      />
+    </>
   );
 }
 
