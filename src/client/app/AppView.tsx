@@ -878,11 +878,9 @@ export function renderApp(props: AppViewProps) {
         <ExecutionEnvironments
           connections={data.connections}
           onClose={closeSheet}
-          onChange={async () =>
-            setData(
-              await callRoute(workspaceApi.bootstrap, {}, executionSourceId()),
-            )
-          }
+          onChange={async () => {
+            await bootstrap();
+          }}
         />
       )}
       {sheet === "memory" && (

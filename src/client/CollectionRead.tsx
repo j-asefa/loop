@@ -316,6 +316,11 @@ export function usePagedProjectionQuery<
   };
 }
 
+type ReadCompletion =
+  | { status: "cancelled" }
+  | { status: "success"; current: () => boolean }
+  | { status: "error"; error: unknown; current: () => boolean };
+
 /** Read failures belong to this owner/source/selection, independently of actions.
  * Signals start the normal bounded read; a button tries just one more read. */
 export function useCollectionRead(key: string) {
@@ -325,9 +330,10 @@ export function useCollectionRead(key: string) {
       controller: undefined as AbortController | undefined,
       active: true,
       running: false,
-      queued: undefined as (() => Promise<void>) | undefined,
+      queued: undefined as (() => Promise<ReadCompletion>) | undefined,
       priority: 0,
-      waiters: [] as (() => void)[],
+      epoch: 0,
+      waiters: [] as ((completion: ReadCompletion) => void)[],
     }),
     [key, owner],
   );
@@ -338,12 +344,15 @@ export function useCollectionRead(key: string) {
     failure: undefined as unknown,
   });
   const cancelIO = useCallback(() => {
+    context.epoch++;
     context.controller?.abort();
     context.controller = undefined;
     context.running = false;
     context.queued = undefined;
     context.priority = 0;
-    context.waiters.splice(0).forEach((resolve) => resolve());
+    context.waiters
+      .splice(0)
+      .forEach((resolve) => resolve({ status: "cancelled" }));
   }, [context]);
   const cancel = useCallback(() => {
     if (!context.active || owner !== viewGeneration()) return;
@@ -357,34 +366,41 @@ export function useCollectionRead(key: string) {
       cancelIO();
     };
   }, [context, cancelIO]);
-  const load = useCallback(
-    async function load<T>(
+  const execute = useCallback(
+    async function execute<T>(
       read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
       receive: (value: T) => void,
       manual = false,
       priority = 0,
-    ): Promise<void> {
-      if (!context.active || owner !== viewGeneration()) return;
+    ): Promise<ReadCompletion> {
+      if (!context.active || owner !== viewGeneration())
+        return { status: "cancelled" };
       // Recovery or event bursts must let a healthy slow read finish. Keep
       // one trailing refresh so changes during that read are not lost.
       if (context.running && !manual) {
         if (!context.queued || priority >= context.priority) {
-          context.queued = () => load(read, receive, false, priority);
+          context.queued = () => execute(read, receive, false, priority);
           context.priority = priority;
         }
-        return new Promise<void>((resolve) => context.waiters.push(resolve));
+        return new Promise<ReadCompletion>((resolve) =>
+          context.waiters.push(resolve),
+        );
       }
       context.queued = undefined;
-      context.waiters.splice(0).forEach((resolve) => resolve());
+      context.waiters
+        .splice(0)
+        .forEach((resolve) => resolve({ status: "cancelled" }));
       context.running = true;
       context.controller?.abort();
       const controller = new AbortController();
       context.controller = controller;
+      const epoch = context.epoch;
+      const scopeCurrent = () =>
+        context.active && context.epoch === epoch && owner === viewGeneration();
       const current = () =>
-        context.active &&
+        scopeCurrent() &&
         !controller.signal.aborted &&
-        context.controller === controller &&
-        owner === viewGeneration();
+        context.controller === controller;
       setState((old) => ({
         context,
         error: old.context === context ? old.error : "",
@@ -396,11 +412,12 @@ export function useCollectionRead(key: string) {
           controller.signal,
           manual ? "manual" : "automatic",
         );
-        if (!current()) return;
+        if (!current()) return { status: "cancelled" };
         receive(value);
         setState({ context, error: "", busy: false, failure: undefined });
+        return { status: "success", current: scopeCurrent };
       } catch (error) {
-        if (!current()) return;
+        if (!current()) return { status: "cancelled" };
         setState({
           context,
           failure: error,
@@ -410,25 +427,39 @@ export function useCollectionRead(key: string) {
               : "The workspace is unavailable.",
           busy: false,
         });
+        return { status: "error", error, current: scopeCurrent };
       } finally {
         if (context.controller === controller) {
           context.running = false;
           // Another load can queue a refresh across the await above.
-          const queued = context.queued as (() => Promise<void>) | undefined;
+          const queued = context.queued as
+            (() => Promise<ReadCompletion>) | undefined;
           context.queued = undefined;
           const waiters = context.waiters.splice(0);
           if (current() && queued)
-            void queued().finally(() =>
-              waiters.forEach((resolve) => resolve()),
+            void queued().then((completion) =>
+              waiters.forEach((resolve) => resolve(completion)),
             );
-          else waiters.forEach((resolve) => resolve());
+          else waiters.forEach((resolve) => resolve({ status: "cancelled" }));
         }
       }
     },
     [context, owner],
   );
+  const load = useCallback(
+    async <T,>(
+      read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
+      receive: (value: T) => void,
+      manual = false,
+      priority = 0,
+    ): Promise<void> => {
+      await execute(read, receive, manual, priority);
+    },
+    [execute],
+  );
   return {
     load,
+    execute,
     cancel,
     isBusy: useCallback(() => context.running, [context]),
     error: state.context === context ? state.error : "",
