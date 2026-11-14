@@ -26,8 +26,8 @@ import { createHash } from "node:crypto";
 import { db, now, emit } from "./db.js";
 import { ownedApproval, ownedRun, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
-import { transition, type Run } from "./queue.js";
-import { requestApproval } from "./approvals.js";
+import { type Run } from "./queue.js";
+import { requestApproval, waitForApproval } from "./approvals.js";
 import { saveArtifact } from "./artifacts.js";
 import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
@@ -420,7 +420,7 @@ export async function invokeNative(
       nativeCallsQueries.approval(db, approval.id, run.id, callId);
     }
     if (approval.state === "pending") {
-      transition(run, "awaiting_approval", { approvalId: approval.id });
+      waitForApproval(run, approval.id);
       return { pending: approval.id };
     }
     if (approval.state !== "approved" || approval.expires_at < now())

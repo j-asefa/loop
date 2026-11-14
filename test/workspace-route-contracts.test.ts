@@ -754,7 +754,7 @@ it("preserves native error events in running and subsequently completed HTTP run
 it("projects every approval lifecycle result from the production writers without losing expiry", async () => {
   const queries = await import("../src/server/sql/approvals");
   const { approve, decide } = await import("../src/server/approvals");
-  const { resumeAfterApproval } = await import("../src/server/sql/runs");
+  const { claim } = await import("../src/server/queue");
   const { Approval } = await import("../src/shared/approval-contract-schema");
   const make = () => {
     const f = fixture();
@@ -776,7 +776,9 @@ it("projects every approval lifecycle result from the production writers without
     const execute = () => {
       approve(owner, approval.id, { by: "user" });
       expect(project()).toMatchObject({ state: "approved", result: null });
-      resumeAfterApproval(db, f.run.id);
+      expect(
+        claim("approval-fixture", (candidate) => candidate.id === f.run.id)?.id,
+      ).toBe(f.run.id);
       queries.startApproved(db, approval.id);
       expect(project()).toMatchObject({ state: "executing", result: null });
     };

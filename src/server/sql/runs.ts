@@ -1,4 +1,5 @@
 import {
+  type RunState,
   ACTIVE_RUN_DISPLAY_STATES_SQL,
   ACTIVE_RUN_STATES_SQL,
   EXECUTING_RUN_STATES_SQL,
@@ -194,13 +195,6 @@ export function setResult(
   return setResultStatement(db).run(result, id);
 }
 
-const resumeAfterApprovalStatement = statement(
-  "UPDATE runs SET state='running' WHERE id=?",
-);
-export function resumeAfterApproval(db: Database.Database, id: string | null) {
-  return resumeAfterApprovalStatement(db).run(id);
-}
-
 const setErrorStatement = statement("UPDATE runs SET error=? WHERE id=?");
 export function setError(
   db: Database.Database,
@@ -224,20 +218,6 @@ export function forAgent(
     .map((row) => parseRecord(QueryRecords.runs, row, "runs"));
 }
 
-const completePreviewStatement =
-  statement(`UPDATE runs SET result=@result,state='completed',worker_id=NULL,heartbeat=NULL,updated_at=@time,
-      active_ms=active_ms+CASE WHEN active_since IS NOT NULL THEN max(0,@time-active_since) ELSE 0 END,
-      active_since=NULL WHERE id=@id AND owner_id=@owner`);
-export function completePreview(
-  db: Database.Database,
-  result: string | null,
-  time: number,
-  id: string | null,
-  owner: string | null,
-) {
-  return completePreviewStatement(db).run({ result, time, id, owner });
-}
-
 const insertPreviewStatement = statement(
   "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,error,created_at,updated_at) VALUES(@id,@owner,@agent,@conversation,@input,@state,@id,@payload,@error,@time,@time)",
 );
@@ -249,7 +229,7 @@ export function insertPreview(
     agent: string | null;
     conversation: string | null;
     input: string | null;
-    state: string | null;
+    state: RunState;
     payload: string | null;
     error: string | null;
     time: number;
@@ -454,18 +434,6 @@ export function orphanedNative(db: Database.Database) {
   return orphanedNativeStatement(db)
     .all()
     .map((row) => parseRecord(orphanedNativeRow, row, "runs"));
-}
-
-const interruptOrphanedNativeStatement = statement(
-  "UPDATE runs SET state='interrupted',worker_id=NULL,error=?,updated_at=?,active_since=NULL WHERE id=?",
-);
-export function interruptOrphanedNative(
-  db: Database.Database,
-  error: string | null,
-  updated: number,
-  id: string | null,
-) {
-  return interruptOrphanedNativeStatement(db).run(error, updated, id);
 }
 
 const pendingCountStatement = statement(

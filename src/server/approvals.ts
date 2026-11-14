@@ -14,6 +14,22 @@ export function requestApproval(run: Run, request: unknown) {
     .transaction(() => createApproval(run, request, "pending"))
     .immediate();
 }
+/** Serialize approval waiting with Pause, including callers outside a transaction. */
+export function waitForApproval(run: Run, approvalId: string) {
+  db.transaction(() => {
+    const state = ownedRun(run.id, run.owner_id).state;
+    if (state === "awaiting_approval" || state === "paused") return;
+    // Keep the pending approval durable, but do not turn a requested pause
+    // into a worker failure. Resume will encounter the same approval again.
+    if (state === "pausing") {
+      if (!transition(run, "paused"))
+        throw new Problem(409, "This run can no longer pause");
+      return;
+    }
+    if (!transition(run, "awaiting_approval", { approvalId }))
+      throw new Problem(409, "This run can no longer await approval");
+  }).immediate();
+}
 function createApproval(
   run: Run,
   request: unknown,
@@ -134,17 +150,25 @@ function decideApproval(
           answer: { choice: decision },
         });
       if (resumesNative) {
-        runsQueries.resumeAfterApproval(db, run.id);
+        if (!transition(run, "running"))
+          throw new Problem(409, "This run can no longer resume");
         emit(owner, run.id, "approval.decided", {
           approvalId,
           decision,
           origin: "loop",
         });
-      } else if (!inline && decision === "approve")
-        transition(run, "queued", { approvalId });
-      else if (decision === "reject") {
+      } else if (!inline && decision === "approve") {
+        if (!transition(run, "queued", { approvalId }))
+          throw new Problem(409, "This run can no longer resume");
+      } else if (decision === "reject") {
         runsQueries.setError(db, "Approval was rejected.", run.id);
-        transition(run, "failed", { approvalId, reason: "Approval rejected" });
+        if (
+          !transition(run, "failed", {
+            approvalId,
+            reason: "Approval rejected",
+          })
+        )
+          throw new Problem(409, "This run can no longer reject approval");
       }
       if (source.by === "policy") emitPolicyApproval(owner, run.id, approvalId);
       return { ok: true };

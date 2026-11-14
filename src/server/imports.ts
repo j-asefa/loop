@@ -367,8 +367,10 @@ export async function executeImport(run: Run) {
     const state = runsQueries.state(db, run.id)!.state;
     if (state === "pausing") {
       writeImports(run.owner_id, () => {
-        importsQueries.markPaused(db, importId);
-        transition(run, "paused");
+        // Cancellation can win between the boundary read and this transaction.
+        if (transition(run, "paused")) importsQueries.markPaused(db, importId);
+        else if (runsQueries.state(db, run.id)?.state === "cancelled")
+          importsQueries.markCancelled(db, importId);
       });
       return false;
     }

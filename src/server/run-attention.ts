@@ -29,6 +29,7 @@ function cancelChildren(
       .array(RunIdentity)
       .parse(runsQueries.cancellableChildren(db, owner, parent));
     for (const child of children) {
+      // A child already terminal needs no transition; still visit descendants.
       transition(child, "cancelled", reason);
       pending.push(child.id);
     }
@@ -94,8 +95,12 @@ export function controlRun(
           409,
           "That action is not available in the current state",
         );
-      if (next === "pausing" && waitingForChildren(run))
-        transition(run, "paused");
+      if (
+        next === "pausing" &&
+        waitingForChildren(run) &&
+        !transition(run, "paused")
+      )
+        throw new Problem(409, "Run has already changed");
       return { ok: true };
     })
     .immediate();
@@ -117,7 +122,8 @@ export function dismissRun(owner: string, runId: string) {
         );
       if (waiting) {
         const reason = { reason: "Dismissed by you" };
-        transition(run, "cancelled", reason);
+        if (!transition(run, "cancelled", reason))
+          throw new Problem(409, "Run has already changed");
         cancelChildren(owner, run.id, reason);
       }
       runsQueries.dismissAttention(db, now(), run.id, owner);

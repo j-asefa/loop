@@ -1,4 +1,4 @@
-import { afterAll, it, expect } from "vitest";
+import { afterAll, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -350,3 +350,36 @@ it.each(["pausing", "cancelled"] as const)(
     expect(importSignals(owner).length).toBeGreaterThanOrEqual(4);
   },
 );
+
+it("does not mark an import paused when cancellation wins the run transition", async () => {
+  const owner = "import-pause-race";
+  const job = await stageImport(
+    owner,
+    readFileSync("test/fixtures/chatgpt-export.zip"),
+    "export.zip",
+  );
+  const queued = enqueue(owner, "Pause race", id(), {
+    kind: "import",
+    payload: { importId: job.id },
+  });
+  const run = claim("pause-race", (candidate) => candidate.id === queued.id)!;
+  expect(transition(run, "pausing")).toBe(true);
+  const queries = await import("../src/server/sql/runs");
+  const state = queries.state;
+  const spy = vi.spyOn(queries, "state").mockImplementation((db, target) => {
+    const observed = state(db, target);
+    if (target === run.id && observed?.state === "pausing") {
+      expect(transition(run, "cancelled")).toBe(true);
+    }
+    return observed;
+  });
+  try {
+    expect(await executeImport(run)).toBe(false);
+    expect(
+      db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
+    ).toEqual({ status: "cancelled" });
+    expect(state(db, run.id)).toEqual({ state: "cancelled" });
+  } finally {
+    spy.mockRestore();
+  }
+});

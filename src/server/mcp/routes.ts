@@ -319,6 +319,7 @@ export async function executeMcp(run: Run) {
     throw new Problem(422, "Tool error: " + toolErrorMessage(out.result));
   const state = ownedRun(run.id, run.owner_id).state;
   if (state === "pausing") {
+    // A concurrent stop may refuse this pause; execution stops either way.
     transition(run, "paused");
     return false;
   }

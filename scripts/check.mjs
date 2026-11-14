@@ -13,6 +13,7 @@ const tests = [
   "test/source-boundaries.test.ts",
   "test/sql-inventory.test.ts",
   "test/discriminating-fields.test.ts",
+  "test/run-state-documentation.test.ts",
   "test/migration-policy.test.ts",
   "test/row-schema-columns.test.ts",
   "test/format-policy.test.ts",

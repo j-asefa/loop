@@ -4,8 +4,10 @@ import { z } from "zod";
 // (queued → running) and guarded deferUndispatched (running → queued) remain
 // lease operations in queue.ts. queued → failed rejects invalid, unleased
 // saved work before dispatch; an old worker cannot use it after lease release.
-const RUN_TRANSITIONS = {
-  queued: ["cancelled", "paused", "failed"],
+export const RUN_TRANSITIONS = {
+  // Recovery retires queued work with a durable native dispatch receipt.
+  // Its external outcome is uncertain, so it must never be claimed again.
+  queued: ["cancelled", "paused", "failed", "interrupted"],
   running: [
     "completed",
     "failed",

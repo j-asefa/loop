@@ -24,7 +24,7 @@ import { SteeringInbox } from "../steering.js";
 import { realpathSync } from "node:fs";
 
 import { createHash } from "node:crypto";
-import { db, emit, id, now } from "../db.js";
+import { db, id, now } from "../db.js";
 import { ownedConnection, ownedRun, Problem } from "../domain.js";
 import { saveArtifact } from "../artifacts.js";
 import { attachedFiles, localAttachmentPrompt } from "../uploads.js";
@@ -793,9 +793,13 @@ export class NativeSessions {
         return false;
       }
       if (state === "completed") {
-        if (current === "awaiting_approval") transition(run, "running");
+        if (current === "awaiting_approval" && !transition(run, "running"))
+          // An owner may have resumed it since the read above. Completion is
+          // still valid then; a concurrent terminal outcome must win instead.
+          return ownedRun(run.id, run.owner_id).state === "running";
         return true;
       }
+      // A concurrent terminal outcome wins; still dispose/recapture below.
       transition(run, state === "interrupted" ? "interrupted" : "failed");
       // An interrupt that timed out resolved before disposal finished; the
       // process may still write until it is terminated.
@@ -836,6 +840,8 @@ export class NativeSessions {
           run.id,
         );
       }
+      // Cancellation or an earlier terminal event may already have stopped it.
+      // Refusal must not prevent disposing the process or recapturing output.
       transition(run, "interrupted");
       await this.dispose(live);
       recaptureAfterStop(run);
@@ -911,15 +917,16 @@ export class NativeSessions {
     db.transaction(() => {
       const runs = runsQueries.orphanedNative(db);
       for (const run of runs) {
-        runsQueries.interruptOrphanedNative(
+        runsQueries.setError(
           db,
           `Host stopped for run ${run.id}. Native outcome may be incomplete; review and send an explicit follow-up. No prompt was replayed.`,
-          now(),
           run.id,
         );
-        emit(run.owner_id, run.id, "interrupted", {
-          native: true,
-        });
+        // Selection and transition share this immediate transaction. A refusal
+        // must roll back recovery rather than partially retiring the session.
+        if (!transition(run, "interrupted", { native: true }))
+          throw new Error("Orphaned native run could not be interrupted");
+        runsQueries.clearLease(db, run.id);
       }
       companionSessionsQueries.disconnectAll(db);
       nativeDecisionsQueries.finishPending(db, "expired");

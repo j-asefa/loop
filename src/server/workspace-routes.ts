@@ -393,6 +393,8 @@ routes.on(workspaceApi.importCancel, (req, res) => {
     .array(RunIdentity)
     .parse(runsQueries.importIdentities(db, res.locals.owner, jobId));
   writeImports(res.locals.owner, () => {
+    // Import history includes terminal runs; a refused cancellation keeps
+    // their outcomes intact while the import and remaining runs are stopped.
     runs.forEach((r) => transition(r, "cancelled"));
     importsQueries.cancel(db, jobId);
   });

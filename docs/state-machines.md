@@ -30,9 +30,12 @@ Terminal states are written in **bold**.
 ### `runs.state`
 
 Owner: [`src/shared/run-state.ts`](../src/shared/run-state.ts) (`RUN_TRANSITIONS`).
-Every edge below goes through `transition()` in
-[`queue.ts`](../src/server/queue.ts), which re-reads the state and applies the
-edge in one immediate transaction (**tx**). Lease operations are separate.
+State changes go through `transition()` in
+[`queue-machine.ts`](../src/server/queue-machine.ts), which re-reads the owned
+row and applies the edge, checkout hook and event in one immediate transaction
+(**tx**). The two exceptions are the atomic lease claim (`queued → running`
+and reclaiming running/pausing work) and guarded `deferUndispatched`
+(`running → queued`); both remain lease operations in `sql/runs.ts`.
 
 States: `queued`, `running`, `pausing`, `paused`, `awaiting_approval`,
 `interrupted`, **`completed`**, **`failed`**, **`cancelled`**.
@@ -51,32 +54,31 @@ Invariants:
   pending approvals and fails its unsent steering (**trigger**, migrations 025
   and 103) and records a pending checkout capture.
 
-| From → to | Trigger | Code | Guard |
-| --------- | ------- | ---- | ----- |
-| ∅ → queued | `submit` / `enqueue` | `agent-runtime.ts`, `queue.ts` | idempotency key, tx |
-| queued → running/pausing | worker claim | `queue.ts` `claim` → `sql/runs.ts` `claimLease` | candidate select and update in one tx |
-| running (no worker) → running | claim after children finish | same | same |
-| running → queued | adapter not ready before dispatch | `deferUndispatched` | sql + lease, no dispatch row |
-| running → completed | worker finishes | `worker.ts` → `completeLeased` | tx + lease |
-| pausing → paused | worker finishes with a saved answer | `completeLeased` | tx + lease |
-| pausing → completed | worker finishes without a saved answer | `completeLeased` | tx + lease |
-| running/pausing/awaiting_approval → failed | worker error | `worker.ts` (`leaseError`) | tx + lease |
-| running/pausing → interrupted | heartbeat older than 60 s | `recoverStale` | tx |
-| running/pausing → interrupted, and native awaiting_approval → interrupted | graceful worker stop | `worker.ts` `quiesce` | tx |
-| awaiting_approval → failed | all pending approvals expired | `recover-stuck.ts` `recoverStuckRuns` | tx |
-| running/pausing/awaiting_approval/queued → interrupted | native recovery at startup | `native/supervisor.ts` `recover` | tx |
-| running → awaiting_approval | tool approval needed | `mcp/broker.ts`, `native-tools.ts`, `native/decisions.ts` | tx |
-| awaiting_approval → queued / failed | owner decides (non-native) | `approvals.ts` `decide` | tx re-checks approval and run |
-| awaiting_approval → running | native decision resolved | `native/projector.ts`, `approvals.ts` | tx |
-| queued → paused; running → pausing | Pause | `run-attention.ts` `controlRun` | tx on the current row |
-| pausing → paused | Pause of a run with no worker | `controlRun` | same tx |
-| pausing → paused | runtime boundary | `agent-runtime.ts`, `mcp/routes.ts`, `imports.ts` | tx |
-| paused → queued / completed | Resume (completed when the answer is saved) | `controlRun` | tx |
-| any non-terminal → cancelled | Cancel, Dismiss, parent cancel cascade, draft move, import cancel | `run-attention.ts`, `mobile-return/queued-runs.ts`, `workspace-routes.ts`, `queue.ts` | tx |
-| queued → failed | invalid saved work | `queue.ts` `rejectInvalidRun` | sql: no worker |
+The following table lists exactly the edges in `RUN_TRANSITIONS`. Slash-separated
+states name individual destinations. Inserts and the two lease operations above
+are not transition edges.
 
-`interrupted → queued` is legal but unused: Retry creates a new run with a new
-idempotency key and inherits the effect authority.
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| queued | cancelled / paused / failed / interrupted | Cancel, Pause, invalid saved work, or startup recovery of a native dispatch receipt; tx |
+| running | completed / failed / pausing / cancelled / interrupted / awaiting_approval | Completion, failure, Pause, Cancel, recovery/stop, or approval request; tx |
+| pausing | paused / completed / failed / cancelled / interrupted | Runtime boundary or saved answer, work finished before the pause boundary, failure, Cancel, or recovery/stop; tx |
+| paused | queued / completed / cancelled | Resume (complete when the answer is already saved), or Cancel; tx |
+| awaiting_approval | queued / running / cancelled / failed / interrupted / completed | Non-native/native decision, Cancel, rejection/expiry, recovery/stop, or native turn completion; tx |
+| interrupted | queued / cancelled | Explicit requeue or Dismiss; tx |
+| completed | — | Terminal |
+| failed | — | Terminal |
+| cancelled | — | Terminal |
+
+`queued → interrupted` retires a native run with an existing durable dispatch
+receipt at startup. Its outcome is uncertain, so it cannot be left eligible for
+claim or automatically replayed. Queued runs without a dispatch receipt are left
+queued. `interrupted → queued` is legal but unused: Retry creates a new run with
+a new idempotency key and inherits the effect authority.
+
+Design preview seed answers start in `running` and complete through the same
+transition path. A preview approval requeues via `decide`, then atomically claims
+that sample before completing it. There is no `queued → completed` edge.
 
 Public response arms are owned by
 [`run-contract-schema.ts`](../src/shared/run-contract-schema.ts). The Done-card

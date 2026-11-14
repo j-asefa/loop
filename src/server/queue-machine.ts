@@ -196,6 +196,7 @@ export function createRunQueue(hooks: QueueHooks) {
     const stale = z
       .array(RunIdentity)
       .parse(runsQueries.staleIdentities(db, now() - STALE_RUN_LEASE_MS));
+    // Work may finish after selection; refusal preserves that newer state.
     for (const run of stale)
       transition(run, "interrupted", {
         message:
@@ -218,6 +219,8 @@ export function createRunQueue(hooks: QueueHooks) {
         message: error.message,
         phase: "saved row validation",
       });
+      // Refusal preserves a concurrent terminal state; invalid work is never
+      // dispatched, regardless of which stop won.
       transition(run, "failed");
     }
   }

@@ -22,9 +22,9 @@ import {
   ownedRun,
   Problem,
 } from "../domain.js";
-import { type Run, transition } from "../queue.js";
+import { type Run } from "../queue.js";
 
-import { approve, requestApproval } from "../approvals.js";
+import { approve, requestApproval, waitForApproval } from "../approvals.js";
 import { saveArtifact } from "../artifacts.js";
 import { readSecret } from "./client.js";
 import { normalizeResult, toolErrorMessage } from "./results.js";
@@ -226,7 +226,7 @@ export async function invokeTool(
           status: "waiting",
           input: JSON.stringify(args).slice(0, 16000),
         });
-        transition(run, "awaiting_approval", { approvalId: approval.id });
+        waitForApproval(run, approval.id);
         return approval;
       }
       if (approval.state !== "approved" || approval.expires_at < now())
