@@ -124,7 +124,7 @@ process.on("SIGTERM", async () => {
     process.exit(0);
   }
 });
-await host.start(options);
+await host.start({ options });
 host.gateway.setOrigin(process.env.FLEET_FIXTURE_ORIGIN);
 process.send({ ready: true, port: host.gateway.port });
 process.on("message", async ({ id, method, value }) => {

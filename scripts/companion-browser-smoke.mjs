@@ -50,7 +50,7 @@ const provider = createServer((req, res) => {
 const restoreAuthPath = await prepareNativeAuthBrowser(dir);
 process.env.LOOP_TEST_SETTING_AUDIT = join(dir, "setting-recovery-audit");
 try {
-  await host.start(options);
+  await host.start({ options });
   const launch = {
     headless: true,
     ...(process.env.CHROMIUM_PATH
