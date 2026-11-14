@@ -140,11 +140,19 @@ export async function searchCategoriesSmoke(page, fixture, _engine, capture) {
     await input.fill("review");
     await input.press("Enter");
     await pending;
+    const aborted = page.waitForEvent("requestfailed", {
+      predicate: (request) => {
+        const url = new URL(request.url());
+        return (
+          url.pathname.endsWith("/search") &&
+          url.searchParams.get("category") === "done"
+        );
+      },
+    });
     await choose("replies");
+    await aborted;
     await expect(results).toHaveCount(1);
-    const late = responseFor("done");
     release();
-    await late;
     await expect(category).toHaveValue("replies");
     await expect(results).toHaveCount(1);
     await expect(results).toContainText("Searchable published reply");
