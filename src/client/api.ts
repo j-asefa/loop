@@ -140,6 +140,7 @@ function expireAuthentication(started: typeof ownerSession.current) {
       started.generation + Number(started.owner !== undefined)
   )
     return current.generation;
+  return undefined;
 }
 async function sendRequest(
   path: string,
