@@ -757,12 +757,12 @@ async function readCommandContext(input: CommandInput, deps: CliDependencies) {
   };
 }
 
-export function versionCommand(deps: CliDependencies): number {
+export function versionCommand(deps: Pick<CliDependencies, "log">): number {
   deps.log(VERSION);
   return 0;
 }
 
-export function helpCommand(deps: CliDependencies): number {
+export function helpCommand(deps: Pick<CliDependencies, "log">): number {
   deps.log(`Loop ${VERSION} — one workspace for your native agents
 
 loop start              Start this computer and show a pairing QR code.
@@ -1219,8 +1219,10 @@ export async function resolveStart(input: CommandInput, deps: CliDependencies) {
     );
     if (!values["local-only"]) {
       values["public-url"] ??= preferences.publicUrl ?? savedLaunch?.publicUrl;
-      values["tunnel-name"] ??= preferences.tunnelName ?? savedLaunch?.tunnelName;
-      values["tunnel-config"] ??= preferences.tunnelConfig ?? savedLaunch?.tunnelConfig;
+      values["tunnel-name"] ??=
+        preferences.tunnelName ?? savedLaunch?.tunnelName;
+      values["tunnel-config"] ??=
+        preferences.tunnelConfig ?? savedLaunch?.tunnelConfig;
       // A path: resolved once, so a restart from another directory reads the same file.
       if (values["tunnel-config"])
         values["tunnel-config"] = resolve(deps.cwd, values["tunnel-config"]);
@@ -1620,9 +1622,10 @@ async function main() {
         parseLaunchArguments("workspace", process.argv.slice(2)),
       )
     : parseUserArguments();
+  const output = { log: (message: string) => console.log(message) };
+  if (input.values.version) return versionCommand(output);
+  if (input.values.help) return helpCommand(output);
   const deps = cliDependencies();
-  if (input.values.version) return versionCommand(deps);
-  if (input.values.help) return helpCommand(deps);
   switch (input.positionals[0] ?? "start") {
     case "recover-execution":
       return recoverExecutionCommand(input, deps);
