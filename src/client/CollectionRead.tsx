@@ -186,9 +186,12 @@ export function usePagedProjectionQuery<
     } = context.options;
     if (!enabled) return;
     const sourceList = typeof source === "string" ? [source] : source;
-    const controller = new AbortController();
-    const stale = () =>
-      controller.signal.aborted || generation !== viewGeneration();
+    let active = true;
+    const stale = () => !active || generation !== viewGeneration();
+    const reader = createReadExecutor({
+      current: () => !stale(),
+      changed: () => {},
+    });
     let current = empty,
       busy = false,
       appendPending = false,
@@ -228,14 +231,12 @@ export function usePagedProjectionQuery<
       let reads = 0,
         complete = false;
       try {
-        const page = await read(
-          current,
-          before,
-          controller.signal,
-          manual ? "manual" : "automatic",
-          () => {
-            reads++;
-          },
+        const page = await reader.request(
+          (signal, mode) =>
+            read(current, before, signal, mode, () => {
+              reads++;
+            }),
+          { mode: manual ? "manual" : "automatic" },
         );
         if (stale()) return;
         if (requireAdvance && before !== undefined && page.next === before)
@@ -309,7 +310,8 @@ export function usePagedProjectionQuery<
     );
     for (const event of events) window.addEventListener(event, refresh);
     return () => {
-      controller.abort();
+      active = false;
+      reader.dispose();
       clearTimeout(timer);
       stops.forEach((stop) => stop());
       for (const event of events) window.removeEventListener(event, refresh);
