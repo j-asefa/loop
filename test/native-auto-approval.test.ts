@@ -90,6 +90,70 @@ function session(
     (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any).state;
   return { live, answer, request, state, run, sessions };
 }
+it("persists native metadata without forwarding it as a display event", async () => {
+  const f = session("metadata-ingress");
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent',?,'claude',?,'test',0)",
+  ).run(f.live.binding.conversation_id, dir);
+  try {
+    f.sessions.projector.event(f.live, {
+      type: "metadata",
+      nativeSession: "fixture-native-session",
+      billing: {
+        mode: "existing",
+        description: "Fixture",
+        model: "fixture-model",
+      },
+    });
+    expect(f.live.binding.native_id).toBe("fixture-native-session");
+    expect(f.live.reportedModel).toBe("fixture-model");
+    expect(
+      db
+        .prepare(
+          "SELECT native_id FROM companion_sessions WHERE conversation_id=?",
+        )
+        .get(f.live.binding.conversation_id),
+    ).toEqual({ native_id: "fixture-native-session" });
+    expect(
+      db
+        .prepare("SELECT id FROM events WHERE run_id=? AND type='native.event'")
+        .all(f.run.id),
+    ).toEqual([]);
+  } finally {
+    await f.sessions.close();
+  }
+});
+
+it("forwards nonterminal status and error events while retaining the bounded run error", async () => {
+  const f = session("status-error-ingress");
+  const status = { type: "status" as const, status: "running" as const };
+  const error = {
+    type: "error" as const,
+    message: "fixture error ".repeat(200),
+  };
+  try {
+    f.sessions.projector.event(f.live, status);
+    f.sessions.projector.event(f.live, error);
+    expect(
+      db.prepare("SELECT state,error FROM runs WHERE id=?").get(f.run.id),
+    ).toEqual({ state: "running", error: error.message.slice(0, 2000) });
+    const rows = db
+      .prepare(
+        "SELECT payload FROM events WHERE run_id=? AND type='native.event' ORDER BY id",
+      )
+      .all(f.run.id) as { payload: string }[];
+    expect(rows.map((row) => JSON.parse(row.payload))).toEqual(
+      [status, error].map((event) => ({
+        conversationId: f.live.binding.conversation_id,
+        generation: "test",
+        event,
+      })),
+    );
+  } finally {
+    await f.sessions.close();
+  }
+});
+
 const dispatchGuard = expect.any(Function);
 const approval: Request = {
   id: "bash",

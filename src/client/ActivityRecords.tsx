@@ -1,3 +1,4 @@
+import { assertNever } from "../shared/assert-never";
 import type { ActivityRecord } from "../shared/agent-activities";
 import { outputText } from "../shared/agent-activities";
 import {
@@ -135,5 +136,7 @@ export function ActivityView({ record }: { record: ActivityRecord }) {
           ))}
         </details>
       );
+    default:
+      return assertNever(record);
   }
 }

@@ -1,3 +1,4 @@
+import { assertNever } from "../shared/assert-never";
 import { parse } from "./json";
 import {
   readArtifactMetadata,
@@ -153,12 +154,8 @@ function ResultContent({
     case "file":
     case "conversation":
       return <RichText content={item.content} />;
-    default: {
-      // Unknown kinds cannot be stored (D1), so this branch stays unreachable.
-      const exhaustive: never = item.kind;
-      void exhaustive;
-      return <RichText content={item.content} />;
-    }
+    default:
+      return assertNever(item.kind);
   }
 }
 export function ArtifactViewer({

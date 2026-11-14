@@ -1,3 +1,4 @@
+import { assertNever } from "../../shared/assert-never.js";
 import { harnesses } from "../../shared/harnesses.js";
 import { writeMessageMetadata } from "../../shared/message-metadata.js";
 import { writeArtifactMetadata } from "../../shared/artifact-metadata.js";
@@ -291,11 +292,20 @@ export class NativeProjector {
     }
     if (event.type === "error")
       runsQueries.setError(db, event.message.slice(0, 2000), run.id);
-    emit(run.owner_id, run.id, "native.event", {
-      conversationId: live.binding.conversation_id,
-      generation: live.generation,
-      event,
-    });
+    switch (event.type) {
+      case "request":
+      case "resolved":
+      case "status":
+      case "error":
+        emit(run.owner_id, run.id, "native.event", {
+          conversationId: live.binding.conversation_id,
+          generation: live.generation,
+          event,
+        });
+        return;
+      default:
+        return assertNever(event);
+    }
   }
   /** @internal Record the model the harness last reported on the attached
    * run. A native-default choice also updates its catalog entry so agent
