@@ -294,9 +294,8 @@ test("loop <harness> backgrounds after pairing; status, pair, stop and bare loop
     );
     // Fleets are a start option of the running launch, never a live change.
     assert.equal(
-      JSON.parse(
-        await readFile(join(w.dir, "launch.json"), "utf8"),
-      ).args.includes("--fleet"),
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).fleet ??
+        false,
       false,
     );
     await assert.rejects(
@@ -331,9 +330,8 @@ test("loop start --fleet records the option for restart and upgrade", async () =
     await w.start("--fleet");
     assert.equal((await w.status()).state, "ready");
     assert(
-      JSON.parse(
-        await readFile(join(w.dir, "launch.json"), "utf8"),
-      ).args.includes("--fleet"),
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).fleet ??
+        false,
     );
     // Repeating the same option on the running workspace is not a change.
     assert.match(
@@ -1015,15 +1013,11 @@ test("local-only overrides a saved public URL and named tunnel", async () => {
       join(w.dir, "launch.json"),
       JSON.stringify({
         schema: 1,
-        args: [
-          "start",
-          "--public-url",
-          "https://saved-tunnel.invalid",
-          "--tunnel-name",
-          "saved-tunnel",
-          "--tunnel-config",
-          "/nonexistent/tunnel.yml",
-        ],
+        kind: "workspace",
+        action: "start",
+        publicUrl: "https://saved-tunnel.invalid",
+        tunnelName: "saved-tunnel",
+        tunnelConfig: "/nonexistent/tunnel.yml",
       }),
     );
     const started = await w.start();
@@ -1159,24 +1153,49 @@ test("loop start pairs with no installed harness, reuses the host and survives r
   }
 });
 
-test("bare loop restores a saved managed project from another directory", async () => {
+test("fresh starts retain managed project and the latest billing preference", async () => {
   const w = await workspace();
   try {
     await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
     const running = await w.status();
-    const preferencesPath = join(w.dir, "preferences.json");
-    const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
-    await writeFile(
-      preferencesPath,
-      JSON.stringify({
-        ...preferences,
-        providers: "openai",
-      }),
-    );
-    const bare = await w.loop(["--local-only"]);
-    assert.match(bare.stdout, PAIR_URL);
+    assert.match((await w.loop(["--local-only"])).stdout, PAIR_URL);
     assert.equal((await w.status()).pid, running.pid);
-    assert.equal((await w.status()).project, w.env.LOOP_HOME);
+    await w.loop(["stop"]);
+    await w.start();
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "existing",
+    );
+    const withoutBilling = w.harness.slice(0, -2);
+    await w.loop([
+      ...withoutBilling,
+      "--local-only",
+      "--billing",
+      "subscription",
+    ]);
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "preferences.json"), "utf8"))
+        .billing.codex,
+      "subscription",
+    );
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "existing",
+    );
+    await w.loop(["stop"]);
+    await w.loop([...withoutBilling, "--local-only"]);
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "subscription",
+      "fresh start uses the newer explicit choice",
+    );
+    await w.loop(["stop"]);
+    await w.loop(["--local-only"]);
+    assert.equal(
+      (await w.status()).project,
+      w.env.LOOP_HOME,
+      "one-off harness project does not replace managed default",
+    );
   } finally {
     await w.cleanup();
   }
@@ -1229,13 +1248,10 @@ test("service uninstall removes units even with invalid saved tunnel flags", asy
       join(w.dir, "launch.json"),
       JSON.stringify({
         schema: 1,
-        args: [
-          "start",
-          "--tunnel-name",
-          "fixture",
-          "--public-url",
-          "https://fixture.example/path",
-        ],
+        kind: "workspace",
+        action: "start",
+        tunnelName: "fixture",
+        publicUrl: "https://fixture.example/path",
       }),
     );
     const result = await w.loop(["service", "uninstall"]);

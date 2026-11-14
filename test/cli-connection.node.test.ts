@@ -203,7 +203,7 @@ test("restart replaces only the application: same service, cloudflared, address,
     const launch = JSON.parse(
       readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
     );
-    assert.deepEqual(launch.args.slice(0, 1), ["codex"]);
+    assert.equal(launch.action, "codex");
 
     // The same browser credential works; nothing re-paired.
     assert.equal((await phone.send("GET", "/api/bootstrap")).status, 200);
@@ -563,13 +563,10 @@ test("restart from another directory repeats a foreground launch's project and p
     assert.equal(before.project, project);
     const launch = JSON.parse(
       readFileSync(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
-    ).args;
-    assert.equal(launch[launch.indexOf("--project") + 1], project);
-    assert.equal(
-      launch[launch.indexOf("--executable") + 1],
-      join(w.base, "codex"),
     );
-    assert(!launch.includes("--foreground"));
+    assert.equal(launch.project, project);
+    assert.equal(launch.executable, join(w.base, "codex"));
+    assert.equal(launch.foreground, undefined);
 
     // This test runs from the repository, not the project directory.
     assert.notEqual(process.cwd(), project);
@@ -648,7 +645,7 @@ test("local-only mode never starts the connection service or cloudflared", async
     const launch = JSON.parse(
       await readFile(join(w.env.LOOP_HOME, "workspace", "launch.json"), "utf8"),
     );
-    assert(launch.args.includes("--local-only"));
+    assert.equal(launch.localOnly, true);
     await w.loop(["restart"]);
     const after = await w.status();
     w.pids.add(after.pid);

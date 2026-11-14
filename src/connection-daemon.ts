@@ -26,6 +26,10 @@ import { installDaemonLog } from "./daemon.js";
 
 import { Tunnel, TunnelSupervisor, helper } from "./tunnel.js";
 import { Relay } from "./relay.js";
+import {
+  parseLaunchArguments,
+  type ConnectionLaunch,
+} from "./launch-record.js";
 import { ConnectionLeases } from "./connection-leases.js";
 import {
   CONNECTION_LOCK,
@@ -36,7 +40,6 @@ import {
   readConnectionRecord,
   connectionControl,
   type Hello,
-  tunnelModeFromFlags,
 } from "./connection.js";
 
 import { runningBuild } from "./shared/build.js";
@@ -58,29 +61,16 @@ async function probe(path: string, nonce: string) {
   return String(value?.proof ?? "");
 }
 export async function runConnectionService(
-  argv: string[],
+  launch: ConnectionLaunch,
   report: (
     message: { ready: true; origin: string } | { error: string },
   ) => void = () => {},
 ) {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      dir: { type: "string" },
-      root: { type: "string" },
-      release: { type: "string" },
-      "tunnel-name": { type: "string" },
-      "public-url": { type: "string" },
-      "tunnel-config": { type: "string" },
-      log: { type: "boolean" },
-    },
-  });
-  if (!values.dir) throw new Error("--dir is required");
-  const dir = resolve(values.dir);
+  const dir = resolve(launch.dir);
   privateDir(dir);
-  if (values.log) installDaemonLog(join(dir, PROCESS_FILES.log));
-  const root = resolve(values.root ?? dir);
-  const mode = tunnelModeFromFlags(values);
+  if (launch.log) installDaemonLog(join(dir, PROCESS_FILES.log));
+  const root = resolve(launch.root ?? dir);
+  const mode = launch.mode;
   const releaseLock = workspaceLock(dir, CONNECTION_LOCK);
   // cloudflared is recorded so a full stop can find it after a crash here.
   recordOwnedProcesses(join(dir, PROCESS_FILES.children));
@@ -113,7 +103,7 @@ export async function runConnectionService(
 
   const hello = (): Hello => ({
     protocol: CONNECTION_PROTOCOL,
-    version: values.release ?? RELEASE,
+    version: launch.release ?? RELEASE,
     instance,
     pid: process.pid,
     startedAt,
@@ -240,7 +230,7 @@ export async function runConnectionService(
     atomic(join(dir, CONNECTION_RECORD), {
       schema: 1,
       protocol: CONNECTION_PROTOCOL,
-      version: values.release ?? RELEASE,
+      version: launch.release ?? RELEASE,
       instance,
       pid: process.pid,
       identity: identity(process.pid) ?? "",
@@ -277,7 +267,12 @@ if (isEntrypoint(import.meta.url)) {
       ? installHelper(args[1] ?? ".")
       : args[0] === "--health"
         ? health(args.slice(1))
-        : runConnectionService(args, reportReady);
+        : Promise.resolve().then(() =>
+            runConnectionService(
+              parseLaunchArguments("connection", args).launch,
+              reportReady,
+            ),
+          );
   main.catch((error) => {
     console.error("Loop connection service: " + (error as Error).message);
     reportReady({

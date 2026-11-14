@@ -4,7 +4,7 @@ import {
   runtimeHarnessIds,
   type Harness,
 } from "./shared/harnesses.js";
-export function selectedHarnesses(value = "installed"): Harness[] {
+export function selectedHarnesses(value = "installed"): RuntimeHarness[] {
   const aliases: Record<string, string> = {
     installed: runtimeHarnessIds.join(","),
     both: "codex,claude",
@@ -21,7 +21,7 @@ export function selectedHarnesses(value = "installed"): Harness[] {
     throw new Error(
       `Choose installed, ${runtimeHarnessIds.slice(0, -1).join(", ")} or ${runtimeHarnessIds.at(-1)}. Register custom ACP agents with loop acp --executable PATH.`,
     );
-  return names as Harness[];
+  return names as RuntimeHarness[];
 }
 
 export function selectedBilling(

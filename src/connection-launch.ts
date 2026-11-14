@@ -1,3 +1,4 @@
+import { launchArguments } from "./launch-record.js";
 import { testWait } from "./test-seams.js";
 import {
   PROCESS_FILES,
@@ -61,18 +62,6 @@ async function serviceEntry(dir: string) {
   };
 }
 
-export function tunnelArgs(mode: TunnelMode) {
-  return mode.kind === "named"
-    ? [
-        "--tunnel-name",
-        mode.name,
-        "--public-url",
-        mode.origin,
-        ...(mode.config ? ["--tunnel-config", mode.config] : []),
-      ]
-    : [];
-}
-
 /** Starts one detached service in its own process group and waits for its tunnel. */
 async function spawnConnection(
   root: string,
@@ -86,16 +75,15 @@ async function spawnConnection(
   const entry = await serviceEntry(dir);
   return spawnReady<{ state: "ready"; origin: string } | { state: "busy" }>(
     entry.entry,
-    [
-      "--dir",
+    launchArguments({
+      schema: 1,
+      kind: "connection",
       dir,
-      "--root",
       root,
-      "--release",
       release,
-      "--log",
-      ...tunnelArgs(mode),
-    ],
+      log: true,
+      mode,
+    }),
     log,
     {
       execArgv: entry.execArgv,
