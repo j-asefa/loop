@@ -127,6 +127,7 @@ export type AppViewProps = Pick<
   | "revision"
   | "accountName"
   | "myProfile"
+  | "myProfileRead"
   | "setMyProfile"
   | "setSettingsParent"
   | "searchAgent"

@@ -114,6 +114,7 @@ export function renderAppPages(
     | "displayName"
     | "accountName"
     | "myProfile"
+    | "myProfileRead"
     | "setMyProfile"
     | "setSettingsParent"
     | "setTab"
@@ -200,6 +201,7 @@ export function renderAppPages(
     displayName,
     accountName,
     myProfile,
+    myProfileRead,
     setMyProfile,
     setSettingsParent,
     setTab,
@@ -614,6 +616,7 @@ export function renderAppPages(
           name={displayName}
           accountName={accountName}
           profile={myProfile}
+          read={myProfileRead}
           onSaved={setMyProfile}
           onCompose={launchComposer}
           hasDraft={!!draft.trim() || !!attachments.length}

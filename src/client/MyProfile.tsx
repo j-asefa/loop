@@ -39,6 +39,7 @@ export function MyProfile({
   name,
   accountName,
   profile,
+  read,
   onSaved,
   onCompose,
   hasDraft,
@@ -54,6 +55,7 @@ export function MyProfile({
   name: string;
   accountName: string;
   profile: MyProfileData | null;
+  read?: { error: string; busy: boolean; retry: () => void };
   onSaved: (profile: MyProfileData) => void;
   onCompose: () => void;
   hasDraft: boolean;
@@ -109,6 +111,7 @@ export function MyProfile({
   const counts = profile?.counts;
   return (
     <section className="my-profile" aria-label="Your profile">
+      {read && <CollectionReadNotice {...read} />}
       <CollectionReadNotice {...unread} />
       <header className="my-profile-card">
         <ProfileCover name={name} />
@@ -118,6 +121,7 @@ export function MyProfile({
             <button
               type="button"
               className="secondary my-profile-edit"
+              disabled={!!read && !profile}
               onClick={() => setEditing(true)}
             >
               Edit profile
