@@ -57,7 +57,15 @@ it("advertises a refresh source consistent with the actual companion action", as
       arguments: {},
     });
     metadata({ ...source, arguments: [] });
-    expect(await read()).toBe(false);
+    // Cards now consume the same strict metadata schema as artifact actions.
+    // Corrupt stored arguments are rejected, not advertised as a valid card.
+    const invalidCard = await fixture.request("/api/v1/cards/a:result-000", {
+      headers: browser,
+    });
+    expect(invalidCard.status).toBe(400);
+    expect(await invalidCard.json()).toMatchObject({
+      error: expect.stringContaining("expected record"),
+    });
     const invalid = await refresh("invalid-refresh-arguments");
     expect(invalid.status).toBe(409);
     expect(await invalid.json()).toMatchObject({
