@@ -1,3 +1,4 @@
+import { assertNever } from "../shared/assert-never";
 import {
   readArtifactMetadata,
   artifactDisplayMetadata,
@@ -549,6 +550,16 @@ function ArtifactPreview({
     ) : (
       <p>Open this image to view it.</p>
     );
+  }
+  switch (item.kind) {
+    case "github_pr": // Malformed PR content uses the generic preview.
+    case "table":
+    case "markdown":
+    case "file":
+    case "conversation":
+      break;
+    default:
+      return assertNever(item.kind);
   }
   const value = structuredPreview(item.content);
   if (value !== undefined) return <DataPreview value={value} />;
