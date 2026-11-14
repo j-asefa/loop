@@ -68,6 +68,7 @@ export function createSessionCheck(props: {
       }
       setSession(result);
     } catch (error) {
+      if (ownerSession.current !== started) return;
       if (signal.aborted) throw error;
       const failure = error as { status?: number; redirected?: boolean };
       if (failure.redirected) {
