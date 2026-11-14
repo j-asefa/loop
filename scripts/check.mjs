@@ -12,6 +12,7 @@ process.chdir(fileURLToPath(new URL("..", import.meta.url)));
 const tests = [
   "test/source-boundaries.test.ts",
   "test/sql-inventory.test.ts",
+  "test/json-column-boundaries.test.ts",
   "test/discriminating-fields.test.ts",
   "test/run-state-documentation.test.ts",
   "test/migration-policy.test.ts",
