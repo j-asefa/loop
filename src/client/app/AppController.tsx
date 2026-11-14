@@ -16,7 +16,7 @@ import { capabilities as shellCapabilities } from "../capabilities";
 import { composerBlockReason } from "../sourceAvailability";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { resultTarget, type ResultAction } from "../card-actions";
-import { useArtifactReads } from "./ArtifactReads";
+import { renderArtifactReadNotice, useArtifactReads } from "./ArtifactReads";
 
 import { useProjectionQuery } from "../CollectionRead";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
@@ -1303,7 +1303,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     accountName,
     myProfile,
     myProfileRead,
-    artifactReads,
+    artifactReadNotice: renderArtifactReadNotice(artifactReads),
     setMyProfile,
     setSettingsParent,
     searchAgent,

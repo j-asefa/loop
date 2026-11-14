@@ -2,7 +2,7 @@ import { useEffect, useMemo, type RefObject } from "react";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import { contractCardReader } from "../../shared/card-client";
 import { workspaceApi } from "../../shared/workspace-api";
-import { useCollectionRead } from "../CollectionRead";
+import { CollectionReadNotice, useCollectionRead } from "../CollectionRead";
 import { readRoute } from "../api";
 import { resultAction, resultTarget, type ResultAction } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
@@ -187,4 +187,16 @@ export function useArtifactReads({
       },
     },
   };
+}
+
+export function renderArtifactReadNotice(
+  reads: Pick<ReturnType<typeof useArtifactReads>, "opening" | "replying">,
+) {
+  if (!reads.opening.error && !reads.replying.error) return null;
+  return (
+    <>
+      <CollectionReadNotice {...reads.opening} />
+      <CollectionReadNotice {...reads.replying} />
+    </>
+  );
 }

@@ -17,7 +17,7 @@ try {
     import React,{useRef,useState} from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {flushSync} from ${JSON.stringify(resolve("node_modules/react-dom/index.js"))};
-    import {useArtifactReads} from ${JSON.stringify(resolve("src/client/app/ArtifactReads.ts"))};
+    import {useArtifactReads} from ${JSON.stringify(resolve("src/client/app/ArtifactReads.tsx"))};
     import {CollectionReadNotice} from ${JSON.stringify(resolve("src/client/CollectionRead.tsx"))};
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};

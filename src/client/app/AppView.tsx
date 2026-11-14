@@ -1,4 +1,3 @@
-import { CollectionReadNotice } from "../CollectionRead";
 import { emptySharedDraft } from "../workspace-drafts";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { resultTarget } from "../card-actions";
@@ -97,7 +96,7 @@ export function renderApp(props: AppViewProps) {
     feedBadgeCount,
     session,
     error,
-    artifactReads,
+    artifactReadNotice,
     check,
     conversation,
     data,
@@ -570,13 +569,9 @@ export function renderApp(props: AppViewProps) {
           </button>
         </div>
       )}
-      {!activeArtifact &&
-        (artifactReads.opening.error || artifactReads.replying.error) && (
-          <div className="toast">
-            <CollectionReadNotice {...artifactReads.opening} />
-            <CollectionReadNotice {...artifactReads.replying} />
-          </div>
-        )}
+      {!activeArtifact && artifactReadNotice && (
+        <div className="toast">{artifactReadNotice}</div>
+      )}
       {error && (
         <div role="alert" className="toast error">
           <span>{error}</span>
@@ -1361,12 +1356,7 @@ export function renderApp(props: AppViewProps) {
               resultTarget(activeArtifact).id,
             ])}
             item={activeArtifact}
-            readNotice={
-              <>
-                <CollectionReadNotice {...artifactReads.opening} />
-                <CollectionReadNotice {...artifactReads.replying} />
-              </>
-            }
+            readNotice={artifactReadNotice}
             connections={data.connections}
             onProfile={(agent) => {
               setActiveArtifact(null);

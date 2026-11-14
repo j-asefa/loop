@@ -24,7 +24,7 @@ export type AppViewProps = Pick<
   | "feedBadgeCount"
   | "session"
   | "error"
-  | "artifactReads"
+  | "artifactReadNotice"
   | "check"
   | "conversation"
   | "data"
