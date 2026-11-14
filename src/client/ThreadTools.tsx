@@ -571,7 +571,7 @@ export function OutlineSheet({
     { source, conversation: conversationId, mode: "once", enabled: ready },
   );
   const matches = ready ? search.data?.matches : undefined;
-  const searching = !ready || search.loading;
+  const searching = !ready || search.loading || search.busy;
   const searchError = ready ? search.error : "";
   const visible = (items || []).filter(
     (item) => filter === "all" || item.kind === filter,
@@ -590,7 +590,7 @@ export function OutlineSheet({
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
-          if (ready) void search.retry();
+          if (ready && !search.busy) void search.retry();
         }}
       >
         <Search size={18} aria-hidden="true" />
@@ -623,6 +623,7 @@ export function OutlineSheet({
                 type="button"
                 className="secondary"
                 onClick={() => void search.retry()}
+                disabled={search.busy}
               >
                 Try again
               </button>

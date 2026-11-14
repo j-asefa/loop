@@ -88,7 +88,7 @@ try {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(body));
       };
-      if (hold) held.push(send);
+      if (hold && text !== "new query") held.push(send);
       else send();
       return;
     }
@@ -124,8 +124,25 @@ try {
   await expect(page.getByRole("alert")).toContainText("Outline unavailable");
   assert.equal(requests.length, before + 1);
   fail = false;
-  await page.getByRole("button", { name: "Try again" }).click();
+  hold = true;
+  const retry = page.getByRole("button", { name: "Try again" });
+  await retry.click();
+  await expect.poll(() => held.length).toBe(1);
+  await expect(page.locator(".outline-status")).toHaveText("Searching…");
+  await expect(retry).toBeDisabled();
+  await page.locator(".outline-search").evaluate((form) => {
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+  });
+  hold = false;
+  held.splice(0).forEach((send) => send());
   await expect(rows).toContainText(["failed query"]);
+  assert.equal(requests.length, before + 2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   hold = true;
   await input.fill("departing query");
   await expect.poll(() => held.length).toBe(1);
