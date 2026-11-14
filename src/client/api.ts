@@ -1,3 +1,4 @@
+import type { ReadMode } from "./read-executor";
 import { ownerSession } from "./ownerSession";
 import { isFleetReadContract } from "../shared/fleet-workspace-api";
 import { routePath } from "../shared/route-path";
@@ -358,7 +359,6 @@ async function requestInWorkspace<T>({
 
 /** One-shot projections recover from cooldowns and at most two transient
  * server failures. Only GETs retry; view cancellation stops IO and waits. */
-export type ReadMode = "automatic" | "manual";
 async function readRequest<T>(
   path: string,
   sourceId: string,
