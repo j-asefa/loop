@@ -116,6 +116,17 @@ try {
   await expect(rows).toContainText(["new query"]);
   held.splice(0).forEach((send) => send());
   await expect(rows).toContainText(["new query"]);
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  const beforeRetype = requests.length;
+  await input.fill("");
+  await input.fill("new query");
+  await page.clock.runFor(249);
+  assert.equal(requests.length, beforeRetype);
+  await page.clock.runFor(1);
+  await expect.poll(() => requests.length).toBe(beforeRetype + 1);
+  await expect(rows).toContainText(["new query"]);
+  await page.clock.resume();
   await rows.getByRole("button").click();
   assert.equal(await page.evaluate(() => window.jumped), "message-1");
   fail = true;

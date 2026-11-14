@@ -554,19 +554,19 @@ export function OutlineSheet({
   );
   const items = outline.data?.items;
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
-  const [query, setQuery] = useState("");
-  const text = query.trim();
-  const [debounced, setDebounced] = useState("");
+  const [query, setQuery] = useState({ text: "" });
+  const text = query.text.trim();
+  const [debounced, setDebounced] = useState<typeof query>();
   useEffect(() => {
-    const timer = setTimeout(() => setDebounced(text), 250);
+    const timer = setTimeout(() => setDebounced(query), 250);
     return () => clearTimeout(timer);
-  }, [text]);
-  const ready = !!text && text === debounced;
+  }, [query]);
+  const ready = !!text && query === debounced;
   const search = useProjectionQuery(
     workspaceApi.conversationOutline,
     {
       params: { id: conversationId },
-      query: { q: debounced },
+      query: { q: debounced?.text.trim() ?? "" },
     },
     { source, conversation: conversationId, mode: "once", enabled: ready },
   );
@@ -601,18 +601,18 @@ export function OutlineSheet({
           aria-label="Search this thread"
           placeholder="Search this thread"
           maxLength={200}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={query.text}
+          onChange={(e) => setQuery({ text: e.target.value })}
         />
       </form>
-      {query.trim() ? (
+      {text ? (
         <>
           <p className="outline-status" role="status">
             {searching || (!matches && !searchError)
               ? "Searching…"
               : searchError
                 ? "Search unavailable"
-                : `${plural(matches!.length, "match", "matches")} for “${query.trim()}”`}
+                : `${plural(matches!.length, "match", "matches")} for “${text}”`}
           </p>
           {searchError && (
             <div>
@@ -702,7 +702,7 @@ export function OutlineSheet({
           </ol>
         </>
       )}
-      {!query.trim() && <CollectionReadNotice {...outline} />}
+      {!text && <CollectionReadNotice {...outline} />}
     </Sheet>
   );
 }
