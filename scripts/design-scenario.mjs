@@ -121,11 +121,12 @@ const scenarios = {
     await input.fill("preserve");
     await input.press("Enter");
     await expect(page.getByText("Finding…", { exact: true })).toBeVisible();
+    const aborted = page.waitForEvent("requestfailed", {
+      predicate: (request) => request.url().includes("/api/search?"),
+    });
     await clear.click();
     releaseSearch();
-    await page.waitForResponse((response) =>
-      response.url().includes("/api/search?"),
-    );
+    await aborted;
     await expect(input).toHaveValue("");
     await expect(page.locator(".search-result")).toHaveCount(0);
   },

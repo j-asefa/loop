@@ -337,16 +337,26 @@ export function useCollectionRead(key: string) {
     busy: false,
     failure: undefined as unknown,
   });
+  const cancelIO = useCallback(() => {
+    context.controller?.abort();
+    context.controller = undefined;
+    context.running = false;
+    context.queued = undefined;
+    context.priority = 0;
+    context.waiters.splice(0).forEach((resolve) => resolve());
+  }, [context]);
+  const cancel = useCallback(() => {
+    if (!context.active || owner !== viewGeneration()) return;
+    cancelIO();
+    setState({ context, error: "", busy: false, failure: undefined });
+  }, [context, owner, cancelIO]);
   useEffect(() => {
     context.active = true;
     return () => {
       context.active = false;
-      context.running = false;
-      context.queued = undefined;
-      context.waiters.splice(0).forEach((resolve) => resolve());
-      context.controller?.abort();
+      cancelIO();
     };
-  }, [context]);
+  }, [context, cancelIO]);
   const load = useCallback(
     async function load<T>(
       read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
@@ -419,6 +429,7 @@ export function useCollectionRead(key: string) {
   );
   return {
     load,
+    cancel,
     isBusy: useCallback(() => context.running, [context]),
     error: state.context === context ? state.error : "",
     failure: state.context === context ? state.failure : undefined,
