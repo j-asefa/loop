@@ -2,6 +2,7 @@ import { IdempotencyKey } from "../src/shared/contract-ids.js";
 import { ArtifactId } from "../src/shared/contract-ids.js";
 import { ConversationId } from "../src/shared/contract-ids.js";
 import { callRoute, readRoute } from "../src/client/api";
+import type { RouteContract, RouteInput } from "../src/shared/workspace-api";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { retryAfter } from "../src/client/api";
@@ -28,8 +29,24 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+// Observe the transport's first attempt; other cases below exercise its waits.
+function probeRoute<C extends RouteContract & { method: "GET" }>(
+  contract: C,
+  input: RouteInput<C>,
+  source: string,
+) {
+  const controller = new AbortController();
+  return readRoute(
+    contract,
+    input,
+    source,
+    controller.signal,
+    undefined,
+    "once",
+  );
+}
 const read = (source = "") =>
-  callRoute(
+  probeRoute(
     workspaceApi.conversationMemory,
     { params: { id: ConversationId.parse("thread") } },
     source,
@@ -59,7 +76,7 @@ it.each([429, 502, 503])(
     await vi.advanceTimersByTimeAsync(3000);
     expect(retryAfter(error)).toBe(5000);
     await expect(
-      callRoute(workspaceApi.events, { query: { after: 12 } }, "docker:one"),
+      probeRoute(workspaceApi.events, { query: { after: 12 } }, "docker:one"),
     ).rejects.toMatchObject({
       status: 429,
       retryAfterMs: 5000,
@@ -69,7 +86,7 @@ it.each([429, 502, 503])(
     await read("docker:two");
     await read();
     fetcher.mockResolvedValueOnce(Response.json({ added: [], own: [] }));
-    await callRoute(workspaceApi.socialFeeds, {}, "docker:one"); // routed locally
+    await probeRoute(workspaceApi.socialFeeds, {}, "docker:one"); // routed locally
     expect(fetcher).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(5000);
     await read("docker:one");
@@ -226,7 +243,7 @@ it("delivers snapshot clocks for the actual source and drops responses from a pr
   fetcher.mockImplementation(async () => response("epoch"));
   await read("docker:one");
   fetcher.mockResolvedValueOnce(response("epoch", { unread: 0 }));
-  await callRoute(workspaceApi.socialUnread, {}, "docker:one");
+  await probeRoute(workspaceApi.socialUnread, {}, "docker:one");
   expect(received.map((value) => value.source)).toEqual(["docker:one", ""]);
   expect(received[0].clock).toEqual({
     epoch: "epoch",
@@ -347,4 +364,39 @@ it("makes one manual retry after exhaustion and still honors Retry-After", async
   expect((await manual).status).toBe(503);
   await vi.advanceTimersByTimeAsync(30_000);
   expect(fetcher).toHaveBeenCalledTimes(6);
+});
+
+it("does not resume a cooling GET under a replacement owner", async () => {
+  fetcher.mockResolvedValueOnce(limited("8"));
+  const controller = new AbortController();
+  const pending = readRoute(
+    workspaceApi.conversationMemory,
+    { params: { id: ConversationId.parse("thread") } },
+    "",
+    controller.signal,
+  );
+  const rejected = expect(pending).rejects.toThrow("unavailable response");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  setViewOwner("bob");
+  await vi.advanceTimersByTimeAsync(8000);
+  await rejected;
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("once reads report cooldowns without waiting or dispatching another request", async () => {
+  fetcher.mockResolvedValueOnce(limited("8"));
+  const controller = new AbortController();
+  const first = readRoute(
+    workspaceApi.conversationMemory,
+    { params: { id: ConversationId.parse("thread") } },
+    "",
+    controller.signal,
+    undefined,
+    "once",
+  );
+  const rejected = expect(first).rejects.toMatchObject({ status: 429 });
+  await vi.runAllTimersAsync();
+  await rejected;
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });

@@ -33,6 +33,13 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+it("rejects GET routes through the command adapter before dispatch", async () => {
+  // @ts-expect-error GET contracts are not commands.
+  const rejected = callRoute(workspaceApi.teamList, {}, "");
+  await expect(rejected).rejects.toThrow("GET routes must use readRoute.");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 const answer = {
   params: { id: NativeDecisionId.parse("decision/id") },
   body: {
@@ -108,10 +115,13 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
   try {
     expect("size" in new URLSearchParams()).toBe(false);
     fetcher.mockImplementation(async () => Response.json([]));
-    await callRoute(
+    await readRoute(
       workspaceApi.runs,
       { query: { active: "1", teams: "team one,team/two" } },
       "docker:one",
+      new AbortController().signal,
+      undefined,
+      "once",
     );
     expect(fetcher.mock.calls[0][0]).toBe(
       "/api/agent-sources/docker%3Aone/runs?active=1&teams=team+one%2Cteam%2Ftwo",
@@ -126,7 +136,14 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
     expect(fetcher.mock.calls[1][0]).toBe(
       "/api/native/decisions?conversation=" + conversation,
     );
-    await callRoute(workspaceApi.runs, {}, "");
+    await readRoute(
+      workspaceApi.runs,
+      {},
+      "",
+      new AbortController().signal,
+      undefined,
+      "once",
+    );
     expect(fetcher.mock.calls[2][0]).toBe("/api/runs");
   } finally {
     if (descriptor)
@@ -144,17 +161,38 @@ it("reads current source catalogs and refuses missing or malformed metadata", as
   };
   fetcher.mockResolvedValueOnce(Response.json(catalog));
   await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
+    readRoute(
+      workspaceApi.bootstrap,
+      {},
+      "docker:source",
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).resolves.toEqual(catalog);
   fetcher.mockResolvedValueOnce(
     Response.json({ ...catalog, teams: undefined }),
   );
   await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
+    readRoute(
+      workspaceApi.bootstrap,
+      {},
+      "docker:source",
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).rejects.toBeInstanceOf(UnavailableResponse);
   fetcher.mockResolvedValueOnce(Response.json({ ...catalog, teams: null }));
   await expect(
-    callRoute(workspaceApi.bootstrap, {}, "docker:source"),
+    readRoute(
+      workspaceApi.bootstrap,
+      {},
+      "docker:source",
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).rejects.toBeInstanceOf(UnavailableResponse);
 });
 

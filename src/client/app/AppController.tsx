@@ -14,7 +14,7 @@ import { useFeedBadge } from "../useFeedBadge";
 import { useComposerDraft, useComposerSend } from "./Composer";
 import {
   workspaceApi,
-  type ClientRouteContract,
+  type CommandRouteContract,
   type RouteInput,
 } from "../../shared/workspace-api";
 import { capabilities as shellCapabilities } from "../capabilities";
@@ -223,7 +223,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   const actionSource = conversation ? conversationSource : executionSourceId();
   const threadApi = useMemo(
     () =>
-      <C extends ClientRouteContract>(
+      <C extends CommandRouteContract>(
         contract: C,
         input: RouteInput<C>,
         signal?: AbortSignal,

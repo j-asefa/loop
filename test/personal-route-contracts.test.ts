@@ -1,3 +1,4 @@
+import { readRoute } from "../src/client/api";
 import { ArtifactId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -7,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
-import { callRoute, fetchStream, routeUrl } from "../src/client/api";
+import { fetchStream, routeUrl } from "../src/client/api";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-personal-contracts-"));
 process.env.LOOP_DATA_DIR = directory;
@@ -254,10 +255,13 @@ it("artifactDownload preserves its owner-checked 303 and the typed client follow
     realFetch(new URL(path, origin), init),
   );
   try {
-    const blob = await callRoute(
+    const blob = await readRoute(
       workspaceApi.artifactDownload,
       { params: { id: ArtifactId.parse(png.artifactId) } },
       "",
+      new AbortController().signal,
+      undefined,
+      "once",
     );
     expect(workspaceApi.artifactDownload.response.parse(blob)).toBe(blob);
     expect(Buffer.from(await blob.arrayBuffer())).toEqual(pngBytes);

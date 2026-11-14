@@ -3,6 +3,7 @@ import {
   ObjectId,
   SocialFeedId,
 } from "../src/shared/contract-ids.js";
+import { setViewOwner } from "../src/client/viewCache";
 import { executionSourceId } from "../src/client/sourceRouting";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as transport from "../src/client/api";
@@ -44,10 +45,13 @@ it.each([
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
     await expect(
-      callRoute(
+      readRoute(
         workspaceApi.artifactDownload,
         { params: { id: ArtifactId.parse("file") } },
         "docker:one",
+        new AbortController().signal,
+        undefined,
+        "once",
       ),
     ).rejects.toThrow("Sign in to Loop");
     expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
@@ -91,7 +95,14 @@ it("returns server proxy redirects to the auth screen", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
   await expect(
-    callRoute(workspaceApi.teamList, {}, executionSourceId()),
+    readRoute(
+      workspaceApi.teamList,
+      {},
+      executionSourceId(),
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).rejects.toThrow("Sign in to Loop");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
 });
@@ -100,7 +111,14 @@ it("accepts JSON responses after a redirect", async () => {
   Object.defineProperty(response, "redirected", { value: true });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
   await expect(
-    callRoute(workspaceApi.teamList, {}, executionSourceId()),
+    readRoute(
+      workspaceApi.teamList,
+      {},
+      executionSourceId(),
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).resolves.toEqual([]);
 });
 it("keeps Social on the paired app while an agent source owns its conversations", async () => {
@@ -124,14 +142,35 @@ it("keeps Social on the paired app while an agent source owns its conversations"
       ),
     );
   vi.stubGlobal("fetch", fetcher);
-  await callRoute(workspaceApi.socialUnread, {}, `docker:${id}`);
-  await callRoute(workspaceApi.socialFeeds, {}, `docker:${id}`);
+  await readRoute(
+    workspaceApi.socialUnread,
+    {},
+    `docker:${id}`,
+    new AbortController().signal,
+    undefined,
+    "once",
+  );
+  await readRoute(
+    workspaceApi.socialFeeds,
+    {},
+    `docker:${id}`,
+    new AbortController().signal,
+    undefined,
+    "once",
+  );
   await callRoute(
     workspaceApi.socialFeedAdd,
     { params: { id: SocialFeedId.parse("hackernews") } },
     `docker:${id}`,
   );
-  await callRoute(workspaceApi.teamList, {}, executionSourceId());
+  await readRoute(
+    workspaceApi.teamList,
+    {},
+    executionSourceId(),
+    new AbortController().signal,
+    undefined,
+    "once",
+  );
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
     "/api/social/unread",
     "/api/social/feeds",
@@ -154,7 +193,14 @@ it("keeps the paired session when one source refuses authentication", async () =
       ),
   );
   await expect(
-    callRoute(workspaceApi.teamList, {}, executionSourceId()),
+    readRoute(
+      workspaceApi.teamList,
+      {},
+      executionSourceId(),
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).rejects.toThrow("Source sign-in needed");
   expect(dispatchEvent).not.toHaveBeenCalled();
 });
@@ -170,7 +216,14 @@ it.each(["truncated", "interrupted"])(
       );
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
     await expect(
-      callRoute(workspaceApi.teamList, {}, executionSourceId()),
+      readRoute(
+        workspaceApi.teamList,
+        {},
+        executionSourceId(),
+        new AbortController().signal,
+        undefined,
+        "once",
+      ),
     ).rejects.toThrow("Connection unavailable. Try again.");
   },
 );
@@ -182,7 +235,14 @@ it("still expires the session when an unauthorized response has no JSON body", a
     vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })),
   );
   await expect(
-    callRoute(workspaceApi.teamList, {}, executionSourceId()),
+    readRoute(
+      workspaceApi.teamList,
+      {},
+      executionSourceId(),
+      new AbortController().signal,
+      undefined,
+      "once",
+    ),
   ).rejects.toThrow("Connection unavailable. Try again.");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
 });
@@ -198,10 +258,13 @@ it("treats the connection service's restart response as reconnecting, never as s
   const dispatchEvent = vi.fn();
   vi.stubGlobal("window", { dispatchEvent });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(restarting()));
-  const error = await callRoute(
+  const error = await readRoute(
     workspaceApi.teamList,
     {},
     executionSourceId(),
+    new AbortController().signal,
+    undefined,
+    "once",
   ).catch((e) => e);
   expect(error).toMatchObject({ status: 503, reconnecting: true });
   expect(error.message).toMatch(/reconnecting/);
@@ -228,3 +291,63 @@ it("keeps a mutation's session and outcome uncertain while Loop restarts", async
 });
 
 void pathTypes;
+
+it.each(["unauthorized", "redirect", "body"])(
+  "ignores an obsolete owner's %s response before session effects",
+  async (kind) => {
+    const target = new EventTarget(),
+      expired = vi.fn();
+    target.addEventListener("loop-auth-expired", expired);
+    vi.stubGlobal("window", target);
+    let finish!: (value: Response) => void;
+    let finishBody: ((value: unknown) => void) | undefined;
+    const response =
+      kind === "redirect"
+        ? new Response("Sign in", { headers: { "content-type": "text/html" } })
+        : Response.json({ error: "Pair this device" }, { status: 401 });
+    if (kind === "redirect")
+      Object.defineProperty(response, "redirected", { value: true });
+    if (kind === "body") {
+      response.json = () =>
+        new Promise((resolve) => {
+          finishBody = resolve;
+        });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+    } else
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              finish = resolve;
+            }),
+        ),
+      );
+    setViewOwner("alice");
+    const pending = readRoute(
+      workspaceApi.teamList,
+      {},
+      "",
+      new AbortController().signal,
+      undefined,
+      "once",
+    );
+    const rejected = expect(pending).rejects.toBeInstanceOf(
+      transport.UnavailableResponse,
+    );
+    if (kind === "body")
+      await vi.waitFor(() => expect(finishBody).toBeTypeOf("function"));
+    setViewOwner("bob");
+    if (kind === "body") finishBody!({ error: "Pair this device" });
+    else finish(response);
+    try {
+      await rejected;
+      expect(expired).not.toHaveBeenCalled();
+    } finally {
+      setViewOwner(undefined);
+    }
+  },
+);

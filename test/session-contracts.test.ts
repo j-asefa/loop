@@ -199,3 +199,69 @@ it("recovers a transient session read and cancels its pending recovery with the 
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(setSession).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["startup", "redirect"],
+  ["startup", "source"],
+  ["paired", "redirect"],
+  ["paired", "source"],
+] as const)(
+  "recovers %s %s failure after its expiry event",
+  async (state, kind) => {
+    const alice = {
+      user: { id: OwnerId.parse("alice"), name: "Alice" },
+      mode: "paired" as const,
+    };
+    ownerSession.setSession(state === "startup" ? undefined : alice);
+    const target = new EventTarget();
+    target.addEventListener("loop-auth-expired", () =>
+      ownerSession.setSession(null),
+    );
+    vi.stubGlobal("window", target);
+    setShellSource(kind === "source" ? "docker:one" : "");
+    const response =
+      kind === "source"
+        ? Response.json({ error: "Pair this device" }, { status: 401 })
+        : new Response("Sign in", { headers: { "content-type": "text/html" } });
+    if (kind === "redirect")
+      Object.defineProperty(response, "redirected", { value: true });
+    fetcher.mockResolvedValueOnce(response);
+    await createSessionCheck({ setSession: ownerSession.setSession })();
+    expect(ownerSession.current.session).toBeNull();
+    if (kind === "redirect") expect(reload).toHaveBeenCalledTimes(1);
+    else expect(assign).toHaveBeenCalledWith("/");
+  },
+);
+
+it.each(["redirect", "source"])(
+  "does not recover an old %s failure after another owner replaces its expiry",
+  async (kind) => {
+    ownerSession.setSession({
+      user: { id: OwnerId.parse("alice"), name: "Alice" },
+      mode: "paired",
+    });
+    const target = new EventTarget();
+    target.addEventListener("loop-auth-expired", () => {
+      ownerSession.setSession(null);
+      void Promise.resolve().then(() =>
+        ownerSession.setSession({
+          user: { id: OwnerId.parse("bob"), name: "Bob" },
+          mode: "paired",
+        }),
+      );
+    });
+    vi.stubGlobal("window", target);
+    setShellSource(kind === "source" ? "docker:one" : "");
+    const response =
+      kind === "source"
+        ? Response.json({ error: "Pair this device" }, { status: 401 })
+        : new Response("Sign in", { headers: { "content-type": "text/html" } });
+    if (kind === "redirect")
+      Object.defineProperty(response, "redirected", { value: true });
+    fetcher.mockResolvedValueOnce(response);
+    await createSessionCheck({ setSession: ownerSession.setSession })();
+    expect(ownerSession.current.owner).toBe("bob");
+    expect(reload).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+  },
+);

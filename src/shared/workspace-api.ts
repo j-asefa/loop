@@ -44,7 +44,7 @@ export {
 export type {
   RouteContract,
   FleetRouteContract,
-  ClientRouteContract,
+  CommandRouteContract,
   RouteInput,
   RouteResponse,
 } from "./route-contract.js";

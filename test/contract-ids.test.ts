@@ -153,22 +153,40 @@ it("allows raw server response builders but projects a nominal output", () => {
 // signature as well as nominal schema output. No assertions manufacture IDs.
 function clientTypeChecks(
   api: typeof import("../src/client/api.js").callRoute,
+  readRoute: typeof import("../src/client/api.js").readRoute,
 ) {
+  const read = <
+    C extends import("../src/shared/workspace-api").RouteContract & {
+      method: "GET";
+    },
+  >(
+    contract: C,
+    input: RouteInput<C>,
+    source: string,
+  ) => readRoute(contract, input, source, new AbortController().signal);
   const agent = AgentId.parse(uuid);
   const connection = ConnectionId.parse("native-codex");
-  void api(workspaceApi.agentDetail, { params: { id: agent } }, "fixture");
-  void api(
+  void read(workspaceApi.agentDetail, { params: { id: agent } }, "fixture");
+  void read(
     workspaceApi.connectionModels,
     { params: { id: connection } },
     "fixture",
   );
-  // @ts-expect-error Connections cannot identify agents.
-  void api(workspaceApi.agentDetail, { params: { id: connection } }, "fixture");
-  // @ts-expect-error Agents cannot identify connections.
-  void api(workspaceApi.connectionModels, { params: { id: agent } }, "fixture");
+  void read(
+    workspaceApi.agentDetail,
+    // @ts-expect-error Connections cannot identify agents.
+    { params: { id: connection } },
+    "fixture",
+  );
+  void read(
+    workspaceApi.connectionModels,
+    // @ts-expect-error Agents cannot identify connections.
+    { params: { id: agent } },
+    "fixture",
+  );
   const artifact = ArtifactId.parse(uuid);
   const folder = FolderId.parse(uuid);
-  void api(
+  void read(
     workspaceApi.artifactDetail,
     { params: { id: artifact } },
     "fixture",
@@ -179,7 +197,7 @@ function clientTypeChecks(
     "fixture",
   );
   // @ts-expect-error Folder IDs cannot identify artifacts.
-  void api(workspaceApi.artifactDetail, { params: { id: folder } }, "fixture");
+  void read(workspaceApi.artifactDetail, { params: { id: folder } }, "fixture");
   void api(
     workspaceApi.folderUpdate,
     // @ts-expect-error Artifact IDs cannot identify folders.
@@ -199,7 +217,7 @@ function clientTypeChecks(
     { params: { id: approval }, body: { decision: "approve" } },
     "fixture",
   );
-  void api(workspaceApi.messageDetail, { params: { id: message } }, "fixture");
+  void read(workspaceApi.messageDetail, { params: { id: message } }, "fixture");
   // @ts-expect-error Team IDs cannot identify messages.
   const wrongMessage: RouteInput<
     typeof workspaceApi.messageDetail
@@ -216,14 +234,14 @@ function clientTypeChecks(
   const conversation = ConversationId.parse(uuid);
   const run: RouteResponse<typeof workspaceApi.runMove>["id"] =
     RunId.parse(uuid);
-  void api(route, { params: { id: conversation } }, "fixture");
-  void api(workspaceApi.session, { params: { id: conversation } }, "fixture");
+  void read(route, { params: { id: conversation } }, "fixture");
+  void read(workspaceApi.session, { params: { id: conversation } }, "fixture");
   // @ts-expect-error UUID validation retains the nominal input requirement.
-  void api(workspaceApi.session, { params: { id: uuid } }, "fixture");
+  void read(workspaceApi.session, { params: { id: uuid } }, "fixture");
   // @ts-expect-error A run identity cannot be passed as a conversation identity.
-  void api(route, { params: { id: run } }, "fixture");
+  void read(route, { params: { id: run } }, "fixture");
   // @ts-expect-error Parse raw URL/storage strings at the ingress boundary.
-  void api(route, { params: { id: "raw" } }, "fixture");
+  void read(route, { params: { id: "raw" } }, "fixture");
   // @ts-expect-error Only a named branded schema can define a request ID view.
   requestId(z.string());
   const projectFolder: FolderId = ProjectId.parse(uuid);

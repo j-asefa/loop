@@ -1,3 +1,4 @@
+import { readRoute } from "../src/client/api";
 import { ViewportSessionId } from "../src/shared/contract-ids.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -233,10 +234,13 @@ test("typed multipart routes use the compiled app without replaying writes", asy
         "an uncertain committed upload is not replayed",
       );
       globalThis.fetch = transport;
-      const listed = await callRoute(
+      const listed = await readRoute(
         workspaceApi.artifactList,
         { query: { folder: folder.id } },
         source,
+        new AbortController().signal,
+        undefined,
+        "once",
       );
       assert.equal(
         listed.items.length,

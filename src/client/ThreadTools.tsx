@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { LaterTargetInput } from "../shared/contract-ids";
 import {
   AgentId,
@@ -541,8 +542,9 @@ export function OutlineSheet({
   onJump: (messageId: string) => void;
   onClose: () => void;
 }) {
+  const readProjection = useProjectionRoute();
+
   const conversationId = ConversationId.parse(rawConversationId);
-  const call = useSourceRoute();
   const [items, setItems] = useState<OutlineItem[] | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
@@ -553,9 +555,13 @@ export function OutlineSheet({
   const [searchAttempt, setSearchAttempt] = useState(0);
   useEffect(() => {
     let active = true;
-    call(workspaceApi.conversationOutline, {
-      params: { id: conversationId },
-    })
+    readProjection(
+      workspaceApi.conversationOutline,
+      {
+        params: { id: conversationId },
+      },
+      { mode: "once" },
+    )
       .then((result) => active && setItems(result.items))
       .catch((e) => active && setError((e as Error).message));
     return () => {
@@ -574,10 +580,14 @@ export function OutlineSheet({
     let active = true;
     setSearching(true);
     const timer = setTimeout(() => {
-      call(workspaceApi.conversationOutline, {
-        params: { id: conversationId },
-        query: { q: text },
-      })
+      readProjection(
+        workspaceApi.conversationOutline,
+        {
+          params: { id: conversationId },
+          query: { q: text },
+        },
+        { mode: "once" },
+      )
         .then((result) => active && setMatches(result.matches ?? []))
         .catch((e) => active && setSearchError((e as Error).message))
         .finally(() => active && setSearching(false));
@@ -954,6 +964,8 @@ export function ScheduledSends({
   /** Only messages that could not be sent (for Needs you). */
   failedOnly?: boolean;
 }) {
+  const readProjection = useProjectionRoute();
+
   const call = useSourceRoute();
   const sourceId = useSourceId();
   const recovery = useCollectionRead(
@@ -1002,9 +1014,13 @@ export function ScheduledSends({
   const loadOlder = async () => {
     if (!failedNext) return;
     try {
-      const page = await call(workspaceApi.scheduledSendList, {
-        query: query(failedNext),
-      });
+      const page = await readProjection(
+        workspaceApi.scheduledSendList,
+        {
+          query: query(failedNext),
+        },
+        { mode: "once" },
+      );
       setItems((old) => {
         const failed = old.filter((item) => item.state === "failed");
         return [

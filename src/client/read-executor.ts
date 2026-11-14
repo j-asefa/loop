@@ -1,4 +1,4 @@
-export type ReadMode = "automatic" | "manual";
+export type ReadMode = "automatic" | "manual" | "once";
 export type ReadState = { error: string; busy: boolean; failure: unknown };
 type ReadCompletion =
   | { status: "cancelled" }
@@ -148,11 +148,11 @@ export function createReadExecutor(options: {
     try {
       if (signal?.aborted) cancel();
       const completion = await child.execute(
-        read,
+        (signal) => read(signal, mode),
         (next) => {
           value = next;
         },
-        mode === "manual",
+        mode !== "automatic",
       );
       if (completion.status === "error" && completion.current())
         throw completion.error;

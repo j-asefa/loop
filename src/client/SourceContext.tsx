@@ -11,7 +11,7 @@ import { useCollectionRead } from "./CollectionRead";
 import { callRoute, readRoute } from "./api";
 import type {
   RouteContract,
-  ClientRouteContract,
+  CommandRouteContract,
   RouteInput,
 } from "../shared/workspace-api";
 
@@ -63,7 +63,7 @@ export function useSourceRoute() {
   const source = useSourceId();
   return useMemo(
     () =>
-      <C extends ClientRouteContract>(
+      <C extends CommandRouteContract>(
         contract: C,
         input: RouteInput<C>,
         signal?: AbortSignal,

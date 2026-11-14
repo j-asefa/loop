@@ -1,3 +1,4 @@
+import { useProjectionRoute } from "./SourceContext";
 import { CardTokenId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useEffect, useId, useRef, useState } from "react";
@@ -35,6 +36,8 @@ export function CardTokens({
   owner: string;
   sourceId: string;
 }) {
+  const readProjection = useProjectionRoute();
+
   const slot = pending(owner, sourceId, ["integration-token"]);
   const receipt = useRef(slot.read() ?? undefined);
   const nameId = useId();
@@ -57,7 +60,11 @@ export function CardTokens({
   const load = async (clearError = true) => {
     const ticket = ++listRequest.current;
     try {
-      const list = await callRoute(workspaceApi.cardTokens, {}, sourceId);
+      const list = await readProjection(
+        workspaceApi.cardTokens,
+        {},
+        { mode: "once", source: sourceId },
+      );
       if (current() && ticket === listRequest.current) {
         setTokens(list);
         setLoaded(true);

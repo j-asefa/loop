@@ -642,7 +642,14 @@ it("typed mobile clients consume production receipts, saved envelopes and cancel
     return realFetch(new URL(path, origin), init);
   });
   try {
-    const saved = await callRoute(workspaceApi.savedList, {}, "");
+    const saved = await readRoute(
+      workspaceApi.savedList,
+      {},
+      "",
+      new AbortController().signal,
+      undefined,
+      "once",
+    );
     expect(saved.items).not.toHaveLength(0);
     for (const item of saved.items) expect(item).toHaveProperty("label");
     const row = await callRoute(

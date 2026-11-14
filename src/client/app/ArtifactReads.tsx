@@ -175,7 +175,7 @@ export function useArtifactReads({
     if (owner && initialArtifact) void openTarget(initialArtifact);
   }, [owner, initialArtifact]);
   return {
-    open: (item: ResultAction) => openTarget(item),
+    open: (item: ResultAction | string) => openTarget(item),
     replyToArtifact: (item: ResultAction) => replyToArtifact(item),
     opening: {
       error: opening.error,

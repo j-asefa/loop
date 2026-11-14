@@ -5,7 +5,7 @@ import { routePath } from "../shared/route-path";
 export { routePath } from "../shared/route-path";
 import type {
   RouteContract,
-  ClientRouteContract,
+  CommandRouteContract,
   RouteInput,
   RouteResponse,
 } from "../shared/workspace-api";
@@ -129,6 +129,19 @@ export async function authorize(signal?: AbortSignal) {
 export function clearAuthorization() {
   csrf = "";
 }
+function expireAuthentication(started: typeof ownerSession.current) {
+  clearAuthorization();
+  window.dispatchEvent(new Event("loop-auth-expired"));
+  const current = ownerSession.current;
+  // Recovery may follow this response's expiry, but never an intervening owner.
+  if (
+    !current.owner &&
+    current.generation ===
+      started.generation + Number(started.owner !== undefined)
+  )
+    return current.generation;
+  return undefined;
+}
 async function sendRequest(
   path: string,
   init: RequestInit = {},
@@ -217,7 +230,8 @@ async function requestInWorkspace<T>({
   empty = false,
   command,
 }: WorkspaceRequestOptions): Promise<T> {
-  const generation = viewGeneration();
+  const started = ownerSession.current;
+  const generation = started.generation;
   const requestId = ++clockRequestId;
   const url = sourceApiPathAt("/api" + path, sourceId);
   // Social and already-routed requests may have a different destination from
@@ -254,6 +268,7 @@ async function requestInWorkspace<T>({
       );
     throw error;
   });
+  if (generation !== viewGeneration()) throw new UnavailableResponse();
   command?.current();
   command?.observe(r);
   // Rejected before forwarding, so it is safe to try again; the caller's
@@ -276,9 +291,10 @@ async function requestInWorkspace<T>({
     !r.headers.get("content-type")?.includes("application/json") &&
     !(kind === "stream" && sameWorkspaceRedirect(r, url))
   ) {
-    clearAuthorization();
-    window.dispatchEvent(new Event("loop-auth-expired"));
-    throw Object.assign(new Error("Sign in to Loop"), { redirected: true });
+    throw Object.assign(new Error("Sign in to Loop"), {
+      redirected: true,
+      expiredGeneration: expireAuthentication(started),
+    });
   }
   // Multipart callers previously named the HTTP status when a tunnel or proxy
   // returned an error page instead of Loop's JSON receipt.
@@ -298,13 +314,14 @@ async function requestInWorkspace<T>({
       error: multipart ? uploadFailure : "Connection unavailable. Try again.",
     };
   });
+  if (generation !== viewGeneration()) throw new UnavailableResponse();
   if (!r.ok || !parsed) {
+    let expiredGeneration: number | undefined;
     if (
       r.status === 401 &&
       (!sourceId || /Pair this device/i.test(data?.error || ""))
     ) {
-      clearAuthorization();
-      window.dispatchEvent(new Event("loop-auth-expired"));
+      expiredGeneration = expireAuthentication(started);
     }
     // The status lets callers tell a refusal (4xx) from an uncertain outcome.
     throw Object.assign(
@@ -314,6 +331,7 @@ async function requestInWorkspace<T>({
           (multipart ? uploadFailure : "Request failed"),
       ),
       {
+        expiredGeneration,
         ...(bodyDisconnected ? { network: true } : {}),
         ...(r.ok && !parsed ? { invalidResponse: true } : {}),
         status:
@@ -367,28 +385,33 @@ async function readRequest<T>(
   kind?: "stream",
   mode: ReadMode = "automatic",
 ): Promise<T> {
+  const generation = viewGeneration();
   let failures = 0;
   for (;;) {
+    if (generation !== viewGeneration()) throw new UnavailableResponse();
     try {
-      return await requestInWorkspace<T>({
+      const value = await requestInWorkspace<T>({
         path,
         sourceId,
         method: "GET",
         signal,
         kind,
       });
+      if (generation !== viewGeneration()) throw new UnavailableResponse();
+      return value;
     } catch (error) {
-      if (signal.aborted) throw error;
+      if (signal.aborted || generation !== viewGeneration()) throw error;
       const status = (error as { status?: number }).status;
-      const delay = isRateLimited(error)
-        ? retryAfter(error)
-        : mode === "automatic" &&
-            status &&
-            status >= 500 &&
-            status < 600 &&
-            failures < 2
-          ? 2000 * ++failures
-          : undefined;
+      const delay =
+        mode !== "once" && isRateLimited(error)
+          ? retryAfter(error)
+          : mode === "automatic" &&
+              status &&
+              status >= 500 &&
+              status < 600 &&
+              failures < 2
+            ? 2000 * ++failures
+            : undefined;
       if (delay === undefined) throw error;
       onRetry?.(error, delay);
       await new Promise<void>((resolve, reject) => {
@@ -430,20 +453,20 @@ function response<C extends RouteContract>(
   if (!parsed.success) throw new UnavailableResponse();
   return parsed.data as RouteResponse<C>;
 }
-export async function callRoute<C extends ClientRouteContract>(
+export async function callRoute<C extends CommandRouteContract>(
   contract: C,
   input: RouteInput<C>,
   sourceId: string,
   signal?: AbortSignal,
 ): Promise<RouteResponse<C>> {
+  if ((contract as RouteContract).method === "GET")
+    throw new TypeError("GET routes must use readRoute.");
   const generation = viewGeneration();
   const path = routePath(contract, input);
   const routed = sourceApiPathAt("/api" + path, sourceId);
   const destination = decodeURIComponent(encodedSourceFromPath(routed));
   const command =
-    destination.startsWith("peer:") &&
-    contract.method !== "GET" &&
-    !isFleetReadContract(contract)
+    destination.startsWith("peer:") && !isFleetReadContract(contract)
       ? await prepareFleetCommand(destination, contract, input, signal)
       : undefined;
   const perform = async () => {
@@ -533,6 +556,7 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
         mode,
       ),
     );
+    if (generation !== viewGeneration()) throw new UnavailableResponse();
     settleRecovery(false);
     return value;
   } catch (error) {
