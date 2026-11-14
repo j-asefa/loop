@@ -1,9 +1,11 @@
 import { ConversationId } from "../shared/contract-ids.js";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useSourceId, useProjectionRoute } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { ActivityHistory, type ActivityHistoryState } from "./activityHistory";
 import type { ActivityRecord } from "../shared/agent-activities";
+import { readRoute } from "./api";
+import { viewGeneration } from "./viewCache";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 
 // Client side of the shared activity projection. The server has already
@@ -65,7 +67,7 @@ export function useConversationActivities(
   runs: string[] = [],
   tools = true,
 ) {
-  const read = useProjectionRoute();
+  const generation = viewGeneration();
   const sourceId = useSourceId();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [history, setHistory] = useState<ActivityHistoryState>({
@@ -86,19 +88,22 @@ export function useConversationActivities(
     });
     if (!conversation) return;
     const current = new ActivityHistory(
-      (query, mode) =>
-        read(
+      (query, mode, signal) =>
+        readRoute(
           workspaceApi.conversationActivities,
           {
             params: { id: ConversationId.parse(conversation) },
             query,
           },
           sourceId,
+          signal,
+          undefined,
           mode,
         ),
       (page) => setItems((old) => mergeActivities(old, page)),
       setHistory,
       tools,
+      () => generation === viewGeneration(),
     );
     loader.current = current;
     const update = () => {
@@ -116,10 +121,10 @@ export function useConversationActivities(
       if (loader.current === current) loader.current = null;
       stopChanges();
     };
-  }, [conversation, tools, sourceId]);
+  }, [conversation, tools, sourceId, generation]);
   useEffect(() => {
     void loader.current?.setRuns(runKey ? runKey.split(",") : []);
-  }, [conversation, runKey, tools]);
+  }, [conversation, runKey, tools, sourceId, generation]);
   return {
     items,
     ...history,

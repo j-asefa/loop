@@ -338,3 +338,88 @@ it("loads conversation controls and displayed files without requesting tool hist
     "/conversations/thread/activities?view=updates&tools=0&after=200",
   ]);
 });
+
+it("aborts page IO on stop and never publishes its eventual response", async () => {
+  let signal: AbortSignal | undefined;
+  let release!: (value: ActivityPage) => void;
+  const received: ActivityPage[] = [];
+  const loader = new ActivityHistory(
+    (_query, _mode, currentSignal) => {
+      signal = currentSignal;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+    (value) => received.push(value),
+    () => {},
+  );
+  const pending = loader.refresh();
+  await Promise.resolve();
+  loader.stop();
+  release(page(100));
+  await pending;
+  expect(signal?.aborted).toBe(true);
+  expect(received).toEqual([]);
+});
+
+it("rejects a late owner generation without waiting for React cleanup", async () => {
+  let current = true;
+  let release!: (value: ActivityPage) => void;
+  const received: ActivityPage[] = [],
+    states: unknown[] = [];
+  const loader = new ActivityHistory(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    (value) => received.push(value),
+    (value) => states.push(value),
+    true,
+    () => current,
+  );
+  const pending = loader.refresh();
+  await Promise.resolve();
+  current = false;
+  release(page(100));
+  await pending;
+  expect(received).toEqual([]);
+  expect(states).toEqual([]);
+});
+
+it("stops a non-advancing live continuation instead of draining the same cursor", async () => {
+  let reads = 0,
+    error = "";
+  const loader = new ActivityHistory(
+    async () => page(100, [], { more: ++reads > 1 && reads < 4 }),
+    () => {},
+    (state) => {
+      error = state.error;
+    },
+  );
+  await loader.refresh();
+  await loader.refresh();
+  expect(error).toMatch(/pagination did not advance/i);
+  expect(reads).toBe(2);
+});
+
+it("stops a non-advancing file continuation without marking its run loaded", async () => {
+  let fileReads = 0,
+    error = "";
+  const loader = new ActivityHistory(
+    async (query) =>
+      query?.view === "files"
+        ? page(0, [], { more: ++fileReads < 3 })
+        : page(100),
+    () => {},
+    (state) => {
+      error = state.error;
+    },
+  );
+  await loader.refresh();
+  await loader.setRuns(["run"]);
+  expect(error).toMatch(/pagination did not advance/i);
+  expect(fileReads).toBe(1);
+  await loader.retry();
+  expect(fileReads).toBe(2);
+  expect(error).toMatch(/pagination did not advance/i);
+});
