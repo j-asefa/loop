@@ -1,12 +1,8 @@
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import {
-  useSourceRoute,
-  useSourceId,
-  useProjectionRoute,
-} from "./SourceContext";
-import { listenWorkspaceChanges } from "./workspace-changes";
-import { useEffect, useState } from "react";
+import { useSourceRoute, useSourceId } from "./SourceContext";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
+import { useState } from "react";
 import { ArrowUpRight, Eye, GitPullRequest, PanelRight } from "lucide-react";
 import type { PullRequestCard, PullRequestSummary } from "../shared/github";
 import { parse } from "./json";
@@ -18,50 +14,19 @@ export type Watch = RouteResponse<
 >["watches"][number];
 const WATCH_CHANGE = "loop-pr-watch-change";
 
-// The thread's watches, kept current while a card shows them, with whether
-// the list is confirmed: an empty list while loading or after a failed
-// request is not "no watch".
 function useWatchState(conversation: string | null | undefined) {
-  const read = useProjectionRoute();
-  const sourceId = useSourceId();
-  const [watches, setWatches] = useState<Watch[]>([]);
-  const [status, setStatus] = useState<"loading" | "ready" | "failed">(
-    "loading",
+  return useProjectionQuery(
+    workspaceApi.prWatchList,
+    conversation
+      ? { query: { conversation: parseId(ConversationId, conversation) } }
+      : undefined,
+    {
+      source: useSourceId(),
+      collections: ["pulls"],
+      conversation: conversation ?? undefined,
+      events: [WATCH_CHANGE],
+    },
   );
-  useEffect(() => {
-    if (!conversation) return;
-    let live = true,
-      latest = 0;
-    const load = () => {
-      const request = ++latest;
-      return read(workspaceApi.prWatchList, {
-        query: { conversation: parseId(ConversationId, conversation) },
-      })
-        .then((r) => {
-          if (!live || request !== latest) return;
-          setWatches(r.watches);
-          setStatus("ready");
-        })
-        .catch(() => live && request === latest && setStatus("failed"));
-    };
-    void load();
-    window.addEventListener(WATCH_CHANGE, load);
-    const stopChanges = listenWorkspaceChanges(
-      "pulls",
-      load,
-      sourceId,
-      conversation ?? undefined,
-    );
-    return () => {
-      live = false;
-      window.removeEventListener(WATCH_CHANGE, load);
-      stopChanges();
-    };
-  }, [conversation, sourceId]);
-  return { watches, status };
-}
-function useWatches(conversation: string | null | undefined) {
-  return useWatchState(conversation).watches;
 }
 
 /**
@@ -251,7 +216,8 @@ export function PullRequestCards({
   conversationId?: string | null;
 }) {
   const watchable = !!artifactId && !!conversationId;
-  const watches = useWatches(watchable ? conversationId : null);
+  const watchesRead = useWatchState(watchable ? conversationId : null);
+  const watches = watchesRead.data?.watches ?? [];
   const shown = compact ? card.pulls.slice(0, 3) : card.pulls;
   const watchFor = (pr: PullRequestSummary) => {
     const matching = watches.filter(
@@ -266,6 +232,13 @@ export function PullRequestCards({
   const total = card.total ?? card.pulls.length;
   return (
     <div className="pr-cards">
+      <CollectionReadNotice
+        error={
+          watchesRead.error && "Pull-request watches: " + watchesRead.error
+        }
+        busy={watchesRead.busy}
+        retry={watchesRead.retry}
+      />
       <ul>
         {shown.map((pr) => (
           <PullRequestRow key={pr.url} pr={pr} watch={watchFor(pr)} />
