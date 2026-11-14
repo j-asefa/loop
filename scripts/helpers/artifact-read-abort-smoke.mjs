@@ -5,7 +5,8 @@ export async function artifactReadAbortSmoke(page, fixture) {
   const artifact = fixture.db
     .prepare("SELECT id,title FROM artifacts WHERE id=?")
     .get(fixture.artifacts[0]);
-  let hold = false,
+  let failReply = true,
+    hold = false,
     release;
   const handler = async (route) => {
     const response = await route.fetch();
@@ -23,6 +24,29 @@ export async function artifactReadAbortSmoke(page, fixture) {
         .getByRole("dialog")
         .getByRole("heading", { name: artifact.title, exact: true }),
     ).toBeVisible();
+    await page.route("**/api/v1/cards/**", async (route) => {
+      if (failReply)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Reply detail unavailable" },
+        });
+      return route.continue();
+    });
+    const viewer = page.getByRole("dialog");
+    await viewer.getByRole("button", { name: "Reply", exact: true }).click();
+    const notice = viewer
+      .locator(".collection-read-error")
+      .filter({ hasText: "Reply detail unavailable" });
+    await expect(notice).toBeVisible();
+    failReply = false;
+    await notice.getByRole("button", { name: "Retry connection" }).click();
+    await expect(
+      page
+        .locator("dialog[open]")
+        .last()
+        .getByLabel("Reply to agent", { exact: true }),
+    ).toBeVisible();
+    await page.unroute("**/api/v1/cards/**");
     hold = true;
     await page.goto(fixture.base + "/?artifact=" + artifact.id);
     await expect.poll(() => Boolean(release)).toBe(true);
@@ -41,5 +65,6 @@ export async function artifactReadAbortSmoke(page, fixture) {
   } finally {
     if (release) await release();
     await page.unroute("**/api/artifacts/" + artifact.id, handler);
+    await page.unroute("**/api/v1/cards/**");
   }
 }

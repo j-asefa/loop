@@ -570,12 +570,13 @@ export function renderApp(props: AppViewProps) {
           </button>
         </div>
       )}
-      {(artifactReads.opening.error || artifactReads.replying.error) && (
-        <div className="toast">
-          <CollectionReadNotice {...artifactReads.opening} />
-          <CollectionReadNotice {...artifactReads.replying} />
-        </div>
-      )}
+      {!activeArtifact &&
+        (artifactReads.opening.error || artifactReads.replying.error) && (
+          <div className="toast">
+            <CollectionReadNotice {...artifactReads.opening} />
+            <CollectionReadNotice {...artifactReads.replying} />
+          </div>
+        )}
       {error && (
         <div role="alert" className="toast error">
           <span>{error}</span>
@@ -1360,6 +1361,12 @@ export function renderApp(props: AppViewProps) {
               resultTarget(activeArtifact).id,
             ])}
             item={activeArtifact}
+            readNotice={
+              <>
+                <CollectionReadNotice {...artifactReads.opening} />
+                <CollectionReadNotice {...artifactReads.replying} />
+              </>
+            }
             connections={data.connections}
             onProfile={(agent) => {
               setActiveArtifact(null);

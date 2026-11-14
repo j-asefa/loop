@@ -16,7 +16,14 @@ import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 const McpApp = lazy(() =>
   import("./McpApp").then((m) => ({ default: m.McpApp })),
 );
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  lazy,
+  Suspense,
+  type ReactNode,
+} from "react";
 import {
   Download,
   FolderInput,
@@ -151,6 +158,7 @@ export function ArtifactViewer({
   onChanged,
   onRun,
   onReply,
+  readNotice,
 }: {
   item: ResultAction;
   connections: Connection[];
@@ -162,6 +170,7 @@ export function ArtifactViewer({
   onChanged: () => void;
   onRun: (text: string) => void;
   onReply: () => void;
+  readNotice?: ReactNode;
 }) {
   const target = resultTarget(item);
   const call = useSourceRoute();
@@ -399,6 +408,7 @@ export function ArtifactViewer({
         </div>
       }
     >
+      {readNotice}
       <div className="result-content">
         <h3 className="result-title">{target.title}</h3>
         {meta.source && <SourceCard source={meta.source} />}
