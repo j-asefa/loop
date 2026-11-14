@@ -272,6 +272,35 @@ try {
         if (scenario === "revision") {
           await more.click();
           await expect(rows).toHaveCount(3);
+          const beforeRevision = requests.length;
+          await page.evaluate(() => {
+            window.dispatchEvent(
+              new CustomEvent("loop-workspace-change", {
+                detail: {
+                  sources: [""],
+                  changes: [
+                    {
+                      source: "",
+                      events: [
+                        {
+                          type: "invalidate",
+                          scope: { kind: "collection", id: "saved" },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            );
+            window.dispatchEvent(new Event("loop-refresh"));
+          });
+          await page.clock.runFor(100);
+          assert.equal(
+            requests.length,
+            beforeRevision,
+            "the parent revision owns refresh invalidations",
+          );
+          await expect(rows).toHaveCount(3);
           label = "Revised ";
           holdNext = true;
           await page.evaluate(() => window.revision());

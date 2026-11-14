@@ -380,7 +380,9 @@ export function Saved({
     revision: version,
     requireAdvance: true,
     empty: { items: [], next: null },
-    collections: ["saved"],
+    // ProjectFiles supplies the shared watcher revision; do not subscribe twice.
+    collections: [],
+    events: [],
     refreshDelay: () => 0,
     read: async (current, before, signal, mode, complete) => {
       const query: RouteInput<typeof workspaceApi.artifactList>["query"] = {};
