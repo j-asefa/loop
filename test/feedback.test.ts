@@ -479,8 +479,29 @@ it("accepts the reported Playwright JSON, rejects invalid blocks, and requires a
     tool: "loop_install_mcp",
   };
   const input = { config: JSON.stringify(config) };
-  const pending = await invokeNative(claimed, binding, "installation", input);
+  const { controlRun } = await import("../src/server/run-attention");
+  const calls = await import("../src/server/sql/native-calls");
+  const saveApproval = calls.approval;
+  const race = vi.spyOn(calls, "approval").mockImplementation((...args) => {
+    const result = saveApproval(...args);
+    controlRun("feedback", run.id, "pause");
+    return result;
+  });
+  let pending;
+  try {
+    pending = await invokeNative(claimed, binding, "installation", input);
+  } finally {
+    race.mockRestore();
+  }
   expect("pending" in pending).toBe(true);
+  expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual({
+    state: "paused",
+  });
+  controlRun("feedback", run.id, "resume");
+  const waiting = claim("installer-wait")!;
+  expect(await invokeNative(waiting, binding, "installation", input)).toEqual(
+    pending,
+  );
   // Native entry rejects repeated calls while the run is waiting.
   await expect(
     invokeNative(claimed, binding, "installation", input),

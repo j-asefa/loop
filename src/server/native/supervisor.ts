@@ -794,7 +794,9 @@ export class NativeSessions {
       }
       if (state === "completed") {
         if (current === "awaiting_approval" && !transition(run, "running"))
-          return false;
+          // An owner may have resumed it since the read above. Completion is
+          // still valid then; a concurrent terminal outcome must win instead.
+          return ownedRun(run.id, run.owner_id).state === "running";
         return true;
       }
       // A concurrent terminal outcome wins; still dispose/recapture below.

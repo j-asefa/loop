@@ -230,3 +230,53 @@ it.each([false, true])(
   },
   30000,
 );
+
+it.each(["running", "cancelled"] as const)(
+  "settles completed native turns after a concurrent %s decision",
+  async (next) => {
+    const { transition, claim, completeLeased } =
+      await import("../src/server/queue.js");
+    const domain = await import("../src/server/domain.js");
+    const sessions = new NativeSessions();
+    const task = run("native-completion-race-" + next);
+    const live = await sessions.session(task);
+    let finishing = false;
+    const read = domain.ownedRun;
+    const spy = vi.spyOn(domain, "ownedRun").mockImplementation((...args) => {
+      const row = read(...args);
+      if (
+        args[0] === task.id &&
+        finishing &&
+        row.state === "awaiting_approval"
+      ) {
+        finishing = false;
+        expect(transition(task, next)).toBe(true);
+      }
+      return row;
+    });
+    const prompt = vi
+      .spyOn(live.adapter, "prompt")
+      .mockImplementation(async () => {
+        expect(transition(task, "awaiting_approval")).toBe(true);
+        finishing = true;
+        live.finish!("completed");
+      });
+    try {
+      const claimed = claim(
+        "completion-race",
+        (candidate) => candidate.id === task.id,
+      )!;
+      expect(claimed.id).toBe(task.id);
+      const complete = await sessions.execute(claimed);
+      if (complete !== false) completeLeased(claimed, "completion-race");
+      expect(finishing).toBe(false);
+      expect(
+        db.prepare("SELECT state FROM runs WHERE id=?").get(task.id),
+      ).toEqual({ state: next === "running" ? "completed" : "cancelled" });
+    } finally {
+      spy.mockRestore();
+      prompt.mockRestore();
+      await sessions.dispose(live);
+    }
+  },
+);

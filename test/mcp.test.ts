@@ -923,87 +923,106 @@ it("keeps the pause cap across an approval pause that re-enters the run", async 
   }
 });
 
-it("pauses between model tool calls and resumes without replaying the completed call", async () => {
-  const { controlRun } = await import("../src/server/run-attention");
-  const priorMode = mcpApprovalMode("alice");
-  setMcpApprovalMode("alice", "ask");
-  const calls: string[] = [];
-  let runId = "";
-  const restoreProvider = withTestAdapter("openai", {
-    async models() {
-      return [];
-    },
-    async *stream(_secret, input) {
-      if (input.messages.filter((m) => m.role === "tool").length === 2) {
-        yield { text: "Both calls finished." };
-        return;
-      }
-      const name = input.tools!.find((tool) => tool.deferLoading)!.name;
-      for (const call of ["first", "second"])
-        yield { toolCall: { id: call, name, arguments: { query: call } } };
-    },
-  });
-  const restoreTransport = withTestMcp(
-    async () =>
-      ({
-        async callTool(request: { arguments: { query: string } }) {
-          calls.push(request.arguments.query);
-          if (request.arguments.query === "first")
-            controlRun("alice", runId, "pause");
-          return { content: [{ type: "text", text: "Fixture result" }] };
-        },
-        async close() {},
-      }) as unknown as Client,
-  );
-  try {
-    const run = submit("alice", {
-      agentId: agent.id,
-      input: "Two calls",
-      idempotencyKey: id(),
-    });
-    runId = run.id;
-    const state = () =>
-      (
-        db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
-          state: string;
+it.each(["between calls", "before approval"] as const)(
+  "pauses without replaying completed calls (%s)",
+  async (timing) => {
+    const { controlRun } = await import("../src/server/run-attention");
+    const priorMode = mcpApprovalMode("alice");
+    setMcpApprovalMode("alice", "ask");
+    const calls: string[] = [];
+    let runId = "";
+    const restoreProvider = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream(_secret, input) {
+        if (input.messages.filter((m) => m.role === "tool").length === 2) {
+          yield { text: "Both calls finished." };
+          return;
         }
-      ).state;
-    const approvePending = () => {
-      const approval = db
-        .prepare("SELECT id FROM approvals WHERE run_id=? AND state='pending'")
-        .get(run.id) as { id: string };
-      decide("alice", approval.id, "approve");
-    };
-    await tick(execute);
-    expect(state()).toBe("awaiting_approval");
-    approvePending();
-    await tick(execute);
-    expect(state()).toBe("paused");
-    expect(calls).toEqual(["first"]);
-    expect(
-      db
-        .prepare(
-          "SELECT count(*) AS count FROM approvals WHERE run_id=? AND state='pending'",
-        )
-        .get(run.id),
-    ).toEqual({ count: 0 });
-    const checkpoint = db
-      .prepare("SELECT pending FROM agent_checkpoints WHERE run_id=?")
-      .get(run.id) as { pending: string };
-    expect(JSON.parse(checkpoint.pending)).toMatchObject([
-      { call: { id: "first" }, done: true },
-      { call: { id: "second" } },
-    ]);
-    controlRun("alice", run.id, "resume");
-    await tick(execute);
-    expect(state()).toBe("awaiting_approval");
-    approvePending();
-    await tick(execute);
-    expect(state()).toBe("completed");
-    expect(calls).toEqual(["first", "second"]);
-  } finally {
-    restoreProvider();
-    restoreTransport();
-    setMcpApprovalMode("alice", priorMode);
-  }
-});
+        const name = input.tools!.find((tool) => tool.deferLoading)!.name;
+        for (const call of ["first", "second"])
+          yield { toolCall: { id: call, name, arguments: { query: call } } };
+      },
+    });
+    const restoreTransport = withTestMcp(
+      async () =>
+        ({
+          async callTool(request: { arguments: { query: string } }) {
+            calls.push(request.arguments.query);
+            if (
+              request.arguments.query === "first" &&
+              timing === "between calls"
+            )
+              controlRun("alice", runId, "pause");
+            return { content: [{ type: "text", text: "Fixture result" }] };
+          },
+          async close() {},
+        }) as unknown as Client,
+    );
+    const queries = await import("../src/server/sql/tool-invocations");
+    const byCall = queries.byCall;
+    let injected = false;
+    const lookup = vi.spyOn(queries, "byCall").mockImplementation((...args) => {
+      if (timing === "before approval" && args[2] === "second" && !injected) {
+        injected = true;
+        controlRun("alice", runId, "pause");
+      }
+      return byCall(...args);
+    });
+    try {
+      const run = submit("alice", {
+        agentId: agent.id,
+        input: "Two calls",
+        idempotencyKey: id(),
+      });
+      runId = run.id;
+      const state = () =>
+        (
+          db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as {
+            state: string;
+          }
+        ).state;
+      const approvePending = () => {
+        const approval = db
+          .prepare(
+            "SELECT id FROM approvals WHERE run_id=? AND state='pending'",
+          )
+          .get(run.id) as { id: string };
+        decide("alice", approval.id, "approve");
+      };
+      await tick(execute);
+      expect(state()).toBe("awaiting_approval");
+      approvePending();
+      await tick(execute);
+      expect(state()).toBe("paused");
+      expect(calls).toEqual(["first"]);
+      expect(
+        db
+          .prepare(
+            "SELECT count(*) AS count FROM approvals WHERE run_id=? AND state='pending'",
+          )
+          .get(run.id),
+      ).toEqual({ count: timing === "before approval" ? 1 : 0 });
+      const checkpoint = db
+        .prepare("SELECT pending FROM agent_checkpoints WHERE run_id=?")
+        .get(run.id) as { pending: string };
+      expect(JSON.parse(checkpoint.pending)).toMatchObject([
+        { call: { id: "first" }, done: true },
+        { call: { id: "second" } },
+      ]);
+      controlRun("alice", run.id, "resume");
+      await tick(execute);
+      expect(state()).toBe("awaiting_approval");
+      approvePending();
+      await tick(execute);
+      expect(state()).toBe("completed");
+      expect(calls).toEqual(["first", "second"]);
+    } finally {
+      lookup.mockRestore();
+      restoreProvider();
+      restoreTransport();
+      setMcpApprovalMode("alice", priorMode);
+    }
+  },
+);
