@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../../shared/message-metadata.js";
 import { writeArtifactMetadata } from "../../shared/artifact-metadata.js";
 import { tryWithoutBusyWait } from "../busy-wait.js";
 import { reportBackgroundFailure } from "../background-failure.js";
@@ -11,7 +12,7 @@ import * as artifactsQueries from "../sql/artifacts.js";
 import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
-import { MessageMetadata, agentPayload } from "../row-schemas.js";
+import { agentPayload } from "../row-schemas.js";
 
 import { observeCompletedOutput } from "../run-verifications.js";
 
@@ -512,15 +513,13 @@ export class NativeProjector {
     // Progress remains durable in Messages/Traces. Publish only the last reply
     // after the harness confirms that the turn completed successfully.
     const output = finalItem?.text || "";
-    const metadata = JSON.stringify(
-      MessageMetadata.parse({
-        ...agentPayload(run),
-        partial,
-        native: true,
-        messageId: checkpoint.message_id,
-        finalNativeItemId: finalItem?.id,
-      }),
-    );
+    const metadata = writeMessageMetadata({
+      ...agentPayload(run),
+      partial,
+      native: true,
+      messageId: checkpoint.message_id,
+      finalNativeItemId: finalItem?.id,
+    });
     db.transaction(() => {
       if (
         output !== checkpoint.output ||

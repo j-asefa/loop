@@ -285,7 +285,7 @@ function DecisionCard({
         );
       const empty = { commandId: "", digest: "" };
       const slot = storedCommandAt(sessionStorage, storage, (raw) =>
-        parse(raw, empty),
+        parse<typeof empty>(raw, empty),
       );
       const saved = slot.read();
       const old = saved === undefined ? empty : saved;

@@ -30,7 +30,15 @@ const label = (value: string) =>
     .replaceAll("_", " ")
     .replace(/^./, (c) => c.toUpperCase());
 export function describeApproval(encoded: string) {
-  const request = parse<any>(encoded, {});
+  const request = parse<{
+    type?: string;
+    tool?: string;
+    message?: string;
+    config?: unknown;
+    deliveryUnknown?: boolean;
+    server?: string;
+    arguments?: Record<string, unknown>;
+  }>(encoded, {});
   const args =
     request.arguments && typeof request.arguments === "object"
       ? request.arguments

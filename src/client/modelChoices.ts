@@ -6,7 +6,10 @@ import { modelDisplayName } from "../shared/model-display";
 export { modelDisplayName, runModelName } from "../shared/model-display";
 
 export function harnessName(connection: Connection) {
-  const metadata = parse<any>(connection.metadata, {});
+  const metadata = parse<{ authMode?: string; loopHarness?: string }>(
+    connection.metadata,
+    {},
+  );
   if (connection.provider === "anthropic")
     return metadata.authMode === "subscription" ||
       metadata.loopHarness === "claude"

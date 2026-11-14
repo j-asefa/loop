@@ -401,7 +401,15 @@ export function MemoryUsed({ runId }: { runId: string }) {
       {receipt && (
         <>
           <p>{memoryReceiptText(receipt)}</p>
-          {parse<any[]>(receipt.sources, []).map((s) => (
+          {parse<
+            {
+              id: string;
+              link: string;
+              title: string;
+              role: string;
+              revision: number;
+            }[]
+          >(receipt.sources, []).map((s) => (
             <p key={s.id}>
               <a href={s.link}>{s.title}</a> · {s.role} · revision {s.revision}
             </p>

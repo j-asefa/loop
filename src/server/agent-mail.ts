@@ -1,3 +1,4 @@
+import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as teamsQueries from "./sql/teams.js";
@@ -88,7 +89,7 @@ import { MAIL_STATUS_LABELS } from "../shared/agent-mail.js";
 type Agent = import("zod").input<
   typeof import("../shared/workspace-contract-schemas.js").PublicAgent
 >;
-import type { Automation, MailStatus } from "../shared/agent-mail.js";
+import { Automation, type MailStatus } from "../shared/agent-mail.js";
 import {
   FleetMailEnvelope,
   fleetAgentAddress,
@@ -1562,7 +1563,9 @@ function requeue(mail: Mail) {
           input: message.content,
           idempotencyKey: mail.idempotency_key + ":requeue",
           attachmentIds: JSON.parse(mail.file_ids),
-          automation: JSON.parse(message.metadata).automation,
+          automation: Automation.optional().parse(
+            readMessageMetadata(message.metadata).automation,
+          ),
         });
         inheritEffect(mail.owner_id, "steering", mail.steering_id!, run.id);
         if (mail.sender_run_id)

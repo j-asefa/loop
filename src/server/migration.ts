@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../shared/message-metadata.js";
 import { nativeConnectionId, harnesses } from "../shared/harnesses.js";
 import * as nativeImportWorkspacesQueries from "./sql/native-import-workspaces.js";
 import * as companionSessionsQueries from "./sql/companion-sessions.js";
@@ -203,7 +204,7 @@ export function importSession(
         conversation,
         item.kind,
         item.text.slice(-256000),
-        JSON.stringify({ native: true, migratedProjection: true }),
+        writeMessageMetadata({ native: true, migratedProjection: true }),
         now(),
       );
   }

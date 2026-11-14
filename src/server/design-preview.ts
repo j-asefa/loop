@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../shared/message-metadata.js";
 import { writeRunPayload } from "../shared/run-payload.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
@@ -9,7 +10,7 @@ import * as workerHealthQueries from "./sql/worker-health.js";
 import * as eventsQueries from "./sql/events.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
-import { MessageMetadata, parseRun, parseRuns } from "./row-schemas.js";
+import { parseRun, parseRuns } from "./row-schemas.js";
 
 import { watchRun } from "./run-signal.js";
 import { writeConnectionStatus } from "./connection-status.js";
@@ -161,12 +162,10 @@ function reply(run: Run, content: string, partial = false) {
     run.id,
     "assistant",
     content,
-    JSON.stringify(
-      MessageMetadata.parse({
-        preview: true,
-        ...(partial ? { partial: true } : {}),
-      }),
-    ),
+    writeMessageMetadata({
+      preview: true,
+      ...(partial ? { partial: true } : {}),
+    }),
     now(),
   );
   return message;
@@ -313,12 +312,10 @@ export function seedDesignPreview() {
             runId,
             "assistant",
             content,
-            JSON.stringify(
-              MessageMetadata.parse({
-                preview: true,
-                partial: state === "running",
-              }),
-            ),
+            writeMessageMetadata({
+              preview: true,
+              partial: state === "running",
+            }),
             time + turn * 2000 + 1,
           );
       }

@@ -22,7 +22,10 @@ export function threadDraft(
     (storage) => {
       return {
         text: storage.getItem(key(owner, "text", id)) || "",
-        files: parse(storage.getItem(key(owner, "files", id)) || "", []),
+        files: parse<unknown[]>(
+          storage.getItem(key(owner, "files", id)) || "",
+          [],
+        ),
       };
     },
     { text: "", files: [] },

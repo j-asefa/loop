@@ -7,7 +7,10 @@ export function NativeRequestDetails({
 }: {
   request: { detail?: string };
 }) {
-  const structured = parse<any>(request.detail, null);
+  const structured = parse<{
+    command?: unknown;
+    input?: { command?: unknown };
+  } | null>(request.detail, null);
   const toolApproval = codexToolApproval(structured);
   // Claude nests the shell command in its tool input.
   const command = structured?.command ?? structured?.input?.command;
@@ -46,7 +49,7 @@ export function NativeRequestDetails({
           <RichText content={detail || ""} />
         )}
       </div>
-      {(command || toolApproval) && (
+      {!!(command || toolApproval) && (
         <details>
           <summary>Native request details</summary>
           <pre>{JSON.stringify(structured, null, 2)}</pre>

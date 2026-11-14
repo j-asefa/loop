@@ -1,5 +1,5 @@
 import type { Message } from "../shared/types";
-import { parse } from "./json";
+import { readMessageMetadata } from "../shared/message-metadata";
 
 export type ConversationMessage = Message & {
   cursor: [number, number, number];
@@ -17,7 +17,7 @@ export function conversationRefreshCursor(
     if (!existing) return false;
     // An answer placeholder stays at the end of a running turn, even when
     // enough new updates arrived before it to leave an unloaded page-sized gap.
-    const meta = parse<any>(existing.metadata, {});
+    const meta = readMessageMetadata(existing.metadata, "fallback");
     return (
       existing.role !== "assistant" ||
       meta.progress ||

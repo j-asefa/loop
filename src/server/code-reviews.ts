@@ -1,3 +1,4 @@
+import { writeMessageMetadata } from "../shared/message-metadata.js";
 import * as projectPathsQueries from "./sql/project-paths.js";
 import * as codeReviewsQueries from "./sql/code-reviews.js";
 import * as delegationsQueries from "./sql/delegations.js";
@@ -240,7 +241,7 @@ function ensureCodeReview(
           continuation.id,
           "user",
           input,
-          JSON.stringify({
+          writeMessageMetadata({
             personal: false,
             automation: { kind: "review_continuation", reviewId },
           }),

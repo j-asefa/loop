@@ -1,3 +1,4 @@
+import { readMessageMetadata } from "../shared/message-metadata.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import { doneCardId, idleDoneKey } from "../shared/done-card-id.js";
 import { cardAttachments } from "./card-attachments.js";
@@ -48,7 +49,7 @@ export function doneCards(
         saved: !!row.message_saved,
         attachments: cardAttachments(
           owner,
-          JSON.parse(row.message_metadata ?? "{}"),
+          readMessageMetadata(row.message_metadata ?? "{}"),
         ),
         href: workspaceLink({
           conversation: row.conversation_id,
