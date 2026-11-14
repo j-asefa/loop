@@ -49,8 +49,10 @@ try {
       window.select = value => flushSync(() => setId(value));
       window.source = value => flushSync(() => setSource(value));
       window.owner = value => flushSync(() => {ownerSession.change(value); setRevision(n => n + 1);});
-      const query = useProjectionQuery(workspaceApi.personalApproval, {params:{id}}, {source, revision, collections:["approvals"], events:["fixture-refresh"]});
+      const query = useProjectionQuery(workspaceApi.personalApproval, id === undefined ? undefined : {params:{id}}, {source, revision, collections:["approvals"], events:["fixture-refresh"]});
       window.captureReplace = () => { window.capturedReplace = query.replace; };
+      window.probeState = () => ({loading:query.loading, busy:query.busy, error:query.error});
+      window.probeRetry = () => query.retry();
       window.publishCaptured = title => window.capturedReplace({source:'native',request:{title}});
       return React.createElement("section", {id:"probe"}, React.createElement("output", null, query.data?.request.title ?? "empty"), React.createElement(CollectionReadNotice, query));
     }
@@ -313,6 +315,36 @@ try {
   await expect(output).toHaveCount(0);
   title = "Remounted snapshot";
   await page.evaluate(() => window.show(true));
+  await expect(output).toHaveText(title);
+  holdNext = true;
+  await refresh();
+  await expect.poll(() => held.length).toBe(1);
+  const beforeAbsent = requests.length;
+  await page.evaluate(() => {
+    window.captureReplace();
+    window.select(undefined);
+  });
+  held.shift()();
+  await expect(output).toHaveText("empty");
+  await expect
+    .poll(() => page.evaluate(() => window.probeState()))
+    .toEqual({ loading: false, busy: false, error: "" });
+  await page.evaluate(() => {
+    window.publishCaptured("obsolete selection");
+    void window.probeRetry();
+  });
+  await expect(output).toHaveText("empty");
+  assert.equal(
+    requests.length,
+    beforeAbsent,
+    "Absent input is idle, including manual retry",
+  );
+  await page.evaluate(() => window.source("idle-source"));
+  await expect
+    .poll(() => page.evaluate(() => window.probeState()))
+    .toEqual({ loading: false, busy: false, error: "" });
+  assert.equal(requests.length, beforeAbsent);
+  await page.evaluate(() => window.select("first"));
   await expect(output).toHaveText(title);
   assert.deepEqual(errors, []);
   console.log(

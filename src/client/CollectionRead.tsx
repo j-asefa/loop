@@ -29,16 +29,17 @@ type QueryOptions = {
 /** Inputs identify a snapshot; revisions invalidate it without hiding its rows. */
 export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
   contract: C,
-  input: RouteInput<C>,
+  input: RouteInput<C> | undefined,
   {
     source,
     conversation,
     collections = [],
     events = [],
     revision = 0,
-    enabled = true,
+    enabled: requestedEnabled = true,
   }: QueryOptions,
 ) {
+  const enabled = requestedEnabled && input !== undefined;
   const key = JSON.stringify([
     viewGeneration(),
     source,
@@ -54,12 +55,13 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
   }>();
   const refresh = useCallback(
     (manual = false) => {
-      if (!context.enabled) return Promise.resolve();
+      const input = context.input;
+      if (!context.enabled || input === undefined) return Promise.resolve();
       return load(
         (signal, mode) =>
           readRoute(
             context.contract,
-            context.input,
+            input,
             context.source,
             signal,
             undefined,
