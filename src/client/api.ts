@@ -129,6 +129,18 @@ export async function authorize(signal?: AbortSignal) {
 export function clearAuthorization() {
   csrf = "";
 }
+function expireAuthentication(started: typeof ownerSession.current) {
+  clearAuthorization();
+  window.dispatchEvent(new Event("loop-auth-expired"));
+  const current = ownerSession.current;
+  // Recovery may follow this response's expiry, but never an intervening owner.
+  if (
+    !current.owner &&
+    current.generation ===
+      started.generation + Number(started.owner !== undefined)
+  )
+    return current.generation;
+}
 async function sendRequest(
   path: string,
   init: RequestInit = {},
@@ -217,7 +229,8 @@ async function requestInWorkspace<T>({
   empty = false,
   command,
 }: WorkspaceRequestOptions): Promise<T> {
-  const generation = viewGeneration();
+  const started = ownerSession.current;
+  const generation = started.generation;
   const requestId = ++clockRequestId;
   const url = sourceApiPathAt("/api" + path, sourceId);
   // Social and already-routed requests may have a different destination from
@@ -277,9 +290,10 @@ async function requestInWorkspace<T>({
     !r.headers.get("content-type")?.includes("application/json") &&
     !(kind === "stream" && sameWorkspaceRedirect(r, url))
   ) {
-    clearAuthorization();
-    window.dispatchEvent(new Event("loop-auth-expired"));
-    throw Object.assign(new Error("Sign in to Loop"), { redirected: true });
+    throw Object.assign(new Error("Sign in to Loop"), {
+      redirected: true,
+      expiredGeneration: expireAuthentication(started),
+    });
   }
   // Multipart callers previously named the HTTP status when a tunnel or proxy
   // returned an error page instead of Loop's JSON receipt.
@@ -301,12 +315,12 @@ async function requestInWorkspace<T>({
   });
   if (generation !== viewGeneration()) throw new UnavailableResponse();
   if (!r.ok || !parsed) {
+    let expiredGeneration: number | undefined;
     if (
       r.status === 401 &&
       (!sourceId || /Pair this device/i.test(data?.error || ""))
     ) {
-      clearAuthorization();
-      window.dispatchEvent(new Event("loop-auth-expired"));
+      expiredGeneration = expireAuthentication(started);
     }
     // The status lets callers tell a refusal (4xx) from an uncertain outcome.
     throw Object.assign(
@@ -316,6 +330,7 @@ async function requestInWorkspace<T>({
           (multipart ? uploadFailure : "Request failed"),
       ),
       {
+        expiredGeneration,
         ...(bodyDisconnected ? { network: true } : {}),
         ...(r.ok && !parsed ? { invalidResponse: true } : {}),
         status:

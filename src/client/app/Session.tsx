@@ -68,9 +68,21 @@ export function createSessionCheck(props: {
       }
       setSession(result);
     } catch (error) {
-      if (ownerSession.current !== started) return;
+      const failure = error as {
+        status?: number;
+        redirected?: boolean;
+        expiredGeneration?: number;
+      };
+      const current = ownerSession.current;
+      const sameOwner =
+        current.owner === started.owner &&
+        current.generation === started.generation;
+      const ownExpiry =
+        !current.owner &&
+        failure.expiredGeneration !== undefined &&
+        failure.expiredGeneration === current.generation;
+      if (!sameOwner && !ownExpiry) return;
       if (signal.aborted) throw error;
-      const failure = error as { status?: number; redirected?: boolean };
       if (failure.redirected) {
         location.reload();
         return;
