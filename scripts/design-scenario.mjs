@@ -1,3 +1,4 @@
+import { personalProfileReaderSmoke } from "./helpers/personal-profile-reader-smoke.mjs";
 import { projectNavigationSmoke } from "./helpers/project-navigation-smoke.mjs";
 import { profilePhotosRecipientSmoke } from "./helpers/profile-photos-recipient-smoke.mjs";
 import { agentMailSmoke } from "./helpers/agent-mail-smoke.mjs";
@@ -170,6 +171,7 @@ const scenarios = {
   "markdown-models": markdownModelsSmoke,
   "markdown-source": markdownSourceSmoke,
   profile: profileNavigationSmoke,
+  "personal-profile-reader": personalProfileReaderSmoke,
   "personal-decisions": personalDecisionsSmoke,
   models: (p, f, e, c) => modelLabelsSmoke(p, f, c),
   swipe: swipeBackSmoke,

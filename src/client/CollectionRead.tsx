@@ -42,7 +42,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     enabled,
   ]);
   const context = useMemo(() => ({ contract, input, source, enabled }), [key]);
-  const { load, error, busy } = useCollectionRead(key);
+  const { load, error, busy, cancel } = useCollectionRead(key);
   const [result, setResult] = useState<{
     context: typeof context;
     value: RouteResponse<C>;
@@ -96,6 +96,12 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     };
   }, [refresh, subscriptions, revision]);
   const data = result?.context === context ? result.value : undefined;
+  const replace = useCallback(
+    (value: RouteResponse<C>) => {
+      if (context.enabled && cancel()) setResult({ context, value });
+    },
+    [cancel, context],
+  );
   return {
     data,
     error,
@@ -103,6 +109,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     loading: enabled && data === undefined && !error,
     refresh,
     retry: () => refresh(true),
+    replace,
   };
 }
 
@@ -355,9 +362,10 @@ export function useCollectionRead(key: string) {
       .forEach((resolve) => resolve({ status: "cancelled" }));
   }, [context]);
   const cancel = useCallback(() => {
-    if (!context.active || owner !== viewGeneration()) return;
+    if (!context.active || owner !== viewGeneration()) return false;
     cancelIO();
     setState({ context, error: "", busy: false, failure: undefined });
+    return true;
   }, [context, owner, cancelIO]);
   useEffect(() => {
     context.active = true;

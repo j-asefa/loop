@@ -50,6 +50,8 @@ try {
       window.source = value => flushSync(() => setSource(value));
       window.owner = value => flushSync(() => {ownerSession.change(value); setRevision(n => n + 1);});
       const query = useProjectionQuery(workspaceApi.personalApproval, {params:{id}}, {source, revision, collections:["approvals"], events:["fixture-refresh"]});
+      window.captureReplace = () => { window.capturedReplace = query.replace; };
+      window.publishCaptured = title => window.capturedReplace({source:'native',request:{title}});
       return React.createElement("section", {id:"probe"}, React.createElement("output", null, query.data?.request.title ?? "empty"), React.createElement(CollectionReadNotice, query));
     }
     function App() {
@@ -254,6 +256,7 @@ try {
     await refresh();
     await expect.poll(() => held.length).toBe(1);
     title = "New " + change;
+    await page.evaluate(() => window.captureReplace());
     const immediate = await page.evaluate((change) => {
       if (change === "selection") window.select("second");
       if (change === "source") window.source("device:second");
@@ -267,6 +270,10 @@ try {
     );
     await expect(output).toHaveText(title);
     held.shift()();
+    await expect(output).toHaveText(title);
+    await page.evaluate(() =>
+      window.publishCaptured("Obsolete saved response"),
+    );
     await expect(output).toHaveText(title);
   }
   assert(

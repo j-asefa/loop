@@ -18,7 +18,7 @@ import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { resultAction, resultTarget, type ResultAction } from "../card-actions";
 import { contractCardReader } from "../../shared/card-client";
 
-import { type MyProfileData } from "../MyProfile";
+import { useProjectionQuery } from "../CollectionRead";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { useThreadSource } from "../useThreadSource";
 import { executionSourceId, sourceUrl } from "../sourceRouting";
@@ -205,7 +205,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   const [sendMenu, setSendMenu] = useState(false);
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
-  const [myProfile, setMyProfile] = useState<MyProfileData | null>(null);
   const [laterCard, setLaterCard] = useState<ResultAction | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
   // The open thread's current work, so a send can say what it will do.
@@ -918,19 +917,17 @@ export function useAppController(seed?: AppNavigationInitial) {
     }
     setProfile(agent);
   }
-  useEffect(() => {
-    if (!signedIn) return setMyProfile(null);
-    const controller = new AbortController();
-    callRoute(
-      workspaceApi.personalProfile,
-      {},
-      executionSourceId(),
-      controller.signal,
-    )
-      .then(setMyProfile)
-      .catch(() => {});
-    return () => controller.abort();
-  }, [signedIn, tab === "profile" ? revision : -1]);
+  const myProfileRead = useProjectionQuery(
+    workspaceApi.personalProfile,
+    {},
+    {
+      source: executionSourceId(),
+      enabled: !!signedIn,
+      revision: tab === "profile" ? revision : -1,
+    },
+  );
+  const myProfile = myProfileRead.data ?? null;
+  const setMyProfile = myProfileRead.replace;
   // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
@@ -1393,6 +1390,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     revision,
     accountName,
     myProfile,
+    myProfileRead,
     setMyProfile,
     setSettingsParent,
     searchAgent,

@@ -48,6 +48,7 @@ const names = [
   "markdown-models",
   "markdown-source",
   "profile",
+  "personal-profile-reader",
   "personal-decisions",
   "models",
   "swipe",
