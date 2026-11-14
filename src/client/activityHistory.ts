@@ -1,5 +1,5 @@
 import type { ActivityPage } from "./activityView";
-import type { ReadMode } from "./api";
+import type { ReadMode } from "./read-executor";
 import type { RouteInput, workspaceApi } from "../shared/workspace-api";
 type ActivityHistoryQuery = RouteInput<
   typeof workspaceApi.conversationActivities

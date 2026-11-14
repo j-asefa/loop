@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readRoute, type ReadMode } from "./api";
+import { readRoute } from "./api";
+import {
+  createReadExecutor,
+  type ReadMode,
+  type ReadState,
+} from "./read-executor";
 import type {
   RouteContract,
   RouteInput,
@@ -323,156 +328,35 @@ export function usePagedProjectionQuery<
   };
 }
 
-type ReadCompletion =
-  | { status: "cancelled" }
-  | { status: "success"; current: () => boolean }
-  | { status: "error"; error: unknown; current: () => boolean };
-
 /** Read failures belong to this owner/source/selection, independently of actions.
  * Signals start the normal bounded read; a button tries just one more read. */
 export function useCollectionRead(key: string) {
   const owner = viewGeneration();
-  const context = useMemo(
-    () => ({
-      controller: undefined as AbortController | undefined,
-      active: true,
-      running: false,
-      queued: undefined as (() => Promise<ReadCompletion>) | undefined,
-      priority: 0,
-      epoch: 0,
-      waiters: [] as ((completion: ReadCompletion) => void)[],
-    }),
+  const [state, setState] = useState<{
+    reader: ReturnType<typeof createReadExecutor>;
+    value: ReadState;
+  }>();
+  const reader: ReturnType<typeof createReadExecutor> = useMemo(
+    () =>
+      createReadExecutor({
+        current: () => owner === viewGeneration(),
+        changed: (value) => setState({ reader, value }),
+      }),
     [key, owner],
   );
-  const [state, setState] = useState({
-    context,
-    error: "",
-    busy: false,
-    failure: undefined as unknown,
-  });
-  const cancelIO = useCallback(() => {
-    context.epoch++;
-    context.controller?.abort();
-    context.controller = undefined;
-    context.running = false;
-    context.queued = undefined;
-    context.priority = 0;
-    context.waiters
-      .splice(0)
-      .forEach((resolve) => resolve({ status: "cancelled" }));
-  }, [context]);
-  const cancel = useCallback(() => {
-    if (!context.active || owner !== viewGeneration()) return false;
-    cancelIO();
-    setState({ context, error: "", busy: false, failure: undefined });
-    return true;
-  }, [context, owner, cancelIO]);
   useEffect(() => {
-    context.active = true;
-    return () => {
-      context.active = false;
-      cancelIO();
-    };
-  }, [context, cancelIO]);
-  const execute = useCallback(
-    async function execute<T>(
-      read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
-      receive: (value: T) => void,
-      manual = false,
-      priority = 0,
-    ): Promise<ReadCompletion> {
-      if (!context.active || owner !== viewGeneration())
-        return { status: "cancelled" };
-      // Recovery or event bursts must let a healthy slow read finish. Keep
-      // one trailing refresh so changes during that read are not lost.
-      if (context.running && !manual) {
-        if (!context.queued || priority >= context.priority) {
-          context.queued = () => execute(read, receive, false, priority);
-          context.priority = priority;
-        }
-        return new Promise<ReadCompletion>((resolve) =>
-          context.waiters.push(resolve),
-        );
-      }
-      context.queued = undefined;
-      context.waiters
-        .splice(0)
-        .forEach((resolve) => resolve({ status: "cancelled" }));
-      context.running = true;
-      context.controller?.abort();
-      const controller = new AbortController();
-      context.controller = controller;
-      const epoch = context.epoch;
-      const scopeCurrent = () =>
-        context.active && context.epoch === epoch && owner === viewGeneration();
-      const current = () =>
-        scopeCurrent() &&
-        !controller.signal.aborted &&
-        context.controller === controller;
-      setState((old) => ({
-        context,
-        error: old.context === context ? old.error : "",
-        failure: old.context === context ? old.failure : undefined,
-        busy: true,
-      }));
-      try {
-        const value = await read(
-          controller.signal,
-          manual ? "manual" : "automatic",
-        );
-        if (!current()) return { status: "cancelled" };
-        receive(value);
-        setState({ context, error: "", busy: false, failure: undefined });
-        return { status: "success", current: scopeCurrent };
-      } catch (error) {
-        if (!current()) return { status: "cancelled" };
-        setState({
-          context,
-          failure: error,
-          error:
-            error instanceof Error
-              ? error.message
-              : "The workspace is unavailable.",
-          busy: false,
-        });
-        return { status: "error", error, current: scopeCurrent };
-      } finally {
-        if (context.controller === controller) {
-          context.running = false;
-          // Another load can queue a refresh across the await above.
-          const queued = context.queued as
-            (() => Promise<ReadCompletion>) | undefined;
-          context.queued = undefined;
-          const waiters = context.waiters.splice(0);
-          if (current() && queued)
-            void queued().then((completion) =>
-              waiters.forEach((resolve) => resolve(completion)),
-            );
-          else waiters.forEach((resolve) => resolve({ status: "cancelled" }));
-        }
-      }
-    },
-    [context, owner],
-  );
-  const load = useCallback(
-    async <T,>(
-      read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
-      receive: (value: T) => void,
-      manual = false,
-      priority = 0,
-    ): Promise<void> => {
-      await execute(read, receive, manual, priority);
-    },
-    [execute],
-  );
+    reader.activate();
+    return () => reader.dispose();
+  }, [reader]);
+  const value = state?.reader === reader ? state.value : undefined;
   return {
-    load,
-    execute,
-    cancel,
-    isBusy: useCallback(() => context.running, [context]),
-    error: state.context === context ? state.error : "",
-    failure: state.context === context ? state.failure : undefined,
-    busy: state.context === context && state.busy,
+    load: reader.load,
+    execute: reader.execute,
+    cancel: reader.cancel,
+    isBusy: reader.isBusy,
+    error: value?.error ?? "",
+    failure: value?.failure,
+    busy: value?.busy ?? false,
   };
 }
 
