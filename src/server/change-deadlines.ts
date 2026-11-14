@@ -50,7 +50,7 @@ export function createDeadlineScheduler(
         "SELECT kind,subject_id FROM change_expiries WHERE owner_id=? AND processed=0 AND expires_at<=?",
       )
       .all(owner, clock.serverNow) as {
-      kind: "approval" | "watch";
+      kind: "approval" | "watch" | "webhook";
       subject_id: string;
     }[];
     if (due.length) {
@@ -61,17 +61,28 @@ export function createDeadlineScheduler(
       // fail a run or replay an external effect. Watch expiry hides its display.
       // The persisted processed bit makes the notification restart-safe while
       // leaving both source timestamps and their existing consequences intact.
-      const affected = new Set<WorkspaceCollection>(["feed", "results"]);
-      for (const row of due)
-        affected.add(row.kind === "approval" ? "approvals" : "pulls");
+      const affected = new Set<WorkspaceCollection>();
+      for (const row of due) {
+        if (row.kind === "webhook") affected.add("webhooks");
+        else {
+          affected.add("feed");
+          affected.add("results");
+          affected.add(row.kind === "approval" ? "approvals" : "pulls");
+        }
+      }
       const scopes: WorkspaceScope[] = [...affected].map((id) => ({
         kind: "collection",
         id,
       }));
-      emitEvent(owner, { kind: "collection", id: "feed" }, "invalidate", {
-        scope: scopes[0],
-        scopes: scopes.slice(1),
-      });
+      emitEvent(
+        owner,
+        { kind: "collection", id: [...affected][0] },
+        "invalidate",
+        {
+          scope: scopes[0],
+          scopes: scopes.slice(1),
+        },
+      );
       clock.nextDeadline = changeClock(db, owner).nextDeadline;
     }
     const prior = db

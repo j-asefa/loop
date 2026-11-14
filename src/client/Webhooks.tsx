@@ -22,6 +22,8 @@ import {
   SettingsToggle,
 } from "./SettingsUI";
 import { viewGeneration, viewOwner } from "./viewCache";
+import { useCollectionRead, CollectionReadNotice } from "./CollectionRead";
+import { listenWorkspaceChanges } from "./workspace-changes";
 import { literalEntry } from "./textEntry";
 
 type Creation = ReturnType<typeof webhookRequest>;
@@ -55,10 +57,9 @@ export function Webhooks({
   const draft = useRef(creations.get(key));
   const receipts = useRef(operations.get(key) || new Map<string, Receipt>());
   const alive = useRef(true),
-    reads = useRef(new AbortController()),
-    ticket = useRef(0),
-    historyTicket = useRef(0),
     historyId = useRef<string | undefined>(undefined);
+  const listRead = useCollectionRead(key);
+  const historyRead = useCollectionRead(key + ":history");
   const [items, setItems] = useState<WebhookSubscription[]>([]);
   const [policy, setPolicy] = useState<{ local_receivers: boolean }>();
   const [url, setUrl] = useState(draft.current?.url || "");
@@ -68,7 +69,8 @@ export function Webhooks({
   const [secret, setSecret] = useState<{ id: string; value: string }>();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const [unavailable, setUnavailable] = useState(false);
+  const unavailable =
+    (listRead.failure as { status?: number } | undefined)?.status === 404;
   const [history, setHistory] = useState<{
     id: string;
     rows: WebhookDelivery[];
@@ -76,69 +78,62 @@ export function Webhooks({
   const urlId = useId();
   const current = () =>
     alive.current && viewOwner() === owner && viewGeneration() === generation;
-  const load = async () => {
-    const request = ++ticket.current;
-    try {
-      const value = await readRoute(
-        workspaceApi.webhooks,
-        {},
-        sourceId,
-        reads.current.signal,
-        undefined,
-        "manual",
-      );
-      if (!current() || request !== ticket.current) return;
-      setItems(value.subscriptions);
-      setPolicy(value.policy);
-      setUnavailable(false);
-      const receipt = draft.current;
-      const found =
-        receipt &&
-        value.subscriptions.find((row) => row.id === receipt.request_id);
-      if (receipt && found) {
-        if (found.state !== "revoked")
-          setSecret({ id: found.id, value: receipt.secret });
-        draft.current = undefined;
-        creations.delete(key);
-        setUrl("");
-        setError("");
-      }
-    } catch (error) {
-      if (current() && request === ticket.current) {
-        setUnavailable((error as { status?: number }).status === 404);
-        setError((error as Error).message);
-      }
-    }
-  };
-  const historyFor = async (id: string) => {
-    const request = ++historyTicket.current;
-    historyId.current = id;
-    const rows = await readRoute(
-      workspaceApi.webhookDeliveries,
-      { params: { id: WebhookSubscriptionId.parse(id) } },
-      sourceId,
-      reads.current.signal,
-      undefined,
-      "manual",
+  const load = (manual = false) => {
+    if (!current()) return Promise.resolve();
+    return listRead.load(
+      (signal, mode) =>
+        readRoute(workspaceApi.webhooks, {}, sourceId, signal, undefined, mode),
+      (value) => {
+        if (!current()) return;
+        setItems(value.subscriptions);
+        setPolicy(value.policy);
+        const receipt = draft.current;
+        const found =
+          receipt &&
+          value.subscriptions.find((row) => row.id === receipt.request_id);
+        if (receipt && found) {
+          if (found.state !== "revoked")
+            setSecret({ id: found.id, value: receipt.secret });
+          draft.current = undefined;
+          creations.delete(key);
+          setUrl("");
+          setError("");
+        }
+      },
+      manual,
     );
-    if (current() && request === historyTicket.current)
-      setHistory({ id, rows });
+  };
+  const historyFor = (id: string, manual = false) => {
+    if (!current()) return Promise.resolve();
+    if (historyId.current !== id) historyRead.cancel();
+    historyId.current = id;
+    return historyRead.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.webhookDeliveries,
+          { params: { id: WebhookSubscriptionId.parse(id) } },
+          sourceId,
+          signal,
+          undefined,
+          mode,
+        ),
+      (rows) => {
+        if (current() && historyId.current === id) setHistory({ id, rows });
+      },
+      manual,
+    );
   };
   useEffect(() => {
     alive.current = true;
-    reads.current = new AbortController();
-    void load();
-    const refresh = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
+    const update = () => {
       void load();
-      if (historyId.current) void historyFor(historyId.current).catch(() => {});
-    }, 10000);
+      if (historyId.current) void historyFor(historyId.current);
+    };
+    const stop = listenWorkspaceChanges("webhooks", update, sourceId);
+    void load();
     return () => {
-      clearInterval(refresh);
+      stop();
       alive.current = false;
-      ticket.current++;
-      historyTicket.current++;
-      reads.current.abort();
       if (viewOwner() !== owner || viewGeneration() !== generation) {
         creations.delete(key);
         operations.delete(key);
@@ -229,8 +224,8 @@ export function Webhooks({
       forget();
       if (current()) {
         if (action === "revoke" && secret?.id === item.id) setSecret(undefined);
-        await load();
-        await historyFor(item.id);
+        await load(true);
+        await historyFor(item.id, true);
       }
     } catch (error) {
       const status = (error as { status?: number }).status || 0;
@@ -256,7 +251,7 @@ export function Webhooks({
           type="button"
           onClick={() => {
             setError("");
-            void load();
+            void load(true);
           }}
         >
           Refresh receivers
@@ -277,6 +272,11 @@ export function Webhooks({
               : "This server accepts public HTTPS receivers on port 443. Private networks, loopback addresses and URLs containing credentials are refused."}
           </SettingsNote>
         )}
+        <CollectionReadNotice
+          error={listRead.error}
+          busy={listRead.busy}
+          retry={() => void load(true)}
+        />
         {error && (
           <SettingsNote tone="attention" role="alert">
             {error}
@@ -311,7 +311,7 @@ export function Webhooks({
                 setUrl("");
                 if (value.subscription.state !== "revoked")
                   setSecret({ id: value.subscription.id, value: value.secret });
-                await load();
+                await load(true);
               }
             } catch (error) {
               const status = (error as { status?: number }).status || 0;
@@ -330,7 +330,7 @@ export function Webhooks({
                       ? " Retry uses the same receiver and activation ping."
                       : ""),
                 );
-                await load();
+                await load(true);
               }
             } finally {
               if (current()) setBusy(false);
@@ -389,13 +389,20 @@ export function Webhooks({
           disabled={busy}
           onClick={() => {
             setError("");
-            void load();
+            void load(true);
           }}
         >
           Refresh receivers
         </button>
       </SettingsSection>
       <SettingsSection title="Your receivers">
+        <CollectionReadNotice
+          error={historyRead.error}
+          busy={historyRead.busy}
+          retry={() => {
+            if (historyId.current) void historyFor(historyId.current, true);
+          }}
+        />
         {!policy ? (
           <p role="status">Loading receivers…</p>
         ) : !items.length ? (
@@ -494,14 +501,12 @@ export function Webhooks({
                   type="button"
                   disabled={busy}
                   onClick={() => {
-                    void historyFor(item.id).catch((error) => {
-                      if (current()) setError((error as Error).message);
-                    });
+                    void historyFor(item.id, true);
                   }}
                 >
                   Recent deliveries
                 </button>
-                {history?.id === item.id && (
+                {history?.id === item.id && historyId.current === item.id && (
                   <ul aria-label="Recent webhook deliveries">
                     {history.rows.map((row) => (
                       <li key={row.id}>
