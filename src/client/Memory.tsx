@@ -63,7 +63,19 @@ function MemoryView({ folders, onClose }: MemoryProps) {
     useState<RouteResponse<typeof workspaceApi.memorySource>>();
   const source = selectedId ? (draft ?? sourceRead.data ?? null) : null;
   const selection = useRef(0);
-  const load = () => statusRead.refresh(true);
+  const currentReads = useRef({ selectedId, sourceRead, statusRead });
+  currentReads.current = { selectedId, sourceRead, statusRead };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const load = () =>
+    mounted.current
+      ? currentReads.current.statusRead.refresh()
+      : Promise.resolve();
   function openSource(id: string) {
     selection.current++;
     setDraft(undefined);
@@ -87,8 +99,10 @@ function MemoryView({ folders, onClose }: MemoryProps) {
           content: source.content,
         },
       });
+      if (!mounted.current) return;
       if (ticket === selection.current) closeSource();
-      else void sourceRead.refresh(true);
+      else if (currentReads.current.selectedId === source.id)
+        void currentReads.current.sourceRead.refresh();
       await load();
     } catch (error) {
       setError((error as Error).message);

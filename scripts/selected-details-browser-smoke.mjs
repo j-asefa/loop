@@ -41,6 +41,7 @@ try {
     revision = 1,
     label = "Server",
     failSave = false,
+    failStatus = 0,
     fixtureOwner = "alice";
   const requests = [],
     closed = [];
@@ -160,9 +161,11 @@ try {
                   ? { error: "Revision conflict" }
                   : { ok: true }
                 : document(id);
+    const transient = kind === "status" && failStatus > 0;
+    if (transient) failStatus--;
     const failed = kind === "save" && failSave;
     const reply = () => {
-      res.writeHead(retry ? 429 : failed ? 409 : 200, {
+      res.writeHead(retry ? 429 : transient ? 502 : failed ? 409 : 200, {
         "content-type": "application/json",
         ...(retry ? { "retry-after": "2" } : {}),
       });
@@ -258,6 +261,10 @@ try {
       hold = "save";
       await page.getByRole("button", { name: "Save note revision" }).click();
       await expect.poll(() => held.length).toBe(1);
+      await page.getByRole("button", { name: "Note B", exact: true }).click();
+      await expect(page.getByLabel("Note title", { exact: true })).toHaveValue(
+        "Note B",
+      );
       const reread = page.waitForResponse(
         (response) =>
           response.url().endsWith("/memory/sources/a") &&
@@ -267,10 +274,21 @@ try {
       await reread;
       label = "Saved";
       revision = 3;
+      const statusBefore = requests.filter((r) => r.kind === "status").length;
+      failStatus = 1;
       held.splice(0).forEach((reply) => reply());
       await expect(
         page.getByLabel("Note content", { exact: true }),
       ).toHaveValue("Saved a");
+      await expect
+        .poll(() => requests.filter((r) => r.kind === "status").length)
+        .toBe(statusBefore + 2);
+      await page.getByRole("button", { name: "Save note revision" }).click();
+      await expect
+        .poll(
+          () => requests.filter((r) => r.kind === "save").at(-1).body.revision,
+        )
+        .toBe(3);
     } else if (scenario === "scope") {
       for (const kind of ["source", "owner"]) {
         await page.getByRole("button", { name: "Note A", exact: true }).click();
