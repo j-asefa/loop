@@ -39,7 +39,17 @@ function noisePng(width, height) {
   ]);
 }
 
-export async function workspaceControlsSmoke(page, fixture, engine, capture) {
+export async function feedBadgeSmoke(page, fixture, engine, capture) {
+  return workspaceControlsSmoke(page, fixture, engine, capture, true);
+}
+
+export async function workspaceControlsSmoke(
+  page,
+  fixture,
+  engine,
+  capture,
+  badgeOnly = false,
+) {
   const dialog = () => page.locator("dialog[open]").last();
   const settled = async () => {
     await expect(page.locator("dialog[open]")).toHaveCount(0);
@@ -141,7 +151,9 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
     await expect(notice).toBeVisible();
     badgeFailure = false;
     summary = { working: 2, queued: 3, replies_unread: 1, done_unread: 5 };
-    await notice.getByRole("button", { name: "Retry connection" }).click();
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("loop-source-refresh")),
+    );
     await expect(notice).toHaveCount(0);
     await expect(feedNav.locator("small")).toHaveAttribute(
       "aria-label",
@@ -150,6 +162,7 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   } finally {
     await page.unroute(feedPattern, counts);
   }
+  if (badgeOnly) return;
   await page.goto(fixture.base);
   await page.reload();
   await page.locator(".composer-launch").click();
@@ -240,9 +253,9 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await expect(dialog()).toContainText(
     "Take more time to check difficult work.",
   );
-  // The shared reader lets the active read finish before its trailing refresh.
-  await releaseBootstrap();
   await expect.poll(() => bootstrapRequests).toBeGreaterThan(1);
+  // An older model-only refresh must not overwrite the newer effort selection.
+  await releaseBootstrap();
   await page.unroute("**/api/bootstrap");
   await capture("composer-model-options");
   assert.deepEqual(

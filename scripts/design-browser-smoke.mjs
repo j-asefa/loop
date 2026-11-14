@@ -41,6 +41,7 @@ const names = [
   "dialog-keyboard",
   "settings",
   "workspace",
+  "feed-badge",
   "teams",
   "team-feed-visibility",
   "team-presets",
