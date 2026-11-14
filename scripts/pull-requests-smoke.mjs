@@ -495,6 +495,20 @@ try {
         commit.getByText("// Only in this commit.", { exact: false }),
       ).toBeVisible();
       await page.unroute(commitFilesRoute);
+      const refreshedCommitMetadata = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/github/pulls/acme/api/64",
+      );
+      await page.evaluate(() =>
+        window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+      );
+      await refreshedCommitMetadata;
+      await page.waitForTimeout(100);
+      await expect(commit).toHaveAttribute("open", "");
+      await expect(
+        commit.getByText("// Only in this commit.", { exact: false }),
+      ).toBeVisible();
+
       await expect(
         commit.getByText("GitHub doesn’t show this diff here", {
           exact: false,

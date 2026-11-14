@@ -41,6 +41,7 @@ import {
   type ChecksState,
   type MergeMethod,
   type PullComment,
+  type PullCommitFiles,
   type PullFile,
   type PullDetail,
   type PullFilter,
@@ -672,28 +673,45 @@ function CommitChanges({
   pullRef: PullRequestRef;
   commit: NonNullable<PullDetail["commitHistory"]>[number];
 }) {
-  const query = useProjectionQuery(
-    workspaceApi.githubPullCommitFiles,
-    {
-      params: {
-        ...pullRef,
-        number: parsePullNumber(pullRef.number),
-        sha: GitCommitId.parse(commit.sha),
-      },
-    },
-    { source: useSourceId() },
+  const source = useSourceId();
+  const reader = useCollectionRead(
+    JSON.stringify([source, pullRef, commit.sha]),
   );
-  const data = query.data;
-  const error =
-    query.error ||
-    (data && data.sha.toLowerCase() !== commit.sha.toLowerCase()
-      ? "GitHub did not return this commit's changes. Try again."
-      : "");
-  if (error)
+  const [data, setData] = useState<PullCommitFiles>();
+  const load = (manual = false) =>
+    reader.load(
+      async (signal, mode) => {
+        const result = await readRoute(
+          workspaceApi.githubPullCommitFiles,
+          {
+            params: {
+              ...pullRef,
+              number: parsePullNumber(pullRef.number),
+              sha: GitCommitId.parse(commit.sha),
+            },
+          },
+          source,
+          signal,
+          undefined,
+          mode,
+        );
+        if (result.sha.toLowerCase() !== commit.sha.toLowerCase())
+          throw new Error(
+            "GitHub did not return this commit's changes. Try again.",
+          );
+        return result;
+      },
+      setData,
+      manual,
+    );
+  useEffect(() => {
+    void load();
+  }, [reader.load]);
+  if (reader.error)
     return (
       <div role="alert">
-        <p className="error">{error}</p>
-        <button className="text-button" onClick={query.retry}>
+        <p className="error">{reader.error}</p>
+        <button className="text-button" onClick={() => void load(true)}>
           Try again
         </button>
       </div>
@@ -774,6 +792,7 @@ function PullRequestDetail({
   const source = useSourceId();
   const reader = useCollectionRead(JSON.stringify([source, pullRef]));
   const [pr, setPr] = useState<PullDetail | null>(null);
+  const [commitRevision, setCommitRevision] = useState(0);
   const error = reader.error ? { message: reader.error } : undefined;
   const busy = reader.busy;
   const [page, setPage] = useState<
@@ -781,7 +800,7 @@ function PullRequestDetail({
   >("overview");
   const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState("");
-  const load = (manual = false) =>
+  const load = ({ manual = false, resetCommits = false } = {}) =>
     reader.load(
       (signal, mode) =>
         readRoute(
@@ -794,14 +813,22 @@ function PullRequestDetail({
           undefined,
           mode,
         ),
-      setPr,
+      (result) => {
+        setPr(result);
+        if (resetCommits) setCommitRevision((revision) => revision + 1);
+      },
       manual,
+      resetCommits ? 1 : 0,
     );
   useEffect(() => {
     void load();
-    const refresh = () => void load();
+    const refresh = () => void load({ resetCommits: true });
     window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges("pulls", refresh, source);
+    const stopChanges = listenWorkspaceChanges(
+      "pulls",
+      () => void load(),
+      source,
+    );
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
@@ -825,7 +852,10 @@ function PullRequestDetail({
                 Open Tools
               </button>
             ) : (
-              <button className="text-button" onClick={() => void load(true)}>
+              <button
+                className="text-button"
+                onClick={() => void load({ manual: true, resetCommits: true })}
+              >
                 Try again
               </button>
             )}
@@ -844,7 +874,7 @@ function PullRequestDetail({
     setAction(null);
     setNotice(message);
     reader.cancel();
-    void load();
+    void load({ resetCommits: true });
   };
   return (
     <section className="pulls-view pull-detail">
@@ -912,7 +942,7 @@ function PullRequestDetail({
           <button
             className="text-button"
             disabled={busy}
-            onClick={() => void load(true)}
+            onClick={() => void load({ manual: true, resetCommits: true })}
           >
             <RefreshCw size={14} className={busy ? "spin" : ""} /> Refresh
           </button>{" "}
@@ -1079,7 +1109,7 @@ function PullRequestDetail({
           {pr.commitHistory.length ? (
             pr.commitHistory.map((commit) => (
               <CommitEntry
-                key={`${commit.sha}:${pr.fetchedAt}`}
+                key={`${commit.sha}:${commitRevision}`}
                 pullRef={pullRef}
                 commit={commit}
               />
