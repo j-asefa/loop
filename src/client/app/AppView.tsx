@@ -1,3 +1,4 @@
+import { CollectionReadNotice } from "../CollectionRead";
 import { emptySharedDraft } from "../workspace-drafts";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { resultTarget } from "../card-actions";
@@ -96,6 +97,7 @@ export function renderApp(props: AppViewProps) {
     feedBadgeCount,
     session,
     error,
+    artifactReads,
     check,
     conversation,
     data,
@@ -566,6 +568,12 @@ export function renderApp(props: AppViewProps) {
           >
             ×
           </button>
+        </div>
+      )}
+      {(artifactReads.opening.error || artifactReads.replying.error) && (
+        <div className="toast">
+          <CollectionReadNotice {...artifactReads.opening} />
+          <CollectionReadNotice {...artifactReads.replying} />
         </div>
       )}
       {error && (

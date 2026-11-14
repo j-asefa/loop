@@ -288,7 +288,6 @@ export async function designFixture({ githubApi } = {}) {
             : "Checking **the changes** and reviewing the test results.",
           JSON.stringify({
             messageId: message,
-            partial: state !== "completed",
             model: agent.model,
           }),
           agent.folder_id,

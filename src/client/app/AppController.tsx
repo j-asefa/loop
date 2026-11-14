@@ -15,8 +15,8 @@ import {
 import { capabilities as shellCapabilities } from "../capabilities";
 import { composerBlockReason } from "../sourceAvailability";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
-import { resultAction, resultTarget, type ResultAction } from "../card-actions";
-import { contractCardReader } from "../../shared/card-client";
+import { resultTarget, type ResultAction } from "../card-actions";
+import { useArtifactReads } from "./ArtifactReads";
 
 import { useProjectionQuery } from "../CollectionRead";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
@@ -658,53 +658,19 @@ export function useAppController(seed?: AppNavigationInitial) {
     else if (context.conversationId) focusComposer();
     else afterSheetsClose(focusComposer);
   }
-  const replyRequest = useRef(0);
-  async function replyToArtifact(item: ResultAction) {
-    const source = item.sourceId ?? executionSourceId(),
-      owner = ownerRef.current,
-      ticket = ++replyRequest.current;
-    if (item.cardOwner && item.cardOwner !== owner) return;
-    const current = () =>
-      owner === ownerRef.current &&
-      source === executionSourceId() &&
-      ticket === replyRequest.current;
-    try {
-      const reader = contractCardReader((contract, input, signal) =>
-        callRoute(contract, input, source, signal),
-      );
-      let original: ResultAction;
-      if (item.card) {
-        const card = await reader.detail(item.card.id);
-        if (card.type !== "result") throw new Error("Expected a result card");
-        original = resultAction(card, source, owner);
-      } else {
-        original = await callRoute(
-          workspaceApi.artifactDetail,
-          { params: { id: resultTarget(item).id } },
-          source,
-        );
-      }
-      if (!current()) return;
-      const target = resultTarget(original);
-      const imported = original.card
-        ? original.card.role === "import"
-        : parse<any>(original.metadata, {}).origin === "import";
-      if (!target.agent_id || !target.conversation_id || imported)
-        return void open(original);
-      beginReply({
-        agentId: target.agent_id,
-        conversationId: target.conversation_id,
-        messageId: original.card
-          ? original.card.source.message_id || undefined
-          : parse<any>(original.metadata, {}).messageId,
-        artifactId: target.id,
-        title: target.title,
-        content: target.content,
-      });
-    } catch (error) {
-      if (current()) setError((error as Error).message);
-    }
-  }
+  const artifactReads = useArtifactReads({
+    ownerRef,
+    initialArtifact: initial.artifactId,
+    onStartOpen: () => setFolderChoice(undefined),
+    onOpen: (item) => {
+      setContextArtifact(item);
+      const agentId = resultTarget(item).agent_id;
+      if (agentId) setSelected(agentId);
+      setActiveArtifact(item);
+    },
+    onReply: (context) => beginReply(context),
+  });
+  const { open, replyToArtifact } = artifactReads;
   function openTeamFeed(team: Team) {
     setProfile(null);
     setTab("feed");
@@ -1177,60 +1143,6 @@ export function useAppController(seed?: AppNavigationInitial) {
       );
     } else void open(item);
   }
-  const openRequest = useRef(0);
-  async function open(item: ResultAction) {
-    if (!ownerRef.current) return;
-    setFolderChoice(undefined);
-    const owner = ownerRef.current,
-      source = item.sourceId ?? executionSourceId(),
-      ticket = ++openRequest.current;
-    if (item.cardOwner && item.cardOwner !== owner) return;
-    const current = () =>
-      owner === ownerRef.current &&
-      source === executionSourceId() &&
-      ticket === openRequest.current;
-    const reader = contractCardReader((contract, input, signal) =>
-      callRoute(contract, input, source, signal),
-    );
-    try {
-      try {
-        const card = await reader.detail(
-          item.card?.id ?? "a:" + resultTarget(item).id,
-        );
-        if (card.type !== "result") throw new Error("Expected a result card");
-        item = resultAction(card, source, owner);
-      } catch (error) {
-        // Files and search can open artifacts outside the
-        // public selections. A card itself must always use its typed detail.
-        if (item.card || (error as { status?: number }).status !== 404)
-          throw error;
-        item = await callRoute(
-          workspaceApi.artifactDetail,
-          { params: { id: resultTarget(item).id } },
-          source,
-        );
-      }
-    } catch (e) {
-      if (current()) setError((e as Error).message);
-      return;
-    }
-    if (!current()) return;
-    setContextArtifact(item);
-    const agentId = resultTarget(item).agent_id;
-    if (agentId) setSelected(agentId);
-    setActiveArtifact(item);
-  }
-  useEffect(() => {
-    const artifact = initial.artifactId;
-    if (session?.user && artifact)
-      void callRoute(
-        workspaceApi.artifactDetail,
-        { params: { id: ArtifactId.parse(artifact) } },
-        executionSourceId(),
-      )
-        .then((item) => void open(item))
-        .catch((e) => setError(e.message));
-  }, [session?.user?.id]);
   useEffect(() => {
     if (!profile) return;
     setView(
@@ -1391,6 +1303,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     accountName,
     myProfile,
     myProfileRead,
+    artifactReads,
     setMyProfile,
     setSettingsParent,
     searchAgent,
