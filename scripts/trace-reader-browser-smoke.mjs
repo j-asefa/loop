@@ -14,6 +14,9 @@ const sourceA = "docker:trace-a",
   sourceB = "docker:trace-b";
 const calls = [];
 let browser, server, held, release;
+let headId = 2,
+  stuckCursor = false,
+  artifactFailure = false;
 const trace = (source, id = 2) => ({
   id,
   trace_key: "fixture-trace-" + id,
@@ -63,18 +66,18 @@ try {
       }
       return value;
     };
-    window.showTraces = (source=${JSON.stringify(sourceA)}, owner="fixture-owner") => {
+    window.showTraces = (source=${JSON.stringify(sourceA)}, owner="fixture-owner", revision=0) => {
       setViewOwner(owner);
-      root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:workspaceCapabilities()},React.createElement(Traces,{agentId:"same-agent",revision:0,onConversation:()=>{},onArtifact:artifact=>window.artifacts.push(artifact)})));
+      root.render(React.createElement(SourceProvider,{sourceId:source,capabilities:workspaceCapabilities()},React.createElement(Traces,{agentId:"same-agent",revision,onConversation:()=>{},onArtifact:artifact=>window.artifacts.push(artifact)})));
     };
     window.showTraces();
   `,
   );
   const { script, style: bundledStyle } = await browserFixtureBundle(entry);
   server = createServer(async (req, res) => {
-    const reply = (body) => {
+    const reply = (body, status = 200) => {
       if (res.destroyed) return;
-      res.writeHead(200, {
+      res.writeHead(status, {
         "content-type": "application/json",
         "cache-control": "no-store",
       });
@@ -119,13 +122,29 @@ try {
       return;
     }
     if (path === "agents/same-agent/traces") {
+      const before = Number(url.searchParams.get("before"));
       reply({
-        items: [trace(source, url.searchParams.has("before") ? 1 : 2)],
-        next: url.searchParams.has("before") ? null : 2,
+        items: before
+          ? [
+              trace(source, before - 1),
+              ...(before > 2 ? [trace(source, before - 2)] : []),
+            ]
+          : [trace(source, headId)],
+        next: before
+          ? stuckCursor
+            ? before
+            : before <= 3
+              ? null
+              : before - 2
+          : headId,
       });
       return;
     }
     if (path === "artifacts/same-artifact") {
+      if (artifactFailure) {
+        reply({ error: "Artifact fixture unavailable" }, 403);
+        return;
+      }
       reply({
         id: "same-artifact",
         owner_id: "fixture-owner",
@@ -257,9 +276,61 @@ try {
   });
   await expect.poll(() => page.evaluate(() => window.textWaiting)).toBe(false);
   assert.equal(await page.evaluate(() => window.downloads.length), 1);
+  const earlier = page.getByRole("button", {
+    name: "Earlier traces",
+    exact: true,
+  });
+  await earlier.click();
+  await expect(cards).toHaveCount(2);
+  await expect(earlier).toHaveCount(0);
+  headId = 5;
+  await page.evaluate(
+    (source) => window.showTraces(source, "new-owner", 1),
+    sourceB,
+  );
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first()).toContainText("Source B trace 5");
+  await earlier.click();
+  await expect(cards).toHaveCount(5);
+  await earlier.click();
+  await expect(earlier).toHaveCount(0);
+  await expect(cards).toHaveCount(5);
+
+  headId = 7;
+  await page.evaluate(
+    (source) => window.showTraces(source, "new-owner", 2),
+    sourceB,
+  );
+  await expect(cards).toHaveCount(6);
+  stuckCursor = true;
+  await earlier.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Pagination did not advance",
+  );
+  await expect(cards).toHaveCount(6);
+  stuckCursor = false;
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(cards).toHaveCount(7);
+  const artifactBeforeFailure = await page.evaluate(
+    () => window.artifacts.length,
+  );
+  artifactFailure = true;
+  await result.first().click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Artifact fixture unavailable",
+  );
+  artifactFailure = false;
+  await result.first().click();
+  await expect
+    .poll(() => page.evaluate(() => window.artifacts.length))
+    .toBe(artifactBeforeFailure + 1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   assert.deepEqual(errors, []);
   console.log(
-    `PASS (${engine.name()}): trace pagination, artifact reads and run exports retain the panel source; owner/source changes fence pending responses and Blob reads. Deterministic browser/HTTP fixture.`,
+    `PASS (${engine.name()}): trace pagination, artifact reads and run exports retain the panel source; owner/source changes fence pending responses and Blob reads; disjoint refresh gaps, stalled cursors and current artifact failures recover without losing rows. Deterministic browser/HTTP fixture.`,
   );
 } finally {
   release?.();

@@ -1,3 +1,8 @@
+import {
+  CollectionReadNotice,
+  usePagedProjectionQuery,
+} from "./CollectionRead";
+import { readRoute } from "./api";
 import { useProjectionRoute } from "./SourceContext";
 import { ArtifactId, RunId, parseId } from "../shared/contract-ids.js";
 import { AgentId } from "../shared/contract-ids.js";
@@ -21,6 +26,7 @@ import type { Artifact } from "../shared/types";
 
 type Page = RouteResponse<typeof workspaceApi.agentTraces>;
 type Trace = Page["items"][number];
+type TracePage = Page & { refreshAfterPaging: boolean };
 type Props = {
   agentId: string;
   runId?: string;
@@ -114,16 +120,38 @@ function TraceList({
     };
   }, []);
   const current = () => active.current && generation === viewGeneration();
-  const [{ items, next }, setPage] = useState<Page>({ items: [], next: null });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [moreBusy, setMoreBusy] = useState(false);
+  const source = useSourceId();
+  const [actionError, setError] = useState("");
   const [downloadBusy, setDownloadBusy] = useState(false);
   const downloading = useRef(false);
-  const merge = (page: Page, refresh = false) =>
-    setPage((old) => {
-      // A disjoint newest page creates an unloaded gap, even if the previous
-      // visit had reached the end. Start pagination above that gap again.
+  const reader = usePagedProjectionQuery<TracePage, number>({
+    key: JSON.stringify([agentId, runId, query]),
+    source,
+    revision,
+    empty: { items: [], next: null, refreshAfterPaging: false },
+    collections: [],
+    events: [],
+    queueMore: true,
+    requireAdvance: true,
+    refreshDelay: () => 0,
+    needsRefresh: (page) => page.refreshAfterPaging,
+    read: async (old, before, signal) => {
+      const page = await readRoute(
+        workspaceApi.agentTraces,
+        {
+          params: { id: agentId },
+          query: {
+            before: before === undefined ? undefined : String(before),
+            run: parseId(RunId, runId || undefined),
+            q: query || undefined,
+          },
+        },
+        source,
+        signal,
+        undefined,
+        "once",
+      );
+      // A disjoint newest page reopens the unloaded gap above retained rows.
       const oldIds = new Set(old.items.map((item) => item.id));
       const gap =
         page.next !== null && !page.items.some((item) => oldIds.has(item.id));
@@ -133,71 +161,20 @@ function TraceList({
             [...old.items, ...page.items].map((item) => [item.id, item]),
           ).values(),
         ].sort((a, b) => b.id - a.id),
-        next: refresh
-          ? gap
-            ? Math.max(old.next || 0, page.next!)
-            : old.next
-          : page.next,
+        next:
+          before === undefined
+            ? gap
+              ? Math.max(old.next || 0, page.next!)
+              : old.next
+            : page.next,
+        refreshAfterPaging: before !== undefined,
       };
-    });
-  useEffect(() => {
-    // Finish paging before refreshing so an older response cannot overwrite
-    // the cursor for a newly discovered gap.
-    if (moreBusy) return;
-    let live = true;
-    const request = new AbortController();
-    void readProjection(
-      workspaceApi.agentTraces,
-      {
-        params: { id: agentId },
-        query: {
-          run: parseId(RunId, runId || undefined),
-          q: query || undefined,
-        },
-      },
-      { mode: "once", signal: request.signal },
-    )
-      .then((page) => {
-        if (!live || !current()) return;
-        merge(page, true);
-        setError("");
-      })
-      .catch((e) => {
-        if (live && current()) setError(e.message);
-      })
-      .finally(() => {
-        if (live && current()) setLoading(false);
-      });
-    return () => {
-      live = false;
-      request.abort();
-    };
-  }, [agentId, runId, query, revision, moreBusy]);
-  const earlier = async () => {
-    if (!next || moreBusy || !current()) return;
-    setMoreBusy(true);
-    try {
-      const page = await readProjection(
-        workspaceApi.agentTraces,
-        {
-          params: { id: agentId },
-          query: {
-            before: String(next),
-            run: parseId(RunId, runId || undefined),
-            q: query || undefined,
-          },
-        },
-        { mode: "once" },
-      );
-      if (!current()) return;
-      merge(page);
-      setError("");
-    } catch (e) {
-      if (current()) setError((e as Error).message);
-    } finally {
-      if (current()) setMoreBusy(false);
-    }
-  };
+    },
+  });
+  const { items, next } = reader.page;
+  const loading = reader.loading && !items.length;
+  const moreBusy = reader.appending;
+  const earlier = reader.more;
   const download = (trace: Trace) => {
     if (current())
       saveJson(`loop-trace-${trace.run_id}-${trace.id}.json`, trace);
@@ -205,6 +182,7 @@ function TraceList({
   const downloadRun = async (id: string) => {
     if (!current() || downloadReason || downloading.current) return;
     downloading.current = true;
+    setError("");
     setDownloadBusy(true);
     try {
       const file = await readProjection(
@@ -224,6 +202,7 @@ function TraceList({
   };
   const openArtifact = async (id: string) => {
     if (!current() || artifactReason) return;
+    setError("");
     try {
       const artifact = await readProjection(
         workspaceApi.artifactDetail,
@@ -244,9 +223,14 @@ function TraceList({
             {reason}
           </p>
         ))}
-      {error && (
+      <CollectionReadNotice
+        error={reader.error}
+        busy={reader.loading}
+        retry={reader.retry}
+      />
+      {actionError && (
         <p className="error" role="alert">
-          {error}
+          {actionError}
         </p>
       )}
       {loading && <p role="status">Loading traces…</p>}
