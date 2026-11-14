@@ -141,7 +141,13 @@ it("forwards task mode and failure without turning it into snapshot state", asyn
       return "ok";
     }),
   ).toBe("ok");
-  expect(modes).toEqual(["manual", "automatic"]);
+  await reader.request(
+    async (_signal, mode) => {
+      modes.push(mode);
+    },
+    { mode: "once" },
+  );
+  expect(modes).toEqual(["manual", "automatic", "once"]);
   expect(states).toEqual([]);
 });
 

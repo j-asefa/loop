@@ -1493,7 +1493,7 @@ function ConversationView({
               {
                 params: { id: RunId.parse(runId) },
               },
-              { mode: "manual" },
+              { mode: "once" },
             )
           }
           onClose={() => setVerification(null)}
@@ -1508,7 +1508,7 @@ function ConversationView({
               {
                 params: { id: RunId.parse(runId) },
               },
-              { mode: "manual" },
+              { mode: "once" },
             )
           }
           agentName={agent?.name}

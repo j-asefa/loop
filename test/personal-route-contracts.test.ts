@@ -261,7 +261,7 @@ it("artifactDownload preserves its owner-checked 303 and the typed client follow
       "",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     );
     expect(workspaceApi.artifactDownload.response.parse(blob)).toBe(blob);
     expect(Buffer.from(await blob.arrayBuffer())).toEqual(pngBytes);

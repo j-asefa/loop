@@ -384,15 +384,16 @@ async function readRequest<T>(
     } catch (error) {
       if (signal.aborted || generation !== viewGeneration()) throw error;
       const status = (error as { status?: number }).status;
-      const delay = isRateLimited(error)
-        ? retryAfter(error)
-        : mode === "automatic" &&
-            status &&
-            status >= 500 &&
-            status < 600 &&
-            failures < 2
-          ? 2000 * ++failures
-          : undefined;
+      const delay =
+        mode !== "once" && isRateLimited(error)
+          ? retryAfter(error)
+          : mode === "automatic" &&
+              status &&
+              status >= 500 &&
+              status < 600 &&
+              failures < 2
+            ? 2000 * ++failures
+            : undefined;
       if (delay === undefined) throw error;
       onRetry?.(error, delay);
       await new Promise<void>((resolve, reject) => {

@@ -336,7 +336,7 @@ function SavedCollection({
               {
                 params: { id: artifactId },
               },
-              { mode: "manual" },
+              { mode: "once" },
             );
             if (viewOwner() !== owner) return;
             await call(workspaceApi.artifactUpdate, {

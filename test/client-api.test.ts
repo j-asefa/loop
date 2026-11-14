@@ -50,7 +50,7 @@ it.each([
         "docker:one",
         new AbortController().signal,
         undefined,
-        "manual",
+        "once",
       ),
     ).rejects.toThrow("Sign in to Loop");
     expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
@@ -100,7 +100,7 @@ it("returns server proxy redirects to the auth screen", async () => {
       executionSourceId(),
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).rejects.toThrow("Sign in to Loop");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
@@ -116,7 +116,7 @@ it("accepts JSON responses after a redirect", async () => {
       executionSourceId(),
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).resolves.toEqual([]);
 });
@@ -147,7 +147,7 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     `docker:${id}`,
     new AbortController().signal,
     undefined,
-    "manual",
+    "once",
   );
   await readRoute(
     workspaceApi.socialFeeds,
@@ -155,7 +155,7 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     `docker:${id}`,
     new AbortController().signal,
     undefined,
-    "manual",
+    "once",
   );
   await callRoute(
     workspaceApi.socialFeedAdd,
@@ -168,7 +168,7 @@ it("keeps Social on the paired app while an agent source owns its conversations"
     executionSourceId(),
     new AbortController().signal,
     undefined,
-    "manual",
+    "once",
   );
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([
     "/api/social/unread",
@@ -198,7 +198,7 @@ it("keeps the paired session when one source refuses authentication", async () =
       executionSourceId(),
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).rejects.toThrow("Source sign-in needed");
   expect(dispatchEvent).not.toHaveBeenCalled();
@@ -221,7 +221,7 @@ it.each(["truncated", "interrupted"])(
         executionSourceId(),
         new AbortController().signal,
         undefined,
-        "manual",
+        "once",
       ),
     ).rejects.toThrow("Connection unavailable. Try again.");
   },
@@ -240,7 +240,7 @@ it("still expires the session when an unauthorized response has no JSON body", a
       executionSourceId(),
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).rejects.toThrow("Connection unavailable. Try again.");
   expect(dispatchEvent.mock.calls[0][0].type).toBe("loop-auth-expired");
@@ -263,7 +263,7 @@ it("treats the connection service's restart response as reconnecting, never as s
     executionSourceId(),
     new AbortController().signal,
     undefined,
-    "manual",
+    "once",
   ).catch((e) => e);
   expect(error).toMatchObject({ status: 503, reconnecting: true });
   expect(error.message).toMatch(/reconnecting/);

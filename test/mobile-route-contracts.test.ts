@@ -648,7 +648,7 @@ it("typed mobile clients consume production receipts, saved envelopes and cancel
       "",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     );
     expect(saved.items).not.toHaveLength(0);
     for (const item of saved.items) expect(item).toHaveProperty("label");

@@ -77,7 +77,7 @@ export function McpApp({
               {
                 params: { id: artifactId },
               },
-              { mode: "manual" },
+              { mode: "once" },
             ).then((item): TraceMetadata =>
               item.role === "trace"
                 ? readArtifactMetadata("trace", item.metadata, "fallback")

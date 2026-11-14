@@ -75,7 +75,7 @@ export function PiCustomizations({
     void readProjection(
       workspaceApi.agentPiPackages,
       { params: { id: selectedId } },
-      { mode: "manual" },
+      { mode: "once" },
     )
       .then((result) => {
         if (active) {
@@ -270,7 +270,7 @@ export function PiCustomizations({
           ),
         },
       },
-      { mode: "manual" },
+      { mode: "once" },
     )
       .then((result) => active && setCatalog(result))
       .catch((cause) => active && setError((cause as Error).message));

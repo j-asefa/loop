@@ -55,7 +55,7 @@ export function HarnessPicker({
   useEffect(() => {
     if (!open) return;
     let active = true;
-    readProjection(workspaceApi.snippetList, {}, { mode: "manual" })
+    readProjection(workspaceApi.snippetList, {}, { mode: "once" })
       .then((result) => active && setSnippets(result.items))
       .catch(() => active && setSnippets([]));
     return () => {
@@ -90,7 +90,7 @@ export function HarnessPicker({
                 parseId(ConversationId, conversationId) || undefined,
             },
           },
-          { mode: "manual" },
+          { mode: "once" },
         );
         if (current === generation.current && own === request) {
           setCatalog((old) =>

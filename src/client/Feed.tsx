@@ -316,7 +316,7 @@ function FeedCard({
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
       {
-        mode: "manual",
+        mode: "once",
         source: item.sourceId ?? scopedSource,
         signal: controller.signal,
       },
@@ -801,7 +801,7 @@ function AwaySummary({
           result: await readProjection(
             workspaceApi.feedAway,
             { query: { since: String(since) } },
-            { mode: "manual", source: source.id },
+            { mode: "once", source: source.id },
           ),
         })),
       ).then((settled) => {
@@ -1958,7 +1958,7 @@ export function Feed({
             readProjection(contract, input, {
               source: combined ? source : scopedSource,
               signal,
-              mode: "manual",
+              mode: "once",
             });
           const boundary = reader.pager.snapshot()?.boundary;
           const catchUp =
@@ -2044,7 +2044,7 @@ export function Feed({
           const operational = await readProjection(
             workspaceApi.feed,
             { query: query(undefined, "needs") },
-            { mode: "manual", source: source },
+            { mode: "once", source: source },
           );
           // Only a failed operational read needs a summary-only retry. A
           // trailing notification in this queue must read newer card changes.

@@ -401,7 +401,7 @@ it("agentTracesExport keeps its attachment writer and returns a Blob through the
       "",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     );
     expect(blob).toBeInstanceOf(Blob);
     expect(JSON.parse(await blob.text())).toMatchObject({

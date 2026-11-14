@@ -63,7 +63,7 @@ export function CardTokens({
       const list = await readProjection(
         workspaceApi.cardTokens,
         {},
-        { mode: "manual", source: sourceId },
+        { mode: "once", source: sourceId },
       );
       if (current() && ticket === listRequest.current) {
         setTokens(list);

@@ -165,7 +165,7 @@ export function CreateAgent({
     readProjection(
       workspaceApi.agentSuggestName,
       {},
-      { mode: "manual", source: source },
+      { mode: "once", source: source },
     )
       .then((suggestion) => {
         if (!cancelled && !nameTouched) setSuggestedName(suggestion.name);
@@ -243,7 +243,7 @@ export function CreateAgent({
     void readProjection(
       workspaceApi.connectionModels,
       { params: { id: selectedConnection } },
-      { mode: "manual", source: source },
+      { mode: "once", source: source },
     ).then(
       ({ models }) => {
         if (current) {

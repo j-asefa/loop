@@ -121,7 +121,7 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
       "docker:one",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     );
     expect(fetcher.mock.calls[0][0]).toBe(
       "/api/agent-sources/docker%3Aone/runs?active=1&teams=team+one%2Cteam%2Ftwo",
@@ -142,7 +142,7 @@ it("preserves source-bound request filters without URLSearchParams.size", async 
       "",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     );
     expect(fetcher.mock.calls[2][0]).toBe("/api/runs");
   } finally {
@@ -167,7 +167,7 @@ it("reads current source catalogs and refuses missing or malformed metadata", as
       "docker:source",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).resolves.toEqual(catalog);
   fetcher.mockResolvedValueOnce(
@@ -180,7 +180,7 @@ it("reads current source catalogs and refuses missing or malformed metadata", as
       "docker:source",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).rejects.toBeInstanceOf(UnavailableResponse);
   fetcher.mockResolvedValueOnce(Response.json({ ...catalog, teams: null }));
@@ -191,7 +191,7 @@ it("reads current source catalogs and refuses missing or malformed metadata", as
       "docker:source",
       new AbortController().signal,
       undefined,
-      "manual",
+      "once",
     ),
   ).rejects.toBeInstanceOf(UnavailableResponse);
 });

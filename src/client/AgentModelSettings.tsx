@@ -96,7 +96,7 @@ export function AgentModelSettings({
               {
                 params: { id: connection.id },
               },
-              { mode: "manual" },
+              { mode: "once" },
             );
             if (current)
               setCatalog((old) => ({ ...old, [connection.id]: result.models }));

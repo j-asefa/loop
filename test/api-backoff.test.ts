@@ -41,8 +41,8 @@ function probeRoute<C extends RouteContract & { method: "GET" }>(
     input,
     source,
     controller.signal,
-    (error) => controller.abort(error),
-    "manual",
+    undefined,
+    "once",
   );
 }
 const read = (source = "") =>
@@ -380,6 +380,23 @@ it("does not resume a cooling GET under a replacement owner", async () => {
   expect(fetcher).toHaveBeenCalledTimes(1);
   setViewOwner("bob");
   await vi.advanceTimersByTimeAsync(8000);
+  await rejected;
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("once reads report cooldowns without waiting or dispatching another request", async () => {
+  fetcher.mockResolvedValueOnce(limited("8"));
+  const controller = new AbortController();
+  const first = readRoute(
+    workspaceApi.conversationMemory,
+    { params: { id: ConversationId.parse("thread") } },
+    "",
+    controller.signal,
+    undefined,
+    "once",
+  );
+  const rejected = expect(first).rejects.toMatchObject({ status: 429 });
+  await vi.runAllTimersAsync();
   await rejected;
   expect(fetcher).toHaveBeenCalledTimes(1);
 });

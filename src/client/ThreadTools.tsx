@@ -560,7 +560,7 @@ export function OutlineSheet({
       {
         params: { id: conversationId },
       },
-      { mode: "manual" },
+      { mode: "once" },
     )
       .then((result) => active && setItems(result.items))
       .catch((e) => active && setError((e as Error).message));
@@ -586,7 +586,7 @@ export function OutlineSheet({
           params: { id: conversationId },
           query: { q: text },
         },
-        { mode: "manual" },
+        { mode: "once" },
       )
         .then((result) => active && setMatches(result.matches ?? []))
         .catch((e) => active && setSearchError((e as Error).message))
@@ -1019,7 +1019,7 @@ export function ScheduledSends({
         {
           query: query(failedNext),
         },
-        { mode: "manual" },
+        { mode: "once" },
       );
       setItems((old) => {
         const failed = old.filter((item) => item.state === "failed");

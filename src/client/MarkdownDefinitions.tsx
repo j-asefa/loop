@@ -468,7 +468,7 @@ export function CreateFromDefinition({
       void readProjection(
         workspaceApi.connectionModels,
         { params: { id: ConnectionId.parse(connectionId) } },
-        { mode: "manual", source: sourceId, signal: controller.signal },
+        { mode: "once", source: sourceId, signal: controller.signal },
       ).then(
         ({ models: discovered }) => {
           if (controller.signal.aborted || owner !== viewOwner()) return;

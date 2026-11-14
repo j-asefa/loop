@@ -240,7 +240,7 @@ test("typed multipart routes use the compiled app without replaying writes", asy
         source,
         new AbortController().signal,
         undefined,
-        "manual",
+        "once",
       );
       assert.equal(
         listed.items.length,

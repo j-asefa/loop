@@ -172,7 +172,7 @@ function TraceList({
           q: query || undefined,
         },
       },
-      { mode: "manual", signal: request.signal },
+      { mode: "once", signal: request.signal },
     )
       .then((page) => {
         if (!live || !current()) return;
@@ -205,7 +205,7 @@ function TraceList({
             q: query || undefined,
           },
         },
-        { mode: "manual", signal: operation.signal },
+        { mode: "once", signal: operation.signal },
       );
       if (!operation.current()) return;
       merge(page);
@@ -230,7 +230,7 @@ function TraceList({
       const file = await readProjection(
         workspaceApi.agentTracesExport,
         { params: { id: agentId }, query: { run: parseId(RunId, id) } },
-        { mode: "manual", signal: operation.signal },
+        { mode: "once", signal: operation.signal },
       );
       if (!operation.current()) return;
       const text = await file.text();
@@ -251,7 +251,7 @@ function TraceList({
       const artifact = await readProjection(
         workspaceApi.artifactDetail,
         { params: { id: ArtifactId.parse(id) } },
-        { mode: "manual", signal: operation.signal },
+        { mode: "once", signal: operation.signal },
       );
       if (operation.current()) onArtifact(artifact);
     } catch (e) {

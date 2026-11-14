@@ -158,7 +158,7 @@ function PullReader({
             params: { id: ConversationId.parse(conversationId) },
             query: refresh ? { refresh: "1" } : {},
           },
-          { mode: "manual" },
+          { mode: "once" },
         );
         if (live) {
           setData(next);

@@ -59,7 +59,7 @@ export function AgentMessages({
     void readProjection(
       workspaceApi.agentMessages,
       { params: { id: agentId } },
-      { mode: "manual", signal: request.signal },
+      { mode: "once", signal: request.signal },
     )
       .then((page) => {
         if (active) {
@@ -89,7 +89,7 @@ export function AgentMessages({
           params: { id: agentId },
           query: { before: next },
         },
-        { mode: "manual" },
+        { mode: "once" },
       );
       merge(page);
       setError("");
