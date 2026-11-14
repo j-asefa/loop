@@ -20,7 +20,6 @@ import { contractCardReader } from "../../shared/card-client";
 
 import { type MyProfileData } from "../MyProfile";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
-import { useProjectionRoute } from "../SourceContext";
 import { useThreadSource } from "../useThreadSource";
 import { executionSourceId, sourceUrl } from "../sourceRouting";
 import { useAgentSources, type EnvironmentAgent } from "../agentSources";
@@ -956,7 +955,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   }
   // Each in-flight continuation keeps its originating box after navigation.
   const request = receiptBox.current.box;
-  const readContract = useProjectionRoute();
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   const resultsVisible = useRef(true);
   // Project activity and files also follow feed changes to refresh in place.
@@ -1073,7 +1071,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   const { bootstrap, loadRuns, runsGeneration, refresh } = useWorkspaceData({
     setWorkspaceLoadErrors,
     ownerRef,
-    readContract,
     setData,
     initialAgentId,
     initialCompose: initial.compose,
@@ -1093,7 +1090,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     view,
     teamKey,
     projectFilter,
-    workspaceLoadError,
     setRevision,
     setCollectionRevisions,
     bootstrap,

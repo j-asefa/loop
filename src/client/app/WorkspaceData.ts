@@ -7,16 +7,14 @@ import {
   WORKSPACE_COLLECTIONS,
   type WorkspaceCollection,
 } from "../../shared/workspace-events";
-import { useProjectionRoute } from "../SourceContext";
+import { useSourceId } from "../SourceContext";
+import { useCollectionRead } from "../CollectionRead";
+import { readRoute } from "../api";
+import { viewGeneration } from "../viewCache";
 import { executionSourceId } from "../sourceRouting";
 
-import { useEffect, useRef } from "react";
-import type {
-  Agent,
-  Connection,
-  RunView as Run,
-  Team,
-} from "../../shared/types";
+import { useEffect, useMemo, useRef } from "react";
+import type { Agent, RunView as Run, Team } from "../../shared/types";
 
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { AppModel } from "./AppController";
@@ -31,7 +29,6 @@ type WorkspaceProps = {
     SetStateAction<Partial<Record<"bootstrap" | "runs", string>>>
   >;
   ownerRef: RefObject<string | undefined>;
-  readContract: ReturnType<typeof useProjectionRoute>;
   setData: Dispatch<SetStateAction<Bootstrap>>;
   setBootstrapOwner(owner: string | undefined): void;
   openAgentChat(agent: Agent): void;
@@ -47,7 +44,6 @@ export function useWorkspaceData(props: WorkspaceProps) {
   const {
     setWorkspaceLoadErrors,
     ownerRef,
-    readContract,
     setData,
     initialAgentId,
     initialCompose,
@@ -68,67 +64,98 @@ export function useWorkspaceData(props: WorkspaceProps) {
           : "Couldn’t refresh task status.";
     setWorkspaceLoadErrors((old) => ({ ...old, [kind]: message }));
   }
-  const bootstrapGeneration = useRef(0);
+  const source = useSourceId();
+  const key = JSON.stringify([viewGeneration(), source]);
+  const bootstrapRead = useCollectionRead("bootstrap:" + key);
+  const runsRead = useCollectionRead("runs:" + key);
+  const snapshot = useMemo(
+    () => ({ value: undefined as BootstrapResponse | undefined }),
+    [key],
+  );
+  useEffect(() => {
+    setWorkspaceLoadErrors({});
+  }, [key]);
   async function bootstrap() {
-    const generation = ++bootstrapGeneration.current;
     const owner = ownerRef.current;
-    const result = await readContract(workspaceApi.bootstrap, {}).catch(
-      (error) => {
-        if (
-          owner &&
-          owner === ownerRef.current &&
-          generation === bootstrapGeneration.current
-        )
-          workspaceReadError("bootstrap", error);
-        throw error;
+    if (!owner) throw new DOMException("Workspace changed", "AbortError");
+    const completion = await bootstrapRead.execute(
+      (signal, mode) =>
+        readRoute(workspaceApi.bootstrap, {}, source, signal, undefined, mode),
+      (result) => {
+        if (owner !== ownerRef.current) return;
+        snapshot.value = result;
+        workspaceReadError("bootstrap");
+        setData(result);
+        setBootstrapOwner(owner);
+        if (initialAgentId.current) {
+          const match = result.agents.find(
+            (agent: Agent) => agent.id === initialAgentId.current,
+          );
+          initialAgentId.current = null;
+          const url = new URL(location.href);
+          if (match && initialCompose) openAgentChat(match);
+          else if (match) setProfile(match);
+          url.searchParams.delete("agent");
+          url.searchParams.delete("compose");
+          history.replaceState(history.state, "", url.pathname + url.search);
+        }
+        setTeamSelection((old) => {
+          const present = old.filter((id) =>
+            result.teams?.some((team: Team) => team.id === id),
+          );
+          return present.length === old.length ? old : present;
+        });
       },
     );
     if (
-      owner &&
-      owner === ownerRef.current &&
-      generation === bootstrapGeneration.current
-    ) {
-      workspaceReadError("bootstrap");
-      setData(result);
-      setBootstrapOwner(owner);
-      if (initialAgentId.current) {
-        const match = result.agents.find(
-          (agent: Agent) => agent.id === initialAgentId.current,
-        );
-        initialAgentId.current = null;
-        const url = new URL(location.href);
-        if (match && initialCompose) openAgentChat(match);
-        else if (match) setProfile(match);
-        url.searchParams.delete("agent");
-        url.searchParams.delete("compose");
-        history.replaceState(history.state, "", url.pathname + url.search);
-      }
-      setTeamSelection((old) => {
-        const present = old.filter((id) =>
-          result.teams?.some((team: Team) => team.id === id),
-        );
-        return present.length === old.length ? old : present;
-      });
+      completion.status === "cancelled" ||
+      !completion.current() ||
+      owner !== ownerRef.current
+    )
+      throw new DOMException("Workspace changed", "AbortError");
+    if (completion.status === "error") {
+      workspaceReadError("bootstrap", completion.error);
+      throw completion.error;
     }
-    return result.connections as Connection[];
+    // Runtime setup awaits this result, including when its refresh was coalesced.
+    return snapshot.value!.connections;
   }
   const runsGeneration = useRef(0);
   async function loadRuns() {
     const owner = ownerRef.current;
     if (!owner) return;
-    const generation = ++runsGeneration.current;
-    // Profiles show all of an agent's work. Feed and Running apply their
-    // team/project filters locally without changing the profile's data.
-    const result = await readContract(workspaceApi.runs, {
-      query: { active: "1" },
-    }).catch((error) => {
-      if (owner === ownerRef.current && generation === runsGeneration.current)
-        workspaceReadError("runs", error);
-      throw error;
-    });
-    if (owner === ownerRef.current && generation === runsGeneration.current) {
-      workspaceReadError("runs");
-      setRuns(result);
+    let generation: number | undefined;
+    const completion = await runsRead.execute(
+      (signal, mode) => {
+        // Composer advances this counter when publishing an accepted receipt.
+        generation = ++runsGeneration.current;
+        return readRoute(
+          workspaceApi.runs,
+          { query: { active: "1" } },
+          source,
+          signal,
+          undefined,
+          mode,
+        );
+      },
+      (result) => {
+        if (
+          owner === ownerRef.current &&
+          generation === runsGeneration.current
+        ) {
+          workspaceReadError("runs");
+          setRuns(result);
+        }
+      },
+    );
+    if (
+      completion.status === "error" &&
+      completion.current() &&
+      owner === ownerRef.current &&
+      generation === runsGeneration.current
+    ) {
+      workspaceReadError("runs", completion.error);
+      throw completion.error;
     }
   }
   async function refresh() {
@@ -148,7 +175,6 @@ export function useWorkspaceEvents(
     | "view"
     | "teamKey"
     | "projectFilter"
-    | "workspaceLoadError"
     | "setRevision"
     | "setCollectionRevisions"
     | "bootstrap"
@@ -165,7 +191,6 @@ export function useWorkspaceEvents(
     view,
     teamKey,
     projectFilter,
-    workspaceLoadError,
     setRevision,
     setCollectionRevisions,
     bootstrap,
@@ -173,9 +198,10 @@ export function useWorkspaceEvents(
     resultsVisible,
     loadResults,
   } = props;
+  const source = useSourceId();
   useEffect(() => {
     if (session?.user) void refresh().catch((e) => setError(e.message));
-  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, source]);
   useEffect(() => {
     if (!session?.user) return;
     const retry = () => {
@@ -184,24 +210,15 @@ export function useWorkspaceEvents(
     const visible = () => {
       if (document.visibilityState === "visible") retry();
     };
-    const timer = workspaceLoadError ? setInterval(retry, 5000) : undefined;
     window.addEventListener("online", retry);
     window.addEventListener("pageshow", retry);
     document.addEventListener("visibilitychange", visible);
     return () => {
-      clearInterval(timer);
       window.removeEventListener("online", retry);
       window.removeEventListener("pageshow", retry);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [
-    session?.user?.id,
-    profile?.id,
-    view,
-    teamKey,
-    projectFilter,
-    workspaceLoadError,
-  ]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, source]);
   useEffect(() => {
     if (!session?.user) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -269,5 +286,5 @@ export function useWorkspaceEvents(
       clearTimeout(timer);
       window.removeEventListener("loop-workspace-change", update);
     };
-  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter]);
+  }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, source]);
 }
