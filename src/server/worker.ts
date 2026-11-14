@@ -20,7 +20,7 @@ import { executeMcp } from "./mcp/routes.js";
 import { closeFinishedSessions } from "./mcp/sessions.js";
 import { Problem } from "./domain.js";
 import { db, changes, emit, id, now } from "./db.js";
-import { executeImport } from "./imports.js";
+import { executeImport, writeImports } from "./imports.js";
 import { executeAgent } from "./agent-runtime.js";
 import {
   claim,
@@ -138,7 +138,9 @@ export async function tick(
       });
       emit(run.owner_id, run.id, "run.failed", { message, phase });
       if (run.kind === "import")
-        importsQueries.failOwned(db, run.payload.importId, run.owner_id);
+        writeImports(run.owner_id, () =>
+          importsQueries.failOwned(db, run.payload.importId, run.owner_id),
+        );
       transition(run, "failed");
     }).immediate();
   } finally {

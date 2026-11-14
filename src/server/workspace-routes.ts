@@ -42,7 +42,7 @@ import { sendFile } from "./file-preview.js";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { search, searchStatus } from "./search.js";
 import { localModel } from "./local-embeddings.js";
-import { stageImport } from "./imports.js";
+import { stageImport, writeImports } from "./imports.js";
 import { enqueue, RunIdentity, transition } from "./queue.js";
 import { checkoutDetail } from "./run-checkouts.js";
 import { runVerifications } from "./run-verifications.js";
@@ -375,11 +375,14 @@ routes.on(workspaceApi.importStart, (req, res) => {
     res.json({ status: "completed" });
     return;
   }
-  const run = enqueue(res.locals.owner, "Import conversations", id(), {
-    kind: "import",
-    payload: { importId: job.id },
+  const run = writeImports(res.locals.owner, () => {
+    const run = enqueue(res.locals.owner, "Import conversations", id(), {
+      kind: "import",
+      payload: { importId: job.id },
+    });
+    importsQueries.queue(db, job.id);
+    return run;
   });
-  importsQueries.queue(db, job.id);
   res.json(runResponse(run));
 });
 routes.on(workspaceApi.importCancel, (req, res) => {
@@ -389,8 +392,10 @@ routes.on(workspaceApi.importCancel, (req, res) => {
   const runs = z
     .array(RunIdentity)
     .parse(runsQueries.importIdentities(db, res.locals.owner, jobId));
-  runs.forEach((r) => transition(r, "cancelled"));
-  importsQueries.cancel(db, jobId);
+  writeImports(res.locals.owner, () => {
+    runs.forEach((r) => transition(r, "cancelled"));
+    importsQueries.cancel(db, jobId);
+  });
   res.json({ ok: true });
 });
 routes.on(workspaceApi.conversationContinueStart, (req, res) => {
