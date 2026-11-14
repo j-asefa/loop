@@ -5,6 +5,7 @@ import {
   SocialFeedId,
   SocialStoryId,
 } from "../shared/contract-ids.js";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { literalEntry } from "./textEntry";
 import { useProjectionRoute } from "./SourceContext";
 import {
@@ -46,7 +47,7 @@ import { listenWorkspaceChanges } from "./workspace-changes";
 import { Sheet } from "./components";
 import { LaterSheet, undoReminder, useSwipe } from "./ThreadTools";
 import { notify } from "./toast";
-import { cacheView, cachedView, viewOwner } from "./viewCache";
+import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
 import { relativeTime } from "./threadView";
 import {
   feedCatalog,
@@ -603,31 +604,23 @@ function HideSheet({
  * arrives, your phone says so once. The preview shows what a watch would have
  * caught, so it can be judged before it is made.
  */
-function WatchSheet({ onClose }: { onClose: () => void }) {
-  const readSnapshot = useProjectionRoute("");
-  const [watches, setWatches] = useState<FeedWatch[]>([]);
+function WatchSheet(props: { onClose: () => void }) {
+  return <WatchSheetView key={viewGeneration()} {...props} />;
+}
+function WatchSheetView({ onClose }: { onClose: () => void }) {
+  const watchesRead = useProjectionQuery(
+    workspaceApi.socialWatches,
+    {},
+    { source: "", collections: ["social"] },
+  );
+  const watches = watchesRead.data?.watches ?? [];
   const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<
     { feed: string; title: string; url: string }[] | null
   >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function load() {
-    try {
-      const { watches: list } = await readSnapshot(
-        workspaceApi.socialWatches,
-        {},
-      );
-      setWatches(list);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-  useEffect(() => {
-    const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
-    void load();
-    return stopChanges;
-  }, []);
+  const load = () => watchesRead.refresh();
   async function show() {
     if (!query.trim()) return;
     setBusy(true);
@@ -680,6 +673,11 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
   }
   return (
     <Sheet title="Follow a word" onClose={onClose}>
+      <CollectionReadNotice
+        error={watchesRead.error}
+        busy={watchesRead.busy}
+        retry={watchesRead.retry}
+      />
       {error && (
         <div className="error" role="alert">
           {error}
@@ -784,7 +782,10 @@ function WatchSheet({ onClose }: { onClose: () => void }) {
  * to summarize it. Also where agents are allowed to read the feed at all,
  * which is off until it is turned on here.
  */
-function DigestSheet({
+function DigestSheet(props: Parameters<typeof DigestSheetView>[0]) {
+  return <DigestSheetView key={viewGeneration()} {...props} />;
+}
+function DigestSheetView({
   feeds,
   agents,
   onClose,
@@ -793,8 +794,17 @@ function DigestSheet({
   agents: { id: string; name: string; retired_at?: number | null }[];
   onClose: () => void;
 }) {
-  const readSnapshot = useProjectionRoute("");
-  const [digests, setDigests] = useState<FeedDigest[]>([]);
+  const digestsRead = useProjectionQuery(
+    workspaceApi.socialDigests,
+    {},
+    { source: "", collections: ["social"] },
+  );
+  const preferencesRead = useProjectionQuery(
+    workspaceApi.socialPreferences,
+    {},
+    { source: "", collections: ["social"] },
+  );
+  const digests = digestsRead.data?.digests ?? [];
   const [access, setAccess] = useState(false);
   const [agent, setAgent] = useState("");
   const [time, setTime] = useState("08:00");
@@ -803,23 +813,11 @@ function DigestSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const choices = agents.filter((a) => !a.retired_at);
-  async function load() {
-    try {
-      const [list, preferences] = await Promise.all([
-        readSnapshot(workspaceApi.socialDigests, {}),
-        readSnapshot(workspaceApi.socialPreferences, {}),
-      ]);
-      setDigests(list.digests);
-      setAccess(preferences.agent_access);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
   useEffect(() => {
-    const stopChanges = listenWorkspaceChanges("social", () => void load(), "");
-    void load();
-    return stopChanges;
-  }, []);
+    if (preferencesRead.data) setAccess(preferencesRead.data.agent_access);
+  }, [preferencesRead.data]);
+  const load = () =>
+    Promise.all([digestsRead.refresh(), preferencesRead.refresh()]);
   async function create() {
     const [hours, minutes] = time.split(":").map(Number);
     setBusy(true);
@@ -890,6 +888,16 @@ function DigestSheet({
   }
   return (
     <Sheet title="Digest" onClose={onClose}>
+      <CollectionReadNotice
+        error={digestsRead.error && "Digests: " + digestsRead.error}
+        busy={digestsRead.busy}
+        retry={digestsRead.retry}
+      />
+      <CollectionReadNotice
+        error={preferencesRead.error && "Feed access: " + preferencesRead.error}
+        busy={preferencesRead.busy}
+        retry={preferencesRead.retry}
+      />
       {error && (
         <div className="error" role="alert">
           {error}

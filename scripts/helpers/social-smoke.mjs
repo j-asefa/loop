@@ -436,9 +436,28 @@ export async function socialSmoke(page, fixture, shot) {
   await page.getByRole("button", { name: "Close" }).click();
 
   // Following a word previews against what is stored before creating a watch.
+  let failWatchRead = true;
+  await page.route("**/api/social/watches", async (route) => {
+    if (route.request().method() === "GET" && failWatchRead)
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Watch read unavailable" }),
+      });
+    else await route.continue();
+  });
   await page.getByRole("button", { name: "Follow a word" }).click();
   const watches = page.getByRole("dialog");
   await watches.waitFor();
+  await expect(watches.getByRole("alert")).toContainText(
+    "Watch read unavailable",
+  );
+  failWatchRead = false;
+  await watches
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(watches.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/api/social/watches");
   await watches.getByRole("searchbox").fill("rust");
   await watches.getByRole("button", { name: "Preview" }).click();
   await watches.locator(".watch-preview li").first().waitFor();
@@ -466,12 +485,31 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.locator(".digest-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
+  let failDigestRead = true;
+  await page.route("**/api/social/digests", async (route) => {
+    if (route.request().method() === "GET" && failDigestRead)
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Digest read unavailable" }),
+      });
+    else await route.continue();
+  });
   await page.getByRole("button", { name: "Digest", exact: true }).click();
   const digests = page.getByRole("dialog", { name: "Digest", exact: true });
   const access = digests.getByRole("checkbox", {
     name: /Let agents read your feeds/,
   });
   await expect(access).not.toBeChecked();
+  await expect(digests.getByRole("alert")).toContainText(
+    "Digest read unavailable",
+  );
+  failDigestRead = false;
+  await digests
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(digests.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/api/social/digests");
   await digests
     .getByRole("combobox", { name: "Agent", exact: true })
     .selectOption({ index: 1 });
@@ -494,6 +532,29 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     digests.getByRole("button", { name: "Pause", exact: true }),
   ).toBeVisible();
+  let failAccessRead = true;
+  await page.route("**/api/social/preferences", async (route) => {
+    if (route.request().method() === "GET" && failAccessRead)
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Access read unavailable" }),
+      });
+    else await route.continue();
+  });
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+  );
+  await expect(digests.getByRole("alert")).toContainText(
+    "Feed access: Access read unavailable",
+  );
+  await expect(digests.locator(".digest-row")).toHaveCount(1);
+  failAccessRead = false;
+  await digests
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(digests.getByRole("alert")).toHaveCount(0);
+  await page.unroute("**/api/social/preferences");
   await shot("social-digest");
   await digests.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(digests.locator(".digest-row")).toHaveCount(0);
@@ -537,6 +598,32 @@ export async function socialSmoke(page, fixture, shot) {
     .getByRole("button", { name: `Mark ${searchTitle} unread`, exact: true })
     .waitFor();
   assert.equal(await cards.first().getAttribute("data-unread"), null);
+
+  let coolingReads = 0;
+  await page.route("**/api/social/watches", async (route) => {
+    coolingReads++;
+    await route.fulfill({
+      status: 429,
+      headers: { "retry-after": "2" },
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Cooling" }),
+    });
+  });
+  await page
+    .getByRole("button", { name: "Follow a word", exact: true })
+    .click();
+  await expect.poll(() => coolingReads).toBe(1);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await page.waitForTimeout(2200);
+  assert.equal(
+    coolingReads,
+    1,
+    "closing watches cancels Retry-After continuation",
+  );
+  await page.unroute("**/api/social/watches");
 
   // Notification links also accept catalog IDs that begin with a digit.
   fixture.db
