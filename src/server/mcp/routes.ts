@@ -1,3 +1,4 @@
+import { RunPayload } from "../../shared/run-payload.js";
 import { artifactDisplayMetadata } from "../../shared/artifact-metadata.js";
 import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import * as grantsQueries from "../sql/grants.js";
@@ -250,7 +251,11 @@ export function queueTool(
   return enqueue(owner, "Call " + data.tool, data.idempotencyKey, {
     kind: "mcp",
     agent: a.id,
-    payload: { name: a.name, ...data },
+    payload: {
+      name: a.name,
+      ...data,
+      arguments: RunPayload.shape.arguments.parse(data.arguments),
+    },
   });
 }
 routes.on(workspaceApi.artifactToolCall, (req, res) => {

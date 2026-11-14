@@ -1,3 +1,4 @@
+import { ProviderSchema } from "../src/shared/provider-schema";
 import express from "express";
 import { until } from "./helpers";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
@@ -64,7 +65,9 @@ function submit(conversation: string, harness: string, key: string) {
     payload: {
       agentId: "worktree-fixture",
       name: "Fixture",
-      provider: harness === "claude" ? "anthropic" : harness,
+      provider: ProviderSchema.parse(
+        harness === "claude" ? "anthropic" : harness,
+      ),
       folderId: null,
       connectionId: `native-${harness}`,
       model: "fixture",

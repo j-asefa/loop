@@ -34,16 +34,24 @@ import {
   UploadedFile,
 } from "../shared/agent-snapshot.js";
 export { AgentSnapshot } from "../shared/agent-snapshot.js";
-// Queue infrastructure also carries import, MCP and diagnostic jobs.
-// Present identity/permission fields are validated even before kind dispatch;
-// each executor requires its complete payload before causing an external effect.
-export const RunPayload = AgentSnapshot.partial().extend({
-  importId: Id.optional(),
-  tool: Id.optional(),
-  arguments: z.record(z.string(), z.json()).optional(),
-  idempotencyKey: Id.optional(),
-});
-export type RunPayload = z.infer<typeof RunPayload>;
+import {
+  RunPayload,
+  readRunPayload,
+  writeRunPayload,
+  type RunPayloadField,
+} from "../shared/run-payload.js";
+export { RunPayload } from "../shared/run-payload.js";
+function savedRunPayload(
+  value: unknown,
+  rowId: string,
+  field?: RunPayloadField,
+) {
+  try {
+    return readRunPayload(value, "throw", field);
+  } catch {
+    throw new InvalidRow("runs", rowId, "payload");
+  }
+}
 
 export const MessageMetadata = RunPayload.extend({
   state: z.string().optional(),
@@ -217,7 +225,7 @@ export function parseRun(value: unknown): Run {
     value,
     "runs",
   );
-  const payload = readJson(RunPayload, raw.payload, "runs", raw.id, "payload");
+  const payload = savedRunPayload(raw.payload, raw.id);
   const result = RunRow.safeParse({ ...Object(value), payload });
   if (!result.success) throw new InvalidRow("runs", raw.id, "row");
   return result.data;
@@ -237,7 +245,7 @@ export function runResponse<T extends { payload: string | Run["payload"] }>(
     payload:
       typeof run.payload === "string"
         ? run.payload
-        : JSON.stringify(run.payload),
+        : writeRunPayload(run.payload),
   };
 }
 
@@ -355,31 +363,13 @@ export function artifactResponse<T extends Artifact>(row: T) {
 // A fresh turn carries only these separately validated fields from its
 // predecessor. Unrelated corrupt execution fields never become defaults.
 export function readRunFolder(value: unknown, rowId: string) {
-  return readJson(
-    RunPayload.pick({ folderId: true }).strip(),
-    value,
-    "runs",
-    rowId,
-    "payload",
-  ).folderId;
+  return savedRunPayload(value, rowId, "folderId").folderId;
 }
 export function readRunReviewId(value: unknown, rowId: string) {
-  return readJson(
-    RunPayload.pick({ reviewId: true }).strip(),
-    value,
-    "runs",
-    rowId,
-    "payload",
-  ).reviewId;
+  return savedRunPayload(value, rowId, "reviewId").reviewId;
 }
 export function readRunConnectionId(value: unknown, rowId: string) {
-  return readJson(
-    RunPayload.pick({ connectionId: true }).strip(),
-    value,
-    "runs",
-    rowId,
-    "payload",
-  ).connectionId;
+  return savedRunPayload(value, rowId, "connectionId").connectionId;
 }
 
 export function parseMcpConnection(value: unknown) {

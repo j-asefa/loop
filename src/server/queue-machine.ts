@@ -1,3 +1,4 @@
+import { writeRunPayload, type RunPayload } from "../shared/run-payload.js";
 import { STALE_RUN_LEASE_MS } from "./run-lease.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
@@ -6,13 +7,7 @@ export const RunIdentity = z.object({
   id: z.string().min(1),
   owner_id: z.string().min(1),
 });
-import {
-  maybeRun,
-  parseRun,
-  InvalidRow,
-  RunPayload,
-  type Run,
-} from "./row-schemas.js";
+import { maybeRun, parseRun, InvalidRow, type Run } from "./row-schemas.js";
 import { Problem } from "../shared/problem.js";
 import { db, emit, id, now } from "./db.js";
 import type {
@@ -46,10 +41,10 @@ export function createRunQueue(hooks: QueueHooks) {
       agent?: string;
       conversation?: string;
       kind?: string;
-      payload?: unknown;
+      payload?: RunPayload;
     } = {},
   ) {
-    const payload = RunPayload.parse(
+    const payload = writeRunPayload(
       options.payload === undefined ? {} : options.payload,
     );
     return db
@@ -61,7 +56,7 @@ export function createRunQueue(hooks: QueueHooks) {
             prior.kind !== (options.kind || "agent") ||
             prior.agent_id !== (options.agent || null) ||
             prior.conversation_id !== (options.conversation || null) ||
-            JSON.stringify(prior.payload) !== JSON.stringify(payload)
+            writeRunPayload(prior.payload) !== payload
           )
             throw new Error(
               "Idempotency key was already used for another request",
@@ -85,7 +80,7 @@ export function createRunQueue(hooks: QueueHooks) {
           options.kind || "agent",
           input,
           key,
-          JSON.stringify(payload),
+          payload,
           now(),
           now(),
         );

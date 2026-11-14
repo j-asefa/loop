@@ -1,3 +1,4 @@
+import { runMatchesScope } from "../runScope.js";
 import {
   readArtifactMetadata,
   artifactMessageId,
@@ -59,7 +60,6 @@ import {
   threadDraft as readThreadDraft,
 } from "../drafts";
 import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
-import { parse } from "../json";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
 import type {
@@ -947,16 +947,8 @@ export function useAppController(seed?: AppNavigationInitial) {
         belongsToProject(a.folder_id, projectFilter, data.folders)) &&
       (!teamSelection.length || teamAgents.has(a.id)),
   );
-  const scopedRuns = runs.filter(
-    (r) =>
-      (!teamSelection.length ||
-        teamSelection.includes(parse<any>(r.payload, {}).teamId)) &&
-      (!projectFilter ||
-        belongsToProject(
-          parse<any>(r.payload, {}).folderId,
-          projectFilter,
-          data.folders,
-        )),
+  const scopedRuns = runs.filter((r) =>
+    runMatchesScope(r.payload, teamSelection, projectFilter, data.folders),
   );
   const profileWork = currentAgentWork(runs, profile?.id);
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);

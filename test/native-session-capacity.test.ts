@@ -1,3 +1,4 @@
+import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { chmodSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -36,7 +37,11 @@ afterAll(() => {
   delete process.env.LOOP_TEST_HARNESS;
   delete process.env.LOOP_TEST_ARGV;
 });
-function run(name: string, permissionMode = "default", conversation = name) {
+function run(
+  name: string,
+  permissionMode: RunPayload["permissionMode"] = "default",
+  conversation = name,
+) {
   db.prepare(
     "INSERT OR IGNORE INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Test',0)",
   ).run(conversation, OWNER);

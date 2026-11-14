@@ -91,7 +91,7 @@ function task(key: string) {
       name: agent.name,
       provider: "antigravity",
       folderId: null,
-      connectionId: agent.connection_id,
+      connectionId: "native-antigravity",
       model: "native-default",
       instructions: agent.instructions,
     },
