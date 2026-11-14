@@ -1,31 +1,40 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
-import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { useProjectionRoute } from "./SourceContext";
+import { workspaceApi } from "../shared/workspace-api";
+import { useProjectionQuery, CollectionReadNotice } from "./CollectionRead";
 import { Sheet } from "./components";
 import { MAX_CONCURRENT_RUNS } from "../shared/concurrency.js";
 export function PairedDevices({ onClose }: { onClose: () => void }) {
-  const read = useProjectionRoute();
-  const [workspace, setWorkspace] =
-      useState<RouteResponse<typeof workspaceApi.workspace>>(),
-    [devices, setDevices] = useState<
-      RouteResponse<typeof workspaceApi.workspaceDevices>
-    >([]),
-    [error, setError] = useState("");
+  const source = executionSourceId();
+  const workspaceRead = useProjectionQuery(
+    workspaceApi.workspace,
+    {},
+    { source, collections: ["metadata", "runs"] },
+  );
+  const devicesRead = useProjectionQuery(
+    workspaceApi.workspaceDevices,
+    {},
+    { source, collections: ["metadata"] },
+  );
+  const workspace = workspaceRead.data,
+    devices = devicesRead.data ?? [];
+  const [error, setError] = useState("");
   async function load() {
-    const [w, d] = await Promise.all([
-      read(workspaceApi.workspace, {}),
-      callRoute(workspaceApi.workspaceDevices, {}, executionSourceId()),
-    ]);
-    setWorkspace(w);
-    setDevices(d);
+    await Promise.all([workspaceRead.refresh(true), devicesRead.refresh(true)]);
   }
-  useEffect(() => {
-    void load().catch((e) => setError(e.message));
-  }, []);
   return (
     <Sheet title="This computer & paired devices" onClose={onClose}>
+      <CollectionReadNotice
+        error={workspaceRead.error && "Computer status: " + workspaceRead.error}
+        busy={workspaceRead.busy}
+        retry={() => void workspaceRead.refresh(true)}
+      />
+      <CollectionReadNotice
+        error={devicesRead.error && "Paired devices: " + devicesRead.error}
+        busy={devicesRead.busy}
+        retry={() => void devicesRead.refresh(true)}
+      />
       <p>
         All projects and native harnesses run on this computer. Loop keeps
         running in the background until <code>loop stop</code>; your phone can
@@ -50,7 +59,7 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
                 await callRoute(
                   workspaceApi.workspaceRevoke,
                   { body: { id: d.id } },
-                  executionSourceId(),
+                  source,
                 );
                 await load();
               } catch (e) {

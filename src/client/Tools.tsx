@@ -1,12 +1,13 @@
 import { McpConnectionId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
-import { useSourceRoute, useProjectionRoute } from "./SourceContext";
-import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { useEffect, useState } from "react";
+import { useSourceRoute, useSourceId } from "./SourceContext";
+import { workspaceApi } from "../shared/workspace-api";
+import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { parse } from "./json";
 import { Sheet } from "./components";
 import { SettingsNote } from "./SettingsUI";
+import { useProjectionQuery } from "./CollectionRead";
 import { McpCatalog } from "./McpCatalog";
 import {
   PERMISSION_MODES,
@@ -20,11 +21,33 @@ export function Tools({
   initialView?: "catalog" | "permissions";
 }) {
   const call = useSourceRoute(),
-    readRoute = useProjectionRoute();
-  const [connections, setConnections] = useState<
-      RouteResponse<typeof workspaceApi.mcpList>
-    >([]),
-    [view, setView] = useState<string>(initialView),
+    source = useSourceId();
+  const connectionsQuery = useProjectionQuery(
+    workspaceApi.mcpList,
+    {},
+    { source, collections: ["metadata"] },
+  );
+  const preferencesQuery = useProjectionQuery(
+    workspaceApi.mcpPreferences,
+    {},
+    { source, collections: ["metadata"] },
+  );
+  const candidatesQuery = useProjectionQuery(
+    workspaceApi.mcpNativeCandidates,
+    {},
+    { source, collections: ["metadata"] },
+  );
+  const connections = connectionsQuery.data ?? [];
+  const connectionsReady = !!connectionsQuery.data;
+  const approvalMode = preferencesQuery.data?.approvalMode ?? null;
+  const agentMode = preferencesQuery.data?.agentPermissionMode ?? null;
+  const nativeCandidates = candidatesQuery.data ?? [];
+  const readErrors = {
+    tools: connectionsQuery.error,
+    permissions: preferencesQuery.error,
+    imports: candidatesQuery.error,
+  };
+  const [view, setView] = useState<string>(initialView),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState("datadog"),
     [editing, setEditing] = useState<string | null>(null),
@@ -34,51 +57,13 @@ export function Tools({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
-  const [approvalMode, setApprovalMode] = useState<"ask" | "allow" | null>(
-    null,
-  );
-  const [agentMode, setAgentMode] = useState<PermissionMode | null>(null);
   const [configJson, setConfigJson] = useState("");
-  const [nativeCandidates, setNativeCandidates] = useState<
-    RouteResponse<typeof workspaceApi.mcpNativeCandidates>
-  >([]);
-  const [readErrors, setReadErrors] = useState<Record<string, string>>({});
-  const [connectionsReady, setConnectionsReady] = useState(false);
-  async function read(key: string, fn: () => Promise<void>) {
-    try {
-      await fn();
-      setReadErrors((old) => ({ ...old, [key]: "" }));
-    } catch (e) {
-      setReadErrors((old) => ({ ...old, [key]: (e as Error).message }));
-    }
-  }
-  async function loadConnections() {
-    await read("tools", async () => {
-      setConnections(await readRoute(workspaceApi.mcpList, {}));
-      setConnectionsReady(true);
-    });
-  }
-  async function loadPreferences() {
-    await read("permissions", async () => {
-      const preferences = await readRoute(workspaceApi.mcpPreferences, {});
-      setApprovalMode(preferences.approvalMode);
-      setAgentMode(preferences.agentPermissionMode);
-    });
-  }
-  async function loadCandidates() {
-    await read("imports", async () => {
-      setNativeCandidates(
-        await readRoute(workspaceApi.mcpNativeCandidates, {}),
-      );
-    });
-  }
+  const loadConnections = () => connectionsQuery.refresh(true);
+  const loadPreferences = () => preferencesQuery.refresh(true);
+  const loadCandidates = () => candidatesQuery.refresh(true);
   async function load() {
     await Promise.all([loadConnections(), loadPreferences()]);
   }
-  useEffect(() => {
-    void load();
-    void loadCandidates();
-  }, []);
   async function action(fn: () => Promise<void>) {
     setError("");
     setNotice("");
@@ -193,7 +178,10 @@ export function Tools({
                   const result = await call(workspaceApi.mcpPreferencesUpdate, {
                     body: { agentPermissionMode: mode },
                   });
-                  setAgentMode(result.agentPermissionMode);
+                  preferencesQuery.replace({
+                    approvalMode: result.approvalMode,
+                    agentPermissionMode: result.agentPermissionMode,
+                  });
                   setNotice(
                     "Agents use this from their next turn. Requests already waiting still need a decision.",
                   );
@@ -227,7 +215,10 @@ export function Tools({
                   const result = await call(workspaceApi.mcpPreferencesUpdate, {
                     body: { approvalMode: mode },
                   });
-                  setApprovalMode(result.approvalMode);
+                  preferencesQuery.replace({
+                    approvalMode: result.approvalMode,
+                    agentPermissionMode: result.agentPermissionMode,
+                  });
                   setNotice(
                     mode === "allow"
                       ? `Connected tools can run automatically.${result.resumed ? ` ${result.resumed} waiting ${result.resumed === 1 ? "task has" : "tasks have"} resumed.` : ""}`

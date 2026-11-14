@@ -1,8 +1,9 @@
 import { literalEntry } from "./textEntry";
-import { useSourceRoute, useProjectionRoute } from "./SourceContext";
-import { useEffect, useRef, useState } from "react";
+import { useSourceRoute, useSourceId } from "./SourceContext";
+import { useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { parse } from "./json";
+import { useProjectionQuery } from "./CollectionRead";
 import { catalogResults } from "./catalogSearch";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 type CatalogEntry = RouteResponse<
@@ -25,30 +26,22 @@ export function McpCatalog({
   onInstalled: () => Promise<void>;
 }) {
   const call = useSourceRoute(),
-    read = useProjectionRoute();
-  const [catalog, setCatalog] =
-      useState<RouteResponse<typeof workspaceApi.mcpCatalog>>(),
-    [query, setQuery] = useState(""),
+    source = useSourceId();
+  const catalogRead = useProjectionQuery(
+    workspaceApi.mcpCatalog,
+    {},
+    { source },
+  );
+  const catalog = catalogRead.data;
+  const [query, setQuery] = useState(""),
     [category, setCategory] = useState("All"),
     [noAccount, setNoAccount] = useState(false),
     [expanded, setExpanded] = useState<string>(),
     [busy, setBusy] = useState<string>(),
-    [loadError, setLoadError] = useState(""),
     [feedback, setFeedback] = useState<
       Record<string, { message: string; error: boolean }>
     >({});
   const installing = useRef(false);
-  async function load() {
-    setLoadError("");
-    try {
-      setCatalog(await read(workspaceApi.mcpCatalog, {}));
-    } catch (e) {
-      setLoadError((e as Error).message);
-    }
-  }
-  useEffect(() => {
-    void load();
-  }, []);
   function connection(entry: CatalogEntry) {
     return (
       connections.find(
@@ -101,14 +94,18 @@ export function McpCatalog({
       setBusy(undefined);
     }
   }
-  if (loadError)
-    return (
-      <div role="alert">
-        <p className="error">{loadError}</p>
-        <button onClick={() => void load()}>Retry loading catalog</button>
-      </div>
-    );
-  if (!catalog) return <p role="status">Loading tool catalog…</p>;
+  const readNotice = catalogRead.error ? (
+    <div role="alert">
+      <p className="error">{catalogRead.error}</p>
+      <button
+        disabled={catalogRead.busy}
+        onClick={() => void catalogRead.refresh(true)}
+      >
+        Retry loading catalog
+      </button>
+    </div>
+  ) : null;
+  if (!catalog) return readNotice ?? <p role="status">Loading tool catalog…</p>;
   const categories = [
     "All",
     ...new Set(catalog.entries.map((e) => e.category)),
@@ -116,6 +113,7 @@ export function McpCatalog({
   const entries = catalogResults(catalog.entries, query, category, noAccount);
   return (
     <section aria-label="MCP catalog">
+      {readNotice}
       <label className="catalog-search">
         <span className="sr-only">Search tools</span>
         <Search size={17} aria-hidden="true" />
