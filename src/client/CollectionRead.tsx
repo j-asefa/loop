@@ -112,6 +112,8 @@ type PagedOptions<P, C> = {
   enabled?: boolean;
   events?: readonly string[];
   coalesceDelay?: number;
+  revision?: string | number;
+  requireAdvance?: boolean;
   needsRefresh?: (page: P) => boolean;
   empty: P;
   collections: QueryOptions["collections"];
@@ -166,6 +168,7 @@ export function usePagedProjectionQuery<
       events = ["loop-refresh"],
       coalesceDelay = 0,
       needsRefresh,
+      requireAdvance = false,
     } = context.options;
     if (!enabled) return;
     const sourceList = typeof source === "string" ? [source] : source;
@@ -221,6 +224,8 @@ export function usePagedProjectionQuery<
           },
         );
         if (stale()) return;
+        if (requireAdvance && before !== undefined && page.next === before)
+          throw new Error("Pagination did not advance");
         current = page;
         complete = true;
         setState({
@@ -289,7 +294,6 @@ export function usePagedProjectionQuery<
       }),
     );
     for (const event of events) window.addEventListener(event, refresh);
-    void load();
     return () => {
       controller.abort();
       clearTimeout(timer);
@@ -297,6 +301,9 @@ export function usePagedProjectionQuery<
       for (const event of events) window.removeEventListener(event, refresh);
     };
   }, [context]);
+  useEffect(() => {
+    if (options.enabled !== false) context.refresh();
+  }, [context, options.revision]);
   return {
     ...(options.enabled === false
       ? { page: options.empty, loading: false, appending: false, error: "" }
