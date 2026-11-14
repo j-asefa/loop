@@ -831,6 +831,11 @@ export const QueryRecords = {
     head_sha: z.string().nullable(),
     ci_sha: z.string().nullable(),
     ci_conclusion: z.string().nullable(),
+    // Historical storage only. Some already-upgraded databases removed these
+    // columns; current polling and public projections do not use them.
+    comment_cursor: z.number().optional(),
+    review_comment_cursor: z.number().optional(),
+    review_cursor: z.number().optional(),
     since_at: z.number().nullable(),
     next_poll_at: z.number(),
     ci_pending: z.number(),

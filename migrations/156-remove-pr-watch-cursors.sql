@@ -1,5 +1,5 @@
 -- Retain historical watch rows, dependent history and inert cursor values.
--- Runtime queries no longer read these cursors. Only the change trigger
+-- Runtime behavior no longer uses these cursors. Only the change trigger
 -- needs to stop treating them as current state; no table rebuild is needed.
 DROP TRIGGER change_pr_watches_update;
 
