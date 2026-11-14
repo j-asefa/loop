@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 // The one closed set of artifact kinds. A kind stays here only while a
-// production code path writes it (D1); the kind says how the content is
+// current or released production code path writes it; the kind says how the content is
 // rendered, never what the artifact is (that is `role`, PR 2).
 export const ArtifactKinds = [
+  // v0.1.0 allowed saved code snippets. Keep existing content readable.
+  "code",
   "markdown",
   "image",
   "github_pr",

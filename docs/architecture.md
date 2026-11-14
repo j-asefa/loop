@@ -554,7 +554,9 @@ launch settings, saved workspace launch validation and subprocess argument
 encoding/decoding. Start, restart and service installation read fields from that
 record; the in-process connection entrypoint accepts its connection variant.
 Preferences remain separate fallbacks. User CLI validation and command effects
-stay in the CLI; OS service definitions receive rendered arguments.
+stay in the CLI; OS service definitions receive rendered arguments. The reader
+normalizes the v0.1.0 saved argv format, and writes include derived argv for
+released readers; see [pairing and recovery](pairing.md).
 
 ### Agent sources and execution environments
 

@@ -221,7 +221,8 @@
                       "connected",
                       "disconnected",
                       "needs_reconnect",
-                      "needs_sign_in"
+                      "needs_sign_in",
+                      "signing_in"
                     ]
                   }
                 },

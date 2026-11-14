@@ -1,5 +1,9 @@
+-- Preserve released file references and their existing object paths.
+CREATE TEMP TABLE artifact_objects_saved AS SELECT * FROM artifact_objects;
 DROP TABLE artifact_objects;
 CREATE TABLE artifact_objects(artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id),owner_id TEXT NOT NULL,run_id TEXT NOT NULL,call_id TEXT NOT NULL,object_key TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,checksum TEXT NOT NULL,UNIQUE(run_id,call_id));
+INSERT INTO artifact_objects SELECT * FROM artifact_objects_saved;
+DROP TABLE artifact_objects_saved;
 
 -- Preserve current projection and event triggers when removing key uniqueness.
 CREATE TRIGGER card_artifact_object_delete BEFORE DELETE ON artifact_objects

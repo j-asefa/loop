@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -91,6 +91,28 @@ test("one typed launch preserves selected harnesses, stored fields and process a
     for (const [index, launch] of launches.entries()) {
       writeLaunch(dir, launch);
       assert.deepEqual(await readLaunch(dir), launch);
+      const written = JSON.parse(
+        await readFile(join(dir, "launch.json"), "utf8"),
+      );
+      assert.equal(written.schema, 1);
+      assert.deepEqual(
+        written.args,
+        expectedArgs[index],
+        "released 0.1.0 reader can repeat new writes",
+      );
+      await writeFile(
+        join(dir, "launch.json"),
+        JSON.stringify({
+          schema: 1,
+          args: expectedArgs[index],
+          version: "0.1.0",
+        }),
+      );
+      assert.deepEqual(
+        JSON.parse(JSON.stringify(await readLaunch(dir))),
+        launch,
+        "every released launch field survives upgrade",
+      );
       assert.deepEqual(launchArguments(launch), expectedArgs[index]);
       const decoded = parseLaunchArguments(
         "workspace",
@@ -152,10 +174,31 @@ test("one typed launch preserves selected harnesses, stored fields and process a
       join(dir, "launch.json"),
       JSON.stringify({ schema: 1, args: ["start"] }),
     );
+    assert.equal((await readLaunch(dir))?.action, "start");
+    await writeFile(
+      join(dir, "preferences.json"),
+      JSON.stringify({
+        publicUrl: "https://released.example",
+        tunnelName: "released",
+        tunnelConfig: "/released/config.yml",
+      }),
+    );
+    const restored = await readLaunch(dir);
+    assert.equal(restored?.publicUrl, "https://released.example");
+    assert.equal(restored?.tunnelName, "released");
+    assert.equal(restored?.tunnelConfig, "/released/config.yml");
+    await writeFile(
+      join(dir, "launch.json"),
+      JSON.stringify({
+        schema: 1,
+        args: ["start", "--local-only"],
+        version: "0.1.0",
+      }),
+    );
     assert.equal(
-      await readLaunch(dir),
+      (await readLaunch(dir))?.publicUrl,
       undefined,
-      "the old argv record is not read or converted",
+      "local-only released launches bypass preference tunnels",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

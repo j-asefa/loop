@@ -9,6 +9,8 @@ import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-artifact-reader-"));
 let browser, server;
 const held = [];
+const historicalCode =
+  "<script>window.historicalCodeExecuted=true</script>\nconsole.log(42)";
 try {
   const entry = join(dir, "entry.mjs");
   await writeFile(
@@ -17,6 +19,8 @@ try {
     import React,{useRef,useState} from ${JSON.stringify(resolve("node_modules/react/index.js"))};
     import {createRoot} from ${JSON.stringify(resolve("node_modules/react-dom/client.js"))};
     import {flushSync} from ${JSON.stringify(resolve("node_modules/react-dom/index.js"))};
+    import {ResultPreview} from ${JSON.stringify(resolve("src/client/components.tsx"))};
+    import {ResultBody} from ${JSON.stringify(resolve("src/client/ArtifactViewer.tsx"))};
     import {useArtifactReads} from ${JSON.stringify(resolve("src/client/app/ArtifactReads.tsx"))};
     import {CollectionReadNotice} from ${JSON.stringify(resolve("src/client/CollectionRead.tsx"))};
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
@@ -32,6 +36,8 @@ try {
       window.owner=value=>flushSync(()=>{ownerRef.current=value;ownerSession.change(value);setOpened('');setReply('');render(n=>n+1);});
       window.source=value=>flushSync(()=>{setShellSource(value);setOpened('');setReply('');render(n=>n+1);});
       return React.createElement(React.Fragment,null,
+        React.createElement('section',{id:'historical-code'},React.createElement(ResultBody,{card:{display:{},role:'snippet',kind:'code',title:'Released code',content:${JSON.stringify(historicalCode)},source:{artifact_id:'released-code',conversation_id:null}}})),
+        React.createElement('section',{id:'historical-preview'},React.createElement(ResultPreview,{card:{display:{},role:'snippet',kind:'code',title:'Released code',content:${JSON.stringify(historicalCode)},source:{artifact_id:'released-code',conversation_id:null}}})),
         React.createElement('output',{id:'opened'},opened),React.createElement('output',{id:'reply'},reply),
         React.createElement('section',{id:'open-notice'},React.createElement(CollectionReadNotice,api.opening)),
         React.createElement('section',{id:'reply-notice'},React.createElement(CollectionReadNotice,api.replying)));
@@ -127,6 +133,16 @@ try {
     page.on("pageerror", (error) => errors.push(error.message));
     await page.goto(
       `http://127.0.0.1:${server.address().port}/${scenario === "initial" ? "?artifact=one" : ""}`,
+    );
+    await expect(page.locator("#historical-code pre code")).toHaveText(
+      historicalCode,
+    );
+    await expect(page.locator("#historical-preview pre code")).toHaveText(
+      historicalCode,
+    );
+    assert.equal(
+      await page.evaluate(() => window.historicalCodeExecuted),
+      undefined,
     );
     if (scenario === "retry-policy") {
       failure = 503;

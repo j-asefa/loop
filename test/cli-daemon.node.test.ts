@@ -1190,7 +1190,18 @@ test("fresh starts retain managed project and the latest billing preference", as
       "fresh start uses the newer explicit choice",
     );
     await w.loop(["stop"]);
+    const preferencesPath = join(w.dir, "preferences.json");
+    const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
+    await writeFile(
+      preferencesPath,
+      JSON.stringify({ ...preferences, providers: "codex" }),
+    );
     await w.loop(["--local-only"]);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).providers,
+      ["codex"],
+      "fresh start retains the released provider preference",
+    );
     assert.equal(
       (await w.status()).project,
       w.env.LOOP_HOME,

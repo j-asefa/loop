@@ -1,3 +1,5 @@
+// Multi-machine cases include full database migrations in their fixture budget.
+// Their simulated lease/recovery deadlines remain unchanged.
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -283,8 +285,7 @@ it("recovers a refused renewal from another replica while the controller is unre
   expect(credential.context.directory).toBe(directoryDigest(newer.document));
   expect(c.credentials.authenticate(credential.token).owner).toBe(c.owner);
   expect(issued).toBe(1);
-});
-
+}, 15_000);
 it("coalesces refusal recovery across operation leases and bounds repeated history reads", async () => {
   const f = fixture(),
     pending = deferred();

@@ -552,6 +552,14 @@ function ArtifactPreview({
     );
   }
   switch (item.kind) {
+    case "code":
+      return (
+        <pre className="code-preview">
+          <code>
+            {item.content.split("\n").slice(0, 8).join("\n").slice(0, 4000)}
+          </code>
+        </pre>
+      );
     case "github_pr": // Malformed PR content uses the generic preview.
     case "table":
     case "markdown":

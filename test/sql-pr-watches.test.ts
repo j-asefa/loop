@@ -22,6 +22,12 @@ it("keeps lazy query statements on their supplied connection and inside the proj
     first.exec(
       "ALTER TABLE pr_watches ADD COLUMN private_column TEXT DEFAULT 'private'",
     );
+    // Also read a workspace that already applied the earlier cursor-removal
+    // migration. Historical columns are optional at the storage boundary.
+    second.exec(`ALTER TABLE pr_watches DROP COLUMN comment_cursor;
+      ALTER TABLE pr_watches DROP COLUMN review_comment_cursor;
+      ALTER TABLE pr_watches DROP COLUMN review_cursor;`);
+
     let projections = 0;
     installProjectionBoundary(first, () => {
       expect(first.inTransaction).toBe(true);

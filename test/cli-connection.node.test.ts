@@ -180,6 +180,11 @@ test("restart replaces only the application: same service, cloudflared, address,
     const devices = (await phone.send("GET", "/api/workspace/devices")).json;
     assert.equal(devices.length, 1);
 
+    // This is the exact persisted envelope/argv emitted by released v0.1.0.
+    writeFileSync(
+      join(w.env.LOOP_HOME, "workspace", "launch.json"),
+      JSON.stringify({ schema: 1, args: w.harness, version: "0.1.0" }),
+    );
     const restarted = await w.loop(["restart"]);
     assert.match(restarted.stdout, /Same address: https:\/\/loop-fixture-/);
     assert.doesNotMatch(
@@ -1167,6 +1172,13 @@ test("named tunnel startup and service installation repeat the saved launch with
     await w.loop(["stop"]);
     const dir = join(w.env.LOOP_HOME, "workspace");
     await rm(join(dir, "preferences.json"));
+    const releasedArgs = JSON.parse(
+      await readFile(join(dir, "launch.json"), "utf8"),
+    ).args;
+    writeFileSync(
+      join(dir, "launch.json"),
+      JSON.stringify({ schema: 1, args: releasedArgs, version: "0.1.0" }),
+    );
     const savedLaunch = await readFile(join(dir, "launch.json"), "utf8");
     await assert.rejects(
       w.loop([
@@ -1192,12 +1204,15 @@ test("named tunnel startup and service installation repeat the saved launch with
     const preferences = JSON.parse(
       await readFile(join(dir, "preferences.json"), "utf8"),
     );
-    for (const key of ["publicUrl", "tunnelName", "tunnelConfig"])
-      assert.equal(
-        key in preferences,
-        false,
-        key + " is stored only in launch.json",
-      );
+    assert.equal(preferences.publicUrl, origin);
+    assert.equal(preferences.tunnelName, "fixture");
+    assert.equal(preferences.tunnelConfig, config);
+    // Released service installation falls back to preferences when saved argv
+    // omits tunnel flags; the upgraded CLI must do the same.
+    writeFileSync(
+      join(dir, "launch.json"),
+      JSON.stringify({ schema: 1, args: w.harness, version: "0.1.0" }),
+    );
     const home = join(w.base, "home");
     const bin = join(home, "bin");
     await mkdir(bin, { recursive: true });

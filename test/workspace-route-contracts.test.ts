@@ -197,10 +197,15 @@ it("keeps input errors identical to existing Zod/Problem handling and strips und
 it("serves a credential-free bootstrap from the production HTTP app and retains serialized catalogs", async () => {
   const f = fixture(),
     foreign = fixture(id());
+  // The released sign-in path can leave this state across a process exit.
+  db.prepare("UPDATE connections SET status='signing_in' WHERE id=?").run(
+    f.connection,
+  );
   const result = await request("/bootstrap");
   expect(result.status).toBe(200);
   const data = workspaceApi.bootstrap.response.parse(result.data);
   const connection = data.connections.find((row) => row.id === f.connection)!;
+  expect(connection.status).toBe("signing_in");
   expect(connection.models).toBe('[{"id":"fixture","name":"Fixture"}]');
   expect(connection).not.toHaveProperty("secret");
   expect(connection).not.toHaveProperty("owner_id");

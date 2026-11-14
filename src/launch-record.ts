@@ -44,19 +44,56 @@ export const defaultLaunch: WorkspaceLaunch = {
   action: "start",
 };
 
+// v0.1.0 stores the resolved command as argv. Keep compatibility at this
+// boundary; every current caller receives the typed record.
+const ReleasedLaunch = z.object({
+  schema: z.literal(1),
+  args: z.array(z.string()),
+  version: z.string().optional(),
+});
+
 export async function readLaunch(
   dir: string,
 ): Promise<WorkspaceLaunch | undefined> {
   const saved = await readFile(join(dir, PROCESS_FILES.launch), "utf8")
     .then(JSON.parse)
     .catch(() => undefined);
-  const parsed = LaunchRecord.safeParse(saved);
-  return parsed.success && parsed.data.kind === "workspace"
-    ? parsed.data
-    : undefined;
+  let launch: WorkspaceLaunch;
+  if (saved?.kind === "workspace") {
+    // args is a derived projection for released readers, not a second source
+    // for current callers. Old binaries overwrite the whole file on launch.
+    const { args: _args, version: _version, ...record } = saved;
+    const parsed = LaunchRecord.safeParse(record);
+    if (!parsed.success || parsed.data.kind !== "workspace") return undefined;
+    launch = parsed.data;
+  } else {
+    const released = ReleasedLaunch.safeParse(saved);
+    if (!released.success) return undefined;
+    launch = parseLaunchArguments("workspace", released.data.args).launch;
+  }
+  // The released CLI falls back to preferences for omitted tunnel arguments
+  // when restarting or installing a service. Never execute the saved argv.
+  const preferences = await readFile(
+    join(dir, PROCESS_FILES.preferences),
+    "utf8",
+  )
+    .then(JSON.parse)
+    .catch(() => ({}));
+  if (!launch.localOnly) {
+    for (const key of ["publicUrl", "tunnelName", "tunnelConfig"] as const)
+      if (launch[key] === undefined && typeof preferences?.[key] === "string")
+        launch[key] = preferences[key];
+  }
+  return launch;
 }
 export function writeLaunch(dir: string, launch: WorkspaceLaunch) {
-  atomic(join(dir, PROCESS_FILES.launch), LaunchRecord.parse(launch));
+  const record = LaunchRecord.parse(launch);
+  // A user returning to the released CLI must still be able to restart with
+  // the same settings. Derive its representation atomically from our record.
+  atomic(join(dir, PROCESS_FILES.launch), {
+    ...record,
+    args: launchArguments(record),
+  });
 }
 export function tunnelArguments(mode: TunnelMode) {
   return mode.kind === "named"
@@ -70,7 +107,7 @@ export function tunnelArguments(mode: TunnelMode) {
     : [];
 }
 
-/** OS process/unit arguments are derived here, never stored as launch state. */
+/** Derive process/unit arguments and the released-reader compatibility projection. */
 export function launchArguments(
   launch: LaunchRecord,
   resume?: string,
