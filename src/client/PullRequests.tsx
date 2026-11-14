@@ -1,7 +1,13 @@
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
-import { useProjectionRoute } from "./SourceContext";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useSourceId } from "./SourceContext";
+import {
+  CollectionReadNotice,
+  useCollectionRead,
+  useProjectionQuery,
+} from "./CollectionRead";
+import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -35,10 +41,8 @@ import {
   type ChecksState,
   type MergeMethod,
   type PullComment,
-  type PullCommitFiles,
   type PullFile,
   type PullDetail,
-  type PullFiles,
   type PullFilter,
   type PullInbox,
   type PullListItem,
@@ -120,7 +124,16 @@ function StatusChips({ pr }: { pr: PullListItem }) {
   );
 }
 
-export function PullRequests({
+export function PullRequests(props: Parameters<typeof PullRequestsView>[0]) {
+  const source = useSourceId();
+  return (
+    <PullRequestsView
+      key={JSON.stringify([viewGeneration(), source])}
+      {...props}
+    />
+  );
+}
+function PullRequestsView({
   selected,
   onSelect,
   onConnect,
@@ -149,7 +162,8 @@ export function PullRequests({
 
 // The list keeps its last read while you look at a pull request, so going
 // back shows it at once; Refresh or a new filter reads GitHub again.
-let lastInbox: { key: string; inbox: PullInbox } | undefined;
+type InboxCache = { key: string; inbox: PullInbox };
+const INBOX_CACHE = "pull-inbox";
 
 function PullRequestInbox({
   onSelect,
@@ -158,7 +172,8 @@ function PullRequestInbox({
   onSelect: (key: string) => void;
   onConnect: () => void;
 }) {
-  const read = useProjectionRoute();
+  const source = useSourceId();
+  const owner = viewOwner();
   const [filter, setFilterState] = useState<PullFilter>(
     () =>
       (PULL_FILTERS.find(
@@ -170,50 +185,52 @@ function PullRequestInbox({
   );
   const [terms, setTerms] = useState("");
   const [input, setInput] = useState("");
-  const key = JSON.stringify([filter, repo, terms]);
+  const key = JSON.stringify([source, filter, repo, terms]);
+  const lastInbox = cachedView<InboxCache>(INBOX_CACHE);
   const [inbox, setInbox] = useState<PullInbox | null>(
     lastInbox?.key === key ? lastInbox.inbox : null,
   );
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const request = useRef(0);
-  const load = async () => {
-    const mine = ++request.current;
-    setBusy(true);
-    setError("");
-    try {
-      const result = await read(workspaceApi.githubPullList, {
-        query: { filter, repo: repo || undefined, q: terms || undefined },
-      });
-      if (mine !== request.current) return;
-      // Only a connected read is kept: connecting GitHub must show at once.
-      lastInbox = result.connected ? { key, inbox: result } : undefined;
-      setInbox(result);
-    } catch (e) {
-      if (mine === request.current) setError((e as Error).message);
-    } finally {
-      if (mine === request.current) setBusy(false);
-    }
-  };
+  const reader = useCollectionRead(key);
+  const busy = reader.busy,
+    error = reader.error;
+  const load = (manual = false) =>
+    reader.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.githubPullList,
+          {
+            query: { filter, repo: repo || undefined, q: terms || undefined },
+          },
+          source,
+          signal,
+          undefined,
+          mode,
+        ),
+      (result) => {
+        cacheView<InboxCache | undefined>(
+          INBOX_CACHE,
+          result.connected ? { key, inbox: result } : undefined,
+          owner,
+        );
+        setInbox(result);
+      },
+      manual,
+    );
   useEffect(() => {
     if (lastInbox?.key === key) setInbox(lastInbox.inbox);
     else void load();
-  }, [key]);
+  }, [key, reader.load]);
   useEffect(() => {
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
     window.addEventListener(TOOLS_CLOSED, refresh);
-    const stopChanges = listenWorkspaceChanges(
-      "pulls",
-      refresh,
-      executionSourceId(),
-    );
+    const stopChanges = listenWorkspaceChanges("pulls", refresh, source);
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
       window.removeEventListener(TOOLS_CLOSED, refresh);
     };
-  });
+  }, [key, reader.load]);
   const setFilter = (value: PullFilter) => {
     setFilterState(value);
     sessionStorage.setItem("loop-pull-filter", value);
@@ -252,7 +269,7 @@ function PullRequestInbox({
               <button
                 className="secondary"
                 disabled={busy}
-                onClick={() => void load()}
+                onClick={() => void load(true)}
               >
                 Check again
               </button>
@@ -277,7 +294,7 @@ function PullRequestInbox({
         <button
           className="secondary"
           disabled={busy}
-          onClick={() => void load()}
+          onClick={() => void load(true)}
           aria-label="Refresh pull requests"
         >
           <RefreshCw size={16} className={busy ? "spin" : ""} /> Refresh
@@ -330,7 +347,7 @@ function PullRequestInbox({
       {error && (
         <p className="error" role="alert">
           {error}{" "}
-          <button className="text-button" onClick={() => void load()}>
+          <button className="text-button" onClick={() => void load(true)}>
             Try again
           </button>
         </p>
@@ -530,32 +547,22 @@ function FileList({
   url: string;
   headSha: string;
 }) {
-  const [data, setData] = useState<PullFiles | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let live = true;
-    const controller = new AbortController();
-    readRoute(
-      workspaceApi.githubPullFiles,
-      {
-        params: { ...pullRef, number: parsePullNumber(pullRef.number) },
-        query: { head: GitCommitId.parse(headSha) },
-      },
-      executionSourceId(),
-      controller.signal,
-    )
-      .then((result) => live && setData(result))
-      .catch((e) => live && setError(e.message));
-    return () => {
-      live = false;
-      controller.abort();
-    };
-  }, []);
-  if (error)
+  const query = useProjectionQuery(
+    workspaceApi.githubPullFiles,
+    {
+      params: { ...pullRef, number: parsePullNumber(pullRef.number) },
+      query: { head: GitCommitId.parse(headSha) },
+    },
+    { source: useSourceId() },
+  );
+  const data = query.data;
+  if (query.error)
     return (
-      <p className="error" role="alert">
-        {error}
-      </p>
+      <CollectionReadNotice
+        error={query.error}
+        busy={query.busy}
+        retry={query.retry}
+      />
     );
   if (!data || data.headSha !== headSha)
     return <p className="muted">Reading the changed files…</p>;
@@ -665,43 +672,32 @@ function CommitChanges({
   pullRef: PullRequestRef;
   commit: NonNullable<PullDetail["commitHistory"]>[number];
 }) {
-  const [data, setData] = useState<PullCommitFiles | null>(null);
-  const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let live = true;
-    setError("");
-    const controller = new AbortController();
-    readRoute(
-      workspaceApi.githubPullCommitFiles,
-      {
-        params: {
-          ...pullRef,
-          number: parsePullNumber(pullRef.number),
-          sha: GitCommitId.parse(commit.sha),
-        },
+  const query = useProjectionQuery(
+    workspaceApi.githubPullCommitFiles,
+    {
+      params: {
+        ...pullRef,
+        number: parsePullNumber(pullRef.number),
+        sha: GitCommitId.parse(commit.sha),
       },
-      executionSourceId(),
-      controller.signal,
-    )
-      .then((result) => {
-        if (result.sha.toLowerCase() !== commit.sha.toLowerCase())
-          throw new Error(
-            "GitHub did not return this commit's changes. Try again.",
-          );
-        if (live) setData(result);
-      })
-      .catch((e) => live && setError(e.message));
-    return () => {
-      live = false;
-      controller.abort();
-    };
-  }, [attempt, pullRef.owner, pullRef.repo, pullRef.number, commit.sha]);
+    },
+    { source: useSourceId() },
+  );
+  const data = query.data;
+  const error =
+    query.error ||
+    (data && data.sha.toLowerCase() !== commit.sha.toLowerCase()
+      ? "GitHub did not return this commit's changes. Try again."
+      : "");
   if (error)
     return (
       <div role="alert">
         <p className="error">{error}</p>
-        <button className="text-button" onClick={() => setAttempt(attempt + 1)}>
+        <button
+          className="text-button"
+          disabled={query.busy}
+          onClick={query.retry}
+        >
           Try again
         </button>
       </div>
@@ -779,49 +775,42 @@ function PullRequestDetail({
   onConnect: () => void;
   onAsk?: (text: string) => void;
 }) {
-  const read = useProjectionRoute();
+  const source = useSourceId();
+  const reader = useCollectionRead(JSON.stringify([source, pullRef]));
   const [pr, setPr] = useState<PullDetail | null>(null);
-  const [error, setError] = useState<{ message: string; status?: number }>();
-  const [busy, setBusy] = useState(false);
+  const error = reader.error ? { message: reader.error } : undefined;
+  const busy = reader.busy;
   const [page, setPage] = useState<
     "overview" | "files" | "commits" | "conversation"
   >("overview");
   const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState("");
-  const load = async () => {
-    setBusy(true);
-    setError(undefined);
-    try {
-      setPr(
-        await read(workspaceApi.githubPullDetail, {
-          params: { ...pullRef, number: parsePullNumber(pullRef.number) },
-        }),
-      );
-    } catch (e) {
-      setError({
-        message: (e as Error).message,
-        status: (e as { status?: number }).status,
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const load = (manual = false) =>
+    reader.load(
+      (signal, mode) =>
+        readRoute(
+          workspaceApi.githubPullDetail,
+          {
+            params: { ...pullRef, number: parsePullNumber(pullRef.number) },
+          },
+          source,
+          signal,
+          undefined,
+          mode,
+        ),
+      setPr,
+      manual,
+    );
   useEffect(() => {
     void load();
-  }, []);
-  useEffect(() => {
     const refresh = () => void load();
     window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges(
-      "pulls",
-      refresh,
-      executionSourceId(),
-    );
+    const stopChanges = listenWorkspaceChanges("pulls", refresh, source);
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
     };
-  });
+  }, [reader.load]);
   const name = `${pullRef.owner}/${pullRef.repo}#${pullRef.number}`;
   const back = (
     <button className="text-button" onClick={onBack}>
@@ -840,7 +829,7 @@ function PullRequestDetail({
                 Open Tools
               </button>
             ) : (
-              <button className="text-button" onClick={() => void load()}>
+              <button className="text-button" onClick={() => void load(true)}>
                 Try again
               </button>
             )}
@@ -858,6 +847,7 @@ function PullRequestDetail({
   const done = (message: string) => {
     setAction(null);
     setNotice(message);
+    reader.cancel();
     void load();
   };
   return (
@@ -926,7 +916,7 @@ function PullRequestDetail({
           <button
             className="text-button"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={() => void load(true)}
           >
             <RefreshCw size={14} className={busy ? "spin" : ""} /> Refresh
           </button>{" "}

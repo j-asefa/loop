@@ -72,7 +72,12 @@ try {
       await capture("connect");
       // Each browser starts with an independent connection/cache generation.
       fixture.connectGithub(`fixture-github-token-${engine.name()}`);
-      await page.getByRole("button", { name: "Check again" }).click();
+      // A pushed connection update may replace this prompt before a click.
+      await page.evaluate(() =>
+        [...document.querySelectorAll("button")]
+          .find((button) => button.textContent?.trim() === "Check again")
+          ?.click(),
+      );
       await expect(
         page.getByText("Open pull requests for @fixture-user"),
       ).toBeVisible();
@@ -88,6 +93,36 @@ try {
         page.getByRole("button", { name: "Review requested 4" }),
       ).toHaveAttribute("aria-pressed", "false");
       await capture("inbox");
+      let inboxReads = 0;
+      let releaseInbox;
+      const inboxGate = new Promise((resolve) => {
+        releaseInbox = resolve;
+      });
+      await page.route(/\/api\/github\/pulls\?/, async (route) => {
+        inboxReads++;
+        if (inboxReads === 1) await inboxGate;
+        await route.continue();
+      });
+      await page.evaluate(() =>
+        window.dispatchEvent(new CustomEvent("loop-workspace-change")),
+      );
+      await expect.poll(() => inboxReads).toBe(1);
+      await page.evaluate(() => {
+        window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+        window.dispatchEvent(new CustomEvent("loop-workspace-change"));
+      });
+      try {
+        await page.waitForTimeout(150);
+        assert.equal(
+          inboxReads,
+          1,
+          "pull inbox notifications coalesce behind the current read",
+        );
+      } finally {
+        releaseInbox();
+      }
+      await expect.poll(() => inboxReads).toBe(2);
+      await page.unroute(/\/api\/github\/pulls\?/);
 
       // A transcript link is enough: no watch, checkout or creation detector.
       const conversation = fixture.conversations.find(
@@ -193,6 +228,36 @@ try {
         "Describe your change",
       );
       await capture("detail");
+      let coolingFiles = 0;
+      const filesCooldownResponse = page.waitForResponse(
+        (response) =>
+          response.status() === 429 &&
+          new URL(response.url()).pathname.endsWith("/files"),
+      );
+      await page.route(
+        /\/api\/github\/pulls\/acme\/api\/64\/files\?/,
+        async (route) => {
+          coolingFiles++;
+          await route.fulfill({
+            status: 429,
+            headers: { "retry-after": "2" },
+            contentType: "application/json",
+            body: JSON.stringify({ error: "Files cooling" }),
+          });
+        },
+      );
+      await page.getByRole("button", { name: /^Files/ }).click();
+      await expect.poll(() => coolingFiles).toBe(1);
+      await filesCooldownResponse;
+      await page.waitForTimeout(30);
+      await page.getByRole("button", { name: "Overview", exact: true }).click();
+      await page.waitForTimeout(2200);
+      assert.equal(
+        coolingFiles,
+        1,
+        "closing files cancels Retry-After continuation",
+      );
+      await page.unroute(/\/api\/github\/pulls\/acme\/api\/64\/files\?/);
       await page.getByRole("button", { name: /^Files/ }).click();
       await expect(page.locator(".pull-diff-line.add").first()).toBeVisible();
       await expect(
