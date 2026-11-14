@@ -1,3 +1,5 @@
+import Database from "better-sqlite3";
+import * as preferenceQueries from "../src/server/sql/preferences";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -274,6 +276,28 @@ it("announces a query credential failure while indexed and pending documents coe
     pending: 1,
   });
   const before = searchSignals(owner).length;
+  const writer = new Database(db.name);
+  writer.pragma("busy_timeout = 0");
+  const owned = preferenceQueries.owned;
+  let attempted = false;
+  const concurrent = vi
+    .spyOn(preferenceQueries, "owned")
+    .mockImplementation((database, identity) => {
+      const result = owned(database, identity);
+      if (database.inTransaction && identity === owner && !attempted) {
+        attempted = true;
+        try {
+          writer
+            .prepare(
+              "UPDATE connections SET label='Concurrent change' WHERE id=?",
+            )
+            .run(connection);
+        } catch (error) {
+          if ((error as { code?: string }).code !== "SQLITE_BUSY") throw error;
+        }
+      }
+      return result;
+    });
   const request = vi
     .spyOn(globalThis, "fetch")
     .mockRejectedValue(new Error("Unexpected external effect"));
@@ -285,6 +309,9 @@ it("announces a query credential failure while indexed and pending documents coe
     await search(owner, "Travel");
     expect(searchSignals(owner)).toHaveLength(before + 1);
   } finally {
+    expect(attempted).toBe(true);
+    concurrent.mockRestore();
+    writer.close();
     request.mockRestore();
   }
 });

@@ -321,7 +321,7 @@ export async function search(
             emit(owner, { kind: "collection", id: "search" }, "invalidate", {
               scope: { kind: "collection", id: "search" },
             });
-        })();
+        }).immediate();
       detail = "Semantic service unavailable; showing keyword results.";
     }
   }

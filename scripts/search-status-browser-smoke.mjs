@@ -144,6 +144,26 @@ try {
           await page.evaluate(() => window.signal());
           await expect(banner).toContainText("Semantic search ready");
           await expect(banner).toContainText("All indexed");
+          for (const broad of [true, false]) {
+            const before = reads;
+            snapshot = status(20, "Broad recovery " + broad);
+            await page.evaluate((broad) => {
+              if (broad)
+                window.dispatchEvent(
+                  new CustomEvent("loop-workspace-change", {
+                    detail: { sources: [""] },
+                  }),
+                );
+              else window.signal("", "all");
+            }, broad);
+            await expect(banner).toContainText("Broad recovery " + broad);
+            await page.clock.runFor(100);
+            assert.equal(
+              reads,
+              before + 1,
+              "a broad notification must cause exactly one status read",
+            );
+          }
           const settled = reads;
           await page.clock.fastForward(12000);
           assert.equal(
