@@ -437,18 +437,21 @@ export async function socialSmoke(page, fixture, shot) {
 
   // Following a word previews against what is stored before creating a watch.
   let failWatchRead = true;
+  let watchReadFailures = 0;
   await page.route("**/api/social/watches", async (route) => {
-    if (route.request().method() === "GET" && failWatchRead)
+    if (route.request().method() === "GET" && failWatchRead) {
+      watchReadFailures++;
       await route.fulfill({
         status: 400,
         contentType: "application/json",
         body: JSON.stringify({ error: "Watch read unavailable" }),
       });
-    else await route.continue();
+    } else await route.continue();
   });
   await page.getByRole("button", { name: "Follow a word" }).click();
   const watches = page.getByRole("dialog");
   await watches.waitFor();
+  await expect.poll(() => watchReadFailures).toBeGreaterThan(0);
   await expect(watches.getByRole("alert")).toContainText(
     "Watch read unavailable",
   );
