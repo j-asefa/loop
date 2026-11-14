@@ -28,7 +28,7 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { useEffect, useState, useRef, type FormEvent } from "react";
+import { useEffect, useState, useRef, useMemo, type FormEvent } from "react";
 import {
   Folder,
   FileText,
@@ -346,8 +346,31 @@ export function Saved({
   initialView?: "recent" | "folders";
 }) {
   const [view, setView] = useState<string>(initialView);
-  const [error, setError] = useState("");
   const source = executionSourceId();
+  const generation = viewGeneration();
+  const selectionKey = JSON.stringify([
+    generation,
+    source,
+    folder,
+    view,
+    embedded,
+  ]);
+  const selection = useMemo(
+    () => ({ active: true, attempt: 0 }),
+    [selectionKey],
+  );
+  useEffect(() => {
+    selection.active = true;
+    return () => {
+      selection.active = false;
+    };
+  }, [selection]);
+  const [commandError, setCommandError] = useState<{
+    selection: typeof selection;
+    message: string;
+  }>();
+  const error =
+    commandError?.selection === selection ? commandError.message : "";
   const reader = usePagedProjectionQuery<
     RouteResponse<typeof workspaceApi.artifactList>,
     number
@@ -392,7 +415,13 @@ export function Saved({
   const { items, next } = reader.page;
   const loading = reader.loading && !items.length;
   async function pin(a: Artifact) {
-    setError("");
+    if (!selection.active || generation !== viewGeneration()) return;
+    const attempt = ++selection.attempt;
+    const current = () =>
+      selection.active &&
+      selection.attempt === attempt &&
+      generation === viewGeneration();
+    setCommandError(undefined);
     try {
       await callRoute(
         workspaceApi.artifactUpdate,
@@ -400,11 +429,12 @@ export function Saved({
           params: { id: a.id },
           body: { pinned: !a.pinned, version: a.version },
         },
-        executionSourceId(),
+        source,
       );
-      reader.refresh();
+      if (current()) reader.refresh();
     } catch (e) {
-      setError((e as Error).message);
+      if (current())
+        setCommandError({ selection, message: (e as Error).message });
     }
   }
   const current = folders.find((f) => f.id === folder);

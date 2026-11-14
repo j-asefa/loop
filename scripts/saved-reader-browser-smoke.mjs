@@ -8,6 +8,7 @@ import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 const dir = await mkdtemp(join(tmpdir(), "loop-saved-reader-"));
 let browser, server;
 const held = [];
+const heldWrites = [];
 try {
   const entry = join(dir, "entry.mjs");
   await writeFile(
@@ -31,6 +32,7 @@ try {
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
+  let empty = false;
   let label = "",
     failure = 0,
     stuck = false,
@@ -103,23 +105,25 @@ try {
       const code = failure || 200,
         body = failure
           ? { error: "Saved unavailable" }
-          : before
-            ? {
-                items: stuck
-                  ? [row("bad", "Uncommitted row")]
-                  : [
-                      row("two", label + "Second"),
-                      row("three", label + "Third"),
-                    ],
-                next: stuck ? Number(before) : null,
-              }
-            : {
-                items: [
-                  row("one", label + "First"),
-                  row("two", label + "Second"),
-                ],
-                next: 20,
-              };
+          : empty
+            ? { items: [], next: null }
+            : before
+              ? {
+                  items: stuck
+                    ? [row("bad", "Uncommitted row")]
+                    : [
+                        row("two", label + "Second"),
+                        row("three", label + "Third"),
+                      ],
+                  next: stuck ? Number(before) : null,
+                }
+              : {
+                  items: [
+                    row("one", label + "First"),
+                    row("two", label + "Second"),
+                  ],
+                  next: 20,
+                };
       const reply = () => send(code, body);
       if (holdNext) {
         holdNext = false;
@@ -134,7 +138,7 @@ try {
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });
-  const scenarios = ["revision", "cursor", "scope", "errors"];
+  const scenarios = ["revision", "cursor", "scope", "errors", "command-scope"];
   const selected = process.argv[2];
   assert(
     !selected || scenarios.includes(selected),
@@ -142,6 +146,7 @@ try {
   );
   for (const scenario of selected ? [selected] : scenarios) {
     label = "";
+    empty = false;
     failure = scenario === "errors" ? 400 : 0;
     stuck = scenario === "cursor";
     holdNext = false;
@@ -159,7 +164,78 @@ try {
       const rows = page.locator(".file-row"),
         notice = page.locator(".collection-read-error"),
         more = page.getByRole("button", { name: "Load more", exact: true });
-      if (scenario === "errors") {
+      if (scenario === "command-scope") {
+        const pinError = page.getByText("Pin unavailable", { exact: true });
+        await expect(rows).toHaveCount(2);
+        pinFailure = true;
+        await page
+          .getByRole("button", { name: "Pin", exact: true })
+          .first()
+          .click();
+        await expect(pinError).toBeVisible();
+        empty = true;
+        await page.getByRole("button", { name: "Pinned", exact: true }).click();
+        await expect(rows).toHaveCount(0);
+        await expect(pinError).toHaveCount(0);
+        await expect(
+          page.getByText("Keep the good stuff close.", { exact: true }),
+        ).toBeVisible();
+        empty = false;
+        await page.getByRole("button", { name: "Recent", exact: true }).click();
+        await expect(rows).toHaveCount(2);
+        await expect(pinError).toHaveCount(0);
+        await page.route("**/api/**", async (route) => {
+          if (route.request().method() === "GET") return route.continue();
+          const response = await route.fetch();
+          heldWrites.push(() => route.fulfill({ response }));
+        });
+        for (const [kind, value] of [
+          ["folder", "other-folder"],
+          ["source", "docker:other"],
+          ["owner", "bob"],
+          ["owner", "alice"],
+        ]) {
+          await page
+            .getByRole("button", { name: "Pin", exact: true })
+            .first()
+            .click();
+          await expect.poll(() => heldWrites.length).toBe(1);
+          await page.evaluate(
+            ([kind, value]) => window[kind](value),
+            [kind, value],
+          );
+          await expect(rows).toHaveCount(2);
+          if (kind === "folder") {
+            await page.evaluate(() => window.folder(""));
+            await expect(rows).toHaveCount(2);
+          }
+          await heldWrites.shift()();
+          await page.clock.runFor(100);
+          await expect(pinError).toHaveCount(0);
+          if (kind === "source") {
+            await page.evaluate(() => window.source(""));
+            await expect(rows).toHaveCount(2);
+          }
+        }
+        await page
+          .getByRole("button", { name: "Pin", exact: true })
+          .first()
+          .click();
+        await expect.poll(() => heldWrites.length).toBe(1);
+        pinFailure = false;
+        await page
+          .getByRole("button", { name: "Pin", exact: true })
+          .first()
+          .click();
+        await expect.poll(() => heldWrites.length).toBe(2);
+        await heldWrites.pop()();
+        await expect(
+          page.getByRole("button", { name: "Unpin", exact: true }),
+        ).toHaveCount(2);
+        await heldWrites.shift()();
+        await page.clock.runFor(100);
+        await expect(pinError).toHaveCount(0);
+      } else if (scenario === "errors") {
         await expect(notice).toContainText("Saved unavailable");
         failure = 0;
         await page.getByRole("button", { name: "Retry connection" }).click();
@@ -268,6 +344,7 @@ try {
       console.log(engine + " Saved reader passed: " + scenario);
     } finally {
       held.splice(0).forEach((send) => send());
+      for (const send of heldWrites.splice(0)) await send().catch(() => {});
       await context.close();
     }
   }
