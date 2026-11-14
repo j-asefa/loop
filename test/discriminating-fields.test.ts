@@ -13,6 +13,7 @@ const names = new Set([
   "outcome",
   "mode",
   "phase",
+  "delivery",
 ]);
 type Module = {
   source: string;
@@ -712,4 +713,23 @@ it("follows namespace re-exports used by destructured schema aliases", () => {
   expect([...inventory(sources, resolve("fixture")).keys()]).toEqual([
     "use.ts:Schema.state",
   ]);
+});
+
+it("covers selectors in all three shared JSON-column schema modules", () => {
+  const directory = resolve("src/shared");
+  const sources = new Map(
+    ["artifact-metadata.ts", "run-payload.ts", "message-metadata.ts"].map(
+      (name) => [
+        resolve(directory, name),
+        `import {z} from 'zod';const Schema=z.object({origin:z.string(),state:z.string(),phase:z.string(),delivery:z.string()});`,
+      ],
+    ),
+  );
+  expect([...inventory(sources).keys()]).toEqual(
+    [...sources.keys()].flatMap((file) =>
+      ["origin", "state", "phase", "delivery"].map(
+        (field) => `${basename(file)}:Schema.${field}`,
+      ),
+    ),
+  );
 });
