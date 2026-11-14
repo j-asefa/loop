@@ -18,6 +18,7 @@ const card = (content: string, kind = "markdown", metadata = "{}") =>
         {
           id: "preview",
           title: "Preview",
+          role: "trace",
           content,
           kind,
           metadata,
