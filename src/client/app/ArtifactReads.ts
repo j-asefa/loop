@@ -37,7 +37,11 @@ export function useArtifactReads({
   const owner = ownerRef.current;
 
   async function openTarget(target: ResultAction | string, retry = false) {
-    if (!retry && !opening.cancel()) return;
+    if (!retry) {
+      if (!opening.cancel()) return;
+      replying.cancel();
+      context.reply = undefined;
+    }
     const owner = ownerRef.current;
     if (
       !owner ||
@@ -101,7 +105,11 @@ export function useArtifactReads({
   }
 
   async function replyToArtifact(item: ResultAction, retry = false) {
-    if (!retry && !replying.cancel()) return;
+    if (!retry) {
+      if (!replying.cancel()) return;
+      opening.cancel();
+      context.open = undefined;
+    }
     const owner = ownerRef.current;
     if (!owner || (item.cardOwner && item.cardOwner !== owner)) return;
     context.reply = item;
@@ -161,6 +169,9 @@ export function useArtifactReads({
     opening: {
       error: opening.error,
       busy: opening.busy,
+      dismiss: () => {
+        if (opening.cancel()) context.open = undefined;
+      },
       retry: () => {
         if (context.open) void openTarget(context.open, true);
       },
@@ -168,6 +179,9 @@ export function useArtifactReads({
     replying: {
       error: replying.error,
       busy: replying.busy,
+      dismiss: () => {
+        if (replying.cancel()) context.reply = undefined;
+      },
       retry: () => {
         if (context.reply) void replyToArtifact(context.reply, true);
       },

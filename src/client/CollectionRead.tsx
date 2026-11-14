@@ -480,10 +480,12 @@ export function CollectionReadNotice({
   error,
   busy = false,
   retry,
+  dismiss,
 }: {
   error: string;
   busy?: boolean;
   retry: () => void;
+  dismiss?: () => void;
 }) {
   if (!error) return null;
   return (
@@ -492,6 +494,11 @@ export function CollectionReadNotice({
       <button className="text-button" disabled={busy} onClick={retry}>
         Retry connection
       </button>
+      {dismiss && (
+        <button type="button" className="text-button" onClick={dismiss}>
+          Dismiss
+        </button>
+      )}
     </div>
   );
 }

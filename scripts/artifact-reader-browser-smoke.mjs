@@ -104,7 +104,14 @@ try {
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });
-  const scenarios = ["retry-policy", "latest", "scope", "initial"],
+  const scenarios = [
+      "retry-policy",
+      "latest",
+      "scope",
+      "initial",
+      "intent",
+      "dismiss",
+    ],
     selected = process.argv[2];
   assert(!selected || scenarios.includes(selected));
   const artifacts = () =>
@@ -148,7 +155,7 @@ try {
         .getByRole("button", { name: "Retry connection" })
         .click();
       await expect(page.locator("#reply")).toHaveText("two");
-      await expect(notice).toContainText("Card not found");
+      await expect(notice).toHaveCount(0);
       await page.evaluate(() => window.replyArtifact("imported"));
       await expect(page.locator("#opened")).toHaveText("imported");
       await expect(page.locator("#reply")).toHaveText("two");
@@ -160,6 +167,47 @@ try {
         requests.length,
         before,
         "a different card owner does not dispatch a read",
+      );
+    } else if (scenario === "intent") {
+      failure = 503;
+      await page.evaluate(() => window.replyArtifact("one"));
+      await expect(page.locator("#reply-notice [role=alert]")).toContainText(
+        "Artifact unavailable",
+      );
+      failure = 0;
+      await page.evaluate(() => window.openArtifact("two"));
+      await expect(page.locator("#opened")).toHaveText("two");
+      await expect(page.locator("#reply-notice [role=alert]")).toHaveCount(0);
+      await expect(page.locator("#reply")).toHaveText("");
+      for (const [first, second, output] of [
+        ["replyArtifact", "openArtifact", "opened"],
+        ["openArtifact", "replyArtifact", "reply"],
+      ]) {
+        holdId = "one";
+        await page.evaluate((first) => window[first]("one"), first);
+        await expect.poll(() => held.length).toBe(1);
+        const aborted = page.waitForEvent("requestfailed", {
+          predicate: (r) => r.url().endsWith("/artifacts/one"),
+        });
+        await page.evaluate((second) => window[second]("two"), second);
+        await aborted;
+        await expect(page.locator("#" + output)).toHaveText("two");
+        held.shift()();
+        await expect(page.locator("#" + output)).toHaveText("two");
+      }
+    } else if (scenario === "dismiss") {
+      await page.evaluate(() => window.typed());
+      const notice = page.locator("#open-notice [role=alert]");
+      await expect(notice).toContainText("Card not found");
+      const before = requests.length;
+      await notice
+        .getByRole("button", { name: "Dismiss", exact: true })
+        .click();
+      await expect(notice).toHaveCount(0);
+      assert.equal(
+        requests.length,
+        before,
+        "dismissal submits no read or command",
       );
     } else if (scenario === "latest") {
       for (const [action, output] of [

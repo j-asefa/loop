@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 
@@ -18,6 +19,33 @@ export async function artifactReadAbortSmoke(page, fixture) {
   };
   await page.route("**/api/artifacts/" + artifact.id, handler);
   try {
+    const missing = randomUUID();
+    let missingReads = 0;
+    const observe = (request) => {
+      if (new URL(request.url()).pathname === "/api/artifacts/" + missing)
+        missingReads++;
+    };
+    page.on("request", observe);
+    const missingResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/artifacts/" + missing &&
+        response.status() === 404,
+    );
+    await page.goto(fixture.base + "/?artifact=" + missing);
+    await missingResponse;
+    const missingNotice = page.locator(".toast .collection-read-error");
+    await expect(missingNotice).toBeVisible();
+    const before = missingReads;
+    await missingNotice
+      .getByRole("button", { name: "Dismiss", exact: true })
+      .click();
+    await expect(missingNotice).toHaveCount(0);
+    assert.equal(
+      missingReads,
+      before,
+      "dismissing a permanent open failure issues no request",
+    );
+    page.off("request", observe);
     await page.goto(fixture.base + "/?artifact=" + artifact.id);
     await expect(
       page
