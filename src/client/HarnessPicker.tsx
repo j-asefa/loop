@@ -1,3 +1,4 @@
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -39,8 +40,7 @@ export function HarnessPicker({
   const readProjection = useProjectionRoute();
 
   const sourceId = useSourceId();
-  const [snippets, setSnippets] = useState<Snippet[] | null>(null),
-    [allSnippets, setAllSnippets] = useState(false);
+  const [allSnippets, setAllSnippets] = useState(false);
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
     [catalog, setCatalog] = useState<Catalog | null>(null),
@@ -52,16 +52,14 @@ export function HarnessPicker({
     setCatalog(null);
     setError("");
   }, [agentId, conversationId]);
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    readProjection(workspaceApi.snippetList, {}, { mode: "once" })
-      .then((result) => active && setSnippets(result.items))
-      .catch(() => active && setSnippets([]));
-    return () => {
-      active = false;
-    };
-  }, [open]);
+  const snippets = useProjectionQuery(
+    workspaceApi.snippetList,
+    {},
+    {
+      source: sourceId,
+      enabled: open,
+    },
+  );
   useEffect(() => {
     if (value === "/" || (agentId && value === "$")) {
       setQuery("");
@@ -135,7 +133,7 @@ export function HarnessPicker({
     ) || [];
   // Snippets come before the commands, one line each. A few show until you
   // search or ask for all of them.
-  const matchingSnippets = (snippets || []).filter((snippet) =>
+  const matchingSnippets = (snippets.data?.items || []).filter((snippet) =>
     `${snippet.title} ${snippet.content}`
       .toLowerCase()
       .includes(query.toLowerCase()),
@@ -171,6 +169,11 @@ export function HarnessPicker({
             onChange={(e) => setQuery(e.target.value)}
             autoFocus
             placeholder="Search commands, skills and snippets"
+          />
+          <CollectionReadNotice
+            error={snippets.error}
+            busy={snippets.busy}
+            retry={snippets.retry}
           />
           {!!matchingSnippets.length && (
             <section className="snippet-options" aria-label="Your snippets">
