@@ -1,3 +1,4 @@
+import { TraceArtifactMetadata } from "../../shared/artifact-metadata.js";
 import * as toolInvocationsQueries from "../sql/tool-invocations.js";
 import * as approvalsQueries from "../sql/approvals.js";
 import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
@@ -321,7 +322,7 @@ export async function invokeTool(
             messageId: agentCheckpointsQueries.message(db, run.id)?.message_id,
             connectionId: connection.id,
             tool: binding.tool,
-            arguments: args,
+            arguments: TraceArtifactMetadata.shape.arguments.parse(args),
             invocationId: invocationId,
             fetchedAt: now(),
             toolResult: result,

@@ -1,3 +1,8 @@
+import { parse } from "./json";
+import {
+  readArtifactMetadata,
+  artifactDisplayMetadata,
+} from "../shared/artifact-metadata.js";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ObjectId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
@@ -39,11 +44,14 @@ import { runModelName } from "./modelChoices";
 import { PublishedFile, CardFile, RunFiles } from "./PublishedFiles";
 import { FileLink } from "./FilePreview";
 import { Diagram } from "./Diagram";
-import { parse } from "./json";
+
 import { AutofillBoundary } from "./AutofillBoundary";
 import type { Agent, Artifact, Connection } from "../shared/types";
 function ArtifactContent({ item }: { item: Artifact }) {
-  if (parse<any>(item.metadata, {}).uploaded)
+  if (
+    item.role === "file" &&
+    readArtifactMetadata("file", item.metadata, "fallback").metadata.uploaded
+  )
     return <PublishedFile item={item} />;
   return <ResultContent item={item} />;
 }
@@ -196,6 +204,7 @@ export function ArtifactViewer({
   const card = item.card;
   const meta = card
       ? {
+          ...artifactDisplayMetadata({ role: "snippet", metadata: {} }),
           origin: card.role === "import" ? "import" : undefined,
           refreshable: card.display.refreshable,
           source: card.display.source
@@ -210,7 +219,9 @@ export function ArtifactViewer({
           name: card.display.filename,
           mime: card.display.mime,
         }
-      : parse<any>(item.card ? "" : item.metadata, {}),
+      : artifactDisplayMetadata(
+          readArtifactMetadata(item.role, item.metadata, "fallback"),
+        ),
     [editing, setEditing] = useState(false),
     [text, setText] = useState(target.content),
     [error, setError] = useState("");
@@ -366,7 +377,7 @@ export function ArtifactViewer({
                         )
                   }
                   name={meta.name || target.title}
-                  mime={meta.mime}
+                  mime={meta.mime ?? undefined}
                 >
                   <Download size={16} />
                   Original file
@@ -414,7 +425,15 @@ export function ArtifactViewer({
         {meta.source && <SourceCard source={meta.source} />}
         {meta.appResource && (
           <Suspense fallback={<p>Loading isolated app…</p>}>
-            <McpApp artifactId={target.id} metadata={card ? undefined : meta} />
+            <McpApp
+              artifactId={target.id}
+              metadata={
+                item.card || item.role !== "trace"
+                  ? undefined
+                  : readArtifactMetadata("trace", item.metadata, "fallback")
+                      .metadata
+              }
+            />
           </Suspense>
         )}
         <div className="artifact-body">

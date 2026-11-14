@@ -1,3 +1,4 @@
+import { readArtifactMetadata } from "../shared/artifact-metadata.js";
 import { ArtifactId } from "../shared/contract-ids.js";
 import { RunId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
@@ -10,7 +11,7 @@ import {
 } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
-import { parse } from "./json";
+
 import { isRateLimited } from "./api";
 import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
@@ -27,7 +28,7 @@ export function PublishedFile({
   preview?: boolean;
   previewImages?: boolean;
 }) {
-  const meta = parse<any>(item.metadata, {});
+  const meta = readArtifactMetadata("file", item.metadata, "fallback").metadata;
   return (
     <PublishedFileView
       id={item.id}
@@ -37,8 +38,8 @@ export function PublishedFile({
       previewImages={previewImages}
       display={{
         filename: meta.name || item.title,
-        mime: meta.mime,
-        text: meta.text,
+        mime: meta.mime ?? null,
+        text: meta.text === true,
         size: meta.size || 0,
       }}
     />

@@ -1,3 +1,4 @@
+import { writeArtifactMetadata } from "../../shared/artifact-metadata.js";
 import { tryWithoutBusyWait } from "../busy-wait.js";
 import { reportBackgroundFailure } from "../background-failure.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
@@ -10,11 +11,7 @@ import * as artifactsQueries from "../sql/artifacts.js";
 import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
-import {
-  parseArtifactMetadata,
-  MessageMetadata,
-  agentPayload,
-} from "../row-schemas.js";
+import { MessageMetadata, agentPayload } from "../row-schemas.js";
 
 import { observeCompletedOutput } from "../run-verifications.js";
 
@@ -540,14 +537,15 @@ export class NativeProjector {
         artifactsQueries.updateNativeOutput(
           db,
           output,
-          JSON.stringify(
-            parseArtifactMetadata("answer", {
+          writeArtifactMetadata({
+            role: "answer",
+            metadata: {
               ...agentPayload(run),
               native: true,
               messageId: checkpoint.message_id,
               finalNativeItemId: finalItem?.id,
-            }),
-          ),
+            },
+          }),
           now(),
           checkpoint.artifact_id,
         );

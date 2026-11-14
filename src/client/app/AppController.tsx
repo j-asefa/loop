@@ -1,4 +1,8 @@
 import {
+  readArtifactMetadata,
+  artifactMessageId,
+} from "../../shared/artifact-metadata.js";
+import {
   useAppNavigation,
   replaceConversationLocation,
   type AppNavigationInitial,
@@ -1139,7 +1143,9 @@ export function useAppController(seed?: AppNavigationInitial) {
       setSelected(item.agent_id || "");
       setConversation(
         item.conversation_id,
-        parse<any>(item.metadata, {}).messageId,
+        artifactMessageId(
+          readArtifactMetadata(item.role, item.metadata, "fallback"),
+        ),
       );
     } else void open(item);
   }

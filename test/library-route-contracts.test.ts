@@ -307,7 +307,10 @@ it("artifactCreate keeps its id-only receipt and rejects private client metadata
     metadata: { snippet: true },
   });
   valid(workspaceApi.artifactCreate, result);
-  expect(ownedArtifact(result.data.id, owner).metadata.snippet).toBe(true);
+  const artifact = ownedArtifact(result.data.id, owner);
+  expect(artifact.role).toBe("snippet");
+  if (artifact.role !== "snippet") throw new Error("Expected a snippet");
+  expect(artifact.metadata.snippet).toBe(true);
 });
 it("artifactCreate rejects kinds outside the owner-creatable set", async () => {
   for (const kind of ["code", "github_pr", "image", "conversation"]) {

@@ -1,3 +1,7 @@
+import {
+  readArtifactMetadata,
+  artifactDisplayMetadata,
+} from "../shared/artifact-metadata.js";
 import { harnessLabel } from "../shared/harnesses";
 import { LoopLogo } from "./LoopLogo";
 import { routeUrl } from "./api";
@@ -598,7 +602,9 @@ export function ArtifactCard({
   footer?: ReactNode;
   detail?: ReactNode;
 }) {
-  const meta = parse<any>(item.metadata, {});
+  const meta = artifactDisplayMetadata(
+    readArtifactMetadata(item.role, item.metadata, "fallback"),
+  );
   const modelName = model || runModelName(meta, connections);
   const presentation = resultPresentation(item, {
     tool: meta.tool || null,

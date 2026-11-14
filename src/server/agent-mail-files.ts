@@ -39,8 +39,8 @@ export function sharedMailFiles(run: Run, ids: string[]) {
 
 function contents(owner: string, fileId: string) {
   const artifact = ownedArtifact(fileId, owner);
-  const meta = artifact.metadata;
-  if (!meta.upload && meta.uploaded) {
+  if (artifact.role === "file" && artifact.metadata.uploaded) {
+    const meta = artifact.metadata;
     // Use the bounded descriptor-based reader, including no-follow and digest
     // checks. A modified file on disk must not turn into an unbounded read.
     const file = localArtifact(owner, fileId);
@@ -49,9 +49,13 @@ function contents(owner: string, fileId: string) {
       name: typeof meta.name === "string" ? meta.name : artifact.title,
     };
   }
-  if (!meta.upload || typeof meta.objectId !== "string")
+  if (
+    artifact.role !== "upload" ||
+    !artifact.metadata.upload ||
+    typeof artifact.metadata.objectId !== "string"
+  )
     throw new Problem(404, "This mail file is unavailable.");
-  const object = ownedObject(meta.objectId, owner);
+  const object = ownedObject(artifact.metadata.objectId, owner);
   if (object.bytes.length > MAX_UPLOAD_BYTES)
     throw new Problem(413, "Mail files can be up to 25 MiB each.");
   return { bytes: object.bytes, mime: object.mime, name: object.name };

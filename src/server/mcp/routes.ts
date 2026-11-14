@@ -1,3 +1,4 @@
+import { artifactDisplayMetadata } from "../../shared/artifact-metadata.js";
 import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
 import * as grantsQueries from "../sql/grants.js";
 import * as oauthStatesQueries from "../sql/oauth-states.js";
@@ -254,7 +255,7 @@ export function queueTool(
 }
 routes.on(workspaceApi.artifactToolCall, (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
-    meta = a.metadata;
+    meta = artifactDisplayMetadata(a);
   if (!a.agent_id || !meta.connectionId)
     throw new Problem(400, "This artifact has no tool context");
   const body = req.body;
@@ -271,7 +272,7 @@ routes.on(workspaceApi.artifactToolCall, (req, res) => {
 });
 routes.on(workspaceApi.artifactRefresh, (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
-    meta = a.metadata;
+    meta = artifactDisplayMetadata(a);
   const source = artifactRefreshSource(a.agent_id, meta);
   if (!source) throw new Problem(400, "No refresh source is available");
   res.json(
@@ -328,7 +329,7 @@ export async function executeMcp(run: Run) {
 
 routes.on(workspaceApi.artifactApp, (req, res) => {
   const a = ownedArtifact(String(req.params.id), res.locals.owner),
-    meta = a.metadata;
+    meta = artifactDisplayMetadata(a);
   if (typeof meta.appResource?.html !== "string")
     throw new Problem(404, "App resource not found");
   res.setHeader(

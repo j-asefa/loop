@@ -1,3 +1,4 @@
+import { writeArtifactMetadata } from "../shared/artifact-metadata.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as conversationsQueries from "./sql/conversations.js";
@@ -11,7 +12,6 @@ import * as runsQueries from "./sql/runs.js";
 import * as continuationQueries from "./sql/review-continuations.js";
 import { assertEffect } from "./effect-authority.js";
 import {
-  parseArtifactMetadata,
   MessageMetadata,
   readRunFolder,
   readRunReviewId,
@@ -577,12 +577,13 @@ export async function executeAgent(run: Run): Promise<boolean> {
     artifactsQueries.streamInitial(
       db,
       output,
-      JSON.stringify(
-        parseArtifactMetadata("answer", {
+      writeArtifactMetadata({
+        role: "answer",
+        metadata: {
           ...snapshot,
           messageId: cp.message_id,
-        }),
-      ),
+        },
+      }),
       now(),
       cp.artifact_id,
     );

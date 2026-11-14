@@ -93,7 +93,20 @@ function message(
 }
 function result(
   owner: string,
-  data: Partial<Parameters<typeof saveArtifact>[1]> = {},
+  data: Partial<Omit<Parameters<typeof saveArtifact>[1], "role" | "metadata">> &
+    (
+      | Exclude<
+          import("../src/shared/artifact-metadata").ArtifactMetadataInput,
+          { role: "answer" }
+        >
+      | {
+          role?: "answer";
+          metadata?: Extract<
+            import("../src/shared/artifact-metadata").ArtifactMetadataInput,
+            { role: "answer" }
+          >["metadata"];
+        }
+    ) = {},
 ) {
   return saveArtifact(owner, {
     title: "Answer",
@@ -1146,32 +1159,54 @@ it("reconciles typed reader file links and display metadata", () => {
   expectCurrent("reader", { view: "saved" }, cache);
   expect(display()?.download).toBeNull();
   db.prepare(
-    "UPDATE artifacts SET metadata=json_set(metadata,'$.size',1024,'$.text',json('true'),'$.source',json(?),'$.connectionId','private','$.appResource',json(?)) WHERE id=?",
-  ).run(
-    '{"url":"https://example.com","title":"Reference"}',
-    '{"html":"private app"}',
-    id,
-  );
+    "UPDATE artifacts SET metadata=json_set(metadata,'$.size',1024,'$.text',json('true')) WHERE id=?",
+  ).run(id);
   expectCurrent("reader", { view: "saved" }, cache);
   expect(display()).toMatchObject({
     size: 1024,
     text: true,
-    source: { url: "https://example.com", title: "Reference" },
     refreshable: false,
-    app: true,
+    app: false,
   });
-  expect(JSON.stringify(display())).not.toContain("private");
+
+  const answer = result("reader", {
+    role: "answer",
+    metadata: {
+      source: {
+        url: "https://example.com",
+        title: "Reference",
+        excerpt: "Excerpt",
+      },
+    },
+  });
+  const answerCard = cardDetail("reader", "a:" + answer);
+  expect(answerCard.type === "result" && answerCard.display.source).toEqual({
+    url: "https://example.com",
+    title: "Reference",
+    excerpt: "Excerpt",
+  });
+  const trace = result("reader", {
+    role: "trace",
+    metadata: { connectionId: "private", appResource: { html: "private app" } },
+  });
+  db.prepare("UPDATE artifacts SET pinned=1 WHERE id=?").run(trace);
+  expectCurrent("reader", { view: "saved" }, cache);
+  const traceDisplay = () => {
+    const card = cache.items.get("a:" + trace)!.card;
+    return card.type === "result" ? card.display : null;
+  };
+  expect(traceDisplay()).toMatchObject({ refreshable: false, app: true });
+  expect(JSON.stringify(traceDisplay())).not.toContain("private");
   db.prepare(
     "UPDATE artifacts SET metadata=json_set(metadata,'$.tool','refresh-tool','$.arguments',json('{}')) WHERE id=?",
-  ).run(id);
+  ).run(trace);
   expectCurrent("reader", { view: "saved" }, cache);
-  expect(display()?.refreshable).toBe(true);
+  expect(traceDisplay()?.refreshable).toBe(true);
   for (const args of [null, [], "invalid"]) {
     db.prepare(
       "UPDATE artifacts SET metadata=json_set(metadata,'$.arguments',json(?)) WHERE id=?",
-    ).run(JSON.stringify(args), id);
-    expectCurrent("reader", { view: "saved" }, cache);
-    expect(display()?.refreshable).toBe(false);
+    ).run(JSON.stringify(args), trace);
+    expect(() => cardDetail("reader", "a:" + trace)).toThrow();
   }
 });
 
@@ -1187,7 +1222,7 @@ it("keeps reusable prompt snippets out of content collections while exposing the
   expect(resultCache.items.size).toBe(0);
   expect(savedCache.items.size).toBe(0);
   expect(() => cardDetail("snippets", "a:" + id)).toThrow("Card not found");
-  for (const snippet of [false, 0, "", null]) {
+  for (const snippet of [false]) {
     db.prepare("UPDATE artifacts SET metadata=? WHERE id=?").run(
       JSON.stringify({ snippet }),
       id,
@@ -1325,11 +1360,6 @@ it("invalidates partial Saved display changes without revising every body chunk"
   for (const [key, value] of Object.entries({
     model: "alias",
     resolvedModel: "recorded",
-    tool: "browser_open",
-    origin: "import",
-    uploaded: true,
-    upload: true,
-    mime: "text/plain",
     name: "answer.txt",
   })) {
     metadata[key] = value;
