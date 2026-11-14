@@ -365,3 +365,21 @@ it("makes one manual retry after exhaustion and still honors Retry-After", async
   await vi.advanceTimersByTimeAsync(30_000);
   expect(fetcher).toHaveBeenCalledTimes(6);
 });
+
+it("does not resume a cooling GET under a replacement owner", async () => {
+  fetcher.mockResolvedValueOnce(limited("8"));
+  const controller = new AbortController();
+  const pending = readRoute(
+    workspaceApi.conversationMemory,
+    { params: { id: ConversationId.parse("thread") } },
+    "",
+    controller.signal,
+  );
+  const rejected = expect(pending).rejects.toThrow("unavailable response");
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  setViewOwner("bob");
+  await vi.advanceTimersByTimeAsync(8000);
+  await rejected;
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});

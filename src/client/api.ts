@@ -367,18 +367,22 @@ async function readRequest<T>(
   kind?: "stream",
   mode: ReadMode = "automatic",
 ): Promise<T> {
+  const generation = viewGeneration();
   let failures = 0;
   for (;;) {
+    if (generation !== viewGeneration()) throw new UnavailableResponse();
     try {
-      return await requestInWorkspace<T>({
+      const value = await requestInWorkspace<T>({
         path,
         sourceId,
         method: "GET",
         signal,
         kind,
       });
+      if (generation !== viewGeneration()) throw new UnavailableResponse();
+      return value;
     } catch (error) {
-      if (signal.aborted) throw error;
+      if (signal.aborted || generation !== viewGeneration()) throw error;
       const status = (error as { status?: number }).status;
       const delay = isRateLimited(error)
         ? retryAfter(error)
@@ -533,6 +537,7 @@ export async function readRoute<C extends RouteContract & { method: "GET" }>(
         mode,
       ),
     );
+    if (generation !== viewGeneration()) throw new UnavailableResponse();
     settleRecovery(false);
     return value;
   } catch (error) {
