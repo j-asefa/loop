@@ -67,6 +67,21 @@ export function seedFeeds(db, owner) {
 }
 
 export async function socialSmoke(page, fixture, shot) {
+  const faultReleased = (key) =>
+    page.evaluate((key) => !!window.__socialFaults?.[key], key);
+  const retryFault = async (button, key) => {
+    await button.evaluate((node, key) => {
+      node.addEventListener(
+        "click",
+        () => {
+          (window.__socialFaults ||= {})[key] = true;
+        },
+        { capture: true, once: true },
+      );
+    }, key);
+    await button.click();
+  };
+
   const { total, titles } = seedFeeds(fixture.db, fixture.owner);
   await page.goto(fixture.base + "/?page=profile&profileTab=messages");
   await expect(
@@ -123,9 +138,8 @@ export async function socialSmoke(page, fixture, shot) {
   }
   await expect.poll(() => snapshotReads).toBe(2);
   await page.unroute(/\/api\/social\?/);
-  let failSnapshot = true;
   await page.route(/\/api\/social\?/, async (route) => {
-    if (failSnapshot)
+    if (!(await faultReleased("snapshot")))
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -138,10 +152,10 @@ export async function socialSmoke(page, fixture, shot) {
   );
   await expect(page.getByRole("alert")).toContainText("Snapshot unavailable");
   await expect(cards).toHaveCount(total);
-  failSnapshot = false;
-  await page
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    page.getByRole("button", { name: "Retry connection", exact: true }),
+    "snapshot",
+  );
   await expect(page.getByRole("alert")).toHaveCount(0);
   await page.unroute(/\/api\/social\?/);
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
@@ -508,10 +522,9 @@ export async function socialSmoke(page, fixture, shot) {
   await page.getByRole("button", { name: "Close" }).click();
 
   // Following a word previews against what is stored before creating a watch.
-  let failWatchRead = true;
   let watchReadFailures = 0;
   await page.route("**/api/social/watches", async (route) => {
-    if (route.request().method() === "GET" && failWatchRead) {
+    if (route.request().method() === "GET" && !(await faultReleased("watch"))) {
       watchReadFailures++;
       await route.fulfill({
         status: 400,
@@ -527,10 +540,10 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.getByRole("alert")).toContainText(
     "Watch read unavailable",
   );
-  failWatchRead = false;
-  await watches
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    watches.getByRole("button", { name: "Retry connection", exact: true }),
+    "watch",
+  );
   await expect(watches.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/watches");
   await watches.getByRole("searchbox").fill("rust");
@@ -560,9 +573,8 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.locator(".digest-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
-  let failDigestRead = true;
   await page.route("**/api/social/digests", async (route) => {
-    if (route.request().method() === "GET" && failDigestRead)
+    if (route.request().method() === "GET" && !(await faultReleased("digest")))
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -579,10 +591,10 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(digests.getByRole("alert")).toContainText(
     "Digest read unavailable",
   );
-  failDigestRead = false;
-  await digests
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    digests.getByRole("button", { name: "Retry connection", exact: true }),
+    "digest",
+  );
   await expect(digests.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/digests");
   await digests
@@ -607,9 +619,8 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     digests.getByRole("button", { name: "Pause", exact: true }),
   ).toBeVisible();
-  let failAccessRead = true;
   await page.route("**/api/social/preferences", async (route) => {
-    if (route.request().method() === "GET" && failAccessRead)
+    if (route.request().method() === "GET" && !(await faultReleased("access")))
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -624,10 +635,10 @@ export async function socialSmoke(page, fixture, shot) {
     "Feed access: Access read unavailable",
   );
   await expect(digests.locator(".digest-row")).toHaveCount(1);
-  failAccessRead = false;
-  await digests
-    .getByRole("button", { name: "Retry connection", exact: true })
-    .click();
+  await retryFault(
+    digests.getByRole("button", { name: "Retry connection", exact: true }),
+    "access",
+  );
   await expect(digests.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/social/preferences");
   await shot("social-digest");
