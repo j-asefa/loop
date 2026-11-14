@@ -1,8 +1,6 @@
-import type { ArtifactRole } from "../shared/artifact-role.js";
 import {
   RowId as Id,
   RunRecord,
-  Provider,
   ConnectionRecord,
   MessageRecord,
   ArtifactRecord,
@@ -25,53 +23,17 @@ export {
 } from "./sql/rows.js";
 import { z } from "zod";
 import { Billing, Harness } from "../shared/protocol.js";
-import { PERMISSION_MODES } from "../shared/permission-modes.js";
+
 import { Problem } from "../shared/problem.js";
 
-const PermissionMode = z.enum(PERMISSION_MODES.map((mode) => mode.value));
-const Reply = z.strictObject({
-  id: Id,
-  content: z.string(),
-  name: z.string(),
-  created_at: z.number(),
-  mine: z.boolean().optional(),
-  excerpt: z.boolean().optional(),
-});
-const Source = z.strictObject({
-  url: z.string(),
-  title: z.string(),
-  excerpt: z.string(),
-});
-const UploadedFile = z.strictObject({
-  id: Id,
-  objectId: Id,
-  name: z.string(),
-  mime: z.string(),
-  size: z.number().nonnegative(),
-  published: z.boolean().optional(),
-});
-export const AgentSnapshot = z.strictObject({
-  agentId: Id,
-  name: z.string(),
-  provider: Provider,
-  connectionId: Id,
-  model: z.string().min(1),
-  resolvedModel: z.string().optional(),
-  effort: z.string().nullable().optional(),
-  permissionMode: PermissionMode.optional(),
-  instructions: z.string(),
-  folderId: Id.nullable(),
-  maxTokens: z.number().int().positive().optional(),
-  maxSeconds: z.number().positive().optional(),
-  source: Source.optional(),
-  teamId: Id.optional(),
-  reviewId: Id.optional(),
-  attachmentIds: z.array(Id).optional(),
-  mailId: Id.optional(),
-  replyTo: Reply.optional(),
-  previewFixture: z.boolean().optional(),
-});
-export type AgentSnapshot = z.infer<typeof AgentSnapshot>;
+import {
+  PermissionMode,
+  AgentSnapshot,
+  Reply,
+  Source,
+  UploadedFile,
+} from "../shared/agent-snapshot.js";
+export { AgentSnapshot } from "../shared/agent-snapshot.js";
 // Queue infrastructure also carries import, MCP and diagnostic jobs.
 // Present identity/permission fields are validated even before kind dispatch;
 // each executor requires its complete payload before causing an external effect.
@@ -123,126 +85,20 @@ export const MessageMetadata = RunPayload.extend({
 });
 export type MessageMetadata = z.infer<typeof MessageMetadata>;
 
-// D5: artifact metadata is one strict schema per role, and the role selects
-// the arm at write and read. The `edited` stamp written by the owner edit
-// route (markEdited) may appear on any role, so it is present in every arm.
-export const AnswerArtifactMetadata = z.strictObject({
-  ...AgentSnapshot.partial().shape,
-  preview: z.boolean().optional(),
-  messageId: Id.optional(),
-  native: z.boolean().optional(),
-  finalNativeItemId: Id.optional(),
-  edited: z.boolean().optional(),
-});
-export const TraceArtifactMetadata = z.strictObject({
-  native: z.boolean().optional(),
-  messageId: Id.optional(),
-  connectionId: Id.optional(),
-  tool: Id.optional(),
-  arguments: z.record(z.string(), z.json()).optional(),
-  invocationId: Id.optional(),
-  fetchedAt: z.number().optional(),
-  toolResult: z.json().optional(),
-  // Interactive-app tools carry their HTML here; the /app route and the card
-  // display read it (no current producer emits other tool app resources).
-  appResource: z.record(z.string(), z.json()).optional(),
-  isError: z.boolean().optional(),
-  fixture: z.boolean().optional(),
-  edited: z.boolean().optional(),
-});
-export const FileArtifactMetadata = z.strictObject({
-  uploaded: z.boolean().optional(),
-  name: z.string().optional(),
-  mime: z.string().optional(),
-  size: z.number().nonnegative().optional(),
-  checksum: z.string().optional(),
-  text: z.boolean().optional(),
-  model: z.string().optional(),
-  provider: z.string().optional(),
-  edited: z.boolean().optional(),
-});
-export const UploadArtifactMetadata = z.strictObject({
-  upload: z.boolean().optional(),
-  objectId: Id.optional(),
-  mime: z.string().optional(),
-  size: z.number().nonnegative().optional(),
-  text: z.boolean().optional(),
-  edited: z.boolean().optional(),
-});
-export const ImportArtifactMetadata = z.strictObject({
-  origin: z.string().optional(),
-  provider: z.string().optional(),
-  importId: Id.optional(),
-  externalId: z.string().optional(),
-  rawObjectId: Id.optional(),
-  objectId: Id.optional(),
-  edited: z.boolean().optional(),
-});
-export const SnippetArtifactMetadata = z.strictObject({
-  snippet: z.boolean().optional(),
-  edited: z.boolean().optional(),
-});
+import {
+  readArtifactMetadata,
+  writeArtifactMetadata,
+} from "../shared/artifact-metadata.js";
+export {
+  ArtifactMetadataSchemas,
+  AnswerArtifactMetadata,
+  TraceArtifactMetadata,
+  FileArtifactMetadata,
+  UploadArtifactMetadata,
+  ImportArtifactMetadata,
+  SnippetArtifactMetadata,
+} from "../shared/artifact-metadata.js";
 
-export const ArtifactMetadataSchemas = {
-  answer: AnswerArtifactMetadata,
-  trace: TraceArtifactMetadata,
-  file: FileArtifactMetadata,
-  upload: UploadArtifactMetadata,
-  import: ImportArtifactMetadata,
-  snippet: SnippetArtifactMetadata,
-} as const;
-// The read-side consumer type: every optional field some arm declares. The
-// strict per-role schemas above are the runtime validators; this flat type is
-// only for callers that read a field whose arm varies by row.
-export type ArtifactMetadata = Partial<{
-  agentId: string;
-  name: string;
-  provider: string;
-  connectionId: string;
-  model: string;
-  resolvedModel: string;
-  effort: string | null;
-  permissionMode: string;
-  instructions: string;
-  folderId: string | null;
-  maxTokens: number;
-  maxSeconds: number;
-  source: unknown;
-  teamId: string;
-  reviewId: string;
-  attachmentIds: string[];
-  mailId: string;
-  replyTo: unknown;
-  previewFixture: boolean;
-  preview: boolean;
-  messageId: string;
-  native: boolean;
-  finalNativeItemId: string;
-  edited: boolean;
-  tool: string;
-  arguments: Record<string, unknown>;
-  invocationId: string;
-  fetchedAt: number;
-  toolResult: unknown;
-  appResource: Record<string, unknown>;
-  isError: boolean;
-  fixture: boolean;
-  uploaded: boolean;
-  mime: string;
-  size: number;
-  checksum: string;
-  text: boolean;
-  upload: boolean;
-  objectId: string;
-  origin: string;
-  importId: string;
-  externalId: string;
-  rawObjectId: string;
-  snippet: boolean;
-}>;
-export function parseArtifactMetadata(role: ArtifactRole, value: unknown) {
-  return ArtifactMetadataSchemas[role].parse(value);
-}
 export const ConnectionMetadata = z.strictObject({
   preview: z.boolean().optional(),
   loopHarness: Harness.optional(),
@@ -457,18 +313,11 @@ export function parseMessage(value: unknown) {
 export type Message = ReturnType<typeof parseMessage>;
 export function parseArtifact(value: unknown) {
   const row = parseRecord(ArtifactRecord, value, "artifacts");
-  return {
-    ...row,
-    // D5: stored JSON is parsed against the strict arm of the row's role;
-    // the consumer-facing type stays the flat set of optional arm fields.
-    metadata: readJson(
-      ArtifactMetadataSchemas[row.role],
-      row.metadata,
-      "artifacts",
-      row.id,
-      "metadata",
-    ) as ArtifactMetadata,
-  };
+  try {
+    return { ...row, ...readArtifactMetadata(row.role, row.metadata) };
+  } catch {
+    throw new InvalidRow("artifacts", row.id, "metadata");
+  }
 }
 export type Artifact = ReturnType<typeof parseArtifact>;
 
@@ -500,7 +349,7 @@ export function messageResponse<T extends Message>(row: T) {
   return { ...row, metadata: JSON.stringify(row.metadata) };
 }
 export function artifactResponse<T extends Artifact>(row: T) {
-  return { ...row, metadata: JSON.stringify(row.metadata) };
+  return { ...row, metadata: writeArtifactMetadata(row) };
 }
 
 // A fresh turn carries only these separately validated fields from its

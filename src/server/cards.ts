@@ -1,3 +1,7 @@
+import {
+  readArtifactMetadata,
+  artifactDisplayMetadata,
+} from "../shared/artifact-metadata.js";
 import { MessageRole } from "../shared/message-roles.js";
 import { downloadLink } from "../shared/workspace-links.js";
 import { DONE_CARD_PREFIX } from "../shared/done-card-id.js";
@@ -117,7 +121,11 @@ function query(
 
 function toCard(row: Row): Card {
   const artifact = row.key.startsWith("a:");
-  const meta = JSON.parse(row.metadata) as Record<string, unknown>;
+  const meta = artifact
+    ? artifactDisplayMetadata(
+        readArtifactMetadata(row.artifact_role!, row.metadata),
+      )
+    : (JSON.parse(row.metadata) as Record<string, unknown>);
   const agent = {
     id: row.agent_id,
     name: row.agent_name,

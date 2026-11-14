@@ -1,25 +1,26 @@
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as artifactVersionsQueries from "./sql/artifact-versions.js";
-import { parseArtifactMetadata } from "./row-schemas.js";
+import {
+  writeArtifactMetadata,
+  type ArtifactMetadataInput,
+} from "../shared/artifact-metadata.js";
 import { db, id, now } from "./db.js";
 import {
   DefaultArtifactKind,
   type ArtifactKind,
 } from "../shared/artifact-kind.js";
-import type { ArtifactRole } from "../shared/artifact-role.js";
+
 export function saveArtifact(
   owner: string,
   data: {
     title: string;
     kind?: ArtifactKind;
-    role: ArtifactRole;
     content: string;
     agent?: string | null;
     conversation?: string | null;
     run?: string | null;
     folder?: string | null;
-    metadata?: unknown;
-  },
+  } & ArtifactMetadataInput,
 ) {
   const artifactId = id(),
     time = now();
@@ -34,12 +35,7 @@ export function saveArtifact(
     data.kind || DefaultArtifactKind,
     data.role,
     data.content,
-    JSON.stringify(
-      parseArtifactMetadata(
-        data.role,
-        data.metadata === undefined ? {} : data.metadata,
-      ),
-    ),
+    writeArtifactMetadata(data),
     data.folder || null,
     time,
   );

@@ -196,6 +196,7 @@ it("rejects invalid present display fields and unknown new writes without repair
     saveArtifact(owner, {
       title: "Invalid",
       content: "Never stored",
+      // @ts-expect-error Exercise strict validation of malformed runtime input.
       metadata: { reviewId: false },
       role: "answer",
     }),

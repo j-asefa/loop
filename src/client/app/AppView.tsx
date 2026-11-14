@@ -1,3 +1,7 @@
+import {
+  readArtifactMetadata,
+  artifactMessageId,
+} from "../../shared/artifact-metadata.js";
 import { emptySharedDraft } from "../workspace-drafts";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { resultTarget } from "../card-actions";
@@ -57,7 +61,6 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { parse } from "../json";
 import { NativeConnections } from "../NativeConnections";
 import { CreateAgent } from "../CreateAgent";
 import {
@@ -1381,7 +1384,13 @@ export function renderApp(props: AppViewProps) {
             onConversation={() => {
               const message = activeArtifact.card
                 ? activeArtifact.card.source.message_id || undefined
-                : parse<any>(activeArtifact.metadata, {}).messageId;
+                : artifactMessageId(
+                    readArtifactMetadata(
+                      activeArtifact.role,
+                      activeArtifact.metadata,
+                      "fallback",
+                    ),
+                  );
               setConversation(
                 resultTarget(activeArtifact).conversation_id,
                 message,

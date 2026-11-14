@@ -1,3 +1,7 @@
+import {
+  readArtifactMetadata,
+  artifactMessageId,
+} from "../../shared/artifact-metadata.js";
 import { useEffect, useMemo, type RefObject } from "react";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import { contractCardReader } from "../../shared/card-client";
@@ -6,7 +10,6 @@ import { CollectionReadNotice, useCollectionRead } from "../CollectionRead";
 import { readRoute } from "../api";
 import { resultAction, resultTarget, type ResultAction } from "../card-actions";
 import type { ComposerContext } from "../composerContext";
-import { parse } from "../json";
 import { executionSourceId } from "../sourceRouting";
 import { viewGeneration } from "../viewCache";
 
@@ -142,7 +145,9 @@ export function useArtifactReads({
         const target = resultTarget(original);
         const imported = original.card
           ? original.card.role === "import"
-          : parse<any>(original.metadata, {}).origin === "import";
+          : original.role === "import" &&
+            readArtifactMetadata("import", original.metadata, "fallback")
+              .metadata.origin === "import";
         if (!target.agent_id || !target.conversation_id || imported)
           return void openTarget(original);
         onReply({
@@ -150,7 +155,13 @@ export function useArtifactReads({
           conversationId: target.conversation_id,
           messageId: original.card
             ? original.card.source.message_id || undefined
-            : parse<any>(original.metadata, {}).messageId,
+            : artifactMessageId(
+                readArtifactMetadata(
+                  original.role,
+                  original.metadata,
+                  "fallback",
+                ),
+              ),
           artifactId: target.id,
           title: target.title,
           content: target.content,

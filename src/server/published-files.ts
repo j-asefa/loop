@@ -1,3 +1,4 @@
+import { readArtifactMetadata } from "../shared/artifact-metadata.js";
 import { MAX_UPLOAD_LABEL } from "../shared/uploads.js";
 import { openVerified, storeFile, fileChecksum } from "./file-store.js";
 import { workspaceLink } from "../shared/workspace-links.js";
@@ -146,7 +147,9 @@ export async function publishRunFile(
       artifactId: prior.id,
       url: workspaceLink({ artifact: prior.id }),
       downloadUrl: "/api/artifacts/" + prior.id + "/file",
-      name: JSON.parse(prior.metadata).name || prior.title,
+      name:
+        readArtifactMetadata("file", prior.metadata).metadata.name ||
+        prior.title,
       mime: prior.mime,
       size: prior.size,
       available: true,

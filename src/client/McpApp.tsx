@@ -1,3 +1,8 @@
+import {
+  readArtifactMetadata,
+  type TraceMetadata,
+} from "../shared/artifact-metadata.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ArtifactId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
@@ -13,7 +18,7 @@ export function McpApp({
   metadata,
 }: {
   artifactId: string;
-  metadata?: any;
+  metadata?: TraceMetadata;
 }) {
   const artifactId = ArtifactId.parse(rawArtifactId);
   const call = useSourceRoute();
@@ -66,11 +71,18 @@ export function McpApp({
           ? Promise.resolve(metadata)
           : call(workspaceApi.artifactDetail, {
               params: { id: artifactId },
-            }).then((item) => JSON.parse(item.metadata))
+            }).then((item): TraceMetadata =>
+              item.role === "trace"
+                ? readArtifactMetadata("trace", item.metadata, "fallback")
+                    .metadata
+                : {},
+            )
       )
         .then(async (payload) => {
           await bridge.sendToolInput({ arguments: payload.arguments || {} });
-          await bridge.sendToolResult(payload.toolResult);
+          await bridge.sendToolResult(
+            CallToolResultSchema.parse(payload.toolResult),
+          );
         })
         .catch(() =>
           setStatus(

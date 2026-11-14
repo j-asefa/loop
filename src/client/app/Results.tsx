@@ -1,3 +1,4 @@
+import { readArtifactMetadata } from "../../shared/artifact-metadata.js";
 import { ProjectId, parseId } from "../../shared/contract-ids.js";
 import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
 import { ContentCard } from "../ContentCard";
@@ -10,7 +11,6 @@ import { cacheView, cachedView, viewGeneration } from "../viewCache";
 import { ResultsPager } from "../results";
 import type { SavedMessage } from "../card-actions";
 
-import { parse } from "../json";
 import { callRoute, readRoute } from "../api";
 import { Empty, ArtifactCard } from "../components";
 import type { Agent } from "../../shared/types";
@@ -439,7 +439,13 @@ export function renderResults(
         items
           // Typed cards already carry public selection membership. Retained
           // Files rows keep their existing snippet filter.
-          .filter((item) => item.card || !parse<any>(item.metadata, {}).snippet)
+          .filter(
+            (item) =>
+              item.card ||
+              item.role !== "snippet" ||
+              !readArtifactMetadata("snippet", item.metadata, "fallback")
+                .metadata.snippet,
+          )
           .map((item) => resultCard(item))
       ) : (
         <Empty

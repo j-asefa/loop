@@ -86,7 +86,10 @@ export function uploadFile(
 
 // A file an agent published (loop_publish_file), passed to a teammate with
 // loop_message. Its bytes live under the data directory, checked on read.
-function publishedFile(artifact: Artifact, owner: string) {
+function publishedFile(
+  artifact: Extract<Artifact, { role: "file" }>,
+  owner: string,
+) {
   const row = artifactObjectsQueries.owned(db, artifact.id, owner);
   if (!row) throw new Problem(404, "Uploaded file not found");
   const bytes = openVerified(row.object_key, row.size, row.checksum);
@@ -105,11 +108,13 @@ function publishedFile(artifact: Artifact, owner: string) {
 }
 export function uploadedFile(owner: string, fileId: string) {
   const artifact = ownedArtifact(fileId, owner);
-  const meta = artifact.metadata;
   // Archiving hides the file from workspace lists; accepted conversations and
   // retries still own their references. Ownership is checked for both records.
-  if (!meta.upload && meta.uploaded) return publishedFile(artifact, owner);
-  if (!meta.upload) throw new Problem(404, "Uploaded file not found");
+  if (artifact.role === "file" && artifact.metadata.uploaded)
+    return publishedFile(artifact, owner);
+  if (artifact.role !== "upload" || !artifact.metadata.upload)
+    throw new Problem(404, "Uploaded file not found");
+  const meta = artifact.metadata;
   if (!meta.objectId)
     throw new Problem(409, `Artifact ${artifact.id} has no upload identity`);
   const object = ownedObject(meta.objectId, owner);

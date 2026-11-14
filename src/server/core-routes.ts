@@ -1,3 +1,4 @@
+import { artifactDisplayMetadata } from "../shared/artifact-metadata.js";
 import { executionRoute } from "./execution-routes.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -804,7 +805,7 @@ routes.on(workspaceApi.artifactFile, (req, res) => {
     recordCardRead(res.locals.owner, res.locals.bearer.tokenId, [
       "a:" + artifact.id,
     ]);
-  const name = artifact.metadata.name || artifact.title;
+  const name = artifactDisplayMetadata(artifact).name || artifact.title;
   sendFile(res, req.query.preview, { ...file, name }, { inlineImages: true });
 });
 
