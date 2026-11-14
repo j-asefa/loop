@@ -33,7 +33,11 @@ import {
   User,
 } from "lucide-react";
 import { callRoute, readRoute } from "./api";
-import { CollectionReadNotice, useCollectionRead } from "./CollectionRead";
+import {
+  CollectionReadNotice,
+  useCollectionRead,
+  useProjectionQuery,
+} from "./CollectionRead";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import {
   workspaceApi,
@@ -503,9 +507,6 @@ const outlineLabel = {
   saved: "Saved",
 };
 
-type ThreadMatch = NonNullable<
-  RouteResponse<typeof workspaceApi.conversationOutline>["matches"]
->[number];
 const matchLabel = {
   prompt: "You",
   response: "Agent",
@@ -542,61 +543,36 @@ export function OutlineSheet({
   onJump: (messageId: string) => void;
   onClose: () => void;
 }) {
-  const readProjection = useProjectionRoute();
-
+  const source = useSourceId();
   const conversationId = ConversationId.parse(rawConversationId);
-  const [items, setItems] = useState<OutlineItem[] | null>(null);
-  const [error, setError] = useState("");
+  const outline = useProjectionQuery(
+    workspaceApi.conversationOutline,
+    {
+      params: { id: conversationId },
+    },
+    { source, conversation: conversationId, mode: "once" },
+  );
+  const items = outline.data?.items;
   const [filter, setFilter] = useState<"all" | OutlineItem["kind"]>("all");
   const [query, setQuery] = useState("");
-  const [matches, setMatches] = useState<ThreadMatch[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [searchAttempt, setSearchAttempt] = useState(0);
+  const text = query.trim();
+  const [debounced, setDebounced] = useState("");
   useEffect(() => {
-    let active = true;
-    readProjection(
-      workspaceApi.conversationOutline,
-      {
-        params: { id: conversationId },
-      },
-      { mode: "once" },
-    )
-      .then((result) => active && setItems(result.items))
-      .catch((e) => active && setError((e as Error).message));
-    return () => {
-      active = false;
-    };
-  }, [conversationId]);
-  // Searching waits for a pause in typing; the newest query wins.
-  useEffect(() => {
-    const text = query.trim();
-    setMatches(null);
-    setSearchError("");
-    if (!text) {
-      setSearching(false);
-      return;
-    }
-    let active = true;
-    setSearching(true);
-    const timer = setTimeout(() => {
-      readProjection(
-        workspaceApi.conversationOutline,
-        {
-          params: { id: conversationId },
-          query: { q: text },
-        },
-        { mode: "once" },
-      )
-        .then((result) => active && setMatches(result.matches ?? []))
-        .catch((e) => active && setSearchError((e as Error).message))
-        .finally(() => active && setSearching(false));
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [conversationId, query, searchAttempt]);
+    const timer = setTimeout(() => setDebounced(text), 250);
+    return () => clearTimeout(timer);
+  }, [text]);
+  const ready = !!text && text === debounced;
+  const search = useProjectionQuery(
+    workspaceApi.conversationOutline,
+    {
+      params: { id: conversationId },
+      query: { q: debounced },
+    },
+    { source, conversation: conversationId, mode: "once", enabled: ready },
+  );
+  const matches = ready ? search.data?.matches : undefined;
+  const searching = !ready || search.loading;
+  const searchError = ready ? search.error : "";
   const visible = (items || []).filter(
     (item) => filter === "all" || item.kind === filter,
   );
@@ -614,7 +590,7 @@ export function OutlineSheet({
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
-          setSearchAttempt((attempt) => attempt + 1);
+          if (ready) void search.retry();
         }}
       >
         <Search size={18} aria-hidden="true" />
@@ -646,7 +622,7 @@ export function OutlineSheet({
               <button
                 type="button"
                 className="secondary"
-                onClick={() => setSearchAttempt((attempt) => attempt + 1)}
+                onClick={() => void search.retry()}
               >
                 Try again
               </button>
@@ -693,7 +669,7 @@ export function OutlineSheet({
               Showing {filterName.toLowerCase()} · {visible.length}
             </p>
           )}
-          {!items && !error && <p role="status">Loading outline…</p>}
+          {!items && !outline.error && <p role="status">Loading outline…</p>}
           {items && !visible.length && (
             <p className="note">Nothing to show in this view yet.</p>
           )}
@@ -725,11 +701,7 @@ export function OutlineSheet({
           </ol>
         </>
       )}
-      {!query.trim() && error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {!query.trim() && <CollectionReadNotice {...outline} />}
     </Sheet>
   );
 }

@@ -25,6 +25,7 @@ type QueryOptions = {
   revision?: string | number;
   enabled?: boolean;
   reportRetries?: boolean;
+  mode?: "once";
 };
 
 /** Inputs identify a snapshot; revisions invalidate it without hiding its rows. */
@@ -38,6 +39,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     events = [],
     revision = 0,
     reportRetries = false,
+    mode: requestedMode,
     enabled: requestedEnabled = true,
   }: QueryOptions,
 ) {
@@ -49,9 +51,10 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     input,
     enabled,
     reportRetries,
+    requestedMode,
   ]);
   const context = useMemo(
-    () => ({ contract, input, source, enabled, reportRetries }),
+    () => ({ contract, input, source, enabled, reportRetries, requestedMode }),
     [key],
   );
   const { load, error, busy, cancel } = useCollectionRead(key);
@@ -83,7 +86,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
                     });
                 }
               : undefined,
-            mode,
+            context.requestedMode ?? mode,
           ),
         (value) => {
           setResult({ context, value });
