@@ -265,9 +265,40 @@ export async function markdownDefinitionsSmoke(
   await dialog()
     .getByRole("textbox", { name: "Markdown definition", exact: true })
     .fill(markdown + "Do not duplicate findings.\n");
+  await page.clock.install();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
   // Save/delete responses are authoritative even if a later list refresh fails.
   // The first failure must remain visible during bounded GET recovery (the
   // two retries take six seconds, longer than this assertion's normal bound).
+  await page.route("**/api/agent-definitions", (route) =>
+    route.fulfill({
+      status: 503,
+      json: { error: "Fixture library refresh failed" },
+    }),
+  );
+  await dialog()
+    .getByRole("button", { name: "Save definition", exact: true })
+    .click({ force: true });
+  await expect(dialog().getByRole("alert")).toContainText(
+    "Fixture library refresh failed",
+  );
+  await page.unroute("**/api/agent-definitions");
+  await dialog()
+    .getByRole("button", { name: "Reload definitions", exact: true })
+    .click({ force: true });
+  await expect(dialog().getByRole("alert")).toHaveCount(0);
+  await expect(
+    dialog().getByRole("button", {
+      name: "Use markdown-reviewer",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.clock.resume();
+
+  // Keep the original failed-refresh save/delete coverage after manual recovery.
+  await dialog()
+    .getByRole("button", { name: "Edit markdown-reviewer", exact: true })
+    .click();
   await page.route("**/api/agent-definitions", (route) =>
     route.fulfill({
       status: 503,
