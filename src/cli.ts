@@ -1051,12 +1051,8 @@ Uninstall removes the package separately; workspace/native history is retained.`
   const savedLaunch = await readLaunch(dir);
   const selected = (neutral ? "codex" : action) as Harness;
   const running = (await workspaceStatus(dir)).status;
-  if (
-    neutral &&
-    !values.project &&
-    (savedLaunch?.project ?? preferences.project)
-  )
-    project = await realpath(savedLaunch?.project ?? preferences.project);
+  if (neutral && !values.project && preferences.project)
+    project = await realpath(preferences.project);
   const { selectedHarnesses, selectedBilling } =
     await import("./start-selection.js");
   const providers = selectedHarnesses(
@@ -1113,8 +1109,7 @@ Uninstall removes the package separately; workspace/native history is retained.`
   let billing: Options["billing"] = selectedBilling(
     selected,
     values.billing,
-    (savedLaunch?.action === selected ? savedLaunch.billing : undefined) ??
-      preferences.billing?.[selected],
+    preferences.billing?.[selected],
   );
   if (selected === "acp" && billing !== "existing")
     throw new Error(

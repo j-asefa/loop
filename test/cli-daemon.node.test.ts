@@ -1153,25 +1153,49 @@ test("loop start pairs with no installed harness, reuses the host and survives r
   }
 });
 
-test("bare loop restores its typed launch before conflicting preferences", async () => {
+test("fresh starts retain managed project and the latest billing preference", async () => {
   const w = await workspace();
   try {
     await w.loop(["start", "--local-only", "--project", w.env.LOOP_HOME]);
     const running = await w.status();
-    const preferencesPath = join(w.dir, "preferences.json");
-    const preferences = JSON.parse(await readFile(preferencesPath, "utf8"));
-    await writeFile(
-      preferencesPath,
-      JSON.stringify({
-        ...preferences,
-        project: join(w.env.LOOP_HOME, "missing-preference-project"),
-        providers: "invalid-preference-provider",
-      }),
-    );
-    const bare = await w.loop(["--local-only"]);
-    assert.match(bare.stdout, PAIR_URL);
+    assert.match((await w.loop(["--local-only"])).stdout, PAIR_URL);
     assert.equal((await w.status()).pid, running.pid);
-    assert.equal((await w.status()).project, w.env.LOOP_HOME);
+    await w.loop(["stop"]);
+    await w.start();
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "existing",
+    );
+    const withoutBilling = w.harness.slice(0, -2);
+    await w.loop([
+      ...withoutBilling,
+      "--local-only",
+      "--billing",
+      "subscription",
+    ]);
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "preferences.json"), "utf8"))
+        .billing.codex,
+      "subscription",
+    );
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "existing",
+    );
+    await w.loop(["stop"]);
+    await w.loop([...withoutBilling, "--local-only"]);
+    assert.equal(
+      JSON.parse(await readFile(join(w.dir, "launch.json"), "utf8")).billing,
+      "subscription",
+      "fresh start uses the newer explicit choice",
+    );
+    await w.loop(["stop"]);
+    await w.loop(["--local-only"]);
+    assert.equal(
+      (await w.status()).project,
+      w.env.LOOP_HOME,
+      "one-off harness project does not replace managed default",
+    );
   } finally {
     await w.cleanup();
   }
