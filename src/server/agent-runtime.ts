@@ -640,6 +640,15 @@ export async function executeAgent(run: Run): Promise<boolean> {
       if (cp.stage === "tools") {
         for (const invocation of pending) {
           if (invocation.done) continue;
+          // A pause can arrive while the previous call is in flight. Preserve
+          // its checkpoint and stop before creating another approval/effect.
+          const boundary = runsQueries.state(db, run.id)!.state;
+          if (boundary === "cancelled" || boundary === "pausing") {
+            persist(true);
+            // A concurrent terminal outcome wins if the pause is refused.
+            if (boundary === "pausing") transition(run, "paused");
+            return false;
+          }
           assertEffect(run.owner_id, "run", run.id);
           const traceKey = "tool:" + invocation.call.id;
           const trace = {
