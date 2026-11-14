@@ -94,6 +94,7 @@ export function renderApp(props: AppViewProps) {
     setView,
     displayName,
     feedBadgeCount,
+    feedBadgeReadNotice,
     session,
     error,
     artifactReadNotice,
@@ -568,6 +569,9 @@ export function renderApp(props: AppViewProps) {
             ×
           </button>
         </div>
+      )}
+      {feedBadgeReadNotice && (
+        <div className="toast">{feedBadgeReadNotice}</div>
       )}
       {!activeArtifact && artifactReadNotice && (
         <div className="toast">{artifactReadNotice}</div>

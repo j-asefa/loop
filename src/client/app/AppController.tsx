@@ -18,7 +18,7 @@ import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { resultTarget, type ResultAction } from "../card-actions";
 import { renderArtifactReadNotice, useArtifactReads } from "./ArtifactReads";
 
-import { useProjectionQuery } from "../CollectionRead";
+import { CollectionReadNotice, useProjectionQuery } from "../CollectionRead";
 import { MAX_MESSAGE_FILES, type UploadedFile } from "../../shared/uploads";
 import { useThreadSource } from "../useThreadSource";
 import { executionSourceId, sourceUrl } from "../sourceRouting";
@@ -956,7 +956,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   );
   const profileWork = currentAgentWork(runs, profile?.id);
   const sentRun = runs.find((run) => run.id === sendNotice?.runId);
-  const feedBadgeCount = useFeedBadge(
+  const feedBadgeRead = useFeedBadge(
     !!signedIn,
     projectFilter || teamSelection.length
       ? [executionSourceId()]
@@ -1196,7 +1196,10 @@ export function useAppController(seed?: AppNavigationInitial) {
     setProfile,
     setView,
     displayName,
-    feedBadgeCount,
+    feedBadgeCount: feedBadgeRead.count,
+    feedBadgeReadNotice: feedBadgeRead.error ? (
+      <CollectionReadNotice {...feedBadgeRead} />
+    ) : null,
     session,
     error,
     check,
