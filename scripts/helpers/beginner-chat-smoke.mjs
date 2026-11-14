@@ -139,12 +139,35 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   await expect(
     composer.getByRole("button", { name: "Commands & skills", exact: true }),
   ).toHaveCount(0);
+  let refuseSnippets = true;
+  let snippetReads = 0;
+  await page.route("**/api/snippets", async (route) => {
+    snippetReads++;
+    if (refuseSnippets)
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Snippet fixture unavailable" }),
+      });
+    else await route.continue();
+  });
   await input.fill("/");
   const commands = page.getByRole("dialog", {
     name: "Commands & skills",
     exact: true,
   });
   await expect(commands).toBeVisible();
+  const snippetNotice = commands.getByRole("alert").filter({
+    hasText: "Snippet fixture unavailable",
+  });
+  // Automatic reads wait 2s and 4s before reporting the third failure.
+  await expect(snippetNotice).toBeVisible({ timeout: 10000 });
+  const beforeRetry = snippetReads;
+  refuseSnippets = false;
+  await snippetNotice.getByRole("button", { name: "Retry connection" }).click();
+  await expect(snippetNotice).toHaveCount(0);
+  assert(snippetReads > beforeRetry, "Retry fetches snippets again");
+  await page.unroute("**/api/snippets");
   await commands.getByRole("button", { name: "Close", exact: true }).click();
   await expect(input).toBeFocused();
   await input.fill("");
