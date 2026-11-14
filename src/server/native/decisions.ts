@@ -105,6 +105,19 @@ export class NativeDecisions {
       if (existing && existing !== "pending") return false;
     }
     live.requests.set(event.request.id, event.request);
+    const waitForDecision = () => {
+      // An automatic answer can fail after this turn or generation was retired.
+      if (
+        live.closed ||
+        live.run?.id !== run.id ||
+        this.context.live.get(live.binding.conversation_id) !== live
+      )
+        return;
+      live.waiting =
+        transition(run, "awaiting_approval") ||
+        runsQueries.ownedState(db, run.id, run.owner_id)?.state ===
+          "awaiting_approval";
+    };
     if (recorded && allow) {
       // "Never ask" answers routine tool approvals for the user. Questions
       // and forms requiring input have no allow choice and still wait. A failed
@@ -119,14 +132,10 @@ export class NativeDecisions {
               decisionId,
               title: event.request.title,
             }),
-          () => {
-            transition(run, "awaiting_approval");
-            live.waiting = true;
-          },
+          waitForDecision,
         );
     } else {
-      transition(run, "awaiting_approval");
-      live.waiting = true;
+      waitForDecision();
     }
     return true;
   }

@@ -48,6 +48,8 @@ export function recoverStuckRuns() {
         // Store the reason on the run so the Feed card shows it, as a
         // rejection would.
         runsQueries.setError(db, message, run.id);
+        // The recheck above holds awaiting_approval in this transaction;
+        // that state always permits failed, so refusal is unreachable.
         transition(run, "failed", { message });
       }
     }).immediate();

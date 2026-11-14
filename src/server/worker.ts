@@ -141,6 +141,8 @@ export async function tick(
         writeImports(run.owner_id, () =>
           importsQueries.failOwned(db, run.payload.importId, run.owner_id),
         );
+      // leaseError just matched an executing state in this transaction;
+      // each of those states permits failure, so refusal is unreachable.
       transition(run, "failed");
     }).immediate();
   } finally {
@@ -228,6 +230,7 @@ export function startWorker() {
     if (scheduled) clearImmediate(scheduled);
     // Shutdown owns this transition before native IO is terminated; a
     // resulting pipe failure must not reclassify an interrupted turn as failed.
+    // A run may finish after selection; a refused interrupt needs no action.
     for (const run of RunIdentity.array().parse(
       runsQueries.workerShutdownIdentities(db, workerId),
     ))

@@ -9,6 +9,7 @@ export function prepareClaim({ transition, rejectInvalidRun }: ClaimActions) {
   // Refuse obsolete mail even when another conversation would prevent its
   // claim. Otherwise it can remain a permanent queue barrier.
   const mailRuns = mailQueries.queuedRuns(db, rejectInvalidRun);
+  // Stopped/obsolete work may already be terminal; refusal leaves it stopped.
   for (const stopped of continuationQueries.stopped(db))
     transition(stopped, "cancelled", {
       reason:
@@ -17,6 +18,7 @@ export function prepareClaim({ transition, rejectInvalidRun }: ClaimActions) {
   for (const queued of mailRuns) {
     try {
       const failure = queuedMailFailure(queued.id);
+      // A prior cancellation in this claim transaction may already stop it.
       if (failure) transition(queued, "cancelled", { message: failure });
     } catch (error) {
       if (!(error instanceof InvalidRow)) throw error;

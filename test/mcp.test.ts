@@ -234,6 +234,17 @@ it("uses official MCP discovery, pauses model tool calls for approval and saves 
   const approval = db
     .prepare("SELECT * FROM approvals WHERE run_id=?")
     .get(run.id) as any;
+  const { parseRun } = await import("../src/server/row-schemas");
+  const waiting = parseRun(
+    db.prepare("SELECT * FROM runs WHERE id=?").get(run.id),
+  );
+  const binding = toolBindings("alice", agent.id).find(
+    (item) => item.tool === "metrics",
+  )!;
+  const request = JSON.parse(approval.request);
+  expect(
+    await invokeTool(waiting, binding, request.callId, request.arguments),
+  ).toMatchObject({ pending: approval.id });
   expect(() => decide("bob", approval.id, "approve")).toThrow();
   decide("alice", approval.id, "approve");
   await tick(execute);

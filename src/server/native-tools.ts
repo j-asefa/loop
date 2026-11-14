@@ -420,7 +420,11 @@ export async function invokeNative(
       nativeCallsQueries.approval(db, approval.id, run.id, callId);
     }
     if (approval.state === "pending") {
-      transition(run, "awaiting_approval", { approvalId: approval.id });
+      if (
+        !transition(run, "awaiting_approval", { approvalId: approval.id }) &&
+        ownedRun(run.id, run.owner_id).state !== "awaiting_approval"
+      )
+        throw new Problem(409, "This run can no longer await approval");
       return { pending: approval.id };
     }
     if (approval.state !== "approved" || approval.expires_at < now())

@@ -134,17 +134,25 @@ function decideApproval(
           answer: { choice: decision },
         });
       if (resumesNative) {
-        runsQueries.resumeAfterApproval(db, run.id);
+        if (!transition(run, "running"))
+          throw new Problem(409, "This run can no longer resume");
         emit(owner, run.id, "approval.decided", {
           approvalId,
           decision,
           origin: "loop",
         });
-      } else if (!inline && decision === "approve")
-        transition(run, "queued", { approvalId });
-      else if (decision === "reject") {
+      } else if (!inline && decision === "approve") {
+        if (!transition(run, "queued", { approvalId }))
+          throw new Problem(409, "This run can no longer resume");
+      } else if (decision === "reject") {
         runsQueries.setError(db, "Approval was rejected.", run.id);
-        transition(run, "failed", { approvalId, reason: "Approval rejected" });
+        if (
+          !transition(run, "failed", {
+            approvalId,
+            reason: "Approval rejected",
+          })
+        )
+          throw new Problem(409, "This run can no longer reject approval");
       }
       if (source.by === "policy") emitPolicyApproval(owner, run.id, approvalId);
       return { ok: true };

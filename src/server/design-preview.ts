@@ -14,7 +14,7 @@ import { watchRun } from "./run-signal.js";
 import { writeConnectionStatus } from "./connection-status.js";
 import type { RequestHandler } from "express";
 import { designPreview } from "../preview-context.js";
-import { db, changes, emit, id, now } from "./db.js";
+import { db, changes, id, now } from "./db.js";
 import { OWNER } from "./workspace-identity.js";
 import {
   ownedConnection,
@@ -26,7 +26,7 @@ import {
 import { seal } from "./secrets.js";
 import { saveArtifact } from "./artifacts.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
-import { claim, type Run } from "./queue.js";
+import { claim, transition, type Run } from "./queue.js";
 import { SteeringInbox } from "./steering.js";
 import { decide } from "./approvals.js";
 
@@ -126,11 +126,20 @@ export const designPreviewBoundary: RequestHandler = (req, res, next) => {
         "Simulated decision; nothing was sent externally.",
         approval[1],
       );
-      if (approved)
+      if (approved) {
+        // decide() requeues the sample. Use the ordinary atomic lease claim
+        // before completing it; queued → completed is not a legal edge.
+        const claimed = claim(
+          "design-preview",
+          (candidate) => candidate.id === run.id,
+        );
+        if (!claimed)
+          throw new Problem(409, "This preview run can no longer resume");
         finish(
-          run,
+          claimed,
           "Preview approval accepted. This is a simulation; no review was posted.",
         );
+      }
     }).immediate();
     res.json({ ok: true });
     return;
@@ -165,8 +174,7 @@ function reply(run: Run, content: string, partial = false) {
 function finish(run: Run, content: string) {
   // Called inside the simulator's transaction: messages and delivery receipts commit together.
   new SteeringInbox(run).appendPending([]);
-  const message = reply(run, content),
-    time = now();
+  const message = reply(run, content);
   const artifact = saveArtifact(run.owner_id, {
     title: run.input.slice(0, 120),
     content,
@@ -185,8 +193,10 @@ function finish(run: Run, content: string) {
     "[]",
     content,
   );
-  runsQueries.completePreview(db, content, time, run.id, run.owner_id);
-  emit(run.owner_id, run.id, "completed", { preview: true });
+  runsQueries.setResult(db, content, run.id);
+  if (!transition(run, "completed", { preview: true }))
+    throw new Problem(409, "This preview run can no longer complete");
+  runsQueries.clearLease(db, run.id);
 }
 
 /** Seed once. A rebuild preserves edits and pairing rather than duplicating the fixture. */
@@ -244,7 +254,7 @@ export function seedDesignPreview() {
         "Write a short summary of the experiment",
         "This sample task is waiting in the queue.",
       ],
-    ];
+    ] as const;
     scenarios.forEach(([state, title, content], index) => {
       const agent = agents[index],
         conversation = id(),
@@ -265,7 +275,8 @@ export function seedDesignPreview() {
         agent: agent.id,
         conversation,
         input: title,
-        state,
+        // Completed fixtures still exercise the completion transition and hooks.
+        state: state === "completed" ? "running" : state,
         payload: JSON.stringify({
           agentId: agent.id,
           connectionId: connection,

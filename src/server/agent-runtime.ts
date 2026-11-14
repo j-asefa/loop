@@ -628,6 +628,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       }
       if (boundary === "pausing") {
         persist(true);
+        // A concurrent stop may refuse this pause; execution stops either way.
         transition(run, "paused");
         return false;
       }
@@ -715,6 +716,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
                 const state = ownedRun(run.id, run.owner_id).state;
                 if (state === "running" || state === "pausing") {
                   runsQueries.releaseForChildren(db, now(), run.id);
+                  // State was read in this transaction; pausing → paused is legal.
                   if (state === "pausing") transition(run, "paused");
                   else emit(run.owner_id, run.id, "waiting_children", {});
                 }
@@ -803,6 +805,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
       }
       if (state === "pausing") {
         persist(true);
+        // A concurrent stop may refuse this pause; execution stops either way.
         transition(run, "paused", {
           message: "Paused at a provider/tool boundary.",
         });
@@ -1017,6 +1020,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
         if (continuing) continue;
         const current = runsQueries.state(db, run.id)!.state;
         if (current === "pausing") {
+          // A concurrent stop may refuse this pause; execution stops either way.
           transition(run, "paused", {
             message:
               "Response completed and saved. Resume to mark this run complete.",

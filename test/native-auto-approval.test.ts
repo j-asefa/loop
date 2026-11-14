@@ -1264,3 +1264,36 @@ it("reports a refused decision as resolved when the harness resolved it meanwhil
     ),
   ).toMatchObject({ choice: "allow", state: "resolved" });
 });
+
+it.each(["terminal", "retired", "replaced"] as const)(
+  "does not restore waiting after a late auto-approval failure on a %s turn",
+  async (mode) => {
+    const f = session("late-auto-" + mode, "bypassPermissions");
+    let reject!: (reason: Error) => void;
+    const answer = vi.spyOn(f.sessions.decisions, "answer").mockImplementation(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    try {
+      f.request(approval);
+      expect(answer).toHaveBeenCalledOnce();
+      if (mode === "terminal") {
+        const { transition } = await import("../src/server/queue");
+        expect(transition(f.run, "cancelled")).toBe(true);
+      } else if (mode === "retired") f.live.run = undefined;
+      else
+        (f.sessions as unknown as { live: Map<string, Live> }).live.delete(
+          f.live.binding.conversation_id,
+        );
+      reject(new Error("Fixture late failure"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(f.live.waiting).toBe(false);
+      expect(f.state()).toBe(mode === "terminal" ? "cancelled" : "running");
+      expect(answer).toHaveBeenCalledOnce();
+    } finally {
+      answer.mockRestore();
+    }
+  },
+);

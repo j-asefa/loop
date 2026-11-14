@@ -243,6 +243,8 @@ export class NativeProjector {
       );
       if (!live.requests.size) {
         live.waiting = false;
+        // A repeated resolution may already be running; a terminal run must
+        // stay terminal. Neither refusal requires redispatch or more waiting.
         transition(run, "running");
       }
     }

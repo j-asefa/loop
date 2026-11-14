@@ -481,6 +481,10 @@ it("accepts the reported Playwright JSON, rejects invalid blocks, and requires a
   const input = { config: JSON.stringify(config) };
   const pending = await invokeNative(claimed, binding, "installation", input);
   expect("pending" in pending).toBe(true);
+  // Native entry rejects repeated calls while the run is waiting.
+  await expect(
+    invokeNative(claimed, binding, "installation", input),
+  ).rejects.toThrow("Run is no longer executing");
   expect(db.prepare("SELECT count(*) n FROM mcp_connections").get()).toEqual({
     n: 0,
   });

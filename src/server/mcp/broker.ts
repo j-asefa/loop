@@ -226,7 +226,11 @@ export async function invokeTool(
           status: "waiting",
           input: JSON.stringify(args).slice(0, 16000),
         });
-        transition(run, "awaiting_approval", { approvalId: approval.id });
+        if (
+          !transition(run, "awaiting_approval", { approvalId: approval.id }) &&
+          ownedRun(run.id, run.owner_id).state !== "awaiting_approval"
+        )
+          throw new Problem(409, "This run can no longer await approval");
         return approval;
       }
       if (approval.state !== "approved" || approval.expires_at < now())
