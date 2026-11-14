@@ -240,9 +240,9 @@ export async function workspaceControlsSmoke(page, fixture, engine, capture) {
   await expect(dialog()).toContainText(
     "Take more time to check difficult work.",
   );
-  await expect.poll(() => bootstrapRequests).toBeGreaterThan(1);
-  // An older model-only refresh must not overwrite the newer effort selection.
+  // The shared reader lets the active read finish before its trailing refresh.
   await releaseBootstrap();
+  await expect.poll(() => bootstrapRequests).toBeGreaterThan(1);
   await page.unroute("**/api/bootstrap");
   await capture("composer-model-options");
   assert.deepEqual(
