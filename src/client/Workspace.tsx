@@ -16,15 +16,19 @@ import { matchingAgents } from "./agentSearch";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { feedCategories, type FeedCategory } from "../shared/feed-categories";
 import { executionSourceId } from "./sourceRouting";
-import { callRoute, routeUrl } from "./api";
-import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
+import { callRoute, readRoute, routeUrl } from "./api";
+import {
+  CollectionReadNotice,
+  useProjectionQuery,
+  usePagedProjectionQuery,
+} from "./CollectionRead";
 import { viewGeneration } from "./viewCache";
 import {
   workspaceApi,
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { useEffect, useState, useRef, type FormEvent } from "react";
+import { useEffect, useState, useRef, useMemo, type FormEvent } from "react";
 import {
   Folder,
   FileText,
@@ -341,45 +345,85 @@ export function Saved({
   embedded?: boolean;
   initialView?: "recent" | "folders";
 }) {
-  const [view, setView] = useState<string>(initialView),
-    [items, setItems] = useState<
-      RouteResponse<typeof workspaceApi.artifactList>["items"]
-    >([]),
-    [next, setNext] = useState<number | null>(null),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
-  const request = useRef(0);
-  async function load(append = false) {
-    const ticket = ++request.current;
-    if (!append && !items.length) setLoading(true);
-    setError("");
-    try {
+  const [view, setView] = useState<string>(initialView);
+  const source = executionSourceId();
+  const generation = viewGeneration();
+  const selectionKey = JSON.stringify([
+    generation,
+    source,
+    folder,
+    view,
+    embedded,
+  ]);
+  const selection = useMemo(
+    () => ({ active: true, attempt: 0 }),
+    [selectionKey],
+  );
+  useEffect(() => {
+    selection.active = true;
+    return () => {
+      selection.active = false;
+    };
+  }, [selection]);
+  const [commandError, setCommandError] = useState<{
+    selection: typeof selection;
+    message: string;
+  }>();
+  const error =
+    commandError?.selection === selection ? commandError.message : "";
+  const reader = usePagedProjectionQuery<
+    RouteResponse<typeof workspaceApi.artifactList>,
+    number
+  >({
+    key: JSON.stringify([folder, view, embedded]),
+    source,
+    revision: version,
+    requireAdvance: true,
+    empty: { items: [], next: null },
+    // ProjectFiles supplies the shared watcher revision; do not subscribe twice.
+    collections: [],
+    events: [],
+    refreshDelay: () => 0,
+    read: async (current, before, signal, mode, complete) => {
       const query: RouteInput<typeof workspaceApi.artifactList>["query"] = {};
       if (!embedded && view === "pinned") query.pinned = "1";
       else if (embedded || view === "folders")
         query.folder = parseId(FolderId, folder || "unfiled");
-      if (append && next) query.before = String(next);
-      const r = await callRoute(
+      if (before !== undefined) query.before = String(before);
+      const page = await readRoute(
         workspaceApi.artifactList,
         { query },
-        executionSourceId(),
+        source,
+        signal,
+        undefined,
+        mode,
       );
-      if (ticket !== request.current) return;
-      setItems((prev) => (append ? [...prev, ...r.items] : r.items));
-      setNext(r.next);
-    } catch (e) {
-      if (ticket === request.current) setError((e as Error).message);
-    } finally {
-      if (ticket === request.current) setLoading(false);
-    }
-  }
-  useEffect(() => {
-    void load();
-    return () => {
-      request.current++;
-    };
-  }, [folder, view, version]);
+      complete();
+      return before === undefined
+        ? page
+        : {
+            ...page,
+            items: [
+              ...new Map(
+                [...current.items, ...page.items].map((item) => [
+                  item.id,
+                  item,
+                ]),
+              ).values(),
+            ],
+          };
+    },
+  });
+  const { items, next } = reader.page;
+  const loading = reader.loading && !items.length;
   async function pin(a: Artifact) {
+    if (!selection.active || generation !== viewGeneration()) return;
+    const attempt = ++selection.attempt;
+    const current = () =>
+      selection.active &&
+      selection.attempt === attempt &&
+      generation === viewGeneration();
+    setCommandError(undefined);
     try {
       await callRoute(
         workspaceApi.artifactUpdate,
@@ -387,11 +431,12 @@ export function Saved({
           params: { id: a.id },
           body: { pinned: !a.pinned, version: a.version },
         },
-        executionSourceId(),
+        source,
       );
-      await load();
+      if (current()) reader.refresh();
     } catch (e) {
-      setError((e as Error).message);
+      if (current())
+        setCommandError({ selection, message: (e as Error).message });
     }
   }
   const current = folders.find((f) => f.id === folder);
@@ -462,6 +507,11 @@ export function Saved({
           </div>
         </>
       )}
+      <CollectionReadNotice
+        error={reader.error}
+        busy={reader.loading}
+        retry={reader.retry}
+      />
       {error && <p className="error">{error}</p>}
       {loading && <p role="status">Loading files…</p>}
       <div className="file-list" aria-busy={loading}>
@@ -495,7 +545,7 @@ export function Saved({
             </article>
           ))}
       </div>
-      {!loading && !error && !items.length && (
+      {!loading && !error && !reader.error && !items.length && (
         <Empty
           title={
             view === "pinned"
@@ -509,7 +559,11 @@ export function Saved({
         </Empty>
       )}
       {next && (
-        <button className="secondary" onClick={() => load(true)}>
+        <button
+          className="secondary"
+          disabled={reader.loading}
+          onClick={reader.more}
+        >
           Load more
         </button>
       )}
