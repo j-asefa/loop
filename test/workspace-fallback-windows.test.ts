@@ -391,22 +391,24 @@ it.each([false, true])(
   },
 );
 
-it.each(["disconnect", "malformed", "abort", "refusal"])(
+it.each(["disconnect", "malformed", "schema", "manual", "abort", "refusal"])(
   "handles a %s while consuming a successful response body",
   async (failure) => {
     const controller = new AbortController();
     stops.push(() => controller.abort());
     const response =
-      failure === "malformed"
+      failure === "malformed" || failure === "manual"
         ? new Response("not JSON", { status: 200 })
-        : new Response(
-            new ReadableStream({
-              start(stream) {
-                stream.error(new TypeError("Response connection lost"));
-              },
-            }),
-            { status: failure === "refusal" ? 403 : 200 },
-          );
+        : failure === "schema"
+          ? Response.json({ invalid: true })
+          : new Response(
+              new ReadableStream({
+                start(stream) {
+                  stream.error(new TypeError("Response connection lost"));
+                },
+              }),
+              { status: failure === "refusal" ? 403 : 200 },
+            );
     if (failure === "abort")
       vi.spyOn(response, "json").mockImplementation(async () => {
         controller.abort();
@@ -421,6 +423,8 @@ it.each(["disconnect", "malformed", "abort", "refusal"])(
       {},
       "",
       controller.signal,
+      undefined,
+      failure === "manual" ? "manual" : "automatic",
     ).catch(() => {});
     const poll = vi.fn(async () => []);
     const changed = vi.fn();
@@ -434,8 +438,14 @@ it.each(["disconnect", "malformed", "abort", "refusal"])(
     Socket.instances[0].reset("first");
     changed.mockClear();
     await vi.advanceTimersByTimeAsync(1800);
-    expect(poll).toHaveBeenCalledTimes(failure === "disconnect" ? 1 : 0);
-    expect(changed).toHaveBeenCalledTimes(failure === "disconnect" ? 1 : 0);
+    const expected = ["disconnect", "malformed", "schema"].includes(failure)
+      ? 1
+      : 0;
+    expect(poll).toHaveBeenCalledTimes(expected);
+    expect(changed).toHaveBeenCalledTimes(expected);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(5400);
+    expect(poll).toHaveBeenCalledTimes(expected);
   },
 );
 
