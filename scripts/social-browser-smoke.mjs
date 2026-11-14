@@ -26,6 +26,7 @@ for (const engine of selectedEngines()) {
     });
     try {
       const context = await browser.newContext({
+        serviceWorkers: "block",
         viewport: { width: 390, height: 844 },
         isMobile: true,
         hasTouch: true,
