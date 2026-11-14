@@ -1,3 +1,4 @@
+import type { WorkspaceToolHarness } from "../shared/harnesses.js";
 import {
   WORKSPACE_MCP_SERVER,
   type WorkspaceTools,
@@ -6,6 +7,14 @@ import {
 /** Native protocol encodings of the same generation-scoped workspace bridge. */
 export function workspaceMcp({ url, token }: WorkspaceTools) {
   const headers = { Authorization: `Bearer ${token}` };
+  const acp = [
+    {
+      type: "http" as const,
+      name: "loop-workspace",
+      url,
+      headers: [{ name: "Authorization", value: headers.Authorization }],
+    },
+  ];
   return {
     claude: {
       mcpServers: { [WORKSPACE_MCP_SERVER]: { type: "http", url, headers } },
@@ -25,14 +34,8 @@ export function workspaceMcp({ url, token }: WorkspaceTools) {
       },
     },
     opencode: { [WORKSPACE_MCP_SERVER]: { type: "remote", url, headers } },
-    acp: [
-      {
-        type: "http" as const,
-        name: "loop-workspace",
-        url,
-        headers: [{ name: "Authorization", value: headers.Authorization }],
-      },
-    ],
+    acp,
+    grok: acp,
     pi: { LOOP_TOOLS_URL: url, LOOP_TOOLS_TOKEN: token },
-  };
+  } satisfies Record<WorkspaceToolHarness, unknown>;
 }

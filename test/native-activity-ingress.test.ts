@@ -1,3 +1,4 @@
+import { harnessIds } from "../src/shared/harnesses.js";
 import { NativeItemState } from "../src/shared/native-item-state.js";
 import type { Live } from "../src/server/native-sessions";
 import type { AdapterEvent } from "../src/adapters/events";
@@ -610,39 +611,53 @@ it("persists native activity events through restarts and serves them to reloads 
   ).toBe("gpt-d");
 });
 
-it("drops activity an adapter files under another transport", async () => {
-  const sessions = new NativeSessions();
-  const run = turn("conv", "spoof");
-  const { live, emit } = start(sessions, "gen-spoof", run);
-  live.run = run;
-  const before = (await snapshot("conv")).body.items.length;
-  for (const transport of ["api", "acp"] as const)
+it.each(harnessIds)(
+  "%s records its transport and drops another transport",
+  async (harness) => {
+    const sessions = new NativeSessions();
+    const run = turn("conv", "spoof-" + harness);
+    const { live, emit } = start(sessions, "gen-spoof-" + harness, run);
+    live.binding.harness = harness;
+    live.run = run;
+    // Expected protocol is independent of the descriptor under test.
+    const expected = harness === "acp" || harness === "grok" ? "acp" : "native";
+    const before = (await snapshot("conv")).body.items.length;
+    for (const transport of [
+      "api",
+      expected === "acp" ? "native" : "acp",
+    ] as const)
+      emit({
+        type: "activity",
+        activity: {
+          v: 1,
+          kind: "output",
+          id: "spoof-" + transport,
+          source: { transport, harness, origin: "direct" },
+          patch: {
+            replace: [{ stream: "stdout", text: "not from " + transport }],
+          },
+        },
+      });
+    expect((await snapshot("conv")).body.items).toHaveLength(before);
     emit({
       type: "activity",
       activity: {
         v: 1,
         kind: "output",
-        id: "spoof-" + transport,
-        source: { transport, harness: "codex", origin: "direct" },
-        patch: {
-          replace: [{ stream: "stdout", text: "not from " + transport }],
-        },
+        id: "honest-" + harness,
+        source: { transport: expected, harness, origin: "direct" },
+        patch: { replace: [{ stream: "stdout", text: "ok" }] },
       },
     });
-  expect((await snapshot("conv")).body.items).toHaveLength(before);
-  emit({
-    type: "activity",
-    activity: {
-      v: 1,
-      kind: "output",
-      id: "honest",
-      source: { transport: "native", harness: "codex", origin: "direct" },
-      patch: { replace: [{ stream: "stdout", text: "ok" }] },
-    },
-  });
-  const outputs = byKind((await snapshot("conv")).body.items, "output");
-  expect(outputs.map((o: any) => o.record.id)).toEqual(["honest"]);
-});
+    const items = (await snapshot("conv")).body.items;
+    expect(items).toHaveLength(before + 1);
+    const outputs = byKind(items, "output").filter(
+      (o: any) => o.record.id === "honest-" + harness,
+    );
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].record.source.transport).toBe(expected);
+  },
+);
 
 it("rejects settings writes from stale generations, including replacement during readiness", async () => {
   const sessions = new NativeSessions();

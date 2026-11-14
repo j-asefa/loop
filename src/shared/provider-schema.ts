@@ -1,14 +1,9 @@
 import { z } from "zod";
+import { apiProviders, harnesses } from "./harnesses.js";
 
 export const ProviderSchema = z.enum([
-  "openai",
-  "anthropic",
-  "codex",
-  "pi",
-  "opencode",
-  "antigravity",
-
-  "muse",
-  "grok",
-  "acp",
+  ...new Set([
+    ...apiProviders,
+    ...Object.values(harnesses).map((harness) => harness.provider),
+  ]),
 ]);

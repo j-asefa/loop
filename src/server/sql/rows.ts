@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { RunState } from "../../shared/run-state.js";
-import { harnesses } from "../../shared/harnesses.js";
+import { ProviderSchema } from "../../shared/provider-schema.js";
 import { ArtifactKindSchema } from "../../shared/artifact-kind.js";
 import { ArtifactRoleSchema } from "../../shared/artifact-role.js";
 import { MessageRole } from "../../shared/message-roles.js";
@@ -11,10 +11,7 @@ import { RunKind } from "../../shared/run-state.js";
 // Scalar SQLite storage shapes. JSON columns remain serialized at this boundary.
 export const RowId = z.string().min(1);
 const Id = RowId;
-export const Provider = z.enum([
-  "openai",
-  ...Object.values(harnesses).map((harness) => harness.provider),
-]);
+export const Provider = ProviderSchema;
 
 export const AgentRecord = z.object({
   id: Id,

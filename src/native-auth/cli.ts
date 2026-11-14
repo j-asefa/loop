@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { harnesses } from "../shared/harnesses.js";
+import { harnesses, isHarness, type CliSignIn } from "../shared/harnesses.js";
 import type { AuthDriver } from "./types.js";
 import type { AuthOptions } from "./types.js";
 import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
@@ -8,27 +8,23 @@ import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 // URL and reads a pasted code. Credentials stay in each CLI's own store.
 export function cliDriver(options: AuthOptions): AuthDriver {
   let child: ChildProcess | undefined;
-  const codex = options.name === "codex";
-  const grok = options.name === "grok";
-  const device = codex || grok;
+  const descriptor = isHarness(options.name)
+    ? harnesses[options.name]
+    : undefined;
+  const signIn: CliSignIn | null | undefined = descriptor?.cliSignIn;
+  if (!signIn) throw new Error("Unsupported CLI sign-in harness");
+  const response = signIn.response;
+  const device = response.kind === "device-code";
   return {
     async providers() {
       return [
         {
-          id: codex ? "openai" : grok ? "xai" : "anthropic",
-          name: codex ? "ChatGPT" : grok ? "Grok" : "Claude",
-          methods: codex
-            ? [{ id: "oauth", type: "oauth", label: "Sign in with ChatGPT" }]
-            : grok
-              ? [{ id: "oauth", type: "oauth", label: "Sign in with Grok" }]
-              : [
-                  { id: "oauth", type: "oauth", label: "Sign in with Claude" },
-                  {
-                    id: "console",
-                    type: "oauth",
-                    label: "Anthropic Console (API billing)",
-                  },
-                ],
+          ...signIn.provider,
+          methods: signIn.methods.map(({ id, type, label }) => ({
+            id,
+            type,
+            label,
+          })),
         },
       ];
     },
@@ -36,20 +32,17 @@ export function cliDriver(options: AuthOptions): AuthDriver {
       await stopHarnessProcess(child);
       const process = (child = spawnHarnessProcess(
         options.executable,
-        device
-          ? ["login", "--device-auth"]
-          : [
-              "auth",
-              "login",
-              method === "console" ? "--console" : "--claudeai",
-            ],
+        [
+          ...(signIn.methods.find((entry) => entry.id === method)?.args ??
+            signIn.defaultArgs),
+        ],
         {
           cwd: options.project,
           env: {
             ...(options.env ?? globalThis.process.env),
             BROWSER: "false",
             DISABLE_AUTOUPDATER: "1",
-            ...(grok ? harnesses.grok.environment : {}),
+            ...descriptor!.environment,
           },
           stdio: "pipe",
         },
@@ -76,12 +69,11 @@ export function cliDriver(options: AuthOptions): AuthDriver {
                 return (
                   !parsed.username &&
                   !parsed.password &&
-                  (codex
-                    ? /(^|\.)(openai\.com|chatgpt\.com)$/
-                    : grok
-                      ? /^accounts\.x\.ai$/
-                      : /(^|\.)(anthropic\.com|claude\.ai|claude\.com)$/
-                  ).test(parsed.hostname)
+                  signIn.domains.some(
+                    ({ name, subdomains }) =>
+                      parsed.hostname === name ||
+                      (subdomains && parsed.hostname.endsWith("." + name)),
+                  )
                 );
               } catch {
                 return false;
@@ -98,13 +90,13 @@ export function cliDriver(options: AuthOptions): AuthDriver {
               url &&
               !asked &&
               /(?:paste|enter)[^\n]*code/i.test(output) &&
-              !device
+              response.kind === "manual-code"
             ) {
               asked = true;
               void io
                 .prompt({
                   type: "manual_code",
-                  message: "Paste the verification code from Claude",
+                  message: response.prompt,
                 })
                 .then(
                   (value) => {
