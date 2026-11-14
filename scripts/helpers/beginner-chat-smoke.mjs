@@ -160,7 +160,8 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   const snippetNotice = commands.getByRole("alert").filter({
     hasText: "Snippet fixture unavailable",
   });
-  await expect(snippetNotice).toBeVisible();
+  // Automatic reads wait 2s and 4s before reporting the third failure.
+  await expect(snippetNotice).toBeVisible({ timeout: 10000 });
   const beforeRetry = snippetReads;
   refuseSnippets = false;
   await snippetNotice.getByRole("button", { name: "Retry connection" }).click();
