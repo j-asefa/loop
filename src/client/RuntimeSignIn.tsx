@@ -16,8 +16,9 @@ import {
   type RouteInput,
   type RouteResponse,
 } from "../shared/workspace-api";
-import { callRoute, readRoute } from "./api";
+import { callRoute } from "./api";
 import { useProjectionRoute, useSourceId } from "./SourceContext";
+import { viewGeneration } from "./viewCache";
 type NativeAuthView = RouteResponse<typeof workspaceApi.runtimeAuthStatus>;
 type SignIn = NonNullable<NativeAuthView["attempt"]>;
 type Target = {
@@ -64,11 +65,17 @@ function forStartCommand(
 }
 
 export function RuntimeSignIn(props: RuntimeSignInProps) {
+  const source = useSourceId();
   return (
     <RuntimeSignInSession
       // The account belongs to the runtime, not the project: a project change
       // refetches the catalog without discarding an in-progress sign-in view.
-      key={`${props.backend}:${props.runtime}`}
+      key={JSON.stringify([
+        viewGeneration(),
+        source,
+        props.backend,
+        props.runtime,
+      ])}
       {...props}
     />
   );
@@ -181,34 +188,29 @@ function RuntimeSignInSession({
     }
   };
   function catalog(signal?: AbortSignal) {
-    return signal
-      ? readRoute(
-          workspaceApi.runtimeAuthProviders,
-          {
-            params: { name: runtime },
-            query: { projectId: parseId(ProjectId, projectId || "") },
-          },
-          sourceId,
-          signal,
-        )
-      : read(workspaceApi.runtimeAuthProviders, {
-          params: { name: runtime },
-          query: { projectId: parseId(ProjectId, projectId || "") },
-        });
+    return read(
+      workspaceApi.runtimeAuthProviders,
+      {
+        params: { name: runtime },
+        query: { projectId: parseId(ProjectId, projectId || "") },
+      },
+      { signal },
+    );
   }
   function status(signal?: AbortSignal, onRetry?: (error: unknown) => void) {
-    return signal
-      ? readRoute(
-          workspaceApi.runtimeAuthStatus,
-          { params: { name: runtime } },
-          sourceId,
-          signal,
-          onRetry,
-        )
-      : read(workspaceApi.runtimeAuthStatus, { params: { name: runtime } });
+    return read(
+      workspaceApi.runtimeAuthStatus,
+      { params: { name: runtime } },
+      { signal, onRetry },
+    );
   }
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
     setError("");
     const controller = new AbortController();
     void catalog(controller.signal)
@@ -217,7 +219,6 @@ function RuntimeSignInSession({
         if (!controller.signal.aborted) setError(e.message);
       });
     return () => {
-      mounted.current = false;
       controller.abort();
     };
   }, [runtime, sourceId, projectId, reload]);
