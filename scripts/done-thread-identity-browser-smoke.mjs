@@ -96,6 +96,33 @@ try {
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.equal(records.size, 1);
+  await page.evaluate(() => {
+    const save = Storage.prototype.setItem;
+    window.restoreWrites = () => (Storage.prototype.setItem = save);
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("loop-effect:"))
+        throw new Error("Fixture storage full");
+      return save.call(this, key, value);
+    };
+  });
+  const beforeStorageFailure = ids.length;
+  await submit();
+  await expect(page.getByRole("alert")).toContainText(
+    "Cannot save this change's identity",
+  );
+  assert.equal(
+    ids.length,
+    beforeStorageFailure,
+    "Preparation failure must not dispatch",
+  );
+  await expect(
+    page.getByRole("menuitem", { name: "Recover earlier thread", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("New thread name")).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Start a separate thread", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() => window.restoreWrites());
   await page.getByRole("menuitem", { name: "Move to “Destination”" }).click();
   await expect(page.getByRole("alert")).toContainText("Destination missing");
   await expect(
