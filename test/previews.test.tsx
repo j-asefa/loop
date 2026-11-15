@@ -1,5 +1,5 @@
 import { ResultCardSchema } from "../src/shared/cards.js";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ArtifactCard, ResultPreview } from "../src/client/components";
 import type { ResultCard } from "../src/shared/cards";
@@ -254,3 +254,81 @@ it.each([
     expect(html).toContain(`<h2>${heading}</h2>`);
   },
 );
+
+it("previews a Result attachment's published bytes and never presents current bytes as published", () => {
+  vi.stubGlobal("location", new URL("http://loop.test/"));
+  const attachment = (
+    availability: "current" | "sealed" | "unavailable",
+    download: string | null,
+  ) => ({
+    id: "file-" + availability,
+    name: availability + ".md",
+    mime: "text/markdown",
+    size: 1,
+    href: "/?artifact=file-" + availability,
+    download,
+    availability,
+  });
+  const html = renderToStaticMarkup(
+    <ContentCard
+      card={ResultCardSchema.parse({
+        type: "result",
+        id: "a:attached",
+        title: "Attached",
+        role: "answer",
+        kind: "markdown",
+        content: "Body",
+        source: {
+          artifact_id: "attached",
+          agent_id: null,
+          message_id: null,
+          conversation_id: null,
+          run_id: null,
+        },
+        author: { kind: "unknown", id: null, name: null, provider: null },
+        recipient: null,
+        context: {
+          conversation_title: null,
+          folder_id: null,
+          project_id: null,
+          project_name: null,
+          team_id: null,
+        },
+        format: "markdown",
+        created_at: 1,
+        updated_at: null,
+        saved: false,
+        attachments: [
+          attachment("sealed", "/api/objects/sealed"),
+          attachment("unavailable", null),
+          attachment("current", null),
+        ],
+        href: "/?artifact=attached",
+        version: 1,
+        hidden: false,
+        display: {
+          model: null,
+          tool: null,
+          mime: null,
+          filename: null,
+          size: null,
+          text: false,
+          download: null,
+          source: null,
+          refreshable: false,
+          app: false,
+        },
+      })}
+      onOpen={() => {}}
+    />,
+  );
+  expect(html).toContain('aria-label="Preview sealed.md as published"');
+  expect(html).not.toContain('href="/?artifact=file-sealed"');
+  expect(html).toContain("unavailable.md");
+  expect(html).toContain("Published version unavailable");
+  expect(html).toContain(
+    'href="/?artifact=file-unavailable">Open current file</a>',
+  );
+  expect(html).toContain('<a href="/?artifact=file-current">current.md</a>');
+  vi.unstubAllGlobals();
+});
