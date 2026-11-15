@@ -22,14 +22,15 @@ try {
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change('alice');setShellSource('');
     function Probe(){
-      const [agent,setAgent]=useState('first'),[source,setSource]=useState(''),[enabled,setEnabled]=useState(true),[detail,setDetail]=useState(false),[mounted,setMounted]=useState(true),[revision,setRevision]=useState(0);
+      const [agent,setAgent]=useState('first'),[source,setSource]=useState(''),[fanout,setFanout]=useState(false),[enabled,setEnabled]=useState(true),[detail,setDetail]=useState(false),[mounted,setMounted]=useState(true),[revision,setRevision]=useState(0);
       window.select=value=>flushSync(()=>setAgent(value));
       window.source=value=>flushSync(()=>setSource(value));
+      window.fanout=value=>flushSync(()=>setFanout(value));
       window.enable=value=>flushSync(()=>setEnabled(value));
       window.detail=value=>flushSync(()=>{setDetail(value);setEnabled(!value)});
       window.mount=value=>flushSync(()=>setMounted(value));
       window.owner=value=>flushSync(()=>{ownerSession.change(value);setRevision(n=>n+1)});
-      const data=useDoneThreads([source],enabled,{agent});
+      const data=useDoneThreads(fanout?['','docker:other']:[source],enabled,{agent});
       window.retry=()=>data.refresh();
       return React.createElement('section',null,
         React.createElement('output',{id:'rows'},data.threads.map(item=>item.title).join(',')),
@@ -128,6 +129,9 @@ try {
         "detail-coalescing",
         "detail-scope",
         "missing",
+        "partial",
+        "list-retry",
+        "detail-retry",
       ]) {
     status = 200;
     holdNext = false;
@@ -206,6 +210,43 @@ try {
           await expect(page.locator("#rows")).not.toHaveText("");
         if (change === "source") await page.evaluate(() => window.source(""));
       }
+    } else if (scenario === "partial") {
+      holdNext = true;
+      await page.evaluate(() => window.fanout(true));
+      await expect.poll(() => held.length).toBe(1);
+      await expect(page.locator("#rows")).toContainText("first:remote:initial");
+      held.shift()();
+      await expect(page.locator("#rows")).toContainText("first:local:initial");
+      await expect(page.locator("#supported")).toContainText("docker:other");
+    } else if (scenario.endsWith("retry")) {
+      status = 400;
+      await refresh();
+      if (detail)
+        await expect(page.getByRole("alert")).toContainText(
+          "Threads unavailable",
+        );
+      else
+        await expect(page.locator("#error")).toContainText(
+          "Couldn’t load card threads",
+        );
+      const before = count();
+      status = 503;
+      if (detail)
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+      else await page.evaluate(() => window.retry());
+      await expect.poll(count).toBe(before + 1);
+      await page.waitForTimeout(2100);
+      assert.equal(
+        count(),
+        before + 1,
+        "Explicit retry must issue one attempt without automatic retry backoff",
+      );
+      status = 200;
+      if (detail)
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+      else await page.evaluate(() => window.retry());
+      if (detail) await expect(page.getByRole("alert")).toHaveCount(0);
+      else await expect(page.locator("#error")).toHaveText("");
     } else if (scenario === "missing") {
       status = 404;
       await page.evaluate(() => window.retry());
