@@ -55,10 +55,21 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     mode.mutable && mode.choices.some((choice) => choice.value === "plan"),
   );
   assert.notEqual(mode.confirmed, "plan");
-  const ids = [];
+  const ids = [],
+    payloads = [];
   const observe = (request) => {
-    if (request.method() === "PATCH" && request.url().endsWith(path + "/mode"))
-      ids.push(request.postDataJSON().commandId);
+    if (
+      request.method() === "PATCH" &&
+      request.url().endsWith(path + "/mode")
+    ) {
+      const body = request.postDataJSON();
+      ids.push(body.commandId);
+      payloads.push({
+        generation: body.generation,
+        revision: body.revision,
+        value: body.value,
+      });
+    }
   };
   page.on("request", observe);
   const seed = async (route) => {
@@ -96,14 +107,60 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       exact: true,
     });
     const select = settings.getByLabel(mode.label || "mode", { exact: true });
-    for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      const write = Storage.prototype.setItem;
+      window.__restoreSettingCommandStorage = () => {
+        Storage.prototype.setItem = write;
+        delete window.__restoreSettingCommandStorage;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("loop-effect:"))
+          throw new DOMException(
+            "Fixture storage denied",
+            "QuotaExceededError",
+          );
+        return write.call(this, key, value);
+      };
+    });
+    await select.selectOption("plan");
+    await expect(settings.getByRole("alert")).toContainText(
+      "Cannot save this change's identity; nothing was sent.",
+    );
+    assert.equal(
+      ids.length,
+      0,
+      "Storage failure must prevent setting dispatch",
+    );
+    await expect(select).toHaveValue(mode.confirmed);
+    await page.evaluate(() => window.__restoreSettingCommandStorage());
+    for (let i = 0; i < 3; i++) {
+      if (i === 2) {
+        await page.reload();
+        await page
+          .getByRole("button", { name: "Conversation options", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Session settings", exact: true })
+          .click();
+      }
       await select.selectOption("plan");
+      await expect.poll(() => ids.length).toBe(i + 1);
+      assert.deepEqual(
+        payloads[i],
+        payloads[0],
+        "Receipt recovery must keep the same setting payload",
+      );
+      assert.equal(
+        ids[i],
+        ids[0],
+        "An uncertain settings receipt identity must survive reload",
+      );
       await expect(settings.getByRole("alert")).toContainText(
         "outcome is unknown",
       );
       await expect(select).toHaveValue(mode.confirmed);
     }
-    assert.equal(ids.length, 2);
+    assert.equal(ids.length, 3);
     assert.equal(ids[0], ids[1]);
     const unchanged = await api(path);
     assert.equal(unchanged.generation, before.generation);
@@ -117,15 +174,54 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
         exact: true,
       }),
     ).toBeEnabled();
-    assert.equal(ids.length, 2);
+    assert.equal(ids.length, 3);
+    await page.evaluate(() => {
+      const write = Storage.prototype.setItem;
+      window.__restoreSettingCommandStorage = () => {
+        Storage.prototype.setItem = write;
+        delete window.__restoreSettingCommandStorage;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("loop-effect-history:"))
+          throw new Error("Fixture history storage denied");
+        return write.call(this, key, value);
+      };
+    });
     await settings
       .getByRole("button", { name: "Apply setting again", exact: true })
       .click();
+    await expect(settings.getByRole("alert")).toContainText(
+      "Fixture history storage denied",
+    );
+    assert.equal(
+      ids.length,
+      3,
+      "Failed history preservation must not dispatch a new attempt",
+    );
+    await page.evaluate(() => window.__restoreSettingCommandStorage());
+    await settings
+      .getByRole("button", { name: "Refresh session", exact: true })
+      .click();
+    await expect(
+      settings.getByRole("button", {
+        name: "Apply setting again",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await settings
+      .getByRole("button", { name: "Apply setting again", exact: true })
+      .click();
+    await expect.poll(() => ids.length).toBe(4);
+    assert.notEqual(
+      ids[3],
+      ids[0],
+      "Retry after a history-write failure must supersede the inspected receipt",
+    );
     await expect(select).toHaveValue("plan");
     await expect(select).toBeEnabled();
     await expect(settings.getByRole("alert")).toHaveCount(0);
-    assert.equal(ids.length, 3);
-    assert.notEqual(ids[2], ids[0]);
+    assert.equal(ids.length, 4);
+    assert.notEqual(ids[3], ids[0]);
     assert.equal(
       db
         .prepare("SELECT state FROM execution_commands WHERE command_id=?")
@@ -135,7 +231,7 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     assert.equal(
       db
         .prepare("SELECT state FROM execution_commands WHERE command_id=?")
-        .get(ids[2]).state,
+        .get(ids[3]).state,
       "completed",
     );
     assert.equal(
@@ -144,6 +240,8 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     );
     await settings.getByRole("button", { name: "Close", exact: true }).click();
   } finally {
+    if (!page.isClosed())
+      await page.evaluate(() => window.__restoreSettingCommandStorage?.());
     page.off("request", observe);
     await page.unroute("**/api" + path + "/mode", seed);
     delete process.env.LOOP_TEST_SETTING_AUDIT;

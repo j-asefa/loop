@@ -5,7 +5,8 @@ import {
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
-import { isExecutionRefused } from "./api";
+import { performStoredEffect, UncertainEffect } from "./pendingCommands";
+import { viewGeneration, viewOwner } from "./viewCache";
 import { workspaceApi } from "../shared/workspace-api";
 import type { SessionControls } from "../shared/session-controls";
 import { listenWorkspaceChanges } from "./workspace-changes";
@@ -53,13 +54,13 @@ export function SessionActivityControls({
     id: string;
     value: SettingValue;
     inspected?: boolean;
+    supersede?: () => Promise<void>;
   }>();
   const [inspecting, setInspecting] = useState(false);
   const epoch = useRef(0),
     ticket = useRef(0),
     writing = useRef(false);
   const saved = useRef(recorded);
-  const commands = useRef(new Map<string, string>());
   saved.current = recorded;
   function readOnlySnapshot(): Controls | undefined {
     const record = saved.current?.settings;
@@ -170,49 +171,80 @@ export function SessionActivityControls({
       !data ||
       data.readOnly ||
       !data.generation ||
-      writing.current
+      writing.current ||
+      (newAttempt && !failedChange?.inspected)
     )
       return;
-    const own = epoch.current;
+    const own = epoch.current,
+      owner = viewOwner(),
+      ownerGeneration = viewGeneration(),
+      previous = failedChange;
+    const current = () =>
+      own === epoch.current &&
+      owner === viewOwner() &&
+      ownerGeneration === viewGeneration();
     writing.current = true;
     ticket.current++;
     setPending({ id, value });
     setError("");
     setFailedChange(undefined);
-    const commandKey = JSON.stringify([
-      sourceId,
-      conversationId,
-      data.generation,
-      data.settings.revision,
-      id,
-      value,
-    ]);
-    if (newAttempt) commands.current.delete(commandKey);
-    const commandId = commands.current.get(commandKey) || crypto.randomUUID();
-    commands.current.set(commandKey, commandId);
     try {
-      const next = await call(workspaceApi.setting, {
-        params: { id: conversationId, setting: SessionSettingId.parse(id) },
-        body: {
-          value,
-          revision: data.settings.revision,
-          generation: NativeGenerationId.parse(data.generation),
-          commandId: ExecutionCommandId.parse(commandId),
-        },
-      });
-      if (own === epoch.current) {
-        commands.current.delete(commandKey);
+      const setting = SessionSettingId.parse(id);
+      const payload = {
+        value,
+        revision: data.settings.revision,
+        generation: NativeGenerationId.parse(data.generation),
+      };
+      if (!crypto.subtle)
+        throw new Error(
+          "Cannot protect this change's identity; nothing was sent.",
+        );
+      // Keep only a fingerprint of free-form values beside the durable receipt.
+      const bytes = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(JSON.stringify(value)),
+      );
+      const fingerprint = Array.from(new Uint8Array(bytes), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+      if (newAttempt && previous?.supersede) await previous.supersede();
+      const next = await performStoredEffect(
+        localStorage,
+        owner,
+        sourceId,
+        [
+          "native-setting",
+          conversationId,
+          payload.generation,
+          String(payload.revision),
+          setting,
+          fingerprint,
+        ],
+        current,
+        (commandId) =>
+          call(workspaceApi.setting, {
+            params: { id: conversationId, setting },
+            body: {
+              ...payload,
+              commandId: ExecutionCommandId.parse(commandId),
+            },
+          }),
+      );
+      if (current()) {
         setData(next);
         window.dispatchEvent(new Event("loop-workspace-change"));
       }
     } catch (e) {
-      if (own === epoch.current) {
-        if (isExecutionRefused(e)) commands.current.delete(commandKey);
+      if (current()) {
         setError((e as Error).message);
-        setFailedChange({ id, value });
+        setFailedChange({
+          id,
+          value,
+          ...(e instanceof UncertainEffect ? { supersede: e.supersede } : {}),
+        });
       }
     } finally {
-      if (own === epoch.current) {
+      if (current()) {
         writing.current = false;
         setPending(undefined);
         void refresh();

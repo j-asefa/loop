@@ -277,6 +277,43 @@ it("keeps the pending identity when preserving recovery history fails", async ()
   expect(ids[1]).toBe(ids[0]);
 });
 
+it("can retry preserving uncertain history without dispatching another effect", async () => {
+  const dispatch = vi.fn(async (_commandId: string) => {
+    throw unknown();
+  });
+  const failure = await performStoredEffect(
+    storage,
+    "alice",
+    "source",
+    ["native-setting"],
+    () => true,
+    dispatch,
+  ).catch((error) => error as UncertainEffect);
+  const save = storage.setItem;
+  storage.setItem = () => {
+    throw new Error("Storage full");
+  };
+  const retry = await failure.supersede().catch((error) => error);
+  expect(retry).toBeInstanceOf(UncertainEffect);
+  expect(retry.message).toBe("Storage full");
+  expect(storage.length).toBe(1);
+  storage.setItem = save;
+  await retry.supersede();
+  expect(dispatch).toHaveBeenCalledTimes(1);
+  expect(storage.length).toBe(1);
+  expect(
+    storage.getItem('loop-effect:["alice","source","native-setting"]'),
+  ).toBeNull();
+  const commandId = dispatch.mock.calls[0][0];
+  const history = JSON.parse(
+    storage.getItem(
+      `loop-effect-history:${JSON.stringify(["alice", "source", commandId])}`,
+    )!,
+  );
+  expect(history.commandId).toBe(commandId);
+  expect(history.target).toEqual(["native-setting"]);
+});
+
 it.each(["{broken", "null", "", "{}"])(
   "refuses dispatch for malformed pending record %j",
   async (raw) => {

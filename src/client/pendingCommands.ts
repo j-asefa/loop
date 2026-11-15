@@ -115,7 +115,7 @@ export async function performStoredEffect<T>(
       await settle();
       throw error;
     }
-    throw new UncertainEffect(error, async () => {
+    const supersede = async (): Promise<void> => {
       await withCommandLock(key, () => {
         if (!current())
           throw new Error(
@@ -131,13 +131,18 @@ export async function performStoredEffect<T>(
           );
         // Keep the uncertain identity before releasing the active slot. This
         // never settles its server receipt or dispatches a replacement effect.
-        storage.setItem(
-          `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
-          JSON.stringify({ ...prepared.receipt, target }),
-        );
-        slot.remove();
+        try {
+          storage.setItem(
+            `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
+            JSON.stringify({ ...prepared.receipt, target }),
+          );
+          slot.remove();
+        } catch (historyError) {
+          throw new UncertainEffect(historyError, supersede);
+        }
       });
-    });
+    };
+    throw new UncertainEffect(error, supersede);
   }
 }
 
