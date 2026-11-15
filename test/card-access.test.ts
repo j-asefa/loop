@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { cardsFixture } from "./helpers/cards-fixture";
+import { sealSeededHistory } from "./helpers/published-history";
 import type { TokenScope } from "../src/shared/token-scopes";
 import { CardPageSchema, CardChangesSchema } from "../src/shared/cards";
 import {
@@ -59,6 +60,8 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     db.prepare(
       "INSERT INTO artifacts(id,owner_id,title,kind,role,content,metadata,created_at,updated_at) VALUES('foreign','foreign','Secret','markdown','snippet','Secret','{}',1,1)",
     ).run();
+    // The seeded run answer is released history, sealed as an upgrade would.
+    sealSeededHistory(db);
     const create = async (scope: TokenScope, name: string = scope) => {
       const response = await request("/api/card-tokens", {
         body: integrationTokenRequest(name, [scope]),

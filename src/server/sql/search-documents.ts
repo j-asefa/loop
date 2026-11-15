@@ -102,6 +102,7 @@ function searchCategorySql(category: FeedCategory, agent: boolean) {
   if (category === "replies")
     return `EXISTS(SELECT 1 FROM (${source}) s
       JOIN steering_replies p ON p.owner_id=d.owner_id AND p.message_id=s.message_id
+      JOIN results res ON res.owner_id=p.owner_id AND res.id='reply:'||p.message_id AND res.sealed=1
       WHERE p.archived_at IS NULL)`;
 
   if (category === "done")
