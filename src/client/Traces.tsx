@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { downloadText } from "./downloadText";
 import {
   CollectionReadNotice,
   usePagedProjectionQuery,
@@ -36,15 +37,7 @@ type Props = {
   onArtifact: (item: Artifact) => void;
 };
 function saveJson(name: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadText(name, JSON.stringify(data, null, 2), "application/json");
 }
 export function Traces(props: Props) {
   const source = useSourceId();

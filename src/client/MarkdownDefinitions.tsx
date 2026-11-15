@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { downloadText } from "./downloadText";
 import { useProjectionQuery } from "./CollectionRead";
 import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -96,14 +97,11 @@ export function MarkdownDefinitions({
     }
   }
   function download(item: AgentDefinition) {
-    const url = URL.createObjectURL(
-      new Blob([item.markdown], { type: "text/markdown;charset=utf-8" }),
+    downloadText(
+      `${item.name.replace(/[^a-z0-9-]/gi, "-") || "definition"}.md`,
+      item.markdown,
+      "text/markdown;charset=utf-8",
     );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${item.name.replace(/[^a-z0-9-]/gi, "-") || "definition"}.md`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return (
     <Sheet
