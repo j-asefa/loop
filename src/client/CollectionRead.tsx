@@ -1,3 +1,4 @@
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isRateLimited, readRoute } from "./api";
 import {
@@ -17,11 +18,20 @@ import {
   workspaceChangeAffects,
 } from "./workspace-changes";
 
+type QueryEvent = keyof ClientEvents | "focus";
+function listenQueryEvent(name: QueryEvent, receive: (event: Event) => void) {
+  if (name === "focus") {
+    window.addEventListener(name, receive);
+    return () => window.removeEventListener(name, receive);
+  }
+  return listenClientEvent(name, (_detail, event) => receive(event));
+}
+
 type QueryOptions = {
   source: string;
   conversation?: string;
   collections?: readonly Parameters<typeof listenWorkspaceChanges>[0][];
-  events?: readonly string[];
+  events?: readonly QueryEvent[];
   revision?: string | number;
   resetOnRevision?: boolean;
   enabled?: boolean;
@@ -123,14 +133,12 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     };
     const recoverBroad =
       !collections.length && !events.includes("loop-workspace-change");
-    if (recoverBroad) window.addEventListener("loop-workspace-change", recover);
-    for (const event of events) window.addEventListener(event, update);
+    if (recoverBroad)
+      stops.push(listenQueryEvent("loop-workspace-change", recover));
+    for (const event of events) stops.push(listenQueryEvent(event, update));
     void refresh();
     return () => {
       for (const stop of stops) stop();
-      if (recoverBroad)
-        window.removeEventListener("loop-workspace-change", recover);
-      for (const event of events) window.removeEventListener(event, update);
     };
   }, [refresh, subscriptions, revision]);
   const data = result?.context === context ? result.value : undefined;
@@ -178,7 +186,7 @@ type PagedOptions<P, C> = {
   enabled?: boolean;
   // WebKit can tear down the document before passive cleanup runs.
   pauseOnPageHide?: boolean;
-  events?: readonly string[];
+  events?: readonly QueryEvent[];
   coalesceDelay?: number;
   revision?: string | number;
   requireAdvance?: boolean;
@@ -393,7 +401,7 @@ export function usePagedProjectionQuery<
           refresh(event);
       }),
     );
-    for (const event of events) window.addEventListener(event, refresh);
+    for (const event of events) stops.push(listenQueryEvent(event, refresh));
     return () => {
       active = false;
       reader.dispose();
@@ -403,7 +411,6 @@ export function usePagedProjectionQuery<
         window.removeEventListener("pageshow", show);
       }
       stops.forEach((stop) => stop());
-      for (const event of events) window.removeEventListener(event, refresh);
     };
   }, [context]);
   useEffect(() => {

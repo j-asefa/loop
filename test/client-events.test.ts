@@ -37,7 +37,12 @@ it("preserves payload-free DOM events and listens to existing event producers", 
   const stop = listenClientEvent("loop-auth-expired", received);
   emitClientEvent("loop-auth-expired");
   window.dispatchEvent(new Event("loop-auth-expired"));
-  expect(received.mock.calls).toEqual([[undefined], [undefined]]);
+  expect(received.mock.calls).toEqual([
+    [undefined, nativeEvents[0]],
+    [undefined, nativeEvents[1]],
+  ]);
+  expect(received.mock.calls[0][1]).toBe(nativeEvents[0]);
+  expect(received.mock.calls[1][1]).toBe(nativeEvents[1]);
   expect(nativeEvents).toHaveLength(2);
   expect(nativeEvents.every((event) => !(event instanceof CustomEvent))).toBe(
     true,
