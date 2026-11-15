@@ -26,7 +26,9 @@ try {
   const deleted = new Set();
   const ids = [],
     records = new Map();
-  let loseReply = true;
+  let loseReply = true,
+    holdNext = false;
+  const held = [];
   server = createServer(async (req, res) => {
     const path = new URL(req.url, "http://fixture.invalid").pathname;
     if (path === "/" || path === "/client.mjs" || path === "/client.css") {
@@ -65,16 +67,19 @@ try {
       return;
     }
     if (!records.has(body.id)) records.set(body.id, { ...body, createdAt: 1 });
-    res.writeHead(loseReply ? 500 : 200, {
-      "content-type": "application/json",
-    });
-    res.end(
-      JSON.stringify(
-        loseReply
-          ? { error: "Fixture reply lost after creation" }
-          : records.get(body.id),
-      ),
-    );
+    const code = loseReply ? 500 : 200,
+      response = loseReply
+        ? { error: "Fixture reply lost after creation" }
+        : records.get(body.id);
+    const send = () => {
+      if (res.destroyed) return;
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(response));
+    };
+    if (holdNext) {
+      holdNext = false;
+      held.push(send);
+    } else send();
   });
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
   const engine = process.env.LOOP_BROWSER || "chromium";
@@ -270,6 +275,88 @@ try {
     alicePending,
     "Another owner must not reuse Alice pending identity",
   );
+  const a = await context.newPage(),
+    b = await context.newPage();
+  await a.goto(url + "/?owner=charlie");
+  await b.goto(url + "/?owner=charlie");
+  await b.getByLabel("New thread name").fill("Another title");
+  loseReply = false;
+  holdNext = true;
+  await a.getByRole("menuitem", { name: "Combine into a new thread" }).click();
+  await expect.poll(() => held.length).toBe(1);
+  const pendingFor = (owner) =>
+    page.evaluate(
+      (owner) =>
+        Object.entries(localStorage).filter(
+          ([key]) =>
+            key.startsWith("loop-effect:") &&
+            JSON.parse(key.slice("loop-effect:".length))[0] === owner,
+        ),
+      owner,
+    );
+  const beforeMismatch = await pendingFor("charlie");
+  await b.getByRole("menuitem", { name: "Combine into a new thread" }).click();
+  await expect(b.getByRole("alert")).toContainText("pending");
+  assert.deepEqual(
+    await pendingFor("charlie"),
+    beforeMismatch,
+    "Rejected preflight must not advance another tab attempt",
+  );
+  held.shift()();
+  await expect.poll(() => a.evaluate(() => window.completed)).toBe(true);
+  assert.deepEqual(
+    await pendingFor("charlie"),
+    [],
+    "The successful in-flight creation must settle without another recovery",
+  );
+  await a.close();
+  await b.close();
+
+  const unreadable = await context.newPage();
+  loseReply = true;
+  await unreadable.goto(url + "/?owner=delta");
+  await unreadable
+    .getByRole("menuitem", { name: "Combine into a new thread" })
+    .click();
+  await expect(unreadable.getByRole("alert")).toContainText(
+    "Fixture reply lost",
+  );
+  await unreadable.addInitScript(() => {
+    const get = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key) {
+      if (key.startsWith("loop-effect:")) {
+        Storage.prototype.getItem = get;
+        throw new Error("Fixture initial storage read denied");
+      }
+      return get.call(this, key);
+    };
+  });
+  await unreadable.reload();
+  const beforeReadRecovery = ids.length;
+  await unreadable
+    .getByRole("menuitem", { name: "Recover earlier thread" })
+    .click();
+  await expect(
+    unreadable.getByRole("button", {
+      name: "Start a separate thread",
+      exact: true,
+    }),
+  ).toBeVisible();
+  assert.equal(
+    ids.length,
+    beforeReadRecovery,
+    "Restoring initial receipt metadata must not dispatch",
+  );
+  loseReply = false;
+  await unreadable
+    .getByRole("menuitem", { name: "Recover earlier thread" })
+    .click();
+  await expect(
+    unreadable
+      .getByRole("status")
+      .filter({ hasText: "Earlier request resolved" }),
+  ).toBeVisible();
+  await unreadable.close();
   assert.deepEqual(errors, []);
   console.log(
     `${engine}: Done-thread creation reload recovery, settlement and owner isolation passed`,
