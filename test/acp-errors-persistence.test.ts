@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Acp } from "../src/adapters/acp";
-import { NativeOutput } from "../src/server/native-output";
 import type { Live } from "../src/server/native-sessions";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-acp-errors-"));
@@ -31,7 +30,7 @@ it("persists only fixed guidance for ACP prompt and setting failures", async () 
   enqueue("owner", "t", "acp-bootstrap", { conversation: "acp-errors" });
   const bootstrap = claim("w")!;
   const sessions = new NativeSessions();
-  const live: Live = {
+  const live: Live = sessions.state.attach({
     binding: {
       worktree_source: null,
       worktree_agent_id: "fixture-agent",
@@ -44,30 +43,23 @@ it("persists only fixed guidance for ACP prompt and setting failures", async () 
       generation: "acp-generation",
       state: "idle",
     },
-    adapter: undefined as unknown as Acp,
+    adapter: (live) =>
+      new Acp(
+        {
+          harness: "acp",
+          executable: process.execPath,
+          args: [fixture, "secret-errors"],
+          project: dir,
+          billing: "existing",
+          version: "fake",
+        },
+        (event) => sessions.projector.event(live, event),
+      ),
     generation: "acp-generation",
     ready: Promise.resolve(),
     bootstrapRun: bootstrap,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  };
-  const adapter = new Acp(
-    {
-      harness: "acp",
-      executable: process.execPath,
-      args: [fixture, "secret-errors"],
-      project: dir,
-      billing: "existing",
-      version: "fake",
-    },
-    (event) => sessions.projector.event(live, event),
-  );
-  live.adapter = adapter;
-  (sessions as any).live.set("acp-errors", live);
+  });
+  const adapter = live.adapter as Acp;
   try {
     await adapter.start();
     await expect(
@@ -90,7 +82,7 @@ it("persists only fixed guidance for ACP prompt and setting failures", async () 
 
     enqueue("owner", "t", "acp-prompt", { conversation: "acp-errors" });
     const run = claim("w")!;
-    live.run = run;
+    sessions.state.startTurn(live, run);
     await adapter.prompt("hello");
     const deadline = Date.now() + 3000;
     while (

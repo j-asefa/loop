@@ -33,13 +33,7 @@ import { belongsToProject } from "../../shared/projects";
 
 import { afterSheetsClose, closeTopSheet } from "../sheetHistory";
 import { restoreScroll, usePageHistory } from "../usePageHistory";
-import { viewGeneration } from "../viewCache";
-import {
-  sessionDraft,
-  emptySharedDraft,
-  type SharedDraft,
-  type WorkspaceComposerDraft,
-} from "../workspace-drafts";
+import { sessionDraft } from "../workspace-drafts";
 import type { SendReceipt } from "../sendIntent";
 import { readSendReceipt, sendReceiptKey } from "../sendReceiptStore";
 import { useSwipeBack } from "../useSwipeBack";
@@ -50,6 +44,7 @@ import {
   type LatestAgentMessage,
 } from "../composerContext";
 import { OPEN_PULL } from "../PullRequests";
+import { useComposerContextDraft } from "./useComposerContextDraft";
 import { useComposerFocus } from "./useComposerFocus";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
@@ -61,7 +56,7 @@ import {
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
-import { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
 import type {
@@ -101,6 +96,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     setMessageId,
     teamSelection,
     setTeamSelection,
+    teamKey,
     project,
     setProject,
     pull,
@@ -112,9 +108,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     projectFilter,
     setProjectFilter,
   } = useAppNavigation(seed);
-  const [sharedDraft, setSharedDraft] = useState<SharedDraft>(
-    initial.sharedDraft,
-  );
   const [reviewTarget, setReviewTarget] = useState<{
     team?: string;
     folder?: string;
@@ -125,6 +118,28 @@ export function useAppController(seed?: AppNavigationInitial) {
   const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
   const { session, setSession, ownerRef } = useOwnerSession();
+  const shellDraftSource = executionSourceId();
+  const {
+    selected,
+    setSelected,
+    replyContext,
+    setReplyContext,
+    contextArtifact,
+    setContextArtifact,
+    folderChoice,
+    setFolderChoice,
+    routePreview,
+    setRoutePreview,
+    sharedDraft,
+    setSharedDraft,
+    captureGlobalComposer,
+    restoreGlobalComposer,
+  } = useComposerContextDraft({
+    initial,
+    owner: session?.user?.id,
+    source: shellDraftSource,
+    conversation,
+  });
   const [data, setData] = useState<Bootstrap>({
       agents: [],
       connections: [],
@@ -136,7 +151,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     [profile, setProfile] = useState<Agent | null>(null),
     [view, setView] = useState("all"),
     [runs, setRuns] = useState<Run[]>([]),
-    [selected, setSelected] = useState(""),
     [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(false),
     [activeArtifact, setActiveArtifact] = useState<ResultAction | null>(null),
@@ -144,10 +158,7 @@ export function useAppController(seed?: AppNavigationInitial) {
       localStorage.getItem("loop-theme") || "system",
     ),
     [query, setQuery] = useState("");
-  const [routePreview, setRoutePreview] = useState<any>(null),
-    [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
-    [filingResult, setFilingResult] = useState<any>(null);
-  const teamKey = [...teamSelection].sort().join(",");
+  const [filingResult, setFilingResult] = useState<any>(null);
   const [teamMessages, setTeamMessages] = useState<Team | null>(null);
   const availableAgents = data.agents.filter((a) => !a.retired_at);
   const navigationGeneration = useRef(0);
@@ -164,17 +175,10 @@ export function useAppController(seed?: AppNavigationInitial) {
   } = useComposerFocus({ ownerRef, navigationGeneration, conversation });
   const [bootstrapOwner, setBootstrapOwner] = useState<string>();
   const initialAgentId = useRef(initial.agentId);
-  const [replyContext, setReplyContext] = useState<ComposerContext | null>(
-    null,
-  );
   const [conversationTarget, setConversationTarget] =
     useState<ComposerContext | null>(null);
   const [latestAgentMessage, setLatestAgentMessage] =
     useState<LatestAgentMessage | null>(null);
-  useEffect(() => {
-    if (replyContext && selected !== replyContext.agentId)
-      setReplyContext(null);
-  }, [selected]);
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   function editFolder(id: string) {
     const target = data.folders.find((folder) => folder.id === id);
@@ -182,9 +186,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setEditingFolder(target);
     setSheet("folder-edit");
   }
-  const [folderChoice, setFolderChoice] = useState<string | undefined>(
-    initial.folderChoice,
-  );
   const [modelAgent, setModelAgent] = useState<Agent | null>(null);
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const attachmentsRef = useRef(attachments);
@@ -279,86 +280,12 @@ export function useAppController(seed?: AppNavigationInitial) {
     files: UploadedFile[],
     owner = session?.user?.id,
   ) => writeThreadDraft(draftId(id), text, files, owner);
-  const globalComposer = useRef({
-    selected,
-    replyContext,
-    contextArtifact,
-    folderChoice,
-  });
-  const shellDraftSource = executionSourceId();
-  const draftGeneration = viewGeneration();
-  const composerStorage = useMemo(
-    () =>
-      sessionDraft<WorkspaceComposerDraft>(
-        session?.user?.id,
-        shellDraftSource,
-        "composer",
-      ),
-    [session?.user?.id, shellDraftSource, draftGeneration],
-  );
-  const shareStorage = useMemo(
-    () =>
-      sessionDraft<SharedDraft>(session?.user?.id, shellDraftSource, "share"),
-    [session?.user?.id, shellDraftSource, draftGeneration],
-  );
-  const draftScope = JSON.stringify([composerStorage.key, draftGeneration]);
-  const [hydratedDraftScope, setHydratedDraftScope] = useState("");
-  const incomingShareClaimed = useRef(false);
-  useLayoutEffect(() => {
-    if (!session?.user?.id) return;
-    const saved = composerStorage.read();
-    const firstOwner = !incomingShareClaimed.current;
-    const incoming = firstOwner && initial.shareRequested;
-    incomingShareClaimed.current = true;
-    const restored = {
-      selected: saved?.selected || "",
-      replyContext: saved?.replyContext || null,
-      folderChoice:
-        saved?.folderChoice ?? (firstOwner ? initial.folderChoice : undefined),
-      contextArtifact: null,
-    };
-    setSelected(restored.selected);
-    setReplyContext(restored.replyContext);
-    setFolderChoice(restored.folderChoice);
-    setContextArtifact(null);
-    setRoutePreview(null);
-    globalComposer.current = restored;
-    setSharedDraft(
-      incoming
-        ? initial.sharedDraft
-        : shareStorage.read() || emptySharedDraft(),
-    );
-    setHydratedDraftScope(draftScope);
-  }, [composerStorage, shareStorage, draftScope]);
-  useEffect(() => {
-    // The hydration render's stale values cannot overwrite the newly selected
-    // owner's slot. Thread controls are stored by their existing thread owner.
-    if (hydratedDraftScope !== draftScope || conversation) return;
-    composerStorage.write({ selected, replyContext, folderChoice });
-  }, [
-    composerStorage,
-    draftScope,
-    hydratedDraftScope,
-    conversation,
-    selected,
-    replyContext,
-    folderChoice,
-  ]);
-  useEffect(() => {
-    if (hydratedDraftScope === draftScope) shareStorage.write(sharedDraft);
-  }, [shareStorage, draftScope, hydratedDraftScope, sharedDraft]);
   function setConversation(
     id: string | null,
     message?: string,
     source = executionSourceId(),
   ) {
-    if (!conversation && id)
-      globalComposer.current = {
-        selected,
-        replyContext,
-        contextArtifact,
-        folderChoice,
-      };
+    if (!conversation && id) captureGlobalComposer();
     if (source !== conversationSource) {
       setReplyContext(null);
       setContextArtifact(null);
@@ -392,13 +319,7 @@ export function useAppController(seed?: AppNavigationInitial) {
         if (profile) setSelected(profile.id);
         else if (team) setSelected(team.manager_id);
       }
-      if (conversationSource !== executionSourceId()) {
-        const previous = globalComposer.current;
-        setSelected(previous.selected);
-        setReplyContext(previous.replyContext);
-        setContextArtifact(previous.contextArtifact);
-        setFolderChoice(previous.folderChoice);
-      }
+      if (conversationSource !== executionSourceId()) restoreGlobalComposer();
       replaceConversationLocation(executionSourceId(), null);
     }
   }
@@ -785,27 +706,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setSettingsParent(true);
     setSheet(page);
   }
-  useEffect(() => {
-    const url = new URL(location.href);
-    for (const [key, value] of Object.entries({
-      page: tab === "feed" ? "" : tab,
-      filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
-      project: projectFilter,
-      teams: teamKey,
-      projectView: project,
-      pull: tab === "pulls" ? pull : "",
-    })) {
-      if (value) url.searchParams.set(key, value);
-      else url.searchParams.delete(key);
-    }
-    // Pairing and shared links keep their fragment until their owning flow
-    // consumes it; persisting navigation must not discard that state.
-    history.replaceState(
-      history.state,
-      "",
-      url.pathname + url.search + url.hash,
-    );
-  }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
   const [filing, setFiling] = useState<ResultAction | null>(null),
     [revision, setRevision] = useState(0);
   const [collectionRevisions, setCollectionRevisions] = useState<

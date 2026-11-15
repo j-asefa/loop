@@ -1,12 +1,12 @@
+import { assertAnswerStored } from "./fixtures/answer-record.js";
+import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import type { Live } from "../src/server/native-sessions";
 import type { Run } from "../src/server/queue";
-import { NativeOutput } from "../src/server/native-output";
 import { replyPrompt } from "../src/shared/replies";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
@@ -142,6 +142,11 @@ it.each(["openai", "anthropic"] as const)(
       const claimed = claim("reply-worker")!;
       expect(claimed.id).toBe(accepted.data.id);
       expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
+      assertAnswerStored(
+        db,
+        claimed.id,
+        "They store different session formats.",
+      );
       transition(claimed, "completed");
       expect(received).toContain("@" + agent.name);
       expect(received).toContain("> I am separating the session tables.");
@@ -293,9 +298,9 @@ it("supports saved final messages and carries their quote into native harness pr
   expect(claimed.id).toBe(reply.id);
   let prompt = "";
   const generation = id();
-  const live = {
+  const live = nativeSessions.state.attach({
     generation,
-    binding: {
+    binding: fixtureBinding({
       conversation_id: claimed.conversation_id!,
       harness: "codex",
       project: dir,
@@ -304,21 +309,16 @@ it("supports saved final messages and carries their quote into native harness pr
       instructions: "",
       generation,
       state: "idle",
-    },
+    }),
     bootstrapRun: claimed,
-    items: new NativeOutput(),
-    requests: new Map(),
-    adapter: {
+    adapter: fixtureAdapter({
       async prompt(input: string, beforeDispatch?: () => void) {
         beforeDispatch?.();
         prompt = input;
         live.finish!("completed");
       },
-    },
-  } as unknown as Live;
-  const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
-    .live;
-  sessions.set(claimed.conversation_id!, live);
+    }),
+  });
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
     expect(await nativeSessions.execute(claimed)).toMatchObject({
@@ -329,7 +329,7 @@ it("supports saved final messages and carries their quote into native harness pr
     transition(claimed, "completed");
   } finally {
     clearTimeout(live.idle);
-    sessions.delete(claimed.conversation_id!);
+    nativeSessions.state.remove(live);
     session.mockRestore();
   }
 });

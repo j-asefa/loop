@@ -251,18 +251,48 @@ startup; deciding → unknown at startup. The generation is re-checked just
 before the answer is sent. A re-emitted request id that this generation has
 already resolved is ignored and does not move the run to `awaiting_approval`.
 
+### `agent_checkpoints.stage`
+
+[`answer-record.ts`](../src/server/answer-record.ts) owns answer record creation
+and the ordered writes to its message, artifact, initial version, checkpoint and
+run result. Callers keep their transactions, scheduling and native churn guard.
+Managed artifact updates retain the "no version above 1" predicate; native
+updates retain the artifact's current `version = 1` predicate. Preview completion
+creates final records and replaces its checkpoint; it does not stream a placeholder.
+
+| From → to | Trigger | Writer |
+| --------- | ------- | ------ |
+| absent → model | Open managed/native answer; schema default | `openAnswer` |
+| model → tools | Provider returns tool calls; save round, history and pending list | managed runtime |
+| tools → tools | Complete one pending invocation; save history/pending | managed runtime |
+| tools → model | All pending tools finished; clear pending list | managed runtime |
+| model → done | Persist final body, then result and round/history | `finishManagedAnswer` |
+| model/native → native | Partial projection, after native churn check | `writeNativeAnswer` |
+| model/native → done | Final non-commentary reply, after native churn check | `writeNativeAnswer` |
+| absent/previous → done | Simulator completes a response | `createPreviewAnswer` |
+
+Pause/error preserves the checkpoint for recovery. Managed resumes read history,
+output and round; a done checkpoint returns without recreating records. Native
+recovery does not replay uncertain dispatch or reconstruct harness context from
+these display records. The worker uses model/tools to label failures; queued-run
+editing checks checkpoint existence, regardless of stage. Manual MCP results are
+artifact references and remain outside this answer-text lifecycle.
+
 ### In-memory `Live` session
 
-[`native/state.ts`](../src/server/native/state.ts), owned by one worker
-process. Fields: `run` (the attached turn), `cancelling`, `waiting`,
-`closed`/`disposal`, `requests`, `finish`, `idle` timer.
+`NativeSessionState` in [`native/state.ts`](../src/server/native/state.ts) owns
+one worker process's session map and all `Live` field mutations. Production and
+fixtures attach sessions through `attach`; consumers receive readonly views.
+`find` and `all` expose retained identities without exposing the map. Named
+operations own turn attachment, decisions, output buffers, timers, cancellation
+and disposal. The supervisor still orders durable writes and adapter IO.
 
 | From → to | Trigger | Code |
 | --------- | ------- | ---- |
-| idle → turn (`run` set, `cancelling` false) | `execute` | `supervisor.ts` |
-| turn → idle (`run`, `finish`, `waiting`, `cancelling` cleared; idle timer armed) | turn ends, including failures before dispatch | `execute` `catch`/`finally` |
-| turn → cancelling | `interrupt` | `supervisor.ts` |
-| any → closed | `dispose` (idempotent) | `supervisor.ts` |
+| idle → turn (`run` set, `cancelling` false) | `execute` | `state.startTurn` |
+| turn → idle | pre-dispatch preparation fails: detach only; normal turn cleanup: clear run, finish, waiting and cancelling | `state.detachTurn` / `state.endTurn`, then `state.scheduleIdle` |
+| turn → cancelling | `interrupt` | `state.cancel` |
+| any → closed | `dispose` (idempotent) | `state.close`, `state.disposing`, identity-guarded `state.remove` |
 
 Invariants: `run` is set only while `execute` owns the turn; `cancelling` is
 true only while that turn is being interrupted; a closed live is never reused.
@@ -276,8 +306,8 @@ while idle, and delayed output requires the same run object. Stored-generation
 checks remain specific to settings and usage/activity/model projections; they
 are not added to prompt or decision dispatch. Definitive non-delivery can reopen
 a decision without the dispatch cancellation predicate. These differences
-preserve the existing boundaries; lifecycle writes remain with their current
-owners until the session-state extraction.
+preserve the existing boundaries. The state owner supplies the guard's lookup;
+callers retain the same purpose-specific policies.
 
 `native_history_actions`: ∅ → unknown (written before the fork) → completed;
 an existing `unknown` row answers 409.

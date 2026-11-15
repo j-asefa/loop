@@ -124,6 +124,22 @@ for await (const line of createInterface({ input: process.stdin })) {
         configOptions,
       },
     });
+    setTimeout(
+      () =>
+        send({
+          method: "session/update",
+          params: {
+            sessionId,
+            update: {
+              sessionUpdate: "available_commands_update",
+              availableCommands: [
+                { name: "plan", description: "Plan before executing." },
+              ],
+            },
+          },
+        }),
+      10,
+    );
   } else if (request.method === "session/prompt") {
     if (process.env.LOOP_TEST_AGY_MODE === "disconnect") process.exit(2);
     if (process.env.LOOP_TEST_AGY_MODE === "hang") continue;

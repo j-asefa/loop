@@ -1,3 +1,4 @@
+import { NativeSessionState } from "../src/server/native/state.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -11,7 +12,6 @@ import type { DirectControls } from "../src/adapters/direct-controls.js";
 import type { Setting } from "../src/agent-activities.js";
 import express from "express";
 import { FleetWorkspaceApp } from "../src/server/fleet-workspace-app.js";
-import { NativeOutput } from "../src/server/native-output.js";
 import type { Live } from "../src/server/native/state.js";
 import type { Run } from "../src/server/queue.js";
 import { gitProject } from "./git-project.js";
@@ -108,13 +108,14 @@ function nativeAdapter(
   );
 }
 function nativeLive(
+  state: NativeSessionState,
   run: Run,
   adapter: Live["adapter"],
   harness: Live["binding"]["harness"],
   generation: string,
-  overrides: Partial<Live> = {},
+  overrides: { run?: Run; waiting?: boolean } = {},
 ): Live {
-  return {
+  const live = state.attach({
     adapter,
     generation,
     binding: {
@@ -131,15 +132,12 @@ function nativeLive(
     },
     ready: Promise.resolve(),
     bootstrapRun: run,
-    items: new NativeOutput(),
-    requests: new Map(),
-    closed: false,
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    ...overrides,
-  };
+    run: overrides.run,
+  });
+  if (overrides.waiting) state.waiting(live, true);
+  return live;
 }
+
 const retryApp = express();
 retryApp.use(express.json());
 retryApp.use((_req, res, next) => {
@@ -598,11 +596,11 @@ it.each([
       generation = randomUUID();
     const adapter = nativeAdapter("codex");
     const answer = vi.spyOn(adapter, "answer").mockResolvedValue();
-    const live = nativeLive(run, adapter, "codex", generation, { run });
+    const state = new NativeSessionState();
+    const live = nativeLive(state, run, adapter, "codex", generation, { run });
     const decisions = new NativeDecisions({
-      live: new Map([[run.conversation_id!, live]]),
+      state,
       interrupt: async () => {},
-      answer: (...args) => decisions.answer(...args),
     });
     const request = (native: string) => {
       decisions.request(
@@ -709,17 +707,20 @@ it.each(["accepted", "stale", "invalid-choice", "uncertain"] as const)(
       if (outcome === "uncertain")
         throw new Error("Fixture lost response after dispatch");
     });
-    const live = nativeLive(run, adapter, "claude", generation, {
+    const live = nativeLive(
+      sessions.state,
       run,
-      waiting: true,
-    });
+      adapter,
+      "claude",
+      generation,
+      {
+        run,
+        waiting: true,
+      },
+    );
     db.prepare(
       "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES('fixture-agent',?,'claude',?,NULL,'',?,'idle',0)",
     ).run(run.conversation_id, root, generation);
-    (sessions as unknown as { live: Map<string, Live> }).live.set(
-      run.conversation_id!,
-      live,
-    );
     try {
       const pending = sender.act(() =>
         sessions.setSetting(
@@ -773,12 +774,8 @@ it.each(["local", "another-peer"] as const)(
     const adapter = nativeAdapter("codex");
     const prompt = vi.spyOn(adapter, "prompt").mockResolvedValue();
     const steer = vi.spyOn(adapter, "steer").mockResolvedValue();
-    const live = nativeLive(run, adapter, "codex", generation);
+    const live = nativeLive(sessions.state, run, adapter, "codex", generation);
     // Keep execute() and its durable steering/dispatch path; substitute startup.
-    (sessions as unknown as { live: Map<string, Live> }).live.set(
-      run.conversation_id!,
-      live,
-    );
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
     const executing = sessions.execute(run);
     try {
@@ -868,14 +865,11 @@ it.each([
       waiting.resolve();
     };
     const live = nativeLive(
+      sessions.state,
       run,
       adapter,
       operation === "steer" ? "claude" : "codex",
       generation,
-    );
-    (sessions as unknown as { live: Map<string, Live> }).live.set(
-      run.conversation_id!,
-      live,
     );
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
     let executing:
@@ -884,11 +878,10 @@ it.each([
       let answering: Promise<unknown> | undefined;
       let decision: string | undefined;
       if (operation === "answer") {
-        live.run = run;
+        sessions.state.startTurn(live, run);
         const decisions = new NativeDecisions({
-          live: new Map([[run.conversation_id!, live]]),
+          state: sessions.state,
           interrupt: async () => {},
-          answer: (...args) => decisions.answer(...args),
         });
         const request = {
           id: "question",
@@ -931,7 +924,14 @@ it.each([
         }
       }
       await waiting.promise;
-      if (invalidated === "generation") live.generation = randomUUID();
+      if (invalidated === "generation")
+        nativeLive(
+          sessions.state,
+          run,
+          adapter,
+          live.binding.harness,
+          randomUUID(),
+        );
       else if (invalidated === "creator") creator.revoke();
       else sender.revoke();
       release.resolve();

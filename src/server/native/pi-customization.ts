@@ -1,3 +1,4 @@
+import type { NativeSessionState } from "./state.js";
 import * as piProjectTrustQueries from "../sql/pi-project-trust.js";
 import * as piPackageRecoveryQueries from "../sql/pi-package-recovery.js";
 import { realpathSync, statSync, readFileSync } from "node:fs";
@@ -29,12 +30,12 @@ import type { Live } from "./state.js";
 import { OWNER } from "../workspace-identity.js";
 
 type Context = {
-  live: ReadonlyMap<string, Live>;
+  state: NativeSessionState;
   dispose(live: Live): Promise<void>;
-  clearProbes: NativeProjects["clearProbes"];
-  catalog: NativeProjects["catalog"];
-  registration: NativeProjects["registration"];
-  project: NativeProjects["project"];
+  projects: Pick<
+    NativeProjects,
+    "clearProbes" | "catalog" | "registration" | "project"
+  >;
 };
 
 export class PiCustomization {
@@ -133,7 +134,7 @@ export class PiCustomization {
     try {
       return await this.applyPiTrust(agent, trusted, fingerprint);
     } finally {
-      this.context.clearProbes();
+      this.context.projects.clearProbes();
     }
   }
   private async applyPiTrust(
@@ -148,7 +149,7 @@ export class PiCustomization {
         409,
         "Project resources changed. Review them again before deciding.",
       );
-    const sessions = [...this.context.live.values()].filter(
+    const sessions = [...this.context.state.all()].filter(
       (live) =>
         live.binding.harness === "pi" &&
         live.binding.project === project &&
@@ -204,7 +205,7 @@ export class PiCustomization {
     conversation?: string,
   ) {
     this.piPackageContext(agent);
-    const catalog = await this.context.catalog(agent, conversation);
+    const catalog = await this.context.projects.catalog(agent, conversation);
     const command = (catalog.commands || []).find(
       (entry: NativeCommand) => entry.name === name && entry.kind === "prompt",
     );
@@ -251,7 +252,7 @@ export class PiCustomization {
     try {
       return await this.applyPiRollback(agent, source, scope);
     } finally {
-      this.context.clearProbes();
+      this.context.projects.clearProbes();
     }
   }
   private async applyPiRollback(
@@ -319,10 +320,10 @@ export class PiCustomization {
         422,
         "Choose a direct Pi agent for Pi package management.",
       );
-    const options = this.context.registration("pi");
+    const options = this.context.projects.registration("pi");
     return {
       options,
-      project: this.context.project(
+      project: this.context.projects.project(
         { folderId: agent.folder_id } as Snapshot,
         options,
       ),
@@ -342,7 +343,7 @@ export class PiCustomization {
     try {
       return await this.applyPiPackageAction(agent, action, source, scope);
     } finally {
-      this.context.clearProbes();
+      this.context.projects.clearProbes();
     }
   }
   private async applyPiPackageAction(

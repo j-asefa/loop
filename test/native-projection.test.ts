@@ -1,3 +1,7 @@
+import {
+  assertAnswerStored,
+  exerciseAnswerRecord,
+} from "./fixtures/answer-record.js";
 import type { Live } from "../src/server/native-sessions";
 import type { Item } from "../src/shared/protocol";
 import { Codex } from "../src/adapters/codex";
@@ -6,12 +10,13 @@ import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeOutput, NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
+import { NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
 const dir = mkdtempSync(join(tmpdir(), "loop-projection-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
+const { openAnswer } = await import("../src/server/answer-record");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -35,20 +40,22 @@ it("flushes dirty native items and completes after exceeding the display window"
   });
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('message','owner','conversation','assistant','',0)",
-  ).run();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES('artifact','owner','test','markdown','answer','',0,0)",
-  ).run();
-  db.prepare(
-    "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,'message','artifact','[]')",
-  ).run(run.id);
+  const answer = db
+    .transaction(() =>
+      openAnswer(run, {
+        messageId: "message",
+        title: "test",
+        messageMetadata: "{}",
+        artifactMetadata: { native: true },
+        history: "[]",
+      }),
+    )
+    .immediate();
   db.exec(
     "CREATE TEMP TABLE item_writes(id TEXT); CREATE TEMP TRIGGER audit_native_updates AFTER UPDATE ON native_items BEGIN INSERT INTO item_writes VALUES(new.native_id); END;",
   );
   const sessions = new NativeSessions();
-  const live: Live = {
+  const live: Live = sessions.state.attach({
     run,
     binding: {
       worktree_source: null,
@@ -75,16 +82,9 @@ it("flushes dirty native items and completes after exceeding the display window"
     generation: "test",
     ready: Promise.resolve(),
     bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  };
+  });
   // Register the session as NativeSessions.ensure does: events from a Live
   // that is not the conversation's current session are stale and dropped.
-  (sessions as any).live.set("conversation", live);
   const event = (item: Item) =>
     sessions.projector.event(live, { type: "item", item });
   try {
@@ -295,7 +295,7 @@ it("flushes dirty native items and completes after exceeding the display window"
       text: "Progress only.",
     });
     const finish = vi.fn();
-    live.finish = finish;
+    sessions.state.onFinish(live, finish);
     sessions.projector.event(live, { type: "status", status: "completed" });
     expect(interrupt).not.toHaveBeenCalled();
     expect(finish).toHaveBeenCalledWith("completed");
@@ -303,7 +303,9 @@ it("flushes dirty native items and completes after exceeding the display window"
       db.prepare("SELECT result,error FROM runs WHERE id=?").get(run.id),
     ).toEqual({ result: "Review complete.", error: null });
     expect(
-      db.prepare("SELECT content FROM artifacts WHERE id='artifact'").get(),
+      db
+        .prepare("SELECT content FROM artifacts WHERE id=?")
+        .get(answer.artifact_id),
     ).toEqual({ content: "Review complete." });
     expect(
       db
@@ -312,10 +314,11 @@ it("flushes dirty native items and completes after exceeding the display window"
         )
         .get(),
     ).toEqual({ content: "Reviewing continued" });
+    assertAnswerStored(db, run.id, "Review complete.");
     interrupt.mockRestore();
     // A resumed session replays more than a turn's budget before run is set.
-    live.run = undefined;
-    live.items.clear();
+    sessions.state.detachTurn(live);
+    sessions.state.clearOutput(live);
     const dispose = vi.spyOn(live.adapter, "dispose").mockResolvedValue();
     for (let i = 0; i < 100; i++)
       event({ id: "history-" + i, kind: "assistant", text: "é".repeat(32000) });
@@ -329,8 +332,8 @@ it("flushes dirty native items and completes after exceeding the display window"
     expect(live.items.bytes).toBeLessThanOrEqual(NATIVE_OUTPUT_BYTES);
     expect(live.items.get("history-0")).toBeUndefined();
     expect(live.items.get("history-99")).toBeDefined();
-    live.items.clear();
-    live.run = run;
+    sessions.state.clearOutput(live);
+    sessions.state.startTurn(live, run);
     event({ id: "follow-up", kind: "assistant", text: "Still usable" });
     sessions.projector.projectOutput(live, false);
     expect(
@@ -340,6 +343,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     clearTimeout(live.flush);
     vi.useRealTimers();
   }
+  await exerciseAnswerRecord();
 }, 15000);
 
 it("drops item events from a superseded session generation", () => {
@@ -361,43 +365,37 @@ it("drops item events from a superseded session generation", () => {
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);
   const sessions = new NativeSessions();
-  const make = (generation: string): Live => ({
-    run,
-    binding: {
-      worktree_source: null,
-      worktree_agent_id: "fixture-agent",
-      conversation_id: "superseded",
-      harness: "codex",
-      native_id: null,
-      project: dir,
-      model: null,
-      instructions: "",
-      generation,
-      state: "idle",
-    },
-    adapter: new Codex(
-      {
+  const make = (generation: string): Live =>
+    sessions.state.attach({
+      run,
+      binding: {
+        worktree_source: null,
+        worktree_agent_id: "fixture-agent",
+        conversation_id: "superseded",
         harness: "codex",
-        executable: "",
-        version: "fixture",
+        native_id: null,
         project: dir,
-        billing: "existing",
+        model: null,
+        instructions: "",
+        generation,
+        state: "idle",
       },
-      () => {},
-    ),
-    generation,
-    ready: Promise.resolve(),
-    bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  });
+      adapter: new Codex(
+        {
+          harness: "codex",
+          executable: "",
+          version: "fixture",
+          project: dir,
+          billing: "existing",
+        },
+        () => {},
+      ),
+      generation,
+      ready: Promise.resolve(),
+      bootstrapRun: run,
+    });
   const old = make("old");
   const current = make("current");
-  (sessions as any).live.set("superseded", current);
   try {
     sessions.projector.event(old, {
       type: "item",

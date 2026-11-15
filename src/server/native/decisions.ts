@@ -1,4 +1,4 @@
-import { NativeSessionCurrency } from "./currency.js";
+import type { NativeSessionState } from "./state.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as personalDecisionsQueries from "../sql/personal-decisions.js";
 import * as runsQueries from "../sql/runs.js";
@@ -26,9 +26,8 @@ import { type Live } from "./state.js";
 import { OWNER } from "../workspace-identity.js";
 
 type Context = {
-  live: ReadonlyMap<string, Live>;
+  state: NativeSessionState;
   interrupt(runId: string, reason?: string): Promise<void>;
-  answer: NativeDecisions["answer"];
 };
 
 export function requestApproval(live: Live, input: AdapterEvent) {
@@ -45,9 +44,9 @@ export function requestApproval(live: Live, input: AdapterEvent) {
 }
 
 export class NativeDecisions {
-  private readonly currency: NativeSessionCurrency;
-  constructor(private readonly context: Context) {
-    this.currency = new NativeSessionCurrency(context.live);
+  constructor(private readonly context: Context) {}
+  private get currency() {
+    return this.context.state.currency;
   }
 
   request(
@@ -108,32 +107,32 @@ export class NativeDecisions {
       );
       if (existing && existing !== "pending") return false;
     }
-    live.requests.set(event.request.id, event.request);
+    this.context.state.request(live, event.request);
     const waitForDecision = () => {
       // An automatic answer can fail after this turn or generation was retired.
       if (!this.currency.allows({ kind: "decision-wait", live, runId: run.id }))
         return;
-      live.waiting =
+      this.context.state.waiting(
+        live,
         transition(run, "awaiting_approval") ||
-        runsQueries.ownedState(db, run.id, run.owner_id)?.state ===
-          "awaiting_approval";
+          runsQueries.ownedState(db, run.id, run.owner_id)?.state ===
+            "awaiting_approval",
+      );
     };
     if (recorded && allow) {
       // "Never ask" answers routine tool approvals for the user. Questions
       // and forms requiring input have no allow choice and still wait. A failed
       // answer is left visible as unknown and is never retried.
-      void this.context
-        .answer(decisionId, "auto:" + decisionId, {
-          choice: allow,
-        })
-        .then(
-          () =>
-            emit(run.owner_id, run.id, "approval.auto_approved", {
-              decisionId,
-              title: event.request.title,
-            }),
-          waitForDecision,
-        );
+      void this.answer(decisionId, "auto:" + decisionId, {
+        choice: allow,
+      }).then(
+        () =>
+          emit(run.owner_id, run.id, "approval.auto_approved", {
+            decisionId,
+            title: event.request.title,
+          }),
+        waitForDecision,
+      );
     } else {
       waitForDecision();
     }
@@ -155,7 +154,7 @@ export class NativeDecisions {
         throw new Problem(409, "Command ID belongs to different input.");
       return { state: d.state };
     }
-    const live = this.context.live.get(d.conversation_id);
+    const live = this.context.state.find(d.conversation_id);
     const run = ownedRun(d.run_id, OWNER);
     if (
       !live ||

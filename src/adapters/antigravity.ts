@@ -63,8 +63,19 @@ class AntigravityAcp extends Acp {
   }
   override prompt(text: string, beforeDispatch?: () => void) {
     const instructions = this.nativeOptions.instructions;
+    const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
+    const command = name && this.commands.some((c) => c.name === name);
+    const content = command
+      ? instructions
+        ? `${text}\n\n${instructions}`
+        : text
+      : instructions
+        ? `${instructions}\n\n${text}`
+        : text;
     return super.prompt(
-      instructions ? `${instructions}\n\n${text}` : text,
+      !command && content.trimStart().startsWith("/")
+        ? `\u200b${content}`
+        : content,
       beforeDispatch,
     );
   }

@@ -1,3 +1,4 @@
+import type { NativeSessionState } from "./state.js";
 import { nativeConnectionId, harnesses } from "../../shared/harnesses.js";
 import * as harnessesQueries from "../sql/harnesses.js";
 import * as connectionsQueries from "../sql/connections.js";
@@ -25,7 +26,7 @@ import type { Snapshot } from "../agent-runtime.js";
 import { adapterCapabilities } from "./control-snapshot.js";
 import { hostEnvironmentName, hostLocation } from "../execution-location.js";
 import type { PiCustomization } from "./pi-customization.js";
-import { type Live, type Binding } from "./state.js";
+import { type Binding } from "./state.js";
 import { OWNER } from "../workspace-identity.js";
 import { classes, labels } from "./adapters.js";
 import { boundWorkspaceArgs, workspaceError } from "./workspace.js";
@@ -35,7 +36,7 @@ import { boundWorkspaceArgs, workspaceError } from "./workspace.js";
 export const MAX_NATIVE_MODELS = 5000;
 
 type Context = {
-  live: ReadonlyMap<string, Live>;
+  state: NativeSessionState;
   isStopped(): boolean;
   projectTrust: PiCustomization["projectTrust"];
 };
@@ -334,7 +335,7 @@ export class NativeProjects {
       ? (await this.catalogWorkspace(binding, agent.id)).directory
       : this.project({ folderId: agent.folder_id } as Snapshot, options);
     if (conversation && binding?.harness === harness) {
-      const live = this.context.live.get(conversation);
+      const live = this.context.state.find(conversation);
       if (live && !live.closed && live.adapter.commandCatalog) {
         if (!cachedOnly) live.adapter.refreshCommandCatalog?.();
         return {

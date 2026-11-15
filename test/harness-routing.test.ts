@@ -1,3 +1,4 @@
+import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import {
   existsSync,
@@ -563,7 +564,6 @@ it.each(["native-fork", "import-transaction"])(
 );
 
 it("uses the live chat catalog only while the agent stays on that harness", async () => {
-  const live = (nativeSessions as any).live as Map<string, any>;
   const session = {
     closed: false,
     adapter: {
@@ -582,8 +582,22 @@ it("uses the live chat catalog only while the agent stays on that harness", asyn
     kept = directChat(same);
   const switched = agent(),
     moved = directChat(switched);
-  live.set(kept, session);
-  live.set(moved, session);
+  const attach = (conversation: string) =>
+    nativeSessions.state.attach({
+      generation: "fixture",
+      bootstrapRun: undefined as never,
+      binding: fixtureBinding({
+        conversation_id: conversation,
+        generation: "fixture",
+        harness: "codex",
+      }),
+      adapter: fixtureAdapter({
+        ...session.adapter,
+        commandCatalog: { revision: 7, commands: [] },
+      }),
+    });
+  const keptSession = attach(kept),
+    movedSession = attach(moved);
   const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
   vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   try {
@@ -597,8 +611,8 @@ it("uses the live chat catalog only while the agent stays on that harness", asyn
       data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
     });
   } finally {
-    live.delete(kept);
-    live.delete(moved);
+    nativeSessions.state.remove(keptSession);
+    nativeSessions.state.remove(movedSession);
   }
 });
 
@@ -625,11 +639,19 @@ it.each(["live", "cached"])(
       return {} as any;
     });
     vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-    const live = (nativeSessions as any).live as Map<string, any>;
     if (mode === "live")
-      live.set(cid, {
-        closed: false,
-        adapter: { commands: [], commandCatalog: { revision: 3 } },
+      nativeSessions.state.attach({
+        generation: "fixture",
+        bootstrapRun: undefined as never,
+        binding: fixtureBinding({
+          conversation_id: cid,
+          generation: "fixture",
+          harness: "codex",
+        }),
+        adapter: fixtureAdapter({
+          commands: [],
+          commandCatalog: { revision: 3, commands: [] },
+        }),
       });
     else expect((await catalog(aid, cid)).status).toBe(200);
     block = true;
@@ -661,7 +683,8 @@ it.each(["live", "cached"])(
     } finally {
       release();
       await Promise.allSettled(pending);
-      live.delete(cid);
+      const current = nativeSessions.state.find(cid);
+      if (current) nativeSessions.state.remove(current);
       nativeSessions.projects.clearProbes();
     }
   },

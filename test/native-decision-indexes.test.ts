@@ -1,9 +1,8 @@
+import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Live } from "../src/server/native-sessions";
-import { NativeOutput } from "../src/server/native-output";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-decision-indexes-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -26,25 +25,18 @@ function fixture() {
   expect(run.id).toBe(queued.id);
   const sessions = new NativeSessions();
   const dispose = vi.fn().mockResolvedValue(undefined);
-  const live = {
+  const live = sessions.state.attach({
     run,
-    binding: {
+    binding: fixtureBinding({
       conversation_id: conversation,
       generation: "fixture",
       harness: "codex",
-    },
+    }),
     generation: "fixture",
-    adapter: { dispose },
-    requests: new Map(),
-    items: new NativeOutput(),
-    closed: false,
-    waiting: false,
+    adapter: fixtureAdapter({ dispose }),
     finish: vi.fn(),
-  } as unknown as Live;
-  (sessions as unknown as { live: Map<string, Live> }).live.set(
-    conversation,
-    live,
-  );
+    bootstrapRun: run,
+  });
   return { run, live, sessions, dispose };
 }
 function decision(

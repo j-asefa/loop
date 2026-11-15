@@ -141,18 +141,6 @@ export function result(db: Database.Database, owner: string, run: string) {
     : parseRecord(resultRow, row, "agent_checkpoints");
 }
 
-const insertNativeStatement = statement(
-  "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
-);
-export function insertNative(
-  db: Database.Database,
-  run: string,
-  message: string,
-  artifact: string,
-) {
-  return insertNativeStatement(db).run(run, message, artifact);
-}
-
 const nativeOutputStatement = statement(
   "UPDATE agent_checkpoints SET output=?,stage=? WHERE run_id=?",
 );

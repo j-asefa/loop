@@ -10,7 +10,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { NativeOutput } from "../src/server/native-output";
 import {
   PERSONAL_DECISION_DETAIL_LIMIT,
   PERSONAL_DECISION_RESPONSE_LIMIT,
@@ -33,6 +32,7 @@ function session(
   name: string,
   permissionMode?: PermissionMode,
   harness: "claude" | "codex" = "claude",
+  allEvents = false,
 ) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'test',0)",
@@ -51,13 +51,13 @@ function session(
       billing: "existing",
     },
     (event) => {
-      if (event.type === "request" || event.type === "resolved")
+      if (allEvents || event.type === "request" || event.type === "resolved")
         sessions.projector.event(live, event);
     },
   );
   const answer = vi.spyOn(adapter, "answer");
   if (harness === "claude") answer.mockResolvedValue();
-  const live: Live = {
+  const live: Live = sessions.state.attach({
     run,
     binding: {
       worktree_source: null,
@@ -75,15 +75,8 @@ function session(
     generation: "test",
     ready: Promise.resolve(),
     bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
     permissionMode,
-  };
-  (sessions as any).live.set(name, live);
+  });
   const request = (request: Request) =>
     sessions.projector.event(live, { type: "request", request });
   const state = () =>
@@ -513,18 +506,10 @@ it("Codex async questions persist as Needs you until the user answers, even afte
   const { sessions, live, state, run } = session(
     "async-question",
     "bypassPermissions",
+    "codex",
+    true,
   );
-  const adapter = new Codex(
-    {
-      harness: "codex",
-      executable: "",
-      version: "fixture",
-      project: dir,
-      billing: "existing",
-    },
-    (event) => sessions.projector.event(live, event),
-  );
-  live.adapter = adapter;
+  const adapter = live.adapter;
   const request = vi
     .fn()
     .mockResolvedValue({ turn: { id: "continued", status: "inProgress" } });
@@ -597,9 +582,8 @@ it("a session's own permission mode outranks the workspace level", async () => {
   });
   // Session settings switch this session to plan mode while the run is idle.
   const run = kept.live.run;
-  kept.live.run = undefined;
-  const sessions = new NativeSessions();
-  (sessions as any).live.set("session-plan", kept.live);
+  kept.sessions.state.detachTurn(kept.live);
+  const sessions = kept.sessions;
   await sessions.setSetting("session-plan", "mode", "plan", 0, "test");
   expect(kept.live.sessionMode).toBe("plan");
   expect(
@@ -610,12 +594,12 @@ it("a session's own permission mode outranks the workspace level", async () => {
       .get("session-plan"),
   ).toEqual({ permission_mode: "plan" });
   clearTimeout(kept.live.idle);
-  kept.live.run = run;
+  kept.sessions.state.startTurn(kept.live, run!);
   sessions.projector.event(kept.live, { type: "request", request: approval });
   expect(kept.answer).not.toHaveBeenCalled();
   // A session set to bypass is answered even when the workspace asks.
   const bypass = session("session-bypass", "default");
-  bypass.live.sessionMode = "bypassPermissions";
+  bypass.sessions.state.sessionMode(bypass.live, "bypassPermissions");
   bypass.request(approval);
   await vi.waitFor(() =>
     expect(bypass.answer).toHaveBeenCalledWith(
@@ -666,7 +650,7 @@ it.each([
       mode,
       "codex",
     );
-    live.sessionMode = sessionMode;
+    sessions.state.sessionMode(live, sessionMode);
     const params = githubTreeApproval(size, character);
     const original = structuredClone(params);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
@@ -911,7 +895,7 @@ it("does not shorten other oversized decisions or forms requiring user input", (
       item.mode,
       "codex",
     );
-    live.sessionMode = item.sessionMode;
+    sessions.state.sessionMode(live, item.sessionMode);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
     (live.adapter as any).message({
       id: 102,
@@ -1206,6 +1190,9 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     new NotDelivered("Muse Code did not accept this decision."),
   );
   f.request(approval);
+  expect(f.sessions.state.find(f.run.conversation_id!)).toBe(f.live);
+  expect(f.live.waiting).toBe(true);
+  expect(f.state()).toBe("awaiting_approval");
   const decision = db
     .prepare("SELECT id FROM native_decisions WHERE run_id=?")
     .get(f.run.id) as { id: string };
@@ -1228,6 +1215,12 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
       (item) => item.id === "native:" + decision.id,
     ),
   ).toBeUndefined();
+  expect(f.live.waiting).toBe(true);
+  expect(f.live.requests.has(approval.id)).toBe(true);
+  f.answer.mockImplementationOnce(async (_id, _answer, beforeDispatch) => {
+    beforeDispatch?.();
+    f.sessions.projector.event(f.live, { type: "resolved", id: approval.id });
+  });
   expect(
     await f.sessions.decisions.answer(
       decision.id,
@@ -1236,6 +1229,9 @@ it("reopens a decision the harness explicitly refused, and keeps other failures 
     ),
   ).toEqual({ state: "resolved" });
   expect(f.answer).toHaveBeenCalledTimes(2);
+  expect(f.live.waiting).toBe(false);
+  expect(f.live.requests.size).toBe(0);
+  expect(f.state()).toBe("running");
   expect(
     personalDecisions(OWNER, { kind: "approval" }).items.filter(
       (item) => item.id === "native:" + decision.id,
@@ -1346,11 +1342,8 @@ it.each(["terminal", "retired", "replaced"] as const)(
       if (mode === "terminal") {
         const { transition } = await import("../src/server/queue");
         expect(transition(f.run, "cancelled")).toBe(true);
-      } else if (mode === "retired") f.live.run = undefined;
-      else
-        (f.sessions as unknown as { live: Map<string, Live> }).live.delete(
-          f.live.binding.conversation_id,
-        );
+      } else if (mode === "retired") f.sessions.state.detachTurn(f.live);
+      else f.sessions.state.remove(f.live);
       reject(new Error("Fixture late failure"));
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(f.live.waiting).toBe(false);

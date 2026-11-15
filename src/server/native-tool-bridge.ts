@@ -190,7 +190,7 @@ export class NativeToolBridge {
             return response.result;
           }
           if (!waiting) {
-            live.bridgeWaiting++;
+            nativeSessions.state.bridgeWait(live, true);
             waiting = true;
           }
           pending = response.pending;
@@ -211,7 +211,7 @@ export class NativeToolBridge {
         };
       } finally {
         watched.release();
-        if (waiting) live.bridgeWaiting--;
+        if (waiting) nativeSessions.state.bridgeWait(live, false);
       }
     })();
     t.calls.set(key, { digest, result });

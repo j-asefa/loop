@@ -1,4 +1,5 @@
-import { NativeSessionCurrency } from "./currency.js";
+import { writeNativeAnswer } from "../answer-record.js";
+import type { NativeSessionState } from "./state.js";
 import { assertNever } from "../../shared/assert-never.js";
 import { harnesses } from "../../shared/harnesses.js";
 import { writeMessageMetadata } from "../../shared/message-metadata.js";
@@ -11,8 +12,6 @@ import * as nativeItemsQueries from "../sql/native-items.js";
 import * as nativeDispatchQueries from "../sql/native-dispatch.js";
 import * as connectionsQueries from "../sql/connections.js";
 import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
-import * as artifactsQueries from "../sql/artifacts.js";
-import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
 import { agentPayload } from "../row-schemas.js";
@@ -39,11 +38,10 @@ import { type Live } from "./state.js";
 import { requestApproval, type NativeDecisions } from "./decisions.js";
 
 type Context = {
-  live: ReadonlyMap<string, Live>;
+  state: NativeSessionState;
   interrupt(runId: string, reason?: string): Promise<void>;
   dispose(live: Live): Promise<void>;
-  request: NativeDecisions["request"];
-  projectOutput(live: Live, partial: boolean): void;
+  decisions: Pick<NativeDecisions, "request">;
 };
 
 // Native tools can return far more text than the phone needs to display. Keep
@@ -64,9 +62,9 @@ function displayText(text: string) {
 }
 
 export class NativeProjector {
-  private readonly currency: NativeSessionCurrency;
-  constructor(private readonly context: Context) {
-    this.currency = new NativeSessionCurrency(context.live);
+  constructor(private readonly context: Context) {}
+  private get currency() {
+    return this.context.state.currency;
   }
 
   /** @internal Adapter event entry point. */
@@ -154,7 +152,7 @@ export class NativeProjector {
     }
     if (event.type === "metadata") {
       if (event.nativeSession && event.nativeSession.length <= 4096) {
-        live.binding.native_id = event.nativeSession;
+        this.context.state.nativeId(live, event.nativeSession);
         companionSessionsQueries.setNativeId(
           db,
           event.nativeSession,
@@ -181,7 +179,7 @@ export class NativeProjector {
       ) {
         // Adapters may report the model while starting, before a turn is
         // attached; the supervisor applies it when the run attaches.
-        live.reportedModel = model;
+        this.context.state.reportedModel(live, model);
         this.recordModel(live);
       }
       return;
@@ -189,7 +187,7 @@ export class NativeProjector {
     if ((event.type === "item" || event.type === "delta") && !live.run) {
       // Native history is a projection; it is never fed back as model context.
       if (event.type === "item") {
-        if (!live.items.replay(event.item)) return;
+        if (!this.context.state.replayItem(live, event.item)) return;
         nativeItemsQueries.upsertUnbound(
           db,
           live.binding.conversation_id,
@@ -197,7 +195,7 @@ export class NativeProjector {
           JSON.stringify(event.item),
           now(),
         );
-        live.items.dirty.clear();
+        this.context.state.outputCommitted(live);
       }
       return;
     }
@@ -240,10 +238,10 @@ export class NativeProjector {
       return;
     }
     if (event.type === "request") {
-      if (!this.context.request(live, run, event, allow)) return;
+      if (!this.context.decisions.request(live, run, event, allow)) return;
     }
     if (event.type === "resolved") {
-      live.requests.delete(event.id);
+      this.context.state.resolveRequest(live, event.id);
       nativeDecisionsQueries.finishRequest(
         db,
         "resolved",
@@ -252,7 +250,7 @@ export class NativeProjector {
         event.id,
       );
       if (!live.requests.size) {
-        live.waiting = false;
+        this.context.state.waiting(live, false);
         // A repeated resolution may already be running; a terminal run must
         // stay terminal. Neither refusal requires redispatch or more waiting.
         transition(run, "running");
@@ -282,10 +280,9 @@ export class NativeProjector {
         try {
           if (event.detail)
             runsQueries.setError(db, event.detail.slice(0, 2000), run.id);
-          this.context.projectOutput(live, event.status !== "completed");
+          this.projectOutput(live, event.status !== "completed");
         } finally {
-          live.requests.clear();
-          live.waiting = false;
+          this.context.state.clearRequests(live);
           nativeDecisionsQueries.finishPendingRun(db, "expired", run.id);
           companionSessionsQueries.setState(
             db,
@@ -348,12 +345,11 @@ export class NativeProjector {
   private scheduleOutput(live: Live) {
     if (live.flush || live.closed || !live.run) return;
     const run = live.run;
-    live.flush = setTimeout(() => {
-      live.flush = undefined;
+    this.context.state.scheduleOutput(live, () => {
       if (!this.currency.allows({ kind: "output-flush", live, run })) return;
       if (
         !tryWithoutBusyWait(db, "native-output", () => {
-          this.context.projectOutput(live, true);
+          this.projectOutput(live, true);
         })
       ) {
         // Dirty items survive contention. Retry only this display projection,
@@ -362,7 +358,7 @@ export class NativeProjector {
       }
       // Aggregate text is copied into several tables. Bound that write rate;
       // terminal statuses still flush immediately through projectOutput.
-    }, 1000);
+    });
   }
   private toolActivity(live: Live, item: Item) {
     if (item.kind !== "tool" || !live.run) return;
@@ -496,21 +492,20 @@ export class NativeProjector {
     }
   }
   private retainItem(live: Live, item: Item) {
-    if (live.items.set(item.id, item)) return true;
+    if (this.context.state.recordItem(live, item)) return true;
     // Persist dirty progress before rotating the bounded display window.
     // Native execution and its full context remain owned by the harness.
-    this.context.projectOutput(live, true);
+    this.projectOutput(live, true);
     // Free a whole window so pressure does not force a flush on every event.
     // Deltas and completion can recover evicted items from the saved projection.
-    live.items.clear();
-    return live.items.set(item.id, item);
+    this.context.state.clearOutput(live);
+    return this.context.state.recordItem(live, item);
   }
   /** @internal Flush the retained display projection. */
   projectOutput(live: Live, partial: boolean) {
     const run = live.run;
     if (!run) return;
-    clearTimeout(live.flush);
-    live.flush = undefined;
+    this.context.state.clearFlush(live);
     const checkpoint = agentCheckpointsQueries.get(db, run.id);
     if (!checkpoint) return;
     let finalItem = !partial
@@ -552,41 +547,24 @@ export class NativeProjector {
         output !== checkpoint.output ||
         checkpoint.stage !== (partial ? "native" : "done")
       ) {
-        messagesQueries.updateContentAndMetadata(
-          db,
-          output,
-          metadata,
-          checkpoint.message_id,
-        );
-        // The artifact's own metadata declares no partial (D4); the message
-        // keeps the flag for message consumers and the churn guard.
-        artifactsQueries.updateNativeOutput(
-          db,
-          output,
-          writeArtifactMetadata({
-            role: "answer",
-            metadata: {
-              ...agentPayload(run),
-              native: true,
-              messageId: checkpoint.message_id,
-              finalNativeItemId: finalItem?.id,
-            },
-          }),
-          now(),
-          checkpoint.artifact_id,
-        );
-        artifactVersionsQueries.updateInitialContent(
-          db,
-          output,
-          checkpoint.artifact_id,
-        );
-        agentCheckpointsQueries.nativeOutput(
-          db,
-          output,
+        writeNativeAnswer(
+          run,
+          checkpoint,
+          {
+            output,
+            messageMetadata: metadata,
+            artifactMetadata: writeArtifactMetadata({
+              role: "answer",
+              metadata: {
+                ...agentPayload(run),
+                native: true,
+                messageId: checkpoint.message_id,
+                finalNativeItemId: finalItem?.id,
+              },
+            }),
+          },
           partial ? "native" : "done",
-          run.id,
         );
-        runsQueries.setResult(db, output, run.id);
       }
 
       for (const itemId of live.items.dirty) {
@@ -630,6 +608,6 @@ export class NativeProjector {
       // Message projection triggers publish item and aggregate identities,
       // revisions and bounded append chunks in this same transaction.
     }).immediate();
-    live.items.dirty.clear();
+    this.context.state.outputCommitted(live);
   }
 }
