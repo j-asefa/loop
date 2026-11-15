@@ -122,8 +122,9 @@ export const ResultOriginSchema = z.discriminatedUnion("kind", [
     sourceResultId: ResultIdSchema.nullable(),
     sourceMessageId: z.string(),
     sourceConversationId: z.string().nullable(),
-    // False when the copied-from message no longer exists, so its author is
-    // unknown.
+    // False when the chain of copies cannot be followed to the author that
+    // produced it: a copied-from message no longer exists, or the chain
+    // repeats or exceeds Loop's 32-copy bound. Its author is then unknown.
     sourceAvailable: z.boolean(),
   }),
   z.object({ kind: z.literal("unknown") }),

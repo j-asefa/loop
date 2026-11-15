@@ -190,7 +190,12 @@ export function copiedAnswerEvidence(
       if (origin?.kind === "copied") {
         return { ...sealedAuthorship(sealed), origin, evidence: "sealed" };
       }
-      if (origin !== undefined || !next) {
+      // A version 1 imported answer whose message is gone may itself have
+      // been a copy; it is kept only as the weakest remaining evidence.
+      const unverifiable =
+        origin === undefined && !source && sealed.kind === "imported_answer";
+      if (unverifiable) unoriginated ??= sealed;
+      if (!unverifiable && (origin !== undefined || !next)) {
         return {
           ...sealedAuthorship(sealed),
           // Either it recorded its origin or it seals an original message.

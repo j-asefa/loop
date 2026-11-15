@@ -44,6 +44,34 @@ export type ResultDefect = z.infer<typeof StoredDefectSchema> & {
   detectedAt: number;
 };
 
+// Copies name the original Result they came from, so a source conversation
+// is sealed before the conversations copied from it. Creation order breaks
+// ties; a dependency cycle (not produced by any writer) falls back to it.
+function sealingOrder<
+  T extends { owner_id: string; conversation_id: string; sources: string[] },
+>(rows: T[]): T[] {
+  const key = (owner: string, conversation: string) =>
+    owner + "\u001f" + conversation;
+  const byKey = new Map(
+    rows.map((row) => [key(row.owner_id, row.conversation_id), row]),
+  );
+  const ordered: T[] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const visit = (row: T) => {
+    const id = key(row.owner_id, row.conversation_id);
+    if (state.has(id)) return;
+    state.set(id, "visiting");
+    for (const source of row.sources) {
+      const dependency = byKey.get(key(row.owner_id, source));
+      if (dependency) visit(dependency);
+    }
+    state.set(id, "done");
+    ordered.push(row);
+  };
+  for (const row of rows) visit(row);
+  return ordered;
+}
+
 type Pass = {
   name: string;
   // Whether this pass applies to a database whose canonical results were
@@ -59,8 +87,8 @@ const passes: Pass[] = [
     name: "seal-standalone-answers",
     appliesTo: "fresh",
     run: (database) => {
-      for (const row of resultsQueries.historicalAnswerConversations(
-        database,
+      for (const row of sealingOrder(
+        resultsQueries.historicalAnswerConversations(database),
       )) {
         publishHistoricalConversationResults(
           row.owner_id,

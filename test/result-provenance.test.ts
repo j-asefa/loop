@@ -427,6 +427,7 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
              ('owner-b-fa3', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Partial', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-partial"}', 17),
              ('owner-b-fa4', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Gone', '{"sourceConversation":"owner-b-src","sourceMessage":"deleted-message"}', 18),
              ('owner-b-loose', 'owner-b', 'owner-b-src', NULL, 'assistant', 'Loose', '{}', 19),
+             ('owner-b-fa6', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Vanished', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-vanished"}', 21),
              ('owner-b-fa5', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Loose', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-loose"}', 20);
     `);
     for (const [message, agent, name] of [
@@ -435,6 +436,9 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
       // Only the source conversation's current agent could contradict this
       // one, and that assignment can change.
       ["owner-b-fa5", "owner-b-dest", "Destination"],
+      // Its source is a version 1 imported answer whose message is gone, so
+      // that Result may itself have been a copy and settles nothing.
+      ["owner-b-fa6", "owner-b-dest", "Destination"],
     ]) {
       earlier
         .prepare(
@@ -451,6 +455,17 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
         )
         .run({ message, agent, name });
     }
+    earlier.exec(`
+      INSERT INTO results(id, owner_id, schema_version, kind, origin_completeness, sealed, created_at, conversation_id, run_id, message_id, agent_id, content_digest, stimulus, outcome, attachments, provenance, lineage)
+      VALUES ('message:owner-b-vanished', 'owner-b', 1, 'imported_answer', 'sealed_at_publication', 1, 16, 'owner-b-src', NULL, 'owner-b-vanished', 'owner-b-author',
+        '0000000000000000000000000000000000000000000000000000000000000000',
+        json_object('kind','user_prompt','text',NULL,'sourceMessageId',NULL,'authorKind','owner','automationKind',NULL,'automationFrom',NULL),
+        json_object('title','Vanished','body','Vanished','format','markdown'), '[]',
+        json_object('agentId','owner-b-author','agentName','Author','provider',NULL,'model',NULL,'resolvedModel',NULL,'connectionId',NULL,
+          'conversationId','owner-b-src','runId',NULL,'messageId','owner-b-vanished',
+          'placement',json_object('status','unknown','folderId',NULL,'projectId',NULL,'projectName',NULL,'teamId',NULL)),
+        json_object('parentResultId','run:owner-b-run','triggerMessageId',NULL,'suppliedContext',json('[]')));
+    `);
     earlier
       .prepare(
         "UPDATE agents SET name='Renamed author' WHERE id='owner-b-author'",
@@ -496,7 +511,7 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
         detectedAt: expect.any(Number),
       },
     ]);
-    for (const copy of ["fa2", "fa3", "fa4", "fa5"])
+    for (const copy of ["fa2", "fa3", "fa4", "fa5", "fa6"])
       expect(
         resultDefects("owner-b", `message:owner-b-${copy}`, upgraded),
       ).toEqual([]);
@@ -736,4 +751,38 @@ it("keeps a version 1 copy's recorded author when the chain beyond it is gone", 
       sourceAvailable: true,
     },
   });
+});
+
+it("seals a copy's source conversation first even when it was created later", () => {
+  const work = mkdtempSync(join(tmpdir(), "loop-provenance-order-"));
+  try {
+    const migrations = join(work, "migrations");
+    migrationsThrough(migrations, 163);
+    const upgrade = new Database(join(work, "upgrade.db"));
+    applyMigrations(upgrade, migrations);
+    // "late" holds an original answer and a copy of its own; "early" copies
+    // that original but sorts first by creation time.
+    upgrade.exec(`
+      INSERT INTO agents(id, owner_id, name, normalized_name, provider, model, instructions, origin, created_at)
+      VALUES ('order-agent', 'order-owner', 'Order', 'order agent', 'openai', 'gpt', '', 'loop', 1);
+      INSERT INTO conversations(id, owner_id, agent_id, title, origin, created_at)
+      VALUES ('elsewhere', 'order-owner', 'order-agent', 'Elsewhere', 'loop', 1),
+             ('early', 'order-owner', 'order-agent', 'Early', 'loop-fork', 5),
+             ('late', 'order-owner', 'order-agent', 'Late', 'loop-continuation', 10);
+      INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
+      VALUES ('other', 'order-owner', 'elsewhere', NULL, 'assistant', 'Other', '{}', 1),
+             ('late-copy', 'order-owner', 'late', NULL, 'assistant', 'Other', '{"sourceMessage":"other"}', 2),
+             ('late-original', 'order-owner', 'late', NULL, 'assistant', 'Original', '{}', 3),
+             ('early-copy', 'order-owner', 'early', NULL, 'assistant', 'Original', '{"sourceMessage":"late-original"}', 4);
+    `);
+    applyMigrations(upgrade);
+    const [copy] = listConversationResults("order-owner", "early", upgrade);
+    expect(copy.provenance.origin).toMatchObject({
+      kind: "copied",
+      sourceResultId: "message:late-original",
+    });
+    upgrade.close();
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 });

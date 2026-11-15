@@ -381,28 +381,40 @@ export function publishedArtifactObject(
 
 export { parseCanonicalResult };
 
-// Conversations holding standalone answers, in an order that seals a copy's
-// source before the copy: conversations without copies first, then creation
-// order, so nested copies follow their sources.
+// Conversations holding standalone answers, each with the conversations
+// its copied answers were copied from, in creation order.
 const historicalAnswerConversationsStatement = statement(
   `SELECT c.owner_id,c.id conversation_id,
-     MAX(CASE WHEN json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text' THEN 1 ELSE 0 END) has_copies
+     json_group_array(DISTINCT s.conversation_id) FILTER (WHERE s.conversation_id IS NOT NULL AND s.conversation_id<>c.id) sources
    FROM conversations c
    JOIN messages m ON m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.run_id IS NULL AND m.role='assistant'
+   LEFT JOIN messages s ON s.owner_id=m.owner_id
+     AND s.id=CASE WHEN json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text' THEN json_extract(m.metadata,'$.sourceMessage') END
    GROUP BY c.owner_id,c.id
-   ORDER BY has_copies ASC,c.created_at ASC,c.rowid ASC`,
+   ORDER BY c.owner_id ASC,c.created_at ASC,c.rowid ASC`,
 );
 const historicalAnswerConversationRow = z.object({
   owner_id: z.string(),
   conversation_id: z.string(),
-  has_copies: z.number(),
+  sources: z.string().nullable(),
 });
 export function historicalAnswerConversations(db: Database.Database) {
   return historicalAnswerConversationsStatement(db)
     .all()
-    .map((row) =>
-      parseRecord(historicalAnswerConversationRow, row, "conversations"),
-    );
+    .map((row) => {
+      const parsed = parseRecord(
+        historicalAnswerConversationRow,
+        row,
+        "conversations",
+      );
+      return {
+        owner_id: parsed.owner_id,
+        conversation_id: parsed.conversation_id,
+        sources: z
+          .array(z.string())
+          .parse(parsed.sources ? JSON.parse(parsed.sources) : []),
+      };
+    });
 }
 
 // Rows inserted by the canonical-results SQL backfill await a digest. Their
