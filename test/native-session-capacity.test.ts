@@ -83,6 +83,317 @@ it.each([false, true])(
       const prefix = cancel ? "cancel-" : "complete-";
       const saved = run(prefix + "saved");
       const initial = await sessions.session(saved);
+      if (!cancel) {
+        const { NativeSessionCurrency } =
+          await import("../src/server/native/currency.js");
+        type Check =
+          import("../src/server/native/currency.js").NativeCurrencyCheck;
+        type Kind = Check["kind"];
+        const kinds: Kind[] = [
+          "event",
+          "dispose-entry",
+          "decision-wait",
+          "bridge-turn",
+          "output-flush",
+          "session-access",
+          "settings",
+          "settings-dispatch",
+          "input-dispatch",
+          "decision-admission",
+          "answer-dispatch",
+          "decision-reopen",
+          "stored-projection",
+          "harness-switch",
+          "usage",
+          "session-preparation",
+        ];
+        const trials: [string, Kind[]][] = [
+          ["baseline", []],
+          [
+            "replaced map",
+            [
+              "event",
+              "dispose-entry",
+              "decision-wait",
+              "output-flush",
+              "settings",
+              "settings-dispatch",
+              "input-dispatch",
+              "answer-dispatch",
+              "decision-reopen",
+              "session-preparation",
+            ],
+          ],
+          [
+            "closed",
+            [
+              "event",
+              "decision-wait",
+              "output-flush",
+              "session-access",
+              "settings",
+              "settings-dispatch",
+              "input-dispatch",
+              "decision-admission",
+              "answer-dispatch",
+              "decision-reopen",
+              "session-preparation",
+            ],
+          ],
+          [
+            "cancelling",
+            ["settings-dispatch", "input-dispatch", "answer-dispatch"],
+          ],
+          [
+            "live generation",
+            [
+              "session-access",
+              "settings",
+              "settings-dispatch",
+              "input-dispatch",
+              "decision-admission",
+              "answer-dispatch",
+              "decision-reopen",
+              "usage",
+            ],
+          ],
+          [
+            "different run id",
+            [
+              "decision-wait",
+              "bridge-turn",
+              "output-flush",
+              "settings-dispatch",
+              "input-dispatch",
+              "decision-admission",
+              "answer-dispatch",
+              "decision-reopen",
+            ],
+          ],
+          ["different run object", ["output-flush", "settings-dispatch"]],
+          [
+            "no run",
+            [
+              "decision-wait",
+              "bridge-turn",
+              "output-flush",
+              "session-access",
+              "settings-dispatch",
+              "input-dispatch",
+              "decision-admission",
+              "answer-dispatch",
+              "decision-reopen",
+              "usage",
+            ],
+          ],
+          [
+            "wrong conversation",
+            ["output-flush", "settings-dispatch", "usage"],
+          ],
+          [
+            "stored generation",
+            [
+              "settings",
+              "settings-dispatch",
+              "stored-projection",
+              "harness-switch",
+              "usage",
+            ],
+          ],
+          [
+            "null stored generation",
+            [
+              "settings",
+              "settings-dispatch",
+              "stored-projection",
+              "harness-switch",
+              "usage",
+            ],
+          ],
+          [
+            "missing stored generation",
+            [
+              "settings",
+              "settings-dispatch",
+              "stored-projection",
+              "harness-switch",
+              "usage",
+            ],
+          ],
+          [
+            "terminal run",
+            [
+              "input-dispatch",
+              "decision-admission",
+              "answer-dispatch",
+              "decision-reopen",
+              "session-preparation",
+            ],
+          ],
+          ["receipt state", ["answer-dispatch"]],
+          ["receipt command", ["answer-dispatch"]],
+          ["receipt digest", ["answer-dispatch"]],
+          ["missing receipt", ["answer-dispatch"]],
+          ["decision state", ["decision-admission"]],
+          ["not waiting", ["settings-dispatch"]],
+          ["model setting", ["settings-dispatch"]],
+          ...(
+            [
+              "generation",
+              "harness",
+              "project",
+              "worktree_agent_id",
+              "worktree_source",
+            ] as const
+          ).map((field): [string, Kind[]] => [
+            "binding " + field,
+            ["session-preparation"],
+          ]),
+          ["missing binding", ["session-preparation"]],
+        ];
+        for (const [trial, denied] of trials) {
+          const live = { ...initial, run: saved, waiting: true };
+          const map = new Map([[saved.conversation_id!, live]]);
+          const guard = new NativeSessionCurrency(map);
+          const generation = live.generation;
+          let storedGeneration: string | null | undefined = generation;
+          let state = "running";
+          let receipt:
+            { state: string; command_id: string; digest: string } | undefined =
+            { state: "deciding", command_id: "command", digest: "digest" };
+          const before = { ...live.binding };
+          let latest: typeof before | undefined = { ...before };
+          if (trial === "replaced map")
+            map.set(saved.conversation_id!, { ...live });
+          if (trial === "closed") live.closed = true;
+          if (trial === "cancelling") live.cancelling = true;
+          if (trial === "live generation") live.generation = "replacement";
+          if (trial === "different run id")
+            live.run = { ...saved, id: "replacement" };
+          if (trial === "different run object") live.run = { ...saved };
+          if (trial === "no run")
+            delete (live as import("../src/server/native/state.js").Live).run;
+          if (trial === "wrong conversation")
+            live.run = { ...saved, conversation_id: "other" };
+          if (trial === "stored generation") storedGeneration = "replacement";
+          if (trial === "null stored generation") storedGeneration = null;
+          if (trial === "missing stored generation")
+            storedGeneration = undefined;
+          if (trial === "terminal run") state = "cancelled";
+          if (trial === "receipt state") receipt!.state = "unknown";
+          if (trial === "receipt command") receipt!.command_id = "other";
+          if (trial === "receipt digest") receipt!.digest = "other";
+          if (trial === "missing receipt") receipt = undefined;
+          if (trial === "not waiting") live.waiting = false;
+          if (trial.startsWith("binding "))
+            Object.assign(latest!, { [trial.slice(8)]: "changed" });
+          if (trial === "missing binding") latest = undefined;
+          const turn = { live, generation, runId: saved.id };
+          const checks: Record<Kind, Check> = {
+            event: { kind: "event", live },
+            "dispose-entry": { kind: "dispose-entry", live },
+            "decision-wait": { kind: "decision-wait", live, runId: saved.id },
+            "bridge-turn": { kind: "bridge-turn", live, runId: saved.id },
+            "output-flush": { kind: "output-flush", live, run: saved },
+            "session-access": {
+              kind: "session-access",
+              live,
+              generation,
+              requireRun: true,
+            },
+            settings: {
+              kind: "settings",
+              conversation: saved.conversation_id!,
+              live,
+              generation,
+              storedGeneration,
+            },
+            "settings-dispatch": {
+              kind: "settings-dispatch",
+              conversation: saved.conversation_id!,
+              live,
+              generation,
+              storedGeneration,
+              run: saved,
+              setting: trial === "model setting" ? "model" : "mode",
+            },
+            "input-dispatch": {
+              kind: "input-dispatch",
+              ...turn,
+              state: () => state,
+            },
+            "decision-admission": {
+              kind: "decision-admission",
+              ...turn,
+              state,
+              decisionState:
+                trial === "decision state" ? "resolved" : "pending",
+            },
+            "answer-dispatch": {
+              kind: "answer-dispatch",
+              ...turn,
+              receipt,
+              commandId: "command",
+              digest: "digest",
+              state: () => state,
+            },
+            "decision-reopen": { kind: "decision-reopen", ...turn, state },
+            "stored-projection": {
+              kind: "stored-projection",
+              storedGeneration,
+              generation,
+            },
+            "harness-switch": {
+              kind: "harness-switch",
+              storedGeneration,
+              generation,
+            },
+            usage: { kind: "usage", live, storedGeneration },
+            "session-preparation": {
+              kind: "session-preparation",
+              conversation: saved.conversation_id!,
+              live,
+              before,
+              latest,
+              state: "running",
+              currentState: () => state,
+            },
+          };
+          for (const kind of kinds)
+            expect(guard.allows(checks[kind]), trial + ": " + kind).toBe(
+              !denied.includes(kind),
+            );
+          if (trial === "no run")
+            expect(
+              guard.allows({
+                kind: "session-access",
+                live,
+                generation,
+                requireRun: false,
+              }),
+            ).toBe(true);
+        }
+        const empty = new NativeSessionCurrency(new Map());
+        expect(
+          empty.allows({
+            kind: "session-access",
+            live: undefined,
+            generation: "missing",
+            requireRun: false,
+          }),
+        ).toBe(false);
+        expect(
+          empty.allows({
+            kind: "session-preparation",
+            conversation: "missing",
+            live: undefined,
+            before: undefined,
+            latest: undefined,
+            state: "running",
+            currentState: () => "running",
+          }),
+        ).toBe(true);
+      }
       await sessions.setSetting(
         saved.conversation_id!,
         "mode",

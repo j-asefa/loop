@@ -1,3 +1,4 @@
+import { NativeSessionCurrency } from "./currency.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
 import { harnesses } from "../../shared/harnesses.js";
@@ -69,6 +70,7 @@ function recaptureAfterStop(run: Run) {
 /** One workspace owns native processes; native sessions own their model context. */
 export class NativeSessions {
   private live = new Map<string, Live>();
+  private readonly currency = new NativeSessionCurrency(this.live);
   private stopped = false;
   private idleHolds = new Map<string, number>();
   private reservedStarts = 0;
@@ -189,12 +191,14 @@ export class NativeSessions {
     );
     if (!binding) throw new Problem(404, "Native session has not started");
     const candidate = this.live.get(conversation);
-    const live =
-      candidate &&
-      !candidate.closed &&
-      candidate.generation === binding.generation
-        ? candidate
-        : undefined;
+    const live = this.currency.allows({
+      kind: "session-access",
+      live: candidate,
+      generation: binding.generation,
+      requireRun: false,
+    })
+      ? candidate
+      : undefined;
     if (!cachedOnly) live?.adapter.refreshCommandCatalog?.();
     return {
       generation: live?.generation || binding.generation,
@@ -219,12 +223,13 @@ export class NativeSessions {
     await live.ready;
     const isCurrent = () => {
       const binding = companionSessionsQueries.generation(db, conversation);
-      return (
-        this.live.get(conversation) === live &&
-        !live.closed &&
-        live.generation === generation &&
-        binding?.generation === generation
-      );
+      return this.currency.allows({
+        kind: "settings",
+        conversation,
+        live,
+        generation,
+        storedGeneration: binding?.generation,
+      });
     };
     if (!isCurrent())
       throw new ExecutionRefused(
@@ -248,10 +253,18 @@ export class NativeSessions {
           // Adapters can queue setting changes. Recheck at dispatch, after their
           // preflight accepts the value, so rejected changes attach no authority.
           if (
-            !isCurrent() ||
-            live.run !== activeRun ||
-            live.cancelling ||
-            (activeRun && !(setting === "mode" && live.waiting))
+            !this.currency.allows({
+              kind: "settings-dispatch",
+              conversation,
+              live,
+              generation,
+              storedGeneration: companionSessionsQueries.generation(
+                db,
+                conversation,
+              )?.generation,
+              run: activeRun,
+              setting,
+            })
           )
             throw new ExecutionRefused(
               409,
@@ -348,19 +361,15 @@ export class NativeSessions {
         if (this.stopped) throw new Problem(409, "Workspace is stopping.");
         const latest = companionSessionsQueries.get(db, conversation);
         if (
-          this.live.get(conversation) !== beforeLive ||
-          beforeLive?.closed ||
-          ownedRun(run.id, run.owner_id).state !== state ||
-          !!latest !== !!before ||
-          (
-            [
-              "generation",
-              "harness",
-              "project",
-              "worktree_agent_id",
-              "worktree_source",
-            ] as const
-          ).some((key) => latest?.[key] !== before?.[key])
+          !this.currency.allows({
+            kind: "session-preparation",
+            conversation,
+            live: beforeLive,
+            before,
+            latest,
+            state,
+            currentState: () => ownedRun(run.id, run.owner_id).state,
+          })
         )
           throw new Problem(409, "Native session changed; refresh and retry.");
         return latest as Binding | undefined;
@@ -388,7 +397,13 @@ export class NativeSessions {
             409,
             "This native conversation is already running.",
           );
-        if (binding.generation !== current.generation)
+        if (
+          !this.currency.allows({
+            kind: "harness-switch",
+            storedGeneration: binding.generation,
+            generation: current.generation,
+          })
+        )
           throw new Problem(
             409,
             "The native session changed during the harness switch. Retry with its current session.",
@@ -748,14 +763,13 @@ export class NativeSessions {
     const beforeDispatch = () => {
       watched.signal.throwIfAborted();
       if (
-        this.live.get(live.binding.conversation_id) !== live ||
-        live.closed ||
-        live.cancelling ||
-        live.generation !== generation ||
-        live.run?.id !== run.id ||
-        !["running", "awaiting_approval"].includes(
-          ownedRun(run.id, run.owner_id).state,
-        )
+        !this.currency.allows({
+          kind: "input-dispatch",
+          live,
+          generation,
+          runId: run.id,
+          state: () => ownedRun(run.id, run.owner_id).state,
+        })
       )
         throw new NotDelivered("This native turn cannot accept input");
       assertEffect(run.owner_id, "run", run.id);
@@ -903,12 +917,19 @@ export class NativeSessions {
     const live = this.live.get(conversation);
     if (
       !live ||
-      live.closed ||
-      live.generation !== generation ||
-      (requireRun && !live.run)
+      !this.currency.allows({
+        kind: "session-access",
+        live,
+        generation,
+        requireRun,
+      })
     )
       throw new Problem(409, "Native tool session is not active.");
     return live;
+  }
+  isToolTurn(conversation: string, generation: string, runId: string) {
+    const live = this.current(conversation, generation);
+    return this.currency.allows({ kind: "bridge-turn", live, runId });
   }
   dispose(live: Live): Promise<void> {
     if (live.disposal) return live.disposal;
@@ -926,7 +947,7 @@ export class NativeSessions {
     live.disposal = (async () => {
       await this.revokeTools?.(live.binding.conversation_id, live.generation);
       await live.adapter.dispose();
-      if (this.live.get(live.binding.conversation_id) === live)
+      if (this.currency.allows({ kind: "dispose-entry", live }))
         this.live.delete(live.binding.conversation_id);
     })();
     return live.disposal;
