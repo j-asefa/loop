@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readRoute } from "./api";
+import { isRateLimited, readRoute } from "./api";
 import {
   createReadExecutor,
   type ReadMode,
@@ -23,12 +23,13 @@ type QueryOptions = {
   collections?: readonly Parameters<typeof listenWorkspaceChanges>[0][];
   events?: readonly string[];
   revision?: string | number;
+  resetOnRevision?: boolean;
   enabled?: boolean;
-  reportRetries?: boolean;
+  reportRetries?: boolean | "transient";
   mode?: "once";
 };
 
-/** Inputs identify a snapshot; revisions invalidate it without hiding its rows. */
+/** Revisions retain rows unless the caller explicitly resets its snapshot. */
 export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
   contract: C,
   input: RouteInput<C> | undefined,
@@ -38,6 +39,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     collections = [],
     events = [],
     revision = 0,
+    resetOnRevision = false,
     reportRetries = false,
     mode: requestedMode,
     enabled: requestedEnabled = true,
@@ -52,6 +54,7 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
     enabled,
     reportRetries,
     requestedMode,
+    resetOnRevision ? revision : undefined,
   ]);
   const context = useMemo(
     () => ({ contract, input, source, enabled, reportRetries, requestedMode }),
@@ -79,7 +82,11 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
             signal,
             context.reportRetries
               ? (failure) => {
-                  if (!signal.aborted)
+                  if (
+                    !signal.aborted &&
+                    (context.reportRetries !== "transient" ||
+                      !isRateLimited(failure))
+                  )
                     setRetryFailure({
                       context,
                       message: (failure as Error).message,

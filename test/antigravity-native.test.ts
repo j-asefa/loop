@@ -483,7 +483,8 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
     expect(resumed.generation).not.toBe(generation);
     expect((await call(old.token)).status).toBe(403);
     expect(
-      requests().findLast((r) => r.method === "session/load").params.sessionId,
+      requests().findLast((r) => r.method === "session/resume").params
+        .sessionId,
     ).toBe("agy-acp-mail");
     expect(
       requests().filter((r) => r.method === "session/prompt"),

@@ -151,7 +151,7 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   expect(enableCommands[1]).not.toBe(enableCommands[0]);
   expect(signIns).toEqual([]);
   await capture("antigravity-enabled");
-  for (const nextVersion of ["1.5.9", undefined]) {
+  for (const nextVersion of ["1.5.9", "1.5.2", undefined]) {
     version = nextVersion;
     await page.reload();
     await openSettings(page);
@@ -168,17 +168,19 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
     ).toHaveCount(0);
     await expect(
       guidance.getByText(
-        nextVersion
+        nextVersion === "1.5.9"
           ? /This version supports approvals in Loop, Agent mail, workspace tools and team delegation/
-          : /require CLI 1.5.9 or newer/,
+          : nextVersion
+            ? /Antigravity supports approvals and live replies in Loop/
+            : /require CLI 1.5.9 or newer/,
       ),
     ).toBeVisible();
-    await expect(
-      guidance.getByText(/refresh this connection after upgrading/i),
-    ).toBeVisible();
+    await expect(guidance.getByText(/refresh this connection/i)).toBeVisible();
     expect(enableCommands).toHaveLength(2);
     await capture(
-      nextVersion ? "antigravity-acp-guidance" : "antigravity-version-unknown",
+      nextVersion
+        ? `antigravity-${nextVersion}-guidance`
+        : "antigravity-version-unknown",
     );
   }
 }

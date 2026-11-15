@@ -81,8 +81,9 @@ export function useSourceRouteRead() {
         input: RouteInput<C>,
         signal: AbortSignal,
         onRetry?: (error: unknown) => void,
+        mode: ReadMode = "automatic",
       ) =>
-        readRoute(contract, input, source, signal, onRetry),
+        readRoute(contract, input, source, signal, onRetry, mode),
     [source],
   );
 }

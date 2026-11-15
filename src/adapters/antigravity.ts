@@ -1,17 +1,29 @@
 import { Acp } from "./acp.js";
 import { AntigravityHeadless } from "./antigravity-headless.js";
 import { meetsMinimum } from "../shared/harness-version.js";
-import { ANTIGRAVITY_ACP_MINIMUM_VERSION } from "../shared/harnesses.js";
+import {
+  ANTIGRAVITY_ACP_MINIMUM_VERSION,
+  ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION,
+} from "../shared/harnesses.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { NativeMemoryError } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
 import type { Adapter, Options, Emit } from "./types.js";
+
+const exec = promisify(execFile);
+const COMMAND = /^\/([^\s]+)(?:\s|$)/;
+const SETUP =
+  "Antigravity setup failed. Choose Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
 
 /** Same native conversation store, with session-scoped MCP injection over ACP.
  * https://antigravity.google/docs/ide/extensions/acp
  */
 class AntigravityAcp extends Acp {
   protected override verifySessionOnProbe = true;
-  protected override requireWorkspaceTools = true;
+  protected override requireWorkspaceTools = false;
+  protected override resumeWithoutReplay = true;
+  protected override reportsUsage = true;
   override capabilities = {
     approvals: true,
     questions: false,
@@ -24,7 +36,20 @@ class AntigravityAcp extends Acp {
     private nativeOptions: Options,
     emit: Emit,
   ) {
-    super({ ...nativeOptions, args: ["acp", "--process-per-session"] }, emit);
+    const tools = meetsMinimum(
+      nativeOptions.version,
+      ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION,
+    );
+    super(
+      {
+        ...nativeOptions,
+        args: tools ? ["acp", "--process-per-session"] : ["acp"],
+        workspaceTools: tools ? nativeOptions.workspaceTools : undefined,
+      },
+      emit,
+    );
+    this.requireWorkspaceTools = tools;
+    this.capabilities.workspaceTools = tools;
   }
   protected override billing() {
     return {
@@ -62,6 +87,36 @@ class AntigravityAcp extends Acp {
   override async start() {
     if (this.nativeOptions.billing !== "existing")
       throw new Error("Antigravity requires --billing existing.");
+    // agy models reports sign-in without a session or prompt.
+    await exec(this.nativeOptions.executable, ["models"], {
+      cwd: this.nativeOptions.project,
+      timeout: 20000,
+      maxBuffer: 256000,
+    }).catch((error: unknown) => {
+      // Recognize the CLI's explicit sign-in rejection without exposing
+      // native stderr, account details or credentials to the browser.
+      if (
+        error &&
+        typeof error === "object" &&
+        "stderr" in error &&
+        typeof error.stderr === "string" &&
+        error.stderr
+          .split(/\r?\n/)
+          .some((line) =>
+            /^Error: Please sign in to view available models\. Launch the CLI without arguments to sign in\.$/.test(
+              line.trim(),
+            ),
+          )
+      )
+        throw new NativeSetupError(
+          "native_auth_missing",
+          "Antigravity is not signed in on the execution computer. Choose Sign in to Antigravity, or run agy there, then enable Antigravity again. No prompt was sent.",
+        );
+      throw new NativeSetupError(
+        "antigravity_setup_failed",
+        `${SETUP} No prompt was sent.`,
+      );
+    });
     try {
       return await super.start();
     } catch (error) {
@@ -78,24 +133,50 @@ class AntigravityAcp extends Acp {
     }
   }
   override async prompt(text: string, beforeDispatch?: () => void) {
-    const instructions = this.nativeOptions.instructions;
-    const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
-    if (name && !(await this.waitForCommands()))
+    // Framing depends on the catalog, which agy sends just after the session
+    // opens. Nothing has been dispatched while this settles.
+    if (text.match(/^\/([^\s]+)(?:\s|$)/) && !(await this.waitForCommands()))
       throw new Error("ACP session unavailable");
-    const command = name && this.commands.some((c) => c.name === name);
-    const content = command
-      ? instructions
-        ? `${text}\n\n${instructions}`
-        : text
-      : instructions
-        ? `${instructions}\n\n${text}`
-        : text;
-    return super.prompt(
-      !command && content.trimStart().startsWith("/")
-        ? `\u200b${content}`
-        : content,
-      beforeDispatch,
-    );
+    await super.prompt(this.content(text), beforeDispatch);
+  }
+
+  /** agy folds the follow-up into the running turn at its next step and
+   * echoes it as a user message. */
+  async steer(text: string, beforeDispatch?: () => void) {
+    const value = this.literal(text);
+    await this.steerPrompt(value, this.echoOf(value), beforeDispatch);
+  }
+
+  /** agy echoes a prompt without the leading command of a skill. */
+  protected override echoOf(value: string) {
+    const name = this.command(value);
+    return name ? value.slice(name.length + 1) : value;
+  }
+
+  private command(text: string) {
+    const name = text.match(COMMAND)?.[1];
+    return name && this.commands.some((command) => command.name === name)
+      ? name
+      : undefined;
+  }
+
+  /** Only a discovered command may lead a message. Other text starting with
+   * "/" gets a zero-width space, which agy does not expand, so neither an
+   * unknown token nor one of agy's own CLI commands can act on it. */
+  private literal(text: string, commands = true) {
+    return !(commands && this.command(text)) && text.trimStart().startsWith("/")
+      ? `\u200b${text}`
+      : text;
+  }
+
+  /** agy expands a command or skill only at the start of a message. Saved
+   * instructions lead other prompts and follow a discovered command. */
+  private content(text: string) {
+    const instructions = this.nativeOptions.instructions;
+    if (!instructions) return this.literal(text);
+    return this.command(text)
+      ? `${text}\n\n${instructions}`
+      : `${this.literal(instructions, false)}\n\n${text}`;
   }
 }
 
@@ -119,7 +200,11 @@ export class Antigravity implements Adapter {
   canReuse(registration: Options) {
     return (
       meetsMinimum(registration.version, ANTIGRAVITY_ACP_MINIMUM_VERSION) ===
-      this.adapter instanceof Acp
+        this.adapter instanceof Acp &&
+      meetsMinimum(
+        registration.version,
+        ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION,
+      ) === this.capabilities.workspaceTools
     );
   }
   get capabilities() {
@@ -148,6 +233,9 @@ export class Antigravity implements Adapter {
   }
   prompt(text: string, beforeDispatch?: () => void) {
     return this.adapter.prompt(text, beforeDispatch);
+  }
+  get steer() {
+    return this.adapter.steer?.bind(this.adapter);
   }
   cancel() {
     return this.adapter.cancel();

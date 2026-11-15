@@ -24,10 +24,9 @@ import {
   workspaceApi,
   type ConversationPage,
   type RouteInput,
-  type RouteResponse,
 } from "../shared/workspace-api";
 import { UnavailableResponse } from "./api";
-import { CollectionReadNotice } from "./CollectionRead";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import {
   listenWorkspaceChanges,
   broadWorkspaceChange,
@@ -35,8 +34,8 @@ import {
 import { CodeReviewStatus } from "./CodeReview";
 import {
   useSourceId,
-  useSourceRoute,
   useProjectionRoute,
+  useSourceRoute,
   useSourceOperation,
 } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
@@ -255,14 +254,11 @@ function ConversationView({
   onWork?: (work: ThreadWork | null) => void;
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
-  const readProjection = useProjectionRoute();
-
   const id = ConversationId.parse(rawId);
   const call = useSourceRoute();
   const continuationReason = useSourceOperation(
     workspaceApi.conversationContinueStart,
   );
-  const readUsage = useProjectionRoute();
   const sourceId = useSourceId();
   const owner = viewOwner();
   const cacheKey = "thread:" + JSON.stringify([sourceId, id]);
@@ -319,13 +315,6 @@ function ConversationView({
     [savedIds, setSavedIds] = useState<Set<string>>(
       () => new Set(cachedView<Transcript>(cacheKey)?.saved),
     ),
-    [usageData, setUsage] = useState<
-      | ({
-          conversationId: string;
-          sourceId: string;
-        } & RouteResponse<typeof workspaceApi.conversationUsage>)
-      | null
-    >(null),
     [jump, setJump] = useState<string | null>(null),
     // How the current jump started: reopening at the reading position, or
     // going to a specific message (which is highlighted).
@@ -356,10 +345,17 @@ function ConversationView({
       url.pathname + url.search + url.hash,
     );
   }, [id]);
-  const usage =
-    usageData?.conversationId === id && usageData.sourceId === sourceId
-      ? usageData
-      : null;
+  const usageRead = useProjectionQuery(
+    workspaceApi.conversationUsage,
+    { params: { id } },
+    {
+      source: sourceId,
+      conversation: id,
+      collections: ["usage"],
+      events: ["loop-refresh"],
+    },
+  );
+  const usage = usageRead.data;
   const activityHistory = useConversationActivities(
     id,
     (data?.messages || []).flatMap((message) =>
@@ -896,32 +892,6 @@ function ConversationView({
     };
   }, [id, anchor, sourceId]);
   useEffect(() => {
-    let active = true;
-    let latest = 0;
-    const refresh = () => {
-      const request = ++latest;
-      return readUsage(workspaceApi.conversationUsage, { params: { id: id } })
-        .then((result) => {
-          if (active && request === latest)
-            setUsage({ ...result, conversationId: id, sourceId });
-        })
-        .catch(() => {});
-    };
-    window.addEventListener("loop-refresh", refresh);
-    const stopChanges = listenWorkspaceChanges(
-      "usage",
-      () => void refresh(),
-      sourceId,
-      id,
-    );
-    void refresh();
-    return () => {
-      active = false;
-      window.removeEventListener("loop-refresh", refresh);
-      stopChanges();
-    };
-  }, [id, sourceId]);
-  useEffect(() => {
     if (!imported && agent && data?.conversation.id === id)
       readyRef.current({
         agentId: agent.id,
@@ -1223,6 +1193,11 @@ function ConversationView({
           </button>
         </div>
       )}
+      {usageRead.error && (
+        <section className="thread-details" aria-label="Thread usage">
+          <CollectionReadNotice {...usageRead} />
+        </section>
+      )}
       <ConversationPulls
         conversationId={id}
         refreshKey={`${data?.messages.at(-1)?.id}:${data?.messages.at(-1)?.run_state}`}
@@ -1487,30 +1462,12 @@ function ConversationView({
       {verification && (
         <VerificationSheet
           runId={verification}
-          load={(runId) =>
-            readProjection(
-              workspaceApi.runVerifications,
-              {
-                params: { id: RunId.parse(runId) },
-              },
-              { mode: "once" },
-            )
-          }
           onClose={() => setVerification(null)}
         />
       )}
       {checkout && (
         <CheckoutSheet
           runId={checkout}
-          load={(runId) =>
-            readProjection(
-              workspaceApi.runCheckout,
-              {
-                params: { id: RunId.parse(runId) },
-              },
-              { mode: "once" },
-            )
-          }
           agentName={agent?.name}
           projectName={project?.name}
           onAsk={agent && !imported ? onUsePrompt : undefined}

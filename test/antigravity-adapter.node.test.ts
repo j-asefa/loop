@@ -449,7 +449,10 @@ test("Antigravity ACP uses session-scoped MCP mode and standard model/effort set
     assert.equal(adapter.capabilities.workspaceTools, true);
     assert.equal(adapter.capabilities.approvals, true);
     assert.equal(adapter.activityTransport, "acp");
-    assert.deepEqual(requests()[0].args, ["acp", "--process-per-session"]);
+    assert.deepEqual(requests().find((r) => r.args?.[0] === "acp").args, [
+      "acp",
+      "--process-per-session",
+    ]);
     assert.deepEqual(
       requests()
         .filter((r) => r.method === "session/set_config_option")

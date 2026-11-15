@@ -351,3 +351,44 @@ it("does not clear a newer read's busy state when receive starts another intent"
   expect(reader.isBusy()).toBe(false);
   expect(states.at(-1)?.busy).toBe(false);
 });
+
+it("reports retry failures only for the current read and clears them on success", async () => {
+  const { reader, states } = fixture();
+  const pending = deferred<string>();
+  let report!: (failure: unknown, message?: string) => void;
+  const cooldown = Object.assign(new Error("cooldown"), { status: 429 });
+  const first = reader.load(
+    (_signal, _mode, retry) => {
+      report = retry;
+      retry(cooldown, "");
+      return pending.promise;
+    },
+    () => {},
+  );
+  expect(states.at(-1)).toEqual({ error: "", failure: cooldown, busy: true });
+  await reader.load(
+    async () => "fresh",
+    () => {},
+    true,
+  );
+  const count = states.length;
+  report(new Error("obsolete warning"));
+  expect(states).toHaveLength(count);
+  pending.resolve("old");
+  await first;
+  expect(states.at(-1)).toEqual({ error: "", failure: undefined, busy: false });
+  const next = deferred<string>();
+  const second = reader.load(
+    (_signal, _mode, retry) => {
+      report = retry;
+      return next.promise;
+    },
+    () => {},
+  );
+  reader.dispose();
+  const disposedCount = states.length;
+  report(new Error("after unmount"));
+  expect(states).toHaveLength(disposedCount);
+  next.resolve("ignored");
+  await second;
+});

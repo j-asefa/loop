@@ -1,5 +1,6 @@
 export type ReadMode = "automatic" | "manual" | "once";
 export type ReadState = { error: string; busy: boolean; failure: unknown };
+type ReportRetry = (failure: unknown, message?: string) => void;
 type ReadCompletion =
   | { status: "cancelled" }
   | { status: "success"; current: () => boolean }
@@ -44,7 +45,11 @@ export function createReadExecutor(options: {
     return true;
   }
   async function execute<T>(
-    read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
+    read: (
+      signal: AbortSignal,
+      mode: ReadMode,
+      reportRetry: ReportRetry,
+    ) => Promise<T>,
     receive: (value: T) => void,
     manual = false,
     priority = 0,
@@ -80,6 +85,18 @@ export function createReadExecutor(options: {
       const value = await read(
         controller.signal,
         manual ? "manual" : "automatic",
+        (failure, message) => {
+          if (current())
+            publish({
+              failure,
+              error:
+                message ??
+                (failure instanceof Error
+                  ? failure.message
+                  : "The workspace is unavailable."),
+              busy: true,
+            });
+        },
       );
       if (!current()) return { status: "cancelled" };
       receive(value);
@@ -113,7 +130,11 @@ export function createReadExecutor(options: {
     }
   }
   async function load<T>(
-    read: (signal: AbortSignal, mode: ReadMode) => Promise<T>,
+    read: (
+      signal: AbortSignal,
+      mode: ReadMode,
+      reportRetry: ReportRetry,
+    ) => Promise<T>,
     receive: (value: T) => void,
     manual = false,
     priority = 0,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const ANTIGRAVITY_ACP_MINIMUM_VERSION = "1.5.9";
+export const ANTIGRAVITY_ACP_MINIMUM_VERSION = "1.5.2";
+export const ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION = "1.5.9";
 
 export const apiProviders = ["openai", "anthropic"] as const;
 type ApiProvider = (typeof apiProviders)[number];
@@ -206,8 +207,9 @@ const descriptors = {
   antigravity: {
     label: "Antigravity",
     executable: "agy",
-    // Public stream-json, exact conversation resume and literal prompts.
-    minimumVersion: "1.4.9",
+    // agy acp with session/resume and steering by a concurrent session/prompt;
+    // verified with 1.5.9 (steering was reported working from 1.5.2).
+    minimumVersion: ANTIGRAVITY_ACP_MINIMUM_VERSION,
     installUrl: "https://antigravity.google/docs/getting-started?tab=cli",
     runtime: true,
     billing: {
@@ -225,9 +227,9 @@ const descriptors = {
     managed: false,
     workspaceTools: true,
     agentMail: true,
-    midTurn: "queue",
+    midTurn: "steer",
     provider: "antigravity",
-    activityTransport: "native",
+    activityTransport: "acp",
     launchPermissionMode: false,
     cliSignIn: null,
     importWorktree: false,

@@ -88,13 +88,14 @@ for await (const line of createInterface({ input: process.stdin })) {
         protocolVersion: 1,
         agentCapabilities: {
           loadSession: true,
+          sessionCapabilities: { resume: {} },
           mcpCapabilities: {
             http: process.env.LOOP_TEST_AGY_MODE !== "no-http",
           },
         },
       },
     });
-  } else if (["session/new", "session/load"].includes(request.method)) {
+  } else if (["session/new", "session/resume"].includes(request.method)) {
     if (process.env.LOOP_TEST_AGY_MODE === "signed-out") {
       send({
         id: request.id,
@@ -105,7 +106,8 @@ for await (const line of createInterface({ input: process.stdin })) {
       });
       continue;
     }
-    if (request.method === "session/load") sessionId = request.params.sessionId;
+    if (request.method === "session/resume")
+      sessionId = request.params.sessionId;
     const server = request.params.mcpServers[0];
     if (server) {
       client = new Client({ name: "antigravity-fixture", version: "1" });
