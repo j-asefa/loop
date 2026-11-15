@@ -1,3 +1,4 @@
+import { NativeSessionCurrency } from "./currency.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as personalDecisionsQueries from "../sql/personal-decisions.js";
 import * as runsQueries from "../sql/runs.js";
@@ -44,7 +45,10 @@ export function requestApproval(live: Live, input: AdapterEvent) {
 }
 
 export class NativeDecisions {
-  constructor(private readonly context: Context) {}
+  private readonly currency: NativeSessionCurrency;
+  constructor(private readonly context: Context) {
+    this.currency = new NativeSessionCurrency(context.live);
+  }
 
   request(
     live: Live,
@@ -107,11 +111,7 @@ export class NativeDecisions {
     live.requests.set(event.request.id, event.request);
     const waitForDecision = () => {
       // An automatic answer can fail after this turn or generation was retired.
-      if (
-        live.closed ||
-        live.run?.id !== run.id ||
-        this.context.live.get(live.binding.conversation_id) !== live
-      )
+      if (!this.currency.allows({ kind: "decision-wait", live, runId: run.id }))
         return;
       live.waiting =
         transition(run, "awaiting_approval") ||
@@ -159,11 +159,14 @@ export class NativeDecisions {
     const run = ownedRun(d.run_id, OWNER);
     if (
       !live ||
-      live.closed ||
-      live.generation !== d.generation ||
-      live.run?.id !== d.run_id ||
-      d.state !== "pending" ||
-      !["running", "awaiting_approval"].includes(run.state)
+      !this.currency.allows({
+        kind: "decision-admission",
+        live,
+        generation: d.generation,
+        runId: d.run_id,
+        decisionState: d.state,
+        state: run.state,
+      })
     )
       throw new Problem(
         409,
@@ -202,17 +205,17 @@ export class NativeDecisions {
       await live.adapter.answer(d.native_id, answer, () => {
         const current = nativeDecisionsQueries.decisionReceipt(db, decisionId);
         if (
-          this.context.live.get(d.conversation_id) !== live ||
-          live.closed ||
-          live.cancelling ||
-          live.generation !== d.generation ||
-          live.run?.id !== d.run_id ||
-          current?.state !== "deciding" ||
-          current.command_id !== commandId ||
-          current.digest !== digest ||
-          !["running", "awaiting_approval"].includes(
-            ownedRun(d.run_id, run.owner_id).state,
-          )
+          !this.currency.allows({
+            kind: "answer-dispatch",
+            conversation: d.conversation_id,
+            live,
+            generation: d.generation,
+            runId: d.run_id,
+            receipt: current,
+            commandId,
+            digest,
+            state: () => ownedRun(d.run_id, run.owner_id).state,
+          })
         )
           throw new NotDelivered("This native decision is no longer active.");
         try {
@@ -236,15 +239,17 @@ export class NativeDecisions {
         // run that ended meanwhile expires the decision, as it would have.
         const outcome = db
           .transaction(() => {
-            const current = this.context.live.get(d.conversation_id);
             const runState = runsQueries.state(db, d.run_id)?.state;
             let reopened = 0;
             if (
-              current === live &&
-              !live.closed &&
-              live.generation === d.generation &&
-              live.run?.id === d.run_id &&
-              ["running", "awaiting_approval"].includes(runState ?? "")
+              this.currency.allows({
+                kind: "decision-reopen",
+                conversation: d.conversation_id,
+                live,
+                generation: d.generation,
+                runId: d.run_id,
+                state: runState,
+              })
             ) {
               reopened = nativeDecisionsQueries.reopen(db, decisionId).changes;
             } else
