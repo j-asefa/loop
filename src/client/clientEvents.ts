@@ -75,10 +75,10 @@ export function emitClientEvent<K extends keyof ClientEvents>(
 
 export function listenClientEvent<K extends keyof ClientEvents>(
   name: K,
-  receive: (detail: ClientEvents[K]) => void,
+  receive: (detail: ClientEvents[K], event: Event) => void,
 ) {
   const listener = (event: Event) =>
-    receive((event as CustomEvent<ClientEvents[K]>).detail);
+    receive((event as CustomEvent<ClientEvents[K]>).detail, event);
   window.addEventListener(name, listener);
   return () => window.removeEventListener(name, listener);
 }
