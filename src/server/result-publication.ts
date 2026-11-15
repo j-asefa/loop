@@ -198,8 +198,12 @@ export function copiedAnswerEvidence(
       if (!unverifiable && (origin !== undefined || !next)) {
         return {
           ...sealedAuthorship(sealed),
-          // Either it recorded its origin or it seals an original message.
-          evidence: "sealed",
+          // It recorded its origin or seals an original. A version 1 imported
+          // original took its author from its conversation's agent then.
+          evidence:
+            origin === undefined && sealed.kind === "imported_answer"
+              ? "conversation"
+              : "sealed",
           origin: {
             kind: "copied",
             sourceResultId: sealed.id,
@@ -248,12 +252,9 @@ export function copiedAnswerEvidence(
         conversation.execution_connection_id ||
         agent?.connection_id ||
         null,
-      // The source was never sealed: only a folder its run recorded is
-      // evidence of where it was produced, not its conversation's folder now.
-      placement:
-        run && run.payload.folderId !== undefined
-          ? placementSnapshot(ownerId, conversation, run, database)
-          : UNKNOWN_RESULT_PLACEMENT,
+      // The source was never sealed, so where it was published is unknown;
+      // its run's folder, project and team may all have changed since.
+      placement: UNKNOWN_RESULT_PLACEMENT,
       origin: {
         kind: "copied",
         sourceResultId: null,

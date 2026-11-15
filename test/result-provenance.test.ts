@@ -399,6 +399,12 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
     const earlier = new Database(join(work, "earlier.db"));
     applyMigrations(earlier, join(work, "pre"));
     seedForkHistory(earlier);
+    // A standalone original the 247-era backfill sealed with its
+    // conversation's agent of the time.
+    earlier.exec(`
+      INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
+      VALUES ('owner-b-imp', 'owner-b', 'owner-b-src', NULL, 'assistant', 'Standalone', '{}', 13);
+    `);
     // The 247-era backfill sealed both owners' copies with the destination.
     applyMigrations(earlier, migrations);
     // A later 252-era writer sealed a new copy with its source author.
@@ -428,6 +434,7 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
              ('owner-b-fa4', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Gone', '{"sourceConversation":"owner-b-src","sourceMessage":"deleted-message"}', 18),
              ('owner-b-loose', 'owner-b', 'owner-b-src', NULL, 'assistant', 'Loose', '{}', 19),
              ('owner-b-fa6', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Vanished', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-vanished"}', 21),
+             ('owner-b-fa7', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Standalone', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-imp"}', 22),
              ('owner-b-fa5', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Loose', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-loose"}', 20);
     `);
     for (const [message, agent, name] of [
@@ -439,6 +446,9 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
       // Its source is a version 1 imported answer whose message is gone, so
       // that Result may itself have been a copy and settles nothing.
       ["owner-b-fa6", "owner-b-dest", "Destination"],
+      // Its source's version 1 Result took its author from a conversation
+      // setting, so it does not establish the author either.
+      ["owner-b-fa7", "owner-b-dest", "Destination"],
     ]) {
       earlier
         .prepare(
@@ -511,7 +521,7 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
         detectedAt: expect.any(Number),
       },
     ]);
-    for (const copy of ["fa2", "fa3", "fa4", "fa5", "fa6"])
+    for (const copy of ["fa2", "fa3", "fa4", "fa5", "fa6", "fa7"])
       expect(
         resultDefects("owner-b", `message:owner-b-${copy}`, upgraded),
       ).toEqual([]);
@@ -613,6 +623,13 @@ it("presents a recorded finding on the copy's Done card without changing the rec
   db.transaction(() =>
     runResultHistoryPasses(db, { freshResults: false }),
   ).immediate();
+  // A finding kind from a newer build is not presented.
+  db.prepare(
+    "INSERT INTO result_defects(owner_id,result_id,defect,evidence,detected_at) VALUES(?,?,'future_kind','{}',1)",
+  ).run(owner, resultId);
+  db.prepare(
+    "INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key) VALUES(?,?,?)",
+  ).run(owner, conversation, resultId);
   db.transaction(() => projectFeed(db, () => {})).immediate();
 
   const card = doneCards(owner, {
@@ -635,7 +652,7 @@ it("presents a recorded finding on the copy's Done card without changing the rec
   expect(doneDisplay(original.card).result_findings).toBeUndefined();
 });
 
-it("does not record a copy's placement from its unsealed source's current folder", () => {
+it("does not record a placement for a copy of an answer that was never published", () => {
   const owner = id();
   const author = agentFor(owner, "author");
   const destination = agentFor(owner, "destination");
@@ -649,9 +666,15 @@ it("does not record a copy's placement from its unsealed source's current folder
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Interrupted answer','{}',?)",
   ).run(message, owner, run.conversation_id, run.id, now() + 1);
+  // Even a folder the run recorded says nothing about the project and team
+  // its answer was published under, since it was never published.
+  const folder = id();
   db.prepare(
-    "UPDATE runs SET state='cancelled',payload=json_remove(payload,'$.folderId') WHERE id=?",
-  ).run(run.id);
+    "INSERT INTO folders(id,owner_id,parent_id,kind,name,created_at) VALUES(?,?,NULL,'project','Renamed later',1)",
+  ).run(folder, owner);
+  db.prepare(
+    "UPDATE runs SET state='cancelled',payload=json_set(payload,'$.folderId',?) WHERE id=?",
+  ).run(folder, run.id);
   const fork = forkConversation(owner, run.conversation_id!, {
     messageId: message,
     agentId: destination.id,
