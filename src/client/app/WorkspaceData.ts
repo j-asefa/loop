@@ -1,3 +1,4 @@
+import { listenClientEvent, type ClientEvents } from "../clientEvents";
 import {
   workspaceApi,
   type Bootstrap as BootstrapResponse,
@@ -229,8 +230,9 @@ export function useWorkspaceEvents(
       refreshResults = false;
     const collections = new Set<WorkspaceCollection>();
     const update = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       refreshCurrent ||= !sources || sources.includes(executionSourceId());
       fullRefresh ||= !sources;
       broad ||= workspaceChangeAffects(event, "metadata");
@@ -281,10 +283,13 @@ export function useWorkspaceEvents(
         collections.clear();
       }, 250);
     };
-    window.addEventListener("loop-workspace-change", update);
+    const stopWorkspaceEvent = listenClientEvent(
+      "loop-workspace-change",
+      (_detail, event) => update(event),
+    );
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("loop-workspace-change", update);
+      stopWorkspaceEvent();
     };
   }, [session?.user?.id, profile?.id, view, teamKey, projectFilter, source]);
 }

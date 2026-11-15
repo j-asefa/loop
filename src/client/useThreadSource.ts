@@ -1,3 +1,4 @@
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { workspaceApi, type Bootstrap } from "../shared/workspace-api";
 import { isRateLimited, RATE_LIMITED, readRoute } from "./api";
 import { useCallback, useEffect, useState } from "react";
@@ -123,13 +124,17 @@ export function useThreadSource(source: string | null, owner?: string) {
     if (!enabled) return;
     const recover = (event: Event) => {
       if (!broadWorkspaceChange(event)) return;
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       if (!sources || sources.includes(source!)) void refresh();
     };
-    window.addEventListener("loop-workspace-change", recover);
+    const stopWorkspaceEvent = listenClientEvent(
+      "loop-workspace-change",
+      (_detail, event) => recover(event),
+    );
     void refresh();
-    return () => window.removeEventListener("loop-workspace-change", recover);
+    return () => stopWorkspaceEvent();
   }, [refresh, enabled]);
   const cached =
     owner === viewOwner() ? cachedView<Snapshot>(cacheKey) : undefined;

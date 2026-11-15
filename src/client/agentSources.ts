@@ -1,4 +1,4 @@
-import { listenClientEvent } from "./clientEvents";
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { AgentSourceId } from "../shared/contract-ids";
 import {
   workspaceApi,
@@ -524,8 +524,9 @@ export function useAgentSources(
       }, 250);
     };
     const changed = (kind: "runs" | "metadata") => (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       for (const source of sources ?? snapshots.keys()) {
         if (source === currentSourceId) continue;
         const kinds = queuedChanges.get(source) ?? new Set<string>();

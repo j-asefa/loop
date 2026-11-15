@@ -1,4 +1,4 @@
-import type { ClientEvents } from "./clientEvents";
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import {
   invalidate,
   eventScopes,
@@ -31,12 +31,10 @@ export function listenWorkspaceChanges(
   source?: string,
   conversation?: string,
 ) {
-  const listener = (event: Event) => {
+  return listenClientEvent("loop-workspace-change", (_detail, event) => {
     if (workspaceChangeAffects(event, surface, source, conversation))
       changed(event);
-  };
-  window.addEventListener("loop-workspace-change", listener);
-  return () => window.removeEventListener("loop-workspace-change", listener);
+  });
 }
 
 /** Coalescing retains scopes per source without holding streamed payloads. */
