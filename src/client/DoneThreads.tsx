@@ -3,6 +3,14 @@ import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCollectionRead } from "./CollectionRead";
 import { createReadExecutor } from "./read-executor";
+import { storedCommands } from "./pendingCommandStorage";
+import {
+  performStoredEffect,
+  creationFailureSettled,
+  UncertainEffect,
+  supersedeStoredEffect,
+  type PendingEffect,
+} from "./pendingCommands";
 import {
   ArrowRight,
   ChevronRight,
@@ -175,20 +183,67 @@ export function OrganizeCards({
   selection,
   threads,
   onClose,
-  onDone,
+  onResolved,
 }: {
   selection: ThreadSelection;
   threads: SourcedDoneThread[];
   onClose: () => void;
-  onDone: () => void;
+  onResolved: () => void;
 }) {
-  const [title, setTitle] = useState(selection.title);
+  const creationTarget = [
+    "done-thread-create",
+    JSON.stringify([...selection.cardIds].sort()),
+  ];
+  const [initialCreation] = useState(() => {
+    try {
+      const owner = viewOwner();
+      const receipt = owner
+        ? storedCommands<PendingEffect>(localStorage)(
+            owner,
+            selection.source,
+            creationTarget,
+          ).read()
+        : undefined;
+      const context = receipt?.context
+        ? JSON.parse(receipt.context)
+        : undefined;
+      return {
+        receipt,
+        pending: !!receipt,
+        title:
+          typeof context?.title === "string"
+            ? (context.title as string)
+            : selection.title,
+      };
+    } catch {
+      return { receipt: undefined, pending: true, title: selection.title };
+    }
+  });
+  const [title, setTitle] = useState(initialCreation.title);
+  const [creationPending, setCreationPending] = useState(
+    initialCreation.pending,
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const id = useRef(crypto.randomUUID());
+  const [notice, setNotice] = useState("");
+  const creationId = useRef(initialCreation.receipt?.commandId);
   const generation = useRef(viewGeneration());
   const live = useRef(true);
   const busy = useRef(false);
+  const [uncertain, setUncertain] = useState<UncertainEffect | undefined>(() =>
+    initialCreation.receipt
+      ? new UncertainEffect(new Error("An earlier thread is pending."), () =>
+          supersedeStoredEffect(
+            localStorage,
+            viewOwner(),
+            selection.source,
+            creationTarget,
+            initialCreation.receipt!,
+            () => live.current && generation.current === viewGeneration(),
+          ),
+        )
+      : undefined,
+  );
   useEffect(() => {
     live.current = true;
     return () => {
@@ -210,26 +265,105 @@ export function OrganizeCards({
           },
           selection.source,
         );
-      else
-        await callRoute(
-          workspaceApi.doneThreadCreate,
+      else {
+        const body = { title: title.trim(), cardIds: selection.cardIds };
+        let recovered = false;
+        await performStoredEffect(
+          localStorage,
+          viewOwner(),
+          selection.source,
+          creationTarget,
+          () => live.current && generation.current === viewGeneration(),
+          (id, context, recovering) => {
+            creationId.current = id;
+            recovered = recovering;
+            if (creationPending && !recovering)
+              throw new Error(
+                "The pending creation changed. Reopen before continuing.",
+              );
+            const original = JSON.parse(context!);
+            return callRoute(
+              workspaceApi.doneThreadCreate,
+              { body: { ...original, id: DoneThreadId.parse(id) } },
+              selection.source,
+            );
+          },
+          creationFailureSettled,
+          JSON.stringify(body),
           {
-            body: {
-              id: DoneThreadId.parse(id.current),
-              title: title.trim(),
-              cardIds: selection.cardIds,
+            expectedCommandId: creationPending
+              ? (creationId.current ?? "")
+              : undefined,
+            validate: (context) => {
+              if (JSON.parse(context!).title !== title.trim())
+                throw new Error(
+                  "An earlier thread is pending. Retry to recover its original name.",
+                );
             },
           },
-          selection.source,
         );
+        if (live.current && generation.current === viewGeneration()) {
+          setCreationPending(false);
+          setUncertain(undefined);
+          if (recovered) {
+            setNotice(
+              "Earlier request resolved. No separate grouping was started. Review the earlier thread before combining this selection again.",
+            );
+            onResolved();
+            return;
+          }
+        }
+      }
       if (generation.current !== viewGeneration()) return;
       if (live.current) {
-        onDone();
+        onResolved();
         onClose();
       }
     } catch (error) {
-      if (live.current && generation.current === viewGeneration())
+      if (live.current && generation.current === viewGeneration()) {
+        if (!target) {
+          if (error instanceof UncertainEffect) {
+            setCreationPending(true);
+            setUncertain(error);
+          } else {
+            try {
+              const owner = viewOwner();
+              const receipt = owner
+                ? storedCommands<PendingEffect>(localStorage)(
+                    owner,
+                    selection.source,
+                    creationTarget,
+                  ).read()
+                : undefined;
+              setCreationPending(!!receipt);
+              creationId.current = receipt?.commandId;
+              if (receipt) {
+                setUncertain(
+                  new UncertainEffect(error, () =>
+                    supersedeStoredEffect(
+                      localStorage,
+                      owner,
+                      selection.source,
+                      creationTarget,
+                      receipt,
+                      () =>
+                        live.current && generation.current === viewGeneration(),
+                    ),
+                  ),
+                );
+                const original = receipt.context
+                  ? JSON.parse(receipt.context)
+                  : undefined;
+                if (typeof original?.title === "string")
+                  setTitle(original.title);
+              } else setUncertain(undefined);
+            } catch {
+              // Unavailable storage cannot establish that recovery settled.
+            }
+          }
+        }
         setError((error as Error).message);
+      }
     } finally {
       busy.current = false;
       if (live.current && generation.current === viewGeneration())
@@ -296,6 +430,49 @@ export function OrganizeCards({
           {error}
         </p>
       )}
+      {notice && <p role="status">{notice}</p>}
+      {(creationPending || uncertain) && (
+        <div role="status">
+          <p>
+            The earlier thread may already exist. Retrying uses its original
+            name. It resolves the earlier request, without starting a separate
+            grouping. Check Done before starting a separate thread.
+          </p>
+          {uncertain && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={async () => {
+                if (busy.current || generation.current !== viewGeneration())
+                  return;
+                busy.current = true;
+                setPending(true);
+                try {
+                  await uncertain.supersede();
+                  if (live.current && generation.current === viewGeneration()) {
+                    setUncertain(undefined);
+                    setCreationPending(false);
+                    setError("");
+                  }
+                } catch (error) {
+                  if (live.current && generation.current === viewGeneration()) {
+                    setUncertain(
+                      error instanceof UncertainEffect ? error : undefined,
+                    );
+                    setError((error as Error).message);
+                  }
+                } finally {
+                  busy.current = false;
+                  if (live.current && generation.current === viewGeneration())
+                    setPending(false);
+                }
+              }}
+            >
+              Start a separate thread
+            </button>
+          )}
+        </div>
+      )}
       <section className="thread-create-panel" aria-label="New thread">
         <div className="thread-create-heading">
           <span className="done-menu-icon">
@@ -312,7 +489,7 @@ export function OrganizeCards({
             {...proseEntry}
             maxLength={200}
             value={title}
-            disabled={pending}
+            disabled={pending || creationPending}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
@@ -323,7 +500,9 @@ export function OrganizeCards({
             disabled={pending || selection.cardIds.length < 2 || !title.trim()}
             onClick={() => void move()}
           >
-            Combine into a new thread
+            {creationPending
+              ? "Recover earlier thread"
+              : "Combine into a new thread"}
             {pending ? (
               <LoaderCircle
                 size={18}
@@ -373,7 +552,7 @@ export function OrganizeCards({
       )}
       {pending && (
         <p className="thread-create-hint" role="status">
-          Moving cards…
+          {creationPending ? "Recovering earlier thread…" : "Moving cards…"}
         </p>
       )}
       <p className="done-menu-tip">
