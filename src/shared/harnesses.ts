@@ -37,7 +37,8 @@ type HarnessDescriptor<H extends string> = {
   managed: boolean;
   workspaceTools: boolean;
   agentMail: boolean;
-  midTurn: "steer" | "queue";
+  /** Session-dependent harnesses queue until the running generation is known. */
+  midTurn: "steer" | "queue" | "session";
   // A native provider is its harness identity or an existing API provider.
   provider: H | ApiProvider;
   activityTransport: "native" | "acp";
@@ -227,7 +228,7 @@ const descriptors = {
     managed: false,
     workspaceTools: true,
     agentMail: true,
-    midTurn: "steer",
+    midTurn: "session",
     provider: "antigravity",
     activityTransport: "acp",
     launchPermissionMode: false,

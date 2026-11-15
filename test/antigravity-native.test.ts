@@ -16,9 +16,11 @@ const { NativeSessions, nativeSessions } =
 const { OWNER } = await import("../src/server/workspace-identity");
 const { createAgent, ownedConnection, ownedRun } =
   await import("../src/server/domain");
-const { enqueue, claim } = await import("../src/server/queue");
+const { enqueue, claim, transition } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { createTeam, deleteTeam } = await import("../src/server/teams");
+const { submit } = await import("../src/server/agent-runtime");
+const { activeRun } = await import("../src/server/steering");
 const { harnessName } = await import("../src/client/modelChoices");
 const sessions = nativeSessions;
 const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
@@ -352,6 +354,74 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     );
   },
 );
+
+for (const refresh of [false, true]) {
+  it(`queues replies to a running legacy session${refresh ? " after runtime refresh" : ""}`, async () => {
+    await sessions.projects.enable({
+      harness: "antigravity",
+      executable: resolve("test/fixtures/fake-antigravity.mjs"),
+      version: "1.4.9",
+      project: dir,
+      billing: "existing",
+    });
+    process.env.LOOP_TEST_AGY_MODE = "hang";
+    const { run, agent } = task(refresh ? "agy-old-refresh" : "agy-old-reply");
+    const current = claim("old-reply", (candidate) => candidate.id === run.id)!;
+    const before = requests().filter((r) => r.event === "user").length;
+    const execution = sessions.execute(current);
+    let queued: ReturnType<typeof submit> | undefined;
+    try {
+      await until(
+        () =>
+          requests().filter((r) => r.event === "user").length === before + 1,
+      );
+      if (refresh)
+        await sessions.projects.enable({
+          harness: "antigravity",
+          executable: resolve("test/fixtures/fake-antigravity.mjs"),
+          version: "1.5.9",
+          project: dir,
+          billing: "existing",
+        });
+      if (refresh) {
+        await expect(sessions.session(current)).rejects.toMatchObject({
+          status: 409,
+        });
+        expect(ownedRun(run.id, OWNER).state).toBe("running");
+        expect(requests().filter((r) => r.event === "user")).toHaveLength(
+          before + 1,
+        );
+      }
+      expect(activeRun(OWNER, run.conversation_id!)?.liveInput).toBe(false);
+      expect(activeRun("other-owner", run.conversation_id!)).toBeUndefined();
+      queued = submit(OWNER, {
+        agentId: agent.id,
+        conversationId: run.conversation_id!,
+        input: "Next turn",
+        idempotencyKey: run.id + "-reply",
+      });
+      expect(queued).not.toHaveProperty("steeringId");
+      expect(queued.state).toBe("queued");
+      expect(queued.id).not.toBe(run.id);
+      expect(queued.conversation_id).toBe(run.conversation_id);
+      expect(
+        db.prepare("SELECT id FROM run_steering WHERE run_id=?").all(run.id),
+      ).toEqual([]);
+    } finally {
+      await sessions.interrupt(run.id);
+      await execution;
+      if (queued) transition(queued, "cancelled");
+      delete process.env.LOOP_TEST_AGY_MODE;
+      await sessions.projects.enable({
+        harness: "antigravity",
+        executable: resolve("test/fixtures/fake-antigravity.mjs"),
+        version: "1.4.9",
+        project: dir,
+        billing: "existing",
+      });
+    }
+  });
+}
 
 it("refuses an ACP runtime without HTTP MCP support before registering or dispatching a prompt", async () => {
   process.env.LOOP_TEST_AGY_MODE = "no-http";

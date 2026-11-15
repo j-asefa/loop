@@ -206,6 +206,16 @@ A turn that ends before the prompt is handed over (for example a provider
 change closing the session during start) is recorded as not started, not as
 a "Native outcome unknown".
 
+The same dispatch transaction records Loop-owned `runs.payload.nativeInput`:
+the run ID, session generation and whether the actual adapter takes live input.
+Reply routing accepts it only while that owned connection, dispatch and running
+session still match. Copied or stale markers cannot authorize steering.
+Session-dependent harnesses queue replies before this capability is known;
+refreshing a connection does not change the capability of an in-flight turn.
+Historical payloads without this optional field remain readable.
+Queue request comparison and new turns exclude the observation, preserving
+idempotency keys and requiring each new dispatch to record its own capability.
+
 ### `companion_sessions.state`
 
 States: idle, disconnected, starting, failed, running, unavailable, with a

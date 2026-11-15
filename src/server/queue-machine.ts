@@ -1,4 +1,4 @@
-import { writeRunPayload, type RunPayload } from "../shared/run-payload.js";
+import { writeRunRequest, type RunPayload } from "../shared/run-payload.js";
 import { STALE_RUN_LEASE_MS } from "./run-lease.js";
 import * as runsQueries from "./sql/runs.js";
 import { z } from "zod";
@@ -44,7 +44,7 @@ export function createRunQueue(hooks: QueueHooks) {
       payload?: RunPayload;
     } = {},
   ) {
-    const payload = writeRunPayload(
+    const payload = writeRunRequest(
       options.payload === undefined ? {} : options.payload,
     );
     return db
@@ -56,7 +56,7 @@ export function createRunQueue(hooks: QueueHooks) {
             prior.kind !== (options.kind || "agent") ||
             prior.agent_id !== (options.agent || null) ||
             prior.conversation_id !== (options.conversation || null) ||
-            writeRunPayload(prior.payload) !== payload
+            writeRunRequest(prior.payload) !== payload
           )
             throw new Error(
               "Idempotency key was already used for another request",
