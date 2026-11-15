@@ -41,7 +41,7 @@ Harnesses own their context, tools, configuration and credential homes. Availabl
 
 There is no billing fallback after an authentication failure. Model catalogs and effort choices come from native discovery; `native-default` follows the harness default. Account verification and catalog discovery do not submit a model prompt. Installation is not proof of authentication.
 
-Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. Antigravity reports the completed steps in the current turn. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
+Each result shows its recorded input/output token counts at the bottom. Direct Codex reports during a turn; direct Claude Code reports with its turn result, including cached input tokens; Muse Code reports with its turn result. The older Antigravity streaming adapter reports completed-step counts for the current turn; its ACP adapter does not report usage. Counts are omitted when no usage was reported; older native turns are not backfilled. These counts measure recorded turn usage, not the subscription's remaining allowance or reset time. Other native harnesses do not yet supply token counts to this display.
 
 Codex async questions appear in **Needs you** with their answer choices while the agent continues working. If native work finishes first, Loop keeps the run waiting for your answer and continues in the same native thread when you submit it. Cancelled or replaced sessions expire these decisions; resuming native history does not reopen old questions.
 
@@ -84,7 +84,7 @@ Antigravity requires `--billing existing`. Its native sign-in, billing and permi
 
 Saved runtime registrations for versions **1.4.9–1.5.8** keep the [streaming CLI](https://antigravity.google/docs/cli/headless/) adapter and exact native conversation resume. That adapter cannot inject Loop tools or relay approvals and questions. Agent mail and team delegation remain unavailable until the connection is re-enabled with a newer CLI. Configure permissions in Antigravity for those older runtimes; a tool denied in headless mode can yield an empty successful response, which Loop reports as a recoverable failure without resending the task. Streaming token counts use this turn's completed steps rather than cumulative conversation usage; ACP turns display no token count unless the adapter reports one.
 
-Loop supports fresh data directories and same-build peers only. Earlier launch flags, retired Gemini rows and the `claude-code` alias are intentionally unsupported.
+Loop requires same-build peers. Earlier launch flags, retired Gemini rows and the `claude-code` alias are intentionally unsupported.
 
 ## Muse Code
 
