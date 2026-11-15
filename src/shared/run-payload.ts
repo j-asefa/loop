@@ -8,6 +8,14 @@ export const RunPayload = AgentSnapshot.partial().extend({
   tool: Id.optional(),
   arguments: z.record(z.string(), z.json()).optional(),
   idempotencyKey: Id.optional(),
+  /** Loop-owned execution capability, never inherited as native context. */
+  nativeInput: z
+    .strictObject({
+      runId: Id,
+      generation: Id,
+      liveInput: z.boolean(),
+    })
+    .optional(),
 });
 export type RunPayload = z.infer<typeof RunPayload>;
 // Recovery reads only the field it carries into a fresh turn. Unrelated corrupt
@@ -33,4 +41,11 @@ export function readRunPayload(
 }
 export function writeRunPayload(value: RunPayload): string {
   return JSON.stringify(RunPayload.parse(value));
+}
+
+/** The native-input observation cannot change request identity or seed new turns. */
+export function writeRunRequest(value: RunPayload): string {
+  const request = RunPayload.parse(value);
+  delete request.nativeInput;
+  return JSON.stringify(request);
 }

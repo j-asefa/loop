@@ -81,7 +81,8 @@ export function eligibleMailAgent(owner: string, agentId: string) {
   if (
     meta.loopHarness &&
     isHarness(meta.loopHarness) &&
-    !harnesses[meta.loopHarness].agentMail
+    (!harnesses[meta.loopHarness].agentMail ||
+      meta.capabilities?.workspaceTools === false)
   )
     throw new MailRefusal(
       409,

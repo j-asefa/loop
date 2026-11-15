@@ -423,7 +423,9 @@ export class NativeProjector {
       })
     )
       return;
-    const transport = harnesses[live.binding.harness].activityTransport;
+    const transport =
+      live.adapter.activityTransport ??
+      harnesses[live.binding.harness].activityTransport;
     if (event.type === "activity_capabilities") {
       ingestNativeCapabilities(live, transport, event.capabilities);
       return;

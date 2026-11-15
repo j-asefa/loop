@@ -143,20 +143,21 @@ test("harness discovery admits stable upgrades and rejects unsupported versions"
   await t.test(
     "malformed and failed version commands do not become available",
     async () => {
-      for (const output of [
-        "unknown",
-        "0.159",
-        "00.159.0",
-        "0.159.0.1",
-        "0.159.0+..",
-        "0.159.0-canary..1",
-        "9007199254740992.0.0",
-      ]) {
-        const found = await discover("codex", await fixture("codex", output));
-        assert.equal(found.installed, true);
-        assert.equal(found.supported, false, output);
-        assert.match(found.help, /Requires a stable codex version/);
-      }
+      for (const name of ["codex", "antigravity"] as const)
+        for (const output of [
+          "unknown",
+          "0.159",
+          "00.159.0",
+          "0.159.0.1",
+          "0.159.0+..",
+          "0.159.0-canary..1",
+          "9007199254740992.0.0",
+        ]) {
+          const found = await discover(name, await fixture(name, output));
+          assert.equal(found.installed, true);
+          assert.equal(found.supported, false, output);
+          assert(found.help.includes(`Requires a stable ${name} version`));
+        }
       const failed = await discover(
         "codex",
         await fixture("codex", "0.159.0", 1),

@@ -6,7 +6,12 @@ import type { Connection } from "./row-schemas.js";
 
 export function assertTeamConnection(connection: Pick<Connection, "metadata">) {
   const harness = connection.metadata.loopHarness;
-  if (harness && isHarness(harness) && !harnesses[harness].workspaceTools)
+  if (
+    harness &&
+    isHarness(harness) &&
+    (!harnesses[harness].workspaceTools ||
+      connection.metadata.capabilities?.workspaceTools === false)
+  )
     throw new Problem(
       409,
       `${harnesses[harness].label} does not expose Loop workspace tools. Choose another harness for team delegation and code reviews.`,

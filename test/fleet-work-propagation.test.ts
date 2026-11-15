@@ -138,6 +138,35 @@ function nativeLive(
   return live;
 }
 
+function persistNativeStartup(run: Run, live: Live) {
+  // session() is replaced in these tests; retain its durable connection/binding
+  // so execute() observes the same generation and harness as a real startup.
+  const connection = randomUUID();
+  db.prepare(
+    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) SELECT ?,owner_id,?,'Native fixture',secret,status,models,?,0 FROM connections WHERE id=? AND owner_id=?",
+  ).run(
+    connection,
+    live.binding.harness === "claude" ? "anthropic" : live.binding.harness,
+    JSON.stringify({ loopHarness: live.binding.harness }),
+    account,
+    run.owner_id,
+  );
+  db.prepare("UPDATE agents SET connection_id=? WHERE id=? AND owner_id=?").run(
+    connection,
+    run.agent_id,
+    run.owner_id,
+  );
+  run.payload.connectionId = connection;
+  db.prepare("UPDATE runs SET payload=? WHERE id=? AND owner_id=?").run(
+    JSON.stringify(run.payload),
+    run.id,
+    run.owner_id,
+  );
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,model,instructions,generation,state,updated_at) VALUES('fixture-agent',?,?,?,NULL,'',?,'idle',0)",
+  ).run(run.conversation_id, live.binding.harness, root, live.generation);
+}
+
 const retryApp = express();
 retryApp.use(express.json());
 retryApp.use((_req, res, next) => {
@@ -775,6 +804,7 @@ it.each(["local", "another-peer"] as const)(
     const prompt = vi.spyOn(adapter, "prompt").mockResolvedValue();
     const steer = vi.spyOn(adapter, "steer").mockResolvedValue();
     const live = nativeLive(sessions.state, run, adapter, "codex", generation);
+    persistNativeStartup(run, live);
     // Keep execute() and its durable steering/dispatch path; substitute startup.
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
     const executing = sessions.execute(run);
@@ -871,6 +901,7 @@ it.each([
       operation === "steer" ? "claude" : "codex",
       generation,
     );
+    persistNativeStartup(run, live);
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
     let executing:
       Promise<import("../src/server/run-outcome.js").RunOutcome> | undefined;

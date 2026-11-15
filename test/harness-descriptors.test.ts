@@ -41,7 +41,7 @@ it("every registered harness supplies complete browser-safe discovery and policy
     managed: z.boolean(),
     workspaceTools: z.boolean(),
     agentMail: z.boolean(),
-    midTurn: z.enum(["steer", "queue"]),
+    midTurn: z.enum(["steer", "queue", "session"]),
     provider: ProviderSchema,
     activityTransport: z.enum(["native", "acp"]),
     launchPermissionMode: z.boolean(),
@@ -133,7 +133,7 @@ it("derived policy and adapter tables cover every declared harness", async () =>
     expect(
       typeof Reflect.get(classes[id].prototype, "steer") === "function",
       id,
-    ).toBe(facts.midTurn === "steer");
+    ).toBe(facts.midTurn !== "queue");
     expect(launchPermissionMode(id, "bypassPermissions"), id).toBe(
       facts.launchPermissionMode ? "bypassPermissions" : "default",
     );

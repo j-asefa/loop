@@ -486,7 +486,8 @@ export class NativeSessions {
     if (
       binding.model !== model ||
       (binding.effort || null) !== effort ||
-      relaunch
+      relaunch ||
+      current?.adapter.canReuse?.(registration) === false
     ) {
       if (current && !current.closed) {
         await current.ready;
@@ -668,6 +669,13 @@ export class NativeSessions {
           now(),
           run.conversation_id,
         );
+        runsQueries.setNativeInput(
+          db,
+          run.owner_id,
+          run.id,
+          live.generation,
+          typeof live.adapter.steer === "function",
+        );
       }).immediate();
       watched = watchRun(run);
     } catch (error) {
@@ -707,7 +715,8 @@ export class NativeSessions {
       // The reply tool exists only where the harness receives workspace tools.
       !!this.tools &&
         !snapshot.reviewId &&
-        harnesses[live.binding.harness].workspaceTools,
+        (live.adapter.capabilities.workspaceTools ??
+          harnesses[live.binding.harness].workspaceTools),
     );
     let stopSteering: (() => Promise<void>) | undefined;
     const generation = live.generation;

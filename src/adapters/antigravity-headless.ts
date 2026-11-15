@@ -1,0 +1,507 @@
+import { supportsBilling } from "../shared/harnesses.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
+import { Native } from "../native.js";
+import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
+import type { Billing } from "../shared/protocol.js";
+import {
+  NotDelivered,
+  type Adapter,
+  type Emit,
+  type Options,
+  type NativeCommand,
+} from "./types.js";
+import { directActivityEmitter } from "./direct-activities.js";
+import { tokenCount } from "./usage.js";
+import { NativeSetupError } from "./setup-error.js";
+
+const exec = promisify(execFile);
+const SETUP =
+  "Antigravity setup failed. Choose Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
+
+const COMMAND_NAME = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
+// agy 1.5.9 advertises its catalog about 1 s after launch.
+const CATALOG_TIMEOUT = 5000;
+const CLOSE_TIMEOUT = 1000;
+const delay = (ms: number, timers: NodeJS.Timeout[]) =>
+  new Promise<undefined>((resolve) => {
+    timers.push(setTimeout(() => resolve(undefined), ms));
+  });
+
+/** Reads the commands and skills agy advertises for a project. The headless
+ * stream protocol has no catalog, so this opens a short-lived `agy acp`
+ * session that sends no prompt and only reads its documented
+ * available_commands_update notification. Discovery is optional: any failure
+ * or timeout yields an empty catalog. A received catalog is kept even when
+ * agy does not answer the courtesy session/close. CATALOG_TIMEOUT bounds the
+ * whole read, including the close; stopping the ACP process happens in the
+ * background so a slow exit never delays a prompt. Aborting `signal` ends
+ * discovery at once.
+ */
+async function discoverCommands(
+  executable: string,
+  project: string,
+  signal: AbortSignal,
+): Promise<NativeCommand[]> {
+  let native: Native | undefined;
+  const timers: NodeJS.Timeout[] = [];
+  let abort: (() => void) | undefined;
+  try {
+    if (signal.aborted) return [];
+    const deadline = new Promise<undefined>((resolve) => {
+      abort = () => resolve(undefined);
+      signal.addEventListener("abort", abort, { once: true });
+      timers.push(setTimeout(abort, CATALOG_TIMEOUT));
+    });
+    native = new Native(executable, ["acp"], project);
+    native.jsonrpc = true;
+    const acp = native;
+    const advertised = new Promise<unknown>((resolve) => {
+      acp.on("message", (message) => {
+        const update = message?.params?.update;
+        if (
+          message?.method === "session/update" &&
+          update?.sessionUpdate === "available_commands_update"
+        )
+          resolve(update.availableCommands);
+      });
+      acp.on("failure", () => resolve(undefined));
+    });
+    const read = (async () => {
+      await acp.request("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: {},
+      });
+      const session = await acp.request("session/new", {
+        cwd: project,
+        mcpServers: [],
+      });
+      return { session, list: await advertised };
+    })();
+    read.catch(() => {});
+    const result = await Promise.race([read, deadline]);
+    if (!result) return [];
+    const { session, list } = result;
+    if (typeof session?.sessionId === "string")
+      await Promise.race([
+        acp
+          .request("session/close", { sessionId: session.sessionId })
+          .catch(() => {}),
+        delay(CLOSE_TIMEOUT, timers),
+        deadline,
+      ]);
+    if (!Array.isArray(list)) return [];
+    const commands = new Map<string, NativeCommand>();
+    for (const entry of list.slice(0, 500)) {
+      const name = entry?.name;
+      if (
+        typeof name !== "string" ||
+        !COMMAND_NAME.test(name) ||
+        commands.has(name)
+      )
+        continue;
+      const description =
+        typeof entry.description === "string"
+          ? entry.description.replace(/[\x00-\x1f\x7f]+/g, " ").slice(0, 500)
+          : "";
+      commands.set(name, {
+        name,
+        token: `/${name}`,
+        kind: "command",
+        description,
+      });
+    }
+    return [...commands.values()];
+  } catch {
+    return [];
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+    if (abort) signal.removeEventListener("abort", abort);
+    void native?.dispose().catch(() => {});
+  }
+}
+
+/** The public agy stream protocol; credentials and context stay with agy.
+ * https://antigravity.google/docs/cli/headless/
+ * ACP is used only to read the command catalog (see discoverCommands). No
+ * private backend API, permission bypass or credential-store reads.
+ */
+export class AntigravityHeadless implements Adapter {
+  static readonly startupSteps: Readonly<Record<string, string>> = {};
+  capabilities = {
+    approvals: false,
+    questions: false,
+    resume: true,
+    liveAttach: false,
+    terminal: false,
+    workspaceTools: false,
+  };
+  models: { id: string; name: string }[] = [];
+  commands: NativeCommand[] = [];
+  private catalog: Promise<NativeCommand[]> = Promise.resolve([]);
+  private discovery = new AbortController();
+  private native?: Native;
+  private disposal?: Promise<void>;
+  private session?: string;
+  private active = false;
+  private stopped = false;
+  private turn = "";
+  private responseId?: string;
+  private replied = false;
+  private usage = new Map<
+    number,
+    { input_tokens: number; output_tokens: number }
+  >();
+  private ready?: { resolve(): void; reject(error: Error): void };
+  private billing: Billing;
+
+  get reusable() {
+    return !this.stopped;
+  }
+
+  constructor(
+    private options: Options,
+    private emit: Emit,
+  ) {
+    this.emit = directActivityEmitter(emit);
+    this.session = options.resume;
+    this.billing = {
+      mode: "existing",
+      description:
+        "Antigravity uses its existing native sign-in, billing and permission configuration. Provider charges may apply.",
+    };
+  }
+
+  async start(): Promise<Billing> {
+    if (!supportsBilling("antigravity", this.options.billing))
+      throw new Error(
+        "Antigravity cannot attest subscription billing. Use --billing existing to retain its native sign-in and billing configuration.",
+      );
+    try {
+      const { stdout } = await exec(this.options.executable, ["models"], {
+        cwd: this.options.project,
+        timeout: 20000,
+        maxBuffer: 256000,
+      }).catch((error: unknown) => {
+        // Recognize the CLI's explicit sign-in rejection without exposing
+        // native stderr, account details or credentials to the browser.
+        if (
+          error &&
+          typeof error === "object" &&
+          "stderr" in error &&
+          typeof error.stderr === "string" &&
+          error.stderr
+            .split(/\r?\n/)
+            .some((line) =>
+              /^Error: Please sign in to view available models\. Launch the CLI without arguments to sign in\.$/.test(
+                line.trim(),
+              ),
+            )
+        )
+          throw new NativeSetupError(
+            "native_auth_missing",
+            "Antigravity is not signed in on the execution computer. Choose Sign in to Antigravity, or run agy there, then enable Antigravity again. No prompt was sent.",
+          );
+        throw error;
+      });
+      if (this.stopped) throw new Error(SETUP);
+      // agy models documents a slug followed by its display name. Never
+      // forward diagnostics, terminal escapes or an unparsed account response.
+      const models = new Map<string, string>();
+      for (const line of stdout.split(/\r?\n/)) {
+        const match = line.match(
+          /^([a-z0-9][a-z0-9._-]*)[ \t]+([^\x00-\x1f\x7f]+)$/,
+        );
+        if (match) models.set(match[1], match[2].trim());
+      }
+      this.models = [...models].map(([id, name]) => ({ id, name }));
+      if (!this.models.length) throw new Error(SETUP);
+      // Sign-in is confirmed; read the catalog while the session starts.
+      this.catalog = discoverCommands(
+        this.options.executable,
+        this.options.project,
+        this.discovery.signal,
+      ).then((commands) => (this.commands = commands));
+      this.native = new Native(
+        this.options.executable,
+        [
+          "--input-format",
+          "stream-json",
+          "--output-format",
+          "stream-json",
+          "--print-timeout",
+          "0",
+          ...(this.options.resume
+            ? ["--conversation", this.options.resume]
+            : []),
+          ...(this.options.model ? ["--model", this.options.model] : []),
+          ...(this.options.effort ? ["--effort", this.options.effort] : []),
+        ],
+        this.options.project,
+      );
+      const ready = new Promise<void>((resolve, reject) => {
+        this.ready = { resolve, reject };
+      });
+      this.native.on("message", (message) => this.message(message));
+      this.native.on("failure", (error) => this.fail(error));
+      const timeout = setTimeout(
+        () => this.ready?.reject(new Error(SETUP)),
+        20000,
+      );
+      try {
+        await ready;
+      } finally {
+        clearTimeout(timeout);
+        this.ready = undefined;
+      }
+      if (this.stopped) throw new Error(SETUP);
+      // A catalog probe exists to read the catalog. A session starts without
+      // it; the first prompt waits for it (see prompt).
+      if (this.options.probeOnly) {
+        await this.catalog;
+        if (this.stopped) throw new Error(SETUP);
+      }
+      return this.billing;
+    } catch (error) {
+      await this.dispose();
+      if (
+        error instanceof NativeSetupError ||
+        error instanceof NativeMemoryError
+      )
+        throw error;
+      throw new NativeSetupError(
+        "antigravity_setup_failed",
+        `${SETUP} No prompt was sent.`,
+      );
+    }
+  }
+
+  private fail(error?: unknown) {
+    this.ready?.reject(
+      error instanceof NativeMemoryError ? error : new Error(SETUP),
+    );
+    if (this.stopped) return;
+    this.stopped = true;
+    this.active = false;
+    this.emit({
+      type: "status",
+      status: "failed",
+      detail: nativeFailureDetail(
+        error,
+        "Antigravity stopped before the session could continue. The native outcome may be incomplete. Review saved progress and send an explicit follow-up; no prompt was replayed.",
+      ),
+    });
+  }
+
+  async prompt(text: string, beforeDispatch?: () => void) {
+    // Framing depends on the catalog. Discovery is bounded and never throws;
+    // nothing has been dispatched yet while it settles.
+    await this.catalog;
+    if (this.stopped || !this.native || !this.session)
+      throw new NotDelivered("Antigravity session is unavailable.");
+    if (this.active)
+      throw new Error(
+        "Antigravity is still running. Queue the follow-up for the next turn.",
+      );
+    beforeDispatch?.();
+    this.turn = randomUUID();
+    this.responseId = undefined;
+    this.replied = false;
+    this.usage.clear();
+    this.active = true;
+    try {
+      await this.native.write({
+        event: "user",
+        message: { content: this.content(text) },
+      });
+    } catch (error) {
+      this.fail();
+      throw error;
+    }
+  }
+
+  /** agy expands a slash command only at the start of the message, and it
+   * also intercepts its own CLI commands (for example /help), which end the
+   * turn with an error. Only a command from the discovered catalog leads the
+   * message; saved instructions follow it. Any other message that would start
+   * with "/", from the task text or the saved instructions, gets a leading
+   * zero-width space so it stays literal.
+   */
+  private content(text: string) {
+    const instructions = this.options.instructions;
+    const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
+    if (name && this.commands.some((c) => c.name === name))
+      return instructions ? `${text}\n\n${instructions}` : text;
+    const content = instructions ? `${instructions}\n\n${text}` : text;
+    return content.trimStart().startsWith("/") ? `\u200b${content}` : content;
+  }
+
+  private message(message: any) {
+    if (this.stopped) return;
+    if (message.event === "init") {
+      const session = message.conversation_id;
+      if (
+        typeof session !== "string" ||
+        !session ||
+        session.length > 300 ||
+        (this.session && this.session !== session)
+      )
+        throw new Error("Unexpected Antigravity conversation.");
+      this.session = session;
+      const model = message.init?.model;
+      if (
+        this.options.model &&
+        typeof model === "string" &&
+        model !== this.options.model
+      )
+        throw new Error("Unexpected Antigravity model.");
+      if (typeof model === "string") this.billing = { ...this.billing, model };
+      if (!this.options.probeOnly)
+        this.emit({
+          type: "metadata",
+          nativeSession: session,
+          billing: this.billing,
+        });
+      this.ready?.resolve();
+      return;
+    }
+    if (!this.active) {
+      if (message.event === "result") this.ready?.reject(new Error(SETUP));
+      return;
+    }
+    if (message.event === "step_update") {
+      const step = message.step_update;
+      if (!step || step.conversation_id !== this.session) return;
+      if (!Number.isSafeInteger(step.step_index) || step.step_index < 0)
+        throw new Error("Invalid step identity.");
+      const id = `${this.turn}:${step.step_index}`;
+      if (
+        step.step_type === "agent_response" &&
+        typeof step.text_delta === "string"
+      ) {
+        this.responseId = id;
+        if (step.text_delta) this.replied = true;
+        this.emit({ type: "delta", id, text: step.text_delta });
+      }
+      if (step.step_type === "tool") {
+        const tool = step.tool_info;
+        const text = [
+          tool?.parameters == null
+            ? ""
+            : JSON.stringify(tool.parameters, null, 2),
+          typeof tool?.output === "string" ? tool.output : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        this.emit({
+          type: "item",
+          item: {
+            id,
+            kind: "tool",
+            title:
+              typeof step.tool_name === "string"
+                ? step.tool_name
+                : "Antigravity tool",
+            text,
+            status: tool?.error
+              ? "failed"
+              : step.state === "DONE"
+                ? "completed"
+                : "running",
+          },
+        });
+      }
+      // result.usage is cumulative across the native conversation, including
+      // before a resume. Only completed steps from this explicit turn count.
+      if (step.state === "DONE") {
+        const input = tokenCount(step.usage?.input_tokens);
+        const output = tokenCount(step.usage?.output_tokens);
+        if (input !== undefined && output !== undefined)
+          this.usage.set(step.step_index, {
+            input_tokens: input,
+            output_tokens: output,
+          });
+      }
+      return;
+    }
+    if (message.event !== "result") return;
+    const result = message.result;
+    if (!result || result.conversation_id !== this.session) return;
+    this.active = false;
+    if (typeof result.response === "string" && result.response)
+      this.emit({
+        type: "item",
+        item: {
+          id: this.responseId || `${this.turn}:response`,
+          kind: "assistant",
+          text: result.response,
+          ...(result.status === "SUCCESS"
+            ? { phase: "final_answer" as const }
+            : {}),
+        },
+      });
+    if (this.usage.size) {
+      const usage = { input_tokens: 0, output_tokens: 0 };
+      for (const step of this.usage.values()) {
+        usage.input_tokens += step.input_tokens;
+        usage.output_tokens += step.output_tokens;
+      }
+      if (
+        tokenCount(usage.input_tokens) !== undefined &&
+        tokenCount(usage.output_tokens) !== undefined
+      )
+        this.emit({ type: "usage", usage });
+    }
+    this.usage.clear();
+    if (
+      result.status === "SUCCESS" &&
+      !this.replied &&
+      !(typeof result.response === "string" && result.response)
+    ) {
+      // Headless agy soft-denies tool calls that need interactive approval,
+      // then reports SUCCESS with no answer. The conversation stays usable.
+      this.emit({
+        type: "status",
+        status: "failed",
+        recoverable: true,
+        detail:
+          "Antigravity finished without an answer. A tool may have needed permission that headless Antigravity cannot request; check agy's permission settings on the execution computer, then send an explicit follow-up. No prompt was replayed.",
+      });
+    } else if (result.status === "SUCCESS") {
+      this.emit({ type: "status", status: "completed" });
+    } else {
+      // WAITING/RUNNING can be partial timeout output with a successful exit.
+      // They are never completion, and no retry submits this prompt again.
+      this.stopped = true;
+      this.emit({
+        type: "status",
+        status: ["CANCELED", "INTERRUPTED"].includes(result.status)
+          ? "interrupted"
+          : "failed",
+        detail:
+          "Antigravity did not confirm completion. Check its native permissions and sign-in, review saved progress, then send an explicit follow-up. No prompt was replayed.",
+      });
+      void this.dispose();
+    }
+  }
+
+  async answer() {
+    throw new Error(
+      "Antigravity headless mode does not accept approval or question responses. Configure permissions in agy on the execution computer.",
+    );
+  }
+  async cancel() {
+    if (this.stopped) return;
+    this.stopped = true;
+    this.active = false;
+    await this.dispose();
+    this.emit({ type: "status", status: "interrupted" });
+  }
+  async dispose() {
+    this.stopped = true;
+    this.discovery.abort();
+    this.ready?.reject(new Error(SETUP));
+    await (this.disposal ??= this.native?.dispose() ?? Promise.resolve());
+  }
+}

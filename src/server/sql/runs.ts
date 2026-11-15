@@ -16,7 +16,17 @@ import { statement, statementVariants } from "./statement.js";
 import { READY_REVIEW_CONTINUATION } from "./review-continuations.js";
 
 const RUN_LIVE_INPUT_SQL = (r: string) =>
-  `(EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loopHarness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})))`;
+  `CASE WHEN json_type(${r}.payload,'$.nativeInput') IS NOT NULL THEN
+    COALESCE((SELECT json_extract(${r}.payload,'$.nativeInput.liveInput')
+    FROM native_dispatch d JOIN companion_sessions n
+      ON n.conversation_id=${r}.conversation_id AND n.generation=d.generation
+      AND n.last_run_id=${r}.id AND n.state='running'
+    JOIN connections nc ON nc.id=json_extract(${r}.payload,'$.connectionId')
+      AND nc.owner_id=${r}.owner_id AND json_extract(nc.metadata,'$.loopHarness')=n.harness
+    WHERE d.run_id=${r}.id AND d.state IN ('unknown','accepted')
+      AND d.generation=json_extract(${r}.payload,'$.nativeInput.generation')
+      AND ${r}.id=json_extract(${r}.payload,'$.nativeInput.runId')),0)
+    ELSE EXISTS(SELECT 1 FROM connections lc WHERE lc.id=json_extract(${r}.payload,'$.connectionId') AND lc.owner_id=${r}.owner_id AND COALESCE(json_extract(lc.metadata,'$.loopHarness'),'') IN ('',${[...LIVE_INPUT_HARNESSES].map((h) => `'${h}'`).join(",")})) END`;
 
 const perConversation = (r: string) =>
   `EXISTS(SELECT 1 FROM connections c WHERE c.id=json_extract(${r}.payload,'$.connectionId') AND c.owner_id=${r}.owner_id AND ${NATIVE_CONNECTION_SQL})`;
@@ -409,6 +419,23 @@ export function setResolvedModel(
   owner: string | null,
 ) {
   return setResolvedModelStatement(db).run(model, id, owner);
+}
+
+const setNativeInputStatement = statement(
+  "UPDATE runs SET payload=json_set(payload,'$.nativeInput',json(?)) WHERE id=? AND owner_id=? AND state='running'",
+);
+export function setNativeInput(
+  db: Database.Database,
+  owner: string,
+  runId: string,
+  generation: string,
+  liveInput: boolean,
+) {
+  return setNativeInputStatement(db).run(
+    JSON.stringify({ runId, generation, liveInput }),
+    runId,
+    owner,
+  );
 }
 
 const hasEarlierConversationRunStatement = statement(

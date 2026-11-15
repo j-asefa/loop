@@ -1,4 +1,5 @@
 import { workspaceMcp } from "./workspace-mcp.js";
+import { NativeSetupError } from "./setup-error.js";
 import { z } from "zod";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
@@ -104,6 +105,7 @@ export class Acp implements Adapter {
     { id: "native-default", name: "Use agent default" },
   ];
   protected verifySessionOnProbe = false;
+  protected requireWorkspaceTools = false;
   protected environment(): NodeJS.ProcessEnv {
     return process.env;
   }
@@ -118,6 +120,11 @@ export class Acp implements Adapter {
   activityCapabilities = undiscoveredCapabilities("ACP initialize pending");
   settings: SettingsData = { options: [], revision: 0 };
   commandCatalog: CommandsData = { commands: [], revision: 0 };
+  private commandDiscoveryComplete = false;
+  private commandWaiters = new Set<(proceed: boolean) => void>();
+  private creatingSession = false;
+  // Keep at most one bounded notification until session/new identifies its owner.
+  private startupCommands?: SessionNotification;
   private child?: ChildProcessWithoutNullStreams;
   private connection?: ClientSideConnection;
   private session?: string;
@@ -148,15 +155,10 @@ export class Acp implements Adapter {
   private steerJoined = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
-  private advertised!: () => void;
   private end!: () => void;
   /** Settles when the agent process exits or the session is disposed. */
   private ended = new Promise<void>((resolve) => {
     this.end = resolve;
-  });
-  /** Settles when the agent first advertises its command catalog. */
-  protected commandsAdvertised = new Promise<void>((resolve) => {
-    this.advertised = resolve;
   });
   private sequence = new Map<string, number>();
   private settingWrite: Promise<void> = Promise.resolve();
@@ -169,6 +171,29 @@ export class Acp implements Adapter {
     resolve: () => void;
     reject: (error: Error) => void;
   };
+  /** Harness-specific setup stays inside the shared session startup boundary. */
+  protected async configureSession(): Promise<void> {}
+  protected settingId(matches: (id: string, name: string) => boolean) {
+    return this.rawConfigOptions.find((option) =>
+      matches(option.id, option.name),
+    )?.id;
+  }
+  /** Startup writes share the request deadline, including queue/agent delays. */
+  protected async configureSetting(id: string, value: SettingValue) {
+    try {
+      await within(
+        this.setSetting(id, value, this.settings.revision),
+        "ACP session/set_config_option",
+      );
+    } catch (error) {
+      if (error instanceof SafeAcpError)
+        throw new NativeSetupError(
+          "native_acp_configuration_timeout",
+          `The agent did not confirm startup configuration within ${STARTUP_MS / 1000} seconds. Retry when the execution computer is less busy; if this persists, check the agent's model and effort configuration. No prompt was sent.`,
+        );
+      throw error;
+    }
+  }
   private messageId = "";
   private toolKinds = new Map<string, string>();
   private toolCommands = new Map<string, string>();
@@ -228,6 +253,7 @@ export class Acp implements Adapter {
         });
       }
       this.closed = true;
+      this.finishCommandDiscovery(false);
     });
     child.stderr.resume();
     child.once("exit", () => {
@@ -249,6 +275,7 @@ export class Acp implements Adapter {
         });
       }
       this.closed = true;
+      this.finishCommandDiscovery(false);
     });
     // SDK frames are JSONL. Limit each incoming frame before it reaches its parser.
     let frameBytes = 0;
@@ -287,7 +314,9 @@ export class Acp implements Adapter {
         throw new SafeAcpError(
           `ACP protocol is unsupported; Loop supports v${PROTOCOL_VERSION}.`,
         );
-      this.capabilities.resume = init.agentCapabilities?.loadSession === true;
+      this.capabilities.resume = this.resumeWithoutReplay
+        ? init.agentCapabilities?.sessionCapabilities?.resume != null
+        : init.agentCapabilities?.loadSession === true;
       this.activityCapabilities = Object.fromEntries(
         Object.keys(this.activityCapabilities).map((feature) => [
           feature,
@@ -316,6 +345,13 @@ export class Acp implements Adapter {
       // prompt-free session to verify authentication and discover models.
       if (this.options.probeOnly && !this.verifySessionOnProbe)
         return this.billing();
+      if (
+        this.requireWorkspaceTools &&
+        !init.agentCapabilities?.mcpCapabilities?.http
+      )
+        throw new SafeAcpError(
+          "This ACP agent does not advertise HTTP workspace tools.",
+        );
       const mcpServers =
         this.options.workspaceTools &&
         init.agentCapabilities?.mcpCapabilities?.http
@@ -364,6 +400,7 @@ export class Acp implements Adapter {
         );
         this.loading = false;
       } else {
+        this.creatingSession = true;
         const result = await within(
           this.connection.newSession({
             cwd: this.options.project,
@@ -372,27 +409,56 @@ export class Acp implements Adapter {
           "ACP session/new",
         );
         this.session = result.sessionId;
+        this.creatingSession = false;
         this.refreshModels(result);
         this.supportsConfig = result.configOptions != null;
         this.refreshSettings(
           result.configOptions || [],
           result.modes || undefined,
         );
+        const pendingCommands = this.startupCommands;
+        this.startupCommands = undefined;
+        if (pendingCommands) this.update(pendingCommands);
       }
-      if (this.options.probeOnly) return this.billing();
-      if (this.options.model && this.options.model !== "native-default") {
+      if (
+        !this.options.probeOnly &&
+        this.options.model &&
+        this.options.model !== "native-default"
+      ) {
         if (!this.models.some((model) => model.id === this.options.model))
-          throw new SafeAcpError(
-            "Selected model is not in the agent's session catalog.",
+          throw new NativeSetupError(
+            "native_model_unavailable",
+            "Selected model is not in the agent's current catalog. Choose an available model in Model & connection, then retry. No prompt was sent.",
           );
-        await within(
-          this.connection.request("session/set_model", {
-            sessionId: this.session,
-            modelId: this.options.model,
-          }),
-          "ACP session/set_model",
+        const setting = this.rawConfigOptions.find(
+          (option) => option.category === "model" && option.type === "select",
         );
+        try {
+          if (setting) {
+            await this.configureSetting(setting.id, this.options.model);
+          } else {
+            await within(
+              this.connection.request("session/set_model", {
+                sessionId: this.session,
+                modelId: this.options.model,
+              }),
+              "ACP session/set_model",
+            );
+          }
+        } catch (error) {
+          if (
+            error instanceof SafeAcpError ||
+            error instanceof NativeSetupError
+          )
+            throw error;
+          throw new NativeSetupError(
+            "native_model_rejected",
+            "The agent could not apply the selected model. Choose an available model in Model & connection or check the agent's model configuration, then retry. No prompt was sent.",
+          );
+        }
       }
+      await this.configureSession();
+      if (this.options.probeOnly) return this.billing();
       this.emit({ type: "metadata", nativeSession: this.session });
       this.emit({ type: "status", status: "ready" });
       return this.billing();
@@ -400,12 +466,63 @@ export class Acp implements Adapter {
       await this.dispose();
       const memory = nativeMemoryFailure(child);
       if (memory) throw memory;
+      if (error instanceof NativeSetupError) throw error;
+      if (error instanceof SafeAcpError)
+        throw new NativeSetupError(
+          "native_acp_setup_failed",
+          `ACP setup failed: ${error.message} Check the agent executable and ACP compatibility, then enable the connection again. No prompt was sent.`,
+        );
       throw new Error(
-        `ACP setup failed: ${error instanceof SafeAcpError ? error.message : "The agent did not complete setup."} Check the agent executable, local sign-in, and ACP compatibility.`,
+        "ACP setup failed: The agent did not complete setup. Check the agent executable, local sign-in, and ACP compatibility.",
       );
     }
   }
   private refreshModels(response: unknown) {
+    const config = z
+      .object({
+        configOptions: z
+          .array(
+            z.object({
+              category: z.string().optional(),
+              type: z.string(),
+              options: z
+                .array(
+                  z.union([
+                    z.object({
+                      value: z.string().min(1).max(200),
+                      name: z.string().min(1).max(200),
+                    }),
+                    z.object({
+                      group: z.string(),
+                      options: z.array(
+                        z.object({
+                          value: z.string().min(1).max(200),
+                          name: z.string().min(1).max(200),
+                        }),
+                      ),
+                    }),
+                  ]),
+                )
+                .optional(),
+            }),
+          )
+          .optional(),
+      })
+      .safeParse(response);
+    const model = config.success
+      ? config.data.configOptions?.find(
+          (option) => option.category === "model" && option.type === "select",
+        )
+      : undefined;
+    if (model?.options) {
+      this.models = [
+        { id: "native-default", name: "Use agent default" },
+        ...model.options
+          .flatMap((entry) => ("group" in entry ? entry.options : [entry]))
+          .map((entry) => ({ id: entry.value, name: entry.name })),
+      ];
+      return;
+    }
     // Current ACP agents can report the model extension, absent from SDK 1.5's
     // static types. Validate the native catalog before exposing it to the UI.
     const parsed = z
@@ -433,6 +550,29 @@ export class Acp implements Adapter {
         name: model.name,
       })),
     ];
+  }
+  /** Await the first catalog or its deadline. Closing or cancelling a pending
+   * prompt returns false; a missing catalog settles once as an empty catalog.
+   */
+  protected waitForCommands(timeoutMs = 5000): Promise<boolean> {
+    if (this.closed) return Promise.resolve(false);
+    if (this.commandDiscoveryComplete) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (proceed: boolean) => {
+        clearTimeout(timer);
+        this.commandWaiters.delete(finish);
+        resolve(proceed);
+      };
+      const timer = setTimeout(
+        () => this.finishCommandDiscovery(true),
+        timeoutMs,
+      );
+      this.commandWaiters.add(finish);
+    });
+  }
+  private finishCommandDiscovery(proceed: boolean) {
+    if (proceed) this.commandDiscoveryComplete = true;
+    for (const finish of this.commandWaiters) finish(proceed);
   }
   async prompt(value: string, beforeDispatch?: () => void) {
     if (
@@ -641,6 +781,7 @@ export class Acp implements Adapter {
   }
   async cancel() {
     this.cancelling = true;
+    this.finishCommandDiscovery(false);
     this.cancelPermissions();
     if (!this.closed && this.session && this.connection && this.active)
       await this.connection.cancel({ sessionId: this.session });
@@ -666,6 +807,9 @@ export class Acp implements Adapter {
   }
   async dispose() {
     this.closed = true;
+    this.creatingSession = false;
+    this.startupCommands = undefined;
+    this.finishCommandDiscovery(false);
     this.end();
     this.modeConfirmation?.reject(new Error("ACP session closed"));
     this.modeConfirmation = undefined;
@@ -829,9 +973,23 @@ export class Acp implements Adapter {
           throw new Error(
             "Settings changed. Refresh before applying a new value",
           );
-        const option = this.settings.options.find(
-          (x) => x.id === id && x.mutable,
-        );
+        // Display bounds must not restrict valid native model/control values.
+        const raw = this.supportsConfig
+          ? this.rawConfigOptions.find((x) => x.id === id)
+          : undefined;
+        const option = raw
+          ? {
+              type: raw.type,
+              choices:
+                raw.type === "select"
+                  ? raw.options.flatMap((entry) =>
+                      "group" in entry ? entry.options : [entry],
+                    )
+                  : undefined,
+            }
+          : this.settings.options.find(
+              (x) => x.id === id && id === "acp-mode" && x.mutable,
+            );
         if (
           !option ||
           (option.type === "boolean"
@@ -853,7 +1011,7 @@ export class Acp implements Adapter {
           revision: this.settings.revision,
         });
         try {
-          if (id === "acp-mode" && this.modeState) {
+          if (!raw && id === "acp-mode" && this.modeState) {
             const confirmed = new Promise<void>((yes, no) => {
               this.modeConfirmation = {
                 id: value as string,
@@ -962,7 +1120,16 @@ export class Acp implements Adapter {
     });
   }
   private update(notification: SessionNotification) {
-    if (this.closed || notification.sessionId !== this.session) return;
+    if (this.closed) return;
+    if (!this.session) {
+      if (
+        this.creatingSession &&
+        notification.update.sessionUpdate === "available_commands_update"
+      )
+        this.startupCommands = notification;
+      return;
+    }
+    if (notification.sessionId !== this.session) return;
     const u = notification.update;
     if (
       this.loading &&
@@ -1309,7 +1476,6 @@ export class Acp implements Adapter {
       return;
     }
     if (u.sessionUpdate === "available_commands_update") {
-      this.advertised();
       this.commands = u.availableCommands.map((c) => ({
         name: c.name,
         token: `/${c.name}`,
@@ -1329,6 +1495,7 @@ export class Acp implements Adapter {
           available: true,
         })),
       };
+      this.finishCommandDiscovery(true);
       this.activity("commands", "acp-session-commands", this.commandCatalog);
       this.activityCapabilities.commands = {
         state: "supported",

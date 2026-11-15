@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const ANTIGRAVITY_ACP_MINIMUM_VERSION = "1.5.2";
+export const ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION = "1.5.9";
+
 export const apiProviders = ["openai", "anthropic"] as const;
 type ApiProvider = (typeof apiProviders)[number];
 export type CliSignIn = {
@@ -34,7 +37,8 @@ type HarnessDescriptor<H extends string> = {
   managed: boolean;
   workspaceTools: boolean;
   agentMail: boolean;
-  midTurn: "steer" | "queue";
+  /** Session-dependent harnesses queue until the running generation is known. */
+  midTurn: "steer" | "queue" | "session";
   // A native provider is its harness identity or an existing API provider.
   provider: H | ApiProvider;
   activityTransport: "native" | "acp";
@@ -206,7 +210,7 @@ const descriptors = {
     executable: "agy",
     // agy acp with session/resume and steering by a concurrent session/prompt;
     // verified with 1.5.9 (steering was reported working from 1.5.2).
-    minimumVersion: "1.5.2",
+    minimumVersion: ANTIGRAVITY_ACP_MINIMUM_VERSION,
     installUrl: "https://antigravity.google/docs/getting-started?tab=cli",
     runtime: true,
     billing: {
@@ -222,9 +226,9 @@ const descriptors = {
     },
     environment: {},
     managed: false,
-    workspaceTools: false,
-    agentMail: false,
-    midTurn: "steer",
+    workspaceTools: true,
+    agentMail: true,
+    midTurn: "session",
     provider: "antigravity",
     activityTransport: "acp",
     launchPermissionMode: false,

@@ -11,24 +11,36 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
-const { NativeSessions } = await import("../src/server/native-sessions");
+const { NativeSessions, nativeSessions } =
+  await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
 const { createAgent, ownedConnection, ownedRun } =
   await import("../src/server/domain");
-const { enqueue, claim } = await import("../src/server/queue");
+const { enqueue, claim, transition } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
-const { createTeam } = await import("../src/server/teams");
+const { createTeam, deleteTeam } = await import("../src/server/teams");
+const { submit } = await import("../src/server/agent-runtime");
+const { activeRun } = await import("../src/server/steering");
 const { harnessName } = await import("../src/client/modelChoices");
-const { activeRun, saveSteering } = await import("../src/server/steering");
-const sessions = new NativeSessions();
+const sessions = nativeSessions;
+const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
+const bridge = new NativeToolBridge();
+await bridge.start();
+let ticket: { url: string; token: string };
+sessions.tools = (conversation, generation) =>
+  (ticket = bridge.issue(conversation, generation));
+sessions.revokeTools = (conversation, generation) =>
+  bridge.revoke(conversation, generation);
 afterAll(async () => {
   await sessions.close();
+  await bridge.close();
   db.close();
   for (const name of [
     "LOOP_TEST_AGY_LOG",
     "LOOP_TEST_AGY_MODE",
     "LOOP_TEST_AGY_SESSION_ID",
     "LOOP_TEST_AGY_SLOW_STOP",
+    "LOOP_TEST_AGY_RECIPIENT",
   ])
     delete process.env[name];
   rmSync(dir, { recursive: true, force: true });
@@ -38,10 +50,6 @@ const requests = () =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
-const prompts = () =>
-  requests()
-    .filter((r) => r.acp === "session/prompt")
-    .map((r) => r.params.prompt[0].text);
 
 it.each([
   ["signed-out", "native_auth_missing", "Antigravity is not signed in"],
@@ -55,7 +63,7 @@ it.each([
         sessions.projects.enable({
           harness: "antigravity",
           executable: resolve("test/fixtures/fake-antigravity.mjs"),
-          version: "1.5.9",
+          version: "1.4.9",
           project: dir,
           billing: "existing",
         }),
@@ -77,7 +85,7 @@ it.each([
     }
   },
 );
-function task(key: string, text = "Explicit task") {
+function task(key: string, input = "Explicit task") {
   process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {
     name: key,
@@ -88,7 +96,7 @@ function task(key: string, text = "Explicit task") {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Antigravity',0)",
   ).run(key, OWNER, agent.id);
-  const run = enqueue(OWNER, text, key, {
+  const run = enqueue(OWNER, input, key, {
     conversation: key,
     agent: agent.id,
     payload: {
@@ -108,7 +116,7 @@ it("registers Antigravity with honest capabilities and owner isolation", async (
   const registration = await sessions.projects.enable({
     harness: "antigravity",
     executable: resolve("test/fixtures/fake-antigravity.mjs"),
-    version: "1.5.9",
+    version: "1.4.9",
     project: dir,
     billing: "existing",
   });
@@ -128,8 +136,9 @@ it("registers Antigravity with honest capabilities and owner isolation", async (
     authMode: "native-existing",
     capabilities: {
       billingVerified: false,
-      approvals: true,
+      approvals: false,
       questions: false,
+      workspaceTools: false,
     },
   });
   expect(() => ownedConnection(connection.id, "other-owner")).toThrow();
@@ -170,13 +179,14 @@ it("resumes only its saved native ID under a new generation without replaying ta
   expect(() =>
     sessions.current(run.conversation_id!, generation, false),
   ).toThrow(/not active/);
-  expect(prompts()).toEqual([]);
+  expect(requests().filter((r) => r.event === "user")).toEqual([]);
+  const args = requests().at(-1).args;
   expect(
-    requests()
-      .filter((r) => r.acp === "session/resume")
-      .map((r) => r.params.sessionId),
-  ).toEqual(["agy-resume"]);
-  expect(requests().some((r) => r.acp === "session/load")).toBe(false);
+    args.slice(
+      args.indexOf("--conversation"),
+      args.indexOf("--conversation") + 2,
+    ),
+  ).toEqual(["--conversation", "agy-resume"]);
   await sessions.dispose(resumed);
 });
 
@@ -209,17 +219,13 @@ it("an explicit Grok-to-Antigravity switch retains the agent workspace and start
   expect(switched.binding.project).toBe(project);
   expect(switched.binding.native_id).toBe("agy-switch");
   expect(switched.binding.instructions).toContain("Earlier Grok task");
-  expect(
-    requests().some(
-      (r) => r.acp === "session/resume" && r.params.sessionId === "agy-switch",
-    ),
-  ).toBe(false);
-  expect(prompts()).toHaveLength(0);
+  expect(requests().at(-1).args).not.toContain("--conversation");
+  expect(requests().filter((r) => r.event === "user")).toHaveLength(0);
   expect(ownedConnection("native-grok", OWNER).provider).toBe("grok");
   await sessions.dispose(switched);
 });
 
-it.each(["disconnect", "error"])(
+it.each(["disconnect", "WAITING"])(
   "production dispatch never replays an uncertain Antigravity %s",
   async (mode) => {
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -229,7 +235,7 @@ it.each(["disconnect", "error"])(
       (candidate) => candidate.id === run.id,
     )!;
     expect(claimed?.id).toBe(run.id);
-    const before = prompts().length;
+    const before = requests().filter((r) => r.event === "user").length;
     expect(await sessions.execute(claimed)).not.toMatchObject({
       kind: "finished",
     });
@@ -240,7 +246,9 @@ it.each(["disconnect", "error"])(
       )
       .get(run.id);
     expect(receipt).toBeTruthy();
-    expect(prompts()).toHaveLength(before + 1);
+    expect(requests().filter((r) => r.event === "user")).toHaveLength(
+      before + 1,
+    );
     await expect(sessions.execute(run)).rejects.toThrow(
       /already dispatched|uncertain outcome/,
     );
@@ -255,34 +263,38 @@ it.each(["disconnect", "error"])(
         )
         .get(run.id),
     ).toEqual(receipt);
-    expect(prompts()).toHaveLength(before + 1);
+    expect(requests().filter((r) => r.event === "user")).toHaveLength(
+      before + 1,
+    );
     delete process.env.LOOP_TEST_AGY_MODE;
   },
 );
 
-it.each(["cancel", "cancelled", "max_tokens", "error"])(
-  "an immediate explicit follow-up after %s continues the same conversation without replaying the task",
+it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
+  "an immediate explicit follow-up after %s waits for shutdown and resumes without replaying the task",
   async (mode) => {
     process.env.LOOP_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
     process.env.LOOP_TEST_AGY_SLOW_STOP = "1";
-    const { run } = task("agy-after-" + mode.replace("_", "-"));
+    const { run } = task("agy-after-" + mode.toLowerCase());
     const claimed = claim(
       "antigravity-fixture",
       (candidate) => candidate.id === run.id,
     )!;
-    const before = prompts().length;
+    const before = requests().filter((r) => r.event === "user").length;
     const execution = sessions.execute(claimed);
-    await until(() => prompts().length === before + 1);
+    await until(
+      () => requests().filter((r) => r.event === "user").length === before + 1,
+    );
     if (mode === "cancel") await sessions.interrupt(run.id);
     expect(await execution).toMatchObject({
       kind: "already-moved",
-      reason: mode === "error" ? "native-failed" : "native-interrupted",
+      reason: mode === "WAITING" ? "native-failed" : "native-interrupted",
     });
     expect(ownedRun(run.id, OWNER).state).toBe(
-      mode === "error" ? "failed" : "interrupted",
+      mode === "WAITING" ? "failed" : "interrupted",
     );
     const originalPid = requests()
-      .filter((r) => r.args?.[0] === "acp")
+      .filter((r) => r.args?.includes("stream-json"))
       .at(-1).pid;
     const original = db
       .prepare(
@@ -292,18 +304,9 @@ it.each(["cancel", "cancelled", "max_tokens", "error"])(
     const receipt = db
       .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
       .get(run.id);
-    // An interrupted ACP turn leaves agy's session usable, so the live
-    // session is kept; a failed turn ends it and the next turn resumes.
-    const live = (() => {
-      try {
-        sessions.current(run.conversation_id!, original.generation, false);
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-    expect(live).toBe(mode !== "error");
-    const launched = requests().filter((r) => r.args?.[0] === "acp").length;
+    expect(() =>
+      sessions.current(run.conversation_id!, original.generation, false),
+    ).toThrow(/not active/);
     delete process.env.LOOP_TEST_AGY_MODE;
     delete process.env.LOOP_TEST_AGY_SLOW_STOP;
     const next = enqueue(OWNER, "Explicit follow-up", run.id + "-follow-up", {
@@ -317,31 +320,26 @@ it.each(["cancel", "cancelled", "max_tokens", "error"])(
       ),
     ).toMatchObject({ kind: "finished" });
     const log = requests();
+    const exited = log.findIndex(
+      (r) => r.event === "fixture-exit" && r.pid === originalPid,
+    );
+    const started = log.findIndex((r) => r.args?.includes(run.conversation_id));
+    expect(exited).toBeGreaterThan(-1);
+    expect(started).toBeGreaterThan(exited);
+    expect(() => process.kill(originalPid, 0)).toThrow();
     const resumed = db
       .prepare(
         "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",
       )
       .get(run.conversation_id) as { generation: string; native_id: string };
     expect(resumed.native_id).toBe(original.native_id);
-    if (live) {
-      expect(resumed.generation).toBe(original.generation);
-      expect(log.filter((r) => r.args?.[0] === "acp")).toHaveLength(launched);
-    } else {
-      // The failed process exits before the conversation resumes.
-      const exited = log.findIndex(
-        (r) => r.event === "fixture-exit" && r.pid === originalPid,
-      );
-      const started = log.findIndex(
-        (r) =>
-          r.acp === "session/resume" &&
-          r.params.sessionId === run.conversation_id,
-      );
-      expect(exited).toBeGreaterThan(-1);
-      expect(started).toBeGreaterThan(exited);
-      expect(() => process.kill(originalPid, 0)).toThrow();
-      expect(resumed.generation).not.toBe(original.generation);
-    }
-    expect(prompts().slice(before)).toEqual([
+    expect(resumed.generation).not.toBe(original.generation);
+    expect(
+      requests()
+        .filter((r) => r.event === "user")
+        .slice(before)
+        .map((r) => r.message.content),
+    ).toEqual([
       "Saved fixture instructions\n\nExplicit task",
       "Saved fixture instructions\n\nExplicit follow-up",
     ]);
@@ -357,39 +355,338 @@ it.each(["cancel", "cancelled", "max_tokens", "error"])(
   },
 );
 
-it("steers a running turn through agy acp without a restart or replaying the task", async () => {
-  const { run } = task("agy-steer", "[slow] Write an essay");
-  const claimed = claim(
-    "antigravity-fixture",
-    (candidate) => candidate.id === run.id,
-  )!;
-  const before = prompts().length;
-  const launches = () => requests().filter((r) => r.args?.[0] === "acp");
-  // With workspace tools configured, a user reply would ask for loop_reply;
-  // Antigravity receives no workspace tools, so it must not.
-  sessions.tools = () => ({ url: "http://127.0.0.1:9/mcp", token: "unused" });
-  const execution = sessions.execute(claimed);
-  await until(() => prompts().length === before + 1);
-  const launched = launches().length;
-  // A reply to the running turn steers it rather than queueing.
-  expect(activeRun(OWNER, run.conversation_id!)?.liveInput).toBe(true);
-  saveSteering(
-    ownedRun(run.id, OWNER),
-    "agy-steer-key",
-    "agy-steer-request",
-    "Change course",
-    {},
-  );
-  expect(await execution).toMatchObject({ kind: "finished" });
-  sessions.tools = undefined;
-  // The steered turn did not end early; the worker completes the run.
-  expect(ownedRun(run.id, OWNER).state).toBe("running");
-  expect(
-    db.prepare("SELECT state FROM run_steering WHERE run_id=?").all(run.id),
-  ).toEqual([{ state: "delivered" }]);
-  expect(launches()).toHaveLength(launched);
-  expect(prompts().slice(before)).toEqual([
-    "Saved fixture instructions\n\n[slow] Write an essay",
-    "Change course",
-  ]);
+for (const refresh of [false, true]) {
+  it(`queues replies to a running legacy session${refresh ? " after runtime refresh" : ""}`, async () => {
+    await sessions.projects.enable({
+      harness: "antigravity",
+      executable: resolve("test/fixtures/fake-antigravity.mjs"),
+      version: "1.4.9",
+      project: dir,
+      billing: "existing",
+    });
+    process.env.LOOP_TEST_AGY_MODE = "hang";
+    const { run, agent } = task(refresh ? "agy-old-refresh" : "agy-old-reply");
+    const current = claim("old-reply", (candidate) => candidate.id === run.id)!;
+    const before = requests().filter((r) => r.event === "user").length;
+    const execution = sessions.execute(current);
+    let queued: ReturnType<typeof submit> | undefined;
+    try {
+      await until(
+        () =>
+          requests().filter((r) => r.event === "user").length === before + 1,
+      );
+      if (refresh)
+        await sessions.projects.enable({
+          harness: "antigravity",
+          executable: resolve("test/fixtures/fake-antigravity.mjs"),
+          version: "1.5.9",
+          project: dir,
+          billing: "existing",
+        });
+      if (refresh) {
+        await expect(sessions.session(current)).rejects.toMatchObject({
+          status: 409,
+        });
+        expect(ownedRun(run.id, OWNER).state).toBe("running");
+        expect(requests().filter((r) => r.event === "user")).toHaveLength(
+          before + 1,
+        );
+      }
+      expect(activeRun(OWNER, run.conversation_id!)?.liveInput).toBe(false);
+      expect(activeRun("other-owner", run.conversation_id!)).toBeUndefined();
+      queued = submit(OWNER, {
+        agentId: agent.id,
+        conversationId: run.conversation_id!,
+        input: "Next turn",
+        idempotencyKey: run.id + "-reply",
+        steer: true,
+      });
+      expect(queued).not.toHaveProperty("steeringId");
+      expect(queued.state).toBe("queued");
+      expect(queued.id).not.toBe(run.id);
+      expect(queued.conversation_id).toBe(run.conversation_id);
+      expect(
+        db.prepare("SELECT id FROM run_steering WHERE run_id=?").all(run.id),
+      ).toEqual([]);
+    } finally {
+      await sessions.interrupt(run.id);
+      await execution;
+      if (queued) transition(queued, "cancelled");
+      delete process.env.LOOP_TEST_AGY_MODE;
+      await sessions.projects.enable({
+        harness: "antigravity",
+        executable: resolve("test/fixtures/fake-antigravity.mjs"),
+        version: "1.4.9",
+        project: dir,
+        billing: "existing",
+      });
+    }
+  });
+}
+
+it("refuses an ACP runtime without HTTP MCP support before registering or dispatching a prompt", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "no-http";
+  const before = requests().filter((r) => r.method === "session/prompt").length;
+  try {
+    await expect(
+      sessions.projects.enable({
+        harness: "antigravity",
+        executable: resolve("test/fixtures/fake-antigravity.mjs"),
+        version: "1.5.9",
+        project: dir,
+        billing: "existing",
+      }),
+    ).rejects.toThrow(/HTTP workspace tools/);
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(before);
+    expect(
+      ownedConnection("native-antigravity", OWNER).metadata.capabilities
+        ?.workspaceTools,
+    ).toBe(false);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+  }
 });
+
+it("injects generation-scoped workspace tools into ACP and sends mail once through the production bridge", async () => {
+  const legacy = task("agy-upgrade-history");
+  const saved = await sessions.session(legacy.run);
+  const savedProject = saved.binding.project;
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('agy-released-answer',?,?,'assistant','Saved historical answer',0)",
+  ).run(OWNER, legacy.run.conversation_id);
+  await sessions.projects.enable({
+    harness: "antigravity",
+    executable: resolve("test/fixtures/fake-antigravity.mjs"),
+    version: "1.5.9",
+    project: dir,
+    billing: "existing",
+  });
+  expect(
+    ownedConnection("native-antigravity", OWNER).metadata.capabilities,
+  ).toMatchObject({ workspaceTools: true, approvals: true });
+  expect(saved.closed).toBe(false);
+  const upgraded = await sessions.session(legacy.run);
+  expect(upgraded.generation).not.toBe(saved.generation);
+  expect(saved.closed).toBe(true);
+  expect(upgraded.binding.native_id).toBe("agy-upgrade-history");
+  expect(upgraded.binding.project).toBe(savedProject);
+  expect(upgraded.adapter.activityTransport).toBe("acp");
+  expect(
+    db
+      .prepare("SELECT content FROM messages WHERE id='agy-released-answer'")
+      .get(),
+  ).toEqual({ content: "Saved historical answer" });
+  await sessions.dispose(upgraded);
+  const { agent, run } = task("agy-acp-mail");
+  expect(eligibleMailAgent(OWNER, agent.id).id).toBe(agent.id);
+  expect(() => eligibleMailAgent("other-owner", agent.id)).toThrow(/not found/);
+  db.prepare(
+    `INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('mail-api',?,'openai','Fixture','','connected','[{"id":"fixture"}]','{}',0)`,
+  ).run(OWNER);
+  const recipient = createAgent(OWNER, {
+    name: "mail-recipient",
+    connectionId: "mail-api",
+    model: "fixture",
+  });
+  const team = createTeam(OWNER, {
+    name: "ACP tools team",
+    managerId: agent.id,
+    members: [recipient.id],
+  });
+  expect(team.manager_id).toBe(agent.id);
+  deleteTeam(OWNER, team.id);
+  process.env.LOOP_TEST_AGY_RECIPIENT = recipient.id;
+  const active = claim("agy-mail", (candidate) => candidate.id === run.id)!;
+  try {
+    expect(await sessions.execute(active)).toEqual({ kind: "finished" });
+    const activities = db
+      .prepare("SELECT record FROM agent_activities WHERE conversation_id=?")
+      .all(run.conversation_id) as { record: string }[];
+    expect(activities.length).toBeGreaterThan(0);
+    expect(
+      activities.every(
+        (row) => JSON.parse(row.record).source.transport === "acp",
+      ),
+    ).toBe(true);
+    expect(requests().findLast((r) => r.event === "catalog").tools).toEqual(
+      expect.arrayContaining(["loop_agents", "loop_message", "loop_handoff"]),
+    );
+    const mails = db
+      .prepare(
+        "SELECT sender_agent_id,recipient_agent_id,run_id FROM agent_mail WHERE sender_agent_id=?",
+      )
+      .all(agent.id) as { run_id: string }[];
+    expect(mails).toHaveLength(1);
+    expect(mails[0]).toMatchObject({
+      sender_agent_id: agent.id,
+      recipient_agent_id: recipient.id,
+    });
+    expect(ownedRun(mails[0].run_id, OWNER).state).toBe("queued");
+    expect(requests().findLast((r) => r.event === "duplicate-mail").same).toBe(
+      true,
+    );
+    const old = { ...ticket };
+    const request = {
+      method: "tools/call",
+      id: "late",
+      name: "loop_message",
+      arguments: { to: recipient.id, body: "late" },
+    };
+    const call = (token: string) =>
+      fetch(old.url + "/pi", {
+        method: "POST",
+        headers: { authorization: "Bearer " + token },
+        body: JSON.stringify(request),
+      });
+    expect((await call("wrong-token")).status).toBe(403);
+    expect((await call(old.token)).status).toBe(409);
+    const live = sessions.current(
+      run.conversation_id!,
+      (await sessions.session(run)).generation,
+      false,
+    );
+    const generation = live.generation;
+    await sessions.dispose(live);
+    const resumed = await sessions.session(run);
+    expect(resumed.binding.native_id).toBe("agy-acp-mail");
+    expect(resumed.generation).not.toBe(generation);
+    expect((await call(old.token)).status).toBe(403);
+    expect(
+      requests().findLast((r) => r.method === "session/resume").params
+        .sessionId,
+    ).toBe("agy-acp-mail");
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(1);
+    await sessions.dispose(resumed);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_RECIPIENT;
+  }
+});
+
+it("never resends an ACP prompt after a disconnect, including through recovery", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "disconnect";
+  const { run } = task("agy-acp-uncertain");
+  const before = requests().filter((r) => r.method === "session/prompt").length;
+  try {
+    expect(
+      await sessions.execute(
+        claim("agy-mail", (candidate) => candidate.id === run.id)!,
+      ),
+    ).toMatchObject({ kind: "already-moved", reason: "native-failed" });
+    const receipt = db
+      .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
+      .get(run.id);
+    expect(receipt).toBeTruthy();
+    sessions.recover();
+    await expect(sessions.execute(run)).rejects.toThrow(
+      /already dispatched|uncertain outcome/,
+    );
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(before + 1);
+    expect(
+      db.prepare("SELECT * FROM native_dispatch WHERE run_id=?").get(run.id),
+    ).toEqual(receipt);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+  }
+});
+
+it.each(["delayed-commands", "early-commands"])(
+  "loads %s through the production catalog probe and cache without prompting",
+  async (mode) => {
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    sessions.projects.clearProbes();
+    const beforeProbe = requests().filter(
+      (r) => r.method === "session/new",
+    ).length;
+    const { agent } = task(`agy-catalog-${mode}`);
+    const beforePrompts = requests().filter(
+      (r) => r.method === "session/prompt",
+    ).length;
+    try {
+      const catalog = await sessions.projects.catalog(agent);
+      expect(catalog.commands).toContainEqual({
+        name: "plan",
+        token: "/plan",
+        kind: "command",
+        description: "Plan before executing.",
+      });
+      const afterProbe = requests().filter(
+        (r) => r.method === "session/new",
+      ).length;
+      expect(afterProbe).toBe(beforeProbe + 1);
+      expect(await sessions.projects.catalog(agent)).toEqual(catalog);
+      expect(requests().filter((r) => r.method === "session/new")).toHaveLength(
+        afterProbe,
+      );
+      expect(
+        requests().filter((r) => r.method === "session/prompt"),
+      ).toHaveLength(beforePrompts);
+    } finally {
+      delete process.env.LOOP_TEST_AGY_MODE;
+    }
+  },
+);
+
+it.each([
+  ["1.4.9", "acp-hang"],
+  ["1.5.9", "no-commands"],
+])(
+  "records cancellation before catalog dispatch as not started: %s",
+  async (version, mode) => {
+    await sessions.projects.enable({
+      harness: "antigravity",
+      executable: resolve("test/fixtures/fake-antigravity.mjs"),
+      version,
+      project: dir,
+      billing: "existing",
+    });
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const { run: queued } = task(
+      "agy-cancel-" + version.replaceAll(".", "-"),
+      "/plan must not dispatch",
+    );
+    const run = claim(
+      "catalog-cancel",
+      (candidate) => candidate.id === queued.id,
+    )!;
+    const before = requests().filter(
+      (r) => r.event === "user" || r.method === "session/prompt",
+    ).length;
+    const executing = sessions.execute(run);
+    try {
+      await until(
+        () =>
+          (
+            db
+              .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+              .get(run.id) as { state: string } | undefined
+          )?.state === "unknown",
+      );
+      await sessions.interrupt(run.id);
+      await executing;
+      expect(ownedRun(run.id, OWNER).error).toContain("not started");
+      expect(ownedRun(run.id, OWNER).error).not.toContain(
+        "Native outcome unknown",
+      );
+      expect(
+        db
+          .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+          .get(run.id),
+      ).toEqual({ state: "interrupted" });
+      expect(
+        requests().filter(
+          (r) => r.event === "user" || r.method === "session/prompt",
+        ),
+      ).toHaveLength(before);
+    } finally {
+      await sessions.interrupt(run.id);
+      await executing;
+      delete process.env.LOOP_TEST_AGY_MODE;
+    }
+  },
+);

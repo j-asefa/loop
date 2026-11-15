@@ -4,6 +4,7 @@ import { openSettings } from "./browser-ui.mjs";
 // Browser fixtures only. start-runtimes.node.test.ts exercises real dispatch.
 export async function antigravitySmoke(page, fixture, _engine, capture) {
   let enabled = false;
+  let version = "1.4.9";
   let enableRequest;
   let failEnable = true;
   const enableCommands = [];
@@ -36,7 +37,7 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
             installed: true,
             available: true,
             enabled,
-            version: "1.4.9",
+            version,
             help: "",
             authentication: enabled ? "previously_verified" : "unknown",
             ...(enabled
@@ -48,6 +49,8 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
     }),
   );
   await page.route("**/api/workspace/runtimes/antigravity/auth**", (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({ json: { providers: [] } });
     signIns.push(route.request().url());
     return route.fulfill({
       status: 404,
@@ -96,16 +99,16 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   await openSettings(page);
   await page.getByRole("button", { name: /Provider connections/ }).click();
   await page
-    .getByRole("button", { name: "Antigravity setup details", exact: true })
+    .getByRole("button", { name: "Sign in to Antigravity", exact: true })
     .click();
   const sheet = page.getByRole("dialog", { name: "Antigravity", exact: true });
-  await expect(sheet.getByText(/Run agy on Fixture computer/)).toBeVisible();
+  await sheet.getByText("Already signed in on Fixture computer?").click();
   await expect(
     sheet.getByText(/Headless runs cannot ask for approvals in Loop/),
   ).toBeVisible();
   await expect(
     sheet.getByRole("button", { name: "Start sign-in", exact: true }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
   await expect(sheet.getByLabel("Billing policy for new runtimes")).toHaveCount(
     0,
   );
@@ -120,7 +123,9 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
     "Antigravity is not signed in",
   );
   await expect(
-    sheet.getByText("Your sign-in is saved.", { exact: false }),
+    sheet.getByText("Your account is saved. Finish connecting", {
+      exact: false,
+    }),
   ).toHaveCount(0);
   await capture("antigravity-sign-in-required");
   await sheet
@@ -146,4 +151,36 @@ export async function antigravitySmoke(page, fixture, _engine, capture) {
   expect(enableCommands[1]).not.toBe(enableCommands[0]);
   expect(signIns).toEqual([]);
   await capture("antigravity-enabled");
+  for (const nextVersion of ["1.5.9", "1.5.2", undefined]) {
+    version = nextVersion;
+    await page.reload();
+    await openSettings(page);
+    await page.getByRole("button", { name: /Provider connections/ }).click();
+    await page
+      .getByRole("button", { name: "Manage Antigravity account", exact: true })
+      .click();
+    const guidance = page.getByRole("dialog", {
+      name: "Antigravity",
+      exact: true,
+    });
+    await expect(
+      guidance.getByText(/Headless runs cannot ask for approvals/),
+    ).toHaveCount(0);
+    await expect(
+      guidance.getByText(
+        nextVersion === "1.5.9"
+          ? /This version supports approvals in Loop, Agent mail, workspace tools and team delegation/
+          : nextVersion
+            ? /Antigravity supports approvals and live replies in Loop/
+            : /require CLI 1.5.9 or newer/,
+      ),
+    ).toBeVisible();
+    await expect(guidance.getByText(/refresh this connection/i)).toBeVisible();
+    expect(enableCommands).toHaveLength(2);
+    await capture(
+      nextVersion
+        ? `antigravity-${nextVersion}-guidance`
+        : "antigravity-version-unknown",
+    );
+  }
 }

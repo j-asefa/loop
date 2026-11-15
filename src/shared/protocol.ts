@@ -22,6 +22,8 @@ export const Billing = z.strictObject({
 });
 export type Billing = z.input<typeof Billing>;
 export type Capabilities = {
+  /** Absent uses the harness descriptor; false explicitly disables its bridge. */
+  workspaceTools?: boolean;
   approvals: boolean;
   questions: boolean;
   resume: boolean;

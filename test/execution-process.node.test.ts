@@ -926,16 +926,26 @@ test(
     process.kill(answering.pid, "SIGKILL");
     const lost = await answer;
     assert.equal(lost.status, 503);
-    await until(
-      () =>
-        owner(dir).generation !== answering.generation &&
+    const readySignal = AbortSignal.timeout(20_000);
+    await until(async () => {
+      if (
+        owner(dir).generation === answering.generation ||
         (
           db!
             .prepare("SELECT state FROM native_decisions WHERE id=?")
             .get(decision.id) as any
-        ).state === "unknown",
-      20_000,
-    );
+        ).state !== "unknown"
+      )
+        return false;
+      // Restoration writes precede public RPC readiness. Check it with a
+      // read-only request before the same-ID reconciliation assertion.
+      const status = await fetch(origin + "/api/workspace", {
+        headers: { cookie },
+        signal: readySignal,
+      });
+      await status.arrayBuffer();
+      return status.ok;
+    }, 20_000);
     const retry = await raw(`/native/decisions/${decision.id}`, {
       commandId,
       answer: { choice: "decline" },
