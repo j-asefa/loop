@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WorkspaceFrameV3 } from "../shared/workspace-events";
 import {
   ConversationId,
   RunId,
@@ -16,7 +17,7 @@ import { viewGeneration } from "./viewCache";
 
 export interface WorkspaceSocket {
   readonly readyState: number;
-  onmessage: ((event: MessageEvent) => void) | null;
+  onmessage: ((event: MessageEvent<string | WorkspaceFrameV3>) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
   onerror: ((event: Event) => void) | null;
   close(): void;
@@ -129,7 +130,7 @@ class MultiplexTransport {
           source.epoch = WorkspaceEpochId.parse(packet.frame.epoch);
           source.cursor = packet.frame.cursor;
           source.onmessage?.(
-            new MessageEvent("message", { data: JSON.stringify(packet.frame) }),
+            new MessageEvent("message", { data: packet.frame }),
           );
         }
       } catch {
