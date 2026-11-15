@@ -1,3 +1,4 @@
+import type { RunExecutor } from "../src/server/run-outcome.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9,7 +10,9 @@ import { randomBytes } from "node:crypto";
 // vi.resetModules(), so a second case here would drive its worker against the
 // first case's database.
 
-const { executeAgent } = vi.hoisted(() => ({ executeAgent: vi.fn() }));
+const { executeAgent } = vi.hoisted(() => ({
+  executeAgent: vi.fn<RunExecutor>().mockResolvedValue({ kind: "finished" }),
+}));
 vi.mock("../src/server/agent-runtime", async (original) => ({
   ...(await original<any>()),
   executeAgent,

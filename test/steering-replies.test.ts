@@ -214,7 +214,7 @@ it("publishes from the API runtime without finishing the task and keeps replies 
     },
   });
   try {
-    expect(await executeAgent(f.run)).toBe(true);
+    expect(await executeAgent(f.run)).toMatchObject({ kind: "finished" });
   } finally {
     restore();
   }
@@ -501,7 +501,7 @@ it("returns reply validation errors to the API model so it can correct them and 
     },
   });
   try {
-    expect(await executeAgent(f.run)).toBe(true);
+    expect(await executeAgent(f.run)).toMatchObject({ kind: "finished" });
   } finally {
     restore();
   }

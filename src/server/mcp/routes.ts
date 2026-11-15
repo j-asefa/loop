@@ -1,3 +1,8 @@
+import {
+  runBoundary,
+  pendingToolOutcome,
+  type RunOutcome,
+} from "../run-outcome.js";
 import { RunPayload } from "../../shared/run-payload.js";
 import { artifactDisplayMetadata } from "../../shared/artifact-metadata.js";
 import * as mcpConnectionsQueries from "../sql/mcp-connections.js";
@@ -18,12 +23,11 @@ import {
   ownedAgent,
   ownedFolder,
   ownedArtifact,
-  ownedRun,
   Problem,
   requireOwned,
 } from "../domain.js";
 import { seal } from "../secrets.js";
-import { enqueue, transition, type Run } from "../queue.js";
+import { enqueue, type Run } from "../queue.js";
 import {
   authorize,
   discover,
@@ -295,7 +299,7 @@ routes.on(workspaceApi.artifactRefresh, (req, res) => {
     ),
   );
 });
-export async function executeMcp(run: Run) {
+export async function executeMcp(run: Run): Promise<RunOutcome> {
   const p = z
       .object({
         tool: z.string().min(1),
@@ -315,7 +319,7 @@ export async function executeMcp(run: Run) {
       "manual-call",
       p.arguments,
     );
-  if ("pending" in out) return false;
+  if ("pending" in out) return pendingToolOutcome(run);
   runsQueries.setResult(
     db,
     JSON.stringify({ artifactId: out.artifactId }),
@@ -323,13 +327,11 @@ export async function executeMcp(run: Run) {
   );
   if (out.result.isError === true)
     throw new Problem(422, "Tool error: " + toolErrorMessage(out.result));
-  const state = ownedRun(run.id, run.owner_id).state;
-  if (state === "pausing") {
-    // A concurrent stop may refuse this pause; execution stops either way.
-    transition(run, "paused");
-    return false;
-  }
-  return true;
+  const boundary = runBoundary(run);
+  // Preserve the manual MCP path: cancellation is handled by the broker and
+  // completion lease guard; only a requested pause stops here.
+  if (boundary.kind === "paused") return boundary;
+  return { kind: "finished" };
 }
 
 routes.on(workspaceApi.artifactApp, (req, res) => {

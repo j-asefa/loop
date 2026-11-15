@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -273,7 +274,10 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
     for (const parent of parents) {
       const run = claim("manager")!;
       expect(run?.id).toBe(parent.id);
-      expect(await executeAgent(run)).toBe(false);
+      expect(await settleRun(executeAgent, run)).toMatchObject({
+        kind: "atomic",
+        reason: "delegation-wait",
+      });
     }
     transition(ordinary[0], "paused");
     const first = claim("child-one");
@@ -286,17 +290,17 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
       new Set([a.id, b.id]),
     );
     expect(claim("blocked")).toBeUndefined();
-    expect(await executeAgent(first!)).toBe(true);
+    expect(await executeAgent(first!)).toMatchObject({ kind: "finished" });
     transition(first!, "completed");
     // The first parent may now resume, but its agent still has the other
     // team's child running. Enqueue order must not permit a second lease.
     expect(claim("still-blocked")).toBeUndefined();
-    expect(await executeAgent(second!)).toBe(true);
+    expect(await executeAgent(second!)).toMatchObject({ kind: "finished" });
     transition(second!, "completed");
     for (const expected of [...parents, ...ordinary]) {
       const run = claim("finish")!;
       expect(run?.id).toBe(expected.id);
-      expect(await executeAgent(run)).toBe(true);
+      expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
       transition(run, "completed");
     }
     expect(

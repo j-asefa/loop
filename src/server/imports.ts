@@ -1,3 +1,4 @@
+import { runBoundary, type RunOutcome } from "./run-outcome.js";
 import {
   MessageMetadata,
   writeMessageMetadata,
@@ -9,11 +10,10 @@ import * as handlesQueries from "./sql/handles.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import * as importMessagesQueries from "./sql/import-messages.js";
 import * as artifactsQueries from "./sql/artifacts.js";
-import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
 
 import { z } from "zod";
-import { transition, type Run } from "./queue.js";
+import { type Run } from "./queue.js";
 import yauzl from "yauzl";
 import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
@@ -340,7 +340,7 @@ export async function stageImport(owner: string, bytes: Buffer, name: string) {
     return { id: job, provider: parsed.provider, status: "preview", summary };
   });
 }
-export async function executeImport(run: Run) {
+export async function executeImport(run: Run): Promise<RunOutcome> {
   const importId = z.string().min(1).parse(run.payload.importId);
   const job = ownedImport(importId, run.owner_id),
     summary = JSON.parse(job.summary);
@@ -367,21 +367,25 @@ export async function executeImport(run: Run) {
     });
   }
   for (let index = 0; index < parsed.conversations.length; index++) {
-    const state = runsQueries.state(db, run.id)!.state;
-    if (state === "pausing") {
-      writeImports(run.owner_id, () => {
-        // Cancellation can win between the boundary read and this transaction.
-        if (transition(run, "paused")) importsQueries.markPaused(db, importId);
-        else if (runsQueries.state(db, run.id)?.state === "cancelled")
-          importsQueries.markCancelled(db, importId);
-      });
-      return false;
+    const boundary = runBoundary(run);
+    if (boundary.kind === "paused") {
+      return {
+        kind: "atomic",
+        reason: "import-pause",
+        settle: (apply) =>
+          writeImports(run.owner_id, () => {
+            // Cancellation can win between the boundary read and this transaction.
+            if (apply(boundary)) importsQueries.markPaused(db, importId);
+            else if (runBoundary(run).kind === "cancelled")
+              importsQueries.markCancelled(db, importId);
+          }),
+      };
     }
-    if (state === "cancelled") {
+    if (boundary.kind === "cancelled") {
       writeImports(run.owner_id, () =>
         importsQueries.markCancelled(db, importId),
       );
-      return false;
+      return boundary;
     }
     const c = parsed.conversations[index];
     writeImports(run.owner_id, () => {
@@ -511,5 +515,5 @@ export async function executeImport(run: Run) {
     });
   }
   writeImports(run.owner_id, () => importsQueries.markCompleted(db, importId));
-  return undefined;
+  return { kind: "finished" };
 }

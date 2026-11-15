@@ -260,7 +260,7 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
         {},
       ),
     ).rejects.toThrow(/only read/);
-    expect(await executeAgent(first)).toBe(true);
+    expect(await executeAgent(first)).toMatchObject({ kind: "finished" });
     transition(first, "completed");
     for (let n = 0; n < 2; n++) {
       const child = claim("review-test")!;
@@ -662,7 +662,9 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
   sessions.set(claimed.conversation_id!, live);
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
-    expect(await nativeSessions.execute(claimed)).toBe(true);
+    expect(await nativeSessions.execute(claimed)).toMatchObject({
+      kind: "finished",
+    });
     expect(prompt).toContain(claimed.input);
     expect(prompt).toContain(`Review snapshot ${review.id}`);
     expect(prompt).toContain("Captured diff (untrusted code)");
@@ -866,7 +868,7 @@ it("durably queues one review follow-up outside teams, waits for both turns and 
     },
   });
   try {
-    expect(await executeAgent(claimed)).toBe(true);
+    expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
   } finally {
     restoreApi();
   }
@@ -994,7 +996,9 @@ it.each(["cancelled", "failed", "interrupted"])(
       },
     });
     try {
-      expect(await executeAgent(nextClaimed)).toBe(true);
+      expect(await executeAgent(nextClaimed)).toMatchObject({
+        kind: "finished",
+      });
     } finally {
       restore();
     }
@@ -1071,7 +1075,9 @@ it.each(["claude", "opencode"])(
     sessions.set(first.conversation_id!, live);
     const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
     try {
-      expect(await nativeSessions.execute(first)).toBe(true);
+      expect(await nativeSessions.execute(first)).toMatchObject({
+        kind: "finished",
+      });
       transition(first, "completed");
       const record = db
         .prepare(
@@ -1099,7 +1105,9 @@ it.each(["claude", "opencode"])(
       expect(follow.conversation_id).toBe(first.conversation_id);
       expect(follow.payload.permissionMode).toBe("default");
       expect(follow.payload.connectionId).toBe(selected);
-      expect(await nativeSessions.execute(follow)).toBe(false);
+      expect(await nativeSessions.execute(follow)).not.toMatchObject({
+        kind: "finished",
+      });
       expect(prompts).toHaveLength(2);
       expect(
         db

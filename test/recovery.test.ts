@@ -320,7 +320,8 @@ it("pauses a run from its current lease, not the request's earlier read", async 
 });
 
 it("completes only under the worker's lease and keeps a pause that arrived after the last boundary", async () => {
-  const { completeLeased } = await import("../src/server/queue");
+  const { applyRunOutcome } = await import("../src/server/worker");
+  const { runBoundary } = await import("../src/server/run-outcome");
   const { controlRun } = await import("../src/server/run-attention");
   const a = createAgent("alice", {
     name: "complete-lease-agent",
@@ -344,7 +345,7 @@ it("completes only under the worker's lease and keeps a pause that arrived after
   // the worker records completion.
   const saved = lease("complete-lease-saved", "The answer");
   transition(saved, "pausing");
-  expect(completeLeased(saved, "w1")).toBe(true);
+  expect(applyRunOutcome(saved, "w1", { kind: "finished" })).toBe(true);
   expect(state(saved)).toBe("paused");
   controlRun("alice", saved.id, "resume");
   expect(state(saved)).toBe("completed");
@@ -352,14 +353,110 @@ it("completes only under the worker's lease and keeps a pause that arrived after
   // until stale-lease recovery reports it interrupted.
   const unsaved = lease("complete-lease-unsaved", null);
   transition(unsaved, "pausing");
-  expect(completeLeased(unsaved, "w1")).toBe(true);
+  expect(applyRunOutcome(unsaved, "w1", { kind: "finished" })).toBe(true);
   expect(state(unsaved)).toBe("completed");
   // A worker whose lease was replaced cannot finish the run.
   const replaced = lease("complete-lease-replaced", "Late");
   db.prepare("UPDATE runs SET worker_id='w2' WHERE id=?").run(replaced.id);
-  expect(completeLeased(replaced, "w1")).toBe(false);
+  expect(applyRunOutcome(replaced, "w1", { kind: "finished" })).toBe(false);
   expect(state(replaced)).toBe("running");
   transition(replaced, "cancelled");
+  const { RunState } = await import("../src/shared/run-state");
+  for (const stored of RunState.options) {
+    const r = lease("boundary-" + stored, null);
+    db.prepare("UPDATE runs SET state=? WHERE id=?").run(stored, r.id);
+    expect(runBoundary(r)).toEqual(
+      stored === "pausing"
+        ? { kind: "paused" }
+        : stored === "cancelled"
+          ? { kind: "cancelled" }
+          : { kind: "continue", state: stored },
+    );
+    transition(r, "cancelled");
+  }
+  const cases: [
+    import("../src/server/run-outcome").RunOutcome,
+    string,
+    string,
+  ][] = [
+    [{ kind: "finished" }, "running", "completed"],
+    [{ kind: "paused", message: "boundary fixture" }, "pausing", "paused"],
+    [{ kind: "paused" }, "cancelled", "cancelled"],
+    [{ kind: "cancelled" }, "cancelled", "cancelled"],
+    [
+      { kind: "waiting", reason: "approval" },
+      "awaiting_approval",
+      "awaiting_approval",
+    ],
+    [{ kind: "waiting", reason: "children" }, "running", "running"],
+    [{ kind: "waiting", reason: "pending-tool" }, "running", "running"],
+    ...(
+      [
+        "native-not-running",
+        "native-terminal-race",
+        "native-failed",
+        "native-interrupted",
+        "native-not-delivered",
+        "native-uncertain",
+      ] as const
+    ).map(
+      (
+        reason,
+      ): [import("../src/server/run-outcome").RunOutcome, string, string] => [
+        { kind: "already-moved", reason },
+        "interrupted",
+        "interrupted",
+      ],
+    ),
+    [
+      {
+        kind: "atomic",
+        reason: "import-pause",
+        settle: (apply) => {
+          db.transaction(() => {
+            expect(apply({ kind: "paused" })).toBe(true);
+            expect(db.inTransaction).toBe(true);
+          }).immediate();
+        },
+      },
+      "pausing",
+      "paused",
+    ],
+  ];
+  for (const [index, [outcome, before, after]] of cases.entries()) {
+    const r = lease("outcome-" + index, null);
+    const worker =
+      outcome.kind === "waiting" && outcome.reason === "children" ? null : "w1";
+    db.prepare("UPDATE runs SET state=?,worker_id=? WHERE id=?").run(
+      before,
+      worker,
+      r.id,
+    );
+    const events = () =>
+      db
+        .prepare(
+          "SELECT type,payload FROM events WHERE run_id=? ORDER BY rowid",
+        )
+        .all(r.id)
+        .filter(
+          (event) =>
+            RunState.safeParse((event as { type: string }).type).success,
+        );
+    const count = events().length;
+    applyRunOutcome(r, "w1", outcome);
+    expect(state(r)).toBe(after);
+    expect(
+      db.prepare("SELECT worker_id FROM runs WHERE id=?").get(r.id),
+    ).toEqual({ worker_id: worker });
+    expect(events()).toHaveLength(count + (before === after ? 0 : 1));
+    if (before !== after)
+      expect(events().at(-1)).toMatchObject({ type: after });
+    if (outcome.kind === "paused" && outcome.message)
+      expect(
+        JSON.parse((events().at(-1) as { payload: string }).payload),
+      ).toEqual({ message: outcome.message });
+    transition(r, "cancelled");
+  }
 });
 
 it("refuses to pause a native run a worker claimed after the request read it", async () => {

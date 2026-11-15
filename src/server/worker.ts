@@ -1,3 +1,4 @@
+import type { RunExecutor, RunOutcome } from "./run-outcome.js";
 import {
   startMaintenance,
   reconcileWorkerCheckouts,
@@ -43,11 +44,12 @@ import {
 } from "./execution-ownership.js";
 const workerId = executionGeneration() ?? id();
 export async function tick(
-  execute: (run: Run) => Promise<void | boolean> = async (run) => {
+  execute: RunExecutor = async (run) => {
     if (run.kind !== "diagnostic") throw new Error("Run type is not installed");
     emit(run.owner_id, run.id, "progress", {
       message: "Durable worker received the record",
     });
+    return { kind: "finished" };
   },
   accepting: () => boolean = () => true,
 ) {
@@ -90,8 +92,7 @@ export async function tick(
     RUN_HEARTBEAT_MS,
   );
   try {
-    const complete = await execute(run);
-    if (complete !== false) completeLeased(run, workerId);
+    applyRunOutcome(run, workerId, await execute(run));
   } catch (error) {
     if (error instanceof RunDeferred && deferUndispatched(run, workerId))
       return true;
@@ -151,12 +152,36 @@ export async function tick(
   }
   return true;
 }
-export async function execute(run: Run) {
+export function applyRunOutcome(
+  run: Run,
+  worker: string,
+  outcome: RunOutcome,
+): boolean {
+  switch (outcome.kind) {
+    case "finished":
+      return completeLeased(run, worker);
+    case "paused":
+      // A concurrent terminal transition still wins a refused pause.
+      return transition(
+        run,
+        "paused",
+        outcome.message ? { message: outcome.message } : {},
+      );
+    case "atomic":
+      outcome.settle((next) => applyRunOutcome(run, worker, next));
+      return false;
+    case "cancelled":
+    case "waiting":
+    case "already-moved":
+      return false;
+  }
+}
+export async function execute(run: Run): Promise<RunOutcome> {
   if (run.kind === "diagnostic") {
     emit(run.owner_id, run.id, "progress", {
       message: "Durable worker received the record",
     });
-    return;
+    return { kind: "finished" };
   }
   if (run.kind === "mcp") return executeMcp(run);
   if (run.kind === "import") return executeImport(run);

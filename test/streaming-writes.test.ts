@@ -109,7 +109,7 @@ it("keeps the result live while deferring its indexes until completion", async (
   // As the worker does: a finished execution completes the run, which publishes.
   vi.useFakeTimers();
   try {
-    expect(await executeAgent(run)).toBe(true);
+    expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
   } finally {
     vi.useRealTimers();
   }

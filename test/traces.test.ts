@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -124,7 +125,9 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(false);
+    expect(await settleRun(executeAgent, run)).toMatchObject({
+      kind: "paused",
+    });
     expect(db.prepare("SELECT state FROM runs WHERE id=?").get(run.id)).toEqual(
       { state: "paused" },
     );
@@ -142,7 +145,7 @@ it("continues beyond seven rounds through pause/resume and publishes only the fi
     transition(run, "queued");
     const resumed = claim("resumed-worker")!;
     expect(resumed.id).toBe(submitted.id);
-    expect(await executeAgent(resumed)).toBe(true);
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
     transition(resumed, "completed");
     expect(
       db.prepare("SELECT result FROM runs WHERE id=?").get(run.id),
@@ -343,7 +346,9 @@ it("keeps cancellation effective after the old round limit", async () => {
     },
   });
   try {
-    expect(await executeAgent(claimed)).toBe(false);
+    expect(await settleRun(executeAgent, claimed)).toMatchObject({
+      kind: "cancelled",
+    });
     expect((await get("/results?agent=" + a.id)).items).toEqual([]);
   } finally {
     restore();

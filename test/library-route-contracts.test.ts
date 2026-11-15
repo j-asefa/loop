@@ -655,7 +655,7 @@ it("conversationContinueStart dispatches the first prompt with selected context 
     },
   });
   try {
-    expect(await executeAgent(dispatched)).toBe(true);
+    expect(await executeAgent(dispatched)).toMatchObject({ kind: "finished" });
   } finally {
     restoreStream();
   }

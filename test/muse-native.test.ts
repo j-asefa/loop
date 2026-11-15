@@ -151,7 +151,7 @@ it("records a model reported during startup on the native-default run and catalo
   const claimed = claim("muse-fixture", (run) => run.id === task.id)!;
   // Muse reports its model while the session starts, before the turn is
   // attached; the run still records it.
-  if ((await sessions.execute(claimed)) !== false)
+  if ((await sessions.execute(claimed)).kind === "finished")
     transition(claimed, "completed");
   const payload = JSON.parse(
     (

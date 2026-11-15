@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -280,7 +281,10 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
     });
     const parent = claim("manager-worker")!;
     expect(parent.id).toBe(submitted.id);
-    expect(await executeAgent(parent)).toBe(false);
+    expect(await settleRun(executeAgent, parent)).toMatchObject({
+      kind: "atomic",
+      reason: "delegation-wait",
+    });
     expect(
       (
         db
@@ -302,12 +306,12 @@ it("runs worker tasks, resumes the manager with results, and filters team feeds 
     );
     expect(claim("cannot-resume")).toBeUndefined();
     for (const child of [a, b]) {
-      expect(await executeAgent(child)).toBe(true);
+      expect(await executeAgent(child)).toMatchObject({ kind: "finished" });
       transition(child, "completed");
     }
     const resumed = claim("manager-resume")!;
     expect(resumed.id).toBe(parent.id);
-    expect(await executeAgent(resumed)).toBe(true);
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
     transition(resumed, "completed");
     expect(
       db
@@ -404,7 +408,10 @@ it("avoids cross-team manager deadlocks and cancels only the selected team's chi
     for (let i = 0; i < 2; i++) {
       const parent = claim("manager-" + i)!;
       parents.push(parent);
-      expect(await executeAgent(parent)).toBe(false);
+      expect(await settleRun(executeAgent, parent)).toMatchObject({
+        kind: "atomic",
+        reason: "delegation-wait",
+      });
     }
     const children = [
       claim("reciprocal-worker-a")!,
@@ -431,11 +438,11 @@ it("avoids cross-team manager deadlocks and cancels only the selected team's chi
       ).state,
     ).toBe("cancelled");
     const remaining = children.find((c) => c.id === childFor(parents[1].id))!;
-    expect(await executeAgent(remaining)).toBe(true);
+    expect(await executeAgent(remaining)).toMatchObject({ kind: "finished" });
     transition(remaining, "completed");
     const resumed = claim("reciprocal-resume")!;
     expect(resumed.id).toBe(parents[1].id);
-    expect(await executeAgent(resumed)).toBe(true);
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
     transition(resumed, "completed");
   } finally {
     restore();

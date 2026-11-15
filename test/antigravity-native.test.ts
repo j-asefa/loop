@@ -234,7 +234,9 @@ it.each(["disconnect", "WAITING"])(
     )!;
     expect(claimed?.id).toBe(run.id);
     const before = requests().filter((r) => r.event === "user").length;
-    expect(await sessions.execute(claimed)).toBe(false);
+    expect(await sessions.execute(claimed)).not.toMatchObject({
+      kind: "finished",
+    });
     expect(ownedRun(run.id, OWNER).state).toBe("failed");
     const receipt = db
       .prepare(
@@ -282,7 +284,10 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
       () => requests().filter((r) => r.event === "user").length === before + 1,
     );
     if (mode === "cancel") await sessions.interrupt(run.id);
-    expect(await execution).toBe(false);
+    expect(await execution).toMatchObject({
+      kind: "already-moved",
+      reason: mode === "WAITING" ? "native-failed" : "native-interrupted",
+    });
     expect(ownedRun(run.id, OWNER).state).toBe(
       mode === "WAITING" ? "failed" : "interrupted",
     );
@@ -311,7 +316,7 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
       await sessions.execute(
         claim("antigravity-fixture", (candidate) => candidate.id === next.id)!,
       ),
-    ).toBe(true);
+    ).toMatchObject({ kind: "finished" });
     const log = requests();
     const exited = log.findIndex(
       (r) => r.event === "fixture-exit" && r.pid === originalPid,
