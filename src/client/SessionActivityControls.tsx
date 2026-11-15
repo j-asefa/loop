@@ -13,7 +13,7 @@ import {
   useSourceOperation,
   useSourceId,
   useSourceRoute,
-  useSourceRouteRead,
+  useProjectionRoute,
 } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -40,10 +40,11 @@ export function SessionActivityControls({
   const conversationId = ConversationId.parse(rawConversationId);
   const call = useSourceRoute();
   const unavailable = useSourceOperation(workspaceApi.setting);
-  const read = useSourceRouteRead();
-  const readController = useRef<AbortController | null>(null);
   const sourceId = useSourceId();
   const [open, setOpen] = useState(false);
+  const read = useProjectionRoute({
+    key: JSON.stringify([open, conversationId]),
+  });
   const [data, setData] = useState<Controls>();
   const [pending, setPending] = useState<{ id: string; value: SettingValue }>();
   const [error, setError] = useState("");
@@ -85,16 +86,13 @@ export function SessionActivityControls({
     };
   }
   async function refresh() {
-    const controller = readController.current;
-    if (writing.current || !controller || controller.signal.aborted) return;
+    if (writing.current || !open) return;
     const own = epoch.current,
       request = ++ticket.current;
     try {
-      const response = await read(
-        workspaceApi.session,
-        { params: { id: conversationId } },
-        controller.signal,
-      );
+      const response = await read(workspaceApi.session, {
+        params: { id: conversationId },
+      });
       const next: Controls =
         response.state !== "disconnected" &&
         response.capabilities.settings.state === "supported"
@@ -137,8 +135,6 @@ export function SessionActivityControls({
     setInspecting(false);
     writing.current = false;
     if (!open) return;
-    const controller = new AbortController();
-    readController.current = controller;
     void refresh();
     const update = () => void refresh();
     const stopChanges = listenWorkspaceChanges(
@@ -149,8 +145,6 @@ export function SessionActivityControls({
     );
     return () => {
       epoch.current++;
-      controller.abort();
-      readController.current = null;
       stopChanges();
     };
   }, [open, conversationId, sourceId, read]);
