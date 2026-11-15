@@ -90,7 +90,7 @@ export function Approvals({
   const refresh = useCallback(
     (manual = false) =>
       load(
-        (signal, _mode, reportRetry) =>
+        (signal, mode, reportRetry) =>
           readContract(
             workspaceApi.approvals,
             { query: { teams } },
@@ -100,6 +100,7 @@ export function Approvals({
                 failure,
                 isRateLimited(failure) ? "" : (failure as Error).message,
               ),
+            mode,
           ),
         (fresh) =>
           setSnapshot({
