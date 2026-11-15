@@ -9,13 +9,13 @@ export async function threadLayoutSmoke(page, capture) {
   // Pair the page with this fixture (cookies ignore ports).
   await fixture.pair(page.context());
   const usagePattern = /\/api\/conversations\/[^/]+\/usage$/;
-  let omittedMemory = 0;
-  const olderUsage = async (route) => {
+  let emptyMemoryReads = 0;
+  const withoutMemory = async (route) => {
     const response = await route.fetch();
     const data = await response.json();
     assert(Array.isArray(data.memory));
-    delete data.memory;
-    omittedMemory++;
+    data.memory = [];
+    emptyMemoryReads++;
     await route.fulfill({ response, json: data });
   };
   try {
@@ -45,7 +45,7 @@ export async function threadLayoutSmoke(page, capture) {
         usageRun,
       ),
     );
-    await page.route(usagePattern, olderUsage);
+    await page.route(usagePattern, withoutMemory);
     const first = fixture.db
       .prepare(
         "SELECT id FROM messages WHERE conversation_id=? ORDER BY created_at LIMIT 1",
@@ -96,7 +96,7 @@ export async function threadLayoutSmoke(page, capture) {
           await expect(notice).toHaveCount(0);
           await expect(usage).toHaveText("1.2k in · 300 out tokens");
         }
-        assert(omittedMemory > 0);
+        assert(emptyMemoryReads > 0);
         await expect(
           page.getByText("Memory used", { exact: true }),
         ).toHaveCount(0);
