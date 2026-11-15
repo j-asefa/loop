@@ -361,16 +361,12 @@ async function requestInWorkspace<T>({
       nextDeadline: next === "null" ? null : Number(next),
     });
     if (clock.success)
-      window.dispatchEvent(
-        new CustomEvent("loop-workspace-clock", {
-          detail: {
-            source: decodeURIComponent(destination),
-            generation,
-            requestId,
-            clock: clock.data,
-          },
-        }),
-      );
+      emitClientEvent("loop-workspace-clock", {
+        source: decodeURIComponent(destination),
+        generation,
+        requestId,
+        clock: clock.data,
+      });
   }
   return data;
 }

@@ -1,4 +1,32 @@
+import type {
+  WorkspaceClock,
+  WorkspaceFrameV3,
+} from "../shared/workspace-events";
+
+export type WorkspaceFrame =
+  | WorkspaceFrameV3
+  // A clock observed over HTTP can reset a replaced source, but cannot
+  // identify that deployment's build.
+  | (Omit<
+      Extract<WorkspaceFrameV3, { type: "reset" }>,
+      "build" | "buildIdentity"
+    > & {
+      build?: undefined;
+      buildIdentity?: undefined;
+    });
+
 export type ClientEvents = {
+  "loop-workspace-clock": {
+    source: string;
+    generation: number;
+    requestId?: number;
+    clock: WorkspaceClock;
+  };
+  "loop-workspace-frame": {
+    source: string;
+    generation: number;
+    frame: WorkspaceFrame;
+  };
   "loop-open-pull": string;
   "loop-tools-closed": undefined;
   "loop-pr-watch-change": undefined;
