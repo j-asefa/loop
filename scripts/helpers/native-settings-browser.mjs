@@ -55,10 +55,21 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     mode.mutable && mode.choices.some((choice) => choice.value === "plan"),
   );
   assert.notEqual(mode.confirmed, "plan");
-  const ids = [];
+  const ids = [],
+    payloads = [];
   const observe = (request) => {
-    if (request.method() === "PATCH" && request.url().endsWith(path + "/mode"))
-      ids.push(request.postDataJSON().commandId);
+    if (
+      request.method() === "PATCH" &&
+      request.url().endsWith(path + "/mode")
+    ) {
+      const body = request.postDataJSON();
+      ids.push(body.commandId);
+      payloads.push({
+        generation: body.generation,
+        revision: body.revision,
+        value: body.value,
+      });
+    }
   };
   page.on("request", observe);
   const seed = async (route) => {
@@ -96,6 +107,32 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       exact: true,
     });
     const select = settings.getByLabel(mode.label || "mode", { exact: true });
+    await page.evaluate(() => {
+      const write = Storage.prototype.setItem;
+      window.__restoreSettingCommandStorage = () => {
+        Storage.prototype.setItem = write;
+        delete window.__restoreSettingCommandStorage;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("loop-effect:"))
+          throw new DOMException(
+            "Fixture storage denied",
+            "QuotaExceededError",
+          );
+        return write.call(this, key, value);
+      };
+    });
+    await select.selectOption("plan");
+    await expect(settings.getByRole("alert")).toContainText(
+      "Cannot save this change's identity; nothing was sent.",
+    );
+    assert.equal(
+      ids.length,
+      0,
+      "Storage failure must prevent setting dispatch",
+    );
+    await expect(select).toHaveValue(mode.confirmed);
+    await page.evaluate(() => window.__restoreSettingCommandStorage());
     for (let i = 0; i < 3; i++) {
       if (i === 2) {
         await page.reload();
@@ -108,6 +145,11 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       }
       await select.selectOption("plan");
       await expect.poll(() => ids.length).toBe(i + 1);
+      assert.deepEqual(
+        payloads[i],
+        payloads[0],
+        "Receipt recovery must keep the same setting payload",
+      );
       assert.equal(
         ids[i],
         ids[0],
@@ -159,6 +201,8 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     );
     await settings.getByRole("button", { name: "Close", exact: true }).click();
   } finally {
+    if (!page.isClosed())
+      await page.evaluate(() => window.__restoreSettingCommandStorage?.());
     page.off("request", observe);
     await page.unroute("**/api" + path + "/mode", seed);
     delete process.env.LOOP_TEST_SETTING_AUDIT;
