@@ -55,6 +55,7 @@ import { showLater } from "../Later";
 import { useLongPress, type ScheduledSend } from "../ThreadTools";
 import { notify } from "../toast";
 import {
+  appendDraftText,
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
@@ -441,9 +442,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   function askAboutPull(text: string) {
     setReplyContext(null);
     setContextArtifact(null);
-    setDraft((current) =>
-      current.trim() ? current.trimEnd() + "\n\n" + text : text,
-    );
+    setDraft((current) => appendDraftText(current, text));
     focusComposer();
   }
   // A PR card's "Open in Pull requests" leaves its thread for the tab.
@@ -518,7 +517,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     );
     const merged = [...current.files, ...added].slice(0, MAX_MESSAGE_FILES);
     return {
-      text: current.text.trim() ? `${current.text.trimEnd()}\n\n${text}` : text,
+      text: appendDraftText(current.text, text),
       files: merged,
       dropped: current.files.length + added.length - merged.length,
     };
@@ -571,9 +570,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Cancellation has already succeeded. Preserve every returned attachment,
     // even if newer edits filled the draft while the response was in flight.
     const next = {
-      text: current.text.trim()
-        ? `${current.text.trimEnd()}\n\n${held.input}`
-        : held.input,
+      text: appendDraftText(current.text, held.input),
       files: [
         ...current.files,
         ...held.attachments.filter(
