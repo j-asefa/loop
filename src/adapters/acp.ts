@@ -57,6 +57,10 @@ const SETTING_FAILURE =
   "ACP agent rejected the setting. Check the agent's local login and logs, then refresh settings and retry.";
 class SafeAcpError extends Error {}
 const compact = (value: string) => value.replace(/\s+/g, "");
+// agy echoes a prompt within a second of receiving it.
+const ECHO_WAIT = 5000;
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 const text = (value: unknown) =>
   typeof value === "string" ? value.slice(0, 64_000) : "";
 async function within<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -123,6 +127,11 @@ export class Acp implements Adapter {
   private openPrompts = 0;
   private turnUsage?: { input_tokens: number; output_tokens: number };
   private echo?: { expected: string; seen: string; resolve(): void };
+  /** Settles when the agent echoes the turn's own prompt, so that echo can
+   * never be taken for a steering input's. */
+  private promptEchoed: Promise<void> = Promise.resolve();
+  private promptEcho?: () => void;
+  private steering = false;
   private advertised!: () => void;
   private end!: () => void;
   /** Settles when the agent process exits or the session is disposed. */
@@ -423,6 +432,9 @@ export class Acp implements Adapter {
     this.terminalReported = false;
     this.messageId = randomUUID();
     this.turnUsage = undefined;
+    this.promptEchoed = new Promise((resolve) => {
+      this.promptEcho = resolve;
+    });
     void this.send(value).catch(() => {});
   }
   /** Sends one prompt request in the current turn. Only the last open request
@@ -517,6 +529,9 @@ export class Acp implements Adapter {
    * that echo, or by the request ending the turn normally; until the request
    * is written nothing was delivered (NotDelivered). The agent refuses a
    * prompt while an approval is open, so steering waits for the answer.
+   * The echo must be a complete user message equal to `echo` and must follow
+   * the turn's own prompt echo, which steering waits for (briefly) first. An
+   * empty expected echo cannot be told apart, so only the request confirms it.
    */
   protected async steerPrompt(
     value: string,
@@ -529,11 +544,34 @@ export class Acp implements Adapter {
       throw new NotDelivered("No running ACP turn to steer.");
     if (this.permissions.size)
       throw new NotDelivered("Answer the open approval before steering.");
-    if (this.pendingSettingWrites || this.echo)
+    if (this.pendingSettingWrites || this.echo || this.steering)
+      throw new NotDelivered("ACP session is busy.");
+    this.steering = true;
+    try {
+      await Promise.race([this.promptEchoed, this.ended, wait(ECHO_WAIT)]);
+      await this.dispatchSteer(value, compact(echo), beforeDispatch);
+    } finally {
+      this.steering = false;
+    }
+  }
+  private async dispatchSteer(
+    value: string,
+    expected: string,
+    beforeDispatch?: () => void,
+  ) {
+    // Recheck after waiting: the turn, an approval or the session may have
+    // changed, and nothing has been sent yet.
+    if (this.closed || !this.connection || !this.session)
+      throw new NotDelivered("ACP session is unavailable.");
+    if (!this.active || this.cancelling || this.terminalReported)
+      throw new NotDelivered("No running ACP turn to steer.");
+    if (this.permissions.size)
+      throw new NotDelivered("Answer the open approval before steering.");
+    if (this.pendingSettingWrites)
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     const echoed = new Promise<void>((resolve) => {
-      this.echo = { expected: compact(echo), seen: "", resolve };
+      if (expected) this.echo = { expected, seen: "", resolve };
     });
     const settled = this.send(value).then((result) => {
       if (result.stopReason === "cancelled")
@@ -895,9 +933,17 @@ export class Acp implements Adapter {
       return;
     if (u.sessionUpdate === "user_message_chunk") {
       const echo = this.echo;
+      if (!echo) this.promptEcho?.();
       if (echo && !this.loading && u.content.type === "text") {
-        echo.seen += compact(u.content.text);
-        if (echo.seen.includes(echo.expected)) {
+        // Chunks of one message arrive in order. A chunk that cannot extend
+        // the expected text starts another message.
+        const chunk = compact(u.content.text);
+        echo.seen = echo.expected.startsWith(echo.seen + chunk)
+          ? echo.seen + chunk
+          : echo.expected.startsWith(chunk)
+            ? chunk
+            : "";
+        if (echo.seen === echo.expected) {
           // The agent took the steering input; its answer is a new message.
           this.echo = undefined;
           this.messageId = randomUUID();

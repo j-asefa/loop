@@ -168,6 +168,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/set_model":
       return reply(req.id, {});
     case "session/set_config_option":
+      if (mode === "config-hang") return;
       if (req.params.configId === "thought_level") effort = req.params.value;
       return reply(req.id, { configOptions: session(sessionId).configOptions });
     case "session/close":
@@ -178,11 +179,17 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const text = req.params.prompt[0].text;
       if (open.length) {
         // A prompt during a running turn steers it.
-        if (mode === "reject-steer")
-          return send({
-            id: req.id,
-            error: { code: -32603, message: "private-credential-fixture" },
-          });
+        if (mode === "reject-steer" || mode === "late-echo-reject-steer") {
+          const reject = () =>
+            send({
+              id: req.id,
+              error: { code: -32603, message: "private-credential-fixture" },
+            });
+          // The late variant rejects only after the prompt's echo arrived.
+          if (mode === "late-echo-reject-steer") setTimeout(reject, 600);
+          else reject();
+          return;
+        }
         const earlier = open.splice(0);
         for (const request of earlier)
           reply(request.id, { stopReason: "end_turn", usage: usage(10, 2) });
@@ -200,10 +207,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       }
       turn++;
       open.push({ id: req.id, steer: false });
-      update(sessionId, {
-        sessionUpdate: "user_message_chunk",
-        content: { type: "text", text: echoText(text) },
-      });
+      const echo = () =>
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: echoText(text) },
+        });
+      // The prompt's echo can trail a steer that was sent right after it.
+      if (mode === "late-echo-reject-steer") setTimeout(echo, 300);
+      else echo();
       if (outcome() === "hang") return;
       if (text.includes("[slow]")) {
         update(sessionId, {

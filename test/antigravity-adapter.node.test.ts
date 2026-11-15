@@ -353,3 +353,74 @@ test("Antigravity rejects subscription billing, failed sign-in and a missing con
   }
   assert.equal(prompts(requests).length, 0);
 });
+
+test("Antigravity never confirms a steer from the turn's own prompt echo", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "late-echo-reject-steer";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Did it rain yesterday?");
+    // Sent before agy echoes the prompt, whose text contains "yes".
+    await assert.rejects(adapter.steer("yes"), (error) => {
+      assert(!(error instanceof NotDelivered));
+      return true;
+    });
+    assert.deepEqual(prompts(requests), [
+      "[slow] Did it rain yesterday?",
+      "yes",
+    ]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity confirms a bare steered command, which agy echoes empty, only by its request", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => events.some((e) => e.type === "delta"));
+    await adapter.steer("/plan");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(prompts(requests), ["[slow] Long task", "/plan"]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity keeps slash-leading saved instructions from expanding as a command", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    { ...options, instructions: "/plan review carefully" },
+    (e) => events.push(e),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("Explain this function");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(prompts(requests), [
+      "\u200b/plan review carefully\n\nExplain this function",
+    ]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity fails setup without a prompt when agy never applies the thinking level", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "config-hang";
+  const adapter = new Antigravity({ ...options, effort: "high" }, () => {});
+  const started = Date.now();
+  try {
+    await assert.rejects(adapter.start(), /Antigravity setup failed/);
+    assert(Date.now() - started < 20000);
+    assert.equal(prompts(requests).length, 0);
+  } finally {
+    await adapter.dispose();
+  }
+});

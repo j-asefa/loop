@@ -13,6 +13,7 @@ const SETUP =
 // agy 1.5.9 advertises its catalog a few milliseconds after session/new.
 const CATALOG_WAIT = 3000;
 const COMMAND = /^\/([^\s]+)(?:\s|$)/;
+const EFFORT_TIMEOUT = 15000;
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 
@@ -100,7 +101,21 @@ export class Antigravity extends Acp {
     // A catalog probe exists to read the catalog, which agy advertises just
     // after the session opens.
     if (this.agyOptions.probeOnly) await this.catalogReady;
-    else await this.applyEffort();
+    else
+      try {
+        await Promise.race([
+          this.applyEffort(),
+          wait(EFFORT_TIMEOUT).then(() => {
+            throw new Error("Antigravity did not apply the thinking level.");
+          }),
+        ]);
+      } catch {
+        await this.dispose();
+        throw new NativeSetupError(
+          "antigravity_setup_failed",
+          `${SETUP} No prompt was sent.`,
+        );
+      }
     return billing;
   }
 
@@ -138,13 +153,15 @@ export class Antigravity extends Acp {
   }
 
   /** agy expands a command or skill only at the start of a message. Saved
-   * instructions lead other prompts and follow a discovered command. */
+   * instructions lead other prompts and follow a discovered command. Leading
+   * instructions that start with "/" get a zero-width space so agy does not
+   * expand them as a command. */
   private content(text: string) {
     const instructions = this.agyOptions.instructions;
     if (!instructions) return text;
     const name = text.match(COMMAND)?.[1];
-    return name && this.commands.some((command) => command.name === name)
-      ? `${text}\n\n${instructions}`
-      : `${instructions}\n\n${text}`;
+    if (name && this.commands.some((command) => command.name === name))
+      return `${text}\n\n${instructions}`;
+    return `${instructions.trimStart().startsWith("/") ? "\u200b" : ""}${instructions}\n\n${text}`;
   }
 }
