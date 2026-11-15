@@ -1,3 +1,4 @@
+import { db } from "./db.js";
 import { queuedMailReady } from "./agent-mail-policy.js";
 import { createRunQueue } from "./queue-machine.js";
 import { prepareClaim } from "./queue-policy.js";
@@ -20,7 +21,7 @@ export const {
   beforeEvent(run, state) {
     checkoutTransitions.beforeEvent(run, state);
     if (state === "completed") {
-      publishCompletedRunResult(run.id, run.owner_id);
+      publishCompletedRunResult(run.id, run.owner_id, db);
     }
   },
   afterTransition: checkoutTransitions.afterTransition,

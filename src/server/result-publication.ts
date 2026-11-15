@@ -1,5 +1,4 @@
 import type Database from "better-sqlite3";
-import { db } from "./db.js";
 import { Problem } from "../shared/problem.js";
 import {
   collapseResultTitle,
@@ -7,14 +6,16 @@ import {
   PublishResultInputSchema,
   replyResultId,
   RequestedResultContextSchema,
-  RESULT_SCHEMA_VERSION,
   ResultIdSchema,
+  resultSchemaVersion,
   runResultId,
   type CanonicalResult,
   type PublishResultInput,
   type RequestedResultContext,
   type ResultAttachmentRef,
   type ResultId,
+  type ResultOrigin,
+  type ResultOriginCompleteness,
   type ResultPlacement,
   type ResultProvenance,
   type ResultStimulus,
@@ -119,42 +120,87 @@ type ResultAuthorship = Pick<
 
 const MAX_COPY_DEPTH = 32;
 
+type CopiedAnswerSource = ResultAuthorship & {
+  origin: Extract<ResultOrigin, { kind: "copied" }>;
+};
+
+const UNKNOWN_AUTHORSHIP: ResultAuthorship = {
+  agentId: null,
+  agentName: null,
+  provider: null,
+  model: null,
+  resolvedModel: null,
+  connectionId: null,
+  placement: UNKNOWN_RESULT_PLACEMENT,
+};
+
+function sealedAuthorship(result: CanonicalResult): ResultAuthorship {
+  const p = result.provenance;
+  return {
+    agentId: p.agentId,
+    agentName: p.agentName,
+    provider: p.provider,
+    model: p.model,
+    resolvedModel: p.resolvedModel,
+    connectionId: p.connectionId,
+    placement: p.placement,
+  };
+}
+
 // A copied answer keeps the author that produced it, not the agent of the
-// conversation it was copied into. Copies point at their source through
-// `sourceMessage`; the first sealed Result on that chain carries the recorded
-// author. An original message without one is attributed from its own run or
-// conversation. When the source no longer exists the author is unknown.
-function copiedAnswerAuthorship(
+// conversation it was copied into, and names the original it came from.
+// Copies point at their source through `sourceMessage`. The walk stops at the
+// first sealed Result that records its own origin, or at the original message,
+// which is attributed from its own run or conversation. A nested copy inherits
+// its source copy's root, so intermediaries never replace the original.
+// Version 1 copies recorded no origin, so the walk continues past them to the
+// evidence they were sealed from. When the source no longer exists, the author
+// is unknown. Lookups are owner-scoped: another owner's IDs read as missing.
+export function copiedAnswerEvidence(
   ownerId: string,
   message: SnapshotMessage,
   database: Database.Database,
-): ResultAuthorship | null {
+): CopiedAnswerSource | null {
   let sourceId = readNonEmptyString(message.metadata.sourceMessage);
   if (!sourceId) return null;
+  let sourceConversationId = readNonEmptyString(
+    message.metadata.sourceConversation,
+  );
   const seen = new Set<string>();
   while (sourceId && !seen.has(sourceId) && seen.size < MAX_COPY_DEPTH) {
     seen.add(sourceId);
+    const source = resultsQueries.messageById(database, ownerId, sourceId);
     const sealed = resultsQueries.canonicalByMessage(
       database,
       ownerId,
       sourceId,
     );
+    const next = source
+      ? readNonEmptyString(source.metadata.sourceMessage)
+      : null;
     if (sealed) {
-      const p = sealed.provenance;
-      return {
-        agentId: p.agentId,
-        agentName: p.agentName,
-        provider: p.provider,
-        model: p.model,
-        resolvedModel: p.resolvedModel,
-        connectionId: p.connectionId,
-        placement: p.placement,
-      };
+      const origin = sealed.provenance.origin;
+      if (origin?.kind === "copied") {
+        return { ...sealedAuthorship(sealed), origin };
+      }
+      if (origin !== undefined || !next) {
+        return {
+          ...sealedAuthorship(sealed),
+          origin: {
+            kind: "copied",
+            sourceResultId: sealed.id,
+            sourceMessageId: sealed.provenance.messageId,
+            sourceConversationId: sealed.provenance.conversationId,
+            sourceAvailable: true,
+          },
+        };
+      }
     }
-    const source = resultsQueries.messageById(database, ownerId, sourceId);
     if (!source) break;
-    const next = readNonEmptyString(source.metadata.sourceMessage);
     if (next) {
+      sourceConversationId =
+        readNonEmptyString(source.metadata.sourceConversation) ??
+        sourceConversationId;
       sourceId = next;
       continue;
     }
@@ -188,17 +234,32 @@ function copiedAnswerAuthorship(
         agent?.connection_id ||
         null,
       placement: placementSnapshot(ownerId, conversation, run, database),
+      origin: {
+        kind: "copied",
+        sourceResultId: null,
+        sourceMessageId: source.id,
+        sourceConversationId: source.conversation_id,
+        sourceAvailable: true,
+      },
     };
   }
   return {
-    agentId: null,
-    agentName: null,
-    provider: null,
-    model: null,
-    resolvedModel: null,
-    connectionId: null,
-    placement: UNKNOWN_RESULT_PLACEMENT,
+    ...UNKNOWN_AUTHORSHIP,
+    origin: {
+      kind: "copied",
+      sourceResultId: null,
+      sourceMessageId: sourceId,
+      sourceConversationId,
+      sourceAvailable: false,
+    },
   };
+}
+
+// Conversations created by an external import name their provider in their
+// origin, for example `openai-import`.
+function externalImportProvider(origin: string): string | null {
+  const match = /^([a-z0-9]+)-import$/.exec(origin);
+  return match ? match[1] : null;
 }
 
 // An imported answer's question is the nearest user message on its own
@@ -309,7 +370,7 @@ function chainParent(
 export function snapshotMessageAttachments(
   ownerId: string,
   message: SnapshotMessage,
-  database: Database.Database = db,
+  database: Database.Database,
 ): ResultAttachmentRef[] {
   const rawAttachments = message.metadata.attachments;
   if (!Array.isArray(rawAttachments) || rawAttachments.length === 0) {
@@ -368,7 +429,8 @@ export function snapshotMessageAttachments(
 
 export function publishResult(
   input: PublishResultInput,
-  database: Database.Database = db,
+  database: Database.Database,
+  completeness: ResultOriginCompleteness = "sealed_at_publication",
 ): CanonicalResult {
   const parsed = PublishResultInputSchema.parse(input);
   const contentDigest = computeResultContentDigest(parsed);
@@ -391,9 +453,9 @@ export function publishResult(
       const row: resultsQueries.InsertResultRow = {
         id: parsed.id,
         owner_id: parsed.ownerId,
-        schema_version: RESULT_SCHEMA_VERSION,
+        schema_version: resultSchemaVersion(parsed.provenance),
         kind: parsed.kind,
-        origin_completeness: "sealed_at_publication",
+        origin_completeness: completeness,
         sealed: 1,
         created_at: parsed.createdAt,
         conversation_id: parsed.provenance.conversationId,
@@ -455,7 +517,7 @@ export function publishResult(
 export function resolveSuppliedResultSnapshots(
   ownerId: string,
   requested: RequestedResultContext[],
-  database: Database.Database = db,
+  database: Database.Database,
 ): ResultSupplyItem[] {
   if (requested.length === 0) return [];
   if (requested.length > MAX_RESULT_SUPPLY_ITEMS) {
@@ -540,7 +602,7 @@ export function resolveSuppliedResultSnapshots(
 export function publishCompletedRunResult(
   runId: string,
   ownerId: string,
-  database: Database.Database = db,
+  database: Database.Database,
 ): CanonicalResult | null {
   const id = runResultId(runId);
   const existing = resultsQueries.byId(database, ownerId, id);
@@ -664,6 +726,7 @@ export function publishCompletedRunResult(
         runId: run.id,
         messageId: answer.id,
         placement: placementSnapshot(ownerId, conversation, run, database),
+        origin: { kind: "produced" },
       },
       lineage: {
         parentResultId,
@@ -682,7 +745,7 @@ export function publishSteeringReplyResult(
     steeringId: string;
     createdAt?: number;
   },
-  database: Database.Database = db,
+  database: Database.Database,
 ): CanonicalResult | null {
   const id = replyResultId(options.messageId);
   const existing = resultsQueries.byId(database, options.ownerId, id);
@@ -788,6 +851,7 @@ export function publishSteeringReplyResult(
           run,
           database,
         ),
+        origin: { kind: "produced" },
       },
       lineage: {
         parentResultId,
@@ -802,7 +866,37 @@ export function publishSteeringReplyResult(
 export function publishImportedConversationResults(
   ownerId: string,
   conversationId: string,
-  database: Database.Database = db,
+  database: Database.Database,
+): CanonicalResult[] {
+  return publishStandaloneAnswers(
+    ownerId,
+    conversationId,
+    "sealed_at_publication",
+    database,
+  );
+}
+
+// Seals standalone answers that existed before canonical Results, during the
+// upgrade that introduces them. The policy is the live one; only facts that
+// were never recorded differ: the placement at publication time is unknown.
+export function publishHistoricalConversationResults(
+  ownerId: string,
+  conversationId: string,
+  database: Database.Database,
+): CanonicalResult[] {
+  return publishStandaloneAnswers(
+    ownerId,
+    conversationId,
+    "migrated_backfill",
+    database,
+  );
+}
+
+function publishStandaloneAnswers(
+  ownerId: string,
+  conversationId: string,
+  completeness: ResultOriginCompleteness,
+  database: Database.Database,
 ): CanonicalResult[] {
   const conversation = resultsQueries.conversationSummary(
     database,
@@ -849,7 +943,14 @@ export function publishImportedConversationResults(
       createdAt,
       database,
     );
-    const authorship = copiedAnswerAuthorship(ownerId, message, database) ?? {
+    const copied = copiedAnswerEvidence(ownerId, message, database);
+    const importProvider = externalImportProvider(conversation.origin);
+    const origin: ResultOrigin = copied
+      ? copied.origin
+      : conversation.origin.endsWith("import")
+        ? { kind: "external_import", provider: importProvider }
+        : { kind: "unknown" };
+    const authorship: ResultAuthorship = copied ?? {
       agentId,
       agentName,
       provider: agent?.provider ?? null,
@@ -857,7 +958,10 @@ export function publishImportedConversationResults(
       resolvedModel: null,
       connectionId:
         conversation.execution_connection_id ?? agent?.connection_id ?? null,
-      placement: placementSnapshot(ownerId, conversation, undefined, database),
+      placement:
+        completeness === "migrated_backfill"
+          ? UNKNOWN_RESULT_PLACEMENT
+          : placementSnapshot(ownerId, conversation, undefined, database),
     };
 
     const result = publishResult(
@@ -887,10 +991,17 @@ export function publishImportedConversationResults(
         },
         attachments: snapshotMessageAttachments(ownerId, message, database),
         provenance: {
-          ...authorship,
+          agentId: authorship.agentId,
+          agentName: authorship.agentName,
+          provider: authorship.provider,
+          model: authorship.model,
+          resolvedModel: authorship.resolvedModel,
+          connectionId: authorship.connectionId,
+          placement: authorship.placement,
           conversationId,
           runId: null,
           messageId: message.id,
+          origin,
         },
         lineage: {
           parentResultId,
@@ -899,6 +1010,7 @@ export function publishImportedConversationResults(
         },
       },
       database,
+      completeness,
     );
     published.push(result);
   }
@@ -909,7 +1021,7 @@ export function publishImportedConversationResults(
 export function getResult(
   ownerId: string,
   resultId: string,
-  database: Database.Database = db,
+  database: Database.Database,
 ): CanonicalResult | undefined {
   const parsedId = ResultIdSchema.safeParse(resultId);
   if (!parsedId.success) return undefined;
@@ -919,7 +1031,7 @@ export function getResult(
 export function listConversationResults(
   ownerId: string,
   conversationId: string,
-  database: Database.Database = db,
+  database: Database.Database,
 ): CanonicalResult[] {
   return resultsQueries.listByConversation(database, ownerId, conversationId);
 }
@@ -927,7 +1039,7 @@ export function listConversationResults(
 export function listResultContextEdges(
   ownerId: string,
   resultId: string,
-  database: Database.Database = db,
+  database: Database.Database,
 ) {
   return resultContextEdgesQueries.listByResult(database, ownerId, resultId);
 }
@@ -935,7 +1047,7 @@ export function listResultContextEdges(
 export function listResultsBuiltOn(
   ownerId: string,
   sourceResultId: string,
-  database: Database.Database = db,
+  database: Database.Database,
 ): CanonicalResult[] {
   return resultsQueries.listBySourceResult(database, ownerId, sourceResultId);
 }

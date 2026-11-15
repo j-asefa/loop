@@ -83,7 +83,7 @@ export function forkConversation(
         );
       }
       // Copied answers become sealed Results rather than mutable raw messages.
-      publishImportedConversationResults(owner, forkId);
+      publishImportedConversationResults(owner, forkId, db);
       return { id: forkId, agentId: agent.id };
     })
     .immediate();

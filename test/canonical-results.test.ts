@@ -157,12 +157,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
     const importedResults = publishImportedConversationResults(
       owner,
       "conv-import",
+      db,
     );
     expect(importedResults).toHaveLength(1);
     expect(importedResults[0]?.id).toBe("message:msg-imp-a1");
 
     // Verify all sealed CanonicalResult records before mutation
-    const sealedRun1 = getResult(owner, `run:${run1.id}`);
+    const sealedRun1 = getResult(owner, `run:${run1.id}`, db);
     expect(sealedRun1).toBeDefined();
     expect(sealedRun1?.kind).toBe("run_answer");
     expect(sealedRun1?.originCompleteness).toBe("sealed_at_publication");
@@ -187,10 +188,14 @@ describe("Canonical Result publication, immutability, and migration", () => {
       },
     ]);
 
-    const sealedRun2 = getResult(owner, `run:${run2.id}`);
+    const sealedRun2 = getResult(owner, `run:${run2.id}`, db);
     expect(sealedRun2?.lineage.parentResultId).toBe(`run:${run1.id}`);
 
-    const sealedReply = getResult(owner, `reply:${publishedReply.messageId}`);
+    const sealedReply = getResult(
+      owner,
+      `reply:${publishedReply.messageId}`,
+      db,
+    );
     expect(sealedReply).toBeDefined();
     expect(sealedReply?.kind).toBe("steering_reply");
     expect(sealedReply?.stimulus.text).toBe("Should results be mutable?");
@@ -217,7 +222,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
     }).immediate();
 
     // 1. CanonicalResult reads remain 100% unchanged
-    const afterRun1 = getResult(owner, `run:${run1.id}`);
+    const afterRun1 = getResult(owner, `run:${run1.id}`, db);
     expect(afterRun1).toEqual(sealedRun1);
 
     // 2. Done Cards API (/api/v1/cards?view=done) serves sealed content, prompt, attribution, and attachments
@@ -321,16 +326,18 @@ describe("Canonical Result publication, immutability, and migration", () => {
         '{"parentResultId":null,"triggerMessageId":null,"suppliedContext":[]}'
       )`,
     ).run(owner);
-    expect(getResult(owner, "run:draft-unsealed")).toBeUndefined();
+    expect(getResult(owner, "run:draft-unsealed", db)).toBeUndefined();
     expect(
-      listConversationResults(owner, "conv-1").some(
+      listConversationResults(owner, "conv-1", db).some(
         (r) => r.id === "run:draft-unsealed",
       ),
     ).toBe(false);
     expect(() =>
-      resolveSuppliedResultSnapshots(owner, [
-        { resultId: "run:draft-unsealed" },
-      ]),
+      resolveSuppliedResultSnapshots(
+        owner,
+        [{ resultId: "run:draft-unsealed" }],
+        db,
+      ),
     ).toThrowError(expect.objectContaining({ status: 404 }));
   });
 
@@ -376,6 +383,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
           projectName: null,
           teamId: null,
         },
+        origin: { kind: "produced" as const },
       },
       lineage: {
         parentResultId: null,
@@ -384,20 +392,23 @@ describe("Canonical Result publication, immutability, and migration", () => {
       },
     };
 
-    const first = publishResult(input);
-    const second = publishResult(input);
+    const first = publishResult(input, db);
+    const second = publishResult(input, db);
     expect(second).toEqual(first);
     expect(first.contentDigest).toBe(computeResultContentDigest(input));
 
     // Attempting to publish different content under the same (ownerId, id) throws 409
     expect(() =>
-      publishResult({
-        ...input,
-        outcome: {
-          ...input.outcome,
-          body: "Tampered answer body.",
+      publishResult(
+        {
+          ...input,
+          outcome: {
+            ...input.outcome,
+            body: "Tampered answer body.",
+          },
         },
-      }),
+        db,
+      ),
     ).toThrowError(
       expect.objectContaining({
         status: 409,
@@ -412,57 +423,65 @@ describe("Canonical Result publication, immutability, and migration", () => {
        VALUES ('conv-ctx', ?, 'Context Thread', 'loop', 100)`,
     ).run(owner);
 
-    const sourceResult = publishResult({
-      id: "run:source-1",
-      ownerId: owner,
-      kind: "run_answer",
-      createdAt: 100,
-      stimulus: {
-        kind: "user_prompt",
-        text: "Analyze caching options",
-        sourceMessageId: null,
-        authorKind: "owner",
-        automationKind: null,
-        automationFrom: null,
-      },
-      outcome: {
-        title: "Analyze caching options",
-        body: "Option A uses SQLite WAL. Option B uses an in-memory LRU cache.",
-        format: "markdown",
-      },
-      attachments: [],
-      provenance: {
-        agentId: "agent-1",
-        agentName: "Researcher",
-        provider: "anthropic",
-        model: "claude-3-7-sonnet",
-        resolvedModel: null,
-        connectionId: null,
-        conversationId: "conv-ctx",
-        runId: "source-1",
-        messageId: "msg-s-1",
-        placement: {
-          status: "unknown" as const,
-          folderId: null,
-          projectId: null,
-          projectName: null,
-          teamId: null,
+    const sourceResult = publishResult(
+      {
+        id: "run:source-1",
+        ownerId: owner,
+        kind: "run_answer",
+        createdAt: 100,
+        stimulus: {
+          kind: "user_prompt",
+          text: "Analyze caching options",
+          sourceMessageId: null,
+          authorKind: "owner",
+          automationKind: null,
+          automationFrom: null,
+        },
+        outcome: {
+          title: "Analyze caching options",
+          body: "Option A uses SQLite WAL. Option B uses an in-memory LRU cache.",
+          format: "markdown",
+        },
+        attachments: [],
+        provenance: {
+          agentId: "agent-1",
+          agentName: "Researcher",
+          provider: "anthropic",
+          model: "claude-3-7-sonnet",
+          resolvedModel: null,
+          connectionId: null,
+          conversationId: "conv-ctx",
+          runId: "source-1",
+          messageId: "msg-s-1",
+          placement: {
+            status: "unknown" as const,
+            folderId: null,
+            projectId: null,
+            projectName: null,
+            teamId: null,
+          },
+          origin: { kind: "produced" as const },
+        },
+        lineage: {
+          parentResultId: null,
+          triggerMessageId: null,
+          suppliedContext: [],
         },
       },
-      lineage: {
-        parentResultId: null,
-        triggerMessageId: null,
-        suppliedContext: [],
-      },
-    });
+      db,
+    );
 
     // Server resolves trusted snapshot from resultId + verified excerpt
-    const supplied = resolveSuppliedResultSnapshots(owner, [
-      {
-        resultId: sourceResult.id,
-        excerpt: "Option A uses SQLite WAL.",
-      },
-    ]);
+    const supplied = resolveSuppliedResultSnapshots(
+      owner,
+      [
+        {
+          resultId: sourceResult.id,
+          excerpt: "Option A uses SQLite WAL.",
+        },
+      ],
+      db,
+    );
     expect(supplied).toEqual([
       {
         resultId: "run:source-1",
@@ -479,67 +498,77 @@ describe("Canonical Result publication, immutability, and migration", () => {
 
     // Rejects fabricated excerpt not present in the sealed body
     expect(() =>
-      resolveSuppliedResultSnapshots(owner, [
-        {
-          resultId: sourceResult.id,
-          excerpt: "Option C uses Redis cluster.",
-        },
-      ]),
+      resolveSuppliedResultSnapshots(
+        owner,
+        [
+          {
+            resultId: sourceResult.id,
+            excerpt: "Option C uses Redis cluster.",
+          },
+        ],
+        db,
+      ),
     ).toThrowError(expect.objectContaining({ status: 400 }));
 
     // Rejects another owner's access
     expect(() =>
-      resolveSuppliedResultSnapshots("other-owner", [
-        { resultId: sourceResult.id },
-      ]),
+      resolveSuppliedResultSnapshots(
+        "other-owner",
+        [{ resultId: sourceResult.id }],
+        db,
+      ),
     ).toThrowError(expect.objectContaining({ status: 404 }));
 
     // Publish a downstream result built on sourceResult
-    const childResult = publishResult({
-      id: "run:child-1",
-      ownerId: owner,
-      kind: "run_answer",
-      createdAt: 200,
-      stimulus: {
-        kind: "user_prompt",
-        text: "Implement Option A",
-        sourceMessageId: null,
-        authorKind: "owner",
-        automationKind: null,
-        automationFrom: null,
-      },
-      outcome: {
-        title: "Implement Option A",
-        body: "Implemented SQLite WAL mode.",
-        format: "markdown",
-      },
-      attachments: [],
-      provenance: {
-        agentId: "agent-2",
-        agentName: "Builder",
-        provider: "openai",
-        model: "gpt-4.1",
-        resolvedModel: null,
-        connectionId: null,
-        conversationId: "conv-ctx",
-        runId: "child-1",
-        messageId: "msg-c-1",
-        placement: {
-          status: "unknown" as const,
-          folderId: null,
-          projectId: null,
-          projectName: null,
-          teamId: null,
+    const childResult = publishResult(
+      {
+        id: "run:child-1",
+        ownerId: owner,
+        kind: "run_answer",
+        createdAt: 200,
+        stimulus: {
+          kind: "user_prompt",
+          text: "Implement Option A",
+          sourceMessageId: null,
+          authorKind: "owner",
+          automationKind: null,
+          automationFrom: null,
+        },
+        outcome: {
+          title: "Implement Option A",
+          body: "Implemented SQLite WAL mode.",
+          format: "markdown",
+        },
+        attachments: [],
+        provenance: {
+          agentId: "agent-2",
+          agentName: "Builder",
+          provider: "openai",
+          model: "gpt-4.1",
+          resolvedModel: null,
+          connectionId: null,
+          conversationId: "conv-ctx",
+          runId: "child-1",
+          messageId: "msg-c-1",
+          placement: {
+            status: "unknown" as const,
+            folderId: null,
+            projectId: null,
+            projectName: null,
+            teamId: null,
+          },
+          origin: { kind: "produced" as const },
+        },
+        lineage: {
+          parentResultId: sourceResult.id,
+          triggerMessageId: null,
+          suppliedContext: supplied,
         },
       },
-      lineage: {
-        parentResultId: sourceResult.id,
-        triggerMessageId: null,
-        suppliedContext: supplied,
-      },
-    });
+      db,
+    );
 
-    const edges = listResultContextEdges(owner, childResult.id);
+    const edges = listResultContextEdges(owner, childResult.id, db);
     expect(edges).toEqual([
       {
         owner_id: owner,
@@ -551,12 +580,12 @@ describe("Canonical Result publication, immutability, and migration", () => {
       },
     ]);
 
-    const builtOn = listResultsBuiltOn(owner, sourceResult.id);
+    const builtOn = listResultsBuiltOn(owner, sourceResult.id, db);
     expect(builtOn.map((r) => r.id)).toEqual(["run:child-1"]);
-    expect(listResultsBuiltOn("other-owner", sourceResult.id)).toEqual([]);
-    expect(listConversationResults(owner, "conv-ctx").map((r) => r.id)).toEqual(
-      ["run:source-1", "run:child-1"],
-    );
+    expect(listResultsBuiltOn("other-owner", sourceResult.id, db)).toEqual([]);
+    expect(
+      listConversationResults(owner, "conv-ctx", db).map((r) => r.id),
+    ).toEqual(["run:source-1", "run:child-1"]);
   });
 
   it("backfills historical runs, replies, and standalone messages on upgrade from migration 163 while preserving overlays and groups", () => {

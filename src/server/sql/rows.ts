@@ -229,9 +229,21 @@ export const ResultContextEdgeRecord = z.object({
 // Schema-derived types for scalar SQL selections; JSON stays serialized.
 // Type assertions do not validate saved execution data. Joined and partial
 // selections declare their selected columns at each query.
+export const ResultDefectRecord = z.object({
+  owner_id: z.string(),
+  result_id: z.string(),
+  defect: z.string(),
+  evidence: z.string(),
+  detected_at: z.number(),
+});
 export const QueryRecords = {
   results: ResultRecord,
   result_context_edges: ResultContextEdgeRecord,
+  result_defects: ResultDefectRecord,
+  result_history_passes: z.object({
+    name: z.string(),
+    applied_at: z.number(),
+  }),
   review_continuations: z.object({
     review_id: z.string(),
     owner_id: z.string(),

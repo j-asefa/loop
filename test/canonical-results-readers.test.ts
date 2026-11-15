@@ -146,7 +146,7 @@ it("records the execution provider and placement, not the agent's later settings
     f.agent.id,
   );
   complete(f);
-  const result = publishCompletedRunResult(f.run.id, f.owner)!;
+  const result = publishCompletedRunResult(f.run.id, f.owner, db)!;
   expect(result.provenance.provider).toBe("openai");
   expect(result.provenance.placement).toEqual({
     status: "recorded",
@@ -157,9 +157,9 @@ it("records the execution provider and placement, not the agent's later settings
   });
   // Later reorganization does not change the sealed placement.
   db.prepare("UPDATE folders SET name='Renamed' WHERE id=?").run(folder);
-  expect(getResult(f.owner, result.id)!.provenance.placement.projectName).toBe(
-    "Origin project",
-  );
+  expect(
+    getResult(f.owner, result.id, db)!.provenance.placement.projectName,
+  ).toBe("Origin project");
 });
 
 it("chains results chronologically across kinds and joins imported history", async () => {
@@ -167,13 +167,13 @@ it("chains results chronologically across kinds and joins imported history", asy
   const question = steer(f);
   const published = await reply(f, question.message_id);
   complete(f);
-  const run = publishCompletedRunResult(f.run.id, f.owner)!;
-  const replyResult = getResult(f.owner, `reply:${published.messageId}`)!;
+  const run = publishCompletedRunResult(f.run.id, f.owner, db)!;
+  const replyResult = getResult(f.owner, `reply:${published.messageId}`, db)!;
   expect(replyResult.lineage.parentResultId).toBeNull();
   expect(run.lineage.parentResultId).toBe(replyResult.id);
 
   // A retry of the sealed publication keeps the same predecessor.
-  expect(publishCompletedRunResult(f.run.id, f.owner)!.lineage).toEqual(
+  expect(publishCompletedRunResult(f.run.id, f.owner, db)!.lineage).toEqual(
     run.lineage,
   );
 
@@ -197,7 +197,11 @@ it("chains results chronologically across kinds and joins imported history", asy
       n,
     );
   }
-  const imported = publishImportedConversationResults(f.owner, conversation);
+  const imported = publishImportedConversationResults(
+    f.owner,
+    conversation,
+    db,
+  );
   expect(imported[0].lineage.parentResultId).toBeNull();
   expect(imported[1].lineage.parentResultId).toBe(imported[0].id);
 
@@ -218,7 +222,7 @@ it("chains results chronologically across kinds and joins imported history", asy
     now() + 101,
     next.id,
   );
-  const continued = publishCompletedRunResult(next.id, f.owner)!;
+  const continued = publishCompletedRunResult(next.id, f.owner, db)!;
   expect(continued.lineage.parentResultId).toBe(imported[1].id);
 });
 
@@ -235,7 +239,7 @@ it("publishes sealed Results for forked and continued conversations", () => {
     messageId: answer.id,
     agentId: f.agent.id,
   });
-  const forked = listConversationResults(f.owner, fork.id);
+  const forked = listConversationResults(f.owner, fork.id, db);
   expect(forked.map((r) => r.kind)).toEqual(["imported_answer"]);
   expect(forked[0].outcome.body).toBe("Answer worth copying");
 
@@ -244,13 +248,13 @@ it("publishes sealed Results for forked and continued conversations", () => {
     messageIds: [answer.id],
     start: { input: "Go on", idempotencyKey: id() },
   } as any);
-  const continued = listConversationResults(f.owner, continuation.id);
+  const continued = listConversationResults(f.owner, continuation.id, db);
   expect(continued.map((r) => r.kind)).toEqual(["imported_answer"]);
   // The copy is sealed: later edits to the copied message do not change it.
   db.prepare(
     "UPDATE messages SET content='mutated' WHERE conversation_id=? AND role='assistant'",
   ).run(continuation.id);
-  expect(getResult(f.owner, continued[0].id)!.outcome.body).toBe(
+  expect(getResult(f.owner, continued[0].id, db)!.outcome.body).toBe(
     "Answer worth copying",
   );
 });

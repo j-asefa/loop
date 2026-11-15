@@ -68,7 +68,11 @@ function completedRun(owner: string, agentId: string, text: string) {
   db.prepare(
     "UPDATE runs SET state='completed',payload=json_set(payload,'$.provider','anthropic'),updated_at=? WHERE id=?",
   ).run(now() + 10, run.id);
-  return { run, message, result: publishCompletedRunResult(run.id, owner)! };
+  return {
+    run,
+    message,
+    result: publishCompletedRunResult(run.id, owner, db)!,
+  };
 }
 
 function importedConversation(owner: string, agentId: string) {
@@ -112,7 +116,7 @@ it("seals a forked or continued answer with its source author, not the destinati
     messageId: source.message,
     agentId: destination.id,
   });
-  const [forked] = listConversationResults(owner, fork.id);
+  const [forked] = listConversationResults(owner, fork.id, db);
   expect(forked.provenance).toMatchObject({
     agentId: author.id,
     agentName: author.name,
@@ -135,9 +139,11 @@ it("seals a forked or continued answer with its source author, not the destinati
     messageIds: [copied.id],
     start: { input: "Go on", idempotencyKey: id() },
   } as any);
-  const [continued] = listConversationResults(owner, continuation.id).filter(
-    (r) => r.kind === "imported_answer",
-  );
+  const [continued] = listConversationResults(
+    owner,
+    continuation.id,
+    db,
+  ).filter((r) => r.kind === "imported_answer");
   expect(continued.provenance.agentId).toBe(author.id);
   expect(continued.provenance.provider).toBe("anthropic");
   expect(
@@ -156,6 +162,7 @@ it("seals a forked or continued answer with its source author, not the destinati
   const [isolated] = publishImportedConversationResults(
     other,
     otherConversation,
+    db,
   );
   expect(isolated.provenance.agentId).toBeNull();
   expect(isolated.provenance.placement.status).toBe("unknown");
@@ -187,7 +194,7 @@ it("follows branch parent pointers to an imported answer's own question", () => 
     ...node("n-a2", "n-q2", []),
   });
 
-  const results = publishImportedConversationResults(owner, conversation);
+  const results = publishImportedConversationResults(owner, conversation, db);
   const first = results.find((r) => r.provenance.messageId === answer)!;
   expect(first.stimulus.text).toBe("First question");
   expect(first.outcome.title).toBe("First question");
@@ -202,7 +209,7 @@ it("chains an appended imported answer to the run that preceded it", () => {
   const conversation = importedConversation(owner, agent.id);
   insertStandalone(owner, conversation, "user", "Q", 1);
   insertStandalone(owner, conversation, "assistant", "A", 2);
-  const [a] = publishImportedConversationResults(owner, conversation);
+  const [a] = publishImportedConversationResults(owner, conversation, db);
 
   const queued = submit(owner, {
     agentId: agent.id,
@@ -217,15 +224,15 @@ it("chains an appended imported answer to the run that preceded it", () => {
     101,
     queued.id,
   );
-  const b = publishCompletedRunResult(queued.id, owner)!;
+  const b = publishCompletedRunResult(queued.id, owner, db)!;
   expect(b.lineage.parentResultId).toBe(a.id);
 
   insertStandalone(owner, conversation, "assistant", "C", 200);
-  const c = publishImportedConversationResults(owner, conversation).find(
+  const c = publishImportedConversationResults(owner, conversation, db).find(
     (r) => r.outcome.body === "C",
   )!;
   expect(c.lineage.parentResultId).toBe(b.id);
-  expect(getResult(owner, a.id)!.lineage.parentResultId).toBeNull();
+  expect(getResult(owner, a.id, db)!.lineage.parentResultId).toBeNull();
 });
 
 it("keeps a Done card in the folder its Result was published from", () => {
@@ -245,7 +252,7 @@ it("keeps a Done card in the folder its Result was published from", () => {
   );
   insertStandalone(owner, conversation, "user", "Q", 1);
   insertStandalone(owner, conversation, "assistant", "Placed answer", 2);
-  const [result] = publishImportedConversationResults(owner, conversation);
+  const [result] = publishImportedConversationResults(owner, conversation, db);
   expect(result.provenance.placement.folderId).toBe(origin);
 
   db.prepare("UPDATE conversations SET project_id=? WHERE id=?").run(

@@ -380,3 +380,59 @@ export function publishedArtifactObject(
 }
 
 export { parseCanonicalResult };
+
+// Conversations holding standalone answers, in an order that seals a copy's
+// source before the copy: conversations without copies first, then creation
+// order, so nested copies follow their sources.
+const historicalAnswerConversationsStatement = statement(
+  `SELECT c.owner_id,c.id conversation_id,
+     MAX(CASE WHEN json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text' THEN 1 ELSE 0 END) has_copies
+   FROM conversations c
+   JOIN messages m ON m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.run_id IS NULL AND m.role='assistant'
+   GROUP BY c.owner_id,c.id
+   ORDER BY has_copies ASC,c.created_at ASC,c.rowid ASC`,
+);
+const historicalAnswerConversationRow = z.object({
+  owner_id: z.string(),
+  conversation_id: z.string(),
+  has_copies: z.number(),
+});
+export function historicalAnswerConversations(db: Database.Database) {
+  return historicalAnswerConversationsStatement(db)
+    .all()
+    .map((row) =>
+      parseRecord(historicalAnswerConversationRow, row, "conversations"),
+    );
+}
+
+// Rows inserted by the canonical-results SQL backfill await a digest. Their
+// predecessor is the previous sealed result of any kind in the conversation.
+const chainPendingBackfillStatement = statement(
+  `WITH ordered AS (
+     SELECT owner_id,id,
+       LAG(id) OVER (PARTITION BY owner_id,conversation_id ORDER BY created_at ASC,rowid ASC) previous_id
+     FROM results WHERE sealed=1
+   )
+   UPDATE results
+   SET lineage=json_set(lineage,'$.parentResultId',(
+     SELECT o.previous_id FROM ordered o WHERE o.owner_id=results.owner_id AND o.id=results.id
+   ))
+   WHERE origin_completeness='migrated_backfill' AND sealed=1
+     AND content_digest='0000000000000000000000000000000000000000000000000000000000000000'`,
+);
+export function chainPendingBackfill(db: Database.Database) {
+  return chainPendingBackfillStatement(db).run();
+}
+
+// Version 1 records predate sealed origins. These are the ones sealed for a
+// copied message, whose author can be checked against the copy's source.
+const unoriginatedCopiesStatement = statement(
+  `SELECT res.* FROM results res
+   JOIN messages m ON m.owner_id=res.owner_id AND m.id=res.message_id
+   WHERE res.sealed=1 AND res.schema_version=1 AND res.kind='imported_answer'
+     AND json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text'
+   ORDER BY res.owner_id ASC,res.created_at ASC,res.rowid ASC`,
+);
+export function unoriginatedCopies(db: Database.Database) {
+  return parseCanonicalResults(unoriginatedCopiesStatement(db).all());
+}

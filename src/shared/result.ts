@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-export const RESULT_SCHEMA_VERSION = 1 as const;
+// Version 2 seals `provenance.origin`. Version 1 records predate it and keep
+// their original digest serialization.
+export const RESULT_SCHEMA_VERSION = 2 as const;
+export const ResultSchemaVersionSchema = z.union([z.literal(1), z.literal(2)]);
+export type ResultSchemaVersion = z.infer<typeof ResultSchemaVersionSchema>;
 
 export const ResultIdSchema = z
   .string()
@@ -97,6 +101,30 @@ export const UNKNOWN_RESULT_PLACEMENT: ResultPlacement = {
   teamId: null,
 };
 
+// How the published answer came to exist. A copy keeps its source author and
+// names the original Result it was copied from; nested copies name the root
+// original, not an intermediary. `unknown` records that no evidence of the
+// answer's origin was available, rather than guessing one.
+export const ResultOriginSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("produced") }),
+  z.object({
+    kind: z.literal("external_import"),
+    provider: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal("copied"),
+    // Null when the root original message never became a sealed Result.
+    sourceResultId: ResultIdSchema.nullable(),
+    sourceMessageId: z.string(),
+    sourceConversationId: z.string().nullable(),
+    // False when the copied-from message no longer exists, so its author is
+    // unknown.
+    sourceAvailable: z.boolean(),
+  }),
+  z.object({ kind: z.literal("unknown") }),
+]);
+export type ResultOrigin = z.infer<typeof ResultOriginSchema>;
+
 export const ResultProvenanceSchema = z.object({
   agentId: z.string().nullable(),
   agentName: z.string().nullable(),
@@ -108,8 +136,14 @@ export const ResultProvenanceSchema = z.object({
   runId: z.string().nullable(),
   messageId: z.string(),
   placement: ResultPlacementSchema.default(UNKNOWN_RESULT_PLACEMENT),
+  // Absent only on schema version 1 records, which did not record an origin.
+  origin: ResultOriginSchema.optional(),
 });
 export type ResultProvenance = z.infer<typeof ResultProvenanceSchema>;
+
+export const PublishResultProvenanceSchema = ResultProvenanceSchema.extend({
+  origin: ResultOriginSchema,
+});
 
 export const ResultLineageSchema = z.object({
   parentResultId: ResultIdSchema.nullable(),
@@ -126,16 +160,21 @@ export const PublishResultInputSchema = z.object({
   stimulus: ResultStimulusSchema,
   outcome: ResultOutcomeSchema,
   attachments: z.array(ResultAttachmentRefSchema),
-  provenance: ResultProvenanceSchema,
+  provenance: PublishResultProvenanceSchema,
   lineage: ResultLineageSchema,
 });
 export type PublishResultInput = z.infer<typeof PublishResultInputSchema>;
 
 export const CanonicalResultSchema = PublishResultInputSchema.extend({
-  schemaVersion: z.literal(RESULT_SCHEMA_VERSION),
+  schemaVersion: ResultSchemaVersionSchema,
+  provenance: ResultProvenanceSchema,
   originCompleteness: ResultOriginCompletenessSchema,
   contentDigest: z.string().regex(/^[0-9a-f]{64}$/),
-});
+}).refine(
+  (result) =>
+    (result.schemaVersion === 2) === (result.provenance.origin !== undefined),
+  { message: "Result origin must match its schema version" },
+);
 export type CanonicalResult = z.infer<typeof CanonicalResultSchema>;
 
 export function runResultId(runId: string): ResultId {
@@ -172,6 +211,31 @@ export type ResultDigestTarget = {
   lineage: ResultLineage;
 };
 
+// The schema version a record's facts belong to: origin was added in v2.
+export function resultSchemaVersion(
+  provenance: Pick<ResultProvenance, "origin">,
+): ResultSchemaVersion {
+  return provenance.origin === undefined ? 1 : 2;
+}
+
+function serializedOrigin(origin: ResultOrigin) {
+  switch (origin.kind) {
+    case "produced":
+    case "unknown":
+      return { kind: origin.kind };
+    case "external_import":
+      return { kind: origin.kind, provider: origin.provider };
+    case "copied":
+      return {
+        kind: origin.kind,
+        sourceResultId: origin.sourceResultId,
+        sourceMessageId: origin.sourceMessageId,
+        sourceConversationId: origin.sourceConversationId,
+        sourceAvailable: origin.sourceAvailable,
+      };
+  }
+}
+
 export function canonicalResultDigestSerialized(
   input: ResultDigestTarget,
 ): string {
@@ -182,8 +246,9 @@ export function canonicalResultDigestSerialized(
     .parse(input.attachments);
   const provenance = ResultProvenanceSchema.parse(input.provenance);
   const lineage = ResultLineageSchema.parse(input.lineage);
+  const schemaVersion = resultSchemaVersion(provenance);
   return JSON.stringify({
-    schemaVersion: RESULT_SCHEMA_VERSION,
+    schemaVersion,
     id: input.id,
     kind: input.kind,
     stimulus: {
@@ -226,6 +291,10 @@ export function canonicalResultDigestSerialized(
         projectName: provenance.placement.projectName,
         teamId: provenance.placement.teamId,
       },
+      // Version 1 serialization is unchanged, so its digests still verify.
+      ...(provenance.origin === undefined
+        ? {}
+        : { origin: serializedOrigin(provenance.origin) }),
     },
     lineage: {
       parentResultId: lineage.parentResultId,

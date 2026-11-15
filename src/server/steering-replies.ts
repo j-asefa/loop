@@ -53,12 +53,15 @@ export function publishReply(run: Run, callId: string, input: unknown) {
         target.id,
         createdAt,
       );
-      publishSteeringReplyResult({
-        ownerId: current.owner_id,
-        messageId: message.id,
-        steeringId: target.id,
-        createdAt,
-      });
+      publishSteeringReplyResult(
+        {
+          ownerId: current.owner_id,
+          messageId: message.id,
+          steeringId: target.id,
+          createdAt,
+        },
+        db,
+      );
       return { messageId: message.id, replyTo: args.replyTo };
     })
     .immediate();

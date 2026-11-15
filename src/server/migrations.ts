@@ -6,6 +6,7 @@ import {
   computeResultContentDigestFromRawJson,
   registerResultSqliteFunctions,
 } from "./result-digest.js";
+import { runResultHistoryPasses } from "./result-history.js";
 const DEFAULT_MIGRATIONS_URL = new URL("../../migrations/", import.meta.url);
 const DEFAULT_MIGRATIONS_PATH = fileURLToPath(DEFAULT_MIGRATIONS_URL);
 let cachedDefaultMigrations:
@@ -71,11 +72,17 @@ export function applyMigrations(
     const record = db.prepare(
       "INSERT INTO schema_migrations(name,prefix,applied_at) VALUES(?,?,?)",
     );
+    let freshResults = false;
     for (const migration of migrations) {
       if (applied.get(migration.name)) continue;
       db.exec(migration.sql);
       record.run(migration.name, migration.prefix, Date.now());
+      if (migration.name === "canonical-results") freshResults = true;
     }
+    // Historical Result passes use current query modules, so they run once
+    // the schema is complete and before pending digests are computed.
+    if (table("result_history_passes"))
+      runResultHistoryPasses(db, { freshResults });
     if (table("results")) {
       const pendingDigests = db
         .prepare(

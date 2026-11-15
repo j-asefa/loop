@@ -448,7 +448,7 @@ export async function executeImport(run: Run): Promise<RunOutcome> {
           messageId,
         );
       }
-      publishImportedConversationResults(run.owner_id, conversation.id);
+      publishImportedConversationResults(run.owner_id, conversation.id, db);
       if (
         !artifactsQueries.conversationHasArtifact(
           db,
