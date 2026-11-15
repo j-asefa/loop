@@ -31,7 +31,8 @@ try {
       window.mount=value=>flushSync(()=>setMounted(value));
       window.owner=value=>flushSync(()=>{ownerSession.change(value);setRevision(n=>n+1)});
       const data=useDoneThreads(fanout?['','docker:other']:[source],enabled,{agent});
-      window.retry=()=>data.refresh();
+      window.retry=()=>data.retry();
+      window.refresh=()=>data.refresh();
       return React.createElement('section',null,
         React.createElement('output',{id:'rows'},data.threads.map(item=>item.title).join(',')),
         React.createElement('output',{id:'error'},data.error),
@@ -42,6 +43,7 @@ try {
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
+  let failNext = false;
   let holdNext = false,
     status = 200,
     aborted = 0,
@@ -90,7 +92,7 @@ try {
       source,
       method: req.method,
     });
-    const code = status,
+    const code = failNext ? 503 : status,
       thread = {
         id,
         title: id + ":" + source + ":" + epoch,
@@ -103,6 +105,7 @@ try {
           ? { thread, cards: [], next: null }
           : { threads: [{ ...thread, preview: null }], next: null }
         : { error: "Threads unavailable" };
+    failNext = false;
     const send = () => {
       if (res.destroyed) return;
       res.writeHead(code, { "content-type": "application/json" });
@@ -130,6 +133,7 @@ try {
         "detail-scope",
         "missing",
         "partial",
+        "mutation-refresh",
         "list-retry",
         "detail-retry",
       ]) {
@@ -210,6 +214,20 @@ try {
           await expect(page.locator("#rows")).not.toHaveText("");
         if (change === "source") await page.evaluate(() => window.source(""));
       }
+    } else if (scenario === "mutation-refresh") {
+      const before = count();
+      failNext = true;
+      epoch = "after-mutation";
+      await page.evaluate(() => window.refresh());
+      await expect(page.locator("#rows")).toHaveText(
+        "first:local:after-mutation",
+      );
+      assert.equal(
+        count(),
+        before + 2,
+        "Mutation refresh must automatically retry a transient 503",
+      );
+      await expect(page.locator("#error")).toHaveText("");
     } else if (scenario === "partial") {
       holdNext = true;
       await page.evaluate(() => window.fanout(true));
