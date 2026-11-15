@@ -1,7 +1,6 @@
 import {
   Bell,
   Bookmark,
-  ChevronRight,
   Download,
   Link,
   KeyRound,
@@ -17,7 +16,8 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { capabilities } from "./capabilities";
-import { SettingsPill } from "./SettingsUI";
+import { SettingsPill, SettingsRow } from "./SettingsUI";
+import type { SettingsPage } from "./settings-pages";
 import type { Agent, Connection } from "../shared/types";
 
 export function SettingsHome({
@@ -27,7 +27,7 @@ export function SettingsHome({
   agents = [],
   connections = [],
 }: {
-  open: (page: string) => void;
+  open: (page: SettingsPage) => void;
   theme: string;
   onTheme: (theme: "system" | "light" | "dark") => void;
   agents?: Agent[];
@@ -45,29 +45,21 @@ export function SettingsHome({
     <SettingsPill tone="ready">{connected} ready</SettingsPill>
   );
   const row = (
-    page: string,
+    page: SettingsPage,
     title: string,
     description: string,
     Icon: LucideIcon,
     state?: ReactNode,
   ) => (
-    <button
-      type="button"
-      className={"settings-row" + (state ? " has-state" : "")}
-      aria-label={title}
+    <SettingsRow
+      icon={Icon}
+      title={title}
+      description={description}
+      state={state}
+      ariaLabel={title}
       onClick={() => open(page)}
       key={page}
-    >
-      <span className="settings-row-icon">
-        <Icon size={20} aria-hidden="true" />
-      </span>
-      <span>
-        <strong>{title}</strong>
-        <small>{description}</small>
-      </span>
-      {state}
-      <ChevronRight size={18} aria-hidden="true" />
-    </button>
+    />
   );
   return (
     <>
