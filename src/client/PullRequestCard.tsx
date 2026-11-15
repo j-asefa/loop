@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { PULL_STATE_LABEL } from "./pullLabels";
 import { emitClientEvent } from "./clientEvents";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -101,13 +102,6 @@ function WatchControl({ watch }: { watch?: Watch }) {
   );
 }
 
-const STATE_LABEL: Record<PullRequestSummary["state"], string> = {
-  draft: "Draft",
-  open: "Open",
-  merged: "Merged",
-  closed: "Closed",
-};
-
 // Card data comes from a saved tool result; anything malformed falls back to
 // the artifact's plain text rather than rendering partial PR facts.
 export function pullRequestCardData(content: string) {
@@ -131,7 +125,9 @@ function PullRequestRow({
         <span className="pr-card-repo">
           {pr.owner}/{pr.repo} #{pr.number}
         </span>
-        <span className={"pr-state " + pr.state}>{STATE_LABEL[pr.state]}</span>
+        <span className={"pr-state " + pr.state}>
+          {PULL_STATE_LABEL[pr.state]}
+        </span>
       </div>
       <a
         className="pr-card-title"
