@@ -101,6 +101,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     setMessageId,
     teamSelection,
     setTeamSelection,
+    teamKey,
     project,
     setProject,
     pull,
@@ -147,7 +148,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   const [routePreview, setRoutePreview] = useState<any>(null),
     [contextArtifact, setContextArtifact] = useState<ResultAction | null>(null),
     [filingResult, setFilingResult] = useState<any>(null);
-  const teamKey = [...teamSelection].sort().join(",");
   const [teamMessages, setTeamMessages] = useState<Team | null>(null);
   const availableAgents = data.agents.filter((a) => !a.retired_at);
   const navigationGeneration = useRef(0);
@@ -785,27 +785,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setSettingsParent(true);
     setSheet(page);
   }
-  useEffect(() => {
-    const url = new URL(location.href);
-    for (const [key, value] of Object.entries({
-      page: tab === "feed" ? "" : tab,
-      filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
-      project: projectFilter,
-      teams: teamKey,
-      projectView: project,
-      pull: tab === "pulls" ? pull : "",
-    })) {
-      if (value) url.searchParams.set(key, value);
-      else url.searchParams.delete(key);
-    }
-    // Pairing and shared links keep their fragment until their owning flow
-    // consumes it; persisting navigation must not discard that state.
-    history.replaceState(
-      history.state,
-      "",
-      url.pathname + url.search + url.hash,
-    );
-  }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
   const [filing, setFiling] = useState<ResultAction | null>(null),
     [revision, setRevision] = useState(0);
   const [collectionRevisions, setCollectionRevisions] = useState<
