@@ -1,6 +1,10 @@
 import { storedCommands, withCommandLock } from "./pendingCommandStorage";
 
-type PendingEffect = { commandId: string; attempt: string; context?: string };
+export type PendingEffect = {
+  commandId: string;
+  attempt: string;
+  context?: string;
+};
 
 export class UncertainEffect extends Error {
   constructor(
@@ -111,7 +115,10 @@ export async function performStoredEffect<T>(
     recovering: boolean,
   ) => boolean = effectOutcomeSettled,
   context?: string,
-  expectedCommandId?: string,
+  preparation?: {
+    expectedCommandId?: string;
+    validate?: (context: string | undefined, recovering: boolean) => void;
+  },
 ): Promise<T> {
   if (!owner) throw new Error("Sign in before starting this change.");
   const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
@@ -136,18 +143,19 @@ export async function performStoredEffect<T>(
       throw new Error("Cannot read pending changes; nothing was sent.");
     }
     if (
-      expectedCommandId !== undefined &&
-      prior?.commandId !== expectedCommandId
+      preparation?.expectedCommandId !== undefined &&
+      prior?.commandId !== preparation.expectedCommandId
     )
       throw new Error(
-        "This pending change has changed. Reopen it before continuing.",
+        "This pending change has changed. Check its status again.",
       );
+    const savedContext =
+      context === undefined ? undefined : prior ? prior.context : context;
+    preparation?.validate?.(savedContext, prior !== undefined);
     const receipt: PendingEffect = {
       commandId: prior?.commandId ?? crypto.randomUUID(),
       attempt: crypto.randomUUID(),
-      ...(context === undefined
-        ? {}
-        : { context: prior ? prior.context : context }),
+      ...(context === undefined ? {} : { context: savedContext }),
     };
     try {
       slot.write(receipt);

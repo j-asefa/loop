@@ -9,6 +9,7 @@ import {
   creationFailureSettled,
   UncertainEffect,
   supersedeStoredEffect,
+  type PendingEffect,
 } from "./pendingCommands";
 import {
   ArrowRight,
@@ -197,11 +198,11 @@ export function OrganizeCards({
     try {
       const owner = viewOwner();
       const receipt = owner
-        ? storedCommands<{
-            commandId: string;
-            attempt: string;
-            context?: string;
-          }>(localStorage)(owner, selection.source, creationTarget).read()
+        ? storedCommands<PendingEffect>(localStorage)(
+            owner,
+            selection.source,
+            creationTarget,
+          ).read()
         : undefined;
       const context = receipt?.context
         ? JSON.parse(receipt.context)
@@ -281,12 +282,6 @@ export function OrganizeCards({
                 "The pending creation changed. Reopen before continuing.",
               );
             const original = JSON.parse(context!);
-            if (original.title !== title.trim()) {
-              setTitle(original.title);
-              throw new Error(
-                "An earlier thread is pending. Retry to recover its original name.",
-              );
-            }
             return callRoute(
               workspaceApi.doneThreadCreate,
               { body: { ...original, id: DoneThreadId.parse(id) } },
@@ -295,7 +290,17 @@ export function OrganizeCards({
           },
           creationFailureSettled,
           JSON.stringify(body),
-          creationPending ? (creationId.current ?? "") : undefined,
+          {
+            expectedCommandId: creationPending
+              ? (creationId.current ?? "")
+              : undefined,
+            validate: (context) => {
+              if (JSON.parse(context!).title !== title.trim())
+                throw new Error(
+                  "An earlier thread is pending. Retry to recover its original name.",
+                );
+            },
+          },
         );
         if (live.current && generation.current === viewGeneration()) {
           setCreationPending(false);
@@ -324,14 +329,34 @@ export function OrganizeCards({
             try {
               const owner = viewOwner();
               const receipt = owner
-                ? storedCommands(localStorage)(
+                ? storedCommands<PendingEffect>(localStorage)(
                     owner,
                     selection.source,
                     creationTarget,
                   ).read()
                 : undefined;
               setCreationPending(!!receipt);
-              if (!receipt) setUncertain(undefined);
+              creationId.current = receipt?.commandId;
+              if (receipt) {
+                setUncertain(
+                  new UncertainEffect(error, () =>
+                    supersedeStoredEffect(
+                      localStorage,
+                      owner,
+                      selection.source,
+                      creationTarget,
+                      receipt,
+                      () =>
+                        live.current && generation.current === viewGeneration(),
+                    ),
+                  ),
+                );
+                const original = receipt.context
+                  ? JSON.parse(receipt.context)
+                  : undefined;
+                if (typeof original?.title === "string")
+                  setTitle(original.title);
+              } else setUncertain(undefined);
             } catch {
               // Unavailable storage cannot establish that recovery settled.
             }
