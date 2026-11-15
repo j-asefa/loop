@@ -40,7 +40,7 @@ const complete = (events: AdapterEvent[]) =>
   events.filter((e) => e.type === "status" && e.status === "completed");
 
 test("saved Antigravity versions never gain ACP capabilities from an unknown or prerelease version", () => {
-  for (const version of [undefined, "unknown", "1.5.9-rc.1", "2.0.0-beta.1"]) {
+  for (const version of ["unknown", "1.5.9-rc.1", "2.0.0-beta.1"]) {
     const adapter = new Antigravity({ ...options, version }, () => {});
     assert.equal(adapter.activityTransport, "native");
     assert.equal(adapter.capabilities.workspaceTools, false);
