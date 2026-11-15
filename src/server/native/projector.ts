@@ -1,3 +1,4 @@
+import { NativeSessionCurrency } from "./currency.js";
 import { assertNever } from "../../shared/assert-never.js";
 import { harnesses } from "../../shared/harnesses.js";
 import { writeMessageMetadata } from "../../shared/message-metadata.js";
@@ -63,12 +64,14 @@ function displayText(text: string) {
 }
 
 export class NativeProjector {
-  constructor(private readonly context: Context) {}
+  private readonly currency: NativeSessionCurrency;
+  constructor(private readonly context: Context) {
+    this.currency = new NativeSessionCurrency(context.live);
+  }
 
   /** @internal Adapter event entry point. */
   event(live: Live, input: AdapterEvent) {
-    if (live.closed) return;
-    if (this.context.live.get(live.binding.conversation_id) !== live) return;
+    if (!this.currency.allows({ kind: "event", live })) return;
     if (input.type === "usage") {
       const run = live.run;
       const current = companionSessionsQueries.generation(
@@ -78,8 +81,11 @@ export class NativeProjector {
       const usage = input.usage;
       if (
         !run ||
-        run.conversation_id !== live.binding.conversation_id ||
-        current?.generation !== live.generation ||
+        !this.currency.allows({
+          kind: "usage",
+          live,
+          storedGeneration: current?.generation,
+        }) ||
         !usage ||
         !Number.isSafeInteger(usage.input_tokens) ||
         usage.input_tokens < 0 ||
@@ -167,7 +173,11 @@ export class NativeProjector {
       if (
         model &&
         model.length <= 200 &&
-        current?.generation === live.generation
+        this.currency.allows({
+          kind: "stored-projection",
+          storedGeneration: current?.generation,
+          generation: live.generation,
+        })
       ) {
         // Adapters may report the model while starting, before a turn is
         // attached; the supervisor applies it when the run attaches.
@@ -340,12 +350,7 @@ export class NativeProjector {
     const run = live.run;
     live.flush = setTimeout(() => {
       live.flush = undefined;
-      if (
-        live.closed ||
-        live.run !== run ||
-        this.context.live.get(live.binding.conversation_id) !== live
-      )
-        return;
+      if (!this.currency.allows({ kind: "output-flush", live, run })) return;
       if (
         !tryWithoutBusyWait(db, "native-output", () => {
           this.context.projectOutput(live, true);
@@ -414,7 +419,14 @@ export class NativeProjector {
       db,
       live.binding.conversation_id,
     );
-    if (current?.generation !== live.generation) return;
+    if (
+      !this.currency.allows({
+        kind: "stored-projection",
+        storedGeneration: current?.generation,
+        generation: live.generation,
+      })
+    )
+      return;
     const transport =
       live.adapter.activityTransport ??
       harnesses[live.binding.harness].activityTransport;
@@ -457,7 +469,11 @@ export class NativeProjector {
           db,
           run.conversation_id,
         );
-        return current?.generation === generation;
+        return this.currency.allows({
+          kind: "stored-projection",
+          storedGeneration: current?.generation,
+          generation,
+        });
       };
       void import("../pr-watches.js")
         .then(({ watchCompletedOutput }) =>

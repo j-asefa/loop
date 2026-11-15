@@ -165,8 +165,7 @@ export class NativeToolBridge {
           const revision = watched.revision;
           if (
             signal?.aborted ||
-            nativeSessions.current(t.conversation, t.generation).run?.id !==
-              run.id
+            !nativeSessions.isToolTurn(t.conversation, t.generation, run.id)
           )
             throw new Error("Native tool request ended");
           const state = watched.state;

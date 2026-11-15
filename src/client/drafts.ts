@@ -2,6 +2,10 @@ import { viewOwner } from "./viewCache";
 import { withOptionalStorage } from "./browserStorage";
 import { parse } from "./json";
 
+export function appendDraftText(current: string, added: string): string {
+  return current.trim() ? `${current.trimEnd()}\n\n${added}` : added;
+}
+
 export const GLOBAL_DRAFT = "__global__";
 
 export function sourceDraftId(id: string, source: string) {

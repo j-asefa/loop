@@ -268,6 +268,17 @@ Invariants: `run` is set only while `execute` owns the turn; `cancelling` is
 true only while that turn is being interrupted; a closed live is never reused.
 Pending protocol requests are rejected on exit or disposal.
 
+[`native/currency.ts`](../src/server/native/currency.ts) owns the named currency
+policies used by the supervisor, decisions, projector and tool bridge. Dispatch
+checks the attached turn, generation, cancellation and active run state; decision
+answers additionally check their delivery receipt. Display events can arrive
+while idle, and delayed output requires the same run object. Stored-generation
+checks remain specific to settings and usage/activity/model projections; they
+are not added to prompt or decision dispatch. Definitive non-delivery can reopen
+a decision without the dispatch cancellation predicate. These differences
+preserve the existing boundaries; lifecycle writes remain with their current
+owners until the session-state extraction.
+
 `native_history_actions`: ∅ → unknown (written before the fork) → completed;
 an existing `unknown` row answers 409.
 
