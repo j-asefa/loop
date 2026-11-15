@@ -202,7 +202,7 @@ it("uploads original files, keeps them out of the feed, and reads them only in a
     },
   });
   try {
-    expect(await executeAgent(live)).toBe(true);
+    expect(await executeAgent(live)).toMatchObject({ kind: "finished" });
   } finally {
     restore();
   }
@@ -264,7 +264,7 @@ for (const provider of ["openai", "anthropic"] as const)
           idempotencyKey: id(),
           attachmentIds: [file.id],
         });
-        expect(await executeAgent(first)).toBe(true);
+        expect(await executeAgent(first)).toMatchObject({ kind: "finished" });
         expect(
           (
             await request(
@@ -280,7 +280,7 @@ for (const provider of ["openai", "anthropic"] as const)
           input: "Just say hello",
           idempotencyKey: id(),
         });
-        expect(await executeAgent(next)).toBe(true);
+        expect(await executeAgent(next)).toMatchObject({ kind: "finished" });
         expect(inputs).toHaveLength(2);
         expect(inputs[1].messages[0].attachments?.[0].id).toBe(file.id);
         expect(
@@ -352,7 +352,7 @@ it("retries a failed API run after its attachment is archived", async () => {
       idempotencyKey: id(),
     });
     expect(retry.status).toBe(200);
-    expect(await executeAgent(retry.data)).toBe(true);
+    expect(await executeAgent(retry.data)).toMatchObject({ kind: "finished" });
     expect(attempts).toBe(2);
   } finally {
     restore();

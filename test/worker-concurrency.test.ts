@@ -1,9 +1,12 @@
+import type { RunExecutor, RunOutcome } from "../src/server/run-outcome.js";
 import { expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { executeAgent } = vi.hoisted(() => ({ executeAgent: vi.fn() }));
+const { executeAgent } = vi.hoisted(() => ({
+  executeAgent: vi.fn<RunExecutor>(),
+}));
 vi.mock("../src/server/agent-runtime", () => ({ executeAgent }));
 vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
 vi.mock("../src/server/memory", async (original) => ({
@@ -22,7 +25,9 @@ it("schedules 32 running tasks and admits the 33rd only after a slot is released
   const runs: Parameters<typeof transition>[0][] = [];
   executeAgent.mockImplementation((run) => {
     runs.push(run);
-    return new Promise<void>((resolve) => releases.push(resolve));
+    return new Promise<RunOutcome>((resolve) =>
+      releases.push(() => resolve({ kind: "finished" })),
+    );
   });
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   const subscriptions = changes.subscriberCount;
@@ -70,7 +75,7 @@ it("claims through the two-second fallback when local change wakes are unavailab
   const { db, changes } = await import("../src/server/db");
   const { enqueue } = await import("../src/server/queue");
   const { startWorker } = await import("../src/server/worker");
-  executeAgent.mockReset().mockResolvedValue(undefined);
+  executeAgent.mockReset().mockResolvedValue({ kind: "finished" });
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   const stop = startWorker();
   try {

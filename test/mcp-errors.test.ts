@@ -53,6 +53,7 @@ db.prepare(
   now(),
 );
 
+let onReviewWrite: (() => void) | undefined;
 let writes: { method: string; event?: string }[] = [],
   draft = false;
 const reviewServer = async () => {
@@ -67,6 +68,7 @@ const reviewServer = async () => {
     },
     async (args) => {
       writes.push(args);
+      onReviewWrite?.();
       if (args.method === "create") {
         if (draft)
           return {
@@ -526,4 +528,45 @@ it("finishes an approved tool call when a pause arrives before it is sent", asyn
     state: "pausing",
   });
   db.prepare("UPDATE runs SET state='cancelled' WHERE id=?").run(run.id);
+  const { transition } = await import("../src/server/queue");
+  for (const timing of ["during", "after"] as const) {
+    writes = [];
+    draft = false;
+    const direct = queueTool("alice", {
+      agentId: agent.id,
+      connectionId: connection,
+      tool: "pull_request_review_write",
+      arguments: { method: "create" },
+      idempotencyKey: id(),
+    });
+    onReviewWrite =
+      timing === "during"
+        ? () => {
+            expect(transition(direct, "pausing")).toBe(true);
+          }
+        : undefined;
+    try {
+      await tick(async (claimed) => {
+        expect(claimed.id).toBe(direct.id);
+        const outcome = await execute(claimed);
+        if (timing === "after") {
+          expect(outcome).toEqual({ kind: "finished" });
+          expect(transition(claimed, "pausing")).toBe(true);
+        } else expect(outcome).toEqual({ kind: "paused" });
+        return outcome;
+      });
+      expect(writes).toEqual([{ method: "create" }]);
+      expect(
+        db.prepare("SELECT state,result FROM runs WHERE id=?").get(direct.id),
+      ).toEqual({ state: "paused", result: expect.any(String) });
+      expect(
+        db
+          .prepare("SELECT state FROM tool_invocations WHERE run_id=?")
+          .get(direct.id),
+      ).toEqual({ state: "completed" });
+    } finally {
+      onReviewWrite = undefined;
+      transition(direct, "cancelled");
+    }
+  }
 });

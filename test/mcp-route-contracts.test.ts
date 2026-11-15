@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
@@ -611,7 +612,10 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
     "contract-worker",
     (candidate) => candidate.id === run.id,
   )!;
-  expect(await executeMcp(active)).toBe(false);
+  expect(await settleRun(executeMcp, active)).toMatchObject({
+    kind: "waiting",
+    reason: "approval",
+  });
   const toolActivity = () =>
     db
       .prepare(
@@ -641,9 +645,9 @@ it("keeps tool bindings, retired writes, iframe isolation and durable approval-g
     "contract-worker",
     (candidate) => candidate.id === run.id,
   )!;
-  expect(await executeMcp(resumed)).toBe(true);
+  expect(await executeMcp(resumed)).toMatchObject({ kind: "finished" });
   expect(externalCalls).toBe(1);
-  expect(await executeMcp(resumed)).toBe(true);
+  expect(await executeMcp(resumed)).toMatchObject({ kind: "finished" });
   expect(externalCalls).toBe(1);
   expect(toolActivity()).toHaveLength(1);
   expect(JSON.parse(toolActivity()[0].record).data).toMatchObject({

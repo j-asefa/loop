@@ -182,6 +182,7 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
     assert.equal(
       await tick(async () => {
         dispatched = true;
+        return { kind: "finished" };
       }),
       false,
       "an upgrade reserved through HTTP prevents the authority's worker claim",

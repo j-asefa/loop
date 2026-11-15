@@ -878,7 +878,8 @@ it.each([
       live,
     );
     const session = vi.spyOn(sessions, "session").mockResolvedValue(live);
-    let executing: Promise<boolean> | undefined;
+    let executing:
+      Promise<import("../src/server/run-outcome.js").RunOutcome> | undefined;
     try {
       let answering: Promise<unknown> | undefined;
       let decision: string | undefined;

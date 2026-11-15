@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -123,7 +124,7 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(true);
+    expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
     transition(run, "completed");
   } finally {
     restore();
@@ -303,7 +304,9 @@ it("resumes a stored legacy native tool binding through the API checkpoint calle
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(false);
+    expect(await settleRun(executeAgent, run)).toMatchObject({
+      kind: "paused",
+    });
     const checkpoint = db
       .prepare("SELECT pending,stage FROM agent_checkpoints WHERE run_id=?")
       .get(run.id) as any;
@@ -319,7 +322,7 @@ it("resumes a stored legacy native tool binding through the API checkpoint calle
     transition(run, "queued");
     const resumed = claim("legacy-resume")!;
     expect(resumed.id).toBe(run.id);
-    expect(await executeAgent(resumed)).toBe(true);
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
     expect(
       db
         .prepare("SELECT call_id,tool FROM native_calls WHERE run_id=?")

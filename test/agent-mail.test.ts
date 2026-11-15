@@ -299,7 +299,7 @@ it.each(["refused", "cancelled", "failed", "interrupted"] as const)(
       },
     });
     try {
-      expect(await executeAgent(active)).toBe(true);
+      expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
       expect(contexts).toHaveLength(1);
       expect(contexts[0]).toContain("An unrelated user request");
       expect(contexts[0]).not.toContain("UNDELIVERED_MAIL_MARKER");
@@ -857,7 +857,7 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
     const lead = claim("lead-worker")!;
     expect(lead.agent_id).toBe(manager.id);
     // The manager finishes its turn instead of waiting for its workers.
-    expect(await executeAgent(lead)).toBe(true);
+    expect(await executeAgent(lead)).toMatchObject({ kind: "finished" });
     transition(lead, "completed");
     expect(
       db
@@ -902,7 +902,7 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
     );
     const answerTurn = claim("lead-answer")!;
     expect(answerTurn.agent_id).toBe(manager.id);
-    expect(await executeAgent(answerTurn)).toBe(true);
+    expect(await executeAgent(answerTurn)).toMatchObject({ kind: "finished" });
     transition(answerTurn, "completed");
     // The answer queues in the first worker's task conversation, before the
     // second worker has finished.
@@ -920,7 +920,7 @@ it("lets a manager delegate without waiting, answer a worker mid-task, and get e
     expect(runOf(secondTask.id).state).toBe("running");
 
     for (const task of [firstTask, secondTask]) {
-      expect(await executeAgent(task)).toBe(true);
+      expect(await executeAgent(task)).toMatchObject({ kind: "finished" });
       transition(task, "completed");
     }
     expect(
@@ -1033,7 +1033,7 @@ it.each([
       },
     });
     try {
-      expect(await executeAgent(resultRun)).toBe(true);
+      expect(await executeAgent(resultRun)).toMatchObject({ kind: "finished" });
       expect(received).toBe(true);
       transition(resultRun, "completed");
     } finally {
@@ -2770,7 +2770,7 @@ it.each(["models", "secret", "metadata"] as const)(
       },
     });
     try {
-      expect(await executeAgent(lead)).toBe(true);
+      expect(await executeAgent(lead)).toMatchObject({ kind: "finished" });
       const page = await toolResult(lead, "loop_agents", {});
       expect(page.agents).toEqual(
         expect.arrayContaining([

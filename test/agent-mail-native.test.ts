@@ -121,7 +121,7 @@ it("does not transfer refused mail into a newly selected native harness", async 
     idempotencyKey: id(),
   });
   const run = claim("native", (r) => r.id === next.id)!;
-  expect(await executeAgent(run)).toBe(true);
+  expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
   transition(run, "completed");
   const binding = db
     .prepare(
@@ -212,7 +212,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
     for (let step = 0; step < 3; step++) {
       const run = claim("worker-" + step)!;
       expect(run).toBeDefined();
-      expect(await executeAgent(run)).toBe(true);
+      expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
       transition(run, "completed");
     }
     const mail = db

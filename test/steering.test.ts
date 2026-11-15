@@ -125,7 +125,9 @@ it("steers an active API response without creating a second run and keeps the se
       state: "running",
       steeringId: expect.any(String),
     });
-    expect(await executeWithDeadline(executing)).toBe(true);
+    expect(await executeWithDeadline(executing)).toMatchObject({
+      kind: "finished",
+    });
     transition(run, "completed");
     expect(received).toHaveLength(2);
     expect(received[1].at(-1)?.content).toContain(
@@ -255,7 +257,7 @@ it("includes a follow-up racing with completion in the same run and starts fresh
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(true);
+    expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
     expect(calls).toBe(2);
     transition(run, "completed");
     const next = await send({
@@ -332,7 +334,7 @@ it("continues a conversation on the agent's new provider with Loop's transcript"
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(true);
+    expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
   } finally {
     restoreOpenAI();
   }
@@ -370,7 +372,7 @@ it("continues a conversation on the agent's new provider with Loop's transcript"
   try {
     const claimed = claim("steering-worker")!;
     expect(claimed.id).toBe(next.data.id);
-    expect(await executeAgent(claimed)).toBe(true);
+    expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
     transition(claimed, "completed");
   } finally {
     restoreAnthropic();
@@ -382,7 +384,9 @@ it("continues a conversation on the agent's new provider with Loop's transcript"
   ]);
 });
 
-async function executeWithDeadline(work: Promise<boolean>) {
+async function executeWithDeadline(
+  work: Promise<import("../src/server/run-outcome.js").RunOutcome>,
+) {
   let timer: ReturnType<typeof setTimeout>;
   try {
     return await Promise.race([
@@ -616,7 +620,9 @@ it.each([true, false])(
         { method: "POST" },
       );
       expect(response.status).toBe(200);
-      expect(await executeWithDeadline(work)).toBe(false);
+      expect(await executeWithDeadline(work)).not.toMatchObject({
+        kind: "finished",
+      });
       expect(Date.now() - started).toBeLessThan(enabled ? 700 : 2300);
       expect(signal?.reason.message).toContain("cancelled");
       expect(changes.subscriberCount).toBe(subscriptions);
