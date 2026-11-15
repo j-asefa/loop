@@ -16,6 +16,7 @@ import {
   type SessionConfigOption,
   type SessionModeState,
 } from "@agentclientprotocol/sdk";
+import { NotDelivered } from "./types.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import type { Billing, Item } from "../shared/protocol.js";
 import { normalizeItemStatus } from "../shared/native-item-state.js";
@@ -55,6 +56,7 @@ function promptFailure(error: unknown) {
 const SETTING_FAILURE =
   "ACP agent rejected the setting. Check the agent's local login and logs, then refresh settings and retry.";
 class SafeAcpError extends Error {}
+const compact = (value: string) => value.replace(/\s+/g, "");
 const text = (value: unknown) =>
   typeof value === "string" ? value.slice(0, 64_000) : "";
 async function within<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -110,6 +112,27 @@ export class Acp implements Adapter {
   private loading = false;
   /** session/load replayed at least one user or agent message. */
   protected historyReplayed = false;
+  /** Resume with session/resume, which reopens the conversation without
+   * replaying its history, instead of session/load. */
+  protected resumeWithoutReplay = false;
+  /** Report each turn's cumulative token usage from prompt responses. */
+  protected reportsUsage = false;
+  /** Prompt requests open in the current turn. A steering agent answers an
+   * earlier request when it folds a later one into the same turn; the turn
+   * ends only when the last open request settles. */
+  private openPrompts = 0;
+  private turnUsage?: { input_tokens: number; output_tokens: number };
+  private echo?: { expected: string; seen: string; resolve(): void };
+  private advertised!: () => void;
+  private end!: () => void;
+  /** Settles when the agent process exits or the session is disposed. */
+  private ended = new Promise<void>((resolve) => {
+    this.end = resolve;
+  });
+  /** Settles when the agent first advertises its command catalog. */
+  protected commandsAdvertised = new Promise<void>((resolve) => {
+    this.advertised = resolve;
+  });
   private sequence = new Map<string, number>();
   private settingWrite: Promise<void> = Promise.resolve();
   private pendingSettingWrites = 0;
@@ -165,6 +188,7 @@ export class Acp implements Adapter {
     );
     this.child = child;
     child.once("error", () => {
+      this.end();
       this.cancelPermissions();
       if (!this.closed && !this.terminalReported) {
         this.terminalReported = true;
@@ -180,6 +204,7 @@ export class Acp implements Adapter {
     });
     child.stderr.resume();
     child.once("exit", () => {
+      this.end();
       const memory = nativeMemoryFailure(child);
       this.modeConfirmation?.reject(memory || new Error("ACP agent exited"));
       this.modeConfirmation = undefined;
@@ -269,7 +294,27 @@ export class Acp implements Adapter {
         init.agentCapabilities?.mcpCapabilities?.http
           ? workspaceMcp(this.options.workspaceTools).acp
           : [];
-      if (this.options.resume) {
+      if (this.options.resume && this.resumeWithoutReplay) {
+        if (init.agentCapabilities?.sessionCapabilities?.resume == null)
+          throw new SafeAcpError(
+            "This ACP agent does not advertise session/resume. The existing conversation cannot resume.",
+          );
+        this.session = this.options.resume;
+        const resumed = await within(
+          this.connection.resumeSession({
+            sessionId: this.options.resume,
+            cwd: this.options.project,
+            mcpServers,
+          }),
+          "ACP session/resume",
+        );
+        this.supportsConfig = resumed.configOptions != null;
+        this.refreshModels(resumed);
+        this.refreshSettings(
+          resumed.configOptions || [],
+          resumed.modes || undefined,
+        );
+      } else if (this.options.resume) {
         if (!this.capabilities.resume)
           throw new SafeAcpError(
             "This ACP agent does not advertise session/load. The existing conversation cannot resume.",
@@ -377,49 +422,136 @@ export class Acp implements Adapter {
     this.cancelling = false;
     this.terminalReported = false;
     this.messageId = randomUUID();
-    void this.connection
-      .prompt({
-        sessionId: this.session,
-        prompt: [{ type: "text", text: value }],
-      })
-      .then((result) => {
-        if (this.closed || this.terminalReported) return;
-        this.terminalReported = true;
-        const limited = ["max_tokens", "max_turn_requests"].includes(
-          result.stopReason,
-        );
-        this.emit({
-          type: "status",
-          status:
-            this.cancelling ||
-            ["cancelled", "max_tokens", "max_turn_requests"].includes(
-              result.stopReason,
-            )
-              ? "interrupted"
-              : "completed",
-          detail: limited
-            ? "ACP turn stopped at the agent's limit."
-            : undefined,
-          recoverable: true,
-        });
-      })
-      .catch((error: unknown) => {
-        if (this.closed || this.terminalReported) return;
-        this.terminalReported = true;
-        this.emit({
-          type: "status",
-          status: "failed",
-          detail: nativeFailureDetail(
-            this.child && nativeMemoryFailure(this.child),
-            promptFailure(error),
-          ),
-          recoverable: false,
-        });
-      })
+    this.turnUsage = undefined;
+    void this.send(value).catch(() => {});
+  }
+  /** Sends one prompt request in the current turn. Only the last open request
+   * to settle reports the turn's terminal status. */
+  private send(value: string) {
+    this.openPrompts++;
+    const request = this.connection!.prompt({
+      sessionId: this.session!,
+      prompt: [{ type: "text", text: value }],
+    });
+    void request
+      .then(
+        (result) => {
+          const last = --this.openPrompts === 0;
+          this.addUsage(result);
+          if (!last || this.closed || this.terminalReported) return;
+          this.terminalReported = true;
+          const limited = ["max_tokens", "max_turn_requests"].includes(
+            result.stopReason,
+          );
+          this.emit({
+            type: "status",
+            status:
+              this.cancelling ||
+              ["cancelled", "max_tokens", "max_turn_requests"].includes(
+                result.stopReason,
+              )
+                ? "interrupted"
+                : "completed",
+            detail: limited
+              ? "ACP turn stopped at the agent's limit."
+              : undefined,
+            recoverable: true,
+          });
+        },
+        (error: unknown) => {
+          const last = --this.openPrompts === 0;
+          if (!last || this.closed || this.terminalReported) return;
+          this.terminalReported = true;
+          this.emit({
+            type: "status",
+            status: "failed",
+            detail: nativeFailureDetail(
+              this.child && nativeMemoryFailure(this.child),
+              promptFailure(error),
+            ),
+            recoverable: false,
+          });
+        },
+      )
       .finally(() => {
+        if (this.openPrompts) return;
         this.active = false;
         this.cancelPermissions();
       });
+    return request;
+  }
+  private addUsage(result: unknown) {
+    if (!this.reportsUsage) return;
+    const usage = z
+      .object({
+        usage: z.object({
+          inputTokens: z
+            .number()
+            .int()
+            .nonnegative()
+            .max(Number.MAX_SAFE_INTEGER),
+          outputTokens: z
+            .number()
+            .int()
+            .nonnegative()
+            .max(Number.MAX_SAFE_INTEGER),
+        }),
+      })
+      .safeParse(result);
+    if (!usage.success) return;
+    this.turnUsage = {
+      input_tokens:
+        (this.turnUsage?.input_tokens || 0) + usage.data.usage.inputTokens,
+      output_tokens:
+        (this.turnUsage?.output_tokens || 0) + usage.data.usage.outputTokens,
+    };
+    if (
+      Number.isSafeInteger(this.turnUsage.input_tokens) &&
+      Number.isSafeInteger(this.turnUsage.output_tokens)
+    )
+      this.emit({ type: "usage", usage: { ...this.turnUsage } });
+  }
+  /** For agents that fold a session/prompt sent during a running turn into
+   * that turn at its next step. `echo` is the text the agent is expected to
+   * echo as a user message when it takes the input. Delivery is confirmed by
+   * that echo, or by the request ending the turn normally; until the request
+   * is written nothing was delivered (NotDelivered). The agent refuses a
+   * prompt while an approval is open, so steering waits for the answer.
+   */
+  protected async steerPrompt(
+    value: string,
+    echo: string,
+    beforeDispatch?: () => void,
+  ) {
+    if (this.closed || !this.connection || !this.session)
+      throw new NotDelivered("ACP session is unavailable.");
+    if (!this.active || this.cancelling || this.terminalReported)
+      throw new NotDelivered("No running ACP turn to steer.");
+    if (this.permissions.size)
+      throw new NotDelivered("Answer the open approval before steering.");
+    if (this.pendingSettingWrites || this.echo)
+      throw new NotDelivered("ACP session is busy.");
+    beforeDispatch?.();
+    const echoed = new Promise<void>((resolve) => {
+      this.echo = { expected: compact(echo), seen: "", resolve };
+    });
+    const settled = this.send(value).then((result) => {
+      if (result.stopReason === "cancelled")
+        throw new Error(
+          "The turn was cancelled before steering was confirmed.",
+        );
+    });
+    const ended = this.ended.then(() => {
+      throw new Error("The ACP session ended before steering was confirmed.");
+    });
+    // Once echoed, the request's later outcome belongs to the turn.
+    settled.catch(() => {});
+    ended.catch(() => {});
+    try {
+      await Promise.race([echoed, settled, ended]);
+    } finally {
+      this.echo = undefined;
+    }
   }
   async cancel() {
     this.cancelling = true;
@@ -448,6 +580,7 @@ export class Acp implements Adapter {
   }
   async dispose() {
     this.closed = true;
+    this.end();
     this.modeConfirmation?.reject(new Error("ACP session closed"));
     this.modeConfirmation = undefined;
     this.cancelPermissions();
@@ -760,6 +893,19 @@ export class Acp implements Adapter {
       ].includes(u.sessionUpdate)
     )
       return;
+    if (u.sessionUpdate === "user_message_chunk") {
+      const echo = this.echo;
+      if (echo && !this.loading && u.content.type === "text") {
+        echo.seen += compact(u.content.text);
+        if (echo.seen.includes(echo.expected)) {
+          // The agent took the steering input; its answer is a new message.
+          this.echo = undefined;
+          this.messageId = randomUUID();
+          echo.resolve();
+        }
+      }
+      return;
+    }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text")
         this.emit({
@@ -1068,6 +1214,7 @@ export class Acp implements Adapter {
       return;
     }
     if (u.sessionUpdate === "available_commands_update") {
+      this.advertised();
       this.commands = u.availableCommands.map((c) => ({
         name: c.name,
         token: `/${c.name}`,

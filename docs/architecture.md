@@ -612,7 +612,7 @@ when the owner generation changes, including a change away and back.
 Existing thread drafts and durable send identities retain their separate owning
 keys.
 
-API connections use Loop's model loop. Native connections dispatch through native adapters. Native context belongs to its harness; Loop persists the display projection, dispatch identity, approvals and tool receipts. Codex, Claude Code, Pi and Muse Code support live input; OpenCode, Antigravity, Grok Build and ACP queue follow-ups. Each native conversation has an independent session and serialized turns.
+API connections use Loop's model loop. Native connections dispatch through native adapters. Native context belongs to its harness; Loop persists the display projection, dispatch identity, approvals and tool receipts. Codex, Claude Code, Pi, Muse Code and Antigravity support live input; OpenCode, Grok Build and ACP queue follow-ups. Each native conversation has an independent session and serialized turns.
 
 Native prompt, live-input and answer methods accept a synchronous dispatch guard from their owning runtime. Adapters recheck it immediately before native submission, including after account/configuration reads, interruption confirmation or queued preparation. A refusal prevents that submission and leaves unsent decisions pending. Callers without a guard retain their existing behavior; a guard does not replay an uncertain native effect. If Pi ends a turn with guarded input still queued, Loop preserves that native queue and reports an unconfirmed outcome. Pi exposes no durable per-entry identity, so Loop cannot safely clear and restore a queue shared with another native writer.
 

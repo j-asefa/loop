@@ -19,6 +19,7 @@ const { enqueue, claim } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { createTeam } = await import("../src/server/teams");
 const { harnessName } = await import("../src/client/modelChoices");
+const { activeRun, saveSteering } = await import("../src/server/steering");
 const sessions = new NativeSessions();
 afterAll(async () => {
   await sessions.close();
@@ -37,6 +38,10 @@ const requests = () =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+const prompts = () =>
+  requests()
+    .filter((r) => r.acp === "session/prompt")
+    .map((r) => r.params.prompt[0].text);
 
 it.each([
   ["signed-out", "native_auth_missing", "Antigravity is not signed in"],
@@ -50,7 +55,7 @@ it.each([
         sessions.projects.enable({
           harness: "antigravity",
           executable: resolve("test/fixtures/fake-antigravity.mjs"),
-          version: "1.4.9",
+          version: "1.5.9",
           project: dir,
           billing: "existing",
         }),
@@ -72,7 +77,7 @@ it.each([
     }
   },
 );
-function task(key: string) {
+function task(key: string, text = "Explicit task") {
   process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {
     name: key,
@@ -83,7 +88,7 @@ function task(key: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Antigravity',0)",
   ).run(key, OWNER, agent.id);
-  const run = enqueue(OWNER, "Explicit task", key, {
+  const run = enqueue(OWNER, text, key, {
     conversation: key,
     agent: agent.id,
     payload: {
@@ -103,7 +108,7 @@ it("registers Antigravity with honest capabilities and owner isolation", async (
   const registration = await sessions.projects.enable({
     harness: "antigravity",
     executable: resolve("test/fixtures/fake-antigravity.mjs"),
-    version: "1.4.9",
+    version: "1.5.9",
     project: dir,
     billing: "existing",
   });
@@ -123,9 +128,8 @@ it("registers Antigravity with honest capabilities and owner isolation", async (
     authMode: "native-existing",
     capabilities: {
       billingVerified: false,
-      approvals: false,
+      approvals: true,
       questions: false,
-      workspaceTools: false,
     },
   });
   expect(() => ownedConnection(connection.id, "other-owner")).toThrow();
@@ -166,14 +170,13 @@ it("resumes only its saved native ID under a new generation without replaying ta
   expect(() =>
     sessions.current(run.conversation_id!, generation, false),
   ).toThrow(/not active/);
-  expect(requests().filter((r) => r.event === "user")).toEqual([]);
-  const args = requests().at(-1).args;
+  expect(prompts()).toEqual([]);
   expect(
-    args.slice(
-      args.indexOf("--conversation"),
-      args.indexOf("--conversation") + 2,
-    ),
-  ).toEqual(["--conversation", "agy-resume"]);
+    requests()
+      .filter((r) => r.acp === "session/resume")
+      .map((r) => r.params.sessionId),
+  ).toEqual(["agy-resume"]);
+  expect(requests().some((r) => r.acp === "session/load")).toBe(false);
   await sessions.dispose(resumed);
 });
 
@@ -206,13 +209,17 @@ it("an explicit Grok-to-Antigravity switch retains the agent workspace and start
   expect(switched.binding.project).toBe(project);
   expect(switched.binding.native_id).toBe("agy-switch");
   expect(switched.binding.instructions).toContain("Earlier Grok task");
-  expect(requests().at(-1).args).not.toContain("--conversation");
-  expect(requests().filter((r) => r.event === "user")).toHaveLength(0);
+  expect(
+    requests().some(
+      (r) => r.acp === "session/resume" && r.params.sessionId === "agy-switch",
+    ),
+  ).toBe(false);
+  expect(prompts()).toHaveLength(0);
   expect(ownedConnection("native-grok", OWNER).provider).toBe("grok");
   await sessions.dispose(switched);
 });
 
-it.each(["disconnect", "WAITING"])(
+it.each(["disconnect", "error"])(
   "production dispatch never replays an uncertain Antigravity %s",
   async (mode) => {
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -222,7 +229,7 @@ it.each(["disconnect", "WAITING"])(
       (candidate) => candidate.id === run.id,
     )!;
     expect(claimed?.id).toBe(run.id);
-    const before = requests().filter((r) => r.event === "user").length;
+    const before = prompts().length;
     expect(await sessions.execute(claimed)).not.toMatchObject({
       kind: "finished",
     });
@@ -233,9 +240,7 @@ it.each(["disconnect", "WAITING"])(
       )
       .get(run.id);
     expect(receipt).toBeTruthy();
-    expect(requests().filter((r) => r.event === "user")).toHaveLength(
-      before + 1,
-    );
+    expect(prompts()).toHaveLength(before + 1);
     await expect(sessions.execute(run)).rejects.toThrow(
       /already dispatched|uncertain outcome/,
     );
@@ -250,38 +255,34 @@ it.each(["disconnect", "WAITING"])(
         )
         .get(run.id),
     ).toEqual(receipt);
-    expect(requests().filter((r) => r.event === "user")).toHaveLength(
-      before + 1,
-    );
+    expect(prompts()).toHaveLength(before + 1);
     delete process.env.LOOP_TEST_AGY_MODE;
   },
 );
 
-it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
-  "an immediate explicit follow-up after %s waits for shutdown and resumes without replaying the task",
+it.each(["cancel", "cancelled", "max_tokens", "error"])(
+  "an immediate explicit follow-up after %s continues the same conversation without replaying the task",
   async (mode) => {
     process.env.LOOP_TEST_AGY_MODE = mode === "cancel" ? "hang" : mode;
     process.env.LOOP_TEST_AGY_SLOW_STOP = "1";
-    const { run } = task("agy-after-" + mode.toLowerCase());
+    const { run } = task("agy-after-" + mode.replace("_", "-"));
     const claimed = claim(
       "antigravity-fixture",
       (candidate) => candidate.id === run.id,
     )!;
-    const before = requests().filter((r) => r.event === "user").length;
+    const before = prompts().length;
     const execution = sessions.execute(claimed);
-    await until(
-      () => requests().filter((r) => r.event === "user").length === before + 1,
-    );
+    await until(() => prompts().length === before + 1);
     if (mode === "cancel") await sessions.interrupt(run.id);
     expect(await execution).toMatchObject({
       kind: "already-moved",
-      reason: mode === "WAITING" ? "native-failed" : "native-interrupted",
+      reason: mode === "error" ? "native-failed" : "native-interrupted",
     });
     expect(ownedRun(run.id, OWNER).state).toBe(
-      mode === "WAITING" ? "failed" : "interrupted",
+      mode === "error" ? "failed" : "interrupted",
     );
     const originalPid = requests()
-      .filter((r) => r.args?.includes("stream-json"))
+      .filter((r) => r.args?.[0] === "acp")
       .at(-1).pid;
     const original = db
       .prepare(
@@ -291,9 +292,18 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     const receipt = db
       .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
       .get(run.id);
-    expect(() =>
-      sessions.current(run.conversation_id!, original.generation, false),
-    ).toThrow(/not active/);
+    // An interrupted ACP turn leaves agy's session usable, so the live
+    // session is kept; a failed turn ends it and the next turn resumes.
+    const live = (() => {
+      try {
+        sessions.current(run.conversation_id!, original.generation, false);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    expect(live).toBe(mode !== "error");
+    const launched = requests().filter((r) => r.args?.[0] === "acp").length;
     delete process.env.LOOP_TEST_AGY_MODE;
     delete process.env.LOOP_TEST_AGY_SLOW_STOP;
     const next = enqueue(OWNER, "Explicit follow-up", run.id + "-follow-up", {
@@ -307,26 +317,31 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
       ),
     ).toMatchObject({ kind: "finished" });
     const log = requests();
-    const exited = log.findIndex(
-      (r) => r.event === "fixture-exit" && r.pid === originalPid,
-    );
-    const started = log.findIndex((r) => r.args?.includes(run.conversation_id));
-    expect(exited).toBeGreaterThan(-1);
-    expect(started).toBeGreaterThan(exited);
-    expect(() => process.kill(originalPid, 0)).toThrow();
     const resumed = db
       .prepare(
         "SELECT generation,native_id FROM companion_sessions WHERE conversation_id=?",
       )
       .get(run.conversation_id) as { generation: string; native_id: string };
     expect(resumed.native_id).toBe(original.native_id);
-    expect(resumed.generation).not.toBe(original.generation);
-    expect(
-      requests()
-        .filter((r) => r.event === "user")
-        .slice(before)
-        .map((r) => r.message.content),
-    ).toEqual([
+    if (live) {
+      expect(resumed.generation).toBe(original.generation);
+      expect(log.filter((r) => r.args?.[0] === "acp")).toHaveLength(launched);
+    } else {
+      // The failed process exits before the conversation resumes.
+      const exited = log.findIndex(
+        (r) => r.event === "fixture-exit" && r.pid === originalPid,
+      );
+      const started = log.findIndex(
+        (r) =>
+          r.acp === "session/resume" &&
+          r.params.sessionId === run.conversation_id,
+      );
+      expect(exited).toBeGreaterThan(-1);
+      expect(started).toBeGreaterThan(exited);
+      expect(() => process.kill(originalPid, 0)).toThrow();
+      expect(resumed.generation).not.toBe(original.generation);
+    }
+    expect(prompts().slice(before)).toEqual([
       "Saved fixture instructions\n\nExplicit task",
       "Saved fixture instructions\n\nExplicit follow-up",
     ]);
@@ -341,3 +356,36 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     );
   },
 );
+
+it("steers a running turn through agy acp without a restart or replaying the task", async () => {
+  const { run } = task("agy-steer", "[slow] Write an essay");
+  const claimed = claim(
+    "antigravity-fixture",
+    (candidate) => candidate.id === run.id,
+  )!;
+  const before = prompts().length;
+  const launches = () => requests().filter((r) => r.args?.[0] === "acp");
+  const execution = sessions.execute(claimed);
+  await until(() => prompts().length === before + 1);
+  const launched = launches().length;
+  // A reply to the running turn steers it rather than queueing.
+  expect(activeRun(OWNER, run.conversation_id!)?.liveInput).toBe(true);
+  saveSteering(
+    ownedRun(run.id, OWNER),
+    "agy-steer-key",
+    "agy-steer-request",
+    "Change course",
+    {},
+  );
+  expect(await execution).toMatchObject({ kind: "finished" });
+  // The steered turn did not end early; the worker completes the run.
+  expect(ownedRun(run.id, OWNER).state).toBe("running");
+  expect(
+    db.prepare("SELECT state FROM run_steering WHERE run_id=?").all(run.id),
+  ).toEqual([{ state: "delivered" }]);
+  expect(launches()).toHaveLength(launched);
+  expect(prompts().slice(before)).toEqual([
+    "Saved fixture instructions\n\n[slow] Write an essay",
+    "Change course",
+  ]);
+});
