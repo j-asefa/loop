@@ -3,6 +3,7 @@ import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCollectionRead } from "./CollectionRead";
 import { createReadExecutor } from "./read-executor";
+import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
 import {
   ArrowRight,
   ChevronRight,
@@ -185,7 +186,6 @@ export function OrganizeCards({
   const [title, setTitle] = useState(selection.title);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const id = useRef(crypto.randomUUID());
   const generation = useRef(viewGeneration());
   const live = useRef(true);
   const busy = useRef(false);
@@ -210,18 +210,23 @@ export function OrganizeCards({
           },
           selection.source,
         );
-      else
-        await callRoute(
-          workspaceApi.doneThreadCreate,
-          {
-            body: {
-              id: DoneThreadId.parse(id.current),
-              title: title.trim(),
-              cardIds: selection.cardIds,
-            },
-          },
+      else {
+        const body = { title: title.trim(), cardIds: selection.cardIds };
+        await performStoredEffect(
+          localStorage,
+          viewOwner(),
           selection.source,
+          ["done-thread-create", JSON.stringify(body)],
+          () => live.current && generation.current === viewGeneration(),
+          (id) =>
+            callRoute(
+              workspaceApi.doneThreadCreate,
+              { body: { ...body, id: DoneThreadId.parse(id) } },
+              selection.source,
+            ),
+          creationFailureSettled,
         );
+      }
       if (generation.current !== viewGeneration()) return;
       if (live.current) {
         onDone();
