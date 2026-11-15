@@ -28,7 +28,10 @@ const {
   publishCompletedRunResult,
   publishImportedConversationResults,
 } = await import("../src/server/result-publication");
-const { resultDefects } = await import("../src/server/result-history");
+const { resultDefects, runResultHistoryPasses } =
+  await import("../src/server/result-history");
+const { doneCards } = await import("../src/server/done-cards");
+const { projectFeed } = await import("../src/server/feed-projector");
 
 afterAll(() => {
   db.close();
@@ -79,6 +82,12 @@ function completedRun(
     message,
     result: publishCompletedRunResult(run.id, owner, db)!,
   };
+}
+
+type DoneEntry = ReturnType<typeof doneCards>[number]["card"];
+function doneDisplay(card: DoneEntry) {
+  if (card.type !== "done") throw new Error("Expected a Done card");
+  return card.display;
 }
 
 function copiedAnswer(owner: string, conversationId: string) {
@@ -407,6 +416,41 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
           'placement',json_object('status','recorded','folderId',NULL,'projectId',NULL,'projectName',NULL,'teamId',NULL)),
         json_object('parentResultId','message:owner-b-fa','triggerMessageId','owner-b-fq','suppliedContext',json('[]')));
     `);
+    // Copies whose recorded author cannot be contradicted by durable
+    // evidence: a correctly attributed copy of an unsealed answer whose author
+    // was renamed before the upgrade, and a copy whose source was deleted.
+    earlier.exec(`
+      INSERT INTO runs(id, owner_id, agent_id, conversation_id, kind, input, state, idempotency_key, payload, created_at, updated_at)
+      VALUES ('owner-b-cancelled', 'owner-b', 'owner-b-author', 'owner-b-src', 'agent', 'Stop', 'cancelled', 'owner-b-k2', '{}', 15, 16);
+      INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
+      VALUES ('owner-b-partial', 'owner-b', 'owner-b-src', 'owner-b-cancelled', 'assistant', 'Partial', '{}', 15),
+             ('owner-b-fa3', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Partial', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-partial"}', 17),
+             ('owner-b-fa4', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Gone', '{"sourceConversation":"owner-b-src","sourceMessage":"deleted-message"}', 18);
+    `);
+    for (const [message, agent, name] of [
+      ["owner-b-fa3", "owner-b-author", "Author"],
+      ["owner-b-fa4", "owner-b-dest", "Destination"],
+    ]) {
+      earlier
+        .prepare(
+          `INSERT INTO results(id, owner_id, schema_version, kind, origin_completeness, sealed, created_at, conversation_id, run_id, message_id, agent_id, content_digest, stimulus, outcome, attachments, provenance, lineage)
+           SELECT 'message:' || @message, 'owner-b', 1, 'imported_answer', 'sealed_at_publication', 1, m.created_at, 'owner-b-fork', NULL, @message, @agent,
+             '0000000000000000000000000000000000000000000000000000000000000000',
+             json_object('kind','user_prompt','text',NULL,'sourceMessageId',NULL,'authorKind','owner','automationKind',NULL,'automationFrom',NULL),
+             json_object('title',m.content,'body',m.content,'format','markdown'), '[]',
+             json_object('agentId',@agent,'agentName',@name,'provider',NULL,'model',NULL,'resolvedModel',NULL,'connectionId',NULL,
+               'conversationId','owner-b-fork','runId',NULL,'messageId',@message,
+               'placement',json_object('status','unknown','folderId',NULL,'projectId',NULL,'projectName',NULL,'teamId',NULL)),
+             json_object('parentResultId',NULL,'triggerMessageId',NULL,'suppliedContext',json('[]'))
+           FROM messages m WHERE m.id=@message`,
+        )
+        .run({ message, agent, name });
+    }
+    earlier
+      .prepare(
+        "UPDATE agents SET name='Renamed author' WHERE id='owner-b-author'",
+      )
+      .run();
     applyMigrations(earlier, migrations);
     const before = earlier
       .prepare("SELECT * FROM results ORDER BY owner_id,id")
@@ -447,9 +491,10 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
         detectedAt: expect.any(Number),
       },
     ]);
-    expect(resultDefects("owner-b", "message:owner-b-fa2", upgraded)).toEqual(
-      [],
-    );
+    for (const copy of ["fa2", "fa3", "fa4"])
+      expect(
+        resultDefects("owner-b", `message:owner-b-${copy}`, upgraded),
+      ).toEqual([]);
     // Findings are owner-scoped.
     expect(resultDefects("owner-b", "message:owner-a-fa", upgraded)).toEqual(
       [],
@@ -465,4 +510,140 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+});
+
+it("presents a recorded finding on the copy's Done card without changing the record", () => {
+  const owner = id();
+  const author = agentFor(owner, "author", "anthropic");
+  const destination = agentFor(owner, "destination");
+  const source = completedRun(owner, author.id, "Original answer");
+  // An earlier build sealed this copy as the destination agent's work.
+  const conversation = id();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Fork','loop-fork',?)",
+  ).run(conversation, owner, destination.id, now());
+  const copy = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Original answer',?,?)",
+  ).run(
+    copy,
+    owner,
+    conversation,
+    JSON.stringify({
+      sourceConversation: source.run.conversation_id,
+      sourceMessage: source.message,
+    }),
+    now(),
+  );
+  const resultId = "message:" + copy;
+  db.prepare(
+    `INSERT INTO results(id,owner_id,schema_version,kind,origin_completeness,sealed,created_at,conversation_id,run_id,message_id,agent_id,content_digest,stimulus,outcome,attachments,provenance,lineage)
+     VALUES(?,?,1,'imported_answer','sealed_at_publication',1,?,?,NULL,?,?,?,?,?,'[]',?,?)`,
+  ).run(
+    resultId,
+    owner,
+    now(),
+    conversation,
+    copy,
+    destination.id,
+    "0".repeat(64),
+    JSON.stringify({
+      kind: "user_prompt",
+      text: null,
+      sourceMessageId: null,
+      authorKind: "owner",
+      automationKind: null,
+      automationFrom: null,
+    }),
+    JSON.stringify({
+      title: "Original answer",
+      body: "Original answer",
+      format: "markdown",
+    }),
+    JSON.stringify({
+      agentId: destination.id,
+      agentName: destination.name,
+      provider: "openai",
+      model: "fixture",
+      resolvedModel: null,
+      connectionId: null,
+      conversationId: conversation,
+      runId: null,
+      messageId: copy,
+      placement: {
+        status: "unknown",
+        folderId: null,
+        projectId: null,
+        projectName: null,
+        teamId: null,
+      },
+    }),
+    JSON.stringify({
+      parentResultId: null,
+      triggerMessageId: null,
+      suppliedContext: [],
+    }),
+  );
+  const sealed = getResult(owner, resultId, db)!;
+
+  // Rerun the detection pass as an upgrade from that build would.
+  db.prepare(
+    "DELETE FROM result_history_passes WHERE name='detect-copy-attribution'",
+  ).run();
+  db.transaction(() =>
+    runResultHistoryPasses(db, { freshResults: false }),
+  ).immediate();
+  db.transaction(() => projectFeed(db, () => {})).immediate();
+
+  const card = doneCards(owner, {
+    folders: null,
+    teamIds: [],
+    before: null,
+    limit: 20,
+    atTime: now() + 1000,
+  }).find((entry) => entry.card.id === `d:${resultId}`)!;
+  expect(doneDisplay(card.card).result_findings).toEqual(["copy_attribution"]);
+  expect(card.card.content).toBe("Original answer");
+  expect(getResult(owner, resultId, db)).toEqual(sealed);
+  const original = doneCards(owner, {
+    folders: null,
+    teamIds: [],
+    before: null,
+    limit: 20,
+    atTime: now() + 1000,
+  }).find((entry) => entry.card.id === `d:${source.result.id}`)!;
+  expect(doneDisplay(original.card).result_findings).toBeUndefined();
+});
+
+it("does not record a copy's placement from its unsealed source's current folder", () => {
+  const owner = id();
+  const author = agentFor(owner, "author");
+  const destination = agentFor(owner, "destination");
+  const queued = submit(owner, {
+    agentId: author.id,
+    input: "Start",
+    idempotencyKey: id(),
+  });
+  const run = ownedRun(queued.id, owner);
+  const message = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Interrupted answer','{}',?)",
+  ).run(message, owner, run.conversation_id, run.id, now() + 1);
+  db.prepare(
+    "UPDATE runs SET state='cancelled',payload=json_remove(payload,'$.folderId') WHERE id=?",
+  ).run(run.id);
+  const fork = forkConversation(owner, run.conversation_id!, {
+    messageId: message,
+    agentId: destination.id,
+  });
+  expect(copiedAnswer(owner, fork.id).provenance).toMatchObject({
+    agentId: author.id,
+    placement: { status: "unknown" },
+    origin: {
+      kind: "copied",
+      sourceResultId: null,
+      sourceMessageId: message,
+      sourceAvailable: true,
+    },
+  });
 });

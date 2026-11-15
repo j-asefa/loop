@@ -119,7 +119,9 @@ SELECT k.*,
   COALESCE(json_extract(res.stimulus,'$.automationFrom'),json_extract(t.metadata,'$.automation.fromName')) trigger_automation_from,
   d.run_id decision_run_id,d.request decision_request,
   l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at,
-  CASE WHEN res.sealed=1 THEN res.attachments ELSE NULL END result_attachments
+  CASE WHEN res.sealed=1 THEN res.attachments ELSE NULL END result_attachments,
+  CASE WHEN res.sealed=1 THEN (SELECT json_group_array(f.defect) FROM (SELECT df.defect FROM result_defects df
+    WHERE df.owner_id=@owner AND df.result_id=res.id ORDER BY df.defect) f) END result_findings
 FROM chosen k
 LEFT JOIN agents g ON g.id=k.agent_id AND g.owner_id=@owner
 LEFT JOIN folder_project fp ON fp.id IS k.folder_id

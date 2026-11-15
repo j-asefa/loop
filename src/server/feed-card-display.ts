@@ -1,4 +1,6 @@
+import { z } from "zod";
 import { collapse } from "./collapse.js";
+import { ResultDefectKindSchema } from "../shared/result.js";
 import { STARTED_RUN_DISPLAY_STATES } from "../shared/run-state.js";
 type CheckoutSummary = import("zod").input<
   typeof import("../shared/checkout.js").CheckoutSummarySchema
@@ -60,6 +62,7 @@ export type FeedRow = {
   later_surfaced_at: number | null;
   queued: number;
   result_attachments?: string | null;
+  result_findings?: string | null;
 };
 
 export type FeedCardDetail = {
@@ -210,6 +213,7 @@ export function displayFeedCard(
         }
       : null,
     next_action: nextAction(row, run, mode === "done"),
+    ...resultFindings(mode, row.result_findings),
   };
 }
 
@@ -248,4 +252,15 @@ function nextAction(
   if (run?.state === "completed" && row.card_answer_id)
     return { kind: "result", run_id: run.id, message_id: row.card_answer_id };
   return null;
+}
+
+// Findings stored beside the card's sealed Result. The source query emits a
+// JSON array; an empty one leaves the field absent.
+function resultFindings(
+  mode: "thread" | "done" | "working",
+  findings: string | null | undefined,
+) {
+  if (mode !== "done" || !findings) return {};
+  const kinds = z.array(ResultDefectKindSchema).parse(JSON.parse(findings));
+  return kinds.length ? { result_findings: kinds } : {};
 }

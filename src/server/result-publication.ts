@@ -233,7 +233,12 @@ export function copiedAnswerEvidence(
         conversation.execution_connection_id ||
         agent?.connection_id ||
         null,
-      placement: placementSnapshot(ownerId, conversation, run, database),
+      // The source was never sealed: only a folder its run recorded is
+      // evidence of where it was produced, not its conversation's folder now.
+      placement:
+        run && run.payload.folderId !== undefined
+          ? placementSnapshot(ownerId, conversation, run, database)
+          : UNKNOWN_RESULT_PLACEMENT,
       origin: {
         kind: "copied",
         sourceResultId: null,

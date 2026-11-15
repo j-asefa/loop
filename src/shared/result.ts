@@ -85,6 +85,11 @@ export type ResultOutcome = z.infer<typeof ResultOutcomeSchema>;
 
 // Where the work was produced. Current organization stays mutable on the
 // conversation; this snapshot keeps the placement at publication time.
+// Findings recorded beside a sealed Result whose recorded facts disagree with
+// retained evidence. The Result itself is never rewritten.
+export const ResultDefectKindSchema = z.enum(["copy_attribution"]);
+export type ResultDefectKind = z.infer<typeof ResultDefectKindSchema>;
+
 export const ResultPlacementSchema = z.object({
   status: z.enum(["recorded", "unknown"]),
   folderId: z.string().nullable(),

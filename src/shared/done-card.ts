@@ -13,6 +13,7 @@ import { PullStateSchema } from "./pull-state.js";
 import { VerificationSummarySchema } from "./verification.js";
 import { CheckoutSummarySchema } from "./checkout.js";
 import { z } from "zod";
+import { ResultDefectKindSchema } from "./result.js";
 import { PublicRun } from "./run-contract-schema.js";
 import { ConversationOrigin } from "./origins.js";
 import { MessageRole } from "./message-roles.js";
@@ -117,6 +118,9 @@ export const DoneDisplaySchema = z.object({
       surfaced_at: time.nullable(),
     })
     .nullable(),
+  // Recorded facts of this card's Result that retained evidence disputes.
+  // Absent when there are none.
+  result_findings: z.array(ResultDefectKindSchema).optional(),
   next_action: z
     .object({
       kind: z.literal("result"),

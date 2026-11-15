@@ -32,7 +32,8 @@ export const CopyAttributionEvidenceSchema = z.object({
   }),
 });
 
-// Each finding kind declares the evidence it stores.
+// Each finding kind declares the evidence it stores; kinds are listed in
+// ResultDefectKindSchema.
 const StoredDefectSchema = z.discriminatedUnion("defect", [
   z.object({
     defect: z.literal("copy_attribution"),
@@ -109,10 +110,13 @@ function detectCopyAttribution(
   );
   if (!message) return;
   const source = copiedAnswerEvidence(result.ownerId, message, database);
-  if (!source) return;
+  // An unavailable source establishes nothing about the recorded author.
+  if (!source || !source.origin.sourceAvailable) return;
+  // Names and models can come from an agent's current settings when the
+  // source was never sealed, so only the durable agent identity decides.
+  if (source.agentId === result.provenance.agentId) return;
   const recorded = author(result.provenance);
   const evidence = author(source);
-  if (JSON.stringify(recorded) === JSON.stringify(evidence)) return;
   recordDefect(database, result, at, {
     defect: "copy_attribution",
     evidence: {
@@ -134,13 +138,22 @@ function recordDefect(
   finding: z.input<typeof StoredDefectSchema>,
 ) {
   const parsed = StoredDefectSchema.parse(finding);
-  resultDefectsQueries.insert(database, {
+  const inserted = resultDefectsQueries.insert(database, {
     ownerId: result.ownerId,
     resultId: result.id,
     defect: parsed.defect,
     evidence: JSON.stringify(parsed.evidence),
     detectedAt: at,
   });
+  // Done cards present findings, so their projection is rebuilt.
+  if (inserted.changes > 0 && result.kind !== "steering_reply") {
+    resultsQueries.markFeedCardDirty(
+      database,
+      result.ownerId,
+      result.provenance.conversationId,
+      result.id,
+    );
+  }
 }
 
 export function runResultHistoryPasses(
