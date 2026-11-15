@@ -65,9 +65,7 @@ export function WorkspaceConnection({
     const changed = (source: string, events?: readonly WorkspaceEvent[]) => {
       pending.add(source, events);
       pending.schedule((detail) => {
-        window.dispatchEvent(
-          new CustomEvent("loop-workspace-change", { detail }),
-        );
+        emitClientEvent("loop-workspace-change", detail);
       });
     };
     const stops = new Map<string, () => void>();
@@ -305,7 +303,7 @@ function DecisionCard({
           "Decision delivery is uncertain. Inspect the native session before sending another decision.",
         );
       setDone(true);
-      window.dispatchEvent(new Event("loop-workspace-change"));
+      emitClientEvent("loop-workspace-change", undefined);
     } catch (e) {
       if (
         isExecutionRefused(e) &&

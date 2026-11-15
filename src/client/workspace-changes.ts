@@ -1,3 +1,4 @@
+import type { ClientEvents } from "./clientEvents";
 import {
   invalidate,
   eventScopes,
@@ -7,15 +8,7 @@ import {
   type WorkspaceCapabilities,
 } from "../shared/workspace-events";
 
-type WorkspaceChange = {
-  source: string;
-  events: readonly WorkspaceEvent[];
-  capabilities?: WorkspaceCapabilities;
-};
-type WorkspaceChangeDetail = {
-  sources: string[];
-  changes?: WorkspaceChange[];
-};
+type WorkspaceChangeDetail = NonNullable<ClientEvents["loop-workspace-change"]>;
 type WorkspaceSurface = WorkspaceCollection | "thread" | "metadata";
 
 export function broadWorkspaceChange(event: Event) {

@@ -1,6 +1,8 @@
 import type {
   WorkspaceClock,
   WorkspaceFrameV3,
+  WorkspaceEvent,
+  WorkspaceCapabilities,
 } from "../shared/workspace-events";
 
 export type WorkspaceFrame =
@@ -16,6 +18,16 @@ export type WorkspaceFrame =
     });
 
 export type ClientEvents = {
+  "loop-workspace-change":
+    | {
+        sources: string[];
+        changes?: {
+          source: string;
+          events: readonly WorkspaceEvent[];
+          capabilities?: WorkspaceCapabilities;
+        }[];
+      }
+    | undefined;
   "loop-workspace-clock": {
     source: string;
     generation: number;
