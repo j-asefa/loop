@@ -32,6 +32,8 @@ export type Emit = (event: AdapterEvent) => void;
 // it, or the harness gave it back). Unlike other failures it may be retried.
 export class NotDelivered extends Error {}
 export interface Adapter {
+  /** Override the descriptor when a harness has multiple native protocols. */
+  readonly activityTransport?: "native" | "acp";
   capabilities: Capabilities;
   /** False when the native process cannot accept another explicit turn. */
   readonly reusable?: boolean;

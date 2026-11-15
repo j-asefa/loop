@@ -11,23 +11,34 @@ process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
-const { NativeSessions } = await import("../src/server/native-sessions");
+const { NativeSessions, nativeSessions } =
+  await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
 const { createAgent, ownedConnection, ownedRun } =
   await import("../src/server/domain");
 const { enqueue, claim } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
-const { createTeam } = await import("../src/server/teams");
+const { createTeam, deleteTeam } = await import("../src/server/teams");
 const { harnessName } = await import("../src/client/modelChoices");
-const sessions = new NativeSessions();
+const sessions = nativeSessions;
+const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
+const bridge = new NativeToolBridge();
+await bridge.start();
+let ticket: { url: string; token: string };
+sessions.tools = (conversation, generation) =>
+  (ticket = bridge.issue(conversation, generation));
+sessions.revokeTools = (conversation, generation) =>
+  bridge.revoke(conversation, generation);
 afterAll(async () => {
   await sessions.close();
+  await bridge.close();
   db.close();
   for (const name of [
     "LOOP_TEST_AGY_LOG",
     "LOOP_TEST_AGY_MODE",
     "LOOP_TEST_AGY_SESSION_ID",
     "LOOP_TEST_AGY_SLOW_STOP",
+    "LOOP_TEST_AGY_RECIPIENT",
   ])
     delete process.env[name];
   rmSync(dir, { recursive: true, force: true });
@@ -336,3 +347,162 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     );
   },
 );
+
+it("refuses an ACP runtime without HTTP MCP support before registering or dispatching a prompt", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "no-http";
+  const before = requests().filter((r) => r.method === "session/prompt").length;
+  try {
+    await expect(
+      sessions.projects.enable({
+        harness: "antigravity",
+        executable: resolve("test/fixtures/fake-antigravity.mjs"),
+        version: "1.5.9",
+        project: dir,
+        billing: "existing",
+      }),
+    ).rejects.toThrow(/Antigravity setup failed/);
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(before);
+    expect(
+      ownedConnection("native-antigravity", OWNER).metadata.capabilities
+        ?.workspaceTools,
+    ).toBe(false);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+  }
+});
+
+it("injects generation-scoped workspace tools into ACP and sends mail once through the production bridge", async () => {
+  const legacy = task("agy-upgrade-history");
+  const saved = await sessions.session(legacy.run);
+  const savedProject = saved.binding.project;
+  await sessions.dispose(saved);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('agy-released-answer',?,?,'assistant','Saved historical answer',0)",
+  ).run(OWNER, legacy.run.conversation_id);
+  await sessions.projects.enable({
+    harness: "antigravity",
+    executable: resolve("test/fixtures/fake-antigravity.mjs"),
+    version: "1.5.9",
+    project: dir,
+    billing: "existing",
+  });
+  expect(
+    ownedConnection("native-antigravity", OWNER).metadata.capabilities,
+  ).toMatchObject({ workspaceTools: true, approvals: true });
+  const upgraded = await sessions.session(legacy.run);
+  expect(upgraded.binding.native_id).toBe("agy-upgrade-history");
+  expect(upgraded.binding.project).toBe(savedProject);
+  expect(upgraded.adapter.activityTransport).toBe("acp");
+  expect(
+    db
+      .prepare("SELECT content FROM messages WHERE id='agy-released-answer'")
+      .get(),
+  ).toEqual({ content: "Saved historical answer" });
+  await sessions.dispose(upgraded);
+  const { agent, run } = task("agy-acp-mail");
+  expect(eligibleMailAgent(OWNER, agent.id).id).toBe(agent.id);
+  expect(() => eligibleMailAgent("other-owner", agent.id)).toThrow(/not found/);
+  db.prepare(
+    `INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('mail-api',?,'openai','Fixture','','connected','[{"id":"fixture"}]','{}',0)`,
+  ).run(OWNER);
+  const recipient = createAgent(OWNER, {
+    name: "mail-recipient",
+    connectionId: "mail-api",
+    model: "fixture",
+  });
+  const team = createTeam(OWNER, {
+    name: "ACP tools team",
+    managerId: agent.id,
+    members: [recipient.id],
+  });
+  expect(team.manager_id).toBe(agent.id);
+  deleteTeam(OWNER, team.id);
+  process.env.LOOP_TEST_AGY_RECIPIENT = recipient.id;
+  const active = claim("agy-mail", (candidate) => candidate.id === run.id)!;
+  try {
+    expect(await sessions.execute(active)).toBe(true);
+    expect(requests().findLast((r) => r.event === "catalog").tools).toEqual(
+      expect.arrayContaining(["loop_agents", "loop_message", "loop_handoff"]),
+    );
+    const mails = db
+      .prepare(
+        "SELECT sender_agent_id,recipient_agent_id,run_id FROM agent_mail WHERE sender_agent_id=?",
+      )
+      .all(agent.id) as { run_id: string }[];
+    expect(mails).toHaveLength(1);
+    expect(mails[0]).toMatchObject({
+      sender_agent_id: agent.id,
+      recipient_agent_id: recipient.id,
+    });
+    expect(ownedRun(mails[0].run_id, OWNER).state).toBe("queued");
+    expect(requests().findLast((r) => r.event === "duplicate-mail").same).toBe(
+      true,
+    );
+    const old = { ...ticket };
+    const request = {
+      method: "tools/call",
+      id: "late",
+      name: "loop_message",
+      arguments: { to: recipient.id, body: "late" },
+    };
+    const call = (token: string) =>
+      fetch(old.url + "/pi", {
+        method: "POST",
+        headers: { authorization: "Bearer " + token },
+        body: JSON.stringify(request),
+      });
+    expect((await call("wrong-token")).status).toBe(403);
+    expect((await call(old.token)).status).toBe(409);
+    const live = sessions.current(
+      run.conversation_id!,
+      (await sessions.session(run)).generation,
+      false,
+    );
+    const generation = live.generation;
+    await sessions.dispose(live);
+    const resumed = await sessions.session(run);
+    expect(resumed.binding.native_id).toBe("agy-acp-mail");
+    expect(resumed.generation).not.toBe(generation);
+    expect((await call(old.token)).status).toBe(403);
+    expect(
+      requests().findLast((r) => r.method === "session/load").params.sessionId,
+    ).toBe("agy-acp-mail");
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(1);
+    await sessions.dispose(resumed);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_RECIPIENT;
+  }
+});
+
+it("never resends an ACP prompt after a disconnect, including through recovery", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "disconnect";
+  const { run } = task("agy-acp-uncertain");
+  const before = requests().filter((r) => r.method === "session/prompt").length;
+  try {
+    expect(
+      await sessions.execute(
+        claim("agy-mail", (candidate) => candidate.id === run.id)!,
+      ),
+    ).toBe(false);
+    const receipt = db
+      .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
+      .get(run.id);
+    expect(receipt).toBeTruthy();
+    sessions.recover();
+    await expect(sessions.execute(run)).rejects.toThrow(
+      /already dispatched|uncertain outcome/,
+    );
+    expect(
+      requests().filter((r) => r.method === "session/prompt"),
+    ).toHaveLength(before + 1);
+    expect(
+      db.prepare("SELECT * FROM native_dispatch WHERE run_id=?").get(run.id),
+    ).toEqual(receipt);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+  }
+});

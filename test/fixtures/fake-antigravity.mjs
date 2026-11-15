@@ -27,6 +27,10 @@ if (args[0] === "models") {
   );
   process.exit(0);
 }
+if (args[0] === "acp") {
+  await import("./antigravity-acp.mjs");
+  process.exit(0);
+}
 if (
   args.includes("--acp") ||
   args.includes("--dangerously-skip-permissions") ||

@@ -36,6 +36,7 @@ export function workspaceMcp({ url, token }: WorkspaceTools) {
     opencode: { [WORKSPACE_MCP_SERVER]: { type: "remote", url, headers } },
     acp,
     grok: acp,
+    antigravity: acp,
     pi: { LOOP_TOOLS_URL: url, LOOP_TOOLS_TOKEN: token },
   } satisfies Record<WorkspaceToolHarness, unknown>;
 }

@@ -87,7 +87,7 @@ loop
 loop start --project /absolute/path/to/project
 ```
 
-Each harness keeps its native tools and context. Agents owned by the same user in one Loop workspace can discover, message and hand work to one another across harnesses, with shared file references and durable delivery receipts. Team managers can also delegate work. Antigravity currently supports individual conversations; see its [setup and limitations](docs/harnesses.md#antigravity). Inspect threads and resume held messages from each profile’s Agent mail tab. Codex, Claude Code, Pi and Muse Code support live steering; OpenCode, Antigravity, Grok Build and ACP queue follow-ups.
+Each harness keeps its native tools and context. Agents owned by the same user in one Loop workspace can discover, message and hand work to one another across harnesses, with shared file references and durable delivery receipts. Team managers can also delegate work. Antigravity requires CLI 1.5.9 or newer for Agent mail and teams; see its [setup and limitations](docs/harnesses.md#antigravity). Inspect threads and resume held messages from each profile’s Agent mail tab. Codex, Claude Code, Pi and Muse Code support live steering; OpenCode, Antigravity, Grok Build and ACP queue follow-ups.
 
 The workspace and pairing are available while each harness is verified independently. Missing harnesses are not installed automatically. A failed account check leaves that harness unavailable without blocking the others.
 

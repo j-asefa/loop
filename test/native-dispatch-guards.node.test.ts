@@ -222,21 +222,26 @@ test("Muse rechecks after applying a pending model before starting a turn", asyn
   assert.deepEqual(calls, ["session/setModel"]);
 });
 
-for (const [harness, Adapter] of [
+for (const [harness, Adapter, version = options.version] of [
   ["acp", Acp],
   ["grok", Grok],
-  ["antigravity", Antigravity],
+  ["antigravity", Antigravity, "1.4.9"],
+  ["antigravity", Antigravity, "1.5.9"],
 ] as const) {
-  test(`${harness} refuses a prompt before native dispatch`, async () => {
-    const adapter: any = new Adapter({ ...options, harness }, () => {});
+  test(`${harness} ${version} refuses a prompt before native dispatch`, async () => {
+    const adapter: any = new Adapter(
+      { ...options, harness, version },
+      () => {},
+    );
+    const transport = harness === "antigravity" ? adapter.adapter : adapter;
     let writes = 0;
-    adapter.session = "fixture";
-    adapter.native = {
+    transport.session = "fixture";
+    transport.native = {
       write: async () => {
         writes++;
       },
     };
-    adapter.connection = {
+    transport.connection = {
       prompt: async () => {
         writes++;
         return { stopReason: "end_turn" };

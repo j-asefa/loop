@@ -237,3 +237,42 @@ test("Antigravity rejects subscription billing, failed authentication and a mism
     }
   }
 });
+
+test("Antigravity ACP uses session-scoped MCP mode and standard model/effort settings", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    {
+      ...options,
+      version: "1.5.9",
+      model: "gemini-agy-fixture",
+      effort: "high",
+      instructions: "Saved instructions",
+    },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    assert.equal(adapter.capabilities.workspaceTools, true);
+    assert.equal(adapter.capabilities.approvals, true);
+    assert.equal(adapter.activityTransport, "acp");
+    assert.deepEqual(requests()[0].args, ["acp", "--process-per-session"]);
+    assert.deepEqual(
+      requests()
+        .filter((r) => r.method === "session/set_config_option")
+        .map((r) => [r.params.configId, r.params.value]),
+      [
+        ["model", "gemini-agy-fixture"],
+        ["thinking_level", "high"],
+      ],
+    );
+    await adapter.prompt("Explicit task");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(
+      requests().find((r) => r.method === "session/prompt").params.prompt,
+      [{ type: "text", text: "Saved instructions\n\nExplicit task" }],
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});

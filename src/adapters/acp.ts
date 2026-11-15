@@ -86,6 +86,7 @@ export class Acp implements Adapter {
     { id: "native-default", name: "Use agent default" },
   ];
   protected verifySessionOnProbe = false;
+  protected requireWorkspaceTools = false;
   protected environment(): NodeJS.ProcessEnv {
     return process.env;
   }
@@ -264,6 +265,13 @@ export class Acp implements Adapter {
       // prompt-free session to verify authentication and discover models.
       if (this.options.probeOnly && !this.verifySessionOnProbe)
         return this.billing();
+      if (
+        (this.options.workspaceTools || this.requireWorkspaceTools) &&
+        !init.agentCapabilities?.mcpCapabilities?.http
+      )
+        throw new SafeAcpError(
+          "This ACP agent does not advertise HTTP workspace tools.",
+        );
       const mcpServers =
         this.options.workspaceTools &&
         init.agentCapabilities?.mcpCapabilities?.http
@@ -313,13 +321,24 @@ export class Acp implements Adapter {
           throw new SafeAcpError(
             "Selected model is not in the agent's session catalog.",
           );
-        await within(
-          this.connection.request("session/set_model", {
-            sessionId: this.session,
-            modelId: this.options.model,
-          }),
-          "ACP session/set_model",
+        const setting = this.rawConfigOptions.find(
+          (option) => option.category === "model" && option.type === "select",
         );
+        if (setting) {
+          await this.setSetting(
+            setting.id,
+            this.options.model,
+            this.settings.revision,
+          );
+        } else {
+          await within(
+            this.connection.request("session/set_model", {
+              sessionId: this.session,
+              modelId: this.options.model,
+            }),
+            "ACP session/set_model",
+          );
+        }
       }
       this.emit({ type: "metadata", nativeSession: this.session });
       this.emit({ type: "status", status: "ready" });
@@ -334,6 +353,51 @@ export class Acp implements Adapter {
     }
   }
   private refreshModels(response: unknown) {
+    const config = z
+      .object({
+        configOptions: z
+          .array(
+            z.object({
+              category: z.string().optional(),
+              type: z.string(),
+              options: z
+                .array(
+                  z.union([
+                    z.object({
+                      value: z.string().min(1).max(200),
+                      name: z.string().min(1).max(200),
+                    }),
+                    z.object({
+                      group: z.string(),
+                      options: z.array(
+                        z.object({
+                          value: z.string().min(1).max(200),
+                          name: z.string().min(1).max(200),
+                        }),
+                      ),
+                    }),
+                  ]),
+                )
+                .optional(),
+            }),
+          )
+          .optional(),
+      })
+      .safeParse(response);
+    const model = config.success
+      ? config.data.configOptions?.find(
+          (option) => option.category === "model" && option.type === "select",
+        )
+      : undefined;
+    if (model?.options) {
+      this.models = [
+        { id: "native-default", name: "Use agent default" },
+        ...model.options
+          .flatMap((entry) => ("group" in entry ? entry.options : [entry]))
+          .map((entry) => ({ id: entry.value, name: entry.name })),
+      ];
+      return;
+    }
     // Current ACP agents can report the model extension, absent from SDK 1.5's
     // static types. Validate the native catalog before exposing it to the UI.
     const parsed = z
