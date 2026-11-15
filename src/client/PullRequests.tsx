@@ -1,4 +1,9 @@
 import { ErrorNotice } from "./ErrorNotice";
+import {
+  PULL_STATE_LABEL as STATE_LABEL,
+  PULL_CHECKS_LABEL as CHECKS_LABEL,
+  PULL_REVIEW_LABEL as REVIEW_LABEL,
+} from "./pullLabels";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -32,11 +37,7 @@ import { PullChangeCounts } from "./PullChangeCounts";
 import { Empty, RichText, Sheet } from "./components";
 import { relativeTime } from "./threadView";
 import { RepoFileSheet } from "./RepoFileView";
-import {
-  parsePullRequestUrl,
-  type PullRequestRef,
-  type PullRequestState,
-} from "../shared/github";
+import { parsePullRequestUrl, type PullRequestRef } from "../shared/github";
 import {
   MAX_REVIEW_BODY,
   PULL_FILTERS,
@@ -71,26 +72,10 @@ export function openPull(ref: PullRequestRef) {
   emitClientEvent("loop-open-pull", pullKey(ref));
 }
 
-const STATE_LABEL: Record<PullRequestState, string> = {
-  draft: "Draft",
-  open: "Open",
-  merged: "Merged",
-  closed: "Closed",
-};
-const CHECKS_LABEL: Record<ChecksState, string> = {
-  success: "Checks passed",
-  failure: "Checks failed",
-  pending: "Checks running",
-};
 const CHECKS_TONE: Record<ChecksState, string> = {
   success: "passed",
   failure: "failed",
   pending: "queued",
-};
-const REVIEW_LABEL: Record<ReviewDecision, string> = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  review_required: "Review required",
 };
 const REVIEW_TONE: Record<ReviewDecision, string> = {
   approved: "passed",
@@ -471,9 +456,9 @@ function Comment({ comment, state }: { comment: PullComment; state?: string }) {
             }
           >
             {state === "approved"
-              ? "Approved"
+              ? REVIEW_LABEL.approved
               : state === "changes_requested"
-                ? "Changes requested"
+                ? REVIEW_LABEL.changes_requested
                 : state === "dismissed"
                   ? "Dismissed"
                   : "Commented"}

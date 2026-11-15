@@ -15,17 +15,10 @@ import { executionSourceId } from "./sourceRouting";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { openPull } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
+import { PULL_STATE_LABEL, PULL_REVIEW_LABEL } from "./pullLabels";
 
-const states = {
-  open: "Open",
-  draft: "Draft",
-  merged: "Merged",
-  closed: "Closed",
-};
 const reviews = {
-  approved: "Approved",
-  changes_requested: "Changes requested",
-  review_required: "Review required",
+  ...PULL_REVIEW_LABEL,
   commented: "Commented",
   dismissed: "Review dismissed",
 };
@@ -42,7 +35,9 @@ export function ConversationPullCard({
       <div className="pr-card-heading">
         <span>{pullRequestKey(pull)}</span>
         {pull.state && (
-          <span className={`pr-state ${pull.state}`}>{states[pull.state]}</span>
+          <span className={`pr-state ${pull.state}`}>
+            {PULL_STATE_LABEL[pull.state]}
+          </span>
         )}
       </div>
       {pull.title && <strong>{pull.title}</strong>}
@@ -202,7 +197,7 @@ function PullReader({
         </span>
         {first?.state && (
           <span className={`pr-state ${first.state}`}>
-            {states[first.state]}
+            {PULL_STATE_LABEL[first.state]}
           </span>
         )}
         {first?.review && !error ? (
