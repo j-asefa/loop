@@ -197,7 +197,7 @@ function PullReader({
         </span>
         {first?.state && (
           <span className={`pr-state ${first.state}`}>
-            {states[first.state]}
+            {PULL_STATE_LABEL[first.state]}
           </span>
         )}
         {first?.review && !error ? (
