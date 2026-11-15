@@ -1,4 +1,6 @@
-import { useProjectionRoute } from "./SourceContext";
+import { readRoute } from "./api";
+import { useCollectionRead } from "./CollectionRead";
+import { viewGeneration } from "./viewCache";
 import { ConversationId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, GitPullRequest, RefreshCw } from "lucide-react";
@@ -131,52 +133,38 @@ function PullReader({
   conversationId: string;
   refreshKey: string;
 }) {
-  const readProjection = useProjectionRoute();
-
   const source = useSourceId();
-  const [data, setData] = useState<Pulls | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const scope = JSON.stringify([viewGeneration(), source, conversationId]);
+  const [snapshot, setSnapshot] = useState<{ scope: string; data: Pulls }>();
   const [revision, setRevision] = useState(0);
   const forcedRevision = useRef(0);
+  const {
+    load: read,
+    error: failure,
+    busy,
+  } = useCollectionRead(JSON.stringify([scope, revision, refreshKey]));
+  const data = snapshot?.scope === scope ? snapshot.data : undefined;
+  const error = failure
+    ? "Could not refresh pull requests. Any details below are from the last successful read."
+    : "";
   useEffect(() => {
-    let live = true,
-      pending = false,
-      again = false;
-    const load = async (refresh = false) => {
-      if (!live || document.visibilityState === "hidden") return;
-      if (pending) {
-        again = true;
-        return;
-      }
-      pending = true;
-      setBusy(true);
-      try {
-        const next = await readProjection(
-          workspaceApi.conversationPulls,
-          {
-            params: { id: ConversationId.parse(conversationId) },
-            query: refresh ? { refresh: "1" } : {},
-          },
-          { mode: "once" },
-        );
-        if (live) {
-          setData(next);
-          setError("");
-        }
-      } catch {
-        if (live)
-          setError(
-            "Could not refresh pull requests. Any details below are from the last successful read.",
-          );
-      } finally {
-        pending = false;
-        if (live) setBusy(false);
-        if (live && again) {
-          again = false;
-          void load();
-        }
-      }
+    const load = (refresh = false) => {
+      if (document.visibilityState === "hidden") return;
+      void read(
+        (signal) =>
+          readRoute(
+            workspaceApi.conversationPulls,
+            {
+              params: { id: ConversationId.parse(conversationId) },
+              query: refresh ? { refresh: "1" } : {},
+            },
+            source,
+            signal,
+            undefined,
+            "once",
+          ),
+        (next) => setSnapshot({ scope, data: next }),
+      );
     };
     const force = revision !== forcedRevision.current;
     forcedRevision.current = revision;
@@ -194,13 +182,12 @@ function PullReader({
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      live = false;
       clearInterval(interval);
       stop();
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [conversationId, source, revision, refreshKey]);
+  }, [conversationId, source, scope, revision, refreshKey, read]);
   if (!data?.pulls.length && !error) return null;
   const first = data?.pulls[0];
   const canOpen = (source || "") === (executionSourceId() || "");
