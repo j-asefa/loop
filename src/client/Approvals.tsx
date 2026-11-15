@@ -7,7 +7,7 @@ import {
   useSourceRouteRead,
 } from "./SourceContext";
 import { listenWorkspaceChanges } from "./workspace-changes";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { isRateLimited } from "./api";
+import { useCollectionRead } from "./CollectionRead";
+import { viewGeneration } from "./viewCache";
 import { ApprovalRequestDetails, describeApproval } from "./ApprovalRequest";
 import { Avatar, Badge, Sheet } from "./components";
 import { Tools } from "./Tools";
@@ -51,11 +53,28 @@ export function Approvals({
     readContract = useSourceRouteRead();
   const sourceId = useSourceId();
   const unavailable = useSourceOperation(workspaceApi.approval);
-  const [items, setItems] = useState<Approval[]>([]);
+  const scope = runIds?.join(",");
+  const readKey = JSON.stringify([
+    viewGeneration(),
+    sourceId,
+    teams,
+    runId,
+    scope,
+  ]);
+  const [snapshot, setSnapshot] = useState<{
+    key: string;
+    items: Approval[];
+  }>();
+  const items = snapshot?.key === readKey ? snapshot.items : [];
+  const setItems = (update: (old: Approval[]) => Approval[]) =>
+    setSnapshot((old) =>
+      old?.key === readKey ? { ...old, items: update(old.items) } : old,
+    );
+  const { load, error: failureMessage, failure } = useCollectionRead(readKey);
+  const rateLimited = isRateLimited(failure);
+  const readError = rateLimited ? "" : failureMessage;
   const [selected, setSelected] = useState<Approval | null>(null);
   const [error, setError] = useState("");
-  const [readError, setReadError] = useState("");
-  const [rateLimited, setRateLimited] = useState(false);
   const [notice, setNotice] = useState("");
   const [showTools, setShowTools] = useState(false);
   const [busy, setBusy] = useState<"approve" | "reject" | null>(null);
@@ -63,61 +82,44 @@ export function Approvals({
   const [time, setTime] = useState(Date.now());
   const locked = useRef(false);
   const decided = useRef(new Set<string>());
-  const [poll, setPoll] = useState(0);
-  const scope = runIds?.join(",");
-  useEffect(() => {
-    const update = () => setPoll((value) => value + 1);
-    const stopChanges = listenWorkspaceChanges("approvals", update, sourceId);
-    return () => {
-      stopChanges();
-    };
-  }, [runId, sourceId]);
-  useEffect(() => {
-    setSelected(null);
-    setItems([]);
-    setError("");
-    setReadError("");
-    setRateLimited(false);
-  }, [teams, runId, scope]);
-  useEffect(() => {
-    let current = true;
-    const controller = new AbortController();
-    void readContract(
-      workspaceApi.approvals,
-      { query: { teams } },
-      controller.signal,
-      (error) => {
-        if (current) {
-          setRateLimited(isRateLimited(error));
-          setReadError(isRateLimited(error) ? "" : (error as Error).message);
-        }
-      },
-    )
-      .then((fresh) => {
-        if (current) {
-          setReadError("");
-          setRateLimited(false);
-          setItems(
-            fresh.filter(
+  const refresh = useCallback(
+    () =>
+      load(
+        (signal, _mode, reportRetry) =>
+          readContract(
+            workspaceApi.approvals,
+            { query: { teams } },
+            signal,
+            (failure) =>
+              reportRetry(
+                failure,
+                isRateLimited(failure) ? "" : (failure as Error).message,
+              ),
+          ),
+        (fresh) =>
+          setSnapshot({
+            key: readKey,
+            items: fresh.filter(
               (item) =>
                 !decided.current.has(item.id) &&
                 (!runId || item.run_id === runId) &&
                 (!runIds || runIds.includes(item.run_id)),
             ),
-          );
-        }
-      })
-      .catch((e) => {
-        if (current) {
-          setRateLimited(isRateLimited(e));
-          setReadError(isRateLimited(e) ? "" : e.message);
-        }
-      });
-    return () => {
-      current = false;
-      controller.abort();
-    };
-  }, [revision, teams, runId, scope, poll]);
+          }),
+      ),
+    [load, readContract, teams, runId, scope, readKey],
+  );
+  useEffect(
+    () => listenWorkspaceChanges("approvals", () => void refresh(), sourceId),
+    [refresh, sourceId],
+  );
+  useEffect(() => {
+    setSelected(null);
+    setError("");
+  }, [readKey]);
+  useEffect(() => {
+    void refresh();
+  }, [revision, refresh]);
   useEffect(() => {
     if (!selected) return;
     setTime(Date.now());
