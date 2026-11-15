@@ -53,6 +53,7 @@ test("Antigravity probes models and native initialization without a prompt, cred
     ]);
     assert.equal(adapter.capabilities.approvals, false);
     assert.equal(adapter.capabilities.workspaceTools, false);
+    assert.equal(adapter.steer, undefined);
     assert.deepEqual(
       requests()
         .filter((r) => r.args)

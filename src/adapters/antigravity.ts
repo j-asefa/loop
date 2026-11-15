@@ -193,6 +193,7 @@ export class Antigravity implements Adapter {
     )
       ? new AntigravityAcp(options, emit)
       : new AntigravityHeadless(options, emit);
+    if (!this.adapter.steer) this.steer = undefined;
   }
   get activityTransport() {
     return this.adapter instanceof Acp ? ("acp" as const) : ("native" as const);
@@ -234,8 +235,8 @@ export class Antigravity implements Adapter {
   prompt(text: string, beforeDispatch?: () => void) {
     return this.adapter.prompt(text, beforeDispatch);
   }
-  get steer() {
-    return this.adapter.steer?.bind(this.adapter);
+  async steer?(text: string, beforeDispatch?: () => void) {
+    return this.adapter.steer!(text, beforeDispatch);
   }
   cancel() {
     return this.adapter.cancel();
