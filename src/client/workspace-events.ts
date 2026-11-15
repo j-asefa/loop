@@ -7,6 +7,7 @@ import { workspaceApi } from "../shared/workspace-api";
 import {
   WorkspaceClock,
   invalidate,
+  DEADLINE_WORKSPACE_COLLECTIONS,
   COMPLETE_WORKSPACE_CAPABILITIES,
   type WorkspaceEvent,
 } from "../shared/workspace-events";
@@ -81,10 +82,10 @@ export function watchWorkspaceEvents(options: {
         deadlineTimer = setTimeout(fire, Math.min(2_147_483_647, remaining));
       else
         options.changed(
-          ["feed", "results", "approvals", "pulls", "webhooks"].map((id) =>
+          DEADLINE_WORKSPACE_COLLECTIONS.map((id) =>
             invalidate({
               kind: "collection",
-              id: id as "feed" | "results" | "approvals" | "pulls" | "webhooks",
+              id,
             }),
           ),
         );

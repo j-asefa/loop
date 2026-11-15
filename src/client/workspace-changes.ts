@@ -1,6 +1,7 @@
 import {
   invalidate,
   eventScopes,
+  reconciliationScopes,
   type WorkspaceCollection,
   type WorkspaceEvent,
   type WorkspaceCapabilities,
@@ -29,34 +30,6 @@ export function broadWorkspaceChange(event: Event) {
       ),
     )
   );
-}
-
-/** Complete producers name collection dependencies explicitly. Streamed
- * display rows go straight to their reducer instead of refreshing every view. */
-function reconciliationScopes(
-  event: WorkspaceEvent,
-  capabilities?: WorkspaceCapabilities,
-) {
-  if (capabilities?.transcript !== "delta") return eventScopes(event);
-  if (event.type === "provider.receipt" || event.type === "native.usage")
-    return [{ kind: "collection" as const, id: "usage" as const }];
-  if (event.type === "activity.updated" || event.type === "trace.updated")
-    return [{ kind: "collection" as const, id: "activities" as const }];
-  if (event.type === "connection.status")
-    return [{ kind: "collection" as const, id: "metadata" as const }];
-  if (event.type.startsWith("message.") || event.type === "native.event")
-    return [];
-  // PR 6's transactional producer inventory covers run, conversation and
-  // subject changes. Those identities alone are not broad invalidations.
-  return eventScopes(event)
-    .filter((scope) => scope.kind === "collection")
-    .flatMap((scope) =>
-      scope.id === "social"
-        ? [scope, { kind: "collection" as const, id: "feed" as const }]
-        : scope.id === "runs"
-          ? [scope, { kind: "collection" as const, id: "usage" as const }]
-          : [scope],
-    );
 }
 
 export function listenWorkspaceChanges(
