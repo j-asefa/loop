@@ -18,6 +18,7 @@ const replyScopeSql = `FROM steering_replies p
   JOIN messages q ON q.id=s.message_id AND q.owner_id=p.owner_id
   JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=p.owner_id
   JOIN runs r ON r.id=m.run_id AND r.owner_id=p.owner_id
+  LEFT JOIN results res ON res.owner_id=p.owner_id AND res.id='reply:'||p.message_id AND res.sealed=1
   WHERE p.owner_id=@owner AND p.archived_at IS NULL
     AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
     AND (@agent IS NULL OR r.agent_id=@agent)
@@ -36,13 +37,15 @@ export function unread(db: Database.Database, params: ReplyScope) {
   );
 }
 
-const pageStatement =
-  statement(`SELECT p.message_id,p.created_at,p.read_at,q.id question_id,substr(q.content,1,1000) question,
-    substr(m.content,1,1000) content,c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
+const pageStatement = statement(`SELECT p.message_id,p.created_at,p.read_at,
+    COALESCE(json_extract(res.stimulus,'$.sourceMessageId'),q.id) question_id,
+    substr(COALESCE(json_extract(res.stimulus,'$.text'),q.content),1,1000) question,
+    substr(COALESCE(json_extract(res.outcome,'$.body'),m.content),1,1000) content,
+    c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
     ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
     json_extract(r.payload,'$.connectionId') connection_id,json_extract(r.payload,'$.model') model,
     json_extract(r.payload,'$.resolvedModel') resolved_model,json_extract(r.payload,'$.provider') provider,
-    COALESCE(json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) agent_name,
+    COALESCE(CASE WHEN r.agent_id IS NOT NULL THEN json_extract(res.provenance,'$.agentName') END,json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) agent_name,
     EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
     ${replyScopeSql}
       AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))

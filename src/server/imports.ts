@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { db, id, now, emit } from "./db.js";
 import { ownedImport, Problem } from "./domain.js";
 import { saveArtifact } from "./artifacts.js";
+import { publishImportedConversationResults } from "./result-publication.js";
 type ImportedMessage = {
   externalId: string;
   role: "user" | "assistant" | "system";
@@ -447,6 +448,7 @@ export async function executeImport(run: Run): Promise<RunOutcome> {
           messageId,
         );
       }
+      publishImportedConversationResults(run.owner_id, conversation.id);
       if (
         !artifactsQueries.conversationHasArtifact(
           db,

@@ -5,6 +5,7 @@ import {
   MessageRecord,
   ArtifactRecord,
   McpConnectionRecord,
+  ResultRecord,
 } from "./sql/rows.js";
 export {
   AgentRecord,
@@ -20,7 +21,19 @@ export {
   OperationRecord,
   TeamRecord,
   MemorySourceRecord,
+  ResultRecord,
+  ResultContextEdgeRecord,
 } from "./sql/rows.js";
+import {
+  CanonicalResultSchema,
+  ResultAttachmentRefSchema,
+  ResultLineageSchema,
+  ResultOutcomeSchema,
+  ResultProvenanceSchema,
+  ResultStimulusSchema,
+  type CanonicalResult,
+} from "../shared/result.js";
+import { computeResultContentDigest } from "./result-digest.js";
 import { z } from "zod";
 import { Billing, Harness } from "../shared/protocol.js";
 
@@ -338,4 +351,80 @@ export function parseMcpConnection(value: unknown) {
   if (row.secret !== "" && !SealedEnvelope.safeParse(row.secret).success)
     throw new InvalidRow("mcp_connections", row.id, "secret");
   return row;
+}
+
+export function parseCanonicalResult(value: unknown): CanonicalResult {
+  const row = parseRecord(ResultRecord, value, "results");
+  const stimulus = readJson(
+    ResultStimulusSchema,
+    row.stimulus,
+    "results",
+    row.id,
+    "stimulus",
+  );
+  const outcome = readJson(
+    ResultOutcomeSchema,
+    row.outcome,
+    "results",
+    row.id,
+    "outcome",
+  );
+  const attachments = readJson(
+    z.array(ResultAttachmentRefSchema),
+    row.attachments,
+    "results",
+    row.id,
+    "attachments",
+  );
+  const provenance = readJson(
+    ResultProvenanceSchema,
+    row.provenance,
+    "results",
+    row.id,
+    "provenance",
+  );
+  const lineage = readJson(
+    ResultLineageSchema,
+    row.lineage,
+    "results",
+    row.id,
+    "lineage",
+  );
+  const contentDigest =
+    row.content_digest === "0".repeat(64)
+      ? computeResultContentDigest({
+          id: row.id,
+          kind: row.kind,
+          stimulus,
+          outcome,
+          attachments,
+          provenance,
+          lineage,
+        })
+      : row.content_digest;
+  const parsed = CanonicalResultSchema.safeParse({
+    id: row.id,
+    ownerId: row.owner_id,
+    schemaVersion: row.schema_version,
+    kind: row.kind,
+    originCompleteness: row.origin_completeness,
+    createdAt: row.created_at,
+    contentDigest,
+    stimulus,
+    outcome,
+    attachments,
+    provenance,
+    lineage,
+  });
+  if (!parsed.success)
+    throw new InvalidRow("results", row.id, "content_digest");
+  return parsed.data;
+}
+
+export function maybeCanonicalResult(value: unknown) {
+  return value === undefined ? undefined : parseCanonicalResult(value);
+}
+
+export function parseCanonicalResults(values: unknown[]) {
+  return values.map(parseCanonicalResult);
 }

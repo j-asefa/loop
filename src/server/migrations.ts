@@ -2,12 +2,19 @@ import type Database from "better-sqlite3";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-/** The same immediate migration boundary is used by API and worker startup. */
-export function applyMigrations(
-  db: Database.Database,
-  directory: string | URL = new URL("../../migrations/", import.meta.url),
-) {
-  const path = directory instanceof URL ? fileURLToPath(directory) : directory;
+import {
+  computeResultContentDigestFromRawJson,
+  registerResultSqliteFunctions,
+} from "./result-digest.js";
+const DEFAULT_MIGRATIONS_URL = new URL("../../migrations/", import.meta.url);
+const DEFAULT_MIGRATIONS_PATH = fileURLToPath(DEFAULT_MIGRATIONS_URL);
+let cachedDefaultMigrations:
+  { name: string; prefix: number; sql: string }[] | null = null;
+
+function loadMigrations(path: string) {
+  if (path === DEFAULT_MIGRATIONS_PATH && cachedDefaultMigrations) {
+    return cachedDefaultMigrations;
+  }
   const names = new Set<string>();
   const migrations = readdirSync(path)
     .filter((file) => file.endsWith(".sql"))
@@ -29,6 +36,20 @@ export function applyMigrations(
       (a, b) =>
         a.prefix - b.prefix || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
     );
+  if (path === DEFAULT_MIGRATIONS_PATH) {
+    cachedDefaultMigrations = migrations;
+  }
+  return migrations;
+}
+
+/** The same immediate migration boundary is used by API and worker startup. */
+export function applyMigrations(
+  db: Database.Database,
+  directory: string | URL = DEFAULT_MIGRATIONS_URL,
+) {
+  registerResultSqliteFunctions(db);
+  const path = directory instanceof URL ? fileURLToPath(directory) : directory;
+  const migrations = loadMigrations(path);
 
   db.transaction(() => {
     const table = (name: string) =>
@@ -50,10 +71,47 @@ export function applyMigrations(
     const record = db.prepare(
       "INSERT INTO schema_migrations(name,prefix,applied_at) VALUES(?,?,?)",
     );
+    let appliedCanonicalResults = false;
     for (const migration of migrations) {
       if (applied.get(migration.name)) continue;
       db.exec(migration.sql);
       record.run(migration.name, migration.prefix, Date.now());
+      if (migration.name === "canonical-results") {
+        appliedCanonicalResults = true;
+      }
+    }
+    if (appliedCanonicalResults && table("results")) {
+      const pendingDigests = db
+        .prepare(
+          "SELECT owner_id, id, kind, stimulus, outcome, attachments, provenance, lineage FROM results WHERE content_digest='0000000000000000000000000000000000000000000000000000000000000000'",
+        )
+        .all() as {
+        owner_id: string;
+        id: string;
+        kind: string;
+        stimulus: string;
+        outcome: string;
+        attachments: string;
+        provenance: string;
+        lineage: string;
+      }[];
+      if (pendingDigests.length > 0) {
+        const updateDigest = db.prepare(
+          "UPDATE results SET content_digest=? WHERE owner_id=? AND id=?",
+        );
+        for (const r of pendingDigests) {
+          const digest = computeResultContentDigestFromRawJson(
+            r.id,
+            r.kind,
+            r.stimulus,
+            r.outcome,
+            r.attachments,
+            r.provenance,
+            r.lineage,
+          );
+          updateDigest.run(digest, r.owner_id, r.id);
+        }
+      }
     }
   }).immediate();
 }
