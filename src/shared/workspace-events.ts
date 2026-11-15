@@ -25,6 +25,14 @@ export const WORKSPACE_COLLECTIONS = [
   "pulls",
   "webhooks",
 ] as const;
+export const DEADLINE_WORKSPACE_COLLECTIONS = [
+  "feed",
+  "results",
+  "approvals",
+  "pulls",
+  "webhooks",
+] as const satisfies readonly WorkspaceCollection[];
+
 export type WorkspaceCollection = (typeof WORKSPACE_COLLECTIONS)[number];
 const Id = z.string().min(1).max(1000);
 const Text = z.string().max(8 * 1024 * 1024);
@@ -598,3 +606,31 @@ export const TokenEventAck = z.strictObject({
   epoch: z.string().min(1).max(200),
   cursor: Count,
 });
+
+/** Complete producers name collection dependencies explicitly. Streamed
+ * display rows go straight to their reducer instead of refreshing every view. */
+export function reconciliationScopes(
+  event: WorkspaceEvent,
+  capabilities?: WorkspaceCapabilities,
+) {
+  if (capabilities?.transcript !== "delta") return eventScopes(event);
+  if (event.type === "provider.receipt" || event.type === "native.usage")
+    return [{ kind: "collection" as const, id: "usage" as const }];
+  if (event.type === "activity.updated" || event.type === "trace.updated")
+    return [{ kind: "collection" as const, id: "activities" as const }];
+  if (event.type === "connection.status")
+    return [{ kind: "collection" as const, id: "metadata" as const }];
+  if (event.type.startsWith("message.") || event.type === "native.event")
+    return [];
+  // PR 6's transactional producer inventory covers run, conversation and
+  // subject changes. Those identities alone are not broad invalidations.
+  return eventScopes(event)
+    .filter((scope) => scope.kind === "collection")
+    .flatMap((scope) =>
+      scope.id === "social"
+        ? [scope, { kind: "collection" as const, id: "feed" as const }]
+        : scope.id === "runs"
+          ? [scope, { kind: "collection" as const, id: "usage" as const }]
+          : [scope],
+    );
+}
