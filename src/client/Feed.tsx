@@ -1,4 +1,4 @@
-import { emitClientEvent, listenClientEvent } from "./clientEvents";
+import { listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -2990,7 +2990,6 @@ export function Feed({
       },
       item.sourceId ?? scopedSource,
     );
-    emitClientEvent("loop-later-change");
   }
   /**
    * Save the card: its latest message, and the result card that message
