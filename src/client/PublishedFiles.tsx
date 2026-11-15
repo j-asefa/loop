@@ -3,16 +3,11 @@ import { ArtifactId } from "../shared/contract-ids.js";
 import { RunId } from "../shared/contract-ids.js";
 import { routeUrl } from "./api";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
-import { listenWorkspaceChanges } from "./workspace-changes";
-import {
-  useSourceId,
-  useSourceRouteRead,
-  useSourcePath,
-} from "./SourceContext";
+import { useSourceId, useSourcePath } from "./SourceContext";
 import { useEffect, useRef, useState } from "react";
 import { Expand, File } from "lucide-react";
 
-import { isRateLimited } from "./api";
+import { useProjectionQuery } from "./CollectionRead";
 import type { ResultCard } from "../shared/cards";
 import type { Artifact } from "../shared/types";
 import { FilePreview } from "./FilePreview";
@@ -194,61 +189,19 @@ export function RunFiles({
   active?: boolean;
   previewImages?: boolean;
 }) {
-  const read = useSourceRouteRead();
   const sourceId = useSourceId();
-  const [files, setFiles] = useState<Published[]>([]),
-    [error, setError] = useState(""),
-    [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let live = true;
-    let pending = false,
-      queued = false;
-    const controller = new AbortController();
-    setFiles([]);
-    setError("");
-    const refresh = () => {
-      if (!live || !runId) return;
-      if (pending) {
-        queued = true;
-        return;
-      }
-      pending = true;
-      void read(
-        workspaceApi.runFiles,
-        { params: { id: RunId.parse(runId) } },
-        controller.signal,
-        (error) => {
-          // Keep the existing immediate error and manual retry while a bounded
-          // transient GET retry is pending. Rate limits remain quiet.
-          if (live && !isRateLimited(error)) setError((error as Error).message);
-        },
-      )
-        .then((files) => {
-          if (live) {
-            setFiles(files);
-            setError("");
-          }
-        })
-        .catch((e) => {
-          if (live) setError(e.message);
-        })
-        .finally(() => {
-          pending = false;
-          if (!live) return;
-          if (queued) {
-            queued = false;
-            refresh();
-          }
-        });
-    };
-    refresh();
-    const stopChanges = listenWorkspaceChanges("results", refresh, sourceId);
-    return () => {
-      live = false;
-      controller.abort();
-      stopChanges();
-    };
-  }, [runId, active, read, sourceId, attempt]);
+  const [attempt, setAttempt] = useState(0);
+  const { data: files = [], error } = useProjectionQuery(
+    workspaceApi.runFiles,
+    runId ? { params: { id: RunId.parse(runId) } } : undefined,
+    {
+      source: sourceId,
+      revision: `${active}:${attempt}`,
+      resetOnRevision: true,
+      collections: ["results"],
+      reportRetries: "transient",
+    },
+  );
   const visible = files.filter((file) => file.id !== excludeId);
   // Empty runs reserve no space, including while their summaries load. A
   // temporary placeholder would move the reading position twice per answer.
