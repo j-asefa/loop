@@ -212,6 +212,79 @@ test("Antigravity leads only with a discovered command and keeps other slash tex
   ]);
 });
 
+test("Antigravity keeps slash-leading saved instructions literal", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    { ...options, instructions: "/help is how I like reviews" },
+    (e) => events.push(e),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("Review the change");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(
+      requests()
+        .filter((r) => r.event === "user")
+        .map((r) => r.message.content),
+      ["\u200b/help is how I like reviews\n\nReview the change"],
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity keeps a received catalog when agy does not answer session/close", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "acp-close-hang";
+  const adapter = new Antigravity({ ...options, probeOnly: true }, () => {});
+  try {
+    const started = Date.now();
+    await adapter.start();
+    assert(Date.now() - started < 4000);
+    assert.deepEqual(
+      adapter.commands.map((c) => c.name),
+      ["plan", "antigravity-guide"],
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity starts a session without waiting for a catalog agy never advertises", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "acp-hang";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    const started = Date.now();
+    await adapter.start();
+    assert(Date.now() - started < 3000);
+    // The first prompt waits for the bounded discovery, then stays literal.
+    await adapter.prompt("/plan something");
+    assert(Date.now() - started < 8000);
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(adapter.commands, []);
+    assert.deepEqual(
+      requests()
+        .filter((r) => r.event === "user")
+        .map((r) => r.message.content),
+      ["\u200b/plan something"],
+    );
+  } finally {
+    await adapter.dispose();
+  }
+  const probe = new Antigravity({ ...options, probeOnly: true }, () => {});
+  try {
+    const started = Date.now();
+    await probe.start();
+    assert(Date.now() - started < 8000);
+    assert.deepEqual(probe.commands, []);
+  } finally {
+    await probe.dispose();
+  }
+});
+
 for (const mode of ["acp-failure", "acp-silent"]) {
   test(`Antigravity ${mode} starts with an empty catalog and keeps slash text literal`, async (t) => {
     const requests = fixture(t);

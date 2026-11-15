@@ -47,6 +47,8 @@ if (args[0] === "acp") {
     if (message.method === "session/new") {
       reply(message.id, { sessionId: "agy-acp-catalog" });
       if (mode === "acp-silent") process.exit(0);
+      // Stays connected without ever advertising a catalog.
+      if (mode === "acp-hang") return;
       console.log(
         JSON.stringify({
           jsonrpc: "2.0",
@@ -70,7 +72,8 @@ if (args[0] === "acp") {
       );
       return;
     }
-    if (message.method === "session/close") return reply(message.id, {});
+    if (message.method === "session/close")
+      return mode === "acp-close-hang" ? undefined : reply(message.id, {});
     process.exit(93);
   });
 } else {
