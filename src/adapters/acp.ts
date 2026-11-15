@@ -135,6 +135,22 @@ export class Acp implements Adapter {
       matches(option.id, option.name),
     )?.id;
   }
+  /** Startup writes share the request deadline, including queue/agent delays. */
+  protected async configureSetting(id: string, value: SettingValue) {
+    try {
+      await within(
+        this.setSetting(id, value, this.settings.revision),
+        "ACP session/set_config_option",
+      );
+    } catch (error) {
+      if (error instanceof SafeAcpError)
+        throw new NativeSetupError(
+          "native_acp_configuration_timeout",
+          `The agent did not confirm startup configuration within ${STARTUP_MS / 1000} seconds. Retry when the execution computer is less busy; if this persists, check the agent's model and effort configuration. No prompt was sent.`,
+        );
+      throw error;
+    }
+  }
   private messageId = "";
   private toolKinds = new Map<string, string>();
   private toolCommands = new Map<string, string>();
@@ -350,11 +366,7 @@ export class Acp implements Adapter {
         );
         try {
           if (setting) {
-            await this.setSetting(
-              setting.id,
-              this.options.model,
-              this.settings.revision,
-            );
+            await this.configureSetting(setting.id, this.options.model);
           } else {
             await within(
               this.connection.request("session/set_model", {
@@ -365,7 +377,11 @@ export class Acp implements Adapter {
             );
           }
         } catch (error) {
-          if (error instanceof SafeAcpError) throw error;
+          if (
+            error instanceof SafeAcpError ||
+            error instanceof NativeSetupError
+          )
+            throw error;
           throw new NativeSetupError(
             "native_model_rejected",
             "The agent could not apply the selected model. Choose an available model in Model & connection or check the agent's model configuration, then retry. No prompt was sent.",
@@ -779,7 +795,7 @@ export class Acp implements Adapter {
           revision: this.settings.revision,
         });
         try {
-          if (id === "acp-mode" && this.modeState) {
+          if (!raw && id === "acp-mode" && this.modeState) {
             const confirmed = new Promise<void>((yes, no) => {
               this.modeConfirmation = {
                 id: value as string,

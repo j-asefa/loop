@@ -37,6 +37,8 @@ export interface Adapter {
   capabilities: Capabilities;
   /** False when the native process cannot accept another explicit turn. */
   readonly reusable?: boolean;
+  /** Additional constraints after the runtime's saved registration changes. */
+  canReuse?(registration: Options): boolean;
   models?: ModelOption[];
   defaultModelOption?: ModelOption;
   commands?: NativeCommand[];

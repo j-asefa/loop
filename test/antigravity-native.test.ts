@@ -382,7 +382,6 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   const legacy = task("agy-upgrade-history");
   const saved = await sessions.session(legacy.run);
   const savedProject = saved.binding.project;
-  await sessions.dispose(saved);
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('agy-released-answer',?,?,'assistant','Saved historical answer',0)",
   ).run(OWNER, legacy.run.conversation_id);
@@ -396,7 +395,10 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   expect(
     ownedConnection("native-antigravity", OWNER).metadata.capabilities,
   ).toMatchObject({ workspaceTools: true, approvals: true });
+  expect(saved.closed).toBe(false);
   const upgraded = await sessions.session(legacy.run);
+  expect(upgraded.generation).not.toBe(saved.generation);
+  expect(saved.closed).toBe(true);
   expect(upgraded.binding.native_id).toBe("agy-upgrade-history");
   expect(upgraded.binding.project).toBe(savedProject);
   expect(upgraded.adapter.activityTransport).toBe("acp");
@@ -428,6 +430,15 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   const active = claim("agy-mail", (candidate) => candidate.id === run.id)!;
   try {
     expect(await sessions.execute(active)).toEqual({ kind: "finished" });
+    const activities = db
+      .prepare("SELECT record FROM agent_activities WHERE conversation_id=?")
+      .all(run.conversation_id) as { record: string }[];
+    expect(activities.length).toBeGreaterThan(0);
+    expect(
+      activities.every(
+        (row) => JSON.parse(row.record).source.transport === "acp",
+      ),
+    ).toBe(true);
     expect(requests().findLast((r) => r.event === "catalog").tools).toEqual(
       expect.arrayContaining(["loop_agents", "loop_message", "loop_handoff"]),
     );

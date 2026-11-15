@@ -567,6 +567,71 @@ for (const [mode, selection, code] of [
   });
 }
 
+for (const [kind, selection, configId] of [
+  ["model", { model: "gemini-agy-fixture" }, "model"],
+  ["effort", { effort: "high" }, "thinking_level"],
+] as const) {
+  test(
+    `Antigravity ACP bounds startup ${kind} configuration when the agent stays connected`,
+    { timeout: 24000 },
+    async (t) => {
+      const requests = fixture(t);
+      process.env.LOOP_TEST_AGY_MODE = `hang-${kind}`;
+      const events: AdapterEvent[] = [];
+      const adapter = new Antigravity(
+        { ...options, version: "1.5.9", ...selection },
+        (event) => events.push(event),
+      );
+      t.after(() => adapter.dispose());
+      await assert.rejects(adapter.start(), (error) => {
+        assert(error instanceof NativeSetupError);
+        assert.equal(error.code, "native_acp_configuration_timeout");
+        assert.match(error.message, /did not confirm.*configuration/);
+        assert.match(error.message, /Retry/);
+        return true;
+      });
+      assert(
+        requests().some(
+          (request) =>
+            request.event === "configuration-hung" &&
+            request.configId === configId,
+        ),
+      );
+      assert(
+        !requests().some((request) => request.method === "session/prompt"),
+      );
+      assert(
+        !events.some(
+          (event) => event.type === "status" && event.status === "ready",
+        ),
+      );
+    },
+  );
+}
+
+test("Antigravity ACP treats a native model setting named acp-mode as configuration, not a permission-mode change", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "model-mode-id";
+  const adapter = new Antigravity(
+    { ...options, version: "1.5.9", model: "code" },
+    () => {},
+  );
+  try {
+    await adapter.start();
+    assert.deepEqual(
+      requests()
+        .filter((request) => request.method === "session/set_config_option")
+        .map((request) => [request.params.configId, request.params.value]),
+      [["acp-mode", "code"]],
+    );
+    assert(
+      !requests().some((request) => request.method === "session/set_mode"),
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});
+
 test(
   "Antigravity ACP catalog probes bound missing discovery without publishing a ready session or prompting",
   { timeout: 12000 },

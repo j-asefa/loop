@@ -486,7 +486,8 @@ export class NativeSessions {
     if (
       binding.model !== model ||
       (binding.effort || null) !== effort ||
-      relaunch
+      relaunch ||
+      current?.adapter.canReuse?.(registration) === false
     ) {
       if (current && !current.closed) {
         await current.ready;

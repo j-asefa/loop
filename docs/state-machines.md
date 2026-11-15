@@ -242,6 +242,12 @@ browser-facing errors contain controlled setup guidance.
 Disposal does not rewrite the row; readers go through the in-memory live
 session or the run's state.
 
+An adapter can decline reuse after its runtime registration changes. The next
+session preparation waits for startup, rejects a still-running session and
+disposes an idle one before starting a new generation. The native conversation
+ID and workspace binding remain intact; refreshing a registration alone does
+not dispose its live session or replay a prompt.
+
 ### `native_decisions.state`
 
 pending → deciding (sql, after live, generation and run checks with no await)

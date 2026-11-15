@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const ANTIGRAVITY_ACP_MINIMUM_VERSION = "1.5.9";
+
 export const apiProviders = ["openai", "anthropic"] as const;
 type ApiProvider = (typeof apiProviders)[number];
 export type CliSignIn = {

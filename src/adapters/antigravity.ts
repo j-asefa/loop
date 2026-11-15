@@ -1,6 +1,7 @@
 import { Acp } from "./acp.js";
 import { AntigravityHeadless } from "./antigravity-headless.js";
 import { meetsMinimum } from "../shared/harness-version.js";
+import { ANTIGRAVITY_ACP_MINIMUM_VERSION } from "../shared/harnesses.js";
 import { NativeMemoryError } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
 import type { Adapter, Options, Emit } from "./types.js";
@@ -48,12 +49,9 @@ class AntigravityAcp extends Acp {
           "Antigravity did not expose its thinking level control. Choose another model in Model & connection or update the saved effort selection, then retry. No prompt was sent.",
         );
       try {
-        await this.setSetting(
-          effort,
-          this.nativeOptions.effort,
-          this.settings.revision,
-        );
-      } catch {
+        await this.configureSetting(effort, this.nativeOptions.effort);
+      } catch (error) {
+        if (error instanceof NativeSetupError) throw error;
         throw new NativeSetupError(
           "antigravity_effort_rejected",
           "Antigravity could not apply the selected thinking level. Choose another model in Model & connection or update the saved effort selection to a supported level, then retry. No prompt was sent.",
@@ -108,12 +106,21 @@ export class Antigravity implements Adapter {
   static readonly startupSteps = Acp.startupSteps;
   private readonly adapter: Adapter;
   constructor(options: Options, emit: Emit) {
-    this.adapter = meetsMinimum(options.version, "1.5.9")
+    this.adapter = meetsMinimum(
+      options.version,
+      ANTIGRAVITY_ACP_MINIMUM_VERSION,
+    )
       ? new AntigravityAcp(options, emit)
       : new AntigravityHeadless(options, emit);
   }
   get activityTransport() {
     return this.adapter instanceof Acp ? ("acp" as const) : ("native" as const);
+  }
+  canReuse(registration: Options) {
+    return (
+      meetsMinimum(registration.version, ANTIGRAVITY_ACP_MINIMUM_VERSION) ===
+      this.adapter instanceof Acp
+    );
   }
   get capabilities() {
     return this.adapter.capabilities;

@@ -1,11 +1,16 @@
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
-import { harnesses, isManagedHarness } from "../shared/harnesses";
+import {
+  ANTIGRAVITY_ACP_MINIMUM_VERSION,
+  harnesses,
+  isManagedHarness,
+} from "../shared/harnesses";
 import { useProjectionRoute, useSourceId } from "./SourceContext";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
 import { runtimeSetupMessages } from "../shared/runtime-setup";
+import { meetsMinimum } from "../shared/harness-version";
 import {
   useCallback,
   useEffect,
@@ -614,11 +619,14 @@ function RuntimeSetupView({
                           )}
                           {runtime.name === "antigravity" && (
                             <p className="field-hint">
-                              Antigravity uses its native permissions. Headless
-                              runs cannot ask for approvals in Loop; allow the
-                              tools you need in Antigravity settings. Loop
-                              workspace tools and team delegation are
-                              unavailable.
+                              {meetsMinimum(
+                                runtime.version || "",
+                                ANTIGRAVITY_ACP_MINIMUM_VERSION,
+                              )
+                                ? "Antigravity uses its native permissions. This version supports approvals in Loop, Agent mail, workspace tools and team delegation. Refresh this connection after upgrading to enable these capabilities."
+                                : runtime.version
+                                  ? `Antigravity uses its native permissions. Headless runs cannot ask for approvals in Loop; allow the tools you need in Antigravity settings. Agent mail, workspace tools and team delegation require CLI ${ANTIGRAVITY_ACP_MINIMUM_VERSION} or newer. Upgrade and refresh this connection to enable them.`
+                                  : `Antigravity uses its native permissions. Approvals in Loop, Agent mail, workspace tools and team delegation require CLI ${ANTIGRAVITY_ACP_MINIMUM_VERSION} or newer. Check the installed version and refresh this connection after upgrading.`}
                             </p>
                           )}
                         </section>

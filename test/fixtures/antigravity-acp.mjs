@@ -34,6 +34,11 @@ const configOptions = [
   },
 ];
 if (process.env.LOOP_TEST_AGY_MODE === "no-effort") configOptions.splice(1, 1);
+if (process.env.LOOP_TEST_AGY_MODE === "model-mode-id") {
+  configOptions[0].id = "acp-mode";
+  configOptions[0].currentValue = "code";
+  configOptions[0].options = [{ value: "code", name: "Code model" }];
+}
 if (process.env.LOOP_TEST_AGY_MODE === "many-models") {
   configOptions[0].options = Array.from({ length: 150 }, (_, index) => ({
     value: `model-${index}`,
@@ -164,6 +169,17 @@ for await (const line of createInterface({ input: process.stdin })) {
       result: {
         ...(request.method === "session/new" ? { sessionId } : {}),
         configOptions,
+        ...(catalogMode === "model-mode-id"
+          ? {
+              modes: {
+                currentModeId: "ask",
+                availableModes: [
+                  { id: "ask", name: "Ask" },
+                  { id: "code", name: "Code" },
+                ],
+              },
+            }
+          : {}),
       },
     });
     if (catalogMode !== "no-commands" && !early)
@@ -184,6 +200,15 @@ for await (const line of createInterface({ input: process.stdin })) {
     update("Antigravity ACP fixture answer");
     send({ id: request.id, result: { stopReason: "end_turn" } });
   } else if (request.method === "session/set_config_option") {
+    if (
+      (process.env.LOOP_TEST_AGY_MODE === "hang-model" &&
+        request.params.configId === "model") ||
+      (process.env.LOOP_TEST_AGY_MODE === "hang-effort" &&
+        request.params.configId === "thinking_level")
+    ) {
+      log({ event: "configuration-hung", configId: request.params.configId });
+      continue;
+    }
     if (
       (process.env.LOOP_TEST_AGY_MODE === "effort-rejected" &&
         request.params.configId === "thinking_level") ||
