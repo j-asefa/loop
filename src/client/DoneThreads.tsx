@@ -301,7 +301,6 @@ export function OrganizeCards({
             setNotice(
               "Earlier thread recovered. No cards were moved. Create a separate thread to combine this selection again.",
             );
-            onDone();
             return;
           }
         }

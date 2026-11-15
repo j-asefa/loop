@@ -18,7 +18,7 @@ try {
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change(new URLSearchParams(location.search).get('owner')||'alice');setShellSource('');
-    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[{id:'destination',title:'Destination',source:'',cardIds:[],createdAt:1,preview:null}],onClose:()=>window.completed=true,onDone:()=>{}}));
+    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[{id:'destination',title:'Destination',source:'',cardIds:[],createdAt:1,preview:null}],onClose:()=>window.completed=true,onDone:()=>window.doneCount=(window.doneCount||0)+1}));
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
@@ -128,6 +128,11 @@ try {
   await expect(
     page.getByRole("status").filter({ hasText: "No cards were moved" }),
   ).toBeVisible();
+  assert.equal(
+    await page.evaluate(() => window.doneCount || 0),
+    0,
+    "Receipt recovery must not report a new grouping to its parent",
+  );
   assert.notEqual(
     await page.evaluate(() => window.completed),
     true,
