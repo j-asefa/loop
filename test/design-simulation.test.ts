@@ -1,3 +1,4 @@
+import { assertAnswerStored } from "./fixtures/answer-record.js";
 import type { WorkspaceEmission } from "../src/shared/workspace-events";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
@@ -161,6 +162,11 @@ it("completes an approved preview through claim and transition, preserving the p
       },
     );
     expect(response.status).toBe(200);
+    assertAnswerStored(
+      db,
+      approval.run_id,
+      "Preview approval accepted. This is a simulation; no review was posted.",
+    );
     expect(
       db
         .prepare("SELECT state,worker_id,heartbeat FROM runs WHERE id=?")

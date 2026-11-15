@@ -1,3 +1,4 @@
+import { openAnswer } from "../answer-record.js";
 import { NativeSessionState } from "./state.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
@@ -6,7 +7,6 @@ import * as nativeDecisionsQueries from "../sql/native-decisions.js";
 import * as companionSessionsQueries from "../sql/companion-sessions.js";
 import * as connectionsQueries from "../sql/connections.js";
 import * as nativeDispatchQueries from "../sql/native-dispatch.js";
-import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
 import * as messagesQueries from "../sql/messages.js";
 import * as runsQueries from "../sql/runs.js";
 import { assertFleetAction } from "../fleet-action-context.js";
@@ -27,7 +27,6 @@ import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { db, id, now } from "../db.js";
 import { ownedConnection, ownedRun, Problem } from "../domain.js";
-import { saveArtifact } from "../artifacts.js";
 import { attachedFiles, localAttachmentPrompt } from "../uploads.js";
 import { transition, type Run } from "../queue.js";
 
@@ -648,25 +647,14 @@ export class NativeSessions {
         (opensReview ? "\n\n" + reviewContext(run) : "");
       db.transaction(() => {
         const messageId = id();
-        messagesQueries.insertNativePlaceholder(
-          db,
+        openAnswer(run, {
           messageId,
-          run.owner_id,
-          run.conversation_id,
-          run.id,
-          now(),
-        );
-        const artifact = saveArtifact(run.owner_id, {
           title: run.input.slice(0, 85),
-          content: "",
-          agent: run.agent_id,
-          conversation: run.conversation_id,
-          run: run.id,
           folder: snapshot.folderId,
-          metadata: { native: true, messageId },
-          role: "answer",
+          messageMetadata: "{}",
+          artifactMetadata: { native: true },
+          history: "[]",
         });
-        agentCheckpointsQueries.insertNative(db, run.id, messageId, artifact);
         nativeDispatchQueries.insertUnknown(
           db,
           run.id,

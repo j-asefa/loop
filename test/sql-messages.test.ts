@@ -51,12 +51,15 @@ it("preserves message insert defaults, owner reads and atomic cached updates", (
         '{"personal":true}',
         2,
       );
-      messages.insertNativePlaceholder(
+      messages.insert(
         db,
         "placeholder",
         "alice",
         "alice",
         "run",
+        "assistant",
+        "",
+        "{}",
         4,
       );
     }).immediate();

@@ -1,3 +1,7 @@
+import {
+  assertAnswerStored,
+  exerciseAnswerRecord,
+} from "./fixtures/answer-record.js";
 import type { Live } from "../src/server/native-sessions";
 import type { Item } from "../src/shared/protocol";
 import { Codex } from "../src/adapters/codex";
@@ -12,6 +16,7 @@ process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
+const { openAnswer } = await import("../src/server/answer-record");
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });
@@ -35,15 +40,17 @@ it("flushes dirty native items and completes after exceeding the display window"
   });
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('message','owner','conversation','assistant','',0)",
-  ).run();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,title,kind,role,content,created_at,updated_at) VALUES('artifact','owner','test','markdown','answer','',0,0)",
-  ).run();
-  db.prepare(
-    "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,'message','artifact','[]')",
-  ).run(run.id);
+  const answer = db
+    .transaction(() =>
+      openAnswer(run, {
+        messageId: "message",
+        title: "test",
+        messageMetadata: "{}",
+        artifactMetadata: { native: true },
+        history: "[]",
+      }),
+    )
+    .immediate();
   db.exec(
     "CREATE TEMP TABLE item_writes(id TEXT); CREATE TEMP TRIGGER audit_native_updates AFTER UPDATE ON native_items BEGIN INSERT INTO item_writes VALUES(new.native_id); END;",
   );
@@ -296,7 +303,9 @@ it("flushes dirty native items and completes after exceeding the display window"
       db.prepare("SELECT result,error FROM runs WHERE id=?").get(run.id),
     ).toEqual({ result: "Review complete.", error: null });
     expect(
-      db.prepare("SELECT content FROM artifacts WHERE id='artifact'").get(),
+      db
+        .prepare("SELECT content FROM artifacts WHERE id=?")
+        .get(answer.artifact_id),
     ).toEqual({ content: "Review complete." });
     expect(
       db
@@ -305,6 +314,7 @@ it("flushes dirty native items and completes after exceeding the display window"
         )
         .get(),
     ).toEqual({ content: "Reviewing continued" });
+    assertAnswerStored(db, run.id, "Review complete.");
     interrupt.mockRestore();
     // A resumed session replays more than a turn's budget before run is set.
     sessions.state.detachTurn(live);
@@ -333,6 +343,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     clearTimeout(live.flush);
     vi.useRealTimers();
   }
+  await exerciseAnswerRecord();
 }, 15000);
 
 it("drops item events from a superseded session generation", () => {

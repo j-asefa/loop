@@ -2863,19 +2863,16 @@ it("edits, reorders and moves only queued runs of the owner", async () => {
     ).status,
   ).toBe(409);
   db.prepare("UPDATE runs SET active_since=NULL WHERE id=?").run(first.id);
-  const checkpointMessage =
-    (
-      db
-        .prepare("SELECT id FROM messages WHERE run_id=? AND role='assistant'")
-        .get(first.id) as any
-    )?.id ?? message(w.owner, cid, "assistant", "", first.id);
-  const checkpointArtifact = id();
-  db.prepare(
-    "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,created_at,updated_at) VALUES(?,?,?,?,?,'Draft','markdown','answer','',?,?)",
-  ).run(checkpointArtifact, w.owner, a.id, cid, first.id, now(), now());
-  db.prepare(
-    "INSERT INTO agent_checkpoints(run_id,message_id,artifact_id,history) VALUES(?,?,?,'[]')",
-  ).run(first.id, checkpointMessage, checkpointArtifact);
+  const { openAnswer } = await import("../src/server/answer-record");
+  db.transaction(() =>
+    openAnswer(ownedRun(first.id, w.owner), {
+      messageId: id(),
+      title: "Draft",
+      history: "[]",
+      messageMetadata: "{}",
+      artifactMetadata: {},
+    }),
+  ).immediate();
   expect(
     (await api(w.owner, `/runs/${first.id}`, "PATCH", { input: "late" }))
       .status,

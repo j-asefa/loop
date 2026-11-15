@@ -1,3 +1,4 @@
+import { writeNativeAnswer } from "../answer-record.js";
 import type { NativeSessionState } from "./state.js";
 import { assertNever } from "../../shared/assert-never.js";
 import { harnesses } from "../../shared/harnesses.js";
@@ -11,8 +12,6 @@ import * as nativeItemsQueries from "../sql/native-items.js";
 import * as nativeDispatchQueries from "../sql/native-dispatch.js";
 import * as connectionsQueries from "../sql/connections.js";
 import * as agentCheckpointsQueries from "../sql/agent-checkpoints.js";
-import * as artifactsQueries from "../sql/artifacts.js";
-import * as artifactVersionsQueries from "../sql/artifact-versions.js";
 import * as runsQueries from "../sql/runs.js";
 import * as messagesQueries from "../sql/messages.js";
 import { agentPayload } from "../row-schemas.js";
@@ -546,41 +545,24 @@ export class NativeProjector {
         output !== checkpoint.output ||
         checkpoint.stage !== (partial ? "native" : "done")
       ) {
-        messagesQueries.updateContentAndMetadata(
-          db,
-          output,
-          metadata,
-          checkpoint.message_id,
-        );
-        // The artifact's own metadata declares no partial (D4); the message
-        // keeps the flag for message consumers and the churn guard.
-        artifactsQueries.updateNativeOutput(
-          db,
-          output,
-          writeArtifactMetadata({
-            role: "answer",
-            metadata: {
-              ...agentPayload(run),
-              native: true,
-              messageId: checkpoint.message_id,
-              finalNativeItemId: finalItem?.id,
-            },
-          }),
-          now(),
-          checkpoint.artifact_id,
-        );
-        artifactVersionsQueries.updateInitialContent(
-          db,
-          output,
-          checkpoint.artifact_id,
-        );
-        agentCheckpointsQueries.nativeOutput(
-          db,
-          output,
+        writeNativeAnswer(
+          run,
+          checkpoint,
+          {
+            output,
+            messageMetadata: metadata,
+            artifactMetadata: writeArtifactMetadata({
+              role: "answer",
+              metadata: {
+                ...agentPayload(run),
+                native: true,
+                messageId: checkpoint.message_id,
+                finalNativeItemId: finalItem?.id,
+              },
+            }),
+          },
           partial ? "native" : "done",
-          run.id,
         );
-        runsQueries.setResult(db, output, run.id);
       }
 
       for (const itemId of live.items.dirty) {

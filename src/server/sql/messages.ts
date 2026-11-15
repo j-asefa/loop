@@ -62,28 +62,6 @@ export function agentHistory(
     .map((row) => parseRecord(QueryRecords.messages, row, "messages"));
 }
 
-const insertAssistantPlaceholderStatement = statement(
-  "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','',?,?)",
-);
-export function insertAssistantPlaceholder(
-  db: Database.Database,
-  id: string | null,
-  owner: string | null,
-  conversation: string | null,
-  run: string | null,
-  metadata: string | null,
-  created: number,
-) {
-  return insertAssistantPlaceholderStatement(db).run(
-    id,
-    owner,
-    conversation,
-    run,
-    metadata,
-    created,
-  );
-}
-
 const updateContentAndMetadataStatement = statement(
   "UPDATE messages SET content=?,metadata=? WHERE id=?",
 );
@@ -396,26 +374,6 @@ export function nativeTransferHistory(
   return nativeTransferHistoryStatement(db)
     .all(conversation, run)
     .map((row) => parseRecord(nativeTransferHistoryRow, row, "messages"));
-}
-
-const insertNativePlaceholderStatement = statement(
-  "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','','{}',?)",
-);
-export function insertNativePlaceholder(
-  db: Database.Database,
-  id: string | null,
-  owner: string | null,
-  conversation: string | null,
-  run: string | null,
-  created: number,
-) {
-  return insertNativePlaceholderStatement(db).run(
-    id,
-    owner,
-    conversation,
-    run,
-    created,
-  );
 }
 
 const publishedReplyStatement =

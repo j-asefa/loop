@@ -1,4 +1,9 @@
 import {
+  openAnswer,
+  writeManagedAnswer,
+  finishManagedAnswer,
+} from "./answer-record.js";
+import {
   runBoundary,
   pendingToolOutcome,
   type RunOutcome,
@@ -10,8 +15,6 @@ import * as teamMembersQueries from "./sql/team-members.js";
 import * as conversationsQueries from "./sql/conversations.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
-import * as artifactsQueries from "./sql/artifacts.js";
-import * as artifactVersionsQueries from "./sql/artifact-versions.js";
 import * as toolInvocationsQueries from "./sql/tool-invocations.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as runsQueries from "./sql/runs.js";
@@ -51,7 +54,6 @@ import {
   Problem,
 } from "./domain.js";
 import { streamConnection, isSubscription } from "./subscriptions.js";
-import { saveArtifact } from "./artifacts.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
 import { recordTrace } from "./traces.js";
 import {
@@ -515,32 +517,14 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
       );
     const messageId = id();
     db.transaction(() => {
-      messagesQueries.insertAssistantPlaceholder(
-        db,
+      openAnswer(run, {
         messageId,
-        run.owner_id,
-        run.conversation_id,
-        run.id,
-        writeMessageMetadata({ ...snapshot, partial: true }),
-        now(),
-      );
-      const artifactId = saveArtifact(run.owner_id, {
         title: run.input.slice(0, 85),
-        content: "",
-        agent: run.agent_id,
-        conversation: run.conversation_id,
-        run: run.id,
         folder: snapshot.folderId,
-        metadata: { ...snapshot, messageId },
-        role: "answer",
+        messageMetadata: writeMessageMetadata({ ...snapshot, partial: true }),
+        artifactMetadata: snapshot,
+        history: JSON.stringify(history),
       });
-      agentCheckpointsQueries.insert(
-        db,
-        run.id,
-        messageId,
-        artifactId,
-        JSON.stringify(history),
-      );
     }).immediate();
     cp = QueryRecords.agent_checkpoints.parse(
       agentCheckpointsQueries.get(db, run.id),
@@ -565,30 +549,15 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
       messageId: cp.message_id,
       partial,
     });
-    messagesQueries.updateContentAndMetadata(
-      db,
+    writeManagedAnswer(run, cp, {
       output,
-      metadata,
-      cp.message_id,
-    );
-    // The artifact's own metadata declares no partial (D4); the message keeps
-    // its flag for message consumers. The streaming churn guard on artifacts
-    // follows the linked message's flag.
-    artifactsQueries.streamInitial(
-      db,
-      output,
-      writeArtifactMetadata({
+      messageMetadata: metadata,
+      // Artifact metadata has no partial flag; the linked message owns it.
+      artifactMetadata: writeArtifactMetadata({
         role: "answer",
-        metadata: {
-          ...snapshot,
-          messageId: cp.message_id,
-        },
+        metadata: { ...snapshot, messageId: cp.message_id },
       }),
-      now(),
-      cp.artifact_id,
-    );
-    artifactVersionsQueries.updateInitialContent(db, output, cp.artifact_id);
-    agentCheckpointsQueries.output(db, output, run.id);
+    });
   }).immediate;
   const watched = watchRun(run);
   const controller = new AbortController();
@@ -1015,13 +984,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             }
             saveTurn(true);
             persist(false);
-            runsQueries.setResult(db, output, run.id);
-            agentCheckpointsQueries.done(
-              db,
-              round,
-              JSON.stringify(history),
-              run.id,
-            );
+            finishManagedAnswer(run, output, round, JSON.stringify(history));
             return false;
           })
           .immediate();
