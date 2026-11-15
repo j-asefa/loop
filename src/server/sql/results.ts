@@ -448,3 +448,41 @@ const unoriginatedCopiesStatement = statement(
 export function unoriginatedCopies(db: Database.Database) {
   return parseCanonicalResults(unoriginatedCopiesStatement(db).all());
 }
+
+// Sealed imported answers whose message records an export branch pointer.
+const branchedImportedResultsStatement = statement(
+  `SELECT res.* FROM results res
+   JOIN messages m ON m.owner_id=res.owner_id AND m.id=res.message_id
+   WHERE res.sealed=1 AND res.kind='imported_answer'
+     AND json_valid(m.metadata) AND json_type(m.metadata,'$.parent') IS NOT NULL
+   ORDER BY res.owner_id ASC,res.conversation_id ASC,res.created_at ASC,res.rowid ASC`,
+);
+export function branchedImportedResults(db: Database.Database) {
+  return parseCanonicalResults(branchedImportedResultsStatement(db).all());
+}
+
+// For each imported answer sealed at publication, the predecessor the
+// canonical sequence chose from Results published before it.
+const importedSequenceStatement = statement(
+  `SELECT res.owner_id,res.id,res.conversation_id,
+     json_extract(res.lineage,'$.parentResultId') recorded,
+     (SELECT p.id FROM results p
+      WHERE p.owner_id=res.owner_id AND p.conversation_id=res.conversation_id AND p.sealed=1
+        AND p.id!=res.id AND p.created_at<=res.created_at AND p.rowid<res.rowid
+      ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1) expected
+   FROM results res
+   WHERE res.sealed=1 AND res.kind='imported_answer' AND res.origin_completeness='sealed_at_publication'
+   ORDER BY res.owner_id ASC,res.created_at ASC,res.rowid ASC`,
+);
+const importedSequenceRow = z.object({
+  owner_id: z.string(),
+  id: z.string(),
+  conversation_id: z.string(),
+  recorded: z.string().nullable(),
+  expected: z.string().nullable(),
+});
+export function importedSequence(db: Database.Database) {
+  return importedSequenceStatement(db)
+    .all()
+    .map((row) => parseRecord(importedSequenceRow, row, "results"));
+}

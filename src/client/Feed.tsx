@@ -167,10 +167,16 @@ import {
 // its recorded facts Loop later found disputed by retained evidence.
 const RESULT_FINDING_LABEL: Record<ResultDefectKind, string> = {
   copy_attribution: "Recorded author disputed",
+  import_stimulus: "Recorded question disputed",
+  sequence_predecessor: "Recorded order disputed",
 };
 const RESULT_FINDING_DETAIL: Record<ResultDefectKind, string> = {
   copy_attribution:
     "This copy was recorded with the agent that received it, not the author of its source answer.",
+  import_stimulus:
+    "This imported answer was recorded with a question from another branch of its conversation.",
+  sequence_predecessor:
+    "This imported answer was recorded as following an earlier answer, skipping a Result published in between.",
 };
 
 export type FeedItem = RouteResponse<

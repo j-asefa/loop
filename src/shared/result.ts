@@ -87,7 +87,11 @@ export type ResultOutcome = z.infer<typeof ResultOutcomeSchema>;
 // conversation; this snapshot keeps the placement at publication time.
 // Findings recorded beside a sealed Result whose recorded facts disagree with
 // retained evidence. The Result itself is never rewritten.
-export const ResultDefectKindSchema = z.enum(["copy_attribution"]);
+export const ResultDefectKindSchema = z.enum([
+  "copy_attribution",
+  "import_stimulus",
+  "sequence_predecessor",
+]);
 export type ResultDefectKind = z.infer<typeof ResultDefectKindSchema>;
 
 export const ResultPlacementSchema = z.object({
