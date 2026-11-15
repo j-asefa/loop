@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import {
   AgentId,
   ArtifactId,
@@ -374,7 +375,7 @@ export function UploadButton({
         </p>
       )}
       {error && (
-        <p role="alert" className="error upload-error">
+        <ErrorNotice role="alert" className="error upload-error">
           <span>{error}</span>
           <button
             type="button"
@@ -384,7 +385,7 @@ export function UploadButton({
           >
             <X size={16} />
           </button>
-        </p>
+        </ErrorNotice>
       )}
     </div>
   );

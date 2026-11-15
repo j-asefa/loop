@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
@@ -357,9 +358,9 @@ function HarnessProvidersView({
             Model access and billing depend on your provider account.
           </p>
           {view.syncError && (
-            <p className="settings-error" role="alert">
+            <ErrorNotice className="settings-error" role="alert">
               {view.syncError}
-            </p>
+            </ErrorNotice>
           )}
           {view.providers
             .filter((p) => p.configured)
@@ -627,11 +628,7 @@ function HarnessProvidersView({
           ))}
         </ul>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {recoveries.map(({ label, failure, key }) => (
         <div key={key}>
           <h3>{label}</h3>

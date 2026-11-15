@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { literalEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
 import { useRef, useState } from "react";
@@ -97,7 +98,7 @@ export function McpCatalog({
   }
   const readNotice = catalogRead.error ? (
     <div role="alert">
-      <p className="error">{catalogRead.error}</p>
+      <ErrorNotice>{catalogRead.error}</ErrorNotice>
       <button
         disabled={catalogRead.busy}
         onClick={() => void catalogRead.refresh(true)}

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
@@ -1581,7 +1582,7 @@ function ConversationView({
             </p>
           )}
           {loadError && (
-            <div role="alert" className="error">
+            <ErrorNotice as="div" role="alert">
               {loadError}
               <button
                 className="text-button"
@@ -1592,7 +1593,7 @@ function ConversationView({
               >
                 Try again
               </button>
-            </div>
+            </ErrorNotice>
           )}
           {data?.next && (
             <button
@@ -2154,11 +2155,7 @@ function ConversationView({
                   : "The previous request has not been confirmed. Retry to check it without starting the work twice. New continuation prepares separate work; the previous request may still run and stays saved."}
               </p>
             )}
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
             <button
               className="primary"
               disabled={
@@ -2275,9 +2272,7 @@ function ConversationView({
       {!editingModel && !transfer && (error || notice) && (
         <div className="conversation-feedback">
           {error ? (
-            <p role="alert" className="error">
-              {error}
-            </p>
+            <ErrorNotice role="alert">{error}</ErrorNotice>
           ) : (
             <p role="status">{notice}</p>
           )}

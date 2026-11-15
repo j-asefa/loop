@@ -1,3 +1,4 @@
+import { ErrorNotice } from "../ErrorNotice";
 import { emitClientEvent } from "../clientEvents";
 import {
   readArtifactMetadata,
@@ -580,10 +581,10 @@ export function renderApp(props: AppViewProps) {
         <div className="toast">{artifactReadNotice}</div>
       )}
       {error && (
-        <div role="alert" className="toast error">
+        <ErrorNotice as="div" role="alert" className="toast error">
           <span>{error}</span>
           <button onClick={() => setError("")}>Dismiss</button>
-        </div>
+        </ErrorNotice>
       )}
       {(sheet === "settings" || settingsParent) && (
         <Sheet
@@ -1206,11 +1207,7 @@ export function renderApp(props: AppViewProps) {
                   ))}
               </select>
             </label>
-            {editError && (
-              <p className="error" role="alert">
-                {editError}
-              </p>
-            )}
+            {editError && <ErrorNotice role="alert">{editError}</ErrorNotice>}
             <button className="primary" disabled={editBusy}>
               {editBusy ? "Saving…" : "Save changes"}
             </button>

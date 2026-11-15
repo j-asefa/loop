@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
@@ -227,9 +228,7 @@ export function HarnessPicker({
           {!agentId ? (
             <p className="note">Choose an agent to see its commands.</p>
           ) : error ? (
-            <p role="alert" className="error">
-              {error}
-            </p>
+            <ErrorNotice role="alert">{error}</ErrorNotice>
           ) : !catalog ? (
             <p role="status">Loading from the runtime…</p>
           ) : !catalog.available ? (

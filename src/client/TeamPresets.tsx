@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
 import {
@@ -273,11 +274,7 @@ export function PresetTeamForm({
           No connected providers. Add a connection in Settings first.
         </p>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button
         className="primary"
         disabled={

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
 import { useState } from "react";
@@ -28,11 +29,7 @@ export function RetireAgent({
           ? "This agent will appear in your active agents and can accept new messages again."
           : "This removes the agent from your active agents and stops new work being assigned. Accepted work can finish. Conversations, results and saved cards stay available, and you can restore the agent any time."}
       </p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <div className="actions">
         <button className="secondary" disabled={busy} onClick={onClose}>
           Cancel

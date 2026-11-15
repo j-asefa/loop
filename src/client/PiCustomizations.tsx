@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useSourceId } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -295,11 +296,7 @@ export function PiCustomizations({
         </SettingsEmpty>
       ) : (
         <>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
           <CollectionReadNotice {...configurationQuery} />
           <CollectionReadNotice {...catalogQuery} />
           {catalogQuery.loading && <p role="status">Loading from Pi…</p>}

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { ArtifactId, ObjectId } from "../shared/contract-ids.js";
 import { fetchStream, routeUrl } from "./api";
 import { workspaceApi } from "../shared/workspace-api";
@@ -387,11 +388,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
         </div>
         {ready && (
           <div className="file-preview-actions">
-            {saveError && (
-              <p role="alert" className="error">
-                {saveError}
-              </p>
-            )}
+            {saveError && <ErrorNotice role="alert">{saveError}</ErrorNotice>}
             {canShare ? (
               <button
                 className="primary"

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
@@ -411,9 +412,7 @@ export function RepoFileSheet({
             Reading {name} from GitHub…
           </p>
         ) : loaded.state === "error" ? (
-          <p className="error" role="alert">
-            {loaded.message}
-          </p>
+          <ErrorNotice role="alert">{loaded.message}</ErrorNotice>
         ) : loaded.state === "binary" ? (
           <p className="field-hint">
             This file can’t be shown here.{" "}

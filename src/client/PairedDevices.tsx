@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useState } from "react";
 import { callRoute } from "./api";
 import { executionSourceId } from "./sourceRouting";
@@ -71,11 +72,7 @@ export function PairedDevices({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       ))}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </Sheet>
   );
 }

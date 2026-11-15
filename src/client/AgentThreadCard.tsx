@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { MailThreadId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -239,10 +240,10 @@ export function AgentThreadReader({
           </p>
         )}
         {error && (
-          <p className="error" role="alert">
+          <ErrorNotice role="alert">
             {error}{" "}
             <button onClick={() => actions.current.refresh()}>Retry</button>
-          </p>
+          </ErrorNotice>
         )}
         {!detail && loading && <p role="status">Loading thread…</p>}
         {detail?.next && (
@@ -294,7 +295,7 @@ export function AgentThreadReader({
                 </ul>
               )}
               <p className="field-hint">{MAIL_STATUS_LABELS[message.status]}</p>
-              {message.error && <p className="error">{message.error}</p>}
+              {message.error && <ErrorNotice>{message.error}</ErrorNotice>}
               {(message.conversation_id || message.remote_conversation) && (
                 <div className="card-actions">
                   <button

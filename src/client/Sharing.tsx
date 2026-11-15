@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { IdempotencyKey } from "../shared/contract-ids";
 import type { SharedDraft } from "./workspace-drafts";
 import { AgentId, FolderId, parseId } from "../shared/contract-ids.js";
@@ -206,11 +207,7 @@ function ShareForm({
         Start with an @handle to queue work for that agent. Without a handle,
         you’ll choose a provider and model for a new agent.
       </p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {previewUnavailable && <p className="field-hint">{previewUnavailable}</p>}
       <button
         onClick={review}

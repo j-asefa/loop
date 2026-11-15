@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { MailThreadId } from "../shared/contract-ids.js";
 import { AgentId, TeamId } from "../shared/contract-ids.js";
 import { useEffect, useRef, useState } from "react";
@@ -182,9 +183,7 @@ function MailThreadsView({
         Refresh mail
       </button>
       {(error || collection.error) && (
-        <p role="alert" className="error">
-          {error || collection.error}
-        </p>
+        <ErrorNotice role="alert">{error || collection.error}</ErrorNotice>
       )}
       {notice && <p role="status">{notice}</p>}
       {loading && <p role="status">Loading agent mail…</p>}
@@ -272,7 +271,9 @@ function MailThreadsView({
                         Accepted and waiting. No recipient turn has started.
                       </p>
                     )}
-                    {message.error && <p className="error">{message.error}</p>}
+                    {message.error && (
+                      <ErrorNotice>{message.error}</ErrorNotice>
+                    )}
                     {message.files > 0 && (
                       <small className="muted">
                         {message.files === 1

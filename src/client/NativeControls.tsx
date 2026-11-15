@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
@@ -465,11 +466,7 @@ function DecisionCard({
           {unavailable}
         </p>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {toolSettings && (
         <Tools
           initialView="permissions"

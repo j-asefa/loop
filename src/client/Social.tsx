@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import {
   AgentId,
@@ -534,9 +535,9 @@ function HideSheet({
   return (
     <Sheet title="Hide" onClose={onClose}>
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
-        </div>
+        </ErrorNotice>
       )}
       <label>
         Hide stories containing
@@ -683,9 +684,9 @@ function WatchSheetView({ onClose }: { onClose: () => void }) {
         retry={watchesRead.retry}
       />
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
-        </div>
+        </ErrorNotice>
       )}
       {watches.map((watch) => (
         <p key={watch.id} className="digest-row">
@@ -903,9 +904,9 @@ function DigestSheetView({
         retry={preferencesRead.retry}
       />
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
-        </div>
+        </ErrorNotice>
       )}
       <label className="check-row">
         <input
@@ -1343,12 +1344,12 @@ function SocialView({
         retry={() => void search(true)}
       />
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
           <button className="text-button" onClick={() => void load()}>
             Try again
           </button>
-        </div>
+        </ErrorNotice>
       )}
     </>
   );

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff } from "lucide-react";
 
@@ -84,9 +85,9 @@ export function VoiceButton({
         {listening ? <MicOff size={18} /> : <Mic size={18} />}
       </button>
       {error && (
-        <span className="field-hint voice-error" role="status">
+        <ErrorNotice as="span" className="field-hint voice-error" role="status">
           {error}
-        </span>
+        </ErrorNotice>
       )}
     </>
   );

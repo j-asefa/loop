@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -344,12 +345,12 @@ function PullRequestInbox({
         )}
       </div>
       {error && (
-        <p className="error" role="alert">
+        <ErrorNotice role="alert">
           {error}{" "}
           <button className="text-button" onClick={() => void load(true)}>
             Try again
           </button>
-        </p>
+        </ErrorNotice>
       )}
       {connected &&
         (connected.pulls.length ? (
@@ -714,7 +715,7 @@ function CommitChanges({
   if (reader.error)
     return (
       <div role="alert">
-        <p className="error">{reader.error}</p>
+        <ErrorNotice>{reader.error}</ErrorNotice>
         <button className="text-button" onClick={() => void load(true)}>
           Try again
         </button>
@@ -849,7 +850,7 @@ function PullRequestDetail({
       <section className="pulls-view">
         {back}
         {error ? (
-          <div className="error" role="alert">
+          <ErrorNotice as="div" role="alert">
             <p>{error.message}</p>
             {/connect github|reconnect github/i.test(error.message) ? (
               <button className="text-button" onClick={onConnect}>
@@ -863,7 +864,7 @@ function PullRequestDetail({
                 Try again
               </button>
             )}
-          </div>
+          </ErrorNotice>
         ) : (
           <p className="muted">Reading {name} from GitHub…</p>
         )}
@@ -955,11 +956,7 @@ function PullRequestDetail({
           </a>
         </p>
       </header>
-      {error && (
-        <p className="error" role="alert">
-          {error.message}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error.message}</ErrorNotice>}
       {notice && (
         <p className="note" role="status">
           {notice}
@@ -1336,11 +1333,7 @@ function ReviewSheet({
           <code>{pr.headSha.slice(0, 7)}</code>. If anything was pushed since
           you opened this, Loop asks you to look at it first.
         </p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         <div className="actions">
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
@@ -1401,11 +1394,7 @@ function CommentSheet({
           />
         </label>
         <p className="field-hint">Posted to GitHub as @{pr.viewer.login}.</p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         <div className="actions">
           <button type="button" className="secondary" onClick={onClose}>
             Cancel
@@ -1502,20 +1491,16 @@ function MergeSheet({
           </select>
         </label>
       ) : (
-        <p className="error">
+        <ErrorNotice>
           This repository allows no merge method Loop can use.
-        </p>
+        </ErrorNotice>
       )}
       <p className="field-hint">
         Merges commit <code>{pr.headSha.slice(0, 7)}</code> only, as @
         {pr.viewer.login}. If anything was pushed after you opened this, GitHub
         refuses and you can look at the new commits first.
       </p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <div className="actions">
         <button type="button" className="secondary" onClick={onClose}>
           Cancel

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { NativeProviderId, AuthMethodId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
@@ -638,11 +639,7 @@ function RuntimeSignInSession({
       >
         {complete ? "Done" : "Close"}
       </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </section>
   );
 }

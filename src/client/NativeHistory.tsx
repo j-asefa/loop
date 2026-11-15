@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ActivityRecords } from "./ActivityRecords";
 import { useEffect, useRef, useState } from "react";
@@ -224,11 +225,7 @@ function NativeHistoryView({ onClose, onOpen }: NativeHistoryProps) {
           </button>
         </section>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </Sheet>
   );
 }

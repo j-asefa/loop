@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
@@ -176,11 +177,7 @@ export function StartCodeReview({
             />
           </label>
         )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         <button className="primary" disabled={busy || !teamId || !folderId}>
           {busy ? "Capturing changes…" : "Start review"}
         </button>
