@@ -86,7 +86,7 @@ try {
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.equal(records.size, 1);
-  await page.getByLabel("New thread name").fill("Edited while uncertain");
+  await expect(page.getByLabel("New thread name")).toBeDisabled();
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.equal(
@@ -100,6 +100,8 @@ try {
     "Recovery must retain its original creation context",
   );
   await page.goto(url + "/?reverse=1");
+  await expect(page.getByLabel("New thread name")).toBeDisabled();
+  await expect(page.getByRole("status")).toContainText("earlier thread");
   loseReply = false;
   await submit();
   await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
