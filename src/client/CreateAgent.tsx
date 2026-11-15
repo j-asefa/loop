@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ArtifactId } from "../shared/contract-ids.js";
@@ -560,7 +561,7 @@ export function CreateAgent({
           </p>
         ) : null}
         {nameError && !name.trim() && (
-          <p className="error" role="alert">
+          <ErrorNotice role="alert">
             Couldn’t choose a name. Try again or enter one in Customize.
             <button
               type="button"
@@ -569,10 +570,10 @@ export function CreateAgent({
             >
               Try again
             </button>
-          </p>
+          </ErrorNotice>
         )}
         {currentCatalog?.error && (
-          <div className="error" role="alert">
+          <ErrorNotice as="div" role="alert">
             Couldn’t refresh models. Try again or choose another connection.
             <button
               type="button"
@@ -582,16 +583,16 @@ export function CreateAgent({
             >
               Try again
             </button>
-          </div>
+          </ErrorNotice>
         )}
         {selected &&
           !refreshingModels &&
           !currentCatalog?.error &&
           !models.length && (
-            <p className="error" role="alert">
+            <ErrorNotice role="alert">
               No models are available. Refresh models or choose another
               connection.
-            </p>
+            </ErrorNotice>
           )}
         {!selected && connected.length > 0 && (
           <p className="note" role="status">
@@ -599,26 +600,26 @@ export function CreateAgent({
           </p>
         )}
         {missingDefinitionModel && !refreshingModels && (
-          <p className="error" role="alert">
+          <ErrorNotice role="alert">
             The definition requests {requestedModel}, which is unavailable on
             this connection. Choose another model below.
-          </p>
+          </ErrorNotice>
         )}
         {model &&
           !chosen &&
           !requestedModel &&
           !refreshingModels &&
           !currentCatalog?.error && (
-            <p className="error" role="alert">
+            <ErrorNotice role="alert">
               The selected model is no longer available. Choose another model
               below.
-            </p>
+            </ErrorNotice>
           )}
         {invalidEffort && !refreshingModels && chosenModel && (
-          <p className="error" role="alert">
+          <ErrorNotice role="alert">
             This model does not report {effort} effort. Choose a reported effort
             level or the runtime default below.
-          </p>
+          </ErrorNotice>
         )}
         {connected.length > 0 && (
           <CreateAgentModelOptions
@@ -791,11 +792,7 @@ export function CreateAgent({
             </button>
           </div>
         )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       </form>
     </Sheet>
   );

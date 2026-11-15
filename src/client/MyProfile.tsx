@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { literalEntry, proseEntry } from "./textEntry";
 import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
@@ -280,11 +281,7 @@ function EditProfile({
             onChange={(e) => setBio(e.target.value)}
           />
         </label>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         <button className="primary" disabled={busy}>
           {busy ? "Saving…" : "Save profile"}
         </button>

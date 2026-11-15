@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { assertNever } from "../shared/assert-never";
 import { parse } from "./json";
 import {
@@ -484,11 +485,7 @@ export function ArtifactViewer({
             }}
           />
         )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       </div>
       {!editing &&
         agent &&

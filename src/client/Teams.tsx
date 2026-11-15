@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { AgentId, parseId } from "../shared/contract-ids.js";
 import { MAX_TEAM_WORKERS } from "../shared/team-limits";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -70,11 +71,7 @@ function TeamFeedVisibility({
           }
         }}
       />
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </div>
   );
 }
@@ -175,11 +172,7 @@ export function TeamDirectory({
           >
             Create worker from Markdown
           </button>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
           <div className="team-manager-options">
             {available.map((agent) => (
               <button
@@ -666,11 +659,7 @@ export function TeamFilter({
             This removes the team from your workspace. Its agents, files, and
             conversations stay available. Work already in progress can finish.
           </p>
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
           <div className="actions">
             <button
               className="secondary"
@@ -891,11 +880,7 @@ export function CreateTeam({
             >
               Create another agent
             </button>
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
             <button
               className="primary"
               disabled={

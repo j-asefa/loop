@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import {
   ArtifactId,
@@ -178,7 +179,7 @@ export function FolderForm({
             conversations keep their original directory and native settings.
           </p>
         </>
-        {error && <p className="error">{error}</p>}
+        {error && <ErrorNotice>{error}</ErrorNotice>}
         <button className="primary" disabled={busy}>
           <Plus size={16} />
           {busy ? "Saving…" : existing ? "Save changes" : `Create ${kind}`}
@@ -309,7 +310,7 @@ export function FileSheet({
           </button>
         </>
       )}
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorNotice>{error}</ErrorNotice>}
     </Sheet>
   );
 }
@@ -514,7 +515,7 @@ export function Saved({
         busy={reader.loading}
         retry={reader.retry}
       />
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorNotice>{error}</ErrorNotice>}
       {loading && <p role="status">Loading files…</p>}
       <div className="file-list" aria-busy={loading}>
         {!loading &&
@@ -1051,7 +1052,7 @@ export function SearchWorkspace({
           if (context.open) void openResult(context.open, true);
         }}
       />
-      {error && <p className="error">{error}</p>}
+      {error && <ErrorNotice>{error}</ErrorNotice>}
       {scope === "mine" ? (
         <PersonalProfile
           embedded

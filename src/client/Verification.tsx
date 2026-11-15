@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { Sheet } from "./components";
 import { RunId } from "../shared/contract-ids";
 import { workspaceApi } from "../shared/workspace-api";
@@ -33,7 +34,7 @@ export function VerificationSheet({
       onClose={onClose}
       className="changes-sheet"
     >
-      {error && <p className="field-error">{error}</p>}
+      {error && <ErrorNotice className="field-error">{error}</ErrorNotice>}
       {!items && !error && <p role="status">Loading…</p>}
       {items && (
         <>

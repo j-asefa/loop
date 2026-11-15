@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -702,7 +703,7 @@ function FeedCard({
                   )}
                 </div>
                 {readError && (
-                  <p className="error" role="alert">
+                  <ErrorNotice role="alert">
                     {readError}{" "}
                     <button
                       className="text-button"
@@ -710,7 +711,7 @@ function FeedCard({
                     >
                       Open conversation
                     </button>
-                  </p>
+                  </ErrorNotice>
                 )}
                 {item.live_preview && item.live_preview.length >= 4000 && (
                   <button
@@ -933,11 +934,7 @@ export function EditQueued({
         rows={6}
         onChange={(e) => setText(e.target.value)}
       />
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button
         className="primary"
         disabled={busy || !text.trim()}
@@ -1007,11 +1004,7 @@ function MoveQueued({
           ))}
         </select>
       </label>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button
         className="primary"
         disabled={!agentId}
@@ -3560,7 +3553,7 @@ export function Feed({
         retry={retryRead}
       />
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
           <button
             className="text-button"
@@ -3571,7 +3564,7 @@ export function Feed({
           >
             Try again
           </button>
-        </div>
+        </ErrorNotice>
       )}
       {notice && (
         <p role="status" className="field-hint">
@@ -3579,16 +3572,16 @@ export function Feed({
         </p>
       )}
       {grouping.error && (
-        <p className="error" role="alert">
+        <ErrorNotice role="alert">
           {grouping.error}
           <button onClick={grouping.retry}>Retry</button>
-        </p>
+        </ErrorNotice>
       )}
       {mailThreads.error && (
-        <p className="error" role="alert">
+        <ErrorNotice role="alert">
           {mailThreads.error}
           <button onClick={mailThreads.refresh}>Retry agent threads</button>
-        </p>
+        </ErrorNotice>
       )}
       {selectedCards && (
         <div

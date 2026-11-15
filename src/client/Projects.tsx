@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
@@ -478,11 +479,7 @@ export function Projects({
           {!agents.some(
             (a) => !belongsToProject(a.folder_id, current.id, folders),
           ) && <p>All your agents are already in this project.</p>}
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         </Sheet>
       )}
     </section>

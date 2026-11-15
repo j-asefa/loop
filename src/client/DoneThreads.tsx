@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { DoneThreadId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -425,11 +426,7 @@ export function OrganizeCards({
           )}
         </div>
       </div>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {notice && <p role="status">{notice}</p>}
       {(creationPending || uncertain) && (
         <div role="status">
@@ -673,7 +670,7 @@ export function DoneThreadReader({
         onClose={onClose}
       >
         {(error || readError) && (
-          <p className="error" role="alert">
+          <ErrorNotice role="alert">
             {error || readError}
             <button
               onClick={() => {
@@ -683,7 +680,7 @@ export function DoneThreadReader({
             >
               Retry
             </button>
-          </p>
+          </ErrorNotice>
         )}
         {!detail && !error && !readError && (
           <p role="status">Loading thread…</p>

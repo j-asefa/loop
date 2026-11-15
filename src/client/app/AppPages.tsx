@@ -1,3 +1,4 @@
+import { ErrorNotice } from "../ErrorNotice";
 import { emitClientEvent } from "../clientEvents";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
@@ -451,7 +452,7 @@ export function renderAppPages(
       {tab === "feed" && !profile && (
         <>
           {unified.error && (
-            <p className="error" role="status">
+            <ErrorNotice role="status">
               {unified.error}
               <button
                 type="button"
@@ -460,7 +461,7 @@ export function renderAppPages(
               >
                 Retry connection
               </button>
-            </p>
+            </ErrorNotice>
           )}
           {unified.agents.length > 0 && (
             <YourAgents

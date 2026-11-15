@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { McpConnectionId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
@@ -96,11 +97,7 @@ export function Tools({
       <p className="settings-intro">
         Shared tools for your workspace’s agents.
       </p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {notice && (
         <p className="note" role="status">
           {notice}
@@ -151,7 +148,12 @@ export function Tools({
         ([key, label, views, retry]) =>
           readErrors[key] &&
           (views as readonly string[]).includes(view) && (
-            <div className="settings-error" role="alert" key={key}>
+            <ErrorNotice
+              as="div"
+              className="settings-error"
+              role="alert"
+              key={key}
+            >
               <strong>{label} couldn’t be refreshed</strong>
               <p>{readErrors[key]}</p>
               <button
@@ -161,7 +163,7 @@ export function Tools({
               >
                 Retry {label.toLowerCase()}
               </button>
-            </div>
+            </ErrorNotice>
           ),
       )}
       {view === "permissions" && (

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import {
@@ -364,9 +365,9 @@ function RuntimeSetupView({
       )}
       <p className="settings-intro">Use your coding accounts in Loop.</p>
       {error && (
-        <div className="settings-error" role="alert">
+        <ErrorNotice as="div" className="settings-error" role="alert">
           {error}
-        </div>
+        </ErrorNotice>
       )}
       <div className="settings-card-list">
         {discovery?.runtimes.map((runtime) => {
@@ -423,7 +424,7 @@ function RuntimeSetupView({
                   : `${runtime.enabled ? "Refresh" : "Enable"} ${label}`}
               </button>
               {enableError?.scope === scope && (
-                <div className="settings-error" role="alert">
+                <ErrorNotice as="div" className="settings-error" role="alert">
                   <strong>Connection not verified</strong>
                   <p>{enableError.message}</p>
                   <p>
@@ -452,7 +453,7 @@ function RuntimeSetupView({
                         ? "Start new verification"
                         : "Check runtime status"}
                   </button>
-                </div>
+                </ErrorNotice>
               )}
             </>
           );

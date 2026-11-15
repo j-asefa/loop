@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
 import { useSourceRoute } from "./SourceContext";
@@ -200,11 +201,7 @@ export function NativeConnections({
           )}
         </>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </Sheet>
   );
 }

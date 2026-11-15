@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useProjectionRoute } from "./SourceContext";
 import { ModelId } from "../shared/contract-ids.js";
 import { ConnectionId, parseId } from "../shared/contract-ids.js";
@@ -232,11 +233,7 @@ export function AgentModelSettings({
           {unavailable}
         </p>
       )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <input
         {...literalEntry}
         type="search"

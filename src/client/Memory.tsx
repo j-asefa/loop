@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import {
   ConversationId,
   RunId,
@@ -145,11 +146,7 @@ function MemoryView({ folders, onClose }: MemoryProps) {
         {selectedId && !source && (
           <button onClick={closeSource}>Close source</button>
         )}
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         {data && (
           <>
             <SettingsList>

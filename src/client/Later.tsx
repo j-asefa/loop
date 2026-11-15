@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import {
   emitClientEvent,
   listenClientEvent,
@@ -197,11 +198,7 @@ function LabelSheet({
           A few words to recognise this later. Search in Saved finds labels too.
           Leave empty to remove it.
         </p>
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
         <button className="primary" disabled={busy}>
           Save label
         </button>
@@ -383,7 +380,7 @@ function SavedCollection({
         retry={() => void retry()}
       />
       {error && (
-        <div className="error" role="alert">
+        <ErrorNotice as="div" role="alert">
           {error}
           <button
             className="text-button"
@@ -394,7 +391,7 @@ function SavedCollection({
           >
             Try again
           </button>
-        </div>
+        </ErrorNotice>
       )}
       {visible.length ? (
         <div className="feed saved-feed">
@@ -739,11 +736,7 @@ export function Later({
         </div>
       )}
       <CollectionReadNotice {...recovery} retry={() => void load(true)} />
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {show("reminders") && (
         <>
           {!only && <h2 className="section-title">Reminders</h2>}

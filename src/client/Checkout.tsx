@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useEffect } from "react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
@@ -106,7 +107,9 @@ export function CheckoutSheet({
   }
   return (
     <Sheet title="Checkout" wide onClose={onClose} className="changes-sheet">
-      {error && <p className="field-error">{readableText(error)}</p>}
+      {error && (
+        <ErrorNotice className="field-error">{readableText(error)}</ErrorNotice>
+      )}
       {!detail && !error && <p role="status">Loading checkout…</p>}
       {detail && (
         <>

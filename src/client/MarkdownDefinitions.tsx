@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { useProjectionQuery } from "./CollectionRead";
 import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -121,11 +122,7 @@ export function MarkdownDefinitions({
         Save reusable {kind} definitions in this Loop workspace. Editing or
         deleting a definition leaves agents already created from it unchanged.
       </p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {editing ? (
         <form
           onSubmit={(event) => {
@@ -684,10 +681,10 @@ export function CreateFromDefinition({
                   </select>
                 </label>
                 {discovery?.error && (
-                  <p className="error" role="alert">
+                  <ErrorNotice role="alert">
                     Could not refresh {label.toLowerCase()} models.{" "}
                     {discovery.error}
-                  </p>
+                  </ErrorNotice>
                 )}
                 {(model?.effortLevels?.length || chosen.effort) && (
                   <label>
@@ -740,11 +737,7 @@ export function CreateFromDefinition({
               Refresh models
             </button>
           )}
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
           <button className="primary" disabled={!valid}>
             {busy
               ? "Creating…"

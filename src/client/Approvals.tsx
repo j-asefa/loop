@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { RunId } from "../shared/contract-ids.js";
 import { workspaceApi, type Approval } from "../shared/workspace-api";
 import {
@@ -315,11 +316,7 @@ export function Approvals({
           {unavailable}
         </p>
       )}
-      {error && !selected && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && !selected && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {selected && detail && (
         <Sheet title="Review approval" onClose={() => setSelected(null)}>
           <div className="approval-detail">
@@ -404,11 +401,7 @@ export function Approvals({
                   : "This request was handled or its run stopped. It cannot be approved again."}
               </p>
             )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
             <div className="approval-actions">
               <button
                 className="primary"

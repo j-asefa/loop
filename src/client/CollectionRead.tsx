@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isRateLimited, readRoute } from "./api";
@@ -476,7 +477,7 @@ export function CollectionReadNotice({
 }) {
   if (!error) return null;
   return (
-    <div className="error collection-read-error" role="alert">
+    <ErrorNotice as="div" className="error collection-read-error" role="alert">
       This view may be out of date. {error}{" "}
       <button className="text-button" disabled={busy} onClick={retry}>
         Retry connection
@@ -486,6 +487,6 @@ export function CollectionReadNotice({
           Dismiss
         </button>
       )}
-    </div>
+    </ErrorNotice>
   );
 }

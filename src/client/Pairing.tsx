@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { LoopLogo } from "./LoopLogo";
 import { useEffect, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
@@ -121,11 +122,7 @@ export function Pairing({ onDone }: { onDone: () => void }) {
             No Loop account is needed.
           </p>
         )}
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       </section>
     </div>
   );

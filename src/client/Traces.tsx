@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import {
   CollectionReadNotice,
   usePagedProjectionQuery,
@@ -228,11 +229,7 @@ function TraceList({
         busy={reader.loading}
         retry={reader.retry}
       />
-      {actionError && (
-        <p className="error" role="alert">
-          {actionError}
-        </p>
-      )}
+      {actionError && <ErrorNotice role="alert">{actionError}</ErrorNotice>}
       {loading && <p role="status">Loading traces…</p>}
       {!loading && !items.length && query && (
         <Empty title="No matching traces.">
@@ -294,7 +291,7 @@ function TraceList({
               <RichText content={prompt} />
             </details>
             {!runId && group[0].run_error && (
-              <p className="error">{group[0].run_error}</p>
+              <ErrorNotice>{group[0].run_error}</ErrorNotice>
             )}
             {group.map((item) => {
               const meta = parse<{

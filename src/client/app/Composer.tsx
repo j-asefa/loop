@@ -1,3 +1,4 @@
+import { ErrorNotice } from "../ErrorNotice";
 import { IdempotencyKey } from "../../shared/contract-ids";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import {
@@ -1213,7 +1214,11 @@ export function renderComposer({
               </p>
             )}
             {composerError && (
-              <div className="composer-error error" role="alert">
+              <ErrorNotice
+                as="div"
+                className="composer-error error"
+                role="alert"
+              >
                 {composerError}
                 <button
                   type="button"
@@ -1222,7 +1227,7 @@ export function renderComposer({
                 >
                   Dismiss
                 </button>
-              </div>
+              </ErrorNotice>
             )}
           </div>
           <div className="composer-actions">

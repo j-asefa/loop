@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { LaterTargetInput } from "../shared/contract-ids";
@@ -459,11 +460,7 @@ export function LaterSheet({
           </button>
         </span>
       </label>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </Sheet>
   );
 }
@@ -617,9 +614,7 @@ export function OutlineSheet({
           </p>
           {searchError && (
             <div>
-              <p role="alert" className="error">
-                {searchError}
-              </p>
+              <ErrorNotice role="alert">{searchError}</ErrorNotice>
               <button
                 type="button"
                 className="secondary"
@@ -783,11 +778,7 @@ export function ForkSheet({
           </li>
         )}
       </ul>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button
         type="button"
         className="primary"
@@ -877,11 +868,7 @@ function EditScheduled({
           accepts it then.
         </p>
       )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button
         className="primary"
         disabled={busy || !text.trim() || !at}
@@ -1120,10 +1107,10 @@ export function ScheduledSends({
             {global && <p className="field-hint">{where}</p>}
             <RichText content={item.input} />
             {failed && (
-              <p className="error" role="status">
+              <ErrorNotice role="status">
                 Loop could not send this: {item.error || "it was refused."}{" "}
                 Nothing was sent, and Loop will not retry it on its own.
-              </p>
+              </ErrorNotice>
             )}
             <div className="scheduled-actions">
               <button
@@ -1188,11 +1175,7 @@ export function ScheduledSends({
           More not sent
         </button>
       )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       {editing && (
         <EditScheduled
           item={editing}

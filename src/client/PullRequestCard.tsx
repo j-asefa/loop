@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -95,11 +96,7 @@ function WatchControl({ watch }: { watch?: Watch }) {
           )}
         </>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import {
   NativeGenerationId,
@@ -269,9 +270,7 @@ export function SessionActivityControls({
               : "Confirmed values come from the running session. A request is not effective until the runtime confirms it."}
           </p>
           {(error || readError) && (
-            <p role="alert" className="error">
-              {error || readError}
-            </p>
+            <ErrorNotice role="alert">{error || readError}</ErrorNotice>
           )}
           {failedChange && (
             <p className="note">
