@@ -86,7 +86,11 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   const url = `http://127.0.0.1:${server.address().port}`;
   const submit = () =>
-    page.getByRole("menuitem", { name: "Combine into a new thread" }).click();
+    page
+      .getByRole("menuitem", {
+        name: /Combine into a new thread|Recover earlier thread/,
+      })
+      .click();
   await page.goto(url);
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
@@ -112,9 +116,22 @@ try {
   await page.goto(url + "/?reverse=1");
   await expect(page.getByLabel("New thread name")).toBeDisabled();
   await expect(page.getByRole("status")).toContainText("earlier thread");
+  await expect(
+    page.getByRole("menuitem", { name: "Recover earlier thread", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Start a separate thread", exact: true }),
+  ).toBeVisible();
+  records.get(ids[0]).cardIds = ["d:run:other-members"];
   loseReply = false;
   await submit();
-  await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
+  await expect(page.getByRole("status")).toContainText("No cards were moved");
+  assert.notEqual(
+    await page.evaluate(() => window.completed),
+    true,
+    "Receipt recovery must not report a new grouping",
+  );
+  assert.deepEqual(records.get(ids[0]).cardIds, ["d:run:other-members"]);
   assert.equal(ids[2], ids[0], "Reload recovery must retain the creation ID");
   assert.deepEqual(
     payloads[2],
