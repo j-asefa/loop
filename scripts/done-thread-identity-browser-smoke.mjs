@@ -122,6 +122,14 @@ try {
   await expect(
     page.getByRole("button", { name: "Start a separate thread", exact: true }),
   ).toBeVisible();
+  const staleTab = await page.context().newPage();
+  await staleTab.goto(url + "/?reverse=1");
+  await expect(
+    staleTab.getByRole("menuitem", {
+      name: "Recover earlier thread",
+      exact: true,
+    }),
+  ).toBeVisible();
   records.get(ids[0]).cardIds = ["d:run:other-members"];
   loseReply = false;
   await submit();
@@ -152,6 +160,29 @@ try {
     1,
     "Recovering a lost reply must not create another grouping",
   );
+  const beforeStale = ids.length;
+  await staleTab
+    .getByRole("menuitem", { name: "Recover earlier thread", exact: true })
+    .click();
+  await expect(staleTab.getByRole("alert")).toContainText(
+    "pending change has changed",
+  );
+  assert.equal(ids.length, beforeStale, "A stale recovery must not dispatch");
+  const activeSlots = await staleTab.evaluate(() =>
+    Object.keys(localStorage).filter((key) => key.startsWith("loop-effect:")),
+  );
+  assert.deepEqual(
+    activeSlots,
+    [],
+    "A stale recovery must not write a new pending identity",
+  );
+  await expect(
+    staleTab.getByRole("menuitem", {
+      name: "Recover earlier thread",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await staleTab.close();
   await page.reload();
   loseReply = true;
   await submit();
