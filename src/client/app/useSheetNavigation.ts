@@ -1,3 +1,4 @@
+import type { SettingsPage } from "../settings-pages";
 import { useState, type Dispatch, type SetStateAction } from "react";
 
 export function useSheetNavigation({
@@ -37,7 +38,7 @@ export function useSheetNavigation({
     );
     setReturnTo("");
   }
-  function openSettingsPage(page: string) {
+  function openSettingsPage(page: SettingsPage) {
     setSettingsParent(true);
     setSheet(page);
   }
