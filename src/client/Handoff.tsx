@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Copy, Share2 } from "lucide-react";
 import QRCode from "qrcode-terminal/vendor/QRCode/index.js";
 import { Sheet } from "./components";
+import { CopyButton } from "./CopyButton";
 
 /** Square SVG QR code. Medium error correction keeps phone scans reliable. */
 function QrCode({ value, size = 216 }: { value: string; size?: number }) {
@@ -72,20 +73,15 @@ export function HandoffSheet({
             <Share2 size={17} /> Share
           </button>
         )}
-        <button
+        <CopyButton
           type="button"
           className="secondary"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(url);
-              setNotice("Link copied.");
-            } catch {
-              setNotice(url);
-            }
-          }}
+          text={url}
+          onCopied={() => setNotice("Link copied.")}
+          onCopyError={() => setNotice(url)}
         >
           <Copy size={17} /> Copy link
-        </button>
+        </CopyButton>
       </div>
       {notice && (
         <p role="status" className="field-hint handoff-notice">

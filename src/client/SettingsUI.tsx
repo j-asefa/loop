@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
+import { CopyButton } from "./CopyButton";
 import {
   Check,
   ChevronDown,
@@ -215,24 +216,23 @@ export function SettingsCommand({
     <div className="settings-command">
       <div className="settings-command-head">
         <strong>{title}</strong>
-        <button
+        <CopyButton
           type="button"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(command);
-              setCopied(true);
-              setError("");
-              setTimeout(() => setCopied(false), 2000);
-            } catch {
-              setError(
-                "Could not copy. Select the command above to copy it manually.",
-              );
-            }
+          text={command}
+          onCopied={() => {
+            setCopied(true);
+            setError("");
+            setTimeout(() => setCopied(false), 2000);
+          }}
+          onCopyError={() => {
+            setError(
+              "Could not copy. Select the command above to copy it manually.",
+            );
           }}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? "Copied" : copyLabel}
-        </button>
+        </CopyButton>
       </div>
       <pre id={id} className={long && !expanded ? "clipped" : undefined}>
         {command}
