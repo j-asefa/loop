@@ -8,6 +8,7 @@ import {
   performStoredEffect,
   creationFailureSettled,
   UncertainEffect,
+  supersedeStoredEffect,
 } from "./pendingCommands";
 import {
   ArrowRight,
@@ -196,16 +197,17 @@ export function OrganizeCards({
     try {
       const owner = viewOwner();
       const receipt = owner
-        ? storedCommands<{ context?: string }>(localStorage)(
-            owner,
-            selection.source,
-            creationTarget,
-          ).read()
+        ? storedCommands<{
+            commandId: string;
+            attempt: string;
+            context?: string;
+          }>(localStorage)(owner, selection.source, creationTarget).read()
         : undefined;
       const context = receipt?.context
         ? JSON.parse(receipt.context)
         : undefined;
       return {
+        receipt,
         pending: !!receipt,
         title:
           typeof context?.title === "string"
@@ -213,7 +215,7 @@ export function OrganizeCards({
             : selection.title,
       };
     } catch {
-      return { pending: true, title: selection.title };
+      return { receipt: undefined, pending: true, title: selection.title };
     }
   });
   const [title, setTitle] = useState(initialCreation.title);
@@ -222,10 +224,24 @@ export function OrganizeCards({
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [uncertain, setUncertain] = useState<UncertainEffect>();
+  const [notice, setNotice] = useState("");
   const generation = useRef(viewGeneration());
   const live = useRef(true);
   const busy = useRef(false);
+  const [uncertain, setUncertain] = useState<UncertainEffect | undefined>(() =>
+    initialCreation.receipt
+      ? new UncertainEffect(new Error("An earlier thread is pending."), () =>
+          supersedeStoredEffect(
+            localStorage,
+            viewOwner(),
+            selection.source,
+            creationTarget,
+            initialCreation.receipt!,
+            () => live.current && generation.current === viewGeneration(),
+          ),
+        )
+      : undefined,
+  );
   useEffect(() => {
     live.current = true;
     return () => {
@@ -249,13 +265,19 @@ export function OrganizeCards({
         );
       else {
         const body = { title: title.trim(), cardIds: selection.cardIds };
+        let recovered = false;
         await performStoredEffect(
           localStorage,
           viewOwner(),
           selection.source,
           creationTarget,
           () => live.current && generation.current === viewGeneration(),
-          (id, context) => {
+          (id, context, recovering) => {
+            recovered = recovering;
+            if (creationPending && !recovering)
+              throw new Error(
+                "The pending creation changed. Reopen before continuing.",
+              );
             const original = JSON.parse(context!);
             if (original.title !== title.trim()) {
               setTitle(original.title);
@@ -275,6 +297,13 @@ export function OrganizeCards({
         if (live.current && generation.current === viewGeneration()) {
           setCreationPending(false);
           setUncertain(undefined);
+          if (recovered) {
+            setNotice(
+              "Earlier thread recovered. No cards were moved. Create a separate thread to combine this selection again.",
+            );
+            onDone();
+            return;
+          }
         }
       }
       if (generation.current !== viewGeneration()) return;
@@ -356,11 +385,13 @@ export function OrganizeCards({
           {error}
         </p>
       )}
+      {notice && <p role="status">{notice}</p>}
       {(creationPending || uncertain) && (
         <div role="status">
           <p>
             The earlier thread may already exist. Retrying uses its original
-            name. Check Done before starting a separate thread.
+            name and does not combine cards again. Check Done before starting a
+            separate thread.
           </p>
           {uncertain && (
             <button
@@ -424,7 +455,9 @@ export function OrganizeCards({
             disabled={pending || selection.cardIds.length < 2 || !title.trim()}
             onClick={() => void move()}
           >
-            Combine into a new thread
+            {creationPending
+              ? "Recover earlier thread"
+              : "Combine into a new thread"}
             {pending ? (
               <LoaderCircle
                 size={18}
@@ -474,7 +507,7 @@ export function OrganizeCards({
       )}
       {pending && (
         <p className="thread-create-hint" role="status">
-          Moving cards…
+          {creationPending ? "Recovering earlier thread…" : "Moving cards…"}
         </p>
       )}
       <p className="done-menu-tip">

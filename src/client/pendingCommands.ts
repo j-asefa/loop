@@ -47,13 +47,65 @@ export async function settleStoredEffect(
   }
 }
 
+export function supersedeStoredEffect(
+  storage: Storage,
+  owner: string | undefined,
+  source: string,
+  target: readonly string[],
+  receipt: PendingEffect,
+  current: () => boolean,
+): Promise<void> {
+  if (!owner) return Promise.reject(new Error("Sign in before continuing."));
+  if (
+    typeof receipt.commandId !== "string" ||
+    !receipt.commandId ||
+    typeof receipt.attempt !== "string" ||
+    !receipt.attempt
+  )
+    return Promise.reject(
+      new Error("Cannot read pending changes. Reopen before continuing."),
+    );
+  const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
+  const key = slot.key;
+  const supersede = async (): Promise<void> => {
+    await withCommandLock(key, () => {
+      if (!current())
+        throw new Error("This view has changed. Reopen it before continuing.");
+      const saved = slot.read();
+      if (
+        saved?.commandId !== receipt.commandId ||
+        saved?.attempt !== receipt.attempt
+      )
+        throw new Error(
+          "This pending change has changed. Check its status again.",
+        );
+      // Keep the uncertain identity before releasing the active slot. This
+      // never settles its server receipt or dispatches a replacement effect.
+      try {
+        storage.setItem(
+          `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
+          JSON.stringify({ ...receipt, target }),
+        );
+        slot.remove();
+      } catch (historyError) {
+        throw new UncertainEffect(historyError, supersede);
+      }
+    });
+  };
+  return supersede();
+}
+
 export async function performStoredEffect<T>(
   storage: Storage,
   owner: string | undefined,
   source: string,
   target: readonly string[],
   current: () => boolean,
-  dispatch: (commandId: string, context?: string) => Promise<T>,
+  dispatch: (
+    commandId: string,
+    context: string | undefined,
+    recovering: boolean,
+  ) => Promise<T>,
   settledError: (
     error: unknown,
     recovering: boolean,
@@ -98,7 +150,11 @@ export async function performStoredEffect<T>(
     // Another tab must be able to recover the same identity after a lost reply.
     let completion: Promise<T>;
     try {
-      completion = dispatch(receipt.commandId, receipt.context);
+      completion = dispatch(
+        receipt.commandId,
+        receipt.context,
+        prior !== undefined,
+      );
     } catch (error) {
       completion = Promise.reject(error);
     }
@@ -115,33 +171,15 @@ export async function performStoredEffect<T>(
       await settle();
       throw error;
     }
-    const supersede = async (): Promise<void> => {
-      await withCommandLock(key, () => {
-        if (!current())
-          throw new Error(
-            "This view has changed. Reopen it before continuing.",
-          );
-        const saved = slot.read();
-        if (
-          saved?.commandId !== prepared.receipt.commandId ||
-          saved?.attempt !== prepared.receipt.attempt
-        )
-          throw new Error(
-            "This pending change has changed. Check its status again.",
-          );
-        // Keep the uncertain identity before releasing the active slot. This
-        // never settles its server receipt or dispatches a replacement effect.
-        try {
-          storage.setItem(
-            `loop-effect-history:${JSON.stringify([owner, source, saved.commandId])}`,
-            JSON.stringify({ ...prepared.receipt, target }),
-          );
-          slot.remove();
-        } catch (historyError) {
-          throw new UncertainEffect(historyError, supersede);
-        }
-      });
-    };
+    const supersede = () =>
+      supersedeStoredEffect(
+        storage,
+        owner,
+        source,
+        target,
+        prepared.receipt,
+        current,
+      );
     throw new UncertainEffect(error, supersede);
   }
 }

@@ -468,3 +468,27 @@ it("refuses effect dispatch when browser command locks are unavailable", async (
   expect(dispatch).not.toHaveBeenCalled();
   expect(storage.length).toBe(0);
 });
+
+it("identifies recovery under the same preparation lock as dispatch", async () => {
+  const recovery: boolean[] = [];
+  const ids: string[] = [];
+  const send = () =>
+    performStoredEffect(
+      storage,
+      "alice",
+      "source",
+      ["creation"],
+      () => true,
+      async (id, _context, recovering) => {
+        ids.push(id);
+        recovery.push(recovering);
+        if (!recovering) throw unknown();
+        return id;
+      },
+    );
+  await expect(send()).rejects.toThrow("Unknown");
+  await expect(send()).resolves.toBe(ids[0]);
+  expect(recovery).toEqual([false, true]);
+  expect(ids[1]).toBe(ids[0]);
+  expect(storage.length).toBe(0);
+});

@@ -125,7 +125,9 @@ try {
   records.get(ids[0]).cardIds = ["d:run:other-members"];
   loseReply = false;
   await submit();
-  await expect(page.getByRole("status")).toContainText("No cards were moved");
+  await expect(
+    page.getByRole("status").filter({ hasText: "No cards were moved" }),
+  ).toBeVisible();
   assert.notEqual(
     await page.evaluate(() => window.completed),
     true,
@@ -152,10 +154,23 @@ try {
     ids[0],
     "A settled creation must release its pending identity",
   );
+  await page.reload();
+  const beforeInitialSeparate = ids.length;
+  await page
+    .getByRole("button", { name: "Start a separate thread", exact: true })
+    .click();
+  assert.equal(
+    ids.length,
+    beforeInitialSeparate,
+    "Reopened pending creation offers a separate choice without replay",
+  );
+  await submit();
+  await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
+  const alicePending = ids.at(-1);
   await page.goto(url + "/?owner=bob");
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
-  const old = ids[4];
+  const old = ids.at(-1);
   deleted.add(old);
   records.delete(old);
   loseReply = false;
@@ -187,8 +202,8 @@ try {
     "The superseded uncertain identity must remain in history",
   );
   assert.notEqual(
-    ids[4],
-    ids[3],
+    old,
+    alicePending,
     "Another owner must not reuse Alice pending identity",
   );
   assert.deepEqual(errors, []);
