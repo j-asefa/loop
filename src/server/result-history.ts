@@ -110,8 +110,11 @@ function detectCopyAttribution(
   );
   if (!message) return;
   const source = copiedAnswerEvidence(result.ownerId, message, database);
-  // An unavailable source establishes nothing about the recorded author.
-  if (!source || !source.origin.sourceAvailable) return;
+  // Only a Result that recorded its origin, or the source's run, establishes
+  // its author. A conversation's agent can change, a version 1 copy is the
+  // kind of record being checked, and a missing source establishes nothing.
+  if (!source || (source.evidence !== "sealed" && source.evidence !== "run"))
+    return;
   // Names and models can come from an agent's current settings when the
   // source was never sealed, so only the durable agent identity decides.
   if (source.agentId === result.provenance.agentId) return;

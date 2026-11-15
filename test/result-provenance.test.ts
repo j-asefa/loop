@@ -425,11 +425,16 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
       INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
       VALUES ('owner-b-partial', 'owner-b', 'owner-b-src', 'owner-b-cancelled', 'assistant', 'Partial', '{}', 15),
              ('owner-b-fa3', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Partial', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-partial"}', 17),
-             ('owner-b-fa4', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Gone', '{"sourceConversation":"owner-b-src","sourceMessage":"deleted-message"}', 18);
+             ('owner-b-fa4', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Gone', '{"sourceConversation":"owner-b-src","sourceMessage":"deleted-message"}', 18),
+             ('owner-b-loose', 'owner-b', 'owner-b-src', NULL, 'assistant', 'Loose', '{}', 19),
+             ('owner-b-fa5', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Loose', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-loose"}', 20);
     `);
     for (const [message, agent, name] of [
       ["owner-b-fa3", "owner-b-author", "Author"],
       ["owner-b-fa4", "owner-b-dest", "Destination"],
+      // Only the source conversation's current agent could contradict this
+      // one, and that assignment can change.
+      ["owner-b-fa5", "owner-b-dest", "Destination"],
     ]) {
       earlier
         .prepare(
@@ -491,7 +496,7 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
         detectedAt: expect.any(Number),
       },
     ]);
-    for (const copy of ["fa2", "fa3", "fa4"])
+    for (const copy of ["fa2", "fa3", "fa4", "fa5"])
       expect(
         resultDefects("owner-b", `message:owner-b-${copy}`, upgraded),
       ).toEqual([]);
@@ -643,6 +648,91 @@ it("does not record a copy's placement from its unsealed source's current folder
       kind: "copied",
       sourceResultId: null,
       sourceMessageId: message,
+      sourceAvailable: true,
+    },
+  });
+});
+
+it("keeps a version 1 copy's recorded author when the chain beyond it is gone", () => {
+  const owner = id();
+  const author = agentFor(owner, "author", "anthropic");
+  const destination = agentFor(owner, "destination");
+  const conversation = id();
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Fork','loop-fork',?)",
+  ).run(conversation, owner, destination.id, now());
+  // An earlier build sealed this copy, whose own source no longer exists.
+  const earlier = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Kept answer',?,?)",
+  ).run(
+    earlier,
+    owner,
+    conversation,
+    JSON.stringify({ sourceMessage: "gone-message" }),
+    now(),
+  );
+  const earlierResult = "message:" + earlier;
+  db.prepare(
+    `INSERT INTO results(id,owner_id,schema_version,kind,origin_completeness,sealed,created_at,conversation_id,run_id,message_id,agent_id,content_digest,stimulus,outcome,attachments,provenance,lineage)
+     VALUES(?,?,1,'imported_answer','sealed_at_publication',1,?,?,NULL,?,?,?,?,?,'[]',?,?)`,
+  ).run(
+    earlierResult,
+    owner,
+    now(),
+    conversation,
+    earlier,
+    author.id,
+    "0".repeat(64),
+    JSON.stringify({
+      kind: "user_prompt",
+      text: null,
+      sourceMessageId: null,
+      authorKind: "owner",
+      automationKind: null,
+      automationFrom: null,
+    }),
+    JSON.stringify({
+      title: "Kept answer",
+      body: "Kept answer",
+      format: "markdown",
+    }),
+    JSON.stringify({
+      agentId: author.id,
+      agentName: author.name,
+      provider: "anthropic",
+      model: "model-x",
+      resolvedModel: null,
+      connectionId: null,
+      conversationId: conversation,
+      runId: null,
+      messageId: earlier,
+      placement: {
+        status: "unknown",
+        folderId: null,
+        projectId: null,
+        projectName: null,
+        teamId: null,
+      },
+    }),
+    JSON.stringify({
+      parentResultId: null,
+      triggerMessageId: null,
+      suppliedContext: [],
+    }),
+  );
+  const fork = forkConversation(owner, conversation, {
+    messageId: earlier,
+    agentId: destination.id,
+  });
+  expect(copiedAnswer(owner, fork.id).provenance).toMatchObject({
+    agentId: author.id,
+    agentName: author.name,
+    provider: "anthropic",
+    origin: {
+      kind: "copied",
+      sourceResultId: earlierResult,
+      sourceMessageId: earlier,
       sourceAvailable: true,
     },
   });

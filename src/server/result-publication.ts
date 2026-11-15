@@ -122,6 +122,10 @@ const MAX_COPY_DEPTH = 32;
 
 type CopiedAnswerSource = ResultAuthorship & {
   origin: Extract<ResultOrigin, { kind: "copied" }>;
+  // What establishes the author: a sealed Result of the original (or one
+  // that recorded its origin), the source's run, only its conversation's
+  // current agent, a version 1 copy whose own source is gone, or nothing.
+  evidence: "sealed" | "run" | "conversation" | "unoriginated_copy" | "none";
 };
 
 const UNKNOWN_AUTHORSHIP: ResultAuthorship = {
@@ -167,6 +171,9 @@ export function copiedAnswerEvidence(
     message.metadata.sourceConversation,
   );
   const seen = new Set<string>();
+  // The nearest version 1 copy passed on the way; it is the best remaining
+  // evidence when the chain beyond it is gone.
+  let unoriginated: CanonicalResult | undefined;
   while (sourceId && !seen.has(sourceId) && seen.size < MAX_COPY_DEPTH) {
     seen.add(sourceId);
     const source = resultsQueries.messageById(database, ownerId, sourceId);
@@ -181,11 +188,13 @@ export function copiedAnswerEvidence(
     if (sealed) {
       const origin = sealed.provenance.origin;
       if (origin?.kind === "copied") {
-        return { ...sealedAuthorship(sealed), origin };
+        return { ...sealedAuthorship(sealed), origin, evidence: "sealed" };
       }
       if (origin !== undefined || !next) {
         return {
           ...sealedAuthorship(sealed),
+          // Either it recorded its origin or it seals an original message.
+          evidence: "sealed",
           origin: {
             kind: "copied",
             sourceResultId: sealed.id,
@@ -198,6 +207,7 @@ export function copiedAnswerEvidence(
     }
     if (!source) break;
     if (next) {
+      if (sealed) unoriginated ??= sealed;
       sourceConversationId =
         readNonEmptyString(source.metadata.sourceConversation) ??
         sourceConversationId;
@@ -246,10 +256,25 @@ export function copiedAnswerEvidence(
         sourceConversationId: source.conversation_id,
         sourceAvailable: true,
       },
+      evidence: run?.agent_id ? "run" : "conversation",
+    };
+  }
+  if (unoriginated) {
+    return {
+      ...sealedAuthorship(unoriginated),
+      evidence: "unoriginated_copy",
+      origin: {
+        kind: "copied",
+        sourceResultId: unoriginated.id,
+        sourceMessageId: unoriginated.provenance.messageId,
+        sourceConversationId: unoriginated.provenance.conversationId,
+        sourceAvailable: true,
+      },
     };
   }
   return {
     ...UNKNOWN_AUTHORSHIP,
+    evidence: "none",
     origin: {
       kind: "copied",
       sourceResultId: null,
