@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
   AgentId,
@@ -1033,7 +1034,7 @@ function ConversationView({
       params: { id: MessageId.parse(messageId) },
       body: saved ? {} : undefined,
     });
-    window.dispatchEvent(new Event("loop-later-change"));
+    emitClientEvent("loop-later-change");
   }
   /**
    * Save at once, with Undo removing that save. Unsaving waits for the

@@ -1,4 +1,7 @@
 export type ClientEvents = {
+  "loop-later-change": undefined;
+  "loop-scheduled-change": undefined;
+  "loop-social-read": undefined;
   "loop-auth-expired": undefined;
   "loop-reconnecting": undefined;
   "loop-toast": {

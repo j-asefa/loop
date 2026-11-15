@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import {
   AgentId,
   parseId,
@@ -1166,7 +1167,7 @@ function SocialView({
       setView((old) => old && { ...old, unread });
       // Refresh any other reader of the owner’s unread count.
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop-social-read"));
+      emitClientEvent("loop-social-read");
     } catch (e) {
       setError((e as Error).message);
       void load({ supersede: true });
@@ -1199,7 +1200,7 @@ function SocialView({
       setView((old) => old && { ...old, unread });
       void load({ supersede: true });
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop-social-read"));
+      emitClientEvent("loop-social-read");
       if (removed)
         notify({
           text: "Removed from Social",
@@ -1230,7 +1231,7 @@ function SocialView({
           },
       );
       setSearchRevision((revision) => revision + 1);
-      window.dispatchEvent(new Event("loop-social-read"));
+      emitClientEvent("loop-social-read");
     } catch (e) {
       setError((e as Error).message);
     }

@@ -1,3 +1,4 @@
+import { emitClientEvent } from "../clientEvents";
 import { IdempotencyKey } from "../../shared/contract-ids";
 import { ArtifactId } from "../../shared/contract-ids.js";
 import {
@@ -629,7 +630,7 @@ export function useComposerSend({
             null,
           );
           window.dispatchEvent(new Event("loop-source-refresh"));
-          window.dispatchEvent(new Event("loop-later-change"));
+          emitClientEvent("loop-later-change");
         };
         if (options.sendAt) {
           const row = await threadApi(workspaceApi.scheduledSendCreate, {
@@ -652,12 +653,12 @@ export function useComposerSend({
               await threadApi(workspaceApi.scheduledSendCancel, {
                 params: { id: row.id },
               });
-              window.dispatchEvent(new Event("loop-scheduled-change"));
+              emitClientEvent("loop-scheduled-change");
               if (currentView())
                 setDraft((current) => (current.trim() ? current : text));
             },
           });
-          window.dispatchEvent(new Event("loop-scheduled-change"));
+          emitClientEvent("loop-scheduled-change");
           if (!sameComposer()) return;
           setDraft("");
           setAttachments([]);
