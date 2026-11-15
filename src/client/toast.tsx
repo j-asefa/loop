@@ -1,3 +1,8 @@
+import {
+  emitClientEvent,
+  listenClientEvent,
+  type ClientEvents,
+} from "./clientEvents";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -9,22 +14,10 @@ import { topSheet } from "./modalDialog";
  * action. For a deferred action, `onExpire` commits it when the toast ends,
  * is replaced, or the page is hidden; Undo then simply never commits it.
  */
-type Toast = {
-  text: string;
-  tone?: "error";
-  link?: { label: string; onSelect: () => void };
-  undo?: () => Promise<void> | void;
-  onExpire?: () => void;
-};
-type Shown = Toast & { id: string };
-
-const EVENT = "loop-toast";
+type Shown = ClientEvents["loop-toast"];
+type Toast = Omit<Shown, "id">;
 export function notify(toast: Toast) {
-  window.dispatchEvent(
-    new CustomEvent<Shown>(EVENT, {
-      detail: { ...toast, id: crypto.randomUUID() },
-    }),
-  );
+  emitClientEvent("loop-toast", { ...toast, id: crypto.randomUUID() });
 }
 
 // An open modal sheet makes the rest of the page inert, so the toast is
@@ -42,7 +35,7 @@ export function Toasts() {
     setToast(next);
   };
   useEffect(() => {
-    const show = (event: Event) => expire((event as CustomEvent<Shown>).detail);
+    const stop = listenClientEvent("loop-toast", expire);
     const hidden = () => {
       // A deferred action must not be lost when the app is closed. Once it
       // is committed, Undo could no longer reverse it, so it is withdrawn
@@ -53,11 +46,10 @@ export function Toasts() {
       current.current = { ...shown, onExpire: undefined, undo: undefined };
       setToast(current.current);
     };
-    window.addEventListener(EVENT, show);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", hidden);
     return () => {
-      window.removeEventListener(EVENT, show);
+      stop();
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", hidden);
       current.current?.onExpire?.();

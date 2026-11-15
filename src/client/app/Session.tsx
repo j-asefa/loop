@@ -1,3 +1,4 @@
+import { listenClientEvent } from "../clientEvents";
 import { LoopLogo } from "../LoopLogo";
 import { executionSourceId, returnToLocalSource } from "../sourceRouting";
 import { readRoute } from "../api";
@@ -121,10 +122,10 @@ export function useSessionLifecycle(
       replaceConversationLocation(executionSourceId(), null);
       setSession(null);
     };
-    window.addEventListener("loop-auth-expired", expire);
+    const stop = listenClientEvent("loop-auth-expired", expire);
     return () => {
       controller.abort();
-      window.removeEventListener("loop-auth-expired", expire);
+      stop();
     };
   }, []);
 }
