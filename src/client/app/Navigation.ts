@@ -90,6 +90,29 @@ export function useAppNavigation(seed?: AppNavigationInitial) {
   const [projectFilter, setProjectFilter] = useState(initial.projectFilter);
   const [project, setProject] = useState(initial.project);
   const [pull, setPull] = useState(initial.pull);
+  const teamKey = [...teamSelection].sort().join(",");
+  useEffect(() => {
+    const url = new URL(location.href);
+    for (const [key, value] of Object.entries({
+      page: tab === "feed" ? "" : tab,
+      filter: tab === "feed" && feedFilter !== "done" ? feedFilter : "",
+      project: projectFilter,
+      teams: teamKey,
+      projectView: project,
+      pull: tab === "pulls" ? pull : "",
+    })) {
+      if (value) url.searchParams.set(key, value);
+      else url.searchParams.delete(key);
+    }
+    // Pairing and shared links keep their fragment until their owning flow
+    // consumes it; persisting navigation must not discard that state.
+    history.replaceState(
+      history.state,
+      "",
+      url.pathname + url.search + url.hash,
+    );
+  }, [tab, projectFilter, teamKey, project, feedFilter, pull]);
+
   return {
     initial,
     tab,
@@ -110,6 +133,7 @@ export function useAppNavigation(seed?: AppNavigationInitial) {
     setConversationSource,
     teamSelection,
     setTeamSelection,
+    teamKey,
     project,
     setProject,
     projectFilter,
