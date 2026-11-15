@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import { AgentSourceId } from "../shared/contract-ids";
 import {
   workspaceApi,
@@ -537,7 +538,7 @@ export function useAgentSources(
       if (document.visibilityState === "visible") schedule();
     };
     document.addEventListener("visibilitychange", visible);
-    window.addEventListener("loop-source-refresh", retry);
+    const stopSourceEvent = listenClientEvent("loop-source-refresh", retry);
     // This projection includes active runs as well as source metadata.
     const stopChanges = listenWorkspaceChanges("runs", changed("runs"));
     const stopMetadata = listenWorkspaceChanges(
@@ -549,7 +550,7 @@ export function useAgentSources(
       clearRequests();
       clearInterval(timer);
       clearTimeout(refreshTimer);
-      window.removeEventListener("loop-source-refresh", retry);
+      stopSourceEvent();
       document.removeEventListener("visibilitychange", visible);
       stopChanges();
       stopMetadata();

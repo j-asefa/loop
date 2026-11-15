@@ -1,4 +1,4 @@
-import { emitClientEvent } from "./clientEvents";
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
   AgentId,
@@ -874,7 +874,7 @@ function ConversationView({
       transcriptHandoff.current.projection.needsLatest()
     )
       void load();
-    window.addEventListener("loop-refresh", update);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", update);
     const stopChanges = listenWorkspaceChanges(
       "thread",
       (event) => {
@@ -885,7 +885,7 @@ function ConversationView({
     );
     return () => {
       generation.current++;
-      window.removeEventListener("loop-refresh", update);
+      stopRefreshEvent();
       stopFrames();
       stopDetail();
       clearTimeout(retryTimer.current);

@@ -629,7 +629,7 @@ export function useComposerSend({
             sentReceipt!,
             null,
           );
-          window.dispatchEvent(new Event("loop-source-refresh"));
+          emitClientEvent("loop-source-refresh");
           emitClientEvent("loop-later-change");
         };
         if (options.sendAt) {

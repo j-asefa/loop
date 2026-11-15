@@ -1,3 +1,4 @@
+import { emitClientEvent } from "../clientEvents";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
@@ -455,9 +456,7 @@ export function renderAppPages(
               <button
                 type="button"
                 className="text-button"
-                onClick={() =>
-                  window.dispatchEvent(new Event("loop-source-refresh"))
-                }
+                onClick={() => emitClientEvent("loop-source-refresh")}
               >
                 Retry connection
               </button>

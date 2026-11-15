@@ -100,7 +100,7 @@ export function useFeedBadge(
       ),
     );
     const update = () => load();
-    window.addEventListener("loop-source-refresh", update);
+    const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
     const stopLaterEvent = listenClientEvent("loop-later-change", update);
     load();
     return () => {
@@ -108,7 +108,7 @@ export function useFeedBadge(
       readers.forEach((reader) => reader.dispose());
       context.retry = () => {};
       stop();
-      window.removeEventListener("loop-source-refresh", update);
+      stopSourceEvent();
       stopLaterEvent();
     };
   }, [context]);

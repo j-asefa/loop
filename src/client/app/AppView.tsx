@@ -1,3 +1,4 @@
+import { emitClientEvent } from "../clientEvents";
 import {
   readArtifactMetadata,
   artifactMessageId,
@@ -820,7 +821,7 @@ export function renderApp(props: AppViewProps) {
               setSheet("");
               if (newAgentPrompt) setDraft("");
               setNewAgentPrompt("");
-              window.dispatchEvent(new Event("loop-source-refresh"));
+              emitClientEvent("loop-source-refresh");
               setConversation(
                 a.initialRun.conversation_id,
                 undefined,
@@ -1345,7 +1346,7 @@ export function renderApp(props: AppViewProps) {
             }}
             onWithdraw={withdrawToComposer}
             onSubmitted={() => {
-              window.dispatchEvent(new Event("loop-source-refresh"));
+              emitClientEvent("loop-source-refresh");
               void refresh();
             }}
           />

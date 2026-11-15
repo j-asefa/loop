@@ -1,4 +1,6 @@
 export type ClientEvents = {
+  "loop-refresh": undefined;
+  "loop-source-refresh": undefined;
   "loop-later-change": undefined;
   "loop-scheduled-change": undefined;
   "loop-social-read": undefined;

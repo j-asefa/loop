@@ -1,3 +1,4 @@
+import { emitClientEvent } from "../clientEvents";
 import { runMatchesScope } from "../runScope.js";
 import {
   readArtifactMetadata,
@@ -670,7 +671,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   );
   // Pull down at the top of any page to refresh what it shows.
   const pullRefresh = usePullToRefresh(Boolean(session?.user), async () => {
-    window.dispatchEvent(new Event("loop-refresh"));
+    emitClientEvent("loop-refresh");
     await changed();
   });
   useSwipeBack(Boolean(session?.user), () => {
@@ -848,7 +849,7 @@ export function useAppController(seed?: AppNavigationInitial) {
       teams: old.teams?.map((item) => (item.id === team.id ? team : item)),
     }));
     // Supersede any in-flight feed read so a saved preference takes effect now.
-    window.dispatchEvent(new Event("loop-source-refresh"));
+    emitClientEvent("loop-source-refresh");
   }
   const check = createSessionCheck({
     setSession,
