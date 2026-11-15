@@ -95,6 +95,20 @@ try {
   assert.equal(aborted, 0);
   held.shift()();
   await expect.poll(() => requests.length).toBe(before + 2);
+  holdNext = true;
+  await page.evaluate(() => window.refresh());
+  await expect.poll(() => held.length).toBe(1);
+  const stalledReads = requests.length;
+  const beforeRetryAbort = aborted;
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect.poll(() => aborted).toBe(beforeRetryAbort + 1);
+  await expect.poll(() => requests.length).toBe(stalledReads + 1);
+  held.shift()();
+  await expect(
+    page.getByRole("button", { name: "Retry connection", exact: true }),
+  ).toHaveCount(0);
   status = 503;
   await page.evaluate(() => window.refresh());
   await expect(page.getByRole("alert")).toContainText(
