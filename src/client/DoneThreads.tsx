@@ -182,12 +182,12 @@ export function OrganizeCards({
   selection,
   threads,
   onClose,
-  onDone,
+  onResolved,
 }: {
   selection: ThreadSelection;
   threads: SourcedDoneThread[];
   onClose: () => void;
-  onDone: () => void;
+  onResolved: () => void;
 }) {
   const creationTarget = [
     "done-thread-create",
@@ -304,13 +304,14 @@ export function OrganizeCards({
             setNotice(
               "Earlier request resolved. No separate grouping was started. Review the earlier thread before combining this selection again.",
             );
+            onResolved();
             return;
           }
         }
       }
       if (generation.current !== viewGeneration()) return;
       if (live.current) {
-        onDone();
+        onResolved();
         onClose();
       }
     } catch (error) {

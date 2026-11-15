@@ -18,7 +18,7 @@ try {
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change(new URLSearchParams(location.search).get('owner')||'alice');setShellSource('');
-    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[{id:'destination',title:'Destination',source:'',cardIds:[],createdAt:1,preview:null}],onClose:()=>window.completed=true,onDone:()=>window.doneCount=(window.doneCount||0)+1}));
+    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[{id:'destination',title:'Destination',source:'',cardIds:[],createdAt:1,preview:null}],onClose:()=>window.completed=true,onResolved:()=>window.resolvedCount=(window.resolvedCount||0)+1}));
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
@@ -140,7 +140,7 @@ try {
       .filter({ hasText: "No separate grouping was started" }),
   ).toBeVisible();
   assert.equal(
-    await page.evaluate(() => window.doneCount || 0),
+    await page.evaluate(() => window.resolvedCount || 0),
     1,
     "Receipt resolution must refresh and clear the parent selection",
   );

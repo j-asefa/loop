@@ -3766,7 +3766,7 @@ export function Feed({
           selection={aggregate}
           threads={grouping.threads}
           onClose={() => setAggregate(null)}
-          onDone={() => {
+          onResolved={() => {
             grouping.refresh();
             setSelectedCards(null);
           }}
