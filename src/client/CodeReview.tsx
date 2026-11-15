@@ -1,3 +1,4 @@
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
 import {
   ConversationId,
@@ -248,14 +249,18 @@ export function CodeReviewStatus({
   useEffect(() => {
     const recover = (event: Event) => {
       if (!broadWorkspaceChange(event)) return;
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       if (!sources || sources.includes(context.source)) void refresh();
     };
-    window.addEventListener("loop-workspace-change", recover);
+    const stopWorkspaceEvent = listenClientEvent(
+      "loop-workspace-change",
+      (_detail, event) => recover(event),
+    );
     void refresh();
     return () => {
-      window.removeEventListener("loop-workspace-change", recover);
+      stopWorkspaceEvent();
     };
   }, [context, refresh, revision]);
   const review = snapshot?.context === context ? snapshot.review : null;

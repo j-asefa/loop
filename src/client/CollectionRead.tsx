@@ -118,8 +118,9 @@ export function useProjectionQuery<C extends RouteContract & { method: "GET" }>(
   useEffect(() => {
     if (!enabled) return;
     const update = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       if (!sources || sources.includes(source)) void refresh();
     };
     // A notification during the initial snapshot must queue another read.
@@ -343,8 +344,9 @@ export function usePagedProjectionQuery<
       }
     };
     const refresh = (event: Event) => {
-      const sources = (event as CustomEvent<{ sources?: string[] }>).detail
-        ?.sources;
+      const sources = (
+        event as CustomEvent<ClientEvents["loop-workspace-change"]>
+      ).detail?.sources;
       if (sources && !sourceList.some((item) => sources.includes(item))) return;
       if (event.type === "loop-refresh") {
         urgent = true;
