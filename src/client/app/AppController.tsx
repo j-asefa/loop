@@ -50,6 +50,7 @@ import {
   type LatestAgentMessage,
 } from "../composerContext";
 import { OPEN_PULL } from "../PullRequests";
+import { useComposerFocus } from "./useComposerFocus";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
 import { useLongPress, type ScheduledSend } from "../ThreadTools";
@@ -149,13 +150,19 @@ export function useAppController(seed?: AppNavigationInitial) {
   const teamKey = [...teamSelection].sort().join(",");
   const [teamMessages, setTeamMessages] = useState<Team | null>(null);
   const availableAgents = data.agents.filter((a) => !a.retired_at);
-  const [composerExpanded, setComposerExpanded] = useState(false);
-  const composerFocusRequest = useRef<number | null>(null);
+  const navigationGeneration = useRef(0);
+  const {
+    composerExpanded,
+    setComposerExpanded,
+    composerOptions,
+    setComposerOptions,
+    composerFocusRequest,
+    composerRef,
+    focusComposer,
+    focusThreadComposer,
+    collapseComposer,
+  } = useComposerFocus({ ownerRef, navigationGeneration, conversation });
   const [bootstrapOwner, setBootstrapOwner] = useState<string>();
-  const [composerOptions, setComposerOptions] = useState(false);
-  useEffect(() => {
-    if (!composerExpanded && !conversation) setComposerOptions(false);
-  }, [composerExpanded, conversation]);
   const initialAgentId = useRef(initial.agentId);
   const [replyContext, setReplyContext] = useState<ComposerContext | null>(
     null,
@@ -202,7 +209,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     source: string;
     owner: string | undefined;
   } | null>(null);
-  const composerRef = useRef<HTMLElement>(null);
   useComposerViewport(
     composerRef,
     !!session?.user && !conversation && availableAgents.length > 0,
@@ -261,7 +267,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   ]);
   const composerIdentityRef = useRef(threadIdentity);
   composerIdentityRef.current = threadIdentity;
-  const navigationGeneration = useRef(0);
   const viewIdentity = `${threadIdentity}:${navigationGeneration.current}`;
   const threadIdentityRef = useRef(viewIdentity);
   threadIdentityRef.current = viewIdentity;
@@ -397,25 +402,6 @@ export function useAppController(seed?: AppNavigationInitial) {
       replaceConversationLocation(executionSourceId(), null);
     }
   }
-  function focusRequestedComposer() {
-    if (!ownerRef.current) return;
-    if (composerFocusRequest.current !== navigationGeneration.current) return;
-    const input = document.querySelector<HTMLTextAreaElement>("#composer");
-    input?.focus();
-    if (input && document.activeElement === input)
-      composerFocusRequest.current = null;
-  }
-  useLayoutEffect(() => {
-    // A frame callback can run before React reveals the input. Finish an
-    // explicit focus request after commit, without focusing on other updates.
-    if (composerExpanded) focusRequestedComposer();
-  });
-  function focusComposer() {
-    if (!ownerRef.current) return;
-    composerFocusRequest.current = navigationGeneration.current;
-    setComposerExpanded(true);
-    requestAnimationFrame(focusRequestedComposer);
-  }
   function startChat() {
     setFolder(projectFilter);
     setNewAgentPrompt("");
@@ -427,15 +413,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setFolderChoice(undefined);
     setReplyContext(null);
     afterSheetsClose(focusComposer);
-  }
-  // Focus a thread's composer once its sheet has opened, but only if that
-  // thread is still open; a quick close must not expand the global composer.
-  const openConversation = useRef(conversation);
-  openConversation.current = conversation;
-  function focusThreadComposer(id: string) {
-    setTimeout(() => {
-      if (openConversation.current === id) focusComposer();
-    }, 350);
   }
   // "Ask an agent" on a pull request starts a new message about it; your
   // unsent draft is kept and the request is added after it.
@@ -463,12 +440,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     window.addEventListener(OPEN_PULL, open);
     return () => window.removeEventListener(OPEN_PULL, open);
   }, []);
-  function collapseComposer() {
-    composerFocusRequest.current = null;
-    document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
-    setComposerExpanded(false);
-    setComposerOptions(false);
-  }
   /** Later at a section (Scheduled, Reminders), highlighting one item. */
   function openLater(section: "scheduled" | "reminders", focusId?: string) {
     showLater(section, focusId);
@@ -695,15 +666,6 @@ export function useAppController(seed?: AppNavigationInitial) {
       focusComposer();
     }
   }
-  useEffect(() => {
-    const outside = (e: PointerEvent) => {
-      if ((e.target as Element)?.closest?.("dialog[open]")) return;
-      if (!composerRef.current?.contains(e.target as Node))
-        setComposerExpanded(false);
-    };
-    document.addEventListener("pointerdown", outside);
-    return () => document.removeEventListener("pointerdown", outside);
-  }, []);
   async function archiveCard(
     id: string,
     hidden = true,
