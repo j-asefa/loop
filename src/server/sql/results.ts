@@ -270,6 +270,21 @@ export function standaloneAssistantMessages(
   );
 }
 
+// Every standalone message of an imported conversation, so branch-aware
+// readers can walk preserved parent pointers.
+const standaloneMessagesStatement = statement(
+  "SELECT * FROM messages WHERE owner_id=? AND conversation_id=? AND run_id IS NULL ORDER BY created_at ASC, rowid ASC",
+);
+export function standaloneMessages(
+  db: Database.Database,
+  ownerId: string,
+  conversationId: string,
+) {
+  return parseSafeMessages(
+    standaloneMessagesStatement(db).all(ownerId, conversationId),
+  );
+}
+
 const precedingStandaloneUserMessageStatement = statement(
   `SELECT u.* FROM messages m
    JOIN messages u ON u.owner_id=m.owner_id
