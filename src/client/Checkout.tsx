@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Sheet } from "./components";
 import { Patch } from "./PullRequests";
 import { PullChangeCounts } from "./PullChangeCounts";
 import { readableText } from "../shared/readable-text";
 import { changePrompts } from "./threadView";
-import {
-  checkoutLine,
-  patchByFile,
-  type CheckoutDetail,
-} from "../shared/checkout";
+import { checkoutLine, patchByFile } from "../shared/checkout";
+
+import { RunId } from "../shared/contract-ids";
+import { workspaceApi } from "../shared/workspace-api";
+import { useProjectionQuery } from "./CollectionRead";
+import { useSourceId } from "./SourceContext";
 
 const when = (at: number) =>
   new Date(at).toLocaleString(undefined, {
@@ -19,47 +20,38 @@ const short = (sha: string | null) => (sha ? sha.slice(0, 10) : "unknown");
 
 export function CheckoutSheet({
   runId,
-  load,
   onClose,
   onAsk,
   agentName,
   projectName,
 }: {
   runId: string;
-  load: (runId: string) => Promise<CheckoutDetail>;
   onClose: () => void;
   onAsk?: (prompt: string) => void;
   agentName?: string;
   projectName?: string;
 }) {
-  const [detail, setDetail] = useState<CheckoutDetail | null>(null);
-  const [error, setError] = useState("");
-  // A capture still in progress is polled until it ends, so an open sheet
-  // shows the observation without being reopened.
+  const {
+    data: detail,
+    error,
+    busy,
+    refresh,
+  } = useProjectionQuery(
+    workspaceApi.runCheckout,
+    { params: { id: RunId.parse(runId) } },
+    { source: useSourceId(), mode: "once" },
+  );
   useEffect(() => {
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // A failed read while waiting is retried, so a dropped connection does
-    // not leave the sheet stale once it is back.
-    const read = () =>
-      load(runId)
-        .then((result) => {
-          if (!live) return;
-          setDetail(result);
-          setError("");
-          if (result.state === "started") timer = setTimeout(read, 5000);
-        })
-        .catch((e: Error) => {
-          if (!live) return;
-          setError(e.message);
-          timer = setTimeout(read, 10000);
-        });
-    void read();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [runId]);
+    if (busy) return;
+    const delay = error
+      ? 10000
+      : detail?.state === "started"
+        ? 5000
+        : undefined;
+    if (delay === undefined) return;
+    const timer = setTimeout(() => void refresh(), delay);
+    return () => clearTimeout(timer);
+  }, [detail, error, busy, refresh]);
   const chunks = detail?.patch
     ? patchByFile(detail.patch)
     : new Map<string, string>();

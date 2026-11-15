@@ -34,8 +34,8 @@ import {
 import { CodeReviewStatus } from "./CodeReview";
 import {
   useSourceId,
-  useSourceRoute,
   useProjectionRoute,
+  useSourceRoute,
   useSourceOperation,
 } from "./SourceContext";
 import { sourceUrl } from "./sourceRouting";
@@ -254,8 +254,6 @@ function ConversationView({
   onWork?: (work: ThreadWork | null) => void;
   sourceStatus?: { message: string; rateLimited?: boolean; retry: () => void };
 }) {
-  const readProjection = useProjectionRoute();
-
   const id = ConversationId.parse(rawId);
   const call = useSourceRoute();
   const continuationReason = useSourceOperation(
@@ -1464,30 +1462,12 @@ function ConversationView({
       {verification && (
         <VerificationSheet
           runId={verification}
-          load={(runId) =>
-            readProjection(
-              workspaceApi.runVerifications,
-              {
-                params: { id: RunId.parse(runId) },
-              },
-              { mode: "once" },
-            )
-          }
           onClose={() => setVerification(null)}
         />
       )}
       {checkout && (
         <CheckoutSheet
           runId={checkout}
-          load={(runId) =>
-            readProjection(
-              workspaceApi.runCheckout,
-              {
-                params: { id: RunId.parse(runId) },
-              },
-              { mode: "once" },
-            )
-          }
           agentName={agent?.name}
           projectName={project?.name}
           onAsk={agent && !imported ? onUsePrompt : undefined}

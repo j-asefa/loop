@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
 import { Sheet } from "./components";
-import { type VerificationItem } from "../shared/verification";
-
-type Detail = VerificationItem & { output_tail: string | null };
+import { RunId } from "../shared/contract-ids";
+import { workspaceApi } from "../shared/workspace-api";
+import { useProjectionQuery } from "./CollectionRead";
+import { useSourceId } from "./SourceContext";
 const when = (at: number) =>
   new Date(at).toLocaleString(undefined, {
     dateStyle: "medium",
@@ -16,24 +16,16 @@ const statusLabel = {
 
 export function VerificationSheet({
   runId,
-  load,
   onClose,
 }: {
   runId: string;
-  load: (runId: string) => Promise<Detail[]>;
   onClose: () => void;
 }) {
-  const [items, setItems] = useState<Detail[] | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let live = true;
-    load(runId)
-      .then((result) => live && setItems(result))
-      .catch((e: Error) => live && setError(e.message));
-    return () => {
-      live = false;
-    };
-  }, [runId]);
+  const { data: items, error } = useProjectionQuery(
+    workspaceApi.runVerifications,
+    { params: { id: RunId.parse(runId) } },
+    { source: useSourceId(), mode: "once" },
+  );
   return (
     <Sheet
       title="Verification"
