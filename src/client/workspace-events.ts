@@ -158,12 +158,12 @@ export function watchWorkspaceEvents(options: {
     const current = (socket = options.socket
       ? options.socket(url)
       : new WebSocket(url));
-    current.onmessage = (event) => {
+    current.onmessage = (event: MessageEvent<string | WorkspaceFrame>) => {
       if (stopped || current !== socket || viewGeneration() !== ownerGeneration)
         return;
       try {
         const m = workspaceApi.channels.events.frames.parse(
-          JSON.parse(event.data),
+          typeof event.data === "string" ? JSON.parse(event.data) : event.data,
         );
         if (
           !m ||
