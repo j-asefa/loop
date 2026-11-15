@@ -1,3 +1,4 @@
+import { emitClientEvent } from "../clientEvents";
 import { readArtifactMetadata } from "../../shared/artifact-metadata.js";
 import { ProjectId, parseId } from "../../shared/contract-ids.js";
 import { workspaceApi, type ResultItem } from "../../shared/workspace-api";
@@ -371,7 +372,7 @@ export function renderResults(
             );
             if (source === executionSourceId() && owner === ownerRef.current)
               await changed();
-            window.dispatchEvent(new Event("loop-later-change"));
+            emitClientEvent("loop-later-change");
           } catch (error) {
             if (source === executionSourceId() && owner === ownerRef.current)
               setError((error as Error).message);
@@ -411,7 +412,7 @@ export function renderResults(
               executionSourceId(),
             );
             await changed();
-            window.dispatchEvent(new Event("loop-later-change"));
+            emitClientEvent("loop-later-change");
           } catch (e) {
             setError((e as Error).message);
           }

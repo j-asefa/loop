@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import { FolderId, parseId } from "../shared/contract-ids.js";
 import { useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "../shared/workspace-api";
@@ -100,7 +101,7 @@ export function useFeedBadge(
     );
     const update = () => load();
     window.addEventListener("loop-source-refresh", update);
-    window.addEventListener("loop-later-change", update);
+    const stopLaterEvent = listenClientEvent("loop-later-change", update);
     load();
     return () => {
       active = false;
@@ -108,7 +109,7 @@ export function useFeedBadge(
       context.retry = () => {};
       stop();
       window.removeEventListener("loop-source-refresh", update);
-      window.removeEventListener("loop-later-change", update);
+      stopLaterEvent();
     };
   }, [context]);
   const reads = state.key === key ? Object.values(state.reads) : [];

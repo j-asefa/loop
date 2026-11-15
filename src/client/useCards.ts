@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { contractCardReader } from "../shared/card-client";
 import type { CardPage, CardSelection } from "../shared/cards";
@@ -106,12 +107,12 @@ export function useCards(selection: CardSelection, revision = 0) {
       source,
     );
     window.addEventListener("loop-refresh", refresh);
-    window.addEventListener("loop-later-change", refresh);
+    const stopLaterEvent = listenClientEvent("loop-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       stopChanges();
       window.removeEventListener("loop-refresh", refresh);
-      window.removeEventListener("loop-later-change", refresh);
+      stopLaterEvent();
       document.removeEventListener("visibilitychange", refresh);
       // Invalidate even on unmount with the same owner/source.
       if (current.current === context) current.current = null;

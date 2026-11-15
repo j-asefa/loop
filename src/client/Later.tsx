@@ -1,3 +1,4 @@
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -346,7 +347,7 @@ function SavedCollection({
           }
           pending.current.delete(item.card.id);
           if (alive.current) await currentLoad.current();
-          window.dispatchEvent(new Event("loop-later-change"));
+          emitClientEvent("loop-later-change");
         })().catch((e) => {
           restore();
           if (alive.current && viewOwner() === owner) setError(e.message);
@@ -589,13 +590,16 @@ export function Later({
   useEffect(() => {
     void load();
     const update = () => void load();
-    window.addEventListener("loop-later-change", update);
-    window.addEventListener("loop-scheduled-change", update);
+    const stopLaterEvent = listenClientEvent("loop-later-change", update);
+    const stopScheduledEvent = listenClientEvent(
+      "loop-scheduled-change",
+      update,
+    );
     const stopChanges = listenWorkspaceChanges("later", update, sourceId);
     const stopScheduled = listenWorkspaceChanges("scheduled", update, sourceId);
     return () => {
-      window.removeEventListener("loop-later-change", update);
-      window.removeEventListener("loop-scheduled-change", update);
+      stopLaterEvent();
+      stopScheduledEvent();
       stopChanges();
       stopScheduled();
     };
@@ -621,7 +625,7 @@ export function Later({
         { params: { id: item.id }, body: undefined },
         executionSourceId(),
       );
-      window.dispatchEvent(new Event("loop-later-change"));
+      emitClientEvent("loop-later-change");
       // Undo reopens this same reminder: Done is a state, not a deletion.
       notify({
         text: due ? "Marked done." : "Reminder cancelled.",
@@ -631,7 +635,7 @@ export function Later({
             { params: { id: item.id }, body: {} },
             executionSourceId(),
           );
-          window.dispatchEvent(new Event("loop-later-change"));
+          emitClientEvent("loop-later-change");
         },
       });
     } catch (e) {

@@ -1,3 +1,4 @@
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { LaterTargetInput } from "../shared/contract-ids";
 import {
@@ -392,7 +393,7 @@ export function LaterSheet({
             sourceId ?? scopedSource,
           ).then((row) => ({ id: row.id, replaced: row.replaced ?? null }));
       if (!current()) return;
-      window.dispatchEvent(new Event("loop-later-change"));
+      emitClientEvent("loop-later-change");
       onDone(label, created);
       onClose();
     } catch (e) {
@@ -486,7 +487,7 @@ export async function undoReminder(
       { params: { id: created.replaced }, body: {} },
       sourceId,
     ).catch(() => {});
-  window.dispatchEvent(new Event("loop-later-change"));
+  emitClientEvent("loop-later-change");
 }
 
 type OutlineItem = RouteResponse<
@@ -1011,10 +1012,13 @@ export function ScheduledSends({
     void load();
     const refresh = () => void load();
     const stopChanges = listenWorkspaceChanges("scheduled", refresh, sourceId);
-    window.addEventListener("loop-scheduled-change", refresh);
+    const stopScheduledEvent = listenClientEvent(
+      "loop-scheduled-change",
+      refresh,
+    );
     return () => {
       stopChanges();
-      window.removeEventListener("loop-scheduled-change", refresh);
+      stopScheduledEvent();
     };
   }, [conversationId, sourceId, read]);
   // Scroll to the item a confirmation linked to, once it is listed.
@@ -1043,7 +1047,7 @@ export function ScheduledSends({
           setError(result.row.error || "Loop could not send this message.");
       }
       await load();
-      window.dispatchEvent(new Event("loop-scheduled-change"));
+      emitClientEvent("loop-scheduled-change");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1195,7 +1199,7 @@ export function ScheduledSends({
           onClose={() => setEditing(null)}
           onSaved={() => {
             void load();
-            window.dispatchEvent(new Event("loop-scheduled-change"));
+            emitClientEvent("loop-scheduled-change");
           }}
         />
       )}

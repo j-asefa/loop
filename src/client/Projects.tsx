@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
@@ -161,8 +162,7 @@ export function Projects({
       executionSourceId(),
     )
       .then((result) => {
-        if (result?.surfaced)
-          window.dispatchEvent(new Event("loop-later-change"));
+        if (result?.surfaced) emitClientEvent("loop-later-change");
       })
       .catch(() => {});
   }, [selected]);

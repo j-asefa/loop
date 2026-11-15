@@ -1,3 +1,4 @@
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -2524,8 +2525,8 @@ export function Feed({
     // is in flight can leave a completed action or connection retry unseen.
     // The request ticket prevents the older response from replacing this one.
     const update = () => void load();
-    window.addEventListener("loop-later-change", update);
-    window.addEventListener("loop-social-read", update);
+    const stopLaterEvent = listenClientEvent("loop-later-change", update);
+    const stopSocialEvent = listenClientEvent("loop-social-read", update);
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
     window.addEventListener("loop-source-refresh", update);
@@ -2552,8 +2553,8 @@ export function Feed({
       if (needsOnly.length) void loadNeeds(needsOnly);
     });
     return () => {
-      window.removeEventListener("loop-later-change", update);
-      window.removeEventListener("loop-social-read", update);
+      stopLaterEvent();
+      stopSocialEvent();
       window.removeEventListener("loop-source-refresh", update);
       stopChanges();
       clearTimeout(doneCatchup.current);
@@ -2989,7 +2990,7 @@ export function Feed({
       },
       item.sourceId ?? scopedSource,
     );
-    window.dispatchEvent(new Event("loop-later-change"));
+    emitClientEvent("loop-later-change");
   }
   /**
    * Save the card: its latest message, and the result card that message
