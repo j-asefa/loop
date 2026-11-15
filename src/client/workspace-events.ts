@@ -1,7 +1,10 @@
-import { listenClientEvent } from "./clientEvents";
+import {
+  listenClientEvent,
+  type ClientEvents,
+  type WorkspaceFrame,
+} from "./clientEvents";
 import { workspaceApi } from "../shared/workspace-api";
 import {
-  type WorkspaceFrameV3,
   WorkspaceClock,
   invalidate,
   COMPLETE_WORKSPACE_CAPABILITIES,
@@ -18,18 +21,6 @@ import {
   acquireWorkspacePoll,
   cancelWorkspacePoll,
 } from "./workspace-poll-budget";
-
-export type WorkspaceFrame =
-  | WorkspaceFrameV3
-  // A clock observed over HTTP can reset a replaced source, but cannot make
-  // identify that deployment's build.
-  | (Omit<
-      Extract<WorkspaceFrameV3, { type: "reset" }>,
-      "build" | "buildIdentity"
-    > & {
-      build?: undefined;
-      buildIdentity?: undefined;
-    });
 
 /** One source and owner per subscription. Only reads may be retried. */
 export function watchWorkspaceEvents(options: {
@@ -103,15 +94,7 @@ export function watchWorkspaceEvents(options: {
       Math.min(2_147_483_647, Math.max(0, due - performance.now())),
     );
   }
-  const snapshotClock = (event: Event) => {
-    const detail = (
-      event as CustomEvent<{
-        source: string;
-        generation: number;
-        requestId?: number;
-        clock: WorkspaceClock;
-      }>
-    ).detail;
+  const snapshotClock = (detail: ClientEvents["loop-workspace-clock"]) => {
     if (
       !detail ||
       detail.generation !== ownerGeneration ||
@@ -341,7 +324,7 @@ export function watchWorkspaceEvents(options: {
     options.connected?.(false);
   };
   const fallback = setInterval(() => void poll(), 1800);
-  window.addEventListener("loop-workspace-clock", snapshotClock);
+  const stopClock = listenClientEvent("loop-workspace-clock", snapshotClock);
   window.addEventListener("online", wake);
   window.addEventListener("pageshow", wake);
   const stopReconnecting = options.connected
@@ -357,7 +340,7 @@ export function watchWorkspaceEvents(options: {
     clearInterval(fallback);
     request?.abort();
     socket?.close();
-    window.removeEventListener("loop-workspace-clock", snapshotClock);
+    stopClock();
     window.removeEventListener("online", wake);
     window.removeEventListener("pageshow", wake);
     stopReconnecting?.();
