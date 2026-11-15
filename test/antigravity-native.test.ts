@@ -19,6 +19,7 @@ const { enqueue, claim } = await import("../src/server/queue");
 const { eligibleMailAgent } = await import("../src/server/agent-mail-policy");
 const { createTeam } = await import("../src/server/teams");
 const { harnessName } = await import("../src/client/modelChoices");
+const { activeRun, saveSteering } = await import("../src/server/steering");
 const sessions = new NativeSessions();
 afterAll(async () => {
   await sessions.close();
@@ -72,7 +73,7 @@ it.each([
     }
   },
 );
-function task(key: string) {
+function task(key: string, text = "Explicit task") {
   process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {
     name: key,
@@ -83,7 +84,7 @@ function task(key: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Antigravity',0)",
   ).run(key, OWNER, agent.id);
-  const run = enqueue(OWNER, "Explicit task", key, {
+  const run = enqueue(OWNER, text, key, {
     conversation: key,
     agent: agent.id,
     payload: {
@@ -341,3 +342,54 @@ it.each(["cancel", "CANCELED", "INTERRUPTED", "WAITING"])(
     );
   },
 );
+
+it("steers a running turn by interrupting it and resuming the same conversation, without replaying the task", async () => {
+  const { run } = task("agy-steer", "[slow] Write an essay");
+  const claimed = claim(
+    "antigravity-fixture",
+    (candidate) => candidate.id === run.id,
+  )!;
+  const before = requests().filter((r) => r.event === "user").length;
+  const execution = sessions.execute(claimed);
+  await until(
+    () => requests().filter((r) => r.event === "user").length === before + 1,
+  );
+  // A reply to the running turn steers it rather than queueing.
+  expect(activeRun(OWNER, run.conversation_id!)?.liveInput).toBe(true);
+  const original = requests()
+    .filter((r) => r.args?.includes("stream-json"))
+    .at(-1);
+  saveSteering(
+    ownedRun(run.id, OWNER),
+    "agy-steer-key",
+    "agy-steer-request",
+    "Change course",
+    {},
+  );
+  expect(await execution).toMatchObject({ kind: "finished" });
+  // The interrupted turn did not end the run; the worker completes it.
+  expect(ownedRun(run.id, OWNER).state).toBe("running");
+  expect(
+    db.prepare("SELECT state FROM run_steering WHERE run_id=?").all(run.id),
+  ).toEqual([{ state: "delivered" }]);
+  const log = requests();
+  expect(log.filter((r) => r.event === "fixture-sigint")).toEqual([
+    { event: "fixture-sigint", running: true },
+  ]);
+  const launches = log.filter((r) => r.args?.includes("stream-json"));
+  const resumed = launches.at(-1);
+  expect(resumed.pid).not.toBe(original.pid);
+  expect(resumed.args[resumed.args.indexOf("--conversation") + 1]).toBe(
+    "agy-steer",
+  );
+  // The interrupted task is not sent again; only the follow-up is.
+  expect(
+    log
+      .filter((r) => r.event === "user")
+      .slice(before)
+      .map((r) => r.message.content),
+  ).toEqual([
+    "Saved fixture instructions\n\n[slow] Write an essay",
+    "Saved fixture instructions\n\nChange course",
+  ]);
+});

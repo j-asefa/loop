@@ -207,6 +207,12 @@ export class Native extends EventEmitter {
       ),
     );
   }
+  /** Signals the harness's owned process group, for example SIGINT to
+   * interrupt a turn. Returns false when the process has already closed. */
+  signal(signal: NodeJS.Signals) {
+    if (this.closed) return false;
+    return killOwned(this.child, signal);
+  }
   private fail(error: Error) {
     if (this.closed) return;
     if (

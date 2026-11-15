@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
 import type { Billing } from "../shared/protocol.js";
+import { NotDelivered } from "./types.js";
 import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { tokenCount } from "./usage.js";
@@ -14,6 +15,8 @@ const exec = promisify(execFile);
 const SETUP =
   "Antigravity setup failed. Choose Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
 
+// agy answers SIGINT with an interrupted result and exits within a second.
+const INTERRUPT_TIMEOUT = 10000;
 const COMMAND_NAME = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
 // agy 1.5.9 advertises its catalog about 1 s after launch.
 const CATALOG_TIMEOUT = 5000;
@@ -148,6 +151,8 @@ export class Antigravity implements Adapter {
     { input_tokens: number; output_tokens: number }
   >();
   private ready?: { resolve(): void; reject(error: Error): void };
+  private interruption?: { native: Native; exited(): void };
+  private writes = 0;
   private billing: Billing;
 
   get reusable() {
@@ -217,38 +222,7 @@ export class Antigravity implements Adapter {
         this.options.project,
         this.discovery.signal,
       ).then((commands) => (this.commands = commands));
-      this.native = new Native(
-        this.options.executable,
-        [
-          "--input-format",
-          "stream-json",
-          "--output-format",
-          "stream-json",
-          "--print-timeout",
-          "0",
-          ...(this.options.resume
-            ? ["--conversation", this.options.resume]
-            : []),
-          ...(this.options.model ? ["--model", this.options.model] : []),
-          ...(this.options.effort ? ["--effort", this.options.effort] : []),
-        ],
-        this.options.project,
-      );
-      const ready = new Promise<void>((resolve, reject) => {
-        this.ready = { resolve, reject };
-      });
-      this.native.on("message", (message) => this.message(message));
-      this.native.on("failure", (error) => this.fail(error));
-      const timeout = setTimeout(
-        () => this.ready?.reject(new Error(SETUP)),
-        20000,
-      );
-      try {
-        await ready;
-      } finally {
-        clearTimeout(timeout);
-        this.ready = undefined;
-      }
+      await this.launch();
       if (this.stopped) throw new Error(SETUP);
       // A catalog probe exists to read the catalog. A session starts without
       // it; the first prompt waits for it (see prompt).
@@ -269,6 +243,49 @@ export class Antigravity implements Adapter {
         `${SETUP} No prompt was sent.`,
       );
     }
+  }
+
+  /** Starts agy's stream session, resuming the known conversation if any, and
+   * waits for its init. Events from a replaced process are ignored. */
+  private async launch() {
+    if (this.stopped) throw new Error(SETUP);
+    const native = new Native(
+      this.options.executable,
+      [
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--print-timeout",
+        "0",
+        ...(this.session ? ["--conversation", this.session] : []),
+        ...(this.options.model ? ["--model", this.options.model] : []),
+        ...(this.options.effort ? ["--effort", this.options.effort] : []),
+      ],
+      this.options.project,
+    );
+    this.native = native;
+    const ready = new Promise<void>((resolve, reject) => {
+      this.ready = { resolve, reject };
+    });
+    native.on("message", (message) => {
+      if (this.native === native) this.message(message);
+    });
+    native.on("failure", (error) => {
+      if (this.interruption?.native === native) this.interruption.exited();
+      else if (this.native === native) this.fail(error);
+    });
+    const timeout = setTimeout(
+      () => this.ready?.reject(new Error(SETUP)),
+      20000,
+    );
+    try {
+      await ready;
+    } finally {
+      clearTimeout(timeout);
+      this.ready = undefined;
+    }
+    if (this.stopped) throw new Error(SETUP);
   }
 
   private fail(error?: unknown) {
@@ -304,6 +321,7 @@ export class Antigravity implements Adapter {
     this.replied = false;
     this.usage.clear();
     this.active = true;
+    this.writes++;
     try {
       await this.native.write({
         event: "user",
@@ -312,6 +330,64 @@ export class Antigravity implements Adapter {
     } catch (error) {
       this.fail();
       throw error;
+    }
+  }
+
+  /** agy's stream input has no mid-turn channel: a user message written
+   * during a turn runs as the next turn. Steering therefore interrupts the
+   * turn with SIGINT, which agy answers with an interrupted result before it
+   * exits, resumes the same conversation in a new process and sends the
+   * follow-up as its next turn. The interrupted turn's partial output is kept
+   * and nothing is replayed. Until the follow-up is written it is certainly
+   * undelivered (NotDelivered); if the session cannot continue, the run fails
+   * rather than waiting for a turn that will never finish.
+   */
+  async steer(text: string, beforeDispatch?: () => void) {
+    await this.catalog;
+    if (this.stopped || !this.native || !this.session)
+      throw new NotDelivered("Antigravity session is unavailable.");
+    if (!this.active || this.interruption)
+      throw new NotDelivered("No running Antigravity turn to steer.");
+    beforeDispatch?.();
+    const old = this.native;
+    const writes = this.writes;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.interruption = { native: old, exited: resolve };
+        timer = setTimeout(
+          () =>
+            reject(new Error("Antigravity did not confirm the interruption.")),
+          INTERRUPT_TIMEOUT,
+        );
+        if (!old.signal("SIGINT"))
+          reject(new Error("Antigravity stopped before it was interrupted."));
+      });
+      clearTimeout(timer);
+      this.interruption = undefined;
+      if (this.native === old) this.native = undefined;
+      await old.dispose();
+      this.active = false;
+      await this.launch();
+      await this.prompt(text, beforeDispatch);
+    } catch (error) {
+      clearTimeout(timer);
+      this.interruption = undefined;
+      if (!this.stopped) {
+        this.stopped = true;
+        this.active = false;
+        this.emit({
+          type: "status",
+          status: "failed",
+          detail:
+            "Antigravity stopped its current turn for a follow-up but could not continue the conversation. Review saved progress, then send the follow-up again; nothing was replayed.",
+        });
+        void this.dispose();
+      }
+      if (this.writes !== writes || error instanceof NotDelivered) throw error;
+      throw new NotDelivered(
+        error instanceof Error ? error.message : "Follow-up not delivered.",
+      );
     }
   }
 
@@ -423,6 +499,9 @@ export class Antigravity implements Adapter {
     const result = message.result;
     if (!result || result.conversation_id !== this.session) return;
     this.active = false;
+    // An interrupted (or just-finished) turn being replaced by a steer keeps
+    // its output and usage, but the run continues with the follow-up.
+    const steering = this.interruption !== undefined;
     if (typeof result.response === "string" && result.response)
       this.emit({
         type: "item",
@@ -430,7 +509,7 @@ export class Antigravity implements Adapter {
           id: this.responseId || `${this.turn}:response`,
           kind: "assistant",
           text: result.response,
-          ...(result.status === "SUCCESS"
+          ...(result.status === "SUCCESS" && !steering
             ? { phase: "final_answer" as const }
             : {}),
         },
@@ -448,6 +527,7 @@ export class Antigravity implements Adapter {
         this.emit({ type: "usage", usage });
     }
     this.usage.clear();
+    if (steering) return;
     if (
       result.status === "SUCCESS" &&
       !this.replied &&

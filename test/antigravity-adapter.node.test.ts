@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Antigravity } from "../src/adapters/antigravity.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
-import type { Options } from "../src/adapters/types.js";
+import { NotDelivered, type Options } from "../src/adapters/types.js";
 import { until } from "./helpers.js";
 
 const options: Options = {
@@ -427,5 +427,90 @@ test("Antigravity rejects subscription billing, failed authentication and a mism
     } finally {
       await adapter.dispose();
     }
+  }
+});
+
+test("Antigravity steering refuses without a running turn or when the guard refuses, before interrupting", async (t) => {
+  const requests = fixture(t);
+  const adapter = new Antigravity(options, () => {});
+  try {
+    await adapter.start();
+    await assert.rejects(adapter.steer("No turn"), NotDelivered);
+    await adapter.prompt("[slow] Long task");
+    await until(() => requests().some((r) => r.event === "user"));
+    await assert.rejects(
+      adapter.steer("Refused", () => {
+        throw new NotDelivered("authorization revoked");
+      }),
+      /authorization revoked/,
+    );
+    assert(!requests().some((r) => r.event === "fixture-sigint"));
+    assert(adapter.reusable);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity steering fails the session without sending the follow-up when agy does not confirm the interruption", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "ignore-sigint";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => requests().some((r) => r.event === "user"));
+    await assert.rejects(adapter.steer("Follow-up"), NotDelivered);
+    assert.deepEqual(
+      events
+        .filter((e) => e.type === "status")
+        .map((e) => e.type === "status" && e.status),
+      ["failed"],
+    );
+    assert.equal(requests().filter((r) => r.event === "user").length, 1);
+    assert(!adapter.reusable);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity steering ends the run when the guard refuses after the turn was interrupted", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    { ...options, instructions: "Saved instructions" },
+    (e) => events.push(e),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => requests().some((r) => r.event === "user"));
+    let checks = 0;
+    await assert.rejects(
+      adapter.steer("Follow-up", () => {
+        if (++checks > 1) throw new NotDelivered("generation changed");
+      }),
+      NotDelivered,
+    );
+    // The interrupted turn's partial output is kept, without a final answer.
+    assert(
+      events.some(
+        (e) =>
+          e.type === "item" &&
+          e.item.kind === "assistant" &&
+          e.item.text === "Partial essay" &&
+          !("phase" in e.item),
+      ),
+    );
+    assert.deepEqual(
+      events
+        .filter((e) => e.type === "status")
+        .map((e) => e.type === "status" && e.status),
+      ["failed"],
+    );
+    assert.equal(requests().filter((r) => r.event === "user").length, 1);
+    assert.equal(sessions(requests).length, 2);
+  } finally {
+    await adapter.dispose();
   }
 });

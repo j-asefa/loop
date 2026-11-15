@@ -223,7 +223,7 @@ const descriptors = {
     managed: false,
     workspaceTools: false,
     agentMail: false,
-    midTurn: "queue",
+    midTurn: "steer",
     provider: "antigravity",
     activityTransport: "native",
     launchPermissionMode: false,

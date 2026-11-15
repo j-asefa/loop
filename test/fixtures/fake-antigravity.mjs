@@ -118,6 +118,25 @@ if (args[0] === "acp") {
     },
   });
   let count = 0;
+  // agy answers SIGINT during a turn with an interrupted result carrying the
+  // partial response, then exits; ignore-sigint never confirms.
+  let running = false;
+  process.on("SIGINT", () => {
+    log({ event: "fixture-sigint", running });
+    if (mode === "ignore-sigint") return;
+    if (running)
+      send({
+        event: "result",
+        result: {
+          conversation_id: conversation,
+          status: "ERROR",
+          response: "Partial essay",
+          error: "interrupted",
+          finished_reason: "interrupted",
+        },
+      });
+    process.exit(1);
+  });
   createInterface({ input: process.stdin }).on("line", (line) => {
     const message = JSON.parse(line);
     log(message);
@@ -133,6 +152,18 @@ if (args[0] === "acp") {
         event: "step_update",
         step_update: { conversation_id: conversation, ...body },
       });
+    if (message.message.content.includes("[slow]")) {
+      // A long turn that only SIGINT ends.
+      running = true;
+      step({
+        step_index: count * 3,
+        step_type: "agent_response",
+        state: "ACTIVE",
+        text_delta: "Partial essay",
+      });
+      setInterval(() => {}, 1000);
+      return;
+    }
     if (mode === "soft-denied") {
       // Print mode soft-denies a tool needing approval, then reports SUCCESS
       // with an empty response; its explanation goes only to stderr.
