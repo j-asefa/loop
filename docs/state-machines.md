@@ -37,6 +37,22 @@ row and applies the edge, checkout hook and event in one immediate transaction
 and reclaiming running/pausing work) and guarded `deferUndispatched`
 (`running → queued`); both remain lease operations in `sql/runs.ts`.
 
+Executor boundaries are classified by [run-outcome.ts](../src/server/run-outcome.ts)
+from one owner-scoped stored-state read. Managed agents, imports, manual MCP
+calls and native dispatch return typed outcomes to [the worker](../src/server/worker.ts).
+The worker applies pause edges and lease-checked completion; waiting, cancelled
+and already-moved outcomes do not add a transition. Existing boundary timing is
+preserved: the managed post-stream check handles cancellation before finalizing,
+and manual MCP finishes its in-flight call before handling a requested pause.
+Native failure/interruption remains owned by its supervisor.
+
+Partial output stays executor-owned. Two synchronous outcome callbacks preserve
+existing atomicity: import pause/cancel bookkeeping shares its transaction with
+the worker's pause operation, and delegation lease release shares its transaction
+with pause or waiting-children publication. The executor defines those writes;
+the worker supplies the transition. A refused pause still yields to a concurrent
+terminal outcome. No uncertain dispatch is replayed by outcome application.
+
 States: `queued`, `running`, `pausing`, `paused`, `awaiting_approval`,
 `interrupted`, **`completed`**, **`failed`**, **`cancelled`**.
 

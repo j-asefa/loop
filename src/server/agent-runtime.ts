@@ -1,3 +1,8 @@
+import {
+  runBoundary,
+  pendingToolOutcome,
+  type RunOutcome,
+} from "./run-outcome.js";
 import { writeMessageMetadata } from "../shared/message-metadata.js";
 import { writeArtifactMetadata } from "../shared/artifact-metadata.js";
 import * as teamsQueries from "./sql/teams.js";
@@ -36,14 +41,13 @@ import {
 } from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
-import { enqueue, type Run, transition } from "./queue.js";
+import { enqueue, type Run } from "./queue.js";
 import {
   ownedConversation,
   ownedFolder,
   ownedConnection,
   ownedAgent,
   ownedTeam,
-  ownedRun,
   Problem,
 } from "./domain.js";
 import { streamConnection, isSubscription } from "./subscriptions.js";
@@ -439,7 +443,7 @@ function apiCapabilities(run: Run) {
     },
   );
 }
-export async function executeAgent(run: Run): Promise<boolean> {
+export async function executeAgent(run: Run): Promise<RunOutcome> {
   assertEffect(run.owner_id, "run", run.id);
   // Recheck after claim, before any checkpoint or native dispatch. A temporary
   // disconnection must not consume the durable review continuation.
@@ -545,7 +549,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   let history = JSON.parse(cp.history) as ChatMessage[],
     output = cp.output as string,
     round = cp.round as number;
-  if (cp.stage === "done") return true;
+  if (cp.stage === "done") return { kind: "finished" };
   apiSessionActivities(run, snapshot);
   const steering = new SteeringInbox(
     run,
@@ -618,16 +622,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
     ).length;
     for (;;) {
       signal.throwIfAborted();
-      const boundary = runsQueries.state(db, run.id)!.state;
-      if (boundary === "cancelled") {
+      const boundary = runBoundary(run);
+      if (boundary.kind !== "continue") {
         persist(true);
-        return false;
-      }
-      if (boundary === "pausing") {
-        persist(true);
-        // A concurrent stop may refuse this pause; execution stops either way.
-        transition(run, "paused");
-        return false;
+        return boundary;
       }
       let pending = JSON.parse(cp.pending) as {
         call: ToolCall;
@@ -639,12 +637,10 @@ export async function executeAgent(run: Run): Promise<boolean> {
           if (invocation.done) continue;
           // A pause can arrive while the previous call is in flight. Preserve
           // its checkpoint and stop before creating another approval/effect.
-          const boundary = runsQueries.state(db, run.id)!.state;
-          if (boundary === "cancelled" || boundary === "pausing") {
+          const boundary = runBoundary(run);
+          if (boundary.kind !== "continue") {
             persist(true);
-            // A concurrent terminal outcome wins if the pause is refused.
-            if (boundary === "pausing") transition(run, "paused");
-            return false;
+            return boundary;
           }
           assertEffect(run.owner_id, "run", run.id);
           const traceKey = "tool:" + invocation.call.id;
@@ -718,17 +714,29 @@ export async function executeAgent(run: Run): Promise<boolean> {
               ) &&
               invocation.binding.connectionId === "__loop__"
             ) {
-              db.transaction(() => {
-                const state = ownedRun(run.id, run.owner_id).state;
-                if (state === "running" || state === "pausing") {
-                  runsQueries.releaseForChildren(db, now(), run.id);
-                  // State was read in this transaction; pausing → paused is legal.
-                  if (state === "pausing") transition(run, "paused");
-                  else emit(run.owner_id, run.id, "waiting_children", {});
-                }
-              }).immediate();
+              return {
+                kind: "atomic",
+                reason: "delegation-wait",
+                settle: (apply) => {
+                  db.transaction(() => {
+                    const boundary = runBoundary(run);
+                    if (
+                      boundary.kind === "paused" ||
+                      (boundary.kind === "continue" &&
+                        boundary.state === "running")
+                    ) {
+                      runsQueries.releaseForChildren(db, now(), run.id);
+                      if (boundary.kind === "paused") apply(boundary);
+                      else {
+                        emit(run.owner_id, run.id, "waiting_children", {});
+                        apply({ kind: "waiting", reason: "children" });
+                      }
+                    }
+                  }).immediate();
+                },
+              };
             }
-            return false;
+            return pendingToolOutcome(run);
           }
           recordTrace(run, traceKey, {
             ...trace,
@@ -804,18 +812,12 @@ export async function executeAgent(run: Run): Promise<boolean> {
         cp.pending = "[]";
         agentCheckpointsQueries.modelStage(db, run.id);
       }
-      const state = runsQueries.state(db, run.id)!.state;
-      if (state === "cancelled") {
+      const providerBoundary = runBoundary(run);
+      if (providerBoundary.kind !== "continue") {
         persist(true);
-        return false;
-      }
-      if (state === "pausing") {
-        persist(true);
-        // A concurrent stop may refuse this pause; execution stops either way.
-        transition(run, "paused", {
-          message: "Paused at a provider/tool boundary.",
-        });
-        return false;
+        return providerBoundary.kind === "paused"
+          ? { kind: "paused", message: "Paused at a provider/tool boundary." }
+          : providerBoundary;
       }
       const currentConnection = ownedConnection(
         snapshot.connectionId,
@@ -960,9 +962,9 @@ export async function executeAgent(run: Run): Promise<boolean> {
         continue;
       }
       signal.throwIfAborted();
-      if (ownedRun(run.id, run.owner_id).state === "cancelled") {
+      if (runBoundary(run).kind === "cancelled") {
         persist(true);
-        return false;
+        return { kind: "cancelled" };
       }
       if (paused && !calls.length) {
         if (++pauses > 8)
@@ -1024,20 +1026,18 @@ export async function executeAgent(run: Run): Promise<boolean> {
           })
           .immediate();
         if (continuing) continue;
-        const current = runsQueries.state(db, run.id)!.state;
-        if (current === "pausing") {
-          // A concurrent stop may refuse this pause; execution stops either way.
-          transition(run, "paused", {
+        if (runBoundary(run).kind === "paused") {
+          return {
+            kind: "paused",
             message:
               "Response completed and saved. Resume to mark this run complete.",
-          });
-          return false;
+          };
         }
         if (publicMessage)
           emit(run.owner_id, run.id, "message.completed", {
             messageId: publicMessage.id,
           });
-        return true;
+        return { kind: "finished" };
       }
       pending = calls.map((call) => {
         const binding = bindings.find((b) => b.name === call.name);
@@ -1067,8 +1067,7 @@ export async function executeAgent(run: Run): Promise<boolean> {
   } catch (error) {
     persist(true);
     if (signal.aborted) {
-      const current = ownedRun(run.id, run.owner_id);
-      if (current.state === "cancelled") return false;
+      if (runBoundary(run).kind === "cancelled") return { kind: "cancelled" };
       if (signal.reason instanceof Problem) throw signal.reason;
       throw new Problem(
         408,

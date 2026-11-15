@@ -141,7 +141,7 @@ it.each(["openai", "anthropic"] as const)(
     try {
       const claimed = claim("reply-worker")!;
       expect(claimed.id).toBe(accepted.data.id);
-      expect(await executeAgent(claimed)).toBe(true);
+      expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
       transition(claimed, "completed");
       expect(received).toContain("@" + agent.name);
       expect(received).toContain("> I am separating the session tables.");
@@ -156,7 +156,7 @@ it.each(["openai", "anthropic"] as const)(
       });
       const next = claim("reply-worker")!;
       expect(next.id).toBe(followup.id);
-      expect(await executeAgent(next)).toBe(true);
+      expect(await executeAgent(next)).toMatchObject({ kind: "finished" });
       transition(next, "completed");
       expect(
         history
@@ -321,7 +321,9 @@ it("supports saved final messages and carries their quote into native harness pr
   sessions.set(claimed.conversation_id!, live);
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
-    expect(await nativeSessions.execute(claimed)).toBe(true);
+    expect(await nativeSessions.execute(claimed)).toMatchObject({
+      kind: "finished",
+    });
     expect(prompt).toContain("> The migration is ready.");
     expect(prompt).toContain("Explain the compatibility risk");
     transition(claimed, "completed");

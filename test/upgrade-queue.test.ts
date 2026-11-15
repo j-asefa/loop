@@ -46,6 +46,7 @@ it("leaves held prompts queued while an unrelated runtime progresses, then execu
     const seen: string[] = [];
     await tick(async (run) => {
       seen.push(run.id);
+      return { kind: "finished" };
     });
     expect(seen).toEqual([unrelated.id]);
     expect(outcome(queued)).toMatchObject({
@@ -61,6 +62,7 @@ it("leaves held prompts queued while an unrelated runtime progresses, then execu
     release();
     await tick(async (run) => {
       seen.push(run.id);
+      return { kind: "finished" };
     });
     expect(seen).toEqual([unrelated.id, queued.id]);
     expect(outcome(queued)).toMatchObject({ state: "completed" });
@@ -94,7 +96,7 @@ it("returns a run claimed immediately before maintenance to the queue without fa
     error: null,
     idempotency_key: "race",
   });
-  await tick(async () => {});
+  await tick(async () => ({ kind: "finished" }));
   expect(outcome(queued)).toMatchObject({ state: "completed" });
 });
 
@@ -141,6 +143,7 @@ it.each(["credential change", "provider sign-in"])(
     }
     await tick(async (run) => {
       expect(run.id).toBe(queued.id);
+      return { kind: "finished" };
     });
     expect(outcome(queued)).toMatchObject({ state: "completed" });
   },
@@ -177,7 +180,7 @@ it("defers a claimed run before the disconnected-provider check during a credent
     error: null,
     idempotency_key: "provider-race",
   });
-  await tick(async () => {});
+  await tick(async () => ({ kind: "finished" }));
   expect(outcome(queued)).toMatchObject({ state: "completed" });
 });
 

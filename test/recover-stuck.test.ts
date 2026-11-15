@@ -112,7 +112,7 @@ it("a crashed run's executing tool call becomes unknown once it is recovered (S1
   const calls = executingCall(run);
   expect(execState("tool_invocations", calls.invocationId)).toBe("executing");
 
-  await tick(async () => undefined);
+  await tick(async () => ({ kind: "finished" }));
 
   expect(stateOf(run)).toBe("interrupted");
   expect(execState("approvals", calls.approvalId)).toBe("unknown");

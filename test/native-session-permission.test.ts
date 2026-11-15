@@ -409,7 +409,7 @@ it("accepts setting changes once an interrupted turn has ended", async () => {
     const turn = sessions.execute(task);
     await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
     await sessions.interrupt(task.id);
-    await expect(turn).resolves.toBe(false);
+    await expect(turn).resolves.not.toMatchObject({ kind: "finished" });
     expect(live.run).toBeUndefined();
     await sessions.setSetting(
       "after-interrupt",
@@ -477,7 +477,9 @@ it("keeps the first terminal status of a native turn", async () => {
       });
     });
   try {
-    await expect(sessions.execute(task)).resolves.toBe(true);
+    await expect(sessions.execute(task)).resolves.toMatchObject({
+      kind: "finished",
+    });
     expect(
       db
         .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
@@ -505,7 +507,9 @@ it("records a cancelled-before-dispatch turn as interrupted, not unknown outcome
       before?.(); // beforeDispatch throws NotDelivered
     });
   try {
-    await expect(sessions.execute(task)).resolves.toBe(false);
+    await expect(sessions.execute(task)).resolves.not.toMatchObject({
+      kind: "finished",
+    });
     expect(prompt).toHaveBeenCalled();
     // The dispatch row is settled to a terminal state (guarded setState).
     expect(
@@ -581,7 +585,9 @@ it.each(["ordinary", "oversized", "full"])(
     try {
       // The turn still completes: the ignored re-emit never moved the run back
       // to awaiting_approval with nothing to answer.
-      await expect(sessions.execute(task)).resolves.toBe(true);
+      await expect(sessions.execute(task)).resolves.toMatchObject({
+        kind: "finished",
+      });
       expect(
         (db.prepare("SELECT state FROM runs WHERE id=?").get(task.id) as any)
           .state,
@@ -636,7 +642,9 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
   try {
     // The harness completed, but Loop cannot certify its reply was saved.
     // It must stop waiting without reporting success or submitting again.
-    await expect(sessions.execute(task)).resolves.toBe(false);
+    await expect(sessions.execute(task)).resolves.not.toMatchObject({
+      kind: "finished",
+    });
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(live.requests.size).toBe(0);
     expect(live.waiting).toBe(false);

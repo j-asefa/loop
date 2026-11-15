@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -331,23 +332,73 @@ it("notifies import history when the production worker fails reading an export",
 it.each(["pausing", "cancelled"] as const)(
   "notifies history when import execution observes %s",
   async (state) => {
-    const owner = "import-" + state,
-      job = await stageImport(
+    const { tick, execute } = await import("../src/server/worker");
+    const summaries = await import("../src/server/sql/imports");
+    const setSummary = summaries.setSummary;
+    const [source] = JSON.parse(
+      readFileSync("test/fixtures/chatgpt-export.json", "utf8"),
+    );
+    for (const stopAfter of state === "pausing" ? [1, 2] : [1]) {
+      const owner = "import-" + state + "-" + stopAfter;
+      const job = await stageImport(
         owner,
-        readFileSync("test/fixtures/chatgpt-export.zip"),
-        "export.zip",
+        Buffer.from(
+          JSON.stringify([
+            { ...source, id: source.id + "-first" },
+            { ...source, id: source.id + "-second" },
+          ]),
+        ),
+        "export.json",
       );
-    enqueue(owner, "Import status", id(), {
-      kind: "import",
-      payload: { importId: job.id },
-    });
-    const run = claim("fixture-" + state)!;
-    transition(run, state);
-    expect(await executeImport(run)).toBe(false);
-    expect(
-      db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
-    ).toEqual({ status: state === "pausing" ? "paused" : "cancelled" });
-    expect(importSignals(owner).length).toBeGreaterThanOrEqual(4);
+      const run = enqueue(owner, "Import status", id(), {
+        kind: "import",
+        payload: { importId: job.id },
+      });
+      let requested = false;
+      const spy = vi
+        .spyOn(summaries, "setSummary")
+        .mockImplementation((connection, value, target) => {
+          const result = setSummary(connection, value, target);
+          if (
+            !requested &&
+            target === job.id &&
+            JSON.parse(value!).completed === stopAfter
+          ) {
+            requested = true;
+            expect(transition(run, state)).toBe(true);
+          }
+          return result;
+        });
+      try {
+        expect(await tick(execute)).toBe(true);
+        expect(requested).toBe(true);
+        const expected =
+          stopAfter === 2
+            ? "completed"
+            : state === "pausing"
+              ? "paused"
+              : "cancelled";
+        expect(
+          db.prepare("SELECT state FROM runs WHERE id=?").get(run.id),
+        ).toEqual({ state: expected });
+        expect(
+          db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
+        ).toEqual({ status: expected });
+        expect(
+          db
+            .prepare("SELECT count(*) n FROM conversations WHERE owner_id=?")
+            .get(owner),
+        ).toEqual({ n: stopAfter });
+        expect(
+          db
+            .prepare("SELECT count(*) n FROM messages WHERE owner_id=?")
+            .get(owner),
+        ).toEqual({ n: stopAfter * 3 });
+        expect(importSignals(owner).length).toBeGreaterThanOrEqual(4);
+      } finally {
+        spy.mockRestore();
+      }
+    }
   },
 );
 
@@ -365,20 +416,27 @@ it("does not mark an import paused when cancellation wins the run transition", a
   const run = claim("pause-race", (candidate) => candidate.id === queued.id)!;
   expect(transition(run, "pausing")).toBe(true);
   const queries = await import("../src/server/sql/runs");
-  const state = queries.state;
-  const spy = vi.spyOn(queries, "state").mockImplementation((db, target) => {
-    const observed = state(db, target);
-    if (target === run.id && observed?.state === "pausing") {
-      expect(transition(run, "cancelled")).toBe(true);
-    }
-    return observed;
-  });
+  const state = queries.ownedState;
+  let cancelled = false;
+  const spy = vi
+    .spyOn(queries, "ownedState")
+    .mockImplementation((db, target, owner) => {
+      const observed = state(db, target, owner);
+      if (!cancelled && target === run.id && observed?.state === "pausing") {
+        cancelled = true;
+        expect(transition(run, "cancelled")).toBe(true);
+      }
+      return observed;
+    });
   try {
-    expect(await executeImport(run)).toBe(false);
+    expect(await settleRun(executeImport, run)).toMatchObject({
+      kind: "atomic",
+      reason: "import-pause",
+    });
     expect(
       db.prepare("SELECT status FROM imports WHERE id=?").get(job.id),
     ).toEqual({ status: "cancelled" });
-    expect(state(db, run.id)).toEqual({ state: "cancelled" });
+    expect(state(db, run.id, run.owner_id)).toEqual({ state: "cancelled" });
   } finally {
     spy.mockRestore();
   }

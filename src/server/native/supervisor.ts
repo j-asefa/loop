@@ -1,3 +1,4 @@
+import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
 import { harnesses } from "../../shared/harnesses.js";
 import * as nativeDecisionsQueries from "../sql/native-decisions.js";
@@ -618,7 +619,7 @@ export class NativeSessions {
       releaseStart();
     }
   }
-  async execute(run: Run) {
+  async execute(run: Run): Promise<RunOutcome> {
     assertEffect(run.owner_id, "run", run.id);
     // The run is already claimed, so an upgrade that holds this harness
     // afterwards sees it as active; one that held it first is refused here.
@@ -644,7 +645,8 @@ export class NativeSessions {
     assertEffect(run.owner_id, "run", run.id);
     if (live.run)
       throw new Problem(409, "This native conversation is already running.");
-    if (ownedRun(run.id, run.owner_id).state !== "running") return false;
+    if (ownedRun(run.id, run.owner_id).state !== "running")
+      return { kind: "already-moved", reason: "native-not-running" };
     live.items.clear();
     live.requests.clear();
     // A settings request may have re-armed the idle timer after session()
@@ -787,24 +789,34 @@ export class NativeSessions {
         );
       });
       const state = await complete;
-      const current = ownedRun(run.id, run.owner_id).state;
-      if (current === "cancelled") {
+      const boundary = runBoundary(run);
+      if (boundary.kind === "cancelled") {
         recaptureAfterStop(run);
-        return false;
+        return boundary;
       }
       if (state === "completed") {
-        if (current === "awaiting_approval" && !transition(run, "running"))
+        if (
+          boundary.kind === "continue" &&
+          boundary.state === "awaiting_approval" &&
+          !transition(run, "running")
+        )
           // An owner may have resumed it since the read above. Completion is
           // still valid then; a concurrent terminal outcome must win instead.
-          return ownedRun(run.id, run.owner_id).state === "running";
-        return true;
+          return ownedRun(run.id, run.owner_id).state === "running"
+            ? { kind: "finished" }
+            : { kind: "already-moved", reason: "native-terminal-race" };
+        return { kind: "finished" };
       }
       // A concurrent terminal outcome wins; still dispose/recapture below.
       transition(run, state === "interrupted" ? "interrupted" : "failed");
       // An interrupt that timed out resolved before disposal finished; the
       // process may still write until it is terminated.
       recaptureAfterStop(run);
-      return false;
+      return {
+        kind: "already-moved",
+        reason:
+          state === "interrupted" ? "native-interrupted" : "native-failed",
+      };
     } catch (error) {
       this.projector.projectOutput(live, true);
       if (error instanceof NotDelivered) {
@@ -845,7 +857,13 @@ export class NativeSessions {
       transition(run, "interrupted");
       await this.dispose(live);
       recaptureAfterStop(run);
-      return false;
+      return {
+        kind: "already-moved",
+        reason:
+          error instanceof NotDelivered
+            ? "native-not-delivered"
+            : "native-uncertain",
+      };
     } finally {
       await stopSteering?.();
       watched.signal.removeEventListener("abort", stop);

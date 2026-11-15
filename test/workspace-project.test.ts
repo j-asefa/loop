@@ -291,7 +291,7 @@ it("executes ordinary prompts without a brief and rejects retired tool receipts"
     },
   });
   try {
-    expect(await executeAgent(run)).toBe(true);
+    expect(await executeAgent(run)).toMatchObject({ kind: "finished" });
     expect(prompts).toEqual(["Only the original request"]);
   } finally {
     restore();
