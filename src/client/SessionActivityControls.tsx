@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import {
   NativeGenerationId,
   SessionSettingId,
@@ -232,7 +233,7 @@ export function SessionActivityControls({
       );
       if (current()) {
         setData(next);
-        window.dispatchEvent(new Event("loop-workspace-change"));
+        emitClientEvent("loop-workspace-change", undefined);
       }
     } catch (e) {
       if (current()) {
