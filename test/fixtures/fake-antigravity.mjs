@@ -21,6 +21,7 @@ if (args[0] === "--version") {
   process.exit(0);
 }
 if (args[0] === "models") {
+  if (mode === "slow-models") await new Promise((r) => setTimeout(r, 500));
   if (mode === "auth-failure" || mode === "signed-out") {
     if (mode === "signed-out")
       console.error(
@@ -179,14 +180,33 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const text = req.params.prompt[0].text;
       if (open.length) {
         // A prompt during a running turn steers it.
-        if (mode === "reject-steer" || mode === "late-echo-reject-steer") {
+        if (mode === "end-then-reject-steer") {
+          // The original turn ends normally, then agy rejects the steer
+          // without taking it.
+          for (const request of open.splice(0))
+            reply(request.id, { stopReason: "end_turn", usage: usage(10, 2) });
+          setTimeout(
+            () =>
+              send({
+                id: req.id,
+                error: { code: -32603, message: "private-credential-fixture" },
+              }),
+            100,
+          );
+          return;
+        }
+        if (
+          mode === "reject-steer" ||
+          mode === "late-echo-reject-steer" ||
+          mode === "split-echo-reject-steer"
+        ) {
           const reject = () =>
             send({
               id: req.id,
               error: { code: -32603, message: "private-credential-fixture" },
             });
           // The late variant rejects only after the prompt's echo arrived.
-          if (mode === "late-echo-reject-steer") setTimeout(reject, 600);
+          if (mode !== "reject-steer") setTimeout(reject, 600);
           else reject();
           return;
         }
@@ -214,7 +234,22 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         });
       // The prompt's echo can trail a steer that was sent right after it.
       if (mode === "late-echo-reject-steer") setTimeout(echo, 300);
-      else echo();
+      else if (mode === "split-echo-reject-steer") {
+        // agy may split an echo; its last chunk trails a steer.
+        const words = echoText(text).split(" ");
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: words.slice(0, -1).join(" ") + " " },
+        });
+        setTimeout(
+          () =>
+            update(sessionId, {
+              sessionUpdate: "user_message_chunk",
+              content: { type: "text", text: words.at(-1) },
+            }),
+          300,
+        );
+      } else echo();
       if (outcome() === "hang") return;
       if (text.includes("[slow]")) {
         update(sessionId, {

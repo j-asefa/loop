@@ -142,26 +142,41 @@ export class Antigravity extends Acp {
   }
 
   /** agy folds the follow-up into the running turn at its next step and
-   * echoes it as a user message, without the leading command of a skill. */
+   * echoes it as a user message. */
   async steer(text: string, beforeDispatch?: () => void) {
+    const value = this.literal(text);
+    await this.steerPrompt(value, this.echoOf(value), beforeDispatch);
+  }
+
+  /** agy echoes a prompt without the leading command of a skill. */
+  protected override echoOf(value: string) {
+    const name = this.command(value);
+    return name ? value.slice(name.length + 1) : value;
+  }
+
+  private command(text: string) {
     const name = text.match(COMMAND)?.[1];
-    const echo =
-      name && this.commands.some((command) => command.name === name)
-        ? text.slice(name.length + 1)
-        : text;
-    await this.steerPrompt(text, echo, beforeDispatch);
+    return name && this.commands.some((command) => command.name === name)
+      ? name
+      : undefined;
+  }
+
+  /** Only a discovered command may lead a message. Other text starting with
+   * "/" gets a zero-width space, which agy does not expand, so neither an
+   * unknown token nor one of agy's own CLI commands can act on it. */
+  private literal(text: string, commands = true) {
+    return !(commands && this.command(text)) && text.trimStart().startsWith("/")
+      ? `\u200b${text}`
+      : text;
   }
 
   /** agy expands a command or skill only at the start of a message. Saved
-   * instructions lead other prompts and follow a discovered command. Leading
-   * instructions that start with "/" get a zero-width space so agy does not
-   * expand them as a command. */
+   * instructions lead other prompts and follow a discovered command. */
   private content(text: string) {
     const instructions = this.agyOptions.instructions;
-    if (!instructions) return text;
-    const name = text.match(COMMAND)?.[1];
-    if (name && this.commands.some((command) => command.name === name))
-      return `${text}\n\n${instructions}`;
-    return `${instructions.trimStart().startsWith("/") ? "\u200b" : ""}${instructions}\n\n${text}`;
+    if (!instructions) return this.literal(text);
+    return this.command(text)
+      ? `${text}\n\n${instructions}`
+      : `${this.literal(instructions, false)}\n\n${text}`;
   }
 }

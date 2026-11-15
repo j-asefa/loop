@@ -57,6 +57,17 @@ const SETTING_FAILURE =
   "ACP agent rejected the setting. Check the agent's local login and logs, then refresh settings and retry.";
 class SafeAcpError extends Error {}
 const compact = (value: string) => value.replace(/\s+/g, "");
+type Echo = { expected: string; seen: string; resolve(): void };
+/** Chunks of one message arrive in order. A chunk that cannot extend the
+ * expected text starts another message. Returns whether it is complete. */
+function matchEcho(echo: Echo, chunk: string) {
+  echo.seen = echo.expected.startsWith(echo.seen + chunk)
+    ? echo.seen + chunk
+    : echo.expected.startsWith(chunk)
+      ? chunk
+      : "";
+  return echo.seen === echo.expected;
+}
 // agy echoes a prompt within a second of receiving it.
 const ECHO_WAIT = 5000;
 const wait = (ms: number) =>
@@ -126,12 +137,16 @@ export class Acp implements Adapter {
    * ends only when the last open request settles. */
   private openPrompts = 0;
   private turnUsage?: { input_tokens: number; output_tokens: number };
-  private echo?: { expected: string; seen: string; resolve(): void };
-  /** Settles when the agent echoes the turn's own prompt, so that echo can
-   * never be taken for a steering input's. */
+  private echo?: Echo;
+  /** Settles when the agent has echoed the turn's whole prompt, so no part
+   * of that echo can be taken for a steering input's. */
   private promptEchoed: Promise<void> = Promise.resolve();
-  private promptEcho?: () => void;
+  private promptEcho?: Echo;
   private steering = false;
+  /** The steering input's echo arrived, so it joined the running turn. */
+  private steerJoined = false;
+  /** An earlier request of this turn ended it normally. */
+  private earlierEnd = false;
   private advertised!: () => void;
   private end!: () => void;
   /** Settles when the agent process exits or the session is disposed. */
@@ -185,6 +200,8 @@ export class Acp implements Adapter {
   ) {}
 
   async start(): Promise<Billing> {
+    // A session disposed before it started never spawns its process.
+    if (this.closed) throw new Error("ACP session closed before it started");
     const child = spawnHarnessProcess(
       this.options.executable,
       this.options.args || [],
@@ -432,14 +449,23 @@ export class Acp implements Adapter {
     this.terminalReported = false;
     this.messageId = randomUUID();
     this.turnUsage = undefined;
-    this.promptEchoed = new Promise((resolve) => {
-      this.promptEcho = resolve;
-    });
+    this.earlierEnd = false;
+    const expected = compact(this.echoOf(value));
+    this.promptEcho = undefined;
+    this.promptEchoed = expected
+      ? new Promise((resolve) => {
+          this.promptEcho = { expected, seen: "", resolve };
+        })
+      : Promise.resolve();
     void this.send(value).catch(() => {});
+  }
+  /** The text the agent echoes as a user message for a prompt. */
+  protected echoOf(value: string) {
+    return value;
   }
   /** Sends one prompt request in the current turn. Only the last open request
    * to settle reports the turn's terminal status. */
-  private send(value: string) {
+  private send(value: string, steer = false) {
     this.openPrompts++;
     const request = this.connection!.prompt({
       sessionId: this.session!,
@@ -450,6 +476,7 @@ export class Acp implements Adapter {
         (result) => {
           const last = --this.openPrompts === 0;
           this.addUsage(result);
+          if (!last && result.stopReason === "end_turn") this.earlierEnd = true;
           if (!last || this.closed || this.terminalReported) return;
           this.terminalReported = true;
           const limited = ["max_tokens", "max_turn_requests"].includes(
@@ -474,6 +501,16 @@ export class Acp implements Adapter {
           const last = --this.openPrompts === 0;
           if (!last || this.closed || this.terminalReported) return;
           this.terminalReported = true;
+          // A rejected steering input that never joined the turn does not
+          // undo the turn's own normal end.
+          if (steer && !this.steerJoined && this.earlierEnd) {
+            this.emit({
+              type: "status",
+              status: "completed",
+              recoverable: true,
+            });
+            return;
+          }
           this.emit({
             type: "status",
             status: "failed",
@@ -570,10 +607,19 @@ export class Acp implements Adapter {
     if (this.pendingSettingWrites)
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
+    this.steerJoined = false;
     const echoed = new Promise<void>((resolve) => {
-      if (expected) this.echo = { expected, seen: "", resolve };
+      if (expected)
+        this.echo = {
+          expected,
+          seen: "",
+          resolve: () => {
+            this.steerJoined = true;
+            resolve();
+          },
+        };
     });
-    const settled = this.send(value).then((result) => {
+    const settled = this.send(value, true).then((result) => {
       if (result.stopReason === "cancelled")
         throw new Error(
           "The turn was cancelled before steering was confirmed.",
@@ -932,23 +978,24 @@ export class Acp implements Adapter {
     )
       return;
     if (u.sessionUpdate === "user_message_chunk") {
-      const echo = this.echo;
-      if (!echo) this.promptEcho?.();
-      if (echo && !this.loading && u.content.type === "text") {
-        // Chunks of one message arrive in order. A chunk that cannot extend
-        // the expected text starts another message.
-        const chunk = compact(u.content.text);
-        echo.seen = echo.expected.startsWith(echo.seen + chunk)
-          ? echo.seen + chunk
-          : echo.expected.startsWith(chunk)
-            ? chunk
-            : "";
-        if (echo.seen === echo.expected) {
-          // The agent took the steering input; its answer is a new message.
-          this.echo = undefined;
-          this.messageId = randomUUID();
-          echo.resolve();
+      if (this.loading || u.content.type !== "text") return;
+      const chunk = compact(u.content.text);
+      // The turn's own prompt echo is consumed first and never confirms a
+      // steering input.
+      const prompt = this.promptEcho;
+      if (prompt) {
+        if (matchEcho(prompt, chunk)) {
+          this.promptEcho = undefined;
+          prompt.resolve();
         }
+        if (prompt.seen) return;
+      }
+      const echo = this.echo;
+      if (echo && matchEcho(echo, chunk)) {
+        // The agent took the steering input; its answer is a new message.
+        this.echo = undefined;
+        this.messageId = randomUUID();
+        echo.resolve();
       }
       return;
     }

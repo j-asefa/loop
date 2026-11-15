@@ -424,3 +424,82 @@ test("Antigravity fails setup without a prompt when agy never applies the thinki
     await adapter.dispose();
   }
 });
+
+test("Antigravity waits for the whole prompt echo before steering, so a split echo never confirms it", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "split-echo-reject-steer";
+  const adapter = new Antigravity(options, () => {});
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Say yes");
+    // agy echoes "[slow] Say " now and "yes" 300 ms later, then rejects.
+    await assert.rejects(adapter.steer("yes"), (error) => {
+      assert(!(error instanceof NotDelivered));
+      return true;
+    });
+    assert.deepEqual(prompts(requests), ["[slow] Say yes", "yes"]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity reports the turn completed when agy ends it and then rejects a steer it never took", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "end-then-reject-steer";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => events.some((e) => e.type === "delta"));
+    await assert.rejects(adapter.steer("Follow-up"), (error) => {
+      assert(!(error instanceof NotDelivered));
+      return true;
+    });
+    await until(() => statuses(events).length === 2);
+    assert.deepEqual(statuses(events), ["ready", "completed"]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity disposed during its sign-in check never starts agy acp", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "slow-models";
+  const adapter = new Antigravity(options, () => {});
+  const start = adapter.start();
+  start.catch(() => {});
+  await adapter.dispose();
+  await assert.rejects(start);
+  await new Promise((r) => setTimeout(r, 300));
+  assert(!requests().some((r) => r.args?.[0] === "acp"));
+});
+
+test("Antigravity keeps slash text other than a discovered command literal", async (t) => {
+  const requests = fixture(t);
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    for (const text of ["/help me", "/tmp/notes.txt summarise", "/plan this"]) {
+      const before = complete(events).length;
+      await adapter.prompt(text);
+      await until(() => complete(events).length === before + 1);
+    }
+    await adapter.prompt("[slow] Long task");
+    await until(() =>
+      events.some((e) => e.type === "delta" && e.text === "Partial essay"),
+    );
+    await adapter.steer("/logout now");
+    await until(() => complete(events).length === 4);
+    assert.deepEqual(prompts(requests), [
+      "\u200b/help me",
+      "\u200b/tmp/notes.txt summarise",
+      "/plan this",
+      "[slow] Long task",
+      "\u200b/logout now",
+    ]);
+  } finally {
+    await adapter.dispose();
+  }
+});
