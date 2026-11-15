@@ -399,6 +399,7 @@ for (const refresh of [false, true]) {
         conversationId: run.conversation_id!,
         input: "Next turn",
         idempotencyKey: run.id + "-reply",
+        steer: true,
       });
       expect(queued).not.toHaveProperty("steeringId");
       expect(queued.state).toBe("queued");
