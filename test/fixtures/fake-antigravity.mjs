@@ -180,6 +180,31 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const text = req.params.prompt[0].text;
       if (open.length) {
         // A prompt during a running turn steers it.
+        if (mode === "steer-limit") {
+          // No echo, and the turn stops at a limit.
+          for (const request of open.splice(0))
+            reply(request.id, { stopReason: "end_turn", usage: usage(10, 2) });
+          return reply(req.id, {
+            stopReason: "max_tokens",
+            usage: usage(5, 1),
+          });
+        }
+        if (mode === "steer-mangled-echo-reject") {
+          // A user message differing only in inner whitespace, then a reject.
+          update(sessionId, {
+            sessionUpdate: "user_message_chunk",
+            content: { type: "text", text: text.replace(/\s+/g, "") },
+          });
+          setTimeout(
+            () =>
+              send({
+                id: req.id,
+                error: { code: -32603, message: "private-credential-fixture" },
+              }),
+            200,
+          );
+          return;
+        }
         if (mode === "end-then-reject-steer") {
           // The original turn ends normally, then agy rejects the steer
           // without taking it.

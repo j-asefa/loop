@@ -365,6 +365,9 @@ it("steers a running turn through agy acp without a restart or replaying the tas
   )!;
   const before = prompts().length;
   const launches = () => requests().filter((r) => r.args?.[0] === "acp");
+  // With workspace tools configured, a user reply would ask for loop_reply;
+  // Antigravity receives no workspace tools, so it must not.
+  sessions.tools = () => ({ url: "http://127.0.0.1:9/mcp", token: "unused" });
   const execution = sessions.execute(claimed);
   await until(() => prompts().length === before + 1);
   const launched = launches().length;
@@ -378,6 +381,7 @@ it("steers a running turn through agy acp without a restart or replaying the tas
     {},
   );
   expect(await execution).toMatchObject({ kind: "finished" });
+  sessions.tools = undefined;
   // The steered turn did not end early; the worker completes the run.
   expect(ownedRun(run.id, OWNER).state).toBe("running");
   expect(

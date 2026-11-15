@@ -267,7 +267,10 @@ test("Antigravity cancel during an unconfirmed steer ends both requests as inter
     const steer = adapter.steer("Follow-up");
     await new Promise((r) => setTimeout(r, 100));
     await adapter.cancel();
-    await assert.rejects(steer, /cancelled before steering was confirmed/);
+    await assert.rejects(
+      steer,
+      /ended \(cancelled\) before steering was confirmed/,
+    );
     await until(() => statuses(events).includes("interrupted"));
     assert.deepEqual(statuses(events), ["ready", "interrupted"]);
   } finally {
@@ -499,6 +502,40 @@ test("Antigravity keeps slash text other than a discovered command literal", asy
       "[slow] Long task",
       "\u200b/logout now",
     ]);
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity does not confirm a steer whose request stops at a limit without its echo", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "steer-limit";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => events.some((e) => e.type === "delta"));
+    await assert.rejects(adapter.steer("Follow-up"), /ended \(max_tokens\)/);
+    await until(() => statuses(events).includes("interrupted"));
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test("Antigravity matches a steer's echo exactly, not with inner whitespace removed", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "steer-mangled-echo-reject";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(options, (e) => events.push(e));
+  try {
+    await adapter.start();
+    await adapter.prompt("[slow] Long task");
+    await until(() => events.some((e) => e.type === "delta"));
+    await assert.rejects(adapter.steer("approve now"), (error) => {
+      assert(!(error instanceof NotDelivered));
+      return true;
+    });
   } finally {
     await adapter.dispose();
   }

@@ -56,17 +56,18 @@ function promptFailure(error: unknown) {
 const SETTING_FAILURE =
   "ACP agent rejected the setting. Check the agent's local login and logs, then refresh settings and retry.";
 class SafeAcpError extends Error {}
-const compact = (value: string) => value.replace(/\s+/g, "");
 type Echo = { expected: string; seen: string; resolve(): void };
 /** Chunks of one message arrive in order. A chunk that cannot extend the
- * expected text starts another message. Returns whether it is complete. */
+ * expected text starts another message. Text is compared exactly apart from
+ * whitespace at either end of the message. Returns whether it is complete. */
 function matchEcho(echo: Echo, chunk: string) {
-  echo.seen = echo.expected.startsWith(echo.seen + chunk)
-    ? echo.seen + chunk
-    : echo.expected.startsWith(chunk)
+  const extended = echo.seen + chunk;
+  echo.seen = echo.expected.startsWith(extended.trim())
+    ? extended
+    : echo.expected.startsWith(chunk.trim())
       ? chunk
       : "";
-  return echo.seen === echo.expected;
+  return echo.seen.trim() === echo.expected;
 }
 // agy echoes a prompt within a second of receiving it.
 const ECHO_WAIT = 5000;
@@ -450,7 +451,7 @@ export class Acp implements Adapter {
     this.messageId = randomUUID();
     this.turnUsage = undefined;
     this.earlierEnd = false;
-    const expected = compact(this.echoOf(value));
+    const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
     this.promptEchoed = expected
       ? new Promise((resolve) => {
@@ -586,7 +587,7 @@ export class Acp implements Adapter {
     this.steering = true;
     try {
       await Promise.race([this.promptEchoed, this.ended, wait(ECHO_WAIT)]);
-      await this.dispatchSteer(value, compact(echo), beforeDispatch);
+      await this.dispatchSteer(value, echo.trim(), beforeDispatch);
     } finally {
       this.steering = false;
     }
@@ -619,10 +620,11 @@ export class Acp implements Adapter {
           },
         };
     });
+    // Without its echo, only a normal end of the turn confirms the input.
     const settled = this.send(value, true).then((result) => {
-      if (result.stopReason === "cancelled")
+      if (result.stopReason !== "end_turn")
         throw new Error(
-          "The turn was cancelled before steering was confirmed.",
+          `The turn ended (${result.stopReason}) before steering was confirmed.`,
         );
     });
     const ended = this.ended.then(() => {
@@ -979,7 +981,7 @@ export class Acp implements Adapter {
       return;
     if (u.sessionUpdate === "user_message_chunk") {
       if (this.loading || u.content.type !== "text") return;
-      const chunk = compact(u.content.text);
+      const chunk = u.content.text;
       // The turn's own prompt echo is consumed first and never confirms a
       // steering input.
       const prompt = this.promptEcho;
