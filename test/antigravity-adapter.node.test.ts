@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Antigravity } from "../src/adapters/antigravity.js";
@@ -24,12 +24,17 @@ function fixture(t: { after(fn: () => void): void }) {
     delete process.env.LOOP_TEST_AGY_MODE;
     rmSync(dir, { recursive: true, force: true });
   });
-  return () =>
-    readFileSync(path, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
+  return () => [...read(path), ...read(`${path}.acp`)];
 }
+const read = (path: string) =>
+  existsSync(path)
+    ? readFileSync(path, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+    : [];
+const sessions = (requests: () => any[]) =>
+  requests().filter((r) => r.args?.includes("--input-format"));
 const complete = (events: AdapterEvent[]) =>
   events.filter((e) => e.type === "status" && e.status === "completed");
 
@@ -47,8 +52,38 @@ test("Antigravity probes models and native initialization without a prompt, cred
     ]);
     assert.equal(adapter.capabilities.approvals, false);
     assert.equal(adapter.capabilities.workspaceTools, false);
-    assert.equal(requests().length, 2);
-    assert.deepEqual(requests()[0].args, ["models"]);
+    assert.deepEqual(
+      requests()
+        .filter((r) => r.args)
+        .map((r) => r.args[0])
+        .sort(),
+      ["--input-format", "acp", "models"],
+    );
+    // The catalog session only initializes, opens and closes; no prompt.
+    assert.deepEqual(
+      requests()
+        .filter((r) => r.acp)
+        .map((r) => r.acp),
+      ["initialize", "session/new", "session/close"],
+    );
+    assert.equal(
+      requests().find((r) => r.acp === "session/new").params.cwd,
+      process.cwd(),
+    );
+    assert.deepEqual(adapter.commands, [
+      {
+        name: "plan",
+        token: "/plan",
+        kind: "command",
+        description: "Plan before executing.",
+      },
+      {
+        name: "antigravity-guide",
+        token: "/antigravity-guide",
+        kind: "command",
+        description: "Guide  to agy.",
+      },
+    ]);
     assert.deepEqual(events, []);
   } finally {
     await adapter.dispose();
@@ -86,8 +121,8 @@ test("Antigravity streams explicit turns, tools and per-turn usage and resumes o
         "Saved instructions\n\n/logout is literal task text",
       ],
     );
-    const args = requests()[1].args;
-    assert(args.includes("--disable-slash-commands"));
+    const args = sessions(requests)[0].args;
+    assert(!args.includes("--disable-slash-commands"));
     assert.equal(args[args.indexOf("--model") + 1], "gemini-agy-fixture");
     assert.equal(args[args.indexOf("--effort") + 1], "high");
     assert(!args.includes("--dangerously-skip-permissions"));
@@ -123,7 +158,7 @@ test("Antigravity streams explicit turns, tools and per-turn usage and resumes o
   try {
     await resumed.start();
     assert.equal(requests().filter((r) => r.event === "user").length, 2);
-    const args = requests().at(-1).args;
+    const args = sessions(requests).at(-1).args;
     assert.equal(
       args[args.indexOf("--conversation") + 1],
       "agy-fixture-session",
@@ -137,6 +172,68 @@ test("Antigravity streams explicit turns, tools and per-turn usage and resumes o
     await resumed.dispose();
   }
 });
+
+test("Antigravity leads only with a discovered command and keeps other slash text literal", async (t) => {
+  const requests = fixture(t);
+  const sent = () =>
+    requests()
+      .filter((r) => r.event === "user")
+      .map((r) => r.message.content);
+  for (const instructions of ["Saved instructions", undefined]) {
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, instructions }, (e) =>
+      events.push(e),
+    );
+    try {
+      await adapter.start();
+      for (const text of [
+        "/antigravity-guide explain skills",
+        "/help is a CLI command",
+        "/tmp/notes.txt summarise this",
+        "/planner is not /plan",
+      ]) {
+        const before = complete(events).length;
+        await adapter.prompt(text);
+        await until(() => complete(events).length === before + 1);
+      }
+    } finally {
+      await adapter.dispose();
+    }
+  }
+  assert.deepEqual(sent(), [
+    "/antigravity-guide explain skills\n\nSaved instructions",
+    "Saved instructions\n\n/help is a CLI command",
+    "Saved instructions\n\n/tmp/notes.txt summarise this",
+    "Saved instructions\n\n/planner is not /plan",
+    "/antigravity-guide explain skills",
+    "\u200b/help is a CLI command",
+    "\u200b/tmp/notes.txt summarise this",
+    "\u200b/planner is not /plan",
+  ]);
+});
+
+for (const mode of ["acp-failure", "acp-silent"]) {
+  test(`Antigravity ${mode} starts with an empty catalog and keeps slash text literal`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity(options, (e) => events.push(e));
+    try {
+      await adapter.start();
+      assert.deepEqual(adapter.commands, []);
+      await adapter.prompt("/plan something");
+      await until(() => complete(events).length === 1);
+      assert.deepEqual(
+        requests()
+          .filter((r) => r.event === "user")
+          .map((r) => r.message.content),
+        ["\u200b/plan something"],
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  });
+}
 
 for (const mode of ["WAITING", "RUNNING", "ERROR", "INVALID", "disconnect"]) {
   test(`Antigravity ${mode} preserves partial output without completing or replaying work`, async (t) => {
