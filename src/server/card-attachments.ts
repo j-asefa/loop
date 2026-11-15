@@ -1,5 +1,6 @@
 import { workspaceLink, downloadLink } from "../shared/workspace-links.js";
 import * as artifactsQueries from "./sql/artifacts.js";
+import * as resultsQueries from "./sql/results.js";
 import { db } from "./db.js";
 import type { CardSchema } from "../shared/cards.js";
 import { ResultAttachmentRefSchema } from "../shared/result.js";
@@ -53,6 +54,7 @@ export function resultCardAttachments(
     return [];
   }
   return parsed.flatMap((ref) => {
+    // Authorization is always the owner's current access to the artifact.
     const target = artifactsQueries.attachmentAuthority(
       db,
       ref.artifactId,
@@ -66,12 +68,39 @@ export function resultCardAttachments(
         mime: ref.mime,
         size: ref.size,
         href: workspaceLink({ artifact: ref.artifactId }),
-        download: downloadLink({
-          artifactId: target.id,
-          objectId: target.object_id,
-          published: !!target.published,
-        }),
+        download: sealedDownloadLink(owner, ref),
       },
     ];
   });
+}
+
+// The link resolves the version the Result sealed, never the artifact's
+// current one. When the sealed bytes can no longer be identified, there is no
+// link rather than a link to different content.
+function sealedDownloadLink(
+  owner: string,
+  ref: z.infer<typeof ResultAttachmentRefSchema>,
+) {
+  if (ref.objectId && resultsQueries.ownedObjectId(db, owner, ref.objectId)) {
+    return downloadLink({
+      artifactId: ref.artifactId,
+      objectId: ref.objectId,
+      published: false,
+    });
+  }
+  if (ref.published && ref.sha256) {
+    const current = resultsQueries.publishedArtifactObject(
+      db,
+      owner,
+      ref.artifactId,
+    );
+    if (current?.checksum === ref.sha256) {
+      return downloadLink({
+        artifactId: ref.artifactId,
+        objectId: null,
+        published: true,
+      });
+    }
+  }
+  return null;
 }

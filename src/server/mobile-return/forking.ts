@@ -7,6 +7,7 @@ import * as messagesQueries from "../sql/messages.js";
 import { ConversationForkInput } from "../../shared/mobile-contract-schemas.js";
 import { parseMessages } from "../row-schemas.js";
 import { db, id, now } from "../db.js";
+import { publishImportedConversationResults } from "../result-publication.js";
 import {
   ownedAgent,
   ownedConversation,
@@ -81,6 +82,8 @@ export function forkConversation(
           m.created_at,
         );
       }
+      // Copied answers become sealed Results rather than mutable raw messages.
+      publishImportedConversationResults(owner, forkId);
       return { id: forkId, agentId: agent.id };
     })
     .immediate();

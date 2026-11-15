@@ -79,6 +79,24 @@ export const ResultOutcomeSchema = z.object({
 });
 export type ResultOutcome = z.infer<typeof ResultOutcomeSchema>;
 
+// Where the work was produced. Current organization stays mutable on the
+// conversation; this snapshot keeps the placement at publication time.
+export const ResultPlacementSchema = z.object({
+  status: z.enum(["recorded", "unknown"]),
+  folderId: z.string().nullable(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  teamId: z.string().nullable(),
+});
+export type ResultPlacement = z.infer<typeof ResultPlacementSchema>;
+export const UNKNOWN_RESULT_PLACEMENT: ResultPlacement = {
+  status: "unknown",
+  folderId: null,
+  projectId: null,
+  projectName: null,
+  teamId: null,
+};
+
 export const ResultProvenanceSchema = z.object({
   agentId: z.string().nullable(),
   agentName: z.string().nullable(),
@@ -89,6 +107,7 @@ export const ResultProvenanceSchema = z.object({
   conversationId: z.string(),
   runId: z.string().nullable(),
   messageId: z.string(),
+  placement: ResultPlacementSchema.default(UNKNOWN_RESULT_PLACEMENT),
 });
 export type ResultProvenance = z.infer<typeof ResultProvenanceSchema>;
 
@@ -200,6 +219,13 @@ export function canonicalResultDigestSerialized(
       conversationId: provenance.conversationId,
       runId: provenance.runId,
       messageId: provenance.messageId,
+      placement: {
+        status: provenance.placement.status,
+        folderId: provenance.placement.folderId,
+        projectId: provenance.placement.projectId,
+        projectName: provenance.placement.projectName,
+        teamId: provenance.placement.teamId,
+      },
     },
     lineage: {
       parentResultId: lineage.parentResultId,

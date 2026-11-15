@@ -15,11 +15,13 @@ import {
   type RequestedResultContext,
   type ResultAttachmentRef,
   type ResultId,
+  type ResultPlacement,
   type ResultStimulus,
   type ResultSupplyItem,
 } from "../shared/result.js";
 import { computeResultContentDigest } from "./result-digest.js";
 import { parseCanonicalResult } from "./row-schemas.js";
+import * as foldersQueries from "./sql/folders.js";
 import * as resultsQueries from "./sql/results.js";
 import * as resultContextEdgesQueries from "./sql/result-context-edges.js";
 
@@ -66,6 +68,69 @@ function readResolvedModelFromRunResult(
     return null;
   }
   return null;
+}
+
+// Placement at publication time. The run records the folder it executed in;
+// a conversation's folder is only the fallback when the run recorded none.
+function placementSnapshot(
+  ownerId: string,
+  conversation: { project_id: string | null; team_id: string | null },
+  run: { payload: { folderId?: string | null } } | undefined,
+  database: Database.Database,
+): ResultPlacement {
+  const folderId =
+    run && run.payload.folderId !== undefined
+      ? run.payload.folderId
+      : conversation.project_id;
+  const project = foldersQueries.projectFor(database, {
+    owner: ownerId,
+    folder: folderId ?? null,
+  });
+  return {
+    status: "recorded",
+    folderId: folderId ?? null,
+    projectId: project?.id ?? null,
+    projectName: project?.name ?? null,
+    teamId: conversation.team_id,
+  };
+}
+
+// The provider that actually executed the run is a recorded fact on the run.
+// The agent's current provider is only a fallback for runs that predate it.
+function executionProvider(
+  run: { payload: { provider?: unknown } } | undefined,
+  agent: { provider: string } | undefined,
+): string | null {
+  return readNonEmptyString(run?.payload.provider) || agent?.provider || null;
+}
+
+function chainParent(
+  ownerId: string,
+  conversationId: string,
+  resultId: ResultId,
+  createdAt: number,
+  database: Database.Database,
+): ResultId | null {
+  // A retry that resumes an unsealed draft keeps the predecessor it chose.
+  const draft = resultsQueries.byId(database, ownerId, resultId);
+  if (draft && draft.sealed === 0) {
+    try {
+      const prior = JSON.parse(draft.lineage) as { parentResultId?: unknown };
+      if (prior.parentResultId === null) return null;
+      const parsed = ResultIdSchema.safeParse(prior.parentResultId);
+      if (parsed.success) return parsed.data;
+    } catch {
+      // fall through to a fresh choice
+    }
+  }
+  const row = resultsQueries.precedingResult(
+    database,
+    ownerId,
+    conversationId,
+    resultId,
+    createdAt,
+  );
+  return row ? ResultIdSchema.parse(row.id) : null;
 }
 
 export function snapshotMessageAttachments(
@@ -379,25 +444,24 @@ export function publishCompletedRunResult(
     agent?.connection_id ||
     null;
 
-  const parentRow = resultsQueries.latestCompletedBeforeRun(
-    database,
+  const createdAt = Math.max(
+    0,
+    Math.trunc(run.updated_at ?? answer.created_at ?? run.created_at),
+  );
+  const parentResultId = chainParent(
     ownerId,
     run.conversation_id,
-    run.id,
+    id,
+    createdAt,
+    database,
   );
-  const parentResultId: ResultId | null = parentRow
-    ? ResultIdSchema.parse(parentRow.id)
-    : null;
 
   return publishResult(
     {
       id,
       ownerId,
       kind: "run_answer",
-      createdAt: Math.max(
-        0,
-        Math.trunc(run.updated_at ?? answer.created_at ?? run.created_at),
-      ),
+      createdAt,
       stimulus: {
         kind: stimulusKind,
         text: run.input,
@@ -419,13 +483,14 @@ export function publishCompletedRunResult(
       provenance: {
         agentId,
         agentName,
-        provider: agent?.provider ?? null,
+        provider: executionProvider(run, agent),
         model,
         resolvedModel,
         connectionId,
         conversationId: run.conversation_id,
         runId: run.id,
         messageId: answer.id,
+        placement: placementSnapshot(ownerId, conversation, run, database),
       },
       lineage: {
         parentResultId,
@@ -494,16 +559,24 @@ export function publishSteeringReplyResult(
     null;
   const questionText = steering?.question_content ?? null;
   const questionId = steering?.question_id ?? null;
+  const createdAt = Math.max(
+    0,
+    Math.trunc(options.createdAt ?? message.created_at),
+  );
+  const parentResultId = chainParent(
+    options.ownerId,
+    message.conversation_id,
+    id,
+    createdAt,
+    database,
+  );
 
   return publishResult(
     {
       id,
       ownerId: options.ownerId,
       kind: "steering_reply",
-      createdAt: Math.max(
-        0,
-        Math.trunc(options.createdAt ?? message.created_at),
-      ),
+      createdAt,
       stimulus: {
         kind: "steering_question",
         text: questionText,
@@ -529,16 +602,22 @@ export function publishSteeringReplyResult(
       provenance: {
         agentId,
         agentName,
-        provider: agent?.provider ?? null,
+        provider: executionProvider(run, agent),
         model,
         resolvedModel,
         connectionId,
         conversationId: message.conversation_id,
         runId,
         messageId: message.id,
+        placement: placementSnapshot(
+          options.ownerId,
+          conversation,
+          run,
+          database,
+        ),
       },
       lineage: {
-        parentResultId: null,
+        parentResultId,
         triggerMessageId: questionId,
         suppliedContext: [],
       },
@@ -571,6 +650,7 @@ export function publishImportedConversationResults(
   );
   const published: CanonicalResult[] = [];
   let previousResultId: ResultId | null = null;
+  let chainStarted = false;
 
   for (const message of messages) {
     if (!isEligibleAnswerMessage(message)) continue;
@@ -590,13 +670,25 @@ export function publishImportedConversationResults(
     );
     const promptText = precedingUser?.content ?? null;
     const promptId = precedingUser?.id ?? null;
+    const createdAt = Math.max(0, Math.trunc(message.created_at));
+    if (!chainStarted) {
+      chainStarted = true;
+      // Joins an existing sequence when other results already precede it.
+      previousResultId ??= chainParent(
+        ownerId,
+        conversationId,
+        id,
+        createdAt,
+        database,
+      );
+    }
 
     const result = publishResult(
       {
         id,
         ownerId,
         kind: "imported_answer",
-        createdAt: Math.max(0, Math.trunc(message.created_at)),
+        createdAt,
         stimulus: {
           kind: conversation.origin.endsWith("import")
             ? "import"
@@ -630,6 +722,12 @@ export function publishImportedConversationResults(
           conversationId,
           runId: null,
           messageId: message.id,
+          placement: placementSnapshot(
+            ownerId,
+            conversation,
+            undefined,
+            database,
+          ),
         },
         lineage: {
           parentResultId: previousResultId,

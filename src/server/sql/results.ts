@@ -74,26 +74,43 @@ export function listBySourceResult(
   );
 }
 
-const latestCompletedBeforeRunStatement = statement(
+// The chain is chronological across kinds: the predecessor is the latest
+// sealed result of any kind published before this one.
+const precedingResultStatement = statement(
   `SELECT id FROM results
-   WHERE owner_id=? AND conversation_id=? AND kind='run_answer' AND sealed=1
-     AND (run_id IS NULL OR run_id != ?)
+   WHERE owner_id=? AND conversation_id=? AND sealed=1
+     AND id != ? AND created_at <= ?
    ORDER BY created_at DESC, rowid DESC
    LIMIT 1`,
 );
 const idOnlyRow = z.object({ id: z.string() });
-export function latestCompletedBeforeRun(
+export function precedingResult(
   db: Database.Database,
   ownerId: string,
   conversationId: string,
-  excludeRunId: string,
+  excludeResultId: string,
+  createdAt: number,
 ) {
-  const row = latestCompletedBeforeRunStatement(db).get(
+  const row = precedingResultStatement(db).get(
     ownerId,
     conversationId,
-    excludeRunId,
+    excludeResultId,
+    createdAt,
   );
   return row === undefined ? undefined : parseRecord(idOnlyRow, row, "results");
+}
+
+const sealedByMessageStatement = statement(
+  "SELECT * FROM results WHERE owner_id=? AND message_id=? AND sealed=1 ORDER BY created_at ASC, rowid ASC LIMIT 1",
+);
+export function canonicalByMessage(
+  db: Database.Database,
+  ownerId: string,
+  messageId: string,
+) {
+  return maybeCanonicalResult(
+    sealedByMessageStatement(db).get(ownerId, messageId),
+  );
 }
 
 const insertStatement = statement(
@@ -155,7 +172,7 @@ export function runRow(db: Database.Database, ownerId: string, runId: string) {
 }
 
 const conversationSummaryStatement = statement(
-  "SELECT id, owner_id, agent_id, title, origin, execution_connection_id FROM conversations WHERE owner_id=? AND id=?",
+  "SELECT id, owner_id, agent_id, title, origin, execution_connection_id, project_id, team_id FROM conversations WHERE owner_id=? AND id=?",
 );
 const conversationSummaryRow = QueryRecords.conversations.pick({
   id: true,
@@ -164,6 +181,8 @@ const conversationSummaryRow = QueryRecords.conversations.pick({
   title: true,
   origin: true,
   execution_connection_id: true,
+  project_id: true,
+  team_id: true,
 });
 export function conversationSummary(
   db: Database.Database,

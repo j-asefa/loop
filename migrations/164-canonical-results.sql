@@ -132,7 +132,10 @@ WITH run_candidates AS (
         NULLIF(trim(g.name), ''),
         CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.name') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.name')), '') END
       ),
-      'provider', g.provider,
+      'provider', COALESCE(
+        CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.provider') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.provider')), '') END,
+        g.provider
+      ),
       'model', COALESCE(
         CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.model') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.model')), '') END,
         g.model
@@ -148,7 +151,8 @@ WITH run_candidates AS (
       ),
       'conversationId', r.conversation_id,
       'runId', r.id,
-      'messageId', m.id
+      'messageId', m.id,
+      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
     ) AS provenance,
     json_object(
       'parentResultId', NULL,
@@ -281,7 +285,10 @@ WITH reply_candidates AS (
         NULLIF(trim(g.name), ''),
         CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.name') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.name')), '') END
       ),
-      'provider', g.provider,
+      'provider', COALESCE(
+        CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.provider') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.provider')), '') END,
+        g.provider
+      ),
       'model', COALESCE(
         CASE WHEN json_valid(r.payload) AND json_type(r.payload, '$.model') = 'text' THEN NULLIF(trim(json_extract(r.payload, '$.model')), '') END,
         g.model
@@ -297,7 +304,8 @@ WITH reply_candidates AS (
       ),
       'conversationId', m.conversation_id,
       'runId', COALESCE(s.run_id, m.run_id),
-      'messageId', m.id
+      'messageId', m.id,
+      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
     ) AS provenance,
     json_object(
       'parentResultId', NULL,
@@ -415,7 +423,8 @@ WITH message_candidates AS (
       'connectionId', COALESCE(c.execution_connection_id, g.connection_id),
       'conversationId', m.conversation_id,
       'runId', NULL,
-      'messageId', m.id
+      'messageId', m.id,
+      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
     ) AS provenance,
     json_object(
       'parentResultId', NULL,
@@ -452,6 +461,19 @@ SELECT
   '0000000000000000000000000000000000000000000000000000000000000000',
   stimulus, outcome, attachments, provenance, lineage
 FROM message_candidates;
+
+-- 4. Chain backfilled results chronologically across kinds within a conversation.
+WITH ordered AS (
+  SELECT owner_id, id,
+    LAG(id) OVER (PARTITION BY owner_id, conversation_id ORDER BY created_at ASC, rowid ASC) AS previous_id
+  FROM results
+  WHERE sealed = 1
+)
+UPDATE results
+SET lineage = json_set(lineage, '$.parentResultId', (
+  SELECT o.previous_id FROM ordered o WHERE o.owner_id = results.owner_id AND o.id = results.id
+))
+WHERE origin_completeness = 'migrated_backfill' AND sealed = 1;
 
 INSERT OR IGNORE INTO feed_card_dirty(owner_id, conversation_id, card_key)
 SELECT owner_id, conversation_id, id FROM results

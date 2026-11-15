@@ -16,6 +16,7 @@ import {
   Problem,
 } from "./domain.js";
 import { submit } from "./agent-runtime.js";
+import { publishImportedConversationResults } from "./result-publication.js";
 
 type ContinuationInput = z.infer<typeof ContinueInput>;
 export function continueConversation(
@@ -113,6 +114,8 @@ export function continueConversation(
           }),
           message.created_at,
         );
+      // Copied answers become sealed Results before the new run chains to them.
+      publishImportedConversationResults(owner, conversationId);
       const run = submit(owner, {
         agentId: agent.id,
         conversationId,

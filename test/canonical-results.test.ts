@@ -369,6 +369,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
         conversationId: "conv-idem",
         runId: "run-idem-1",
         messageId: "msg-a-1",
+        placement: {
+          status: "unknown" as const,
+          folderId: null,
+          projectId: null,
+          projectName: null,
+          teamId: null,
+        },
       },
       lineage: {
         parentResultId: null,
@@ -434,6 +441,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
         conversationId: "conv-ctx",
         runId: "source-1",
         messageId: "msg-s-1",
+        placement: {
+          status: "unknown" as const,
+          folderId: null,
+          projectId: null,
+          projectName: null,
+          teamId: null,
+        },
       },
       lineage: {
         parentResultId: null,
@@ -510,6 +524,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
         conversationId: "conv-ctx",
         runId: "child-1",
         messageId: "msg-c-1",
+        placement: {
+          status: "unknown" as const,
+          folderId: null,
+          projectId: null,
+          projectName: null,
+          teamId: null,
+        },
       },
       lineage: {
         parentResultId: sourceResult.id,
@@ -674,6 +695,23 @@ describe("Canonical Result publication, immutability, and migration", () => {
       expect(backfilledLegacy?.contentDigest).toBe(
         computeResultContentDigest(backfilledLegacy!),
       );
+
+      // Historical placement is unknown rather than guessed from current organization.
+      expect(backfilledRun?.provenance.placement).toEqual({
+        status: "unknown",
+        folderId: null,
+        projectId: null,
+        projectName: null,
+        teamId: null,
+      });
+      // Backfilled results chain chronologically across kinds per conversation.
+      const chain = listConversationResults("owner-1", "c-hist", upgradeDb);
+      expect(chain.length).toBeGreaterThan(2);
+      expect(new Set(chain.map((r) => r.kind)).size).toBeGreaterThan(1);
+      expect(chain[0]?.lineage.parentResultId).toBeNull();
+      for (let i = 1; i < chain.length; i++) {
+        expect(chain[i]?.lineage.parentResultId).toBe(chain[i - 1]?.id);
+      }
 
       // Re-importing / appending to a migrated multi-message imported thread succeeds without 409
       upgradeDb
