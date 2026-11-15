@@ -389,8 +389,8 @@ export function OrganizeCards({
         <div role="status">
           <p>
             The earlier thread may already exist. Retrying uses its original
-            name and does not combine cards again. Check Done before starting a
-            separate thread.
+            name. It resolves the earlier request, without starting a separate
+            grouping. Check Done before starting a separate thread.
           </p>
           {uncertain && (
             <button
