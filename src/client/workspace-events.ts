@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import { workspaceApi } from "../shared/workspace-api";
 import {
   type WorkspaceFrameV3,
@@ -343,8 +344,9 @@ export function watchWorkspaceEvents(options: {
   window.addEventListener("loop-workspace-clock", snapshotClock);
   window.addEventListener("online", wake);
   window.addEventListener("pageshow", wake);
-  if (options.connected)
-    window.addEventListener("loop-reconnecting", restarting);
+  const stopReconnecting = options.connected
+    ? listenClientEvent("loop-reconnecting", restarting)
+    : undefined;
   document.addEventListener("visibilitychange", visible);
   function stop() {
     stopped = true;
@@ -358,7 +360,7 @@ export function watchWorkspaceEvents(options: {
     window.removeEventListener("loop-workspace-clock", snapshotClock);
     window.removeEventListener("online", wake);
     window.removeEventListener("pageshow", wake);
-    window.removeEventListener("loop-reconnecting", restarting);
+    stopReconnecting?.();
     document.removeEventListener("visibilitychange", visible);
   }
   connect();

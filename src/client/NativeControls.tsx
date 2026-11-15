@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -112,7 +113,7 @@ export function WorkspaceConnection({
               },
               expired: () => {
                 clearAuthorization();
-                window.dispatchEvent(new Event("loop-auth-expired"));
+                emitClientEvent("loop-auth-expired");
               },
             }
           : {}),

@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import type { ReadMode } from "./read-executor";
 import { ownerSession } from "./ownerSession";
 import { isFleetReadContract } from "../shared/fleet-workspace-api";
@@ -70,7 +71,7 @@ const restarting = (r: Response) =>
   r.status === 503 && r.headers.get("x-loop-unavailable") === "restarting";
 const RECONNECTING = "Loop is reconnecting… Work on your computer continues.";
 function reconnectingError() {
-  window.dispatchEvent(new Event("loop-reconnecting"));
+  emitClientEvent("loop-reconnecting");
   return Object.assign(new Error(RECONNECTING), {
     status: 503,
     reconnecting: true,
@@ -88,8 +89,7 @@ export async function authorize(signal?: AbortSignal) {
       if (restarting(response)) throw reconnectingError();
       if (!response.ok) {
         // Only a refusal ends the session; a server or relay failure doesn't.
-        if (response.status < 500)
-          window.dispatchEvent(new Event("loop-auth-expired"));
+        if (response.status < 500) emitClientEvent("loop-auth-expired");
         throw new Error(
           response.status < 500
             ? "Pair this device from the desktop."
@@ -131,7 +131,7 @@ export function clearAuthorization() {
 }
 function expireAuthentication(started: typeof ownerSession.current) {
   clearAuthorization();
-  window.dispatchEvent(new Event("loop-auth-expired"));
+  emitClientEvent("loop-auth-expired");
   const current = ownerSession.current;
   // Recovery may follow this response's expiry, but never an intervening owner.
   if (
