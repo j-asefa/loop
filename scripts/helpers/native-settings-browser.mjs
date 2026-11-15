@@ -96,14 +96,29 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       exact: true,
     });
     const select = settings.getByLabel(mode.label || "mode", { exact: true });
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
+      if (i === 2) {
+        await page.reload();
+        await page
+          .getByRole("button", { name: "Conversation options", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: "Session settings", exact: true })
+          .click();
+      }
       await select.selectOption("plan");
+      await expect.poll(() => ids.length).toBe(i + 1);
+      assert.equal(
+        ids[i],
+        ids[0],
+        "An uncertain settings receipt identity must survive reload",
+      );
       await expect(settings.getByRole("alert")).toContainText(
         "outcome is unknown",
       );
       await expect(select).toHaveValue(mode.confirmed);
     }
-    assert.equal(ids.length, 2);
+    assert.equal(ids.length, 3);
     assert.equal(ids[0], ids[1]);
     const unchanged = await api(path);
     assert.equal(unchanged.generation, before.generation);
@@ -117,15 +132,15 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
         exact: true,
       }),
     ).toBeEnabled();
-    assert.equal(ids.length, 2);
+    assert.equal(ids.length, 3);
     await settings
       .getByRole("button", { name: "Apply setting again", exact: true })
       .click();
     await expect(select).toHaveValue("plan");
     await expect(select).toBeEnabled();
     await expect(settings.getByRole("alert")).toHaveCount(0);
-    assert.equal(ids.length, 3);
-    assert.notEqual(ids[2], ids[0]);
+    assert.equal(ids.length, 4);
+    assert.notEqual(ids[3], ids[0]);
     assert.equal(
       db
         .prepare("SELECT state FROM execution_commands WHERE command_id=?")
@@ -135,7 +150,7 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
     assert.equal(
       db
         .prepare("SELECT state FROM execution_commands WHERE command_id=?")
-        .get(ids[2]).state,
+        .get(ids[3]).state,
       "completed",
     );
     assert.equal(
