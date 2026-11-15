@@ -70,7 +70,12 @@ export function Approvals({
     setSnapshot((old) =>
       old?.key === readKey ? { ...old, items: update(old.items) } : old,
     );
-  const { load, error: failureMessage, failure } = useCollectionRead(readKey);
+  const {
+    load,
+    error: failureMessage,
+    failure,
+    busy: readPending,
+  } = useCollectionRead(readKey);
   const rateLimited = isRateLimited(failure);
   const readError = rateLimited ? "" : failureMessage;
   const [selected, setSelected] = useState<Approval | null>(null);
@@ -83,7 +88,7 @@ export function Approvals({
   const locked = useRef(false);
   const decided = useRef(new Set<string>());
   const refresh = useCallback(
-    () =>
+    (manual = false) =>
       load(
         (signal, _mode, reportRetry) =>
           readContract(
@@ -106,6 +111,7 @@ export function Approvals({
                 (!runIds || runIds.includes(item.run_id)),
             ),
           }),
+        manual,
       ),
     [load, readContract, teams, runId, scope, readKey],
   );
@@ -286,14 +292,21 @@ export function Approvals({
           {notice}
         </p>
       )}
-      {rateLimited && (
-        <p className="field-hint" role="status">
-          Approval updates are paused briefly. Retrying automatically…
-        </p>
-      )}
-      {readError && (
-        <p className="error" role="alert">
-          {readError}
+      {(readPending || !!failure) && (
+        <p
+          className={readError ? "error" : "field-hint"}
+          role={readError ? "alert" : "status"}
+        >
+          {rateLimited
+            ? "Approval updates are paused briefly. Retrying automatically…"
+            : readError || "Loading approval updates…"}{" "}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => void refresh(true)}
+          >
+            Retry connection
+          </button>
         </p>
       )}
       {unavailable && (
