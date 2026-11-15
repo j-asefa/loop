@@ -68,8 +68,8 @@ export function resultCardAttachments(
         href: workspaceLink({ artifact: ref.artifactId }),
         download: downloadLink({
           artifactId: target.id,
-          objectId: target.object_id ?? ref.objectId,
-          published: Boolean(target.published || ref.published),
+          objectId: target.object_id,
+          published: !!target.published,
         }),
       },
     ];

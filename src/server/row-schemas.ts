@@ -77,7 +77,7 @@ import {
   readArtifactMetadata,
   writeArtifactMetadata,
 } from "../shared/artifact-metadata.js";
-export {
+import {
   ArtifactMetadataSchemas,
   AnswerArtifactMetadata,
   TraceArtifactMetadata,
@@ -86,6 +86,16 @@ export {
   ImportArtifactMetadata,
   SnippetArtifactMetadata,
 } from "../shared/artifact-metadata.js";
+export {
+  ArtifactMetadataSchemas,
+  AnswerArtifactMetadata,
+  TraceArtifactMetadata,
+  FileArtifactMetadata,
+  UploadArtifactMetadata,
+  ImportArtifactMetadata,
+  SnippetArtifactMetadata,
+};
+import { readLooseArtifactAttachmentMetadata } from "../shared/artifact-metadata.js";
 
 export const ConnectionMetadata = z.strictObject({
   preview: z.boolean().optional(),
@@ -427,4 +437,23 @@ export function maybeCanonicalResult(value: unknown) {
 
 export function parseCanonicalResults(values: unknown[]) {
   return values.map(parseCanonicalResult);
+}
+
+const LooseArtifactAttachmentRow = ArtifactRecord.pick({
+  id: true,
+  owner_id: true,
+  title: true,
+  version: true,
+  metadata: true,
+});
+
+export function parseLooseArtifactAttachment(value: unknown) {
+  const row = parseRecord(LooseArtifactAttachmentRow, value, "artifacts");
+  return {
+    id: row.id,
+    owner_id: row.owner_id,
+    title: row.title,
+    version: row.version,
+    metadata: readLooseArtifactAttachmentMetadata(row.metadata),
+  };
 }

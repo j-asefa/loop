@@ -35,7 +35,7 @@ export const ResultSupplyItemSchema = z.object({
   contentDigest: z.string().regex(/^[0-9a-f]{64}$/),
   title: z.string(),
   agentId: z.string().nullable(),
-  agentName: z.string(),
+  agentName: z.string().nullable(),
   conversationId: z.string(),
   suppliedText: z.string(),
   excerpt: z.boolean(),
@@ -81,7 +81,7 @@ export type ResultOutcome = z.infer<typeof ResultOutcomeSchema>;
 
 export const ResultProvenanceSchema = z.object({
   agentId: z.string().nullable(),
-  agentName: z.string(),
+  agentName: z.string().nullable(),
   provider: z.string().nullable(),
   model: z.string().nullable(),
   resolvedModel: z.string().nullable(),

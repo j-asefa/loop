@@ -43,9 +43,11 @@ const pageStatement = statement(`SELECT p.message_id,p.created_at,p.read_at,
     substr(COALESCE(json_extract(res.outcome,'$.body'),m.content),1,1000) content,
     c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
     ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
-    json_extract(r.payload,'$.connectionId') connection_id,json_extract(r.payload,'$.model') model,
-    json_extract(r.payload,'$.resolvedModel') resolved_model,json_extract(r.payload,'$.provider') provider,
-    COALESCE(CASE WHEN r.agent_id IS NOT NULL THEN json_extract(res.provenance,'$.agentName') END,json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) agent_name,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.connectionId') ELSE json_extract(r.payload,'$.connectionId') END connection_id,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.model') ELSE json_extract(r.payload,'$.model') END model,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.resolvedModel') ELSE json_extract(r.payload,'$.resolvedModel') END resolved_model,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.provider') ELSE json_extract(r.payload,'$.provider') END provider,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.agentName') ELSE COALESCE(json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) END agent_name,
     EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
     ${replyScopeSql}
       AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))

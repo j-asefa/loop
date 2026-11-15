@@ -71,16 +71,12 @@ export function applyMigrations(
     const record = db.prepare(
       "INSERT INTO schema_migrations(name,prefix,applied_at) VALUES(?,?,?)",
     );
-    let appliedCanonicalResults = false;
     for (const migration of migrations) {
       if (applied.get(migration.name)) continue;
       db.exec(migration.sql);
       record.run(migration.name, migration.prefix, Date.now());
-      if (migration.name === "canonical-results") {
-        appliedCanonicalResults = true;
-      }
     }
-    if (appliedCanonicalResults && table("results")) {
+    if (table("results")) {
       const pendingDigests = db
         .prepare(
           "SELECT owner_id, id, kind, stimulus, outcome, attachments, provenance, lineage FROM results WHERE content_digest='0000000000000000000000000000000000000000000000000000000000000000'",

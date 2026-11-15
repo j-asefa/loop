@@ -1,17 +1,28 @@
 import type Database from "better-sqlite3";
 import { z } from "zod";
+import { readMessageMetadata } from "../../shared/message-metadata.js";
 import { QueryRecords, ResultRecord } from "./rows.js";
 import {
   maybeCanonicalResult,
   maybeRun,
-  parseArtifact,
   parseCanonicalResult,
   parseCanonicalResults,
-  parseMessage,
-  parseMessages,
+  parseLooseArtifactAttachment,
   parseRecord,
 } from "../row-schemas.js";
 import { statement } from "./statement.js";
+
+function parseSafeMessage(row: unknown) {
+  const base = parseRecord(QueryRecords.messages, row, "messages");
+  return {
+    ...base,
+    metadata: readMessageMetadata(base.metadata, "fallback"),
+  };
+}
+
+function parseSafeMessages(rows: unknown[]) {
+  return rows.map(parseSafeMessage);
+}
 
 const byIdStatement = statement(
   "SELECT * FROM results WHERE owner_id=? AND id=?",
@@ -23,16 +34,19 @@ export function byId(db: Database.Database, ownerId: string, id: string) {
     : parseRecord(ResultRecord, row, "results");
 }
 
+const sealedByIdStatement = statement(
+  "SELECT * FROM results WHERE owner_id=? AND id=? AND sealed=1",
+);
 export function canonicalById(
   db: Database.Database,
   ownerId: string,
   id: string,
 ) {
-  return maybeCanonicalResult(byIdStatement(db).get(ownerId, id));
+  return maybeCanonicalResult(sealedByIdStatement(db).get(ownerId, id));
 }
 
 const listByConversationStatement = statement(
-  "SELECT * FROM results WHERE owner_id=? AND conversation_id=? ORDER BY created_at ASC, id ASC",
+  "SELECT * FROM results WHERE owner_id=? AND conversation_id=? AND sealed=1 ORDER BY created_at ASC, id ASC",
 );
 export function listByConversation(
   db: Database.Database,
@@ -47,7 +61,7 @@ export function listByConversation(
 const listBySourceResultStatement = statement(
   `SELECT res.* FROM result_context_edges edge
    JOIN results res ON res.owner_id=edge.owner_id AND res.id=edge.result_id
-   WHERE edge.owner_id=? AND edge.source_result_id=?
+   WHERE edge.owner_id=? AND edge.source_result_id=? AND res.sealed=1
    ORDER BY edge.created_at DESC, edge.result_id ASC, edge.position ASC`,
 );
 export function listBySourceResult(
@@ -193,7 +207,7 @@ export function messageById(
   messageId: string,
 ) {
   const row = messageByIdStatement(db).get(ownerId, messageId);
-  return row === undefined ? undefined : parseMessage(row);
+  return row === undefined ? undefined : parseSafeMessage(row);
 }
 
 const runAssistantMessagesStatement = statement(
@@ -205,7 +219,7 @@ export function runAssistantMessages(
   conversationId: string,
   runId: string,
 ) {
-  return parseMessages(
+  return parseSafeMessages(
     runAssistantMessagesStatement(db).all(ownerId, conversationId, runId),
   );
 }
@@ -219,7 +233,7 @@ export function runTriggerMessage(
   conversationId: string,
   runId: string,
 ) {
-  return parseMessages(
+  return parseSafeMessages(
     runUserMessagesStatement(db).all(ownerId, conversationId, runId),
   ).find((m) => !m.metadata.steeringId);
 }
@@ -232,7 +246,7 @@ export function standaloneAssistantMessages(
   ownerId: string,
   conversationId: string,
 ) {
-  return parseMessages(
+  return parseSafeMessages(
     standaloneAssistantMessagesStatement(db).all(ownerId, conversationId),
   );
 }
@@ -259,7 +273,7 @@ export function precedingStandaloneUserMessage(
     conversationId,
     messageId,
   );
-  return row === undefined ? undefined : parseMessage(row);
+  return row === undefined ? undefined : parseSafeMessage(row);
 }
 
 const steeringQuestionStatement = statement(
@@ -285,7 +299,7 @@ export function steeringQuestion(
 }
 
 const artifactByIdStatement = statement(
-  "SELECT * FROM artifacts WHERE owner_id=? AND id=?",
+  "SELECT id, owner_id, title, version, metadata FROM artifacts WHERE owner_id=? AND id=?",
 );
 export function artifactById(
   db: Database.Database,
@@ -293,7 +307,8 @@ export function artifactById(
   artifactId: string,
 ) {
   const row = artifactByIdStatement(db).get(ownerId, artifactId);
-  return row === undefined ? undefined : parseArtifact(row);
+  if (row === undefined) return undefined;
+  return parseLooseArtifactAttachment(row);
 }
 
 const ownedObjectIdStatement = statement(

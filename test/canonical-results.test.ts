@@ -102,7 +102,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
       body: "No, results are sealed at publication.",
     });
 
-    // Write final answer for run1 and transition to completed
+    // Write final answer for run1 (plain markdown in runs.result and resolvedModel in payload, matching production) and transition to completed
     db.prepare(
       `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
        VALUES ('msg-ans-1', ?, 'conv-1', ?, 'assistant', 'Final canonical result design v1.', ?, 120)`,
@@ -113,7 +113,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
         attachments: [
           {
             id: "art-1",
-            objectId: "obj-1",
+            objectId: "foreign-or-mismatched-obj",
             name: "design-v1.md",
             mime: "text/markdown",
             size: 24,
@@ -121,11 +121,11 @@ describe("Canonical Result publication, immutability, and migration", () => {
         ],
       }),
     );
-    db.prepare(`UPDATE runs SET result = ? WHERE id = ?`).run(
-      JSON.stringify({
-        answer: "Final canonical result design v1.",
-        resolvedModel: "claude-3-7-sonnet-20250219",
-      }),
+    db.prepare(
+      `UPDATE runs SET payload = json_set(payload, '$.resolvedModel', ?), result = ? WHERE id = ?`,
+    ).run(
+      "claude-3-7-sonnet-20250219",
+      "Final canonical result design v1.",
       run1.id,
     );
     transition(claimed1!, "completed");
@@ -199,10 +199,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
     );
     expect(sealedReply?.provenance.agentName).toBe("Original Architect");
 
-    // Now mutate operational transcript rows and agent profile!
+    // Mutate operational transcript rows, reassign/clear conversation agent, and edit agent profile!
     db.transaction(() => {
       db.prepare(
         `UPDATE agents SET name = 'Renamed Agent', provider = 'openai', model = 'gpt-4.1' WHERE id = 'agent-1'`,
+      ).run();
+      db.prepare(
+        `UPDATE conversations SET agent_id = NULL WHERE id = 'conv-1'`,
       ).run();
       db.prepare(
         `UPDATE runs SET input = 'MUTATED RUN INPUT' WHERE id IN (?, ?)`,
@@ -248,14 +251,16 @@ describe("Canonical Result publication, immutability, and migration", () => {
     expect(cardImport).toBeDefined();
     expect(cardImport?.card.content).toBe("Storing immutable domain facts.");
 
-    // 3. Done Feed (/api/feed?filter=done) serves sealed content and attribution
+    // 3. Done Feed (/api/feed?filter=done) serves sealed content and attribution even when conv agent_id was cleared
     const doneFeed = feed(owner, { filter: "done" });
     const doneItem1 = doneFeed.items.find(
       (c) => c.done_card_key === `run:${run1.id}`,
     );
     expect(doneItem1).toBeDefined();
+    expect(doneItem1?.agent_id).toBe("agent-1");
     expect(doneItem1?.agent_name).toBe("Original Architect");
     expect(doneItem1?.provider).toBe("anthropic");
+    expect(doneItem1?.run?.resolved_model).toBe("claude-3-7-sonnet-20250219");
     expect(doneItem1?.last_message?.preview).toBe(
       "Final canonical result design v1.",
     );
@@ -272,6 +277,61 @@ describe("Canonical Result publication, immutability, and migration", () => {
     expect(replyItem?.last_message?.preview).toBe(
       "No, results are sealed at publication.",
     );
+
+    // 5. Revoking live object/publication revokes download URLs while preserving sealed display metadata
+    db.prepare(
+      "DELETE FROM artifact_objects WHERE artifact_id = 'art-1'",
+    ).run();
+    db.prepare("DELETE FROM objects WHERE id = 'obj-1'").run();
+    const cardsAfterRevoke = doneCards(owner, {
+      folders: null,
+      teamIds: [],
+      before: null,
+      limit: 20,
+      atTime: 1000,
+    });
+    const revokedCard = cardsAfterRevoke.find(
+      (c) => c.card.id === `d:run:${run1.id}`,
+    );
+    expect(revokedCard?.card.attachments).toEqual([
+      {
+        id: "art-1",
+        name: "design-v1.md",
+        mime: "text/markdown",
+        size: 24,
+        href: "/?artifact=art-1",
+        download: null,
+      },
+    ]);
+
+    // 6. Unsealed draft rows (sealed = 0) are excluded from canonical readers and supplied-context resolution
+    db.prepare(
+      `INSERT INTO results (
+        id, owner_id, schema_version, kind, origin_completeness, sealed,
+        created_at, conversation_id, run_id, message_id, agent_id,
+        content_digest, stimulus, outcome, attachments, provenance, lineage
+      ) VALUES (
+        'run:draft-unsealed', ?, 1, 'run_answer', 'sealed_at_publication', 0,
+        500, 'conv-1', NULL, 'msg-draft', NULL,
+        '0000000000000000000000000000000000000000000000000000000000000000',
+        '{"kind":"user_prompt","text":"Draft","sourceMessageId":null,"authorKind":"owner","automationKind":null,"automationFrom":null}',
+        '{"title":"Draft","body":"Mutable unsealed draft","format":"markdown"}',
+        '[]',
+        '{"agentId":null,"agentName":null,"provider":null,"model":null,"resolvedModel":null,"connectionId":null,"conversationId":"conv-1","runId":null,"messageId":"msg-draft"}',
+        '{"parentResultId":null,"triggerMessageId":null,"suppliedContext":[]}'
+      )`,
+    ).run(owner);
+    expect(getResult(owner, "run:draft-unsealed")).toBeUndefined();
+    expect(
+      listConversationResults(owner, "conv-1").some(
+        (r) => r.id === "run:draft-unsealed",
+      ),
+    ).toBe(false);
+    expect(() =>
+      resolveSuppliedResultSnapshots(owner, [
+        { resultId: "run:draft-unsealed" },
+      ]),
+    ).toThrowError(expect.objectContaining({ status: 404 }));
   });
 
   it("enforces idempotent replay and rejects conflicting content with 409 on publishResult", () => {
@@ -493,7 +553,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
       upgradeDb.pragma("foreign_keys=ON");
       applyMigrations(upgradeDb, pre164Dir);
 
-      // Seed historical pre-164 records
+      // Seed historical pre-164 records including plain-text runs.result, corrupt legacy metadata, and steering prompt
       upgradeDb
         .prepare(
           `INSERT INTO agents(id, owner_id, name, normalized_name, provider, model, instructions, origin, created_at)
@@ -508,18 +568,34 @@ describe("Canonical Result publication, immutability, and migration", () => {
         .run();
       upgradeDb
         .prepare(
+          `INSERT INTO objects(id, owner_id, name, mime, bytes, created_at)
+           VALUES ('obj-hist', 'owner-1', 'hist.txt', 'text/plain', ?, 15)`,
+        )
+        .run(Buffer.from("historical attachment"));
+      upgradeDb
+        .prepare(
+          `INSERT INTO artifacts(id, owner_id, agent_id, conversation_id, title, kind, role, content, metadata, version, created_at, updated_at)
+           VALUES ('art-hist', 'owner-1', 'ag-hist', 'c-hist', 'hist.txt', 'file', 'upload', '', '{"objectId":"obj-hist","mime":"text/plain","size":21}', 1, 15, 15)`,
+        )
+        .run();
+      upgradeDb
+        .prepare(
           `INSERT INTO runs(id, owner_id, agent_id, conversation_id, kind, input, state, idempotency_key, payload, result, created_at, updated_at)
-           VALUES ('r-hist', 'owner-1', 'ag-hist', 'c-hist', 'agent', 'Historical prompt', 'completed', 'k-hist', '{"model":"claude-3-5-sonnet"}', '{"resolvedModel":"claude-3-5-sonnet-20241022"}', 20, 30)`,
+           VALUES ('r-hist', 'owner-1', 'ag-hist', 'c-hist', 'agent', 'Historical prompt', 'completed', 'k-hist', '{"model":"claude-3-5-sonnet","resolvedModel":"claude-3-5-sonnet-20241022"}', 'Plain markdown run result text.', 20, 30),
+                  ('r-legacy', 'owner-1', NULL, 'c-hist', 'agent', 'Legacy prompt', 'completed', 'k-legacy', '{}', 'Plain markdown text without JSON.', 31, 32)`,
         )
         .run();
       upgradeDb
         .prepare(
           `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
-           VALUES ('m-hist-q', 'owner-1', 'c-hist', 'r-hist', 'user', 'Historical steering question?', '{"steeringId":"s-hist"}', 22),
+           VALUES ('m-hist-u', 'owner-1', 'c-hist', 'r-hist', 'user', 'Historical prompt', '{}', 20),
+                  ('m-hist-q', 'owner-1', 'c-hist', 'r-hist', 'user', 'Historical steering question?', '{"steeringId":"s-hist"}', 22),
                   ('m-hist-rep', 'owner-1', 'c-hist', 'r-hist', 'assistant', 'Historical steering reply.', '{"reply":{"to":"m-hist-q","published":true}}', 23),
-                  ('m-hist-ans', 'owner-1', 'c-hist', 'r-hist', 'assistant', 'Historical run answer.', '{}', 29),
+                  ('m-hist-ans', 'owner-1', 'c-hist', 'r-hist', 'assistant', 'Historical run answer.', '{"attachments":[{"id":"art-hist","name":"hist.txt","mime":"text/plain","size":21}]}', 29),
+                  ('m-legacy-ans', 'owner-1', 'c-hist', 'r-legacy', 'assistant', 'Legacy answer with unexpected metadata.', '{"legacyExtra":123}', 32),
                   ('m-hist-imp-u', 'owner-1', 'c-hist', NULL, 'user', 'Standalone user prompt', '{}', 40),
                   ('m-hist-imp-a', 'owner-1', 'c-hist', NULL, 'assistant', 'Standalone imported answer.', '{}', 41),
+                  ('m-hist-imp-a2', 'owner-1', 'c-hist', NULL, 'assistant', 'Second standalone imported answer.', '{}', 43),
                   ('m-hist-partial', 'owner-1', 'c-hist', NULL, 'assistant', 'Unfinished partial draft', '{"partial":true}', 42)`,
         )
         .run();
@@ -573,8 +649,51 @@ describe("Canonical Result publication, immutability, and migration", () => {
       expect(backfilledRun?.provenance.resolvedModel).toBe(
         "claude-3-5-sonnet-20241022",
       );
+      expect(backfilledRun?.stimulus.sourceMessageId).toBe("m-hist-u");
+      expect(backfilledRun?.lineage.triggerMessageId).toBe("m-hist-u");
+      expect(backfilledRun?.attachments).toEqual([
+        {
+          artifactId: "art-hist",
+          objectId: "obj-hist",
+          version: 1,
+          sha256: null,
+          name: "hist.txt",
+          mime: "text/plain",
+          size: 21,
+          published: false,
+        },
+      ]);
       expect(backfilledRun?.contentDigest).toBe(
         computeResultContentDigest(backfilledRun!),
+      );
+
+      const backfilledLegacy = getResult("owner-1", "run:r-legacy", upgradeDb);
+      expect(backfilledLegacy?.outcome.body).toBe(
+        "Legacy answer with unexpected metadata.",
+      );
+      expect(backfilledLegacy?.contentDigest).toBe(
+        computeResultContentDigest(backfilledLegacy!),
+      );
+
+      // Re-importing / appending to a migrated multi-message imported thread succeeds without 409
+      upgradeDb
+        .prepare(
+          `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
+           VALUES ('m-hist-imp-a3', 'owner-1', 'c-hist', NULL, 'assistant', 'Newly appended imported answer.', '{}', 44)`,
+        )
+        .run();
+      const reimported = publishImportedConversationResults(
+        "owner-1",
+        "c-hist",
+        upgradeDb,
+      );
+      expect(reimported.map((r) => r.id)).toEqual([
+        "message:m-hist-imp-a",
+        "message:m-hist-imp-a2",
+        "message:m-hist-imp-a3",
+      ]);
+      expect(reimported[2]?.lineage.parentResultId).toBe(
+        "message:m-hist-imp-a2",
       );
 
       const backfilledReply = getResult(

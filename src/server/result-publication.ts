@@ -19,7 +19,7 @@ import {
   type ResultSupplyItem,
 } from "../shared/result.js";
 import { computeResultContentDigest } from "./result-digest.js";
-import { parseCanonicalResult, type Message } from "./row-schemas.js";
+import { parseCanonicalResult } from "./row-schemas.js";
 import * as resultsQueries from "./sql/results.js";
 import * as resultContextEdgesQueries from "./sql/result-context-edges.js";
 
@@ -27,7 +27,11 @@ export const MAX_RESULT_SUPPLY_ITEMS = 6;
 export const MAX_RESULT_SUPPLY_CHARS = 2_400;
 export const MAX_TOTAL_RESULT_SUPPLY_CHARS = 7_200;
 
-function isEligibleAnswerMessage(message: Message): boolean {
+type SnapshotMessage = NonNullable<
+  ReturnType<typeof resultsQueries.messageById>
+>;
+
+function isEligibleAnswerMessage(message: SnapshotMessage): boolean {
   if (message.role !== "assistant") return false;
   if (message.content.trim().length === 0) return false;
   const meta = message.metadata;
@@ -35,6 +39,12 @@ function isEligibleAnswerMessage(message: Message): boolean {
     return false;
   }
   return true;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 function readResolvedModelFromRunResult(
@@ -60,7 +70,7 @@ function readResolvedModelFromRunResult(
 
 export function snapshotMessageAttachments(
   ownerId: string,
-  message: Message,
+  message: SnapshotMessage,
   database: Database.Database = db,
 ): ResultAttachmentRef[] {
   const rawAttachments = message.metadata.attachments;
@@ -69,20 +79,18 @@ export function snapshotMessageAttachments(
   }
   const refs: ResultAttachmentRef[] = [];
   for (const item of rawAttachments) {
+    if (!item || typeof item.id !== "string" || !item.id) continue;
     const artifact = resultsQueries.artifactById(database, ownerId, item.id);
     if (!artifact) continue;
     const artMeta = artifact.metadata as {
-      objectId?: string;
-      mime?: string;
-      size?: number;
+      objectId?: unknown;
+      mime?: unknown;
+      size?: unknown;
     };
     const candidateObjectId =
-      (typeof item.objectId === "string" && item.objectId.length > 0
-        ? item.objectId
-        : null) ??
-      (typeof artMeta.objectId === "string" && artMeta.objectId.length > 0
+      typeof artMeta.objectId === "string" && artMeta.objectId.length > 0
         ? artMeta.objectId
-        : null);
+        : null;
     const objectId = candidateObjectId
       ? (resultsQueries.ownedObjectId(database, ownerId, candidateObjectId)
           ?.id ?? null)
@@ -94,7 +102,7 @@ export function snapshotMessageAttachments(
     );
     const name =
       (typeof item.name === "string" && item.name.trim()) ||
-      artifact.title.trim() ||
+      artifact.title?.trim() ||
       artifact.id;
     const mime =
       (typeof item.mime === "string" && item.mime.trim()) ||
@@ -329,15 +337,23 @@ export function publishCompletedRunResult(
     run.id,
   );
   const triggerMessageId = triggerMessage?.id ?? null;
-  const automationKind = triggerMessage?.metadata.automation?.kind ?? null;
+  const automationKind: string | null =
+    triggerMessage?.metadata.automation?.kind ?? null;
   const automationFrom = triggerMessage?.metadata.automation?.fromName ?? null;
 
   let stimulusKind: ResultStimulus["kind"] = "user_prompt";
   let authorKind: ResultStimulus["authorKind"] = "owner";
-  if (automationKind === "agent_message" || automationKind === "agent_result") {
+  if (
+    automationKind === "agent_message" ||
+    automationKind === "agent_result" ||
+    automationKind === "agent_ping"
+  ) {
     stimulusKind = "delegation";
     authorKind = "agent";
-  } else if (automationKind === "feed_digest") {
+  } else if (
+    automationKind === "feed_digest" ||
+    automationKind === "schedule"
+  ) {
     stimulusKind = "schedule";
     authorKind = "system";
   } else if (automationKind) {
@@ -349,15 +365,16 @@ export function publishCompletedRunResult(
   const agent = agentId
     ? resultsQueries.agentSummary(database, ownerId, agentId)
     : undefined;
-  const agentName = agent?.name.trim() || agentId || "Agent";
-  const model =
-    (typeof run.payload.model === "string" && run.payload.model.trim()) ||
-    agent?.model ||
+  const agentName =
+    readNonEmptyString(agent?.name) ||
+    readNonEmptyString(run.payload.name) ||
     null;
-  const resolvedModel = readResolvedModelFromRunResult(run.result);
+  const model = readNonEmptyString(run.payload.model) || agent?.model || null;
+  const resolvedModel =
+    readNonEmptyString(run.payload.resolvedModel) ||
+    readResolvedModelFromRunResult(run.result);
   const connectionId =
-    (typeof run.payload.connectionId === "string" &&
-      run.payload.connectionId.trim()) ||
+    readNonEmptyString(run.payload.connectionId) ||
     conversation.execution_connection_id ||
     agent?.connection_id ||
     null;
@@ -379,7 +396,7 @@ export function publishCompletedRunResult(
       kind: "run_answer",
       createdAt: Math.max(
         0,
-        Math.trunc(run.updated_at || answer.created_at || run.created_at),
+        Math.trunc(run.updated_at ?? answer.created_at ?? run.created_at),
       ),
       stimulus: {
         kind: stimulusKind,
@@ -391,7 +408,7 @@ export function publishCompletedRunResult(
       },
       outcome: {
         title: collapseResultTitle(
-          run.input || answer.content,
+          run.input.trim() ? run.input : answer.content,
           conversation.title || "Result",
           200,
         ),
@@ -462,15 +479,16 @@ export function publishSteeringReplyResult(
   const agent = agentId
     ? resultsQueries.agentSummary(database, options.ownerId, agentId)
     : undefined;
-  const agentName = agent?.name.trim() || agentId || "Agent";
-  const model =
-    (typeof run?.payload.model === "string" && run.payload.model.trim()) ||
-    agent?.model ||
+  const agentName =
+    readNonEmptyString(agent?.name) ||
+    readNonEmptyString(run?.payload.name) ||
     null;
-  const resolvedModel = readResolvedModelFromRunResult(run?.result);
+  const model = readNonEmptyString(run?.payload.model) || agent?.model || null;
+  const resolvedModel =
+    readNonEmptyString(run?.payload.resolvedModel) ||
+    readResolvedModelFromRunResult(run?.result);
   const connectionId =
-    (typeof run?.payload.connectionId === "string" &&
-      run.payload.connectionId.trim()) ||
+    readNonEmptyString(run?.payload.connectionId) ||
     conversation.execution_connection_id ||
     agent?.connection_id ||
     null;
@@ -496,7 +514,7 @@ export function publishSteeringReplyResult(
       },
       outcome: {
         title: collapseResultTitle(
-          questionText || message.content,
+          questionText?.trim() ? questionText : message.content,
           conversation.title || "Reply",
           200,
         ),
@@ -544,7 +562,7 @@ export function publishImportedConversationResults(
   const agent = agentId
     ? resultsQueries.agentSummary(database, ownerId, agentId)
     : undefined;
-  const agentName = agent?.name.trim() || agentId || "Agent";
+  const agentName = readNonEmptyString(agent?.name);
 
   const messages = resultsQueries.standaloneAssistantMessages(
     database,
@@ -557,6 +575,13 @@ export function publishImportedConversationResults(
   for (const message of messages) {
     if (!isEligibleAnswerMessage(message)) continue;
     const id = messageResultId(message.id);
+    const existing = resultsQueries.byId(database, ownerId, id);
+    if (existing && existing.sealed === 1) {
+      const existingCanonical = parseCanonicalResult(existing);
+      published.push(existingCanonical);
+      previousResultId = existingCanonical.id;
+      continue;
+    }
     const precedingUser = resultsQueries.precedingStandaloneUserMessage(
       database,
       ownerId,
@@ -584,7 +609,7 @@ export function publishImportedConversationResults(
         },
         outcome: {
           title: collapseResultTitle(
-            promptText || message.content,
+            promptText?.trim() ? promptText : message.content,
             conversation.title || "Result",
             200,
           ),
