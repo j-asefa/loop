@@ -14,9 +14,112 @@ const exec = promisify(execFile);
 const SETUP =
   "Antigravity setup failed. Choose Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. Check agy models and the project configuration if sign-in is already complete.";
 
+const COMMAND_NAME = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
+// agy 1.5.9 advertises its catalog about 1 s after launch.
+const CATALOG_TIMEOUT = 5000;
+const CLOSE_TIMEOUT = 1000;
+const delay = (ms: number, timers: NodeJS.Timeout[]) =>
+  new Promise<undefined>((resolve) => {
+    timers.push(setTimeout(() => resolve(undefined), ms));
+  });
+
+/** Reads the commands and skills agy advertises for a project. The headless
+ * stream protocol has no catalog, so this opens a short-lived `agy acp`
+ * session that sends no prompt and only reads its documented
+ * available_commands_update notification. Discovery is optional: any failure
+ * or timeout yields an empty catalog. A received catalog is kept even when
+ * agy does not answer the courtesy session/close. CATALOG_TIMEOUT bounds the
+ * whole read, including the close; stopping the ACP process happens in the
+ * background so a slow exit never delays a prompt. Aborting `signal` ends
+ * discovery at once.
+ */
+async function discoverCommands(
+  executable: string,
+  project: string,
+  signal: AbortSignal,
+): Promise<NativeCommand[]> {
+  let native: Native | undefined;
+  const timers: NodeJS.Timeout[] = [];
+  let abort: (() => void) | undefined;
+  try {
+    if (signal.aborted) return [];
+    const deadline = new Promise<undefined>((resolve) => {
+      abort = () => resolve(undefined);
+      signal.addEventListener("abort", abort, { once: true });
+      timers.push(setTimeout(abort, CATALOG_TIMEOUT));
+    });
+    native = new Native(executable, ["acp"], project);
+    native.jsonrpc = true;
+    const acp = native;
+    const advertised = new Promise<unknown>((resolve) => {
+      acp.on("message", (message) => {
+        const update = message?.params?.update;
+        if (
+          message?.method === "session/update" &&
+          update?.sessionUpdate === "available_commands_update"
+        )
+          resolve(update.availableCommands);
+      });
+      acp.on("failure", () => resolve(undefined));
+    });
+    const read = (async () => {
+      await acp.request("initialize", {
+        protocolVersion: 1,
+        clientCapabilities: {},
+      });
+      const session = await acp.request("session/new", {
+        cwd: project,
+        mcpServers: [],
+      });
+      return { session, list: await advertised };
+    })();
+    read.catch(() => {});
+    const result = await Promise.race([read, deadline]);
+    if (!result) return [];
+    const { session, list } = result;
+    if (typeof session?.sessionId === "string")
+      await Promise.race([
+        acp
+          .request("session/close", { sessionId: session.sessionId })
+          .catch(() => {}),
+        delay(CLOSE_TIMEOUT, timers),
+        deadline,
+      ]);
+    if (!Array.isArray(list)) return [];
+    const commands = new Map<string, NativeCommand>();
+    for (const entry of list.slice(0, 500)) {
+      const name = entry?.name;
+      if (
+        typeof name !== "string" ||
+        !COMMAND_NAME.test(name) ||
+        commands.has(name)
+      )
+        continue;
+      const description =
+        typeof entry.description === "string"
+          ? entry.description.replace(/[\x00-\x1f\x7f]+/g, " ").slice(0, 500)
+          : "";
+      commands.set(name, {
+        name,
+        token: `/${name}`,
+        kind: "command",
+        description,
+      });
+    }
+    return [...commands.values()];
+  } catch {
+    return [];
+  } finally {
+    for (const timer of timers) clearTimeout(timer);
+    if (abort) signal.removeEventListener("abort", abort);
+    void native?.dispose().catch(() => {});
+  }
+}
+
 /** The public agy stream protocol; credentials and context stay with agy.
  * https://antigravity.google/docs/cli/headless/
- * No ACP, private backend API, permission bypass or credential-store reads.
+ * ACP is used only to read the command catalog (see discoverCommands). No
+ * private backend API, permission bypass or credential-store reads.
  */
 export class Antigravity implements Adapter {
   static readonly startupSteps: Readonly<Record<string, string>> = {};
@@ -30,6 +133,8 @@ export class Antigravity implements Adapter {
   };
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
+  private catalog: Promise<NativeCommand[]> = Promise.resolve([]);
+  private discovery = new AbortController();
   private native?: Native;
   private disposal?: Promise<void>;
   private session?: string;
@@ -106,6 +211,12 @@ export class Antigravity implements Adapter {
       }
       this.models = [...models].map(([id, name]) => ({ id, name }));
       if (!this.models.length) throw new Error(SETUP);
+      // Sign-in is confirmed; read the catalog while the session starts.
+      this.catalog = discoverCommands(
+        this.options.executable,
+        this.options.project,
+        this.discovery.signal,
+      ).then((commands) => (this.commands = commands));
       this.native = new Native(
         this.options.executable,
         [
@@ -113,7 +224,6 @@ export class Antigravity implements Adapter {
           "stream-json",
           "--output-format",
           "stream-json",
-          "--disable-slash-commands",
           "--print-timeout",
           "0",
           ...(this.options.resume
@@ -140,6 +250,12 @@ export class Antigravity implements Adapter {
         this.ready = undefined;
       }
       if (this.stopped) throw new Error(SETUP);
+      // A catalog probe exists to read the catalog. A session starts without
+      // it; the first prompt waits for it (see prompt).
+      if (this.options.probeOnly) {
+        await this.catalog;
+        if (this.stopped) throw new Error(SETUP);
+      }
       return this.billing;
     } catch (error) {
       await this.dispose();
@@ -173,6 +289,9 @@ export class Antigravity implements Adapter {
   }
 
   async prompt(text: string, beforeDispatch?: () => void) {
+    // Framing depends on the catalog. Discovery is bounded and never throws;
+    // nothing has been dispatched yet while it settles.
+    await this.catalog;
     if (this.stopped || !this.native || !this.session)
       throw new Error("Antigravity session is unavailable.");
     if (this.active)
@@ -188,16 +307,28 @@ export class Antigravity implements Adapter {
     try {
       await this.native.write({
         event: "user",
-        message: {
-          content: this.options.instructions
-            ? `${this.options.instructions}\n\n${text}`
-            : text,
-        },
+        message: { content: this.content(text) },
       });
     } catch (error) {
       this.fail();
       throw error;
     }
+  }
+
+  /** agy expands a slash command only at the start of the message, and it
+   * also intercepts its own CLI commands (for example /help), which end the
+   * turn with an error. Only a command from the discovered catalog leads the
+   * message; saved instructions follow it. Any other message that would start
+   * with "/", from the task text or the saved instructions, gets a leading
+   * zero-width space so it stays literal.
+   */
+  private content(text: string) {
+    const instructions = this.options.instructions;
+    const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
+    if (name && this.commands.some((c) => c.name === name))
+      return instructions ? `${text}\n\n${instructions}` : text;
+    const content = instructions ? `${instructions}\n\n${text}` : text;
+    return content.trimStart().startsWith("/") ? `\u200b${content}` : content;
   }
 
   private message(message: any) {
@@ -363,6 +494,7 @@ export class Antigravity implements Adapter {
   }
   async dispose() {
     this.stopped = true;
+    this.discovery.abort();
     this.ready?.reject(new Error(SETUP));
     await (this.disposal ??= this.native?.dispose() ?? Promise.resolve());
   }
