@@ -35,6 +35,8 @@ try {
     checkoutReads = 0;
   const detail = {
     id: "checkout",
+    owner_id: "alice",
+    generation: null,
     run_id: "first",
     agent_id: "agent",
     conversation_id: "thread",
@@ -125,6 +127,9 @@ try {
   ).toBeVisible();
   await page.evaluate(() => window.kind("checkout"));
   await expect.poll(() => checkoutReads).toBe(1);
+  await expect(page.locator(".changes-sheet")).toContainText(
+    "feature/evidence",
+  );
   status = 404;
   await expect.poll(() => checkoutReads, { timeout: 8000 }).toBe(2);
   await expect(
