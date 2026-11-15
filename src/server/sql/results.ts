@@ -488,3 +488,35 @@ export function importedSequence(db: Database.Database) {
     .all()
     .map((row) => parseRecord(importedSequenceRow, row, "results"));
 }
+
+// Completed runs whose answer was never sealed, oldest first.
+const unpublishedCompletedRunsStatement = statement(
+  `SELECT r.owner_id,r.id FROM runs r
+   WHERE r.state='completed' AND r.conversation_id IS NOT NULL
+     AND NOT EXISTS(SELECT 1 FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id)
+   ORDER BY r.owner_id ASC,r.updated_at ASC,r.rowid ASC`,
+);
+const unpublishedRunRow = z.object({ owner_id: z.string(), id: z.string() });
+export function unpublishedCompletedRuns(db: Database.Database) {
+  return unpublishedCompletedRunsStatement(db)
+    .all()
+    .map((row) => parseRecord(unpublishedRunRow, row, "runs"));
+}
+
+// Published steering replies whose answer was never sealed.
+const unpublishedRepliesStatement = statement(
+  `SELECT p.owner_id,p.message_id,p.steering_id,p.created_at FROM steering_replies p
+   WHERE NOT EXISTS(SELECT 1 FROM results res WHERE res.owner_id=p.owner_id AND res.id='reply:'||p.message_id)
+   ORDER BY p.owner_id ASC,p.created_at ASC,p.rowid ASC`,
+);
+const unpublishedReplyRow = z.object({
+  owner_id: z.string(),
+  message_id: z.string(),
+  steering_id: z.string(),
+  created_at: z.number(),
+});
+export function unpublishedReplies(db: Database.Database) {
+  return unpublishedRepliesStatement(db)
+    .all()
+    .map((row) => parseRecord(unpublishedReplyRow, row, "steering_replies"));
+}

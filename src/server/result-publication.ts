@@ -36,14 +36,13 @@ type SnapshotMessage = NonNullable<
   ReturnType<typeof resultsQueries.messageById>
 >;
 
+// The answers Done has always listed: assistant output that is not a
+// progress update and is not blank (see feed-answers.ts). A completed run's
+// last answer is published even if its stream was never marked final.
 function isEligibleAnswerMessage(message: SnapshotMessage): boolean {
   if (message.role !== "assistant") return false;
   if (message.content.trim().length === 0) return false;
-  const meta = message.metadata;
-  if (meta.progress === true || meta.partial === true) {
-    return false;
-  }
-  return true;
+  return message.metadata.progress !== true;
 }
 
 function readNonEmptyString(value: unknown): string | null {
@@ -592,6 +591,7 @@ export function publishCompletedRunResult(
   runId: string,
   ownerId: string,
   database: Database.Database,
+  completeness: ResultOriginCompleteness = "sealed_at_publication",
 ): CanonicalResult | null {
   const id = runResultId(runId);
   const existing = resultsQueries.byId(database, ownerId, id);
@@ -718,7 +718,13 @@ export function publishCompletedRunResult(
         conversationId: run.conversation_id,
         runId: run.id,
         messageId: answer.id,
-        placement: placementSnapshot(ownerId, conversation, run, database),
+        // Sealed late, only the folder the run recorded is evidence of where
+        // it ran; the conversation's folder now is not.
+        placement:
+          completeness === "migrated_backfill" &&
+          run.payload.folderId === undefined
+            ? UNKNOWN_RESULT_PLACEMENT
+            : placementSnapshot(ownerId, conversation, run, database),
         origin: { kind: "produced" },
       },
       lineage: {
@@ -728,6 +734,7 @@ export function publishCompletedRunResult(
       },
     },
     database,
+    completeness,
   );
 }
 
@@ -739,6 +746,7 @@ export function publishSteeringReplyResult(
     createdAt?: number;
   },
   database: Database.Database,
+  completeness: ResultOriginCompleteness = "sealed_at_publication",
 ): CanonicalResult | null {
   const id = replyResultId(options.messageId);
   const existing = resultsQueries.byId(database, options.ownerId, id);
@@ -838,12 +846,11 @@ export function publishSteeringReplyResult(
         conversationId: message.conversation_id,
         runId,
         messageId: message.id,
-        placement: placementSnapshot(
-          options.ownerId,
-          conversation,
-          run,
-          database,
-        ),
+        placement:
+          completeness === "migrated_backfill" &&
+          run?.payload.folderId === undefined
+            ? UNKNOWN_RESULT_PLACEMENT
+            : placementSnapshot(options.ownerId, conversation, run, database),
         origin: { kind: "produced" },
       },
       lineage: {
@@ -853,6 +860,7 @@ export function publishSteeringReplyResult(
       },
     },
     database,
+    completeness,
   );
 }
 
@@ -939,11 +947,14 @@ function publishStandaloneAnswers(
     );
     const copied = copiedAnswerEvidence(ownerId, message, database);
     const importProvider = externalImportProvider(conversation.origin);
+    // A native session handoff imports the harness's own transcript.
     const origin: ResultOrigin = copied
       ? copied.origin
       : conversation.origin.endsWith("import")
         ? { kind: "external_import", provider: importProvider }
-        : { kind: "unknown" };
+        : conversation.origin === "native"
+          ? { kind: "external_import", provider: agent?.provider ?? null }
+          : { kind: "unknown" };
     const authorship: ResultAuthorship = copied ?? {
       agentId,
       agentName,
@@ -965,9 +976,11 @@ function publishStandaloneAnswers(
         kind: "imported_answer",
         createdAt,
         stimulus: {
-          kind: conversation.origin.endsWith("import")
-            ? "import"
-            : "user_prompt",
+          kind:
+            conversation.origin.endsWith("import") ||
+            conversation.origin === "native"
+              ? "import"
+              : "user_prompt",
           text: promptText,
           sourceMessageId: promptId,
           authorKind: stimulus.kind === "unknown" ? "unknown" : "owner",

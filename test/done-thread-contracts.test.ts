@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
+import { sealSeededHistory } from "./helpers/published-history";
 
 it("companion persists Done threads without changing conversations and isolates every operation by owner", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -69,6 +70,8 @@ it("companion persists Done threads without changing conversations and isolates 
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES('imported',?,'basil','assistant','Imported answer','{}',20),('prompt',?,'basil','user','Not a result','{}',21)",
     ).run(owner, owner);
+    // The seeded answers are released history, sealed as an upgrade would.
+    sealSeededHistory(db);
     const snapshot = () =>
       ["conversations", "runs", "messages"].map((table) =>
         db.prepare("SELECT * FROM " + table + " ORDER BY id").all(),

@@ -15,6 +15,7 @@ import type { Options } from "../adapters/types.js";
 import { type Item } from "../shared/protocol.js";
 import { Problem } from "./domain.js";
 import type { AgentWorkspace } from "./agent-worktree.js";
+import { publishImportedConversationResults } from "./result-publication.js";
 
 type PreparedImport = {
   agent: string;
@@ -208,6 +209,8 @@ export function importSession(
         now(),
       );
   }
+  // Imported answers are published history, sealed with the import.
+  publishImportedConversationResults(OWNER, conversation, db);
   return conversation;
 }
 export async function resumeFromDesktop(options: Options, nativeId: string) {

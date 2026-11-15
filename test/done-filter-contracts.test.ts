@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
+import { sealSeededHistory } from "./helpers/published-history";
 
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -37,6 +38,8 @@ it("companion filters Done before pagination and reconciles read transitions wit
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('idle',?,'idle','user','A prompt without an answer',30)",
     ).run(owner);
+    // The seeded answers are released history, sealed as an upgrade would.
+    sealSeededHistory(db);
     const read = (id: string, conversation = id[0], unreadVersion?: number) =>
       request(`/api/feed/${conversation}/read`, {
         method: "PUT",

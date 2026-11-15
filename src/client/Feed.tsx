@@ -448,6 +448,14 @@ function FeedCard({
                 <time dateTime={new Date(item.last_activity_at).toISOString()}>
                   {relativeTime(item.last_activity_at)}
                 </time>
+                {item.produced_in && (
+                  <span
+                    className="card-environment"
+                    title="Where this result was published. Filters follow the conversation's current folder."
+                  >
+                    Produced in {item.produced_in.project_name || "no project"}
+                  </span>
+                )}
                 {item.result_findings?.map((finding) => (
                   <span
                     key={finding}

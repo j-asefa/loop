@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { applyMigrations } from "../src/server/migrations";
+import { sealSeededHistory } from "./helpers/published-history";
 import { installFixtureProjection } from "./helpers/projected-writer";
 
 const exec = promisify(execFile);
@@ -214,6 +215,8 @@ it("marks existing Done results read once, including dismissed and grouped cards
         "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('new-import','owner-one','owner-one-thread','assistant','New answer',7)",
       ).run();
     }).immediate();
+    // Their writers publish them as Results.
+    sealSeededHistory(db);
     const second = await start();
     expect(second[0]).toEqual({
       ...first[0],

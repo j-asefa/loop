@@ -63,6 +63,7 @@ export type FeedRow = {
   queued: number;
   result_attachments?: string | null;
   result_findings?: string | null;
+  result_placement?: string | null;
 };
 
 export type FeedCardDetail = {
@@ -214,6 +215,7 @@ export function displayFeedCard(
       : null,
     next_action: nextAction(row, run, mode === "done"),
     ...resultFindings(mode, row.result_findings),
+    ...producedIn(mode, row),
   };
 }
 
@@ -263,4 +265,19 @@ function resultFindings(
   if (mode !== "done" || !findings) return {};
   const kinds = z.array(ResultDefectKindSchema).parse(JSON.parse(findings));
   return kinds.length ? { result_findings: kinds } : {};
+}
+
+const RecordedPlacement = z.object({
+  project_id: z.string().nullable(),
+  project_name: z.string().nullable(),
+});
+
+// Where the Result was produced, when that differs from where its
+// conversation is organized now. Filters and moves follow the current
+// organization; the recorded placement is provenance only.
+function producedIn(mode: "thread" | "done" | "working", row: FeedRow) {
+  if (mode !== "done" || !row.result_placement) return {};
+  const placement = RecordedPlacement.parse(JSON.parse(row.result_placement));
+  const current = row.folder_id ? (row.project_id ?? null) : null;
+  return placement.project_id === current ? {} : { produced_in: placement };
 }

@@ -235,7 +235,7 @@ it("chains an appended imported answer to the run that preceded it", () => {
   expect(getResult(owner, a.id, db)!.lineage.parentResultId).toBeNull();
 });
 
-it("keeps a Done card in the folder its Result was published from", () => {
+it("files a Done card under its conversation's current folder and shows where its Result was published", () => {
   const owner = id();
   const agent = agentFor(owner, "placed");
   const [origin, later] = ["Origin", "Later"].map((name) => {
@@ -267,7 +267,15 @@ it("keeps a Done card in the folder its Result was published from", () => {
     limit: 20,
     atTime: now() + 1000,
   }).find((entry) => entry.card.id === `d:${result.id}`);
-  expect(card?.card.context.folder_id).toBe(origin);
+  // Organization follows the move; the published placement stays recorded.
+  expect(card?.card.context.folder_id).toBe(later);
+  expect(card?.card.type === "done" && card.card.display.produced_in).toEqual({
+    project_id: origin,
+    project_name: "Origin",
+  });
+  expect(getResult(owner, result.id, db)!.provenance.placement.folderId).toBe(
+    origin,
+  );
 });
 
 it("backfills historical fork and continuation copies with their source author", () => {

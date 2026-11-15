@@ -4,8 +4,11 @@ import type { CanonicalResult } from "../shared/result.js";
 import {
   copiedAnswerEvidence,
   importedStimulusResolver,
+  publishCompletedRunResult,
   publishHistoricalConversationResults,
+  publishSteeringReplyResult,
 } from "./result-publication.js";
+import * as feedCardDirtyQueries from "./sql/feed-card-dirty.js";
 import * as resultDefectsQueries from "./sql/result-defects.js";
 import * as passesQueries from "./sql/result-history-passes.js";
 import * as resultsQueries from "./sql/results.js";
@@ -100,7 +103,7 @@ type Pass = {
   name: string;
   // Whether this pass applies to a database whose canonical results were
   // created by the current migration run (`fresh`) or by an earlier build.
-  appliesTo: "fresh" | "existing";
+  appliesTo: "fresh" | "existing" | "any";
   run: (database: Database.Database, at: number) => void;
 };
 
@@ -208,6 +211,23 @@ const passes: Pass[] = [
       }
     },
   },
+  {
+    // Done and Replies read only sealed Results. Earlier builds still listed
+    // answers that had none, such as native session imports, so those are
+    // sealed now from the evidence that listed them.
+    name: "seal-unpublished-answers",
+    appliesTo: "existing",
+    run: (database) => sealUnpublishedAnswers(database),
+  },
+  {
+    // Result cards are rebuilt from the Results they display, under current
+    // folder organization.
+    name: "rebuild-result-cards",
+    appliesTo: "any",
+    run: (database) => {
+      feedCardDirtyQueries.markResultConversationsDirty(database);
+    },
+  },
 ];
 
 function author(p: {
@@ -301,6 +321,39 @@ function recordDefect(
   }
 }
 
+// Seals, as migrated history, answers that an earlier build listed without a
+// Result: completed runs, published steering replies and standalone answers.
+// Each publication is idempotent and keeps existing sealed Results.
+export function sealUnpublishedAnswers(database: Database.Database) {
+  for (const run of resultsQueries.unpublishedCompletedRuns(database)) {
+    publishCompletedRunResult(
+      run.id,
+      run.owner_id,
+      database,
+      "migrated_backfill",
+    );
+  }
+  for (const reply of resultsQueries.unpublishedReplies(database)) {
+    publishSteeringReplyResult(
+      {
+        ownerId: reply.owner_id,
+        messageId: reply.message_id,
+        steeringId: reply.steering_id,
+        createdAt: reply.created_at,
+      },
+      database,
+      "migrated_backfill",
+    );
+  }
+  for (const row of resultsQueries.historicalAnswerConversations(database)) {
+    publishHistoricalConversationResults(
+      row.owner_id,
+      row.conversation_id,
+      database,
+    );
+  }
+}
+
 export function runResultHistoryPasses(
   database: Database.Database,
   options: { freshResults: boolean; now?: number },
@@ -308,7 +361,10 @@ export function runResultHistoryPasses(
   const at = options.now ?? Date.now();
   for (const pass of passes) {
     if (passesQueries.applied(database, pass.name)) continue;
-    if ((pass.appliesTo === "fresh") === options.freshResults) {
+    if (
+      pass.appliesTo === "any" ||
+      (pass.appliesTo === "fresh") === options.freshResults
+    ) {
       pass.run(database, at);
     }
     passesQueries.record(database, pass.name, at);

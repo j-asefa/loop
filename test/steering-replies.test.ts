@@ -13,6 +13,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { sealSeededHistory } = await import("./helpers/published-history");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -38,6 +39,8 @@ const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const base = `http://127.0.0.1:${(server.address() as any).port}`;
 async function request(owner: string, path: string, body?: unknown) {
+  // Runs this file completes with SQL are sealed as published history.
+  if (body === undefined) sealSeededHistory(db);
   const response = await fetch(base + path, {
     method: body === undefined ? "GET" : "PATCH",
     headers: { "x-owner": owner, "content-type": "application/json" },

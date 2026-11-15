@@ -10,3 +10,16 @@ export function any(db: Database.Database) {
     ? undefined
     : parseRecord(anyRow, row, "feed_card_dirty");
 }
+
+// Every conversation with a published output or a projected result card is
+// re-projected in full, so cards follow the Results they display.
+const markResultConversationsDirtyStatement = statement(
+  `INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key)
+   SELECT owner_id,conversation_id,'*' FROM results
+   WHERE sealed=1 AND kind IN ('run_answer','imported_answer')
+   UNION
+   SELECT owner_id,conversation_id,'*' FROM feed_cards WHERE kind='result'`,
+);
+export function markResultConversationsDirty(db: Database.Database) {
+  return markResultConversationsDirtyStatement(db).run();
+}
