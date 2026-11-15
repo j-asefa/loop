@@ -1,4 +1,11 @@
 export type ClientEvents = {
+  "loop-open-pull": string;
+  "loop-tools-closed": undefined;
+  "loop-pr-watch-change": undefined;
+  "loop-show-later": {
+    section: "all" | "saved" | "reminders" | "scheduled";
+    focusId: string | null;
+  };
   "loop-refresh": undefined;
   "loop-source-refresh": undefined;
   "loop-later-change": undefined;

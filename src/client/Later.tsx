@@ -1,4 +1,8 @@
-import { emitClientEvent, listenClientEvent } from "./clientEvents";
+import {
+  emitClientEvent,
+  listenClientEvent,
+  type ClientEvents,
+} from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
@@ -38,10 +42,7 @@ import { relativeTime, reminderReason } from "./threadView";
 import { notify } from "./toast";
 
 type LaterView = RouteResponse<typeof workspaceApi.laterList>["due"][number];
-export type LaterSection = "all" | "saved" | "reminders" | "scheduled";
-
-export type ShowLater = { section: LaterSection; focusId: string | null };
-export const SHOW_LATER = "loop-show-later";
+type LaterSection = ClientEvents["loop-show-later"]["section"];
 /**
  * Ask Later to open at a section, optionally highlighting one item. A page
  * that mounts reads the request from the view cache; one already open (your
@@ -55,11 +56,7 @@ export function showLater(section: LaterSection, focusId?: string) {
   else url.searchParams.delete("profileTab");
   url.searchParams.delete("social");
   history.replaceState(history.state, "", url.pathname + url.search);
-  window.dispatchEvent(
-    new CustomEvent<ShowLater>(SHOW_LATER, {
-      detail: { section, focusId: focusId || null },
-    }),
-  );
+  emitClientEvent("loop-show-later", { section, focusId: focusId || null });
 }
 
 // Every Later item is a full-size card, matching result and Feed cards.
@@ -530,8 +527,7 @@ export function Later({
   );
   useEffect(() => cacheView("later-focus", null, viewOwner()), []);
   useEffect(() => {
-    const shown = (event: Event) => {
-      const { section, focusId } = (event as CustomEvent<ShowLater>).detail;
+    const shown = ({ section, focusId }: ClientEvents["loop-show-later"]) => {
       // A list for another section is about to be replaced; the one that
       // mounts reads the focus from the cache.
       if (only && only !== section) return;
@@ -539,8 +535,7 @@ export function Later({
       setFocus(focusId);
       cacheView("later-focus", null, viewOwner());
     };
-    window.addEventListener(SHOW_LATER, shown);
-    return () => window.removeEventListener(SHOW_LATER, shown);
+    return listenClientEvent("loop-show-later", shown);
   }, [only]);
   const setSection = (value: LaterSection) => {
     setSectionState(value);

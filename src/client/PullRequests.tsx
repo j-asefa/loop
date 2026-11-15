@@ -1,4 +1,4 @@
-import { listenClientEvent } from "./clientEvents";
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceId } from "./SourceContext";
@@ -66,11 +66,8 @@ function pullFromKey(key: string): PullRequestRef | undefined {
   return { owner: match[1], repo: match[2], number: Number(match[3]) };
 }
 /** Opens a pull request in the Pull requests tab from anywhere in Loop. */
-export const OPEN_PULL = "loop-open-pull";
-/** Tools closed: GitHub may have been connected or removed there. */
-export const TOOLS_CLOSED = "loop-tools-closed";
 export function openPull(ref: PullRequestRef) {
-  window.dispatchEvent(new CustomEvent(OPEN_PULL, { detail: pullKey(ref) }));
+  emitClientEvent("loop-open-pull", pullKey(ref));
 }
 
 const STATE_LABEL: Record<PullRequestState, string> = {
@@ -225,12 +222,12 @@ function PullRequestInbox({
   useEffect(() => {
     const refresh = () => void load();
     const stopRefreshEvent = listenClientEvent("loop-refresh", refresh);
-    window.addEventListener(TOOLS_CLOSED, refresh);
+    const stopToolsEvent = listenClientEvent("loop-tools-closed", refresh);
     const stopChanges = listenWorkspaceChanges("pulls", refresh, source);
     return () => {
       stopChanges();
       stopRefreshEvent();
-      window.removeEventListener(TOOLS_CLOSED, refresh);
+      stopToolsEvent();
     };
   }, [key, reader.load]);
   const setFilter = (value: PullFilter) => {

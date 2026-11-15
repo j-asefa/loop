@@ -1,4 +1,4 @@
-import { emitClientEvent } from "../clientEvents";
+import { emitClientEvent, listenClientEvent } from "../clientEvents";
 import { runMatchesScope } from "../runScope.js";
 import {
   readArtifactMetadata,
@@ -44,7 +44,6 @@ import {
   type ComposerContext,
   type LatestAgentMessage,
 } from "../composerContext";
-import { OPEN_PULL } from "../PullRequests";
 import { useComposerContextDraft } from "./useComposerContextDraft";
 import { useSheetNavigation } from "./useSheetNavigation";
 import { useComposerFocus } from "./useComposerFocus";
@@ -364,12 +363,10 @@ export function useAppController(seed?: AppNavigationInitial) {
     setPull(key);
   };
   useEffect(() => {
-    const open = (e: Event) => {
-      const key = (e as CustomEvent<unknown>).detail;
+    const open = (key: string) => {
       if (typeof key === "string") openPullRef.current(key);
     };
-    window.addEventListener(OPEN_PULL, open);
-    return () => window.removeEventListener(OPEN_PULL, open);
+    return listenClientEvent("loop-open-pull", open);
   }, []);
   /** Later at a section (Scheduled, Reminders), highlighting one item. */
   function openLater(section: "scheduled" | "reminders", focusId?: string) {

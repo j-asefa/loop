@@ -9,7 +9,7 @@ import { Sheet } from "./components";
 import { Avatar } from "./Avatar";
 import { ProfileCover } from "./ProfileCover";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { SHOW_LATER, type LaterSection, type ShowLater } from "./Later";
+import { listenClientEvent, type ClientEvents } from "./clientEvents";
 
 export type MyProfileData = RouteResponse<typeof workspaceApi.personalProfile>;
 type ProfileTab =
@@ -18,7 +18,7 @@ type ProfileTab =
   | "answers"
   | "files"
   | "social"
-  | Exclude<LaterSection, "all">;
+  | Exclude<ClientEvents["loop-show-later"]["section"], "all">;
 const profileTabs: [ProfileTab, string][] = [
   ["messages", "Messages"],
   ["approvals", "Approvals"],
@@ -63,7 +63,9 @@ export function MyProfile({
   decisions: (kind: "approval" | "answer") => ReactNode;
   files: ReactNode;
   social?: ReactNode;
-  later: (section: Exclude<LaterSection, "all">) => ReactNode;
+  later: (
+    section: Exclude<ClientEvents["loop-show-later"]["section"], "all">,
+  ) => ReactNode;
   /** Open agent management, from the Agents count. */
   onAgents: () => void;
   /** Open the Projects tab, from the Projects count. */
@@ -98,14 +100,10 @@ export function MyProfile({
   };
   // "Show in Later" while your profile is already open switches the tab.
   useEffect(() => {
-    const shown = (event: Event) => {
-      const { section } = (event as CustomEvent<ShowLater>).detail;
+    const shown = ({ section }: ClientEvents["loop-show-later"]) => {
       if (section !== "all") setTab(section);
     };
-    window.addEventListener(SHOW_LATER, shown);
-    return () => {
-      window.removeEventListener(SHOW_LATER, shown);
-    };
+    return listenClientEvent("loop-show-later", shown);
   }, []);
   const [editing, setEditing] = useState(false);
   const counts = profile?.counts;

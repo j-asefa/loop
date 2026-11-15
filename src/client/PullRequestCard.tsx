@@ -1,3 +1,4 @@
+import { emitClientEvent } from "./clientEvents";
 import { ConversationId, parseId } from "../shared/contract-ids.js";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { useSourceRoute, useSourceId } from "./SourceContext";
@@ -12,7 +13,6 @@ import { openPull } from "./PullRequests";
 export type Watch = RouteResponse<
   typeof workspaceApi.prWatchList
 >["watches"][number];
-const WATCH_CHANGE = "loop-pr-watch-change";
 
 function useWatchState(conversation: string | null | undefined) {
   return useProjectionQuery(
@@ -24,7 +24,7 @@ function useWatchState(conversation: string | null | undefined) {
       source: useSourceId(),
       collections: ["pulls"],
       conversation: conversation ?? undefined,
-      events: [WATCH_CHANGE],
+      events: ["loop-pr-watch-change"],
     },
   );
 }
@@ -42,7 +42,7 @@ function WatchControl({ watch }: { watch?: Watch }) {
     setError("");
     try {
       await work();
-      window.dispatchEvent(new Event(WATCH_CHANGE));
+      emitClientEvent("loop-pr-watch-change");
     } catch (e) {
       setError((e as Error).message);
     } finally {
