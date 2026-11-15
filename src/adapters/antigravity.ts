@@ -105,7 +105,7 @@ export class Antigravity implements Adapter {
     return this.adapter.models;
   }
   get commands() {
-    return this.adapter.commands;
+    return this.adapter.commands ?? [];
   }
   get activityCapabilities() {
     return this.adapter.activityCapabilities;
