@@ -110,6 +110,29 @@ try {
     page.getByRole("button", { name: "Retry connection", exact: true }),
   ).toHaveCount(0);
   status = 503;
+  holdNext = true;
+  await page.evaluate(() => window.refresh());
+  await expect.poll(() => held.length).toBe(1);
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Approval read unavailable",
+  );
+  const manualFailureReads = requests.length;
+  await page.waitForTimeout(2500);
+  assert.equal(
+    requests.length,
+    manualFailureReads,
+    "Manual retry must not schedule automatic 503 retries",
+  );
+  held.shift()();
+  status = 200;
+  await page
+    .getByRole("button", { name: "Retry connection", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  status = 503;
   await page.evaluate(() => window.refresh());
   await expect(page.getByRole("alert")).toContainText(
     "Approval read unavailable",
