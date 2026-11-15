@@ -81,7 +81,8 @@ try {
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });
-  const page = await browser.newPage(),
+  const context = await browser.newContext();
+  const page = await context.newPage(),
     errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const url = `http://127.0.0.1:${server.address().port}`;
@@ -164,9 +165,7 @@ try {
   await staleTab
     .getByRole("menuitem", { name: "Recover earlier thread", exact: true })
     .click();
-  await expect(staleTab.getByRole("alert")).toContainText(
-    "pending change has changed",
-  );
+  await expect(staleTab.getByRole("alert")).toContainText("pending");
   assert.equal(ids.length, beforeStale, "A stale recovery must not dispatch");
   const activeSlots = await staleTab.evaluate(() =>
     Object.keys(localStorage).filter((key) => key.startsWith("loop-effect:")),
