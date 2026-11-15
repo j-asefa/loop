@@ -204,8 +204,9 @@ const descriptors = {
   antigravity: {
     label: "Antigravity",
     executable: "agy",
-    // Public stream-json, exact conversation resume and literal prompts.
-    minimumVersion: "1.4.9",
+    // agy acp with session/resume and steering by a concurrent session/prompt;
+    // verified with 1.5.9 (steering was reported working from 1.5.2).
+    minimumVersion: "1.5.2",
     installUrl: "https://antigravity.google/docs/getting-started?tab=cli",
     runtime: true,
     billing: {
@@ -223,9 +224,9 @@ const descriptors = {
     managed: false,
     workspaceTools: false,
     agentMail: false,
-    midTurn: "queue",
+    midTurn: "steer",
     provider: "antigravity",
-    activityTransport: "native",
+    activityTransport: "acp",
     launchPermissionMode: false,
     cliSignIn: null,
     importWorktree: false,

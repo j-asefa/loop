@@ -620,7 +620,9 @@ it.each(harnessIds)(
     );
     sessions.state.startTurn(live, run);
     // Expected protocol is independent of the descriptor under test.
-    const expected = harness === "acp" || harness === "grok" ? "acp" : "native";
+    const expected = ["acp", "grok", "antigravity"].includes(harness)
+      ? "acp"
+      : "native";
     const before = (await snapshot("conv")).body.items.length;
     for (const transport of [
       "api",

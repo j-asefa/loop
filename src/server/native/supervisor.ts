@@ -704,7 +704,10 @@ export class NativeSessions {
     const steering = new SteeringInbox(
       run,
       undefined,
-      !!this.tools && !snapshot.reviewId,
+      // The reply tool exists only where the harness receives workspace tools.
+      !!this.tools &&
+        !snapshot.reviewId &&
+        harnesses[live.binding.harness].workspaceTools,
     );
     let stopSteering: (() => Promise<void>) | undefined;
     const generation = live.generation;

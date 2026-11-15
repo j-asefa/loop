@@ -24,7 +24,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     claude: "2.1.284",
     pi: "0.87.1",
     opencode: "1.18.33",
-    antigravity: "1.4.9",
+    antigravity: "1.5.9",
   };
   for (const name of names) {
     if (name === "antigravity") {

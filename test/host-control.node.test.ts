@@ -9,9 +9,9 @@ const exec = promisify(execFile);
 
 const versions = {
   antigravity: {
-    minimum: "1.4.9",
-    older: "1.4.8",
-    latest: "1.4.9",
+    minimum: "1.5.2",
+    older: "1.5.1",
+    latest: "1.5.9",
     format: (v: string) => `${v}\n`,
   },
   muse: {
