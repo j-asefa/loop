@@ -3581,7 +3581,7 @@ export function Feed({
       {grouping.error && (
         <p className="error" role="alert">
           {grouping.error}
-          <button onClick={grouping.refresh}>Retry</button>
+          <button onClick={grouping.retry}>Retry</button>
         </p>
       )}
       {mailThreads.error && (

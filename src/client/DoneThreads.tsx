@@ -1,6 +1,8 @@
 import { DoneThreadId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCollectionRead } from "./CollectionRead";
+import { createReadExecutor } from "./read-executor";
 import {
   ArrowRight,
   ChevronRight,
@@ -52,10 +54,12 @@ export function useDoneThreads(
   const [threads, setThreads] = useState<SourcedDoneThread[]>([]);
   const [supported, setSupported] = useState<string[]>([]);
   const [error, setError] = useState("");
-  const [revision, setRevision] = useState(0);
+  const context = useMemo(
+    () => ({ refresh: (_manual = false) => {} }),
+    [key, enabled, generation],
+  );
   const [loadedGeneration, setLoadedGeneration] = useState(generation);
   const [loadedKey, setLoadedKey] = useState(key);
-  const refresh = () => setRevision((value) => value + 1);
   useEffect(() => {
     setSupported([]);
   }, [key, generation]);
@@ -64,8 +68,9 @@ export function useDoneThreads(
       setThreads([]);
       return;
     }
-    const controller = new AbortController();
+    let active = true;
     const owner = viewOwner();
+    const failures = new Set<string>();
     setLoadedGeneration(generation);
     setLoadedKey(key);
     setError("");
@@ -74,60 +79,80 @@ export function useDoneThreads(
         (source) => cachedView<SourcedDoneThread[]>(cacheKey(source)) ?? [],
       ),
     );
-    void Promise.all(
-      sources.map(async (source) => {
-        try {
-          const reader = contractDoneThreadReader((contract, input, signal) =>
-            readRoute(contract, input, source, signal ?? controller.signal),
-          );
-          const result = await reader.list(query, controller.signal);
-          if (controller.signal.aborted || generation !== viewGeneration())
-            return;
-          const values = result.map((thread) => ({ ...thread, source }));
-          cacheView(cacheKey(source), values, owner);
-          setThreads((previous) => [
-            ...previous.filter((thread) => thread.source !== source),
-            ...values,
-          ]);
-          setSupported((previous) =>
-            previous.includes(source) ? previous : [...previous, source],
-          );
-        } catch (error) {
-          if (controller.signal.aborted || generation !== viewGeneration())
-            return;
-          if ((error as { status?: number }).status === 404) {
-            cacheView(cacheKey(source), [], owner);
-            setThreads((previous) =>
-              previous.filter((thread) => thread.source !== source),
+    const readers = new Map(
+      [...new Set(sources)].map((source) => [
+        source,
+        createReadExecutor({
+          current: () => active && generation === viewGeneration(),
+          changed: (state) => {
+            if (state.error) failures.add(source);
+            else failures.delete(source);
+            setError(
+              failures.size
+                ? "Couldn’t load card threads. Refresh to try again."
+                : "",
             );
-            setSupported((previous) =>
-              previous.filter((value) => value !== source),
-            );
-          } else setError("Couldn’t load card threads. Refresh to try again.");
-        }
-      }),
+          },
+        }),
+      ]),
     );
-    return () => controller.abort();
-  }, [key, enabled, generation, revision]);
-  useEffect(() => {
-    if (!enabled) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const stop = listenWorkspaceChanges("feed", (event) => {
-      if (
-        !sources.some((source) => workspaceChangeAffects(event, "feed", source))
-      )
-        return;
-      clearTimeout(timer);
-      timer = setTimeout(refresh, 250);
-    });
+    const refresh = (selected = sources, manual = false) => {
+      for (const source of selected) {
+        const executor = readers.get(source);
+        if (!executor) continue;
+        void executor.load(
+          async (signal, mode) => {
+            const reader = contractDoneThreadReader((contract, input) =>
+              readRoute(contract, input, source, signal, undefined, mode),
+            );
+            try {
+              return {
+                supported: true,
+                rows: await reader.list(query, signal),
+              };
+            } catch (error) {
+              if ((error as { status?: number }).status === 404)
+                return { supported: false, rows: [] };
+              throw error;
+            }
+          },
+          (result) => {
+            const values = result.rows.map((thread) => ({ ...thread, source }));
+            cacheView(cacheKey(source), values, owner);
+            setThreads((previous) => [
+              ...previous.filter((thread) => thread.source !== source),
+              ...values,
+            ]);
+            setSupported((previous) =>
+              result.supported
+                ? previous.includes(source)
+                  ? previous
+                  : [...previous, source]
+                : previous.filter((value) => value !== source),
+            );
+          },
+          manual,
+        );
+      }
+    };
+    context.refresh = (manual = false) => refresh(sources, manual);
+    const stop = listenWorkspaceChanges("feed", (event) =>
+      refresh(
+        sources.filter((source) =>
+          workspaceChangeAffects(event, "feed", source),
+        ),
+      ),
+    );
     const focus = () => refresh();
     window.addEventListener("focus", focus);
+    refresh();
     return () => {
+      active = false;
+      for (const reader of readers.values()) reader.dispose();
       stop();
-      clearTimeout(timer);
       window.removeEventListener("focus", focus);
     };
-  }, [key, enabled, generation]);
+  }, [context]);
   return {
     threads:
       enabled && loadedGeneration === generation && loadedKey === key
@@ -141,7 +166,8 @@ export function useDoneThreads(
       enabled && loadedGeneration === generation && loadedKey === key
         ? error
         : "",
-    refresh,
+    refresh: () => context.refresh(),
+    retry: () => context.refresh(true),
   };
 }
 
@@ -374,7 +400,13 @@ export function DoneThreadReader({
   onChanged: () => void;
 }) {
   const capabilities = useSourceCapabilities();
-  const [detail, setDetail] = useState<DoneThreadDetail | null>(null);
+  const readKey = JSON.stringify([thread.source, thread.id, viewGeneration()]);
+  const { load, error: readError } = useCollectionRead(readKey);
+  const [snapshot, setSnapshot] = useState<{
+    key: string;
+    value: DoneThreadDetail | null;
+  }>();
+  const detail = snapshot?.key === readKey ? snapshot.value : null;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -389,49 +421,45 @@ export function DoneThreadReader({
       live.current = false;
     };
   }, []);
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => setRevision((value) => value + 1), 250);
-    };
-    const stop = listenWorkspaceChanges("feed", refresh, thread.source);
-    window.addEventListener("focus", refresh);
-    return () => {
-      stop();
-      clearTimeout(timer);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [thread.id, thread.source]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setError("");
-    const reader = contractDoneThreadReader((contract, input, signal) =>
-      readRoute(contract, input, thread.source, signal ?? controller.signal),
-    );
-    void reader
-      .detail(thread.id, controller.signal)
-      .then((result) => {
-        if (
-          !controller.signal.aborted &&
-          generation.current === viewGeneration()
-        )
-          setDetail(result);
-      })
-      .catch((error) => {
-        if (
-          !controller.signal.aborted &&
-          generation.current === viewGeneration()
-        ) {
-          if (error.status === 404) {
-            setDetail(null);
+  const refresh = useCallback(
+    (manual = false) => {
+      setError("");
+      return load(
+        async (signal, mode) => {
+          const reader = contractDoneThreadReader((contract, input) =>
+            readRoute(contract, input, thread.source, signal, undefined, mode),
+          );
+          try {
+            return await reader.detail(thread.id, signal);
+          } catch (error) {
+            if ((error as { status?: number }).status === 404) return null;
+            throw error;
+          }
+        },
+        (value) => {
+          setSnapshot({ key: readKey, value });
+          if (!value) {
             callbacks.current.onClose();
             callbacks.current.onChanged();
-          } else setError(error.message);
-        }
-      });
-    return () => controller.abort();
-  }, [thread.id, thread.source, revision]);
+          }
+        },
+        manual,
+      );
+    },
+    [load, readKey],
+  );
+  useEffect(() => {
+    const update = () => void refresh();
+    const stop = listenWorkspaceChanges("feed", update, thread.source);
+    window.addEventListener("focus", update);
+    return () => {
+      stop();
+      window.removeEventListener("focus", update);
+    };
+  }, [refresh]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh, revision]);
   async function remove(card: string) {
     if (changing.current || generation.current !== viewGeneration()) return;
     changing.current = true;
@@ -465,20 +493,22 @@ export function DoneThreadReader({
         wide
         onClose={onClose}
       >
-        {error && (
+        {(error || readError) && (
           <p className="error" role="alert">
-            {error}
+            {error || readError}
             <button
               onClick={() => {
                 setError("");
-                setRevision((value) => value + 1);
+                void refresh(true);
               }}
             >
               Retry
             </button>
           </p>
         )}
-        {!detail && !error && <p role="status">Loading thread…</p>}
+        {!detail && !error && !readError && (
+          <p role="status">Loading thread…</p>
+        )}
         {detail?.cards.map((card) => (
           <article className="done-thread-message" key={card.id}>
             <p className="field-hint">
