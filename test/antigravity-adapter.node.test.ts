@@ -251,6 +251,28 @@ test("Antigravity keeps a received catalog when agy does not answer session/clos
   }
 });
 
+test("Antigravity bounds a catalog read by its deadline even when the ACP process is slow to stop", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "acp-hang-slow-stop";
+  const probe = new Antigravity({ ...options, probeOnly: true }, () => {});
+  try {
+    const started = Date.now();
+    await probe.start();
+    // 5 s discovery deadline; stopping the process (2.5 s grace) is not awaited.
+    assert(Date.now() - started < 6500, `${Date.now() - started} ms`);
+    assert.deepEqual(probe.commands, []);
+  } finally {
+    await probe.dispose();
+  }
+  const adapter = new Antigravity(options, () => {});
+  const started = Date.now();
+  await adapter.start();
+  // Disposal ends a pending discovery at once.
+  await adapter.dispose();
+  await assert.rejects(adapter.prompt("Task"), /unavailable/);
+  assert(Date.now() - started < 3000, `${Date.now() - started} ms`);
+});
+
 test("Antigravity starts a session without waiting for a catalog agy never advertises", async (t) => {
   const requests = fixture(t);
   process.env.LOOP_TEST_AGY_MODE = "acp-hang";

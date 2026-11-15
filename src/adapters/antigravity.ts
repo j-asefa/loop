@@ -28,15 +28,26 @@ const delay = (ms: number, timers: NodeJS.Timeout[]) =>
  * session that sends no prompt and only reads its documented
  * available_commands_update notification. Discovery is optional: any failure
  * or timeout yields an empty catalog. A received catalog is kept even when
- * agy does not answer the courtesy session/close.
+ * agy does not answer the courtesy session/close. CATALOG_TIMEOUT bounds the
+ * whole read, including the close; stopping the ACP process happens in the
+ * background so a slow exit never delays a prompt. Aborting `signal` ends
+ * discovery at once.
  */
 async function discoverCommands(
   executable: string,
   project: string,
+  signal: AbortSignal,
 ): Promise<NativeCommand[]> {
   let native: Native | undefined;
   const timers: NodeJS.Timeout[] = [];
+  let abort: (() => void) | undefined;
   try {
+    if (signal.aborted) return [];
+    const deadline = new Promise<undefined>((resolve) => {
+      abort = () => resolve(undefined);
+      signal.addEventListener("abort", abort, { once: true });
+      timers.push(setTimeout(abort, CATALOG_TIMEOUT));
+    });
     native = new Native(executable, ["acp"], project);
     native.jsonrpc = true;
     const acp = native;
@@ -63,7 +74,7 @@ async function discoverCommands(
       return { session, list: await advertised };
     })();
     read.catch(() => {});
-    const result = await Promise.race([read, delay(CATALOG_TIMEOUT, timers)]);
+    const result = await Promise.race([read, deadline]);
     if (!result) return [];
     const { session, list } = result;
     if (typeof session?.sessionId === "string")
@@ -72,6 +83,7 @@ async function discoverCommands(
           .request("session/close", { sessionId: session.sessionId })
           .catch(() => {}),
         delay(CLOSE_TIMEOUT, timers),
+        deadline,
       ]);
     if (!Array.isArray(list)) return [];
     const commands = new Map<string, NativeCommand>();
@@ -99,7 +111,8 @@ async function discoverCommands(
     return [];
   } finally {
     for (const timer of timers) clearTimeout(timer);
-    await native?.dispose().catch(() => {});
+    if (abort) signal.removeEventListener("abort", abort);
+    void native?.dispose().catch(() => {});
   }
 }
 
@@ -121,6 +134,7 @@ export class Antigravity implements Adapter {
   models: { id: string; name: string }[] = [];
   commands: NativeCommand[] = [];
   private catalog: Promise<NativeCommand[]> = Promise.resolve([]);
+  private discovery = new AbortController();
   private native?: Native;
   private disposal?: Promise<void>;
   private session?: string;
@@ -201,6 +215,7 @@ export class Antigravity implements Adapter {
       this.catalog = discoverCommands(
         this.options.executable,
         this.options.project,
+        this.discovery.signal,
       ).then((commands) => (this.commands = commands));
       this.native = new Native(
         this.options.executable,
@@ -479,6 +494,7 @@ export class Antigravity implements Adapter {
   }
   async dispose() {
     this.stopped = true;
+    this.discovery.abort();
     this.ready?.reject(new Error(SETUP));
     await (this.disposal ??= this.native?.dispose() ?? Promise.resolve());
   }

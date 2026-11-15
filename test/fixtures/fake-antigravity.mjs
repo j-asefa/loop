@@ -47,8 +47,13 @@ if (args[0] === "acp") {
     if (message.method === "session/new") {
       reply(message.id, { sessionId: "agy-acp-catalog" });
       if (mode === "acp-silent") process.exit(0);
-      // Stays connected without ever advertising a catalog.
-      if (mode === "acp-hang") return;
+      // Stays connected without ever advertising a catalog; the slow-stop
+      // variant also ignores SIGTERM until forced.
+      if (mode === "acp-hang-slow-stop") {
+        process.on("SIGTERM", () => {});
+        setInterval(() => {}, 1000);
+      }
+      if (mode?.startsWith("acp-hang")) return;
       console.log(
         JSON.stringify({
           jsonrpc: "2.0",
