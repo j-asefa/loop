@@ -18,10 +18,12 @@ try {
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change(new URLSearchParams(location.search).get('owner')||'alice');setShellSource('');
-    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:['d:run:first','d:run:second'],previews:[]},threads:[],onClose:()=>window.completed=true,onDone:()=>{}}));
+    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[],onClose:()=>window.completed=true,onDone:()=>{}}));
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
+  const payloads = [];
+  const deleted = new Set();
   const ids = [],
     records = new Map();
   let loseReply = true;
@@ -51,6 +53,12 @@ try {
     for await (const chunk of req) raw += chunk;
     const body = JSON.parse(raw);
     ids.push(body.id);
+    payloads.push(body);
+    if (deleted.has(body.id)) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Thread not found" }));
+      return;
+    }
     if (!records.has(body.id)) records.set(body.id, { ...body, createdAt: 1 });
     res.writeHead(loseReply ? 500 : 200, {
       "content-type": "application/json",
@@ -78,7 +86,22 @@ try {
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.equal(records.size, 1);
-  await page.reload();
+  await page.getByLabel("New thread name").fill("Edited while uncertain");
+  await submit();
+  await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
+  assert.equal(
+    ids[1],
+    ids[0],
+    "Editing an uncertain title must retain its identity",
+  );
+  assert.equal(
+    payloads[1].title,
+    "Results",
+    "Recovery must retain its original creation context",
+  );
+  ids.splice(1);
+  payloads.splice(1);
+  await page.goto(url + "/?reverse=1");
   loseReply = false;
   await submit();
   await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
@@ -100,6 +123,31 @@ try {
   await page.goto(url + "/?owner=bob");
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
+  const old = ids[3];
+  deleted.add(old);
+  records.delete(old);
+  loseReply = false;
+  await submit();
+  await expect(page.getByRole("alert")).toContainText("Thread not found");
+  await page
+    .getByRole("button", { name: "Start a separate thread", exact: true })
+    .click();
+  await submit();
+  await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
+  assert.notEqual(
+    ids.at(-1),
+    old,
+    "Explicit separate creation must release the deleted receipt slot",
+  );
+  const history = await page.evaluate(() =>
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith("loop-effect-history:"))
+      .map((key) => JSON.parse(localStorage.getItem(key))),
+  );
+  assert(
+    history.some((record) => record.commandId === old),
+    "The superseded uncertain identity must remain in history",
+  );
   assert.notEqual(
     ids[3],
     ids[2],
