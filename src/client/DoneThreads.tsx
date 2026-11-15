@@ -60,7 +60,7 @@ export function useDoneThreads(
     setSupported([]);
   }, [key, generation]);
   const refresh = useCallback(
-    (manual = true) => {
+    (manual = false) => {
       if (!enabled) return Promise.resolve();
       return load(
         async (signal, mode) => {
@@ -146,6 +146,7 @@ export function useDoneThreads(
         ? error
         : "",
     refresh: () => refresh(),
+    retry: () => refresh(true),
   };
 }
 
