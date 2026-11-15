@@ -317,8 +317,25 @@ export function OrganizeCards({
     } catch (error) {
       if (live.current && generation.current === viewGeneration()) {
         if (!target) {
-          setCreationPending(error instanceof UncertainEffect);
-          setUncertain(error instanceof UncertainEffect ? error : undefined);
+          if (error instanceof UncertainEffect) {
+            setCreationPending(true);
+            setUncertain(error);
+          } else {
+            try {
+              const owner = viewOwner();
+              const receipt = owner
+                ? storedCommands(localStorage)(
+                    owner,
+                    selection.source,
+                    creationTarget,
+                  ).read()
+                : undefined;
+              setCreationPending(!!receipt);
+              if (!receipt) setUncertain(undefined);
+            } catch {
+              // Unavailable storage cannot establish that recovery settled.
+            }
+          }
         }
         setError((error as Error).message);
       }
