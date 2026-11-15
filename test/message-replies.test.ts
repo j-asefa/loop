@@ -1,3 +1,4 @@
+import { assertAnswerStored } from "./fixtures/answer-record.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
@@ -141,6 +142,11 @@ it.each(["openai", "anthropic"] as const)(
       const claimed = claim("reply-worker")!;
       expect(claimed.id).toBe(accepted.data.id);
       expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
+      assertAnswerStored(
+        db,
+        claimed.id,
+        "They store different session formats.",
+      );
       transition(claimed, "completed");
       expect(received).toContain("@" + agent.name);
       expect(received).toContain("> I am separating the session tables.");

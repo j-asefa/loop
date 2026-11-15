@@ -1,7 +1,7 @@
+import { createPreviewAnswer } from "./answer-record.js";
 import { writeMessageMetadata } from "../shared/message-metadata.js";
 import { writeRunPayload } from "../shared/run-payload.js";
 import * as approvalsQueries from "./sql/approvals.js";
-import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as designPreviewSeedQueries from "./sql/design-preview-seed.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -26,7 +26,6 @@ import {
   Problem,
 } from "./domain.js";
 import { seal } from "./secrets.js";
-import { saveArtifact } from "./artifacts.js";
 import { ensureWorkspaceProject } from "./workspace-project.js";
 import { claim, transition, type Run } from "./queue.js";
 import { SteeringInbox } from "./steering.js";
@@ -174,26 +173,17 @@ function reply(run: Run, content: string, partial = false) {
 function finish(run: Run, content: string) {
   // Called inside the simulator's transaction: messages and delivery receipts commit together.
   new SteeringInbox(run).appendPending([]);
-  const message = reply(run, content);
-  const artifact = saveArtifact(run.owner_id, {
-    title: run.input.slice(0, 120),
-    content,
-    agent: run.agent_id,
-    conversation: run.conversation_id,
-    run: run.id,
-    folder: run.payload.folderId,
-    metadata: { messageId: message, preview: true, model: MODEL },
-    role: "answer",
-  });
-  agentCheckpointsQueries.previewComplete(
-    db,
-    run.id,
-    message,
-    artifact,
-    "[]",
+  createPreviewAnswer(
+    run,
+    {
+      messageId: id(),
+      title: run.input.slice(0, 120),
+      folder: run.payload.folderId,
+      messageMetadata: writeMessageMetadata({ preview: true }),
+      artifactMetadata: { preview: true, model: MODEL },
+    },
     content,
   );
-  runsQueries.setResult(db, content, run.id);
   if (!transition(run, "completed", { preview: true }))
     throw new Problem(409, "This preview run can no longer complete");
   runsQueries.clearLease(db, run.id);
