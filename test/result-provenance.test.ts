@@ -489,10 +489,16 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
 
     const upgraded = new Database(join(work, "earlier.db"));
     applyMigrations(upgraded);
-    // Sealed rows, digests and references are untouched.
+    // Sealed rows, digests and references are untouched. The only new row
+    // seals the answer an earlier build listed without a Result.
+    const after = upgraded
+      .prepare("SELECT * FROM results ORDER BY owner_id,id")
+      .all() as { id: string }[];
+    const known = new Set((before as { id: string }[]).map((row) => row.id));
+    expect(after.filter((row) => known.has(row.id))).toEqual(before);
     expect(
-      upgraded.prepare("SELECT * FROM results ORDER BY owner_id,id").all(),
-    ).toEqual(before);
+      after.filter((row) => !known.has(row.id)).map((row) => row.id),
+    ).toEqual(["message:owner-b-loose"]);
     // Copies naming the destination agent are flagged with the evidence; the
     // copy sealed with the right author by a later build is not.
     expect(
