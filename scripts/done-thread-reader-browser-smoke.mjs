@@ -43,7 +43,8 @@ try {
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
-  let failNext = false;
+  let failNext = false,
+    holdRemote = false;
   let holdNext = false,
     status = 200,
     aborted = 0,
@@ -114,7 +115,7 @@ try {
     res.on("close", () => {
       if (!res.writableEnded) aborted++;
     });
-    if (holdNext) {
+    if (holdNext && (!holdRemote || source === "remote")) {
       holdNext = false;
       held.push(send);
     } else send();
@@ -133,10 +134,12 @@ try {
         "detail-scope",
         "missing",
         "partial",
+        "independent-sources",
         "mutation-refresh",
         "list-retry",
         "detail-retry",
       ]) {
+    holdRemote = false;
     status = 200;
     holdNext = false;
     aborted = 0;
@@ -228,6 +231,27 @@ try {
         "Mutation refresh must automatically retry a transient 503",
       );
       await expect(page.locator("#error")).toHaveText("");
+    } else if (scenario === "independent-sources") {
+      holdNext = true;
+      holdRemote = true;
+      await page.evaluate(() => window.fanout(true));
+      await expect.poll(() => held.length).toBe(1);
+      await expect(page.locator("#rows")).toContainText("first:local:initial");
+      epoch = "healthy-change";
+      await refresh();
+      await expect(page.locator("#rows")).toContainText(
+        "first:local:healthy-change",
+      );
+      assert.equal(
+        held.length,
+        1,
+        "The remote read must remain held while local data refreshes",
+      );
+      assert.equal(
+        requests.filter((request) => request.source === "remote").length,
+        1,
+      );
+      held.shift()();
     } else if (scenario === "partial") {
       holdNext = true;
       await page.evaluate(() => window.fanout(true));
