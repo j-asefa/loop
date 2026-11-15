@@ -312,8 +312,8 @@ export function OrganizeCards({
       {uncertain && (
         <div role="status">
           <p>
-            The earlier thread may already exist. Check Done before starting a
-            separate thread.
+            The earlier thread may already exist. Retrying uses its original
+            name. Check Done before starting a separate thread.
           </p>
           <button
             type="button"
