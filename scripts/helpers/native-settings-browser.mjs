@@ -175,9 +175,48 @@ export async function nativeSettingsBrowser({ page, host, dir, db }) {
       }),
     ).toBeEnabled();
     assert.equal(ids.length, 3);
+    await page.evaluate(() => {
+      const write = Storage.prototype.setItem;
+      window.__restoreSettingCommandStorage = () => {
+        Storage.prototype.setItem = write;
+        delete window.__restoreSettingCommandStorage;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith("loop-effect-history:"))
+          throw new Error("Fixture history storage denied");
+        return write.call(this, key, value);
+      };
+    });
     await settings
       .getByRole("button", { name: "Apply setting again", exact: true })
       .click();
+    await expect(settings.getByRole("alert")).toContainText(
+      "Fixture history storage denied",
+    );
+    assert.equal(
+      ids.length,
+      3,
+      "Failed history preservation must not dispatch a new attempt",
+    );
+    await page.evaluate(() => window.__restoreSettingCommandStorage());
+    await settings
+      .getByRole("button", { name: "Refresh session", exact: true })
+      .click();
+    await expect(
+      settings.getByRole("button", {
+        name: "Apply setting again",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await settings
+      .getByRole("button", { name: "Apply setting again", exact: true })
+      .click();
+    await expect.poll(() => ids.length).toBe(4);
+    assert.notEqual(
+      ids[3],
+      ids[0],
+      "Retry after a history-write failure must supersede the inspected receipt",
+    );
     await expect(select).toHaveValue("plan");
     await expect(select).toBeEnabled();
     await expect(settings.getByRole("alert")).toHaveCount(0);
