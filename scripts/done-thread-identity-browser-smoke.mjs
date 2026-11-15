@@ -141,8 +141,8 @@ try {
   ).toBeVisible();
   assert.equal(
     await page.evaluate(() => window.doneCount || 0),
-    0,
-    "Receipt recovery must not report a new grouping to its parent",
+    1,
+    "Receipt resolution must refresh and clear the parent selection",
   );
   assert.notEqual(
     await page.evaluate(() => window.completed),

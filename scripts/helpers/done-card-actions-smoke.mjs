@@ -243,6 +243,17 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
     // Mouse dragging presents the same choices. A failed write remains retryable.
     await card(0).locator("h2").dragTo(card(1).locator("h2"));
     await expect(aggregation).toBeVisible();
+    await close();
+    await card(0).locator(".feed-row").press("Shift+F10");
+    await menu
+      .getByRole("menuitem", { name: "Select cards", exact: true })
+      .click();
+    await card(1).getByRole("checkbox").check();
+    const retrySelection = page.getByRole("region", { name: "Selected cards" });
+    await expect(retrySelection).toContainText("2 selected");
+    await retrySelection
+      .getByRole("button", { name: "Move to…", exact: true })
+      .click();
     await aggregation.getByLabel("New thread name").fill("Basil and Willow");
     const failingWrite = (route) =>
       route.request().method() === "POST"
@@ -273,6 +284,7 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
         .getByRole("status")
         .filter({ hasText: "Earlier request resolved" }),
     ).toBeVisible();
+    await expect(retrySelection).toHaveCount(0);
     await close();
     await expect(aggregation).toHaveCount(0);
     const grouped = page.locator(".feed-results .feed-item-card").filter({
