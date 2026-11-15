@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import {
   ArtifactId,
   ConnectionId,
@@ -815,8 +816,8 @@ export function SearchWorkspace({
   };
   useEffect(() => {
     const refresh = () => rerun.current();
-    window.addEventListener("loop-refresh", refresh);
-    return () => window.removeEventListener("loop-refresh", refresh);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", refresh);
+    return stopRefreshEvent;
   }, []);
   const groups: { key: string; items: SearchItem[] }[] = [];
   for (const item of result?.items || []) {

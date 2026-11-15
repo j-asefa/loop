@@ -1,3 +1,4 @@
+import { listenClientEvent } from "./clientEvents";
 import { GitCommitId, parsePullNumber } from "../shared/contract-ids";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceId } from "./SourceContext";
@@ -223,12 +224,12 @@ function PullRequestInbox({
   }, [key, reader.load]);
   useEffect(() => {
     const refresh = () => void load();
-    window.addEventListener("loop-refresh", refresh);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", refresh);
     window.addEventListener(TOOLS_CLOSED, refresh);
     const stopChanges = listenWorkspaceChanges("pulls", refresh, source);
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
+      stopRefreshEvent();
       window.removeEventListener(TOOLS_CLOSED, refresh);
     };
   }, [key, reader.load]);
@@ -829,7 +830,7 @@ function PullRequestDetail({
   useEffect(() => {
     void load();
     const refresh = () => void load({ resetCommits: true });
-    window.addEventListener("loop-refresh", refresh);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", refresh);
     const stopChanges = listenWorkspaceChanges(
       "pulls",
       () => void load(),
@@ -837,7 +838,7 @@ function PullRequestDetail({
     );
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
+      stopRefreshEvent();
     };
   }, [reader.load]);
   const name = `${pullRef.owner}/${pullRef.repo}#${pullRef.number}`;

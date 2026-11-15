@@ -1,4 +1,4 @@
-import { emitClientEvent } from "./clientEvents";
+import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import {
   AgentId,
   parseId,
@@ -1323,10 +1323,10 @@ function SocialView({
       setFocused(openedStory());
       void load({ force: true });
     };
-    window.addEventListener("loop-refresh", pulled);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", pulled);
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", pulled);
+      stopRefreshEvent();
       snapshotRead.cancel();
     };
   }, [snapshotRead.load]);

@@ -106,12 +106,12 @@ export function useCards(selection: CardSelection, revision = 0) {
       refresh,
       source,
     );
-    window.addEventListener("loop-refresh", refresh);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", refresh);
     const stopLaterEvent = listenClientEvent("loop-later-change", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
       stopChanges();
-      window.removeEventListener("loop-refresh", refresh);
+      stopRefreshEvent();
       stopLaterEvent();
       document.removeEventListener("visibilitychange", refresh);
       // Invalidate even on unmount with the same owner/source.

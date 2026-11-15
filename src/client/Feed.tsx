@@ -2529,7 +2529,7 @@ export function Feed({
     const stopSocialEvent = listenClientEvent("loop-social-read", update);
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
-    window.addEventListener("loop-source-refresh", update);
+    const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
       const affected: string[] = activeSources
         .filter((source) => workspaceChangeAffects(event, "feed", source.id))
@@ -2555,7 +2555,7 @@ export function Feed({
     return () => {
       stopLaterEvent();
       stopSocialEvent();
-      window.removeEventListener("loop-source-refresh", update);
+      stopSourceEvent();
       stopChanges();
       clearTimeout(doneCatchup.current);
     };
