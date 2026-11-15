@@ -1,4 +1,4 @@
-import { useProjectionRoute } from "./SourceContext";
+import { useProjectionRoute, useSourceId } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -6,6 +6,7 @@ import { useSourceRoute } from "./SourceContext";
 import { useEffect, useState } from "react";
 import { Search, Sparkles } from "lucide-react";
 import { Sheet } from "./components";
+import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { SettingsEmpty } from "./SettingsUI";
 import type { Agent } from "../shared/types";
 
@@ -41,7 +42,6 @@ export function PiCustomizations({
   useEffect(() => {
     if (!selected && piAgents[0]) setSelected(piAgents[0].id);
   }, [selected, piAgents[0]?.id]);
-  const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<
@@ -254,30 +254,22 @@ export function PiCustomizations({
       setBusy(false);
     }
   }
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    setCatalog(null);
-    setError("");
-    void readProjection(
-      workspaceApi.agentHarness,
-      {
-        params: { id: selectedId },
-        query: {
-          conversation: parseId(
-            ConversationId,
-            conversationId && selected === agentId ? conversationId : undefined,
-          ),
-        },
+  useEffect(() => setError(""), [selected, agentId, conversationId, refresh]);
+  const sourceId = useSourceId();
+  const catalogQuery = useProjectionQuery(
+    workspaceApi.agentHarness,
+    {
+      params: { id: selectedId },
+      query: {
+        conversation: parseId(
+          ConversationId,
+          conversationId && selected === agentId ? conversationId : undefined,
+        ),
       },
-      { mode: "once" },
-    )
-      .then((result) => active && setCatalog(result))
-      .catch((cause) => active && setError((cause as Error).message));
-    return () => {
-      active = false;
-    };
-  }, [selected, agentId, conversationId, refresh]);
+    },
+    { source: sourceId, enabled: !!selected, revision: refresh, mode: "once" },
+  );
+  const catalog = catalogQuery.data;
   const inventory = catalog?.inventory;
   const resources = (inventory?.resources || []).filter(
     (resource) =>
@@ -330,7 +322,8 @@ export function PiCustomizations({
               {error}
             </p>
           )}
-          {!catalog && !error && <p role="status">Loading from Pi…</p>}
+          <CollectionReadNotice {...catalogQuery} />
+          {catalogQuery.loading && <p role="status">Loading from Pi…</p>}
           {catalog && !catalog.available && (
             <p className="note">{catalog.message}</p>
           )}
