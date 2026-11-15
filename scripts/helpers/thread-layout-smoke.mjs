@@ -72,6 +72,30 @@ export async function threadLayoutSmoke(page, capture) {
           ".conversation-sheet .message-foot .usage-line",
         );
         await expect(usage).toHaveText("1.2k in · 300 out tokens");
+        if (width === 320 && colorScheme === "light") {
+          const unavailableUsage = (route) =>
+            route.fulfill({
+              status: 503,
+              contentType: "application/json",
+              body: JSON.stringify({ error: "Usage temporarily unavailable" }),
+            });
+          await page.route(usagePattern, unavailableUsage);
+          await page.evaluate(() =>
+            window.dispatchEvent(new Event("loop-refresh")),
+          );
+          const notice = page.getByRole("region", { name: "Thread usage" });
+          await expect(notice.getByRole("alert")).toContainText(
+            "Usage temporarily unavailable",
+            { timeout: 10_000 },
+          );
+          await expect(usage).toHaveText("1.2k in · 300 out tokens");
+          await page.unroute(usagePattern, unavailableUsage);
+          await notice
+            .getByRole("button", { name: "Retry connection" })
+            .click();
+          await expect(notice).toHaveCount(0);
+          await expect(usage).toHaveText("1.2k in · 300 out tokens");
+        }
         assert(omittedMemory > 0);
         await expect(
           page.getByText("Memory used", { exact: true }),
