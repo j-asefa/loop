@@ -43,14 +43,22 @@ class AntigravityAcp extends Acp {
         this.settingId((id) => id === "thinking_level") ??
         this.settingId((id, name) => /effort|thinking/i.test(id + " " + name));
       if (!effort)
-        throw new Error(
-          "Antigravity did not expose its thinking level setting.",
+        throw new NativeSetupError(
+          "antigravity_effort_unavailable",
+          "Antigravity did not expose its thinking level control. Choose another model in Model & connection or update the saved effort selection, then retry. No prompt was sent.",
         );
-      await this.setSetting(
-        effort,
-        this.nativeOptions.effort,
-        this.settings.revision,
-      );
+      try {
+        await this.setSetting(
+          effort,
+          this.nativeOptions.effort,
+          this.settings.revision,
+        );
+      } catch {
+        throw new NativeSetupError(
+          "antigravity_effort_rejected",
+          "Antigravity could not apply the selected thinking level. Choose another model in Model & connection or update the saved effort selection to a supported level, then retry. No prompt was sent.",
+        );
+      }
     }
   }
   override async start() {
@@ -60,7 +68,11 @@ class AntigravityAcp extends Acp {
       return await super.start();
     } catch (error) {
       await this.dispose();
-      if (error instanceof NativeMemoryError) throw error;
+      if (
+        error instanceof NativeMemoryError ||
+        error instanceof NativeSetupError
+      )
+        throw error;
       throw new NativeSetupError(
         "antigravity_setup_failed",
         "Antigravity setup failed. Sign in to Antigravity in Settings → Provider connections, or run agy on the execution computer, then enable Antigravity again. No prompt was sent.",

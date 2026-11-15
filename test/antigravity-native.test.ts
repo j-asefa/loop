@@ -365,7 +365,7 @@ it("refuses an ACP runtime without HTTP MCP support before registering or dispat
         project: dir,
         billing: "existing",
       }),
-    ).rejects.toThrow(/Antigravity setup failed/);
+    ).rejects.toThrow(/HTTP workspace tools/);
     expect(
       requests().filter((r) => r.method === "session/prompt"),
     ).toHaveLength(before);
@@ -512,31 +512,39 @@ it("never resends an ACP prompt after a disconnect, including through recovery",
   }
 });
 
-it("loads asynchronously advertised commands through the production catalog probe and cache without prompting", async () => {
-  process.env.LOOP_TEST_AGY_MODE = "delayed-commands";
-  const { agent } = task("agy-command-catalog");
-  const beforePrompts = requests().filter(
-    (r) => r.method === "session/prompt",
-  ).length;
-  try {
-    const catalog = await sessions.projects.catalog(agent);
-    expect(catalog.commands).toContainEqual({
-      name: "plan",
-      token: "/plan",
-      kind: "command",
-      description: "Plan before executing.",
-    });
-    const afterProbe = requests().filter(
+it.each(["delayed-commands", "early-commands"])(
+  "loads %s through the production catalog probe and cache without prompting",
+  async (mode) => {
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    sessions.projects.clearProbes();
+    const beforeProbe = requests().filter(
       (r) => r.method === "session/new",
     ).length;
-    expect(await sessions.projects.catalog(agent)).toEqual(catalog);
-    expect(requests().filter((r) => r.method === "session/new")).toHaveLength(
-      afterProbe,
-    );
-    expect(
-      requests().filter((r) => r.method === "session/prompt"),
-    ).toHaveLength(beforePrompts);
-  } finally {
-    delete process.env.LOOP_TEST_AGY_MODE;
-  }
-});
+    const { agent } = task(`agy-catalog-${mode}`);
+    const beforePrompts = requests().filter(
+      (r) => r.method === "session/prompt",
+    ).length;
+    try {
+      const catalog = await sessions.projects.catalog(agent);
+      expect(catalog.commands).toContainEqual({
+        name: "plan",
+        token: "/plan",
+        kind: "command",
+        description: "Plan before executing.",
+      });
+      const afterProbe = requests().filter(
+        (r) => r.method === "session/new",
+      ).length;
+      expect(afterProbe).toBe(beforeProbe + 1);
+      expect(await sessions.projects.catalog(agent)).toEqual(catalog);
+      expect(requests().filter((r) => r.method === "session/new")).toHaveLength(
+        afterProbe,
+      );
+      expect(
+        requests().filter((r) => r.method === "session/prompt"),
+      ).toHaveLength(beforePrompts);
+    } finally {
+      delete process.env.LOOP_TEST_AGY_MODE;
+    }
+  },
+);

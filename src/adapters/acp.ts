@@ -1,4 +1,5 @@
 import { workspaceMcp } from "./workspace-mcp.js";
+import { NativeSetupError } from "./setup-error.js";
 import { z } from "zod";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
@@ -103,6 +104,9 @@ export class Acp implements Adapter {
   commandCatalog: CommandsData = { commands: [], revision: 0 };
   private commandDiscoveryComplete = false;
   private commandWaiters = new Set<(proceed: boolean) => void>();
+  private creatingSession = false;
+  // Keep at most one bounded notification until session/new identifies its owner.
+  private startupCommands?: SessionNotification;
   private child?: ChildProcessWithoutNullStreams;
   private connection?: ClientSideConnection;
   private session?: string;
@@ -311,6 +315,7 @@ export class Acp implements Adapter {
         );
         this.loading = false;
       } else {
+        this.creatingSession = true;
         const result = await within(
           this.connection.newSession({
             cwd: this.options.project,
@@ -319,12 +324,16 @@ export class Acp implements Adapter {
           "ACP session/new",
         );
         this.session = result.sessionId;
+        this.creatingSession = false;
         this.refreshModels(result);
         this.supportsConfig = result.configOptions != null;
         this.refreshSettings(
           result.configOptions || [],
           result.modes || undefined,
         );
+        const pendingCommands = this.startupCommands;
+        this.startupCommands = undefined;
+        if (pendingCommands) this.update(pendingCommands);
       }
       if (
         !this.options.probeOnly &&
@@ -332,25 +341,34 @@ export class Acp implements Adapter {
         this.options.model !== "native-default"
       ) {
         if (!this.models.some((model) => model.id === this.options.model))
-          throw new SafeAcpError(
-            "Selected model is not in the agent's session catalog.",
+          throw new NativeSetupError(
+            "native_model_unavailable",
+            "Selected model is not in the agent's current catalog. Choose an available model in Model & connection, then retry. No prompt was sent.",
           );
         const setting = this.rawConfigOptions.find(
           (option) => option.category === "model" && option.type === "select",
         );
-        if (setting) {
-          await this.setSetting(
-            setting.id,
-            this.options.model,
-            this.settings.revision,
-          );
-        } else {
-          await within(
-            this.connection.request("session/set_model", {
-              sessionId: this.session,
-              modelId: this.options.model,
-            }),
-            "ACP session/set_model",
+        try {
+          if (setting) {
+            await this.setSetting(
+              setting.id,
+              this.options.model,
+              this.settings.revision,
+            );
+          } else {
+            await within(
+              this.connection.request("session/set_model", {
+                sessionId: this.session,
+                modelId: this.options.model,
+              }),
+              "ACP session/set_model",
+            );
+          }
+        } catch (error) {
+          if (error instanceof SafeAcpError) throw error;
+          throw new NativeSetupError(
+            "native_model_rejected",
+            "The agent could not apply the selected model. Choose an available model in Model & connection or check the agent's model configuration, then retry. No prompt was sent.",
           );
         }
       }
@@ -363,8 +381,14 @@ export class Acp implements Adapter {
       await this.dispose();
       const memory = nativeMemoryFailure(child);
       if (memory) throw memory;
+      if (error instanceof NativeSetupError) throw error;
+      if (error instanceof SafeAcpError)
+        throw new NativeSetupError(
+          "native_acp_setup_failed",
+          `ACP setup failed: ${error.message} Check the agent executable and ACP compatibility, then enable the connection again. No prompt was sent.`,
+        );
       throw new Error(
-        `ACP setup failed: ${error instanceof SafeAcpError ? error.message : "The agent did not complete setup."} Check the agent executable, local sign-in, and ACP compatibility.`,
+        "ACP setup failed: The agent did not complete setup. Check the agent executable, local sign-in, and ACP compatibility.",
       );
     }
   }
@@ -552,6 +576,8 @@ export class Acp implements Adapter {
   }
   async dispose() {
     this.closed = true;
+    this.creatingSession = false;
+    this.startupCommands = undefined;
     this.finishCommandDiscovery(false);
     this.modeConfirmation?.reject(new Error("ACP session closed"));
     this.modeConfirmation = undefined;
@@ -862,7 +888,16 @@ export class Acp implements Adapter {
     });
   }
   private update(notification: SessionNotification) {
-    if (this.closed || notification.sessionId !== this.session) return;
+    if (this.closed) return;
+    if (!this.session) {
+      if (
+        this.creatingSession &&
+        notification.update.sessionUpdate === "available_commands_update"
+      )
+        this.startupCommands = notification;
+      return;
+    }
+    if (notification.sessionId !== this.session) return;
     const u = notification.update;
     if (
       this.loading &&

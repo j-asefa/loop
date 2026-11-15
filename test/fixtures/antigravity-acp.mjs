@@ -33,6 +33,7 @@ const configOptions = [
     ],
   },
 ];
+if (process.env.LOOP_TEST_AGY_MODE === "no-effort") configOptions.splice(1, 1);
 if (process.env.LOOP_TEST_AGY_MODE === "many-models") {
   configOptions[0].options = Array.from({ length: 150 }, (_, index) => ({
     value: `model-${index}`,
@@ -135,6 +136,29 @@ for await (const line of createInterface({ input: process.stdin })) {
         tools: (await client.listTools()).tools.map((t) => t.name),
       });
     }
+    const advertise = (id = sessionId) =>
+      send({
+        method: "session/update",
+        params: {
+          sessionId: id,
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [
+              { name: "plan", description: "Plan before executing." },
+            ],
+          },
+        },
+      });
+    const catalogMode = process.env.LOOP_TEST_AGY_MODE;
+    const early = ["early-commands", "foreign-early-commands"].includes(
+      catalogMode,
+    );
+    if (early)
+      advertise(
+        catalogMode === "foreign-early-commands"
+          ? "foreign-session"
+          : sessionId,
+      );
     send({
       id: request.id,
       result: {
@@ -142,23 +166,8 @@ for await (const line of createInterface({ input: process.stdin })) {
         configOptions,
       },
     });
-    if (process.env.LOOP_TEST_AGY_MODE !== "no-commands")
-      setTimeout(
-        () =>
-          send({
-            method: "session/update",
-            params: {
-              sessionId,
-              update: {
-                sessionUpdate: "available_commands_update",
-                availableCommands: [
-                  { name: "plan", description: "Plan before executing." },
-                ],
-              },
-            },
-          }),
-        process.env.LOOP_TEST_AGY_MODE === "delayed-commands" ? 300 : 10,
-      );
+    if (catalogMode !== "no-commands" && !early)
+      setTimeout(advertise, catalogMode === "delayed-commands" ? 300 : 10);
   } else if (request.method === "session/prompt") {
     if (process.env.LOOP_TEST_AGY_MODE === "disconnect") process.exit(2);
     if (process.env.LOOP_TEST_AGY_MODE === "hang") continue;
@@ -176,12 +185,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ id: request.id, result: { stopReason: "end_turn" } });
   } else if (request.method === "session/set_config_option") {
     if (
-      process.env.LOOP_TEST_AGY_MODE === "effort-rejected" &&
-      request.params.configId === "thinking_level"
+      (process.env.LOOP_TEST_AGY_MODE === "effort-rejected" &&
+        request.params.configId === "thinking_level") ||
+      (process.env.LOOP_TEST_AGY_MODE === "model-rejected" &&
+        request.params.configId === "model")
     ) {
       send({
         id: request.id,
-        error: { code: -32602, message: "Rejected effort" },
+        error: {
+          code: -32602,
+          message: "Rejected setting private-configuration-fixture",
+        },
       });
       continue;
     }

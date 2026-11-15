@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Antigravity } from "../src/adapters/antigravity.js";
+import { NativeSetupError } from "../src/adapters/setup-error.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import type { Options } from "../src/adapters/types.js";
 import { until } from "./helpers.js";
@@ -476,27 +477,29 @@ test("Antigravity ACP uses session-scoped MCP mode and standard model/effort set
   }
 });
 
-test("Antigravity ACP waits for a delayed catalog before its first slash command", async (t) => {
-  const requests = fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "delayed-commands";
-  const events: AdapterEvent[] = [];
-  const adapter = new Antigravity(
-    { ...options, version: "1.5.9", instructions: "Saved instructions" },
-    (event) => events.push(event),
-  );
-  try {
-    await adapter.start();
-    // The caller sends immediately, without waiting for command discovery.
-    await adapter.prompt("/plan the first turn");
-    await until(() => complete(events).length === 1);
-    assert.deepEqual(
-      requests().find((r) => r.method === "session/prompt").params.prompt,
-      [{ type: "text", text: "/plan the first turn\n\nSaved instructions" }],
+for (const mode of ["delayed-commands", "early-commands"]) {
+  test(`Antigravity ACP handles ${mode} before its first slash command`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity(
+      { ...options, version: "1.5.9", instructions: "Saved instructions" },
+      (event) => events.push(event),
     );
-  } finally {
-    await adapter.dispose();
-  }
-});
+    try {
+      await adapter.start();
+      // The caller sends immediately, without waiting for command discovery.
+      await adapter.prompt("/plan the first turn");
+      await until(() => complete(events).length === 1);
+      assert.deepEqual(
+        requests().find((r) => r.method === "session/prompt").params.prompt,
+        [{ type: "text", text: "/plan the first turn\n\nSaved instructions" }],
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  });
+}
 
 test("Antigravity ACP does not publish a ready session when requested effort is rejected", async (t) => {
   const requests = fixture(t);
@@ -507,7 +510,7 @@ test("Antigravity ACP does not publish a ready session when requested effort is 
     (event) => events.push(event),
   );
   try {
-    await assert.rejects(adapter.start(), /setup failed/);
+    await assert.rejects(adapter.start(), /selected thinking level/);
     assert(
       !events.some(
         (event) => event.type === "status" && event.status === "ready",
@@ -519,6 +522,50 @@ test("Antigravity ACP does not publish a ready session when requested effort is 
     await adapter.dispose();
   }
 });
+
+for (const [mode, selection, code] of [
+  ["unavailable-model", { model: "gone-model" }, "native_model_unavailable"],
+  ["model-rejected", { model: "gemini-agy-fixture" }, "native_model_rejected"],
+  [
+    "unsupported-effort",
+    { effort: "unavailable-effort" },
+    "antigravity_effort_rejected",
+  ],
+  ["effort-rejected", { effort: "high" }, "antigravity_effort_rejected"],
+  ["no-effort", { effort: "high" }, "antigravity_effort_unavailable"],
+] as const) {
+  test(`Antigravity ACP reports safe configuration remediation for ${mode}`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity(
+      { ...options, version: "1.5.9", ...selection },
+      (event) => events.push(event),
+    );
+    try {
+      await assert.rejects(adapter.start(), (error) => {
+        assert(error instanceof NativeSetupError);
+        assert.equal(error.code, code);
+        assert.match(error.message, /Choose|Select/);
+        assert.doesNotMatch(
+          error.message,
+          /sign in|enable Antigravity again|private-/i,
+        );
+        return true;
+      });
+      assert(
+        !events.some(
+          (event) => event.type === "status" && event.status === "ready",
+        ),
+      );
+      assert(
+        !requests().some((request) => request.method === "session/prompt"),
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  });
+}
 
 test(
   "Antigravity ACP catalog probes bound missing discovery without publishing a ready session or prompting",
@@ -549,29 +596,32 @@ test(
   },
 );
 
-test(
-  "Antigravity ACP bounds an absent catalog and keeps unknown commands literal",
-  { timeout: 12000 },
-  async (t) => {
-    const requests = fixture(t);
-    process.env.LOOP_TEST_AGY_MODE = "no-commands";
-    const events: AdapterEvent[] = [];
-    const adapter = new Antigravity({ ...options, version: "1.5.9" }, (event) =>
-      events.push(event),
-    );
-    try {
-      await adapter.start();
-      await adapter.prompt("/plan without a catalog");
-      await until(() => complete(events).length === 1);
-      assert.deepEqual(
-        requests().find((r) => r.method === "session/prompt").params.prompt,
-        [{ type: "text", text: "\u200b/plan without a catalog" }],
+for (const mode of ["no-commands", "foreign-early-commands"]) {
+  test(
+    `Antigravity ACP keeps commands literal with ${mode}`,
+    { timeout: 12000 },
+    async (t) => {
+      const requests = fixture(t);
+      process.env.LOOP_TEST_AGY_MODE = mode;
+      const events: AdapterEvent[] = [];
+      const adapter = new Antigravity(
+        { ...options, version: "1.5.9" },
+        (event) => events.push(event),
       );
-    } finally {
-      await adapter.dispose();
-    }
-  },
-);
+      try {
+        await adapter.start();
+        await adapter.prompt("/plan without a catalog");
+        await until(() => complete(events).length === 1);
+        assert.deepEqual(
+          requests().find((r) => r.method === "session/prompt").params.prompt,
+          [{ type: "text", text: "\u200b/plan without a catalog" }],
+        );
+      } finally {
+        await adapter.dispose();
+      }
+    },
+  );
+}
 
 for (const stop of ["cancel", "dispose"] as const) {
   test(`Antigravity ACP ${stop} prevents dispatch while waiting for commands`, async (t) => {
