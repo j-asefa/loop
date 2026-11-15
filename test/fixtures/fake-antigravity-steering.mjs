@@ -79,13 +79,16 @@ const session = (sessionId) => ({
   ],
 });
 const advertise = (sessionId) =>
-  setTimeout(() => {
-    if (mode !== "acp-silent")
-      update(sessionId, {
-        sessionUpdate: "available_commands_update",
-        availableCommands: commands,
-      });
-  }, 5);
+  setTimeout(
+    () => {
+      if (mode !== "acp-silent")
+        update(sessionId, {
+          sessionUpdate: "available_commands_update",
+          availableCommands: commands,
+        });
+    },
+    mode === "delayed-commands" ? 300 : 5,
+  );
 const echoText = (text) => {
   const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
   return name && commands.some((c) => c.name === name)

@@ -41,6 +41,61 @@ const statuses = (events: AdapterEvent[]) =>
 const complete = (events: AdapterEvent[]) =>
   events.filter((e) => e.type === "status" && e.status === "completed");
 
+for (const version of ["1.5.2", "1.5.9"])
+  test(`Antigravity ${version} waits for delayed discovery before framing a slash-leading steer`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "delayed-commands";
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version }, (e) =>
+      events.push(e),
+    );
+    try {
+      await adapter.start();
+      await adapter.prompt("[slow] Ordinary initial task");
+      await until(() => events.some((e) => e.type === "delta"));
+      assert.deepEqual(adapter.commands, []);
+      await adapter.steer!("/plan investigate");
+      assert.deepEqual(prompts(requests), [
+        "[slow] Ordinary initial task",
+        "/plan investigate",
+      ]);
+    } finally {
+      await adapter.dispose();
+    }
+  });
+
+for (const version of ["1.5.2", "1.5.9"])
+  for (const stop of ["cancel", "dispose"] as const)
+    test(`Antigravity ${version} ${stop} refuses a slash steer still waiting for discovery`, async (t) => {
+      const requests = fixture(t);
+      process.env.LOOP_TEST_AGY_MODE = "acp-silent";
+      const events: AdapterEvent[] = [];
+      const adapter = new Antigravity({ ...options, version }, (e) =>
+        events.push(e),
+      );
+      let dispatched = false;
+      try {
+        await adapter.start();
+        await adapter.prompt("[slow] Ordinary initial task");
+        await until(() => events.some((e) => e.type === "delta"));
+        const pending = assert.rejects(
+          adapter.steer!("/plan must not dispatch", () => {
+            dispatched = true;
+          }),
+          (error) => {
+            assert(error instanceof NotDelivered);
+            return true;
+          },
+        );
+        await adapter[stop]();
+        await pending;
+        assert.equal(dispatched, false);
+        assert.deepEqual(prompts(requests), ["[slow] Ordinary initial task"]);
+      } finally {
+        await adapter.dispose();
+      }
+    });
+
 test("Antigravity probes sign-in, models and the catalog over agy acp without a prompt or permission bypass", async (t) => {
   const requests = fixture(t);
   const adapter = new Antigravity({ ...options, probeOnly: true }, () => {});

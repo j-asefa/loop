@@ -9,7 +9,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { NativeMemoryError } from "../native-memory.js";
 import { NativeSetupError } from "./setup-error.js";
-import type { Adapter, Options, Emit } from "./types.js";
+import {
+  NotDelivered,
+  type Adapter,
+  type Options,
+  type Emit,
+} from "./types.js";
 
 const exec = promisify(execFile);
 const COMMAND = /^\/([^\s]+)(?:\s|$)/;
@@ -135,14 +140,16 @@ class AntigravityAcp extends Acp {
   override async prompt(text: string, beforeDispatch?: () => void) {
     // Framing depends on the catalog, which agy sends just after the session
     // opens. Nothing has been dispatched while this settles.
-    if (text.match(/^\/([^\s]+)(?:\s|$)/) && !(await this.waitForCommands()))
-      throw new Error("ACP session unavailable");
+    if (COMMAND.test(text) && !(await this.waitForCommands()))
+      throw new NotDelivered("ACP session unavailable");
     await super.prompt(this.content(text), beforeDispatch);
   }
 
   /** agy folds the follow-up into the running turn at its next step and
    * echoes it as a user message. */
   async steer(text: string, beforeDispatch?: () => void) {
+    if (COMMAND.test(text) && !(await this.waitForCommands()))
+      throw new NotDelivered("ACP session unavailable");
     const value = this.literal(text);
     await this.steerPrompt(value, this.echoOf(value), beforeDispatch);
   }

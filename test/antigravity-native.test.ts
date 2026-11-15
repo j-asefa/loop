@@ -85,7 +85,7 @@ it.each([
     }
   },
 );
-function task(key: string) {
+function task(key: string, input = "Explicit task") {
   process.env.LOOP_TEST_AGY_SESSION_ID = key;
   const agent = createAgent(OWNER, {
     name: key,
@@ -96,7 +96,7 @@ function task(key: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Antigravity',0)",
   ).run(key, OWNER, agent.id);
-  const run = enqueue(OWNER, "Explicit task", key, {
+  const run = enqueue(OWNER, input, key, {
     conversation: key,
     agent: agent.id,
     payload: {
@@ -627,6 +627,65 @@ it.each(["delayed-commands", "early-commands"])(
         requests().filter((r) => r.method === "session/prompt"),
       ).toHaveLength(beforePrompts);
     } finally {
+      delete process.env.LOOP_TEST_AGY_MODE;
+    }
+  },
+);
+
+it.each([
+  ["1.4.9", "acp-hang"],
+  ["1.5.9", "no-commands"],
+])(
+  "records cancellation before catalog dispatch as not started: %s",
+  async (version, mode) => {
+    await sessions.projects.enable({
+      harness: "antigravity",
+      executable: resolve("test/fixtures/fake-antigravity.mjs"),
+      version,
+      project: dir,
+      billing: "existing",
+    });
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const { run: queued } = task(
+      "agy-cancel-" + version.replaceAll(".", "-"),
+      "/plan must not dispatch",
+    );
+    const run = claim(
+      "catalog-cancel",
+      (candidate) => candidate.id === queued.id,
+    )!;
+    const before = requests().filter(
+      (r) => r.event === "user" || r.method === "session/prompt",
+    ).length;
+    const executing = sessions.execute(run);
+    try {
+      await until(
+        () =>
+          (
+            db
+              .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+              .get(run.id) as { state: string } | undefined
+          )?.state === "unknown",
+      );
+      await sessions.interrupt(run.id);
+      await executing;
+      expect(ownedRun(run.id, OWNER).error).toContain("not started");
+      expect(ownedRun(run.id, OWNER).error).not.toContain(
+        "Native outcome unknown",
+      );
+      expect(
+        db
+          .prepare("SELECT state FROM native_dispatch WHERE run_id=?")
+          .get(run.id),
+      ).toEqual({ state: "interrupted" });
+      expect(
+        requests().filter(
+          (r) => r.event === "user" || r.method === "session/prompt",
+        ),
+      ).toHaveLength(before);
+    } finally {
+      await sessions.interrupt(run.id);
+      await executing;
       delete process.env.LOOP_TEST_AGY_MODE;
     }
   },

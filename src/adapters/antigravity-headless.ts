@@ -5,7 +5,13 @@ import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
 import type { Billing } from "../shared/protocol.js";
-import type { Adapter, Emit, Options, NativeCommand } from "./types.js";
+import {
+  NotDelivered,
+  type Adapter,
+  type Emit,
+  type Options,
+  type NativeCommand,
+} from "./types.js";
 import { directActivityEmitter } from "./direct-activities.js";
 import { tokenCount } from "./usage.js";
 import { NativeSetupError } from "./setup-error.js";
@@ -293,7 +299,7 @@ export class AntigravityHeadless implements Adapter {
     // nothing has been dispatched yet while it settles.
     await this.catalog;
     if (this.stopped || !this.native || !this.session)
-      throw new Error("Antigravity session is unavailable.");
+      throw new NotDelivered("Antigravity session is unavailable.");
     if (this.active)
       throw new Error(
         "Antigravity is still running. Queue the follow-up for the next turn.",
