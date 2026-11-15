@@ -53,10 +53,13 @@ page_run AS MATERIALIZED (
 picked AS MATERIALIZED (
   SELECT k.*,r.id card_run_id,
     ${publicRunStateSql("r")} card_run_state,
-    r.error card_run_error,r.input card_run_input,
-    json_extract(r.payload,'$.connectionId') card_run_connection_id,json_extract(r.payload,'$.model') card_run_model,
-    json_extract(r.payload,'$.resolvedModel') card_run_resolved_model,r.created_at card_run_created_at,r.updated_at card_run_updated_at,
-    CASE WHEN k.card_run IS NOT NULL THEN ${assistantAnswer("k.card_run")} END card_answer_id,
+    r.error card_run_error,
+    CASE WHEN res.sealed=1 THEN COALESCE(json_extract(res.stimulus,'$.text'),r.input) ELSE r.input END card_run_input,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.connectionId') ELSE json_extract(r.payload,'$.connectionId') END card_run_connection_id,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.model') ELSE json_extract(r.payload,'$.model') END card_run_model,
+    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.resolvedModel') ELSE json_extract(r.payload,'$.resolvedModel') END card_run_resolved_model,
+    r.created_at card_run_created_at,r.updated_at card_run_updated_at,
+    CASE WHEN res.sealed=1 AND k.card_run IS NOT NULL THEN res.message_id WHEN k.card_run IS NOT NULL THEN ${assistantAnswer("k.card_run")} END card_answer_id,
     ${doneOnly ? "NULL" : `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=k.card_run ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`} card_any_id,
     -- Expanded Done selects its answer explicitly. An idle thread without a
     -- result has no preview, rather than showing its prompt or commentary.
@@ -70,11 +73,14 @@ picked AS MATERIALIZED (
       WHERE a.owner_id=@owner AND ar.conversation_id=k.conversation_id AND ar.state='awaiting_approval' AND a.state='pending' AND a.expires_at>@now ORDER BY a.created_at,a.rowid LIMIT 1) END approval_id,
     CASE WHEN @mode='done' THEN NULL ELSE (SELECT d.id FROM native_decisions d JOIN runs dr ON dr.id=d.run_id AND dr.owner_id=@owner
       WHERE d.conversation_id=k.conversation_id AND dr.state='awaiting_approval' AND d.state='pending' ORDER BY d.created_at LIMIT 1) END decision_id
-  FROM page_run k LEFT JOIN runs r ON r.id=k.card_run AND r.owner_id=@owner
+  FROM page_run k
+  LEFT JOIN runs r ON r.id=k.card_run AND r.owner_id=@owner
+  LEFT JOIN results res ON @mode='done' AND res.owner_id=@owner AND res.id=k.done_card_key
 ),
 chosen AS MATERIALIZED (
   SELECT k.*,ap.run_id approval_run_id,
     CASE
+      WHEN res.sealed=1 THEN res.message_id
       WHEN @mode='done' AND k.done_message_id IS NOT NULL THEN k.done_message_id
       WHEN @mode='done' AND k.card_run IS NOT NULL THEN COALESCE(k.card_answer_id,k.card_any_id)
       WHEN k.card_run IS NOT NULL AND (@mode='working' OR (@mode='thread' AND k.card_run_state IN ${WORKING_RUN_DISPLAY_STATES_SQL})) THEN k.card_answer_id
@@ -88,24 +94,35 @@ chosen AS MATERIALIZED (
       (SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=ap.run_id AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 ORDER BY m.created_at,m.rowid LIMIT 1)
     )`
     } approval_message_id
-  FROM picked k LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
+  FROM picked k
+  LEFT JOIN approvals ap ON ap.id=k.approval_id AND ap.owner_id=@owner
+  LEFT JOIN results res ON @mode='done' AND res.owner_id=@owner AND res.id=k.done_card_key
 )
-SELECT k.*,g.name agent_name,g.provider,pf.id project_id,pf.name project_name,
-  m.metadata message_metadata,m.role message_role,${doneOnly ? "m.content" : "substr(m.content,1,1000)"} message_content,m.created_at message_created_at,
+SELECT k.*,
+  CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.agentName') ELSE g.name END agent_name,
+  CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.provider') ELSE g.provider END provider,
+  pf.id project_id,pf.name project_name,
+  m.metadata message_metadata,
+  CASE WHEN res.sealed=1 THEN 'assistant' ELSE m.role END message_role,
+  ${doneOnly ? "CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END" : "substr(CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END,1,1000)"} message_content,
+  COALESCE(m.created_at,res.created_at) message_created_at,
   json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
-  (m.id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id)
-    OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=m.id))) message_saved,
-  json_extract(t.metadata,'$.automation.kind') trigger_automation,json_extract(t.metadata,'$.automation.fromName') trigger_automation_from,
+  (k.message_id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=k.message_id)
+    OR EXISTS(SELECT 1 FROM artifacts sa WHERE sa.owner_id=@owner AND sa.pinned=1 AND sa.archived=0 AND json_extract(sa.metadata,'$.messageId')=k.message_id))) message_saved,
+  COALESCE(json_extract(res.stimulus,'$.automationKind'),json_extract(t.metadata,'$.automation.kind')) trigger_automation,
+  COALESCE(json_extract(res.stimulus,'$.automationFrom'),json_extract(t.metadata,'$.automation.fromName')) trigger_automation_from,
   d.run_id decision_run_id,d.request decision_request,
-  l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at
+  l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at,
+  CASE WHEN res.sealed=1 THEN res.attachments ELSE NULL END result_attachments
 FROM chosen k
 LEFT JOIN agents g ON g.id=k.agent_id AND g.owner_id=@owner
 LEFT JOIN folder_project fp ON fp.id IS k.folder_id
 LEFT JOIN folders pf ON pf.id=fp.project_id AND pf.owner_id=@owner
-LEFT JOIN messages m ON m.id=k.message_id
-LEFT JOIN messages t ON t.id=k.trigger_id
+LEFT JOIN messages m ON m.id=k.message_id AND m.owner_id=@owner
+LEFT JOIN messages t ON t.id=k.trigger_id AND t.owner_id=@owner
 LEFT JOIN native_decisions d ON d.id=k.decision_id
 LEFT JOIN later_items l ON l.id=k.later_id AND l.owner_id=@owner
+LEFT JOIN results res ON @mode='done' AND res.owner_id=@owner AND res.id=k.done_card_key
 ORDER BY k.sort_at DESC,k.conversation_id DESC,k.done_card_key DESC`;
 
 const selections = new WeakMap<
@@ -149,19 +166,31 @@ export function sourceCards(
     : "c.feed_folder_id";
   const query = `WITH RECURSIVE ${FOLDER_PROJECT}, ${stateSql},
   completed_results AS (
-    SELECT r.id run_id,NULL message_id,r.updated_at done_at,'run:'||r.id card_key,
+    SELECT r.id run_id,NULL message_id,
+      COALESCE((SELECT res.created_at FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1),r.updated_at) done_at,
+      'run:'||r.id card_key,
       json_extract(r.payload,'$.folderId') folder_id,json_type(r.payload,'$.folderId') IS NOT NULL has_folder
     FROM runs r WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND r.state='completed'
       AND (@keys IS NULL OR 'run:'||r.id IN (SELECT value FROM json_each(@keys)))
-      AND EXISTS(SELECT 1 FROM messages m INDEXED BY messages_feed_answers WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id
-        AND m.run_id=r.id AND ${answerPredicate("m")})
+      AND (
+        EXISTS(SELECT 1 FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1)
+        OR EXISTS(SELECT 1 FROM messages m INDEXED BY messages_feed_answers WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id
+          AND m.run_id=r.id AND ${answerPredicate("m")})
+      )
     UNION ALL
     SELECT NULL,id,created_at,'message:'||id,NULL,0 FROM messages INDEXED BY messages_feed_answers
     WHERE owner_id=@owner AND conversation_id=@conversation AND run_id IS NULL
       AND (@keys IS NULL OR 'message:'||id IN (SELECT value FROM json_each(@keys)))
       AND ${answerPredicate()}
+      AND NOT EXISTS(SELECT 1 FROM results res WHERE res.owner_id=@owner AND res.id='message:'||messages.id AND res.sealed=1)
+    UNION ALL
+    SELECT NULL,res.message_id,res.created_at,res.id,NULL,0 FROM results res
+    WHERE res.owner_id=@owner AND res.conversation_id=@conversation AND res.kind='imported_answer' AND res.sealed=1
+      AND (@keys IS NULL OR res.id IN (SELECT value FROM json_each(@keys)))
   ), flagged AS (
-    SELECT c.id conversation_id,c.title,c.agent_id,c.execution_connection_id,c.team_id,c.origin,
+    SELECT c.id conversation_id,c.title,
+      ${results ? "CASE WHEN EXISTS(SELECT 1 FROM results res WHERE res.owner_id=c.owner_id AND res.id=completed.card_key AND res.sealed=1) THEN (SELECT res.agent_id FROM results res WHERE res.owner_id=c.owner_id AND res.id=completed.card_key AND res.sealed=1) ELSE c.agent_id END" : "c.agent_id"} agent_id,
+      c.execution_connection_id,c.team_id,c.origin,
       ${folder} folder_id,c.feed_run_id run_id,c.run_state,${doneRun} done_run_id,${doneAt} done_at,
       ${results ? "completed.message_id" : "NULL"} done_message_id,${expanded ? 1 : 0} expanded_done,
       c.feed_last_activity_at last_activity_at,c.feed_queued queued,cp.position_message_id,

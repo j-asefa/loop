@@ -141,3 +141,21 @@ export function artifactDisplayMetadata(value: ArtifactMetadata) {
     refreshable: !!trace?.connectionId,
   };
 }
+
+/**
+ * Best-effort reader for sealing attachment snapshots without rejecting
+ * legacy or extra metadata keys stored in `artifacts.metadata`.
+ */
+export function readLooseArtifactAttachmentMetadata(
+  value: string,
+): Record<string, unknown> {
+  try {
+    const raw: unknown = JSON.parse(value);
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+  } catch {
+    // Ignore malformed legacy metadata during attachment snapshotting.
+  }
+  return {};
+}

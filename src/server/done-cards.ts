@@ -1,7 +1,7 @@
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import { doneCardId, idleDoneKey } from "../shared/done-card-id.js";
-import { cardAttachments } from "./card-attachments.js";
+import { cardAttachments, resultCardAttachments } from "./card-attachments.js";
 type CardEntry = import("zod").input<
   typeof import("../shared/cards.js").CardEntrySchema
 >;
@@ -47,10 +47,12 @@ export function doneCards(
           row.message_created_at ?? row.card_run_created_at ?? row.sort_at,
         updated_at: null,
         saved: !!row.message_saved,
-        attachments: cardAttachments(
-          owner,
-          readMessageMetadata(row.message_metadata ?? "{}"),
-        ),
+        attachments: row.result_attachments
+          ? resultCardAttachments(owner, row.result_attachments)
+          : cardAttachments(
+              owner,
+              readMessageMetadata(row.message_metadata ?? "{}"),
+            ),
         href: workspaceLink({
           conversation: row.conversation_id,
           message: row.message_id,

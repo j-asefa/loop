@@ -198,10 +198,40 @@ export const RunRecord = z.object({
   queue_rank: z.number().nullable(),
 });
 
+export const ResultRecord = z.object({
+  id: Id,
+  owner_id: z.string(),
+  schema_version: z.number(),
+  kind: z.enum(["run_answer", "steering_reply", "imported_answer"]),
+  origin_completeness: z.enum(["sealed_at_publication", "migrated_backfill"]),
+  sealed: z.number(),
+  created_at: z.number(),
+  conversation_id: z.string(),
+  run_id: z.string().nullable(),
+  message_id: z.string(),
+  agent_id: z.string().nullable(),
+  content_digest: z.string(),
+  stimulus: z.string(),
+  outcome: z.string(),
+  attachments: z.string(),
+  provenance: z.string(),
+  lineage: z.string(),
+});
+export const ResultContextEdgeRecord = z.object({
+  owner_id: z.string(),
+  result_id: z.string(),
+  source_result_id: z.string(),
+  position: z.number(),
+  excerpt: z.number(),
+  created_at: z.number(),
+});
+
 // Schema-derived types for scalar SQL selections; JSON stays serialized.
 // Type assertions do not validate saved execution data. Joined and partial
 // selections declare their selected columns at each query.
 export const QueryRecords = {
+  results: ResultRecord,
+  result_context_edges: ResultContextEdgeRecord,
   review_continuations: z.object({
     review_id: z.string(),
     owner_id: z.string(),

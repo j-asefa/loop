@@ -44,16 +44,18 @@ function display(
     card_title: card.row.card_title,
   };
   const common = thread.row;
-  // Result rows retain their historical folder/run/answer. Current context is
-  // joined from the one thread row, so stream chunks never rewrite history.
+  const sealedResult =
+    mode === "done" &&
+    card.row.result_attachments !== null &&
+    card.row.result_attachments !== undefined;
+  // Result rows retain their historical folder/run/answer, and sealed canonical
+  // results also retain their sealed agent attribution. Current thread context
+  // is joined from the one thread row, so stream chunks never rewrite history.
   for (const key of [
     "title",
-    "agent_id",
     "execution_connection_id",
     "team_id",
     "origin",
-    "agent_name",
-    "provider",
     "last_activity_at",
     "position_message_id",
     "later_id",
@@ -63,6 +65,10 @@ function display(
     "queued",
   ] as const)
     (row as Record<string, unknown>)[key] = common[key];
+  if (!sealedResult) {
+    for (const key of ["agent_id", "agent_name", "provider"] as const)
+      (row as Record<string, unknown>)[key] = common[key];
+  }
   row.sort_at = record.sort_at;
   const approvals = thread.thread!.approvals.filter((a) => a.expires_at > at);
   row.pending_approvals = mode === "done" ? 0 : approvals.length;

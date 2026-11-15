@@ -59,6 +59,7 @@ export type FeedRow = {
   later_condition: string | null;
   later_surfaced_at: number | null;
   queued: number;
+  result_attachments?: string | null;
 };
 
 export type FeedCardDetail = {

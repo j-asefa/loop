@@ -5,6 +5,7 @@ import * as connectionsQueries from "./sql/connections.js";
 import * as foldersQueries from "./sql/folders.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as conversationsQueries from "./sql/conversations.js";
+import * as resultsQueries from "./sql/results.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as runsQueries from "./sql/runs.js";
 import * as messagesQueries from "./sql/messages.js";
@@ -790,9 +791,23 @@ routes.on(workspaceApi.conversationPulls, async (req, res) => {
     ),
   );
 });
-routes.on(workspaceApi.messageDetail, (req, res) =>
-  res.json(messageResponse(ownedMessage(req.params.id, res.locals.owner))),
-);
+routes.on(workspaceApi.messageDetail, (req, res) => {
+  const message = ownedMessage(req.params.id, res.locals.owner);
+  // A published reply is read from its sealed Result, so the opened reply
+  // matches the feed preview even after the transcript message changes.
+  const sealed = resultsQueries.canonicalByMessage(
+    db,
+    res.locals.owner,
+    message.id,
+  );
+  res.json(
+    messageResponse(
+      sealed?.kind === "steering_reply"
+        ? { ...message, content: sealed.outcome.body }
+        : message,
+    ),
+  );
+});
 routes.on(workspaceApi.messageSearch, (req, res) => {
   const { q } = req.query;
   res.json(messagesQueries.search(db, res.locals.owner, q));

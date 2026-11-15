@@ -5,6 +5,7 @@ import { PublishReply, ReplyState } from "../shared/steering-replies.js";
 import { db, now } from "./db.js";
 import { ownedRun, Problem } from "./domain.js";
 import { recordConversationUpdate } from "./conversation-updates.js";
+import { publishSteeringReplyResult } from "./result-publication.js";
 import type { Run } from "./queue.js";
 
 export function publishReply(run: Run, callId: string, input: unknown) {
@@ -44,13 +45,20 @@ export function publishReply(run: Run, callId: string, input: unknown) {
         metadata: { reply: { to: args.replyTo, published: true } },
       });
       if (!message) throw new Problem(404, "Conversation not found");
+      const createdAt = now();
       steeringRepliesQueries.insert(
         db,
         message.id,
         current.owner_id,
         target.id,
-        now(),
+        createdAt,
       );
+      publishSteeringReplyResult({
+        ownerId: current.owner_id,
+        messageId: message.id,
+        steeringId: target.id,
+        createdAt,
+      });
       return { messageId: message.id, replyTo: args.replyTo };
     })
     .immediate();
