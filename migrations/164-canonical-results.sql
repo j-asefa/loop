@@ -334,7 +334,93 @@ SELECT
 FROM reply_candidates;
 
 -- 3. Backfill standalone / imported assistant answers (message:<messageId>)
-WITH message_candidates AS (
+-- Fork and continuation copies keep the author of their source answer. A copy
+-- names its source in `sourceMessage`; the chain is followed to the first
+-- source with a sealed Result or to the original message.
+WITH RECURSIVE copy_chain(message_id, owner_id, source_id, depth) AS (
+  SELECT m.id, m.owner_id, json_extract(m.metadata, '$.sourceMessage'), 1
+  FROM messages m
+  WHERE m.run_id IS NULL
+    AND m.role = 'assistant'
+    AND json_valid(m.metadata)
+    AND json_type(m.metadata, '$.sourceMessage') = 'text'
+  UNION ALL
+  SELECT cc.message_id, cc.owner_id, json_extract(s.metadata, '$.sourceMessage'), cc.depth + 1
+  FROM copy_chain cc
+  JOIN messages s ON s.id = cc.source_id AND s.owner_id = cc.owner_id
+  WHERE cc.depth < 32
+    AND json_valid(s.metadata)
+    AND json_type(s.metadata, '$.sourceMessage') = 'text'
+    AND NOT EXISTS (
+      SELECT 1 FROM results sr
+      WHERE sr.owner_id = s.owner_id AND sr.message_id = s.id AND sr.sealed = 1
+    )
+),
+copy_root AS (
+  SELECT cc.message_id, cc.owner_id, cc.source_id
+  FROM copy_chain cc
+  WHERE cc.depth = (
+    SELECT MAX(c2.depth) FROM copy_chain c2
+    WHERE c2.message_id = cc.message_id AND c2.owner_id = cc.owner_id
+  )
+),
+copy_author AS (
+  SELECT
+    cr.message_id,
+    cr.owner_id,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.agentId')
+      WHEN sm.id IS NOT NULL THEN COALESCE(srun.agent_id, sc.agent_id)
+    END AS agent_id,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.agentName')
+      WHEN sm.id IS NOT NULL THEN COALESCE(
+        NULLIF(trim(sg.name), ''),
+        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.name') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.name')), '') END
+      )
+    END AS agent_name,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.provider')
+      WHEN sm.id IS NOT NULL THEN COALESCE(
+        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.provider') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.provider')), '') END,
+        sg.provider
+      )
+    END AS provider,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.model')
+      WHEN sm.id IS NOT NULL THEN COALESCE(
+        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.model') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.model')), '') END,
+        sg.model
+      )
+    END AS model,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.resolvedModel')
+      WHEN sm.id IS NOT NULL THEN COALESCE(
+        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.resolvedModel') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.resolvedModel')), '') END,
+        CASE WHEN json_valid(srun.result) AND json_type(srun.result, '$.resolvedModel') = 'text' THEN NULLIF(trim(json_extract(srun.result, '$.resolvedModel')), '') END
+      )
+    END AS resolved_model,
+    CASE
+      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.connectionId')
+      WHEN sm.id IS NOT NULL THEN COALESCE(
+        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.connectionId') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.connectionId')), '') END,
+        sc.execution_connection_id,
+        sg.connection_id
+      )
+    END AS connection_id
+  FROM copy_root cr
+  LEFT JOIN results sres ON sres.owner_id = cr.owner_id AND sres.id = (
+    SELECT r2.id FROM results r2
+    WHERE r2.owner_id = cr.owner_id AND r2.message_id = cr.source_id AND r2.sealed = 1
+    ORDER BY r2.created_at ASC, r2.rowid ASC
+    LIMIT 1
+  )
+  LEFT JOIN messages sm ON sm.id = cr.source_id AND sm.owner_id = cr.owner_id
+  LEFT JOIN conversations sc ON sc.id = sm.conversation_id AND sc.owner_id = sm.owner_id
+  LEFT JOIN runs srun ON srun.id = sm.run_id AND srun.owner_id = sm.owner_id
+  LEFT JOIN agents sg ON sg.id = COALESCE(srun.agent_id, sc.agent_id) AND sg.owner_id = cr.owner_id
+),
+message_candidates AS (
   SELECT
     'message:' || m.id AS id,
     m.owner_id AS owner_id,
@@ -344,7 +430,7 @@ WITH message_candidates AS (
     m.conversation_id AS conversation_id,
     NULL AS run_id,
     m.id AS message_id,
-    c.agent_id AS agent_id,
+    CASE WHEN ca.message_id IS NULL THEN c.agent_id ELSE ca.agent_id END AS agent_id,
     json_object(
       'kind', CASE WHEN c.origin IN ('import', 'openai-import', 'anthropic-import') THEN 'import' ELSE 'user_prompt' END,
       'text', u.content,
@@ -415,12 +501,12 @@ WITH message_candidates AS (
       )
     ), '[]') AS attachments,
     json_object(
-      'agentId', c.agent_id,
-      'agentName', NULLIF(trim(g.name), ''),
-      'provider', g.provider,
-      'model', g.model,
-      'resolvedModel', NULL,
-      'connectionId', COALESCE(c.execution_connection_id, g.connection_id),
+      'agentId', CASE WHEN ca.message_id IS NULL THEN c.agent_id ELSE ca.agent_id END,
+      'agentName', CASE WHEN ca.message_id IS NULL THEN NULLIF(trim(g.name), '') ELSE ca.agent_name END,
+      'provider', CASE WHEN ca.message_id IS NULL THEN g.provider ELSE ca.provider END,
+      'model', CASE WHEN ca.message_id IS NULL THEN g.model ELSE ca.model END,
+      'resolvedModel', CASE WHEN ca.message_id IS NULL THEN NULL ELSE ca.resolved_model END,
+      'connectionId', CASE WHEN ca.message_id IS NULL THEN COALESCE(c.execution_connection_id, g.connection_id) ELSE ca.connection_id END,
       'conversationId', m.conversation_id,
       'runId', NULL,
       'messageId', m.id,
@@ -444,6 +530,7 @@ WITH message_candidates AS (
     LIMIT 1
   ) AND u.owner_id = m.owner_id
   LEFT JOIN agents g ON g.id = c.agent_id AND g.owner_id = m.owner_id
+  LEFT JOIN copy_author ca ON ca.message_id = m.id AND ca.owner_id = m.owner_id
   WHERE m.run_id IS NULL
     AND m.role = 'assistant'
     AND (NOT json_valid(m.metadata) OR COALESCE(json_extract(m.metadata, '$.progress'), 0) = 0)

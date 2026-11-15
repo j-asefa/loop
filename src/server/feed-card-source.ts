@@ -44,6 +44,12 @@ export type SourceRow = FeedRow & {
   hide_results: number;
 };
 
+// A sealed Result keeps the folder where it was produced. Results whose
+// placement is unknown (migrated history) follow the existing folder rules.
+const placementRecorded = (res: string) =>
+  `COALESCE(CASE WHEN json_valid(${res}.provenance) THEN json_extract(${res}.provenance,'$.placement.status')='recorded' END,0)`;
+const placementFolder = (res: string) =>
+  `CASE WHEN json_valid(${res}.provenance) THEN json_extract(${res}.provenance,'$.placement.folderId') END`;
 const assistantAnswer = (run: string) =>
   `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND ${answerPredicate("m")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
 const cardSql = (doneOnly = false) => `
@@ -169,8 +175,10 @@ export function sourceCards(
     SELECT r.id run_id,NULL message_id,
       COALESCE((SELECT res.created_at FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1),r.updated_at) done_at,
       'run:'||r.id card_key,
-      json_extract(r.payload,'$.folderId') folder_id,json_type(r.payload,'$.folderId') IS NOT NULL has_folder
-    FROM runs r WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND r.state='completed'
+      CASE WHEN ${placementRecorded("placed")} THEN ${placementFolder("placed")} ELSE json_extract(r.payload,'$.folderId') END folder_id,
+      ${placementRecorded("placed")} OR json_type(r.payload,'$.folderId') IS NOT NULL has_folder
+    FROM runs r
+    LEFT JOIN results placed ON placed.owner_id=r.owner_id AND placed.id='run:'||r.id AND placed.sealed=1 WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND r.state='completed'
       AND (@keys IS NULL OR 'run:'||r.id IN (SELECT value FROM json_each(@keys)))
       AND (
         EXISTS(SELECT 1 FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1)
@@ -184,7 +192,8 @@ export function sourceCards(
       AND ${answerPredicate()}
       AND NOT EXISTS(SELECT 1 FROM results res WHERE res.owner_id=@owner AND res.id='message:'||messages.id AND res.sealed=1)
     UNION ALL
-    SELECT NULL,res.message_id,res.created_at,res.id,NULL,0 FROM results res
+    SELECT NULL,res.message_id,res.created_at,res.id,
+      CASE WHEN ${placementRecorded("res")} THEN ${placementFolder("res")} END,${placementRecorded("res")} FROM results res
     WHERE res.owner_id=@owner AND res.conversation_id=@conversation AND res.kind='imported_answer' AND res.sealed=1
       AND (@keys IS NULL OR res.id IN (SELECT value FROM json_each(@keys)))
   ), flagged AS (

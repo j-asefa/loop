@@ -16,8 +16,10 @@ import {
   type ResultAttachmentRef,
   type ResultId,
   type ResultPlacement,
+  type ResultProvenance,
   type ResultStimulus,
   type ResultSupplyItem,
+  UNKNOWN_RESULT_PLACEMENT,
 } from "../shared/result.js";
 import { computeResultContentDigest } from "./result-digest.js";
 import { parseCanonicalResult } from "./row-schemas.js";
@@ -102,6 +104,177 @@ function executionProvider(
   agent: { provider: string } | undefined,
 ): string | null {
   return readNonEmptyString(run?.payload.provider) || agent?.provider || null;
+}
+
+type ResultAuthorship = Pick<
+  ResultProvenance,
+  | "agentId"
+  | "agentName"
+  | "provider"
+  | "model"
+  | "resolvedModel"
+  | "connectionId"
+  | "placement"
+>;
+
+const MAX_COPY_DEPTH = 32;
+
+// A copied answer keeps the author that produced it, not the agent of the
+// conversation it was copied into. Copies point at their source through
+// `sourceMessage`; the first sealed Result on that chain carries the recorded
+// author. An original message without one is attributed from its own run or
+// conversation. When the source no longer exists the author is unknown.
+function copiedAnswerAuthorship(
+  ownerId: string,
+  message: SnapshotMessage,
+  database: Database.Database,
+): ResultAuthorship | null {
+  let sourceId = readNonEmptyString(message.metadata.sourceMessage);
+  if (!sourceId) return null;
+  const seen = new Set<string>();
+  while (sourceId && !seen.has(sourceId) && seen.size < MAX_COPY_DEPTH) {
+    seen.add(sourceId);
+    const sealed = resultsQueries.canonicalByMessage(
+      database,
+      ownerId,
+      sourceId,
+    );
+    if (sealed) {
+      const p = sealed.provenance;
+      return {
+        agentId: p.agentId,
+        agentName: p.agentName,
+        provider: p.provider,
+        model: p.model,
+        resolvedModel: p.resolvedModel,
+        connectionId: p.connectionId,
+        placement: p.placement,
+      };
+    }
+    const source = resultsQueries.messageById(database, ownerId, sourceId);
+    if (!source) break;
+    const next = readNonEmptyString(source.metadata.sourceMessage);
+    if (next) {
+      sourceId = next;
+      continue;
+    }
+    const conversation = resultsQueries.conversationSummary(
+      database,
+      ownerId,
+      source.conversation_id,
+    );
+    if (!conversation) break;
+    const run = source.run_id
+      ? resultsQueries.runRow(database, ownerId, source.run_id)
+      : undefined;
+    const agentId = run?.agent_id ?? conversation.agent_id ?? null;
+    const agent = agentId
+      ? resultsQueries.agentSummary(database, ownerId, agentId)
+      : undefined;
+    return {
+      agentId,
+      agentName:
+        readNonEmptyString(agent?.name) ||
+        readNonEmptyString(run?.payload.name) ||
+        null,
+      provider: executionProvider(run, agent),
+      model: readNonEmptyString(run?.payload.model) || agent?.model || null,
+      resolvedModel:
+        readNonEmptyString(run?.payload.resolvedModel) ||
+        readResolvedModelFromRunResult(run?.result),
+      connectionId:
+        readNonEmptyString(run?.payload.connectionId) ||
+        conversation.execution_connection_id ||
+        agent?.connection_id ||
+        null,
+      placement: placementSnapshot(ownerId, conversation, run, database),
+    };
+  }
+  return {
+    agentId: null,
+    agentName: null,
+    provider: null,
+    model: null,
+    resolvedModel: null,
+    connectionId: null,
+    placement: UNKNOWN_RESULT_PLACEMENT,
+  };
+}
+
+// An imported answer's question is the nearest user message on its own
+// branch. OpenAI exports keep every branch with parent node pointers, so the
+// chronologically latest question can belong to a different branch. Walking
+// the pointers finds the right one; dropped nodes (tool calls) are bridged
+// through their stored parent's `children`. Messages without parent pointers,
+// or whose chain cannot be followed, keep the chronological rule.
+function importedStimulusResolver(
+  ownerId: string,
+  conversationId: string,
+  database: Database.Database,
+): (message: SnapshotMessage) => SnapshotMessage | undefined {
+  let index: {
+    byNode: Map<string, SnapshotMessage>;
+    storedParentOf: Map<string, string>;
+  } | null = null;
+  const build = () => {
+    const byNode = new Map<string, SnapshotMessage>();
+    const storedParentOf = new Map<string, string>();
+    for (const m of resultsQueries.standaloneMessages(
+      database,
+      ownerId,
+      conversationId,
+    )) {
+      const raw = m.metadata.raw;
+      const rawRecord =
+        raw && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
+      const nodeId =
+        readNonEmptyString(rawRecord?.nodeId) ||
+        readNonEmptyString(m.metadata.externalId);
+      if (!nodeId) continue;
+      byNode.set(nodeId, m);
+      const externalId = readNonEmptyString(m.metadata.externalId);
+      if (externalId && !byNode.has(externalId)) byNode.set(externalId, m);
+      const children = rawRecord?.children;
+      if (Array.isArray(children)) {
+        for (const child of children) {
+          if (typeof child === "string" && !storedParentOf.has(child)) {
+            storedParentOf.set(child, nodeId);
+          }
+        }
+      }
+    }
+    return { byNode, storedParentOf };
+  };
+  const chronological = (message: SnapshotMessage) =>
+    resultsQueries.precedingStandaloneUserMessage(
+      database,
+      ownerId,
+      conversationId,
+      message.id,
+    );
+  return (message) => {
+    if (message.metadata.parent === undefined) return chronological(message);
+    index ??= build();
+    const seen = new Set<string>();
+    let current = message.metadata.parent;
+    while (current) {
+      if (seen.has(current)) return chronological(message);
+      seen.add(current);
+      const node = index.byNode.get(current);
+      if (node) {
+        if (node.role === "user") return node;
+        current = node.metadata.parent ?? null;
+        continue;
+      }
+      const bridged = index.storedParentOf.get(current);
+      if (!bridged) return chronological(message);
+      current = bridged;
+    }
+    // The branch root was reached without a question.
+    return undefined;
+  };
 }
 
 function chainParent(
@@ -649,39 +822,43 @@ export function publishImportedConversationResults(
     conversationId,
   );
   const published: CanonicalResult[] = [];
-  let previousResultId: ResultId | null = null;
-  let chainStarted = false;
+  const stimulusFor = importedStimulusResolver(
+    ownerId,
+    conversationId,
+    database,
+  );
 
   for (const message of messages) {
     if (!isEligibleAnswerMessage(message)) continue;
     const id = messageResultId(message.id);
     const existing = resultsQueries.byId(database, ownerId, id);
     if (existing && existing.sealed === 1) {
-      const existingCanonical = parseCanonicalResult(existing);
-      published.push(existingCanonical);
-      previousResultId = existingCanonical.id;
+      published.push(parseCanonicalResult(existing));
       continue;
     }
-    const precedingUser = resultsQueries.precedingStandaloneUserMessage(
-      database,
+    const prompt = stimulusFor(message);
+    const promptText = prompt?.content ?? null;
+    const promptId = prompt?.id ?? null;
+    const createdAt = Math.max(0, Math.trunc(message.created_at));
+    // The predecessor is the latest sealed Result of any kind before this
+    // answer, so an answer appended after a run chains to that run.
+    const parentResultId = chainParent(
       ownerId,
       conversationId,
-      message.id,
+      id,
+      createdAt,
+      database,
     );
-    const promptText = precedingUser?.content ?? null;
-    const promptId = precedingUser?.id ?? null;
-    const createdAt = Math.max(0, Math.trunc(message.created_at));
-    if (!chainStarted) {
-      chainStarted = true;
-      // Joins an existing sequence when other results already precede it.
-      previousResultId ??= chainParent(
-        ownerId,
-        conversationId,
-        id,
-        createdAt,
-        database,
-      );
-    }
+    const authorship = copiedAnswerAuthorship(ownerId, message, database) ?? {
+      agentId,
+      agentName,
+      provider: agent?.provider ?? null,
+      model: agent?.model ?? null,
+      resolvedModel: null,
+      connectionId:
+        conversation.execution_connection_id ?? agent?.connection_id ?? null,
+      placement: placementSnapshot(ownerId, conversation, undefined, database),
+    };
 
     const result = publishResult(
       {
@@ -710,27 +887,13 @@ export function publishImportedConversationResults(
         },
         attachments: snapshotMessageAttachments(ownerId, message, database),
         provenance: {
-          agentId,
-          agentName,
-          provider: agent?.provider ?? null,
-          model: agent?.model ?? null,
-          resolvedModel: null,
-          connectionId:
-            conversation.execution_connection_id ??
-            agent?.connection_id ??
-            null,
+          ...authorship,
           conversationId,
           runId: null,
           messageId: message.id,
-          placement: placementSnapshot(
-            ownerId,
-            conversation,
-            undefined,
-            database,
-          ),
         },
         lineage: {
-          parentResultId: previousResultId,
+          parentResultId,
           triggerMessageId: promptId,
           suppliedContext: [],
         },
@@ -738,7 +901,6 @@ export function publishImportedConversationResults(
       database,
     );
     published.push(result);
-    previousResultId = result.id;
   }
 
   return published;
