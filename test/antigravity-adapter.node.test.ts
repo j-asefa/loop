@@ -475,3 +475,108 @@ test("Antigravity ACP uses session-scoped MCP mode and standard model/effort set
     await adapter.dispose();
   }
 });
+
+test("Antigravity ACP waits for a delayed catalog before its first slash command", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "delayed-commands";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    { ...options, version: "1.5.9", instructions: "Saved instructions" },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    // The caller sends immediately, without waiting for command discovery.
+    await adapter.prompt("/plan the first turn");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(
+      requests().find((r) => r.method === "session/prompt").params.prompt,
+      [{ type: "text", text: "/plan the first turn\n\nSaved instructions" }],
+    );
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test(
+  "Antigravity ACP bounds an absent catalog and keeps unknown commands literal",
+  { timeout: 12000 },
+  async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "no-commands";
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.9" }, (event) =>
+      events.push(event),
+    );
+    try {
+      await adapter.start();
+      await adapter.prompt("/plan without a catalog");
+      await until(() => complete(events).length === 1);
+      assert.deepEqual(
+        requests().find((r) => r.method === "session/prompt").params.prompt,
+        [{ type: "text", text: "\u200b/plan without a catalog" }],
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  },
+);
+
+for (const stop of ["cancel", "dispose"] as const) {
+  test(`Antigravity ACP ${stop} prevents dispatch while waiting for commands`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "no-commands";
+    const adapter = new Antigravity({ ...options, version: "1.5.9" }, () => {});
+    let dispatched = false;
+    try {
+      await adapter.start();
+      const pending = assert.rejects(
+        adapter.prompt("/plan must not dispatch", () => {
+          dispatched = true;
+        }),
+        /unavailable/,
+      );
+      await adapter[stop]();
+      await pending;
+      assert.equal(dispatched, false);
+      assert(!requests().some((r) => r.method === "session/prompt"));
+    } finally {
+      await adapter.dispose();
+    }
+  });
+}
+
+for (const [mode, model] of [
+  ["many-models", "model-149"],
+  ["late-model-setting", "gemini-agy-fixture"],
+]) {
+  test(`Antigravity ACP selects advertised models beyond display limits: ${mode}`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity(
+      { ...options, version: "1.5.9", model },
+      (event) => events.push(event),
+    );
+    try {
+      await adapter.start();
+      assert(adapter.models?.some((entry) => entry.id === model));
+      assert(adapter.settings!.options.length <= 50);
+      assert(
+        adapter.settings!.options.every(
+          (entry) => (entry.choices?.length ?? 0) <= 100,
+        ),
+      );
+      await adapter.prompt("Use the selected model");
+      await until(() => complete(events).length === 1);
+      assert.deepEqual(
+        requests()
+          .filter((r) => r.method === "session/set_config_option")
+          .map((r) => [r.params.configId, r.params.value]),
+        [["model", model]],
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  });
+}

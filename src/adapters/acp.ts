@@ -101,6 +101,8 @@ export class Acp implements Adapter {
   activityCapabilities = undiscoveredCapabilities("ACP initialize pending");
   settings: SettingsData = { options: [], revision: 0 };
   commandCatalog: CommandsData = { commands: [], revision: 0 };
+  private commandDiscoveryComplete = false;
+  private commandWaiters = new Set<(proceed: boolean) => void>();
   private child?: ChildProcessWithoutNullStreams;
   private connection?: ClientSideConnection;
   private session?: string;
@@ -178,6 +180,7 @@ export class Acp implements Adapter {
         });
       }
       this.closed = true;
+      this.finishCommandDiscovery(false);
     });
     child.stderr.resume();
     child.once("exit", () => {
@@ -198,6 +201,7 @@ export class Acp implements Adapter {
         });
       }
       this.closed = true;
+      this.finishCommandDiscovery(false);
     });
     // SDK frames are JSONL. Limit each incoming frame before it reaches its parser.
     let frameBytes = 0;
@@ -426,6 +430,29 @@ export class Acp implements Adapter {
       })),
     ];
   }
+  /** Await the first catalog or its deadline. Closing or cancelling a pending
+   * prompt returns false; a missing catalog settles once as an empty catalog.
+   */
+  protected waitForCommands(timeoutMs = 5000): Promise<boolean> {
+    if (this.closed) return Promise.resolve(false);
+    if (this.commandDiscoveryComplete) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (proceed: boolean) => {
+        clearTimeout(timer);
+        this.commandWaiters.delete(finish);
+        resolve(proceed);
+      };
+      const timer = setTimeout(
+        () => this.finishCommandDiscovery(true),
+        timeoutMs,
+      );
+      this.commandWaiters.add(finish);
+    });
+  }
+  private finishCommandDiscovery(proceed: boolean) {
+    if (proceed) this.commandDiscoveryComplete = true;
+    for (const finish of this.commandWaiters) finish(proceed);
+  }
   async prompt(value: string, beforeDispatch?: () => void) {
     if (
       this.closed ||
@@ -487,6 +514,7 @@ export class Acp implements Adapter {
   }
   async cancel() {
     this.cancelling = true;
+    this.finishCommandDiscovery(false);
     this.cancelPermissions();
     if (!this.closed && this.session && this.connection && this.active)
       await this.connection.cancel({ sessionId: this.session });
@@ -512,6 +540,7 @@ export class Acp implements Adapter {
   }
   async dispose() {
     this.closed = true;
+    this.finishCommandDiscovery(false);
     this.modeConfirmation?.reject(new Error("ACP session closed"));
     this.modeConfirmation = undefined;
     this.cancelPermissions();
@@ -674,9 +703,23 @@ export class Acp implements Adapter {
           throw new Error(
             "Settings changed. Refresh before applying a new value",
           );
-        const option = this.settings.options.find(
-          (x) => x.id === id && x.mutable,
-        );
+        // Display bounds must not restrict valid native model/control values.
+        const raw = this.supportsConfig
+          ? this.rawConfigOptions.find((x) => x.id === id)
+          : undefined;
+        const option = raw
+          ? {
+              type: raw.type,
+              choices:
+                raw.type === "select"
+                  ? raw.options.flatMap((entry) =>
+                      "group" in entry ? entry.options : [entry],
+                    )
+                  : undefined,
+            }
+          : this.settings.options.find(
+              (x) => x.id === id && id === "acp-mode" && x.mutable,
+            );
         if (
           !option ||
           (option.type === "boolean"
@@ -1151,6 +1194,7 @@ export class Acp implements Adapter {
           available: true,
         })),
       };
+      this.finishCommandDiscovery(true);
       this.activity("commands", "acp-session-commands", this.commandCatalog);
       this.activityCapabilities.commands = {
         state: "supported",

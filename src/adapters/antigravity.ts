@@ -61,9 +61,11 @@ class AntigravityAcp extends Acp {
       );
     }
   }
-  override prompt(text: string, beforeDispatch?: () => void) {
+  override async prompt(text: string, beforeDispatch?: () => void) {
     const instructions = this.nativeOptions.instructions;
     const name = text.match(/^\/([^\s]+)(?:\s|$)/)?.[1];
+    if (name && !(await this.waitForCommands()))
+      throw new Error("ACP session unavailable");
     const command = name && this.commands.some((c) => c.name === name);
     const content = command
       ? instructions

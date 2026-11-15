@@ -33,6 +33,24 @@ const configOptions = [
     ],
   },
 ];
+if (process.env.LOOP_TEST_AGY_MODE === "many-models") {
+  configOptions[0].options = Array.from({ length: 150 }, (_, index) => ({
+    value: `model-${index}`,
+    name: `Model ${index}`,
+  }));
+  configOptions[0].currentValue = "model-0";
+}
+if (process.env.LOOP_TEST_AGY_MODE === "late-model-setting") {
+  configOptions.unshift(
+    ...Array.from({ length: 50 }, (_, index) => ({
+      id: `setting-${index}`,
+      name: `Setting ${index}`,
+      type: "select",
+      currentValue: "normal",
+      options: [{ value: "normal", name: "Normal" }],
+    })),
+  );
+}
 const update = (text) =>
   send({
     method: "session/update",
@@ -124,22 +142,23 @@ for await (const line of createInterface({ input: process.stdin })) {
         configOptions,
       },
     });
-    setTimeout(
-      () =>
-        send({
-          method: "session/update",
-          params: {
-            sessionId,
-            update: {
-              sessionUpdate: "available_commands_update",
-              availableCommands: [
-                { name: "plan", description: "Plan before executing." },
-              ],
+    if (process.env.LOOP_TEST_AGY_MODE !== "no-commands")
+      setTimeout(
+        () =>
+          send({
+            method: "session/update",
+            params: {
+              sessionId,
+              update: {
+                sessionUpdate: "available_commands_update",
+                availableCommands: [
+                  { name: "plan", description: "Plan before executing." },
+                ],
+              },
             },
-          },
-        }),
-      10,
-    );
+          }),
+        process.env.LOOP_TEST_AGY_MODE === "delayed-commands" ? 300 : 10,
+      );
   } else if (request.method === "session/prompt") {
     if (process.env.LOOP_TEST_AGY_MODE === "disconnect") process.exit(2);
     if (process.env.LOOP_TEST_AGY_MODE === "hang") continue;
