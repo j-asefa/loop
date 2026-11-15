@@ -225,6 +225,7 @@ export function OrganizeCards({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const creationId = useRef(initialCreation.receipt?.commandId);
   const generation = useRef(viewGeneration());
   const live = useRef(true);
   const busy = useRef(false);
@@ -273,6 +274,7 @@ export function OrganizeCards({
           creationTarget,
           () => live.current && generation.current === viewGeneration(),
           (id, context, recovering) => {
+            creationId.current = id;
             recovered = recovering;
             if (creationPending && !recovering)
               throw new Error(
@@ -293,6 +295,7 @@ export function OrganizeCards({
           },
           creationFailureSettled,
           JSON.stringify(body),
+          creationPending ? (creationId.current ?? "") : undefined,
         );
         if (live.current && generation.current === viewGeneration()) {
           setCreationPending(false);

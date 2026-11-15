@@ -111,6 +111,7 @@ export async function performStoredEffect<T>(
     recovering: boolean,
   ) => boolean = effectOutcomeSettled,
   context?: string,
+  expectedCommandId?: string,
 ): Promise<T> {
   if (!owner) throw new Error("Sign in before starting this change.");
   const slot = storedCommands<PendingEffect>(storage)(owner, source, target);
@@ -134,6 +135,13 @@ export async function performStoredEffect<T>(
     } catch {
       throw new Error("Cannot read pending changes; nothing was sent.");
     }
+    if (
+      expectedCommandId !== undefined &&
+      prior?.commandId !== expectedCommandId
+    )
+      throw new Error(
+        "This pending change has changed. Reopen it before continuing.",
+      );
     const receipt: PendingEffect = {
       commandId: prior?.commandId ?? crypto.randomUUID(),
       attempt: crypto.randomUUID(),

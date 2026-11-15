@@ -492,3 +492,22 @@ it("identifies recovery under the same preparation lock as dispatch", async () =
   expect(ids[1]).toBe(ids[0]);
   expect(storage.length).toBe(0);
 });
+
+it("rejects stale recovery before saving or dispatching a replacement", async () => {
+  const dispatch = vi.fn(async () => "created");
+  await expect(
+    performStoredEffect(
+      storage,
+      "alice",
+      "source",
+      ["create"],
+      () => true,
+      dispatch,
+      undefined,
+      "{}",
+      "settled-command",
+    ),
+  ).rejects.toThrow("pending change has changed");
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(storage.length).toBe(0);
+});
