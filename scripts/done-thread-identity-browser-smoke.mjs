@@ -99,13 +99,16 @@ try {
     "Results",
     "Recovery must retain its original creation context",
   );
-  ids.splice(1);
-  payloads.splice(1);
   await page.goto(url + "/?reverse=1");
   loseReply = false;
   await submit();
   await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
-  assert.equal(ids[1], ids[0], "Reload recovery must retain the creation ID");
+  assert.equal(ids[2], ids[0], "Reload recovery must retain the creation ID");
+  assert.deepEqual(
+    payloads[2],
+    payloads[0],
+    "Reordered selection recovery retains the original payload",
+  );
   assert.equal(
     records.size,
     1,
@@ -116,22 +119,28 @@ try {
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.notEqual(
-    ids[2],
+    ids[3],
     ids[0],
     "A settled creation must release its pending identity",
   );
   await page.goto(url + "/?owner=bob");
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
-  const old = ids[3];
+  const old = ids[4];
   deleted.add(old);
   records.delete(old);
   loseReply = false;
   await submit();
   await expect(page.getByRole("alert")).toContainText("Thread not found");
+  const beforeSeparate = ids.length;
   await page
     .getByRole("button", { name: "Start a separate thread", exact: true })
     .click();
+  assert.equal(
+    ids.length,
+    beforeSeparate,
+    "Superseding must not dispatch a replacement",
+  );
   await submit();
   await expect.poll(() => page.evaluate(() => window.completed)).toBe(true);
   assert.notEqual(
@@ -149,8 +158,8 @@ try {
     "The superseded uncertain identity must remain in history",
   );
   assert.notEqual(
+    ids[4],
     ids[3],
-    ids[2],
     "Another owner must not reuse Alice pending identity",
   );
   assert.deepEqual(errors, []);

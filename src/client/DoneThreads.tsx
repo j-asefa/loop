@@ -3,7 +3,11 @@ import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCollectionRead } from "./CollectionRead";
 import { createReadExecutor } from "./read-executor";
-import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
+import {
+  performStoredEffect,
+  creationFailureSettled,
+  UncertainEffect,
+} from "./pendingCommands";
 import {
   ArrowRight,
   ChevronRight,
@@ -186,6 +190,7 @@ export function OrganizeCards({
   const [title, setTitle] = useState(selection.title);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [uncertain, setUncertain] = useState<UncertainEffect>();
   const generation = useRef(viewGeneration());
   const live = useRef(true);
   const busy = useRef(false);
@@ -216,15 +221,16 @@ export function OrganizeCards({
           localStorage,
           viewOwner(),
           selection.source,
-          ["done-thread-create", JSON.stringify(body)],
+          ["done-thread-create", JSON.stringify([...selection.cardIds].sort())],
           () => live.current && generation.current === viewGeneration(),
-          (id) =>
+          (id, context) =>
             callRoute(
               workspaceApi.doneThreadCreate,
-              { body: { ...body, id: DoneThreadId.parse(id) } },
+              { body: { ...JSON.parse(context!), id: DoneThreadId.parse(id) } },
               selection.source,
             ),
           creationFailureSettled,
+          JSON.stringify(body),
         );
       }
       if (generation.current !== viewGeneration()) return;
@@ -233,8 +239,10 @@ export function OrganizeCards({
         onClose();
       }
     } catch (error) {
-      if (live.current && generation.current === viewGeneration())
+      if (live.current && generation.current === viewGeneration()) {
+        setUncertain(error instanceof UncertainEffect ? error : undefined);
         setError((error as Error).message);
+      }
     } finally {
       busy.current = false;
       if (live.current && generation.current === viewGeneration())
@@ -300,6 +308,44 @@ export function OrganizeCards({
         <p className="error" role="alert">
           {error}
         </p>
+      )}
+      {uncertain && (
+        <div role="status">
+          <p>
+            The earlier thread may already exist. Check Done before starting a
+            separate thread.
+          </p>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={async () => {
+              if (busy.current || generation.current !== viewGeneration())
+                return;
+              busy.current = true;
+              setPending(true);
+              try {
+                await uncertain.supersede();
+                if (live.current && generation.current === viewGeneration()) {
+                  setUncertain(undefined);
+                  setError("");
+                }
+              } catch (error) {
+                if (live.current && generation.current === viewGeneration()) {
+                  setUncertain(
+                    error instanceof UncertainEffect ? error : undefined,
+                  );
+                  setError((error as Error).message);
+                }
+              } finally {
+                busy.current = false;
+                if (live.current && generation.current === viewGeneration())
+                  setPending(false);
+              }
+            }}
+          >
+            Start a separate thread
+          </button>
+        </div>
       )}
       <section className="thread-create-panel" aria-label="New thread">
         <div className="thread-create-heading">
