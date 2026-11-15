@@ -1,4 +1,4 @@
-import { useProjectionRoute, useSourceId } from "./SourceContext";
+import { useSourceId } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
@@ -31,8 +31,6 @@ export function PiCustomizations({
   onClose: () => void;
   onUse?: (agentId: string, token: string) => void;
 }) {
-  const readProjection = useProjectionRoute();
-
   const route = useSourceRoute();
   const piAgents = agents.filter(
     (agent) => agent.provider === "pi" && !agent.retired_at,
@@ -48,10 +46,6 @@ export function PiCustomizations({
     "installed" | "discover" | "actions" | "tools" | "instructions"
   >(mode === "active" ? "tools" : "installed");
   const [packagePath, setPackagePath] = useState("");
-  const [packages, setPackages] = useState<ConfiguredPackage[]>([]);
-  const [configuration, setConfiguration] = useState<Configuration | null>(
-    null,
-  );
   const [editing, setEditing] = useState<ConfiguredPackage | null>(null);
   const [filters, setFilters] = useState<Record<string, string | undefined>>(
     {},
@@ -69,25 +63,14 @@ export function PiCustomizations({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    void readProjection(
-      workspaceApi.agentPiPackages,
-      { params: { id: selectedId } },
-      { mode: "once" },
-    )
-      .then((result) => {
-        if (active) {
-          setPackages(result.packages);
-          setConfiguration(result);
-        }
-      })
-      .catch((cause) => active && setError((cause as Error).message));
-    return () => {
-      active = false;
-    };
-  }, [selected, refresh]);
+  const sourceId = useSourceId();
+  const configurationQuery = useProjectionQuery(
+    workspaceApi.agentPiPackages,
+    { params: { id: selectedId } },
+    { source: sourceId, enabled: !!selected, revision: refresh, mode: "once" },
+  );
+  const configuration = configurationQuery.data;
+  const packages = configuration?.packages ?? [];
   async function decideTrust(trusted: boolean) {
     if (!configuration) return;
     setBusy(true);
@@ -100,8 +83,7 @@ export function PiCustomizations({
           fingerprint: configuration.trust.fingerprint,
         },
       });
-      setConfiguration(result);
-      setPackages(result.packages);
+      configurationQuery.replace(result);
       setNotice(
         "Project trust changed. The next Pi turn will start with this decision.",
       );
@@ -151,8 +133,7 @@ export function PiCustomizations({
           filters: next,
         },
       });
-      setConfiguration(result);
-      setPackages(result.packages);
+      configurationQuery.replace(result);
       setEditing(null);
       setNotice(
         "Resource selection saved in Pi settings. Start a new Pi session or reload to apply it.",
@@ -179,8 +160,7 @@ export function PiCustomizations({
         params: { id: selectedId },
         body: { source: pkg.source, scope: pkg.scope },
       });
-      setConfiguration(result);
-      setPackages(result.packages);
+      configurationQuery.replace(result);
       setNotice(
         "Previous package revision restored. Start a new Pi session or reload to use it.",
       );
@@ -238,8 +218,7 @@ export function PiCustomizations({
         params: { id: selectedId },
         body: { action, source: packageSource, scope: packageScope },
       });
-      setPackages(result.packages);
-      setConfiguration(result);
+      configurationQuery.replace(result);
       setNotice(
         `Pi ${action} completed. Open a new Pi session or reload Pi to apply the change.`,
       );
@@ -255,7 +234,6 @@ export function PiCustomizations({
     }
   }
   useEffect(() => setError(""), [selected, agentId, conversationId, refresh]);
-  const sourceId = useSourceId();
   const catalogQuery = useProjectionQuery(
     workspaceApi.agentHarness,
     {
@@ -322,6 +300,7 @@ export function PiCustomizations({
               {error}
             </p>
           )}
+          <CollectionReadNotice {...configurationQuery} />
           <CollectionReadNotice {...catalogQuery} />
           {catalogQuery.loading && <p role="status">Loading from Pi…</p>}
           {catalog && !catalog.available && (
