@@ -43,7 +43,6 @@ import { Notifications } from "../Notifications";
 import { RetireAgent } from "../RetireAgent";
 import { Tools } from "../Tools";
 import { PiCustomizations } from "../PiCustomizations";
-import { TOOLS_CLOSED } from "../PullRequests";
 
 import { ActionSheet, LaterSheet, undoReminder } from "../ThreadTools";
 import { Toasts, notify } from "../toast";
@@ -993,7 +992,7 @@ export function renderApp(props: AppViewProps) {
         <Tools
           onClose={() => {
             closeSheet();
-            window.dispatchEvent(new Event(TOOLS_CLOSED));
+            emitClientEvent("loop-tools-closed");
           }}
         />
       )}
