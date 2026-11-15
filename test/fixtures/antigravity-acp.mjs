@@ -34,6 +34,10 @@ const configOptions = [
   },
 ];
 if (process.env.LOOP_TEST_AGY_MODE === "no-effort") configOptions.splice(1, 1);
+if (process.env.LOOP_TEST_AGY_MODE === "effort-decoy") {
+  configOptions[1].id = "thinking_cache";
+  configOptions[1].name = "Thinking cache";
+}
 if (process.env.LOOP_TEST_AGY_MODE === "model-mode-id") {
   configOptions[0].id = "acp-mode";
   configOptions[0].currentValue = "code";

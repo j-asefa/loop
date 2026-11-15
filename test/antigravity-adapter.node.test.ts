@@ -39,6 +39,16 @@ const sessions = (requests: () => any[]) =>
 const complete = (events: AdapterEvent[]) =>
   events.filter((e) => e.type === "status" && e.status === "completed");
 
+test("saved Antigravity versions never gain ACP capabilities from an unknown or prerelease version", () => {
+  for (const version of [undefined, "unknown", "1.5.9-rc.1", "2.0.0-beta.1"]) {
+    const adapter = new Antigravity({ ...options, version }, () => {});
+    assert.equal(adapter.activityTransport, "native");
+    assert.equal(adapter.capabilities.workspaceTools, false);
+    assert.equal(adapter.steer, undefined);
+    assert.equal(adapter.canReuse({ ...options, version: "1.5.9" }), false);
+  }
+});
+
 test("Antigravity probes models and native initialization without a prompt, credential access or permission bypass", async (t) => {
   const requests = fixture(t);
   const events: AdapterEvent[] = [];
@@ -537,6 +547,7 @@ for (const [mode, selection, code] of [
   ],
   ["effort-rejected", { effort: "high" }, "antigravity_effort_rejected"],
   ["no-effort", { effort: "high" }, "antigravity_effort_unavailable"],
+  ["effort-decoy", { effort: "high" }, "antigravity_effort_unavailable"],
 ] as const) {
   test(`Antigravity ACP reports safe configuration remediation for ${mode}`, async (t) => {
     const requests = fixture(t);
@@ -565,6 +576,12 @@ for (const [mode, selection, code] of [
       assert(
         !requests().some((request) => request.method === "session/prompt"),
       );
+      if (mode === "effort-decoy")
+        assert(
+          !requests().some(
+            (request) => request.method === "session/set_config_option",
+          ),
+        );
     } finally {
       await adapter.dispose();
     }

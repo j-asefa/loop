@@ -65,9 +65,7 @@ class AntigravityAcp extends Acp {
       return;
     }
     if (this.nativeOptions.effort) {
-      const effort =
-        this.settingId((id) => id === "thinking_level") ??
-        this.settingId((id, name) => /effort|thinking/i.test(id + " " + name));
+      const effort = this.settingId((id) => id === "thinking_level");
       if (!effort)
         throw new NativeSetupError(
           "antigravity_effort_unavailable",
