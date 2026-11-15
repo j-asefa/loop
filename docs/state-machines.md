@@ -253,16 +253,19 @@ already resolved is ignored and does not move the run to `awaiting_approval`.
 
 ### In-memory `Live` session
 
-[`native/state.ts`](../src/server/native/state.ts), owned by one worker
-process. Fields: `run` (the attached turn), `cancelling`, `waiting`,
-`closed`/`disposal`, `requests`, `finish`, `idle` timer.
+`NativeSessionState` in [`native/state.ts`](../src/server/native/state.ts) owns
+one worker process's session map and all `Live` field mutations. Production and
+fixtures attach sessions through `attach`; consumers receive readonly views.
+`find` and `all` expose retained identities without exposing the map. Named
+operations own turn attachment, decisions, output buffers, timers, cancellation
+and disposal. The supervisor still orders durable writes and adapter IO.
 
 | From → to | Trigger | Code |
 | --------- | ------- | ---- |
-| idle → turn (`run` set, `cancelling` false) | `execute` | `supervisor.ts` |
-| turn → idle (`run`, `finish`, `waiting`, `cancelling` cleared; idle timer armed) | turn ends, including failures before dispatch | `execute` `catch`/`finally` |
-| turn → cancelling | `interrupt` | `supervisor.ts` |
-| any → closed | `dispose` (idempotent) | `supervisor.ts` |
+| idle → turn (`run` set, `cancelling` false) | `execute` | `state.startTurn` |
+| turn → idle | pre-dispatch preparation fails: detach only; normal turn cleanup: clear run, finish, waiting and cancelling | `state.detachTurn` / `state.endTurn`, then `state.scheduleIdle` |
+| turn → cancelling | `interrupt` | `state.cancel` |
+| any → closed | `dispose` (idempotent) | `state.close`, `state.disposing`, identity-guarded `state.remove` |
 
 Invariants: `run` is set only while `execute` owns the turn; `cancelling` is
 true only while that turn is being interrupted; a closed live is never reused.
@@ -276,8 +279,8 @@ while idle, and delayed output requires the same run object. Stored-generation
 checks remain specific to settings and usage/activity/model projections; they
 are not added to prompt or decision dispatch. Definitive non-delivery can reopen
 a decision without the dispatch cancellation predicate. These differences
-preserve the existing boundaries; lifecycle writes remain with their current
-owners until the session-state extraction.
+preserve the existing boundaries. The state owner supplies the guard's lookup;
+callers retain the same purpose-specific policies.
 
 `native_history_actions`: ∅ → unknown (written before the fork) → completed;
 an existing `unknown` row answers 409.

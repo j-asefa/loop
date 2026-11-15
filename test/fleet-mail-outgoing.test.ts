@@ -1,3 +1,4 @@
+import { NativeSessionState } from "../src/server/native/state.js";
 import { PublicMailMessage } from "../src/shared/agent-mail.js";
 import { createHost } from "./helpers/gateway.js";
 import { afterAll, afterEach, expect, it } from "vitest";
@@ -23,7 +24,6 @@ import {
 } from "../src/shared/fleet-mail.js";
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
 import type { Binding, Live } from "../src/server/native/state.js";
-import { NativeOutput } from "../src/server/native-output.js";
 import { Codex } from "../src/adapters/codex.js";
 import { FleetAdminState } from "../src/shared/fleet-admin-api.js";
 import { mailConversationTarget } from "../src/client/mailReferences.js";
@@ -313,14 +313,13 @@ function finishNative(run: ReturnType<typeof source>["run"]) {
   const binding = db
     .prepare("SELECT * FROM companion_sessions WHERE conversation_id=?")
     .get(run.conversation_id) as Binding;
-  const live: Live = {
+  const state = new NativeSessionState();
+  const live: Live = state.attach({
     binding,
     generation: binding.generation,
     run,
     bootstrapRun: run,
     ready: Promise.resolve(),
-    // Projection does not launch an adapter. Framing is covered by the native
-    // subprocess fixtures; this exercises their shared terminal-event boundary.
     adapter: new Codex(
       {
         harness: "codex",
@@ -331,24 +330,17 @@ function finishNative(run: ReturnType<typeof source>["run"]) {
       },
       () => {},
     ),
-    items: new NativeOutput(),
-    requests: new Map(),
-    closed: false,
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
     finish: () => transition(run, "completed"),
-  };
+  });
   new NativeProjector({
-    live: new Map([[binding.conversation_id, live]]),
+    state,
     interrupt: async () => {
       throw new Error("Unexpected native interruption");
     },
     dispose: async () => {
       throw new Error("Unexpected native disposal");
     },
-    request: () => false,
-    projectOutput: () => {},
+    decisions: { request: () => false },
   }).event(live, { type: "status", status: "completed" });
   expect(
     db.prepare("SELECT state FROM native_dispatch WHERE run_id=?").get(run.id),

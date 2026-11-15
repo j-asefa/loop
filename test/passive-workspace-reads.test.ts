@@ -11,7 +11,6 @@ import { Codex } from "../src/adapters/codex.js";
 import { Pi } from "../src/adapters/pi.js";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { DirectControls } from "../src/adapters/direct-controls.js";
-import { NativeOutput } from "../src/server/native-output.js";
 import type { Live } from "../src/server/native-sessions.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-passive-reads-"));
@@ -327,7 +326,7 @@ it.each([
       calls.push(path);
       return [{ name: "fresh" }];
     });
-    const live: Live = {
+    const live: Live = nativeSessions.state.attach({
       adapter,
       generation: liveGeneration,
       binding: {
@@ -344,15 +343,7 @@ it.each([
       },
       ready: Promise.resolve(),
       bootstrapRun: undefined as never,
-      items: new NativeOutput(),
-      requests: new Map(),
-      closed: false,
-      cancelling: false,
-      waiting: false,
-      bridgeWaiting: 0,
-    };
-    const sessions = Reflect.get(nativeSessions, "live") as Map<string, Live>;
-    sessions.set(conversation, live);
+    });
     emitted.length = 0;
     try {
       const catalog = await get(
@@ -381,7 +372,7 @@ it.each([
       expect(emitted.length).toBeGreaterThan(0);
     } finally {
       passive = true;
-      sessions.delete(conversation);
+      nativeSessions.state.remove(live);
       db.prepare("DELETE FROM companion_sessions WHERE conversation_id=?").run(
         conversation,
       );

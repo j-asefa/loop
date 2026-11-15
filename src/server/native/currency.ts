@@ -77,7 +77,9 @@ export type NativeCurrencyCheck =
  * short-circuit before an owned run read. This guard never mutates a session.
  */
 export class NativeSessionCurrency {
-  constructor(private readonly sessions: ReadonlyMap<string, Live>) {}
+  constructor(
+    private readonly sessions: Pick<ReadonlyMap<string, Live>, "get">,
+  ) {}
 
   allows(check: NativeCurrencyCheck): boolean {
     const active = (state: string | undefined) =>

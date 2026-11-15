@@ -1,6 +1,5 @@
 import { afterAll, expect, it, vi } from "vitest";
 import { Codex } from "../src/adapters/codex.js";
-import { NativeOutput } from "../src/server/native-output.js";
 import type { Live } from "../src/server/native/state.js";
 import Database from "better-sqlite3";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -481,7 +480,8 @@ it("refuses retained queued effects and a delayed async action after the peer is
   const settingCall = vi
     .spyOn(adapter, "setSetting")
     .mockResolvedValue({ revision: 1, options: [] });
-  const live: Live = {
+  const sessions = new NativeSessions();
+  const live: Live = sessions.state.attach({
     adapter,
     generation,
     binding: {
@@ -500,18 +500,7 @@ it("refuses retained queued effects and a delayed async action after the peer is
     bootstrapRun: enqueue(owner, "Native setting fixture", randomUUID(), {
       conversation,
     }),
-    items: new NativeOutput(),
-    requests: new Map(),
-    closed: false,
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-  };
-  const sessions = new NativeSessions();
-  (sessions as unknown as { live: Map<string, Live> }).live.set(
-    conversation,
-    live,
-  );
+  });
   const setting = withFleetAction(
     { owner, commandId: randomUUID(), grant },
     check,

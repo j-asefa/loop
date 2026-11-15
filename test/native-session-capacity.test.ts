@@ -271,8 +271,7 @@ it.each([false, true])(
           if (trial === "different run id")
             live.run = { ...saved, id: "replacement" };
           if (trial === "different run object") live.run = { ...saved };
-          if (trial === "no run")
-            delete (live as import("../src/server/native/state.js").Live).run;
+          if (trial === "no run") delete (live as { run?: typeof saved }).run;
           if (trial === "wrong conversation")
             live.run = { ...saved, conversation_id: "other" };
           if (trial === "stored generation") storedGeneration = "replacement";

@@ -1,6 +1,5 @@
+import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
-import type { Live } from "../src/server/native-sessions";
-import { NativeOutput } from "../src/server/native-output";
 import {
   mkdtempSync,
   writeFileSync,
@@ -634,9 +633,9 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
   expect(claimed.payload.reviewId).toBe(review.id);
   let prompt = "";
   const generation = id();
-  const live = {
+  const live = nativeSessions.state.attach({
     generation,
-    binding: {
+    binding: fixtureBinding({
       conversation_id: claimed.conversation_id!,
       harness: "claude",
       project: repo,
@@ -645,21 +644,16 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
       instructions: "",
       generation,
       state: "idle",
-    },
+    }),
     bootstrapRun: claimed,
-    items: new NativeOutput(),
-    requests: new Map(),
-    adapter: {
+    adapter: fixtureAdapter({
       async prompt(input: string, beforeDispatch?: () => void) {
         beforeDispatch?.();
         prompt = input;
         live.finish!("completed");
       },
-    },
-  } as unknown as Live;
-  const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
-    .live;
-  sessions.set(claimed.conversation_id!, live);
+    }),
+  });
   const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
   try {
     expect(await nativeSessions.execute(claimed)).toMatchObject({
@@ -670,7 +664,7 @@ it("runs review teams on native harness subscriptions with the snapshot in the f
     expect(prompt).toContain("Captured diff (untrusted code)");
   } finally {
     clearTimeout(live.idle);
-    sessions.delete(claimed.conversation_id!);
+    nativeSessions.state.remove(live);
     session.mockRestore();
     for (const run of db
       .prepare(
@@ -1012,7 +1006,7 @@ it.each(["cancelled", "failed", "interrupted"])(
   },
 );
 
-it.each(["claude", "opencode"])(
+it.each(["claude", "opencode"] as const)(
   "resumes %s in its original session and does not replay uncertain continuation dispatch",
   async (harness) => {
     setAgentPermissionMode("alice", "bypassPermissions");
@@ -1034,9 +1028,9 @@ it.each(["claude", "opencode"])(
     expect(first.payload.permissionMode).toBe("bypassPermissions");
     const generation = id();
     const prompts: string[] = [];
-    const live = {
+    const live = nativeSessions.state.attach({
       generation,
-      binding: {
+      binding: fixtureBinding({
         conversation_id: first.conversation_id!,
         harness,
         project: repo,
@@ -1045,11 +1039,9 @@ it.each(["claude", "opencode"])(
         instructions: "",
         generation,
         state: "idle",
-      },
+      }),
       bootstrapRun: first,
-      items: new NativeOutput(),
-      requests: new Map(),
-      adapter: {
+      adapter: fixtureAdapter({
         async prompt(input: string, beforeDispatch?: () => void) {
           beforeDispatch?.();
           prompts.push(input);
@@ -1068,11 +1060,8 @@ it.each(["claude", "opencode"])(
           live.finish!("completed");
         },
         async dispose() {},
-      },
-    } as unknown as Live;
-    const sessions = (nativeSessions as unknown as { live: Map<string, Live> })
-      .live;
-    sessions.set(first.conversation_id!, live);
+      }),
+    });
     const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
     try {
       expect(await nativeSessions.execute(first)).toMatchObject({
@@ -1124,7 +1113,7 @@ it.each(["claude", "opencode"])(
     } finally {
       setAgentPermissionMode("alice", "default");
       clearTimeout(live.idle);
-      sessions.delete(first.conversation_id!);
+      nativeSessions.state.remove(live);
       session.mockRestore();
     }
   },

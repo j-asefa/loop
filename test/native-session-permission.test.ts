@@ -174,8 +174,8 @@ it("can change permission mode while waiting for a tool decision, without replay
   const task = run("waiting");
   const live = await sessions.session(task);
   try {
-    live.run = task;
-    live.waiting = true;
+    sessions.state.startTurn(live, task);
+    sessions.state.waiting(live, true);
     const answer = vi.spyOn(live.adapter, "answer");
     await sessions.setSetting(
       "waiting",
@@ -186,7 +186,7 @@ it("can change permission mode while waiting for a tool decision, without replay
     );
     expect(mode("waiting")).toBe("acceptEdits");
     expect(answer).not.toHaveBeenCalled();
-    live.waiting = false;
+    sessions.state.waiting(live, false);
     await expect(
       sessions.setSetting(
         "waiting",
@@ -197,7 +197,7 @@ it("can change permission mode while waiting for a tool decision, without replay
       ),
     ).rejects.toThrow("Wait for the native turn");
   } finally {
-    live.run = undefined;
+    sessions.state.detachTurn(live);
     await sessions.dispose(live);
   }
 });
@@ -299,13 +299,13 @@ it("keeps one idle timer when setting requests overlap", async () => {
     await slow;
     // A turn starts: it clears the session's idle timer, as session() does.
     clearTimeout(live.idle);
-    live.run = task;
+    sessions.state.startTurn(live, task);
     await vi.advanceTimersByTimeAsync(61_000);
     expect(live.closed).toBe(false);
   } finally {
     vi.useRealTimers();
     change.mockRestore();
-    live.run = undefined;
+    sessions.state.detachTurn(live);
     await sessions.dispose(live);
   }
 });
@@ -503,7 +503,7 @@ it("records a cancelled-before-dispatch turn as interrupted, not unknown outcome
     .spyOn(live.adapter, "prompt")
     .mockImplementation(async (_input: unknown, before?: () => void) => {
       // An interrupt lands after the turn attaches but before dispatch.
-      live.cancelling = true;
+      sessions.state.cancel(live);
       before?.(); // beforeDispatch throws NotDelivered
     });
   try {
@@ -557,7 +557,7 @@ it.each(["ordinary", "oversized", "full"])(
         // A resolved re-emission adds no display content, even at the limits.
         if (bounds === "full") {
           for (let i = 0; i < 25; i++)
-            live.requests.set("pending-" + i, {
+            sessions.state.request(live, {
               id: "pending-" + i,
               kind: "approval",
               title: "t",
@@ -610,7 +610,7 @@ it("interrupts a settled native turn when its final output cannot be recorded", 
     title: "pending",
     detail: "",
   };
-  live.requests.set(pending.id, pending);
+  sessions.state.request(live, pending);
   nativeDecisionsQueries.insertPending(
     db,
     decisionId,

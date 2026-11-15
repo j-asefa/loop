@@ -1,4 +1,4 @@
-import { NativeSessionCurrency } from "./currency.js";
+import { NativeSessionState } from "./state.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
 import { harnesses } from "../../shared/harnesses.js";
@@ -20,7 +20,6 @@ import { completeCheckout, startCheckout } from "../run-checkouts.js";
 import { config } from "../config.js";
 import { RunDeferred } from "../run-deferred.js";
 import { selectedContext } from "../carried-context.js";
-import { NativeOutput } from "../native-output.js";
 import { MAX_CONCURRENT_RUNS } from "../../shared/concurrency.js";
 import { SteeringInbox } from "../steering.js";
 import { realpathSync } from "node:fs";
@@ -33,11 +32,7 @@ import { attachedFiles, localAttachmentPrompt } from "../uploads.js";
 import { transition, type Run } from "../queue.js";
 
 import { nativeStartupFailure } from "./startup-failure.js";
-import {
-  NotDelivered,
-  type Adapter,
-  type Options,
-} from "../../adapters/types.js";
+import { NotDelivered, type Options } from "../../adapters/types.js";
 import { type Harness } from "../../shared/protocol.js";
 import { replyPrompt } from "../../shared/replies.js";
 import { reviewContext } from "../review-access.js";
@@ -69,8 +64,8 @@ function recaptureAfterStop(run: Run) {
 
 /** One workspace owns native processes; native sessions own their model context. */
 export class NativeSessions {
-  private live = new Map<string, Live>();
-  private readonly currency = new NativeSessionCurrency(this.live);
+  readonly state = new NativeSessionState();
+  private readonly currency = this.state.currency;
   private stopped = false;
   private idleHolds = new Map<string, number>();
   private reservedStarts = 0;
@@ -80,34 +75,13 @@ export class NativeSessions {
   ) => { url: string; token: string };
   revokeTools?: (conversation: string, generation: string) => Promise<void>;
   readonly projects = new NativeProjects({
-    live: this.live,
+    state: this.state,
     isStopped: () => this.stopped,
     projectTrust: (project) => this.pi.projectTrust(project),
   });
-  readonly pi = new PiCustomization({
-    live: this.live,
-    dispose: (live) => this.dispose(live),
-    clearProbes: () => this.projects.clearProbes(),
-    catalog: (agent, conversation) =>
-      this.projects.catalog(agent, conversation),
-    registration: (name) => this.projects.registration(name),
-    project: (snapshot, options) => this.projects.project(snapshot, options),
-  });
-  readonly decisions = new NativeDecisions({
-    live: this.live,
-    interrupt: (runId, reason) => this.interrupt(runId, reason),
-    answer: (decisionId, commandId, answer) =>
-      this.decisions.answer(decisionId, commandId, answer),
-  });
-  readonly projector = new NativeProjector({
-    live: this.live,
-    interrupt: (runId, reason) => this.interrupt(runId, reason),
-    dispose: (live) => this.dispose(live),
-    request: (live, run, event, allow) =>
-      this.decisions.request(live, run, event, allow),
-    projectOutput: (live, partial) =>
-      this.projector.projectOutput(live, partial),
-  });
+  readonly pi = new PiCustomization(this);
+  readonly decisions = new NativeDecisions(this);
+  readonly projector = new NativeProjector(this);
 
   // The fleet workspace branch requires this entry point.
   registrations() {
@@ -115,7 +89,7 @@ export class NativeSessions {
   }
 
   async resetProviderSessions(name: Harness) {
-    const sessions = [...this.live.values()].filter(
+    const sessions = [...this.state.all()].filter(
       (live) => live.binding.harness === name,
     );
     if (sessions.some((live) => live.run))
@@ -136,23 +110,23 @@ export class NativeSessions {
   }
 
   get waiting() {
-    return [...this.live.values()].filter(
+    return [...this.state.all()].filter(
       (s) => s.run && (s.requests.size > 0 || s.bridgeWaiting > 0),
     ).length;
   }
   get count() {
-    return this.live.size;
+    return this.state.size;
   }
   private async reserveStart(check: () => void) {
     for (;;) {
       check();
-      for (const old of this.live.values()) {
-        if (this.live.size + this.reservedStarts < MAX_CONCURRENT_RUNS) break;
+      for (const old of this.state.all()) {
+        if (this.state.size + this.reservedStarts < MAX_CONCURRENT_RUNS) break;
         if (!old.run && !this.idleHolds.has(old.binding.conversation_id))
           await this.dispose(old);
       }
       check();
-      if (this.live.size + this.reservedStarts < MAX_CONCURRENT_RUNS) {
+      if (this.state.size + this.reservedStarts < MAX_CONCURRENT_RUNS) {
         this.reservedStarts++;
         let reserved = true;
         return () => {
@@ -168,21 +142,23 @@ export class NativeSessions {
       conversation,
       (this.idleHolds.get(conversation) ?? 0) + 1,
     );
-    clearTimeout(this.live.get(conversation)?.idle);
+    this.state.clearIdle(this.state.find(conversation));
     return () => {
       const remaining = this.idleHolds.get(conversation)! - 1;
       if (remaining) this.idleHolds.set(conversation, remaining);
       else this.idleHolds.delete(conversation);
-      const live = this.live.get(conversation);
+      const live = this.state.find(conversation);
       if (live) this.scheduleIdle(live, !live.closed && !live.run);
     };
   }
   private scheduleIdle(live: Live, eligible: boolean) {
     // Overlapping setting requests must not leave an untracked timer that can
     // dispose a later active turn.
-    clearTimeout(live.idle);
-    if (eligible && !this.idleHolds.has(live.binding.conversation_id))
-      live.idle = setTimeout(() => void this.dispose(live), 60_000);
+    this.state.scheduleIdle(
+      live,
+      eligible && !this.idleHolds.has(live.binding.conversation_id),
+      () => void this.dispose(live),
+    );
   }
   controls(conversation: string, cachedOnly = false) {
     const binding = companionSessionsQueries.generationBinding(
@@ -190,7 +166,7 @@ export class NativeSessions {
       conversation,
     );
     if (!binding) throw new Problem(404, "Native session has not started");
-    const candidate = this.live.get(conversation);
+    const candidate = this.state.find(conversation);
     const live = this.currency.allows({
       kind: "session-access",
       live: candidate,
@@ -214,7 +190,7 @@ export class NativeSessions {
     revision: number,
     generation: string,
   ) {
-    const live = this.live.get(conversation);
+    const live = this.state.find(conversation);
     if (!live || live.closed || !live.adapter.setSetting)
       throw new ExecutionRefused(
         409,
@@ -273,7 +249,7 @@ export class NativeSessions {
           assertFleetAction(live.bootstrapRun.owner_id);
           // A model the harness reported earlier no longer describes the next
           // turn; wait for the harness to report again.
-          if (setting === "model") live.reportedModel = undefined;
+          if (setting === "model") this.state.reportedModel(live, undefined);
           if (activeRun)
             db.transaction(() => {
               assertEffect(activeRun.owner_id, "run", activeRun.id);
@@ -291,7 +267,7 @@ export class NativeSessions {
         typeof confirmed === "string" &&
         confirmed === value
       ) {
-        live.sessionMode = confirmed;
+        this.state.sessionMode(live, confirmed);
         if (harnesses[live.binding.harness].launchPermissionMode) {
           // Record the workspace level this choice was made against, so a
           // later change to that level supersedes it (see session()).
@@ -304,8 +280,7 @@ export class NativeSessions {
             conversation,
             generation,
           );
-          live.binding.permission_mode = confirmed;
-          live.binding.permission_base = base;
+          this.state.permissionBinding(live, confirmed, base);
         }
       }
       live.adapter.refreshCommandCatalog?.();
@@ -339,7 +314,7 @@ export class NativeSessions {
     if (!run.conversation_id)
       throw new Problem(400, "Native work requires a conversation.");
     const conversation = run.conversation_id;
-    const current = this.live.get(conversation);
+    const current = this.state.find(conversation);
     const snapshot = agentPayload(run);
     const connection = ownedConnection(snapshot.connectionId, run.owner_id);
     const harness = connection.metadata.loopHarness as Harness;
@@ -354,7 +329,7 @@ export class NativeSessions {
       Binding | undefined;
     const preparationGuard = () => {
       const before = companionSessionsQueries.get(db, conversation);
-      const beforeLive = this.live.get(conversation);
+      const beforeLive = this.state.find(conversation);
       const state = ownedRun(run.id, run.owner_id).state;
       return () => {
         assertEffect(run.owner_id, "run", run.id);
@@ -546,7 +521,7 @@ export class NativeSessions {
         companionSessionsQueries.clearPermission(db, now(), conversation);
         binding.permission_mode = null;
         binding.permission_base = null;
-        if (reuse) reuse.sessionMode = undefined;
+        if (reuse) this.state.sessionMode(reuse, undefined);
       }
       if (binding.model !== model || (binding.effort || null) !== effort) {
         companionSessionsQueries.setModelEffort(
@@ -560,8 +535,7 @@ export class NativeSessions {
         binding.effort = effort;
       }
       if (reuse) {
-        clearTimeout(reuse.idle);
-        reuse.permissionMode = permissionMode;
+        this.state.reuse(reuse, permissionMode);
         return reuse;
       }
       const generation = id();
@@ -584,25 +558,17 @@ export class NativeSessions {
                 .override
             : undefined,
       };
-      const live: Live = {
+      const live = this.state.attach({
         bootstrapRun: run,
-        adapter: undefined as unknown as Adapter,
         binding,
         generation,
-        ready: Promise.resolve(),
-        items: new NativeOutput(),
-        requests: new Map(),
-        closed: false,
-        cancelling: false,
-        waiting: false,
-        bridgeWaiting: 0,
         permissionMode,
         sessionMode: binding.permission_mode || undefined,
-      };
-      live.adapter = new classes[harness](options, (event) =>
-        this.projector.event(live, event),
-      );
-      this.live.set(conversation, live);
+        adapter: (live) =>
+          new classes[harness](options, (event) =>
+            this.projector.event(live, event),
+          ),
+      });
       releaseStart();
       companionSessionsQueries.markStarting(
         db,
@@ -610,24 +576,27 @@ export class NativeSessions {
         now(),
         conversation,
       );
-      live.ready = (async () => {
-        try {
-          assertEffect(run.owner_id, "run", run.id);
-          await live.adapter.start();
-          if (this.stopped || live.closed)
-            throw new Error("Workspace stopped during native startup.");
-          companionSessionsQueries.markIdle(db, now(), conversation);
-        } catch (error) {
-          await this.dispose(live);
-          companionSessionsQueries.failGeneration(
-            db,
-            now(),
-            conversation,
-            generation,
-          );
-          throw nativeStartupFailure(harness, error, !!options.resume);
-        }
-      })();
+      this.state.ready(
+        live,
+        (async () => {
+          try {
+            assertEffect(run.owner_id, "run", run.id);
+            await live.adapter.start();
+            if (this.stopped || live.closed)
+              throw new Error("Workspace stopped during native startup.");
+            companionSessionsQueries.markIdle(db, now(), conversation);
+          } catch (error) {
+            await this.dispose(live);
+            companionSessionsQueries.failGeneration(
+              db,
+              now(),
+              conversation,
+              generation,
+            );
+            throw nativeStartupFailure(harness, error, !!options.resume);
+          }
+        })(),
+      );
       await live.ready;
       return live;
     } finally {
@@ -662,13 +631,8 @@ export class NativeSessions {
       throw new Problem(409, "This native conversation is already running.");
     if (ownedRun(run.id, run.owner_id).state !== "running")
       return { kind: "already-moved", reason: "native-not-running" };
-    live.items.clear();
-    live.requests.clear();
-    // A settings request may have re-armed the idle timer after session()
-    // cleared it; the turn now owns the session.
-    clearTimeout(live.idle);
-    live.run = run;
-    live.cancelling = false;
+    // The turn owns the session, including any idle timer rearmed by settings.
+    this.state.startTurn(live, run);
     let snapshot: ReturnType<typeof agentPayload>;
     let input: string;
     let watched: ReturnType<typeof watchRun>;
@@ -721,13 +685,11 @@ export class NativeSessions {
     } catch (error) {
       // Nothing was sent. Release the session so later turns, settings and
       // provider changes are not refused as "already running".
-      live.run = undefined;
+      this.state.detachTurn(live);
       this.scheduleIdle(live, !live.closed);
       throw error;
     }
-    const complete = new Promise<string>((resolve) => {
-      live.finish = resolve;
-    });
+    const complete = this.state.completion(live);
     const stop = () => {
       const cause = watched.signal.reason;
       if (!live.cancelling)
@@ -884,18 +846,15 @@ export class NativeSessions {
       watched.release();
       clearTimeout(deadline);
       clearTimeout(live.flush);
-      live.run = undefined;
-      live.finish = undefined;
-      live.waiting = false;
       // An interrupt belongs to this turn; the idle session accepts settings.
-      live.cancelling = false;
+      this.state.endTurn(live);
       this.scheduleIdle(live, !live.closed);
     }
   }
   async interrupt(runId: string, reason?: string) {
-    const live = [...this.live.values()].find((s) => s.run?.id === runId);
+    const live = [...this.state.all()].find((s) => s.run?.id === runId);
     if (!live || live.cancelling || live.closed) return;
-    live.cancelling = true;
+    this.state.cancel(live);
     if (reason) runsQueries.setError(db, reason, runId);
     const timeout = setTimeout(() => {
       if (live.run?.id === runId) {
@@ -914,7 +873,7 @@ export class NativeSessions {
     }
   }
   current(conversation: string, generation: string, requireRun = true) {
-    const live = this.live.get(conversation);
+    const live = this.state.find(conversation);
     if (
       !live ||
       !this.currency.allows({
@@ -934,9 +893,7 @@ export class NativeSessions {
   dispose(live: Live): Promise<void> {
     if (live.disposal) return live.disposal;
     this.projector.projectOutput(live, true);
-    live.closed = true;
-    clearTimeout(live.flush);
-    clearTimeout(live.idle);
+    this.state.close(live);
     live.finish?.("interrupted");
     nativeDecisionsQueries.finishPendingGeneration(
       db,
@@ -944,13 +901,14 @@ export class NativeSessions {
       live.binding.conversation_id,
       live.generation,
     );
-    live.disposal = (async () => {
-      await this.revokeTools?.(live.binding.conversation_id, live.generation);
-      await live.adapter.dispose();
-      if (this.currency.allows({ kind: "dispose-entry", live }))
-        this.live.delete(live.binding.conversation_id);
-    })();
-    return live.disposal;
+    return this.state.disposing(
+      live,
+      (async () => {
+        await this.revokeTools?.(live.binding.conversation_id, live.generation);
+        await live.adapter.dispose();
+        this.state.remove(live);
+      })(),
+    );
   }
   recover() {
     db.transaction(() => {
@@ -974,9 +932,7 @@ export class NativeSessions {
   }
   async close() {
     this.stopped = true;
-    await Promise.allSettled(
-      [...this.live.values()].map((s) => this.dispose(s)),
-    );
+    await Promise.allSettled([...this.state.all()].map((s) => this.dispose(s)));
     this.recover();
   }
 }
