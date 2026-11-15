@@ -427,7 +427,7 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   process.env.LOOP_TEST_AGY_RECIPIENT = recipient.id;
   const active = claim("agy-mail", (candidate) => candidate.id === run.id)!;
   try {
-    expect(await sessions.execute(active)).toBe(true);
+    expect(await sessions.execute(active)).toEqual({ kind: "finished" });
     expect(requests().findLast((r) => r.event === "catalog").tools).toEqual(
       expect.arrayContaining(["loop_agents", "loop_message", "loop_handoff"]),
     );
@@ -492,7 +492,7 @@ it("never resends an ACP prompt after a disconnect, including through recovery",
       await sessions.execute(
         claim("agy-mail", (candidate) => candidate.id === run.id)!,
       ),
-    ).toBe(false);
+    ).toMatchObject({ kind: "already-moved", reason: "native-failed" });
     const receipt = db
       .prepare("SELECT * FROM native_dispatch WHERE run_id=?")
       .get(run.id);
