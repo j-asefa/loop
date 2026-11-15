@@ -124,6 +124,13 @@ export class Acp implements Adapter {
     resolve: () => void;
     reject: (error: Error) => void;
   };
+  /** Harness-specific setup stays inside the shared session startup boundary. */
+  protected async configureSession(): Promise<void> {}
+  protected settingId(matches: (id: string, name: string) => boolean) {
+    return this.rawConfigOptions.find((option) =>
+      matches(option.id, option.name),
+    )?.id;
+  }
   private messageId = "";
   private toolKinds = new Map<string, string>();
   private toolCommands = new Map<string, string>();
@@ -319,8 +326,11 @@ export class Acp implements Adapter {
           result.modes || undefined,
         );
       }
-      if (this.options.probeOnly) return this.billing();
-      if (this.options.model && this.options.model !== "native-default") {
+      if (
+        !this.options.probeOnly &&
+        this.options.model &&
+        this.options.model !== "native-default"
+      ) {
         if (!this.models.some((model) => model.id === this.options.model))
           throw new SafeAcpError(
             "Selected model is not in the agent's session catalog.",
@@ -344,6 +354,8 @@ export class Acp implements Adapter {
           );
         }
       }
+      await this.configureSession();
+      if (this.options.probeOnly) return this.billing();
       this.emit({ type: "metadata", nativeSession: this.session });
       this.emit({ type: "status", status: "ready" });
       return this.billing();

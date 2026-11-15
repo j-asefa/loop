@@ -32,26 +32,32 @@ class AntigravityAcp extends Acp {
         "Antigravity uses its existing native sign-in, billing and permission configuration. Provider charges may apply.",
     };
   }
+  protected override async configureSession() {
+    if (this.nativeOptions.probeOnly) {
+      if (!(await this.waitForCommands()))
+        throw new Error("ACP session unavailable");
+      return;
+    }
+    if (this.nativeOptions.effort) {
+      const effort =
+        this.settingId((id) => id === "thinking_level") ??
+        this.settingId((id, name) => /effort|thinking/i.test(id + " " + name));
+      if (!effort)
+        throw new Error(
+          "Antigravity did not expose its thinking level setting.",
+        );
+      await this.setSetting(
+        effort,
+        this.nativeOptions.effort,
+        this.settings.revision,
+      );
+    }
+  }
   override async start() {
     if (this.nativeOptions.billing !== "existing")
       throw new Error("Antigravity requires --billing existing.");
     try {
-      const billing = await super.start();
-      if (this.nativeOptions.effort && !this.nativeOptions.probeOnly) {
-        const effort = this.settings.options.find((option) =>
-          /effort|thinking/i.test(option.id + " " + option.label),
-        );
-        if (!effort)
-          throw new Error(
-            "Antigravity did not expose its thinking level setting.",
-          );
-        await this.setSetting(
-          effort.id,
-          this.nativeOptions.effort,
-          this.settings.revision,
-        );
-      }
-      return billing;
+      return await super.start();
     } catch (error) {
       await this.dispose();
       if (error instanceof NativeMemoryError) throw error;

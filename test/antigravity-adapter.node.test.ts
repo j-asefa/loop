@@ -498,6 +498,57 @@ test("Antigravity ACP waits for a delayed catalog before its first slash command
   }
 });
 
+test("Antigravity ACP does not publish a ready session when requested effort is rejected", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "effort-rejected";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity(
+    { ...options, version: "1.5.9", effort: "high" },
+    (event) => events.push(event),
+  );
+  try {
+    await assert.rejects(adapter.start(), /setup failed/);
+    assert(
+      !events.some(
+        (event) => event.type === "status" && event.status === "ready",
+      ),
+    );
+    assert(!events.some((event) => event.type === "metadata"));
+    assert(!requests().some((request) => request.method === "session/prompt"));
+  } finally {
+    await adapter.dispose();
+  }
+});
+
+test(
+  "Antigravity ACP catalog probes bound missing discovery without publishing a ready session or prompting",
+  { timeout: 12000 },
+  async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "no-commands";
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity(
+      { ...options, version: "1.5.9", probeOnly: true },
+      (event) => events.push(event),
+    );
+    try {
+      await adapter.start();
+      assert.deepEqual(adapter.commands, []);
+      assert(
+        !events.some(
+          (event) => event.type === "status" && event.status === "ready",
+        ),
+      );
+      assert(!events.some((event) => event.type === "metadata"));
+      assert(
+        !requests().some((request) => request.method === "session/prompt"),
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  },
+);
+
 test(
   "Antigravity ACP bounds an absent catalog and keeps unknown commands literal",
   { timeout: 12000 },
@@ -555,7 +606,7 @@ for (const [mode, model] of [
     process.env.LOOP_TEST_AGY_MODE = mode;
     const events: AdapterEvent[] = [];
     const adapter = new Antigravity(
-      { ...options, version: "1.5.9", model },
+      { ...options, version: "1.5.9", model, effort: "high" },
       (event) => events.push(event),
     );
     try {
@@ -573,7 +624,10 @@ for (const [mode, model] of [
         requests()
           .filter((r) => r.method === "session/set_config_option")
           .map((r) => [r.params.configId, r.params.value]),
-        [["model", model]],
+        [
+          ["model", model],
+          ["thinking_level", "high"],
+        ],
       );
     } finally {
       await adapter.dispose();

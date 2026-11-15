@@ -44,7 +44,7 @@ if (process.env.LOOP_TEST_AGY_MODE === "late-model-setting") {
   configOptions.unshift(
     ...Array.from({ length: 50 }, (_, index) => ({
       id: `setting-${index}`,
-      name: `Setting ${index}`,
+      name: index === 0 ? "Thinking cache" : `Setting ${index}`,
       type: "select",
       currentValue: "normal",
       options: [{ value: "normal", name: "Normal" }],
@@ -175,6 +175,16 @@ for await (const line of createInterface({ input: process.stdin })) {
     update("Antigravity ACP fixture answer");
     send({ id: request.id, result: { stopReason: "end_turn" } });
   } else if (request.method === "session/set_config_option") {
+    if (
+      process.env.LOOP_TEST_AGY_MODE === "effort-rejected" &&
+      request.params.configId === "thinking_level"
+    ) {
+      send({
+        id: request.id,
+        error: { code: -32602, message: "Rejected effort" },
+      });
+      continue;
+    }
     const option = configOptions.find(
       (option) => option.id === request.params.configId,
     );
