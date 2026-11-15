@@ -266,7 +266,7 @@ export class Acp implements Adapter {
       if (this.options.probeOnly && !this.verifySessionOnProbe)
         return this.billing();
       if (
-        (this.options.workspaceTools || this.requireWorkspaceTools) &&
+        this.requireWorkspaceTools &&
         !init.agentCapabilities?.mcpCapabilities?.http
       )
         throw new SafeAcpError(

@@ -29,6 +29,36 @@ const wait = (events: AdapterEvent[], status: string) =>
     poll();
   });
 
+test("ACP keeps individual conversations usable when HTTP MCP is not advertised", async () => {
+  const events: AdapterEvent[] = [];
+  const adapter = new Acp(
+    {
+      harness: "acp",
+      executable: process.execPath,
+      args: [fixture],
+      project: process.cwd(),
+      billing: "existing",
+      version: "fake",
+      workspaceTools: {
+        url: "http://127.0.0.1:9/unavailable-workspace",
+        token: "private-workspace-fixture",
+      },
+    },
+    (event) => events.push(event),
+  );
+  try {
+    await adapter.start();
+    await adapter.prompt("An individual task without workspace tools");
+    await wait(events, "completed");
+    assert(
+      events.some((event) => event.type === "delta" && event.text === "answer"),
+    );
+    assert(!JSON.stringify(events).includes("private-workspace-fixture"));
+  } finally {
+    await adapter.dispose();
+  }
+});
+
 test("ACP start, prompt, and stop map to native events", async () => {
   const events: AdapterEvent[] = [];
   const adapter = new Acp(
