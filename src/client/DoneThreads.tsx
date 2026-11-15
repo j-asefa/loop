@@ -3,6 +3,7 @@ import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCollectionRead } from "./CollectionRead";
 import { createReadExecutor } from "./read-executor";
+import { storedCommands } from "./pendingCommandStorage";
 import {
   performStoredEffect,
   creationFailureSettled,
@@ -187,7 +188,38 @@ export function OrganizeCards({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [title, setTitle] = useState(selection.title);
+  const creationTarget = [
+    "done-thread-create",
+    JSON.stringify([...selection.cardIds].sort()),
+  ];
+  const [initialCreation] = useState(() => {
+    try {
+      const owner = viewOwner();
+      const receipt = owner
+        ? storedCommands<{ context?: string }>(localStorage)(
+            owner,
+            selection.source,
+            creationTarget,
+          ).read()
+        : undefined;
+      const context = receipt?.context
+        ? JSON.parse(receipt.context)
+        : undefined;
+      return {
+        pending: !!receipt,
+        title:
+          typeof context?.title === "string"
+            ? (context.title as string)
+            : selection.title,
+      };
+    } catch {
+      return { pending: true, title: selection.title };
+    }
+  });
+  const [title, setTitle] = useState(initialCreation.title);
+  const [creationPending, setCreationPending] = useState(
+    initialCreation.pending,
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [uncertain, setUncertain] = useState<UncertainEffect>();
@@ -221,17 +253,29 @@ export function OrganizeCards({
           localStorage,
           viewOwner(),
           selection.source,
-          ["done-thread-create", JSON.stringify([...selection.cardIds].sort())],
+          creationTarget,
           () => live.current && generation.current === viewGeneration(),
-          (id, context) =>
-            callRoute(
+          (id, context) => {
+            const original = JSON.parse(context!);
+            if (original.title !== title.trim()) {
+              setTitle(original.title);
+              throw new Error(
+                "An earlier thread is pending. Retry to recover its original name.",
+              );
+            }
+            return callRoute(
               workspaceApi.doneThreadCreate,
-              { body: { ...JSON.parse(context!), id: DoneThreadId.parse(id) } },
+              { body: { ...original, id: DoneThreadId.parse(id) } },
               selection.source,
-            ),
+            );
+          },
           creationFailureSettled,
           JSON.stringify(body),
         );
+        if (live.current && generation.current === viewGeneration()) {
+          setCreationPending(false);
+          setUncertain(undefined);
+        }
       }
       if (generation.current !== viewGeneration()) return;
       if (live.current) {
@@ -240,7 +284,10 @@ export function OrganizeCards({
       }
     } catch (error) {
       if (live.current && generation.current === viewGeneration()) {
-        setUncertain(error instanceof UncertainEffect ? error : undefined);
+        if (!target) {
+          setCreationPending(error instanceof UncertainEffect);
+          setUncertain(error instanceof UncertainEffect ? error : undefined);
+        }
         setError((error as Error).message);
       }
     } finally {
@@ -309,42 +356,45 @@ export function OrganizeCards({
           {error}
         </p>
       )}
-      {uncertain && (
+      {(creationPending || uncertain) && (
         <div role="status">
           <p>
             The earlier thread may already exist. Retrying uses its original
             name. Check Done before starting a separate thread.
           </p>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={async () => {
-              if (busy.current || generation.current !== viewGeneration())
-                return;
-              busy.current = true;
-              setPending(true);
-              try {
-                await uncertain.supersede();
-                if (live.current && generation.current === viewGeneration()) {
-                  setUncertain(undefined);
-                  setError("");
+          {uncertain && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={async () => {
+                if (busy.current || generation.current !== viewGeneration())
+                  return;
+                busy.current = true;
+                setPending(true);
+                try {
+                  await uncertain.supersede();
+                  if (live.current && generation.current === viewGeneration()) {
+                    setUncertain(undefined);
+                    setCreationPending(false);
+                    setError("");
+                  }
+                } catch (error) {
+                  if (live.current && generation.current === viewGeneration()) {
+                    setUncertain(
+                      error instanceof UncertainEffect ? error : undefined,
+                    );
+                    setError((error as Error).message);
+                  }
+                } finally {
+                  busy.current = false;
+                  if (live.current && generation.current === viewGeneration())
+                    setPending(false);
                 }
-              } catch (error) {
-                if (live.current && generation.current === viewGeneration()) {
-                  setUncertain(
-                    error instanceof UncertainEffect ? error : undefined,
-                  );
-                  setError((error as Error).message);
-                }
-              } finally {
-                busy.current = false;
-                if (live.current && generation.current === viewGeneration())
-                  setPending(false);
-              }
-            }}
-          >
-            Start a separate thread
-          </button>
+              }}
+            >
+              Start a separate thread
+            </button>
+          )}
         </div>
       )}
       <section className="thread-create-panel" aria-label="New thread">
@@ -363,7 +413,7 @@ export function OrganizeCards({
             {...proseEntry}
             maxLength={200}
             value={title}
-            disabled={pending}
+            disabled={pending || creationPending}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>

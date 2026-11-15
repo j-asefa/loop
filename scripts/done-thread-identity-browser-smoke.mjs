@@ -18,7 +18,7 @@ try {
     import {ownerSession} from ${JSON.stringify(resolve("src/client/ownerSession.ts"))};
     import {setShellSource} from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     ownerSession.change(new URLSearchParams(location.search).get('owner')||'alice');setShellSource('');
-    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[],onClose:()=>window.completed=true,onDone:()=>{}}));
+    createRoot(document.getElementById('root')).render(React.createElement(OrganizeCards,{selection:{source:'',title:'Results',cardIds:new URLSearchParams(location.search).has('reverse')?['d:run:second','d:run:first']:['d:run:first','d:run:second'],previews:[]},threads:[{id:'destination',title:'Destination',source:'',cardIds:[],createdAt:1,preview:null}],onClose:()=>window.completed=true,onDone:()=>{}}));
   `,
   );
   const { script, style } = await browserFixtureBundle(entry);
@@ -48,6 +48,11 @@ try {
       return;
     }
     assert.equal(req.method, "POST");
+    if (path === "/api/feed/threads/destination/cards") {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Destination missing" }));
+      return;
+    }
     assert.equal(path, "/api/feed/threads");
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -86,6 +91,11 @@ try {
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
   assert.equal(records.size, 1);
+  await page.getByRole("menuitem", { name: "Move to “Destination”" }).click();
+  await expect(page.getByRole("alert")).toContainText("Destination missing");
+  await expect(
+    page.getByRole("button", { name: "Start a separate thread", exact: true }),
+  ).toBeVisible();
   await expect(page.getByLabel("New thread name")).toBeDisabled();
   await submit();
   await expect(page.getByRole("alert")).toContainText("Fixture reply lost");
