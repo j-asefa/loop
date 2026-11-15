@@ -199,7 +199,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       const result = await client.callTool(params);
       log({ event: "mail", result });
     }
-    update("Antigravity ACP fixture answer");
+    update("Antigravity fixture answer");
     send({ id: request.id, result: { stopReason: "end_turn" } });
   } else if (request.method === "session/set_config_option") {
     if (
