@@ -6,7 +6,7 @@ import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeOutput, NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
+import { NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
 const dir = mkdtempSync(join(tmpdir(), "loop-projection-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
@@ -48,7 +48,7 @@ it("flushes dirty native items and completes after exceeding the display window"
     "CREATE TEMP TABLE item_writes(id TEXT); CREATE TEMP TRIGGER audit_native_updates AFTER UPDATE ON native_items BEGIN INSERT INTO item_writes VALUES(new.native_id); END;",
   );
   const sessions = new NativeSessions();
-  const live: Live = {
+  const live: Live = sessions.state.attach({
     run,
     binding: {
       worktree_source: null,
@@ -75,16 +75,9 @@ it("flushes dirty native items and completes after exceeding the display window"
     generation: "test",
     ready: Promise.resolve(),
     bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  };
+  });
   // Register the session as NativeSessions.ensure does: events from a Live
   // that is not the conversation's current session are stale and dropped.
-  (sessions as any).live.set("conversation", live);
   const event = (item: Item) =>
     sessions.projector.event(live, { type: "item", item });
   try {
@@ -295,7 +288,7 @@ it("flushes dirty native items and completes after exceeding the display window"
       text: "Progress only.",
     });
     const finish = vi.fn();
-    live.finish = finish;
+    sessions.state.onFinish(live, finish);
     sessions.projector.event(live, { type: "status", status: "completed" });
     expect(interrupt).not.toHaveBeenCalled();
     expect(finish).toHaveBeenCalledWith("completed");
@@ -314,8 +307,8 @@ it("flushes dirty native items and completes after exceeding the display window"
     ).toEqual({ content: "Reviewing continued" });
     interrupt.mockRestore();
     // A resumed session replays more than a turn's budget before run is set.
-    live.run = undefined;
-    live.items.clear();
+    sessions.state.detachTurn(live);
+    sessions.state.clearOutput(live);
     const dispose = vi.spyOn(live.adapter, "dispose").mockResolvedValue();
     for (let i = 0; i < 100; i++)
       event({ id: "history-" + i, kind: "assistant", text: "é".repeat(32000) });
@@ -329,8 +322,8 @@ it("flushes dirty native items and completes after exceeding the display window"
     expect(live.items.bytes).toBeLessThanOrEqual(NATIVE_OUTPUT_BYTES);
     expect(live.items.get("history-0")).toBeUndefined();
     expect(live.items.get("history-99")).toBeDefined();
-    live.items.clear();
-    live.run = run;
+    sessions.state.clearOutput(live);
+    sessions.state.startTurn(live, run);
     event({ id: "follow-up", kind: "assistant", text: "Still usable" });
     sessions.projector.projectOutput(live, false);
     expect(
@@ -361,43 +354,37 @@ it("drops item events from a superseded session generation", () => {
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);
   const sessions = new NativeSessions();
-  const make = (generation: string): Live => ({
-    run,
-    binding: {
-      worktree_source: null,
-      worktree_agent_id: "fixture-agent",
-      conversation_id: "superseded",
-      harness: "codex",
-      native_id: null,
-      project: dir,
-      model: null,
-      instructions: "",
-      generation,
-      state: "idle",
-    },
-    adapter: new Codex(
-      {
+  const make = (generation: string): Live =>
+    sessions.state.attach({
+      run,
+      binding: {
+        worktree_source: null,
+        worktree_agent_id: "fixture-agent",
+        conversation_id: "superseded",
         harness: "codex",
-        executable: "",
-        version: "fixture",
+        native_id: null,
         project: dir,
-        billing: "existing",
+        model: null,
+        instructions: "",
+        generation,
+        state: "idle",
       },
-      () => {},
-    ),
-    generation,
-    ready: Promise.resolve(),
-    bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  });
+      adapter: new Codex(
+        {
+          harness: "codex",
+          executable: "",
+          version: "fixture",
+          project: dir,
+          billing: "existing",
+        },
+        () => {},
+      ),
+      generation,
+      ready: Promise.resolve(),
+      bootstrapRun: run,
+    });
   const old = make("old");
   const current = make("current");
-  (sessions as any).live.set("superseded", current);
   try {
     sessions.projector.event(old, {
       type: "item",

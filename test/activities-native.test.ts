@@ -4,7 +4,7 @@ import { afterAll, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NativeOutput } from "../src/server/native-output";
+import { NativeSessionState } from "../src/server/native/state.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-native-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
@@ -16,7 +16,7 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 function live(conversation: string, run: any, generation: string): Live {
-  return {
+  return new NativeSessionState().attach({
     run,
     binding: {
       worktree_source: null,
@@ -43,13 +43,7 @@ function live(conversation: string, run: any, generation: string): Live {
     generation,
     ready: Promise.resolve(),
     bootstrapRun: run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  } as Live;
+  });
 }
 const source = {
   transport: "native" as const,
@@ -108,9 +102,8 @@ it("ingests adapter activities under the live turn and generation only", () => {
 });
 
 it("keys replayed history outside a turn so reloads de-duplicate", () => {
-  const idle = live("c2", undefined, "gen-a");
   const replay = (generation: string) =>
-    ingestNativeActivity({ ...idle, generation } as Live, {
+    ingestNativeActivity(live("c2", undefined, generation), {
       v: 1,
       kind: "tool",
       id: "native-7",

@@ -680,7 +680,6 @@ it("preserves terminal previews and queue values in the unfiltered run list", as
 
 it("preserves native error events in running and subsequently completed HTTP runs", async () => {
   const { NativeSessions } = await import("../src/server/native-sessions");
-  const { NativeOutput } = await import("../src/server/native-output");
   const { Codex } = await import("../src/adapters/codex");
   const { ownedRun } = await import("../src/server/domain");
   const { transition } = await import("../src/server/queue");
@@ -694,45 +693,36 @@ it("preserves native error events in running and subsequently completed HTTP run
     "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES(?,?,'codex',?,?,?)",
   ).run(f.agent.id, conversation, directory, generation, now());
   const run = ownedRun(f.run.id, owner);
-  const live: import("../src/server/native-sessions").Live = {
-    binding: {
-      worktree_source: null,
-      worktree_agent_id: f.agent.id,
-      conversation_id: conversation,
-      harness: "codex",
-      native_id: null,
-      project: directory,
-      model: null,
-      instructions: "",
-      generation,
-      state: "idle",
-    },
-    adapter: new Codex(
-      {
-        harness: "codex",
-        executable: "",
-        version: "fixture",
-        project: directory,
-        billing: "existing",
-      },
-      () => {},
-    ),
-    generation,
-    ready: Promise.resolve(),
-    bootstrapRun: run,
-    run,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  };
   const sessions = new NativeSessions();
-  (sessions as unknown as { live: Map<string, typeof live> }).live.set(
-    conversation,
-    live,
-  );
+  const live: import("../src/server/native-sessions").Live =
+    sessions.state.attach({
+      binding: {
+        worktree_source: null,
+        worktree_agent_id: f.agent.id,
+        conversation_id: conversation,
+        harness: "codex",
+        native_id: null,
+        project: directory,
+        model: null,
+        instructions: "",
+        generation,
+        state: "idle",
+      },
+      adapter: new Codex(
+        {
+          harness: "codex",
+          executable: "",
+          version: "fixture",
+          project: directory,
+          billing: "existing",
+        },
+        () => {},
+      ),
+      generation,
+      ready: Promise.resolve(),
+      bootstrapRun: run,
+      run,
+    });
   sessions.projector.event(live, {
     type: "error",
     message: "Recoverable native error",

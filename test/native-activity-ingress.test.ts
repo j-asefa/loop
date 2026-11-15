@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import express from "express";
-import { NativeOutput } from "../src/server/native-output";
 import { normalizeItemStatus } from "../src/shared/native-item-state.js";
 const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
 process.env.LOOP_DATA_DIR = dir;
@@ -72,13 +71,14 @@ function start(
   generation: string,
   bootstrap: any,
   conversation = "conv",
+  harness: import("../src/shared/protocol").Harness = "codex",
 ) {
-  const live: Live = {
+  const live: Live = sessions.state.attach({
     binding: {
       worktree_source: null,
       worktree_agent_id: "fixture-agent",
       conversation_id: conversation,
-      harness: "codex",
+      harness,
       native_id: null,
       project: dir,
       model: null,
@@ -99,14 +99,7 @@ function start(
     generation,
     ready: Promise.resolve(),
     bootstrapRun: bootstrap,
-    requests: new Map(),
-    cancelling: false,
-    waiting: false,
-    bridgeWaiting: 0,
-    items: new NativeOutput(),
-    closed: false,
-  };
-  (sessions as any).live.set(conversation, live);
+  });
   db.prepare(
     "UPDATE companion_sessions SET generation=?,state='starting' WHERE conversation_id=?",
   ).run(generation, conversation);
@@ -138,7 +131,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   const sessions = new NativeSessions();
   const run = turn("conv", "usage-first");
   const current = start(sessions, "usage-generation", run);
-  current.live.run = run;
+  sessions.state.startTurn(current.live, run);
   const adapter = new Codex(
     {
       harness: "codex",
@@ -188,7 +181,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   });
 
   const next = turn("conv", "usage-second");
-  current.live.run = next;
+  sessions.state.startTurn(current.live, next);
   send("turn/started", { turn: { id: "turn-2" } });
   usage("turn-2", 1350, 270, 50, 10);
   expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({
@@ -204,12 +197,12 @@ it("records native turn tokens through adapter ingress without replay or cross-t
     type: "usage",
     usage: { input_tokens: -1, output_tokens: 1 },
   });
-  current.live.run = turn("other", "usage-foreign");
+  sessions.state.startTurn(current.live, turn("other", "usage-foreign"));
   current.emit({
     type: "usage",
     usage: { input_tokens: 9000, output_tokens: 9000 },
   });
-  current.live.run = next;
+  sessions.state.startTurn(current.live, next);
   db.prepare(
     "UPDATE companion_sessions SET generation='replacement' WHERE conversation_id='conv'",
   ).run();
@@ -228,8 +221,9 @@ it("records native turn tokens through adapter ingress without replay or cross-t
 
 it("records Claude result usage including cached inputs, excluding foreign results", () => {
   const run = turn("conv", "usage-claude");
-  const current = start(new NativeSessions(), "usage-claude-generation", run);
-  current.live.run = run;
+  const sessions = new NativeSessions();
+  const current = start(sessions, "usage-claude-generation", run);
+  sessions.state.startTurn(current.live, run);
   const adapter = new Claude(
     {
       harness: "claude",
@@ -329,14 +323,15 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
       agent.id,
       run.id,
     );
+    const sessions = new NativeSessions();
     const { live, emit } = start(
-      new NativeSessions(),
+      sessions,
       "pr-gen-" + harness,
       run,
       conversation,
+      harness as import("../src/shared/protocol").Harness,
     );
-    live.binding.harness = harness as any;
-    live.run = run;
+    sessions.state.startTurn(live, run);
     const number =
       50 + ["codex", "claude", "pi", "opencode", "acp"].indexOf(harness);
     const githubClient = createGithubClient({
@@ -487,7 +482,7 @@ it("persists native activity events through restarts and serves them to reloads 
 
   // A turn: adapter-stamped generations are replaced by the server's.
   const run = turn("conv", "turn-1");
-  first.live.run = run;
+  sessions.state.startTurn(first.live, run);
   first.emit(planEvent("adapter-private-id", ["in_progress", "pending"]));
   first.emit(planEvent("adapter-private-id", ["completed", "in_progress"]));
   // Duplicate delivery of an unchanged record writes nothing and signals nothing.
@@ -546,11 +541,11 @@ it("persists native activity events through restarts and serves them to reloads 
 
   // A run bound to another conversation cannot write into this one.
   const foreign = turn("other", "foreign");
-  first.live.run = foreign;
+  sessions.state.startTurn(first.live, foreign);
   first.emit(planEvent("x", ["pending"]));
   expect((await snapshot("other")).body.items).toEqual([]);
   expect(byKind((await snapshot("conv")).body.items, "plan")).toHaveLength(1);
-  first.live.run = run;
+  sessions.state.startTurn(first.live, run);
 
   // Reload: a full snapshot and an incremental page from the cursor agree.
   const cursor = page.cursor;
@@ -570,7 +565,7 @@ it("persists native activity events through restarts and serves them to reloads 
 
   // Process restart: recovery clears the generation. Frames still produced
   // by the old process are stale and quarantined.
-  first.live.run = undefined;
+  sessions.state.detachTurn(first.live);
   sessions.recover();
   const frozen = JSON.stringify((await snapshot("conv")).body.items);
   first.controls.publish([option("model", "stale")]);
@@ -616,9 +611,14 @@ it.each(harnessIds)(
   async (harness) => {
     const sessions = new NativeSessions();
     const run = turn("conv", "spoof-" + harness);
-    const { live, emit } = start(sessions, "gen-spoof-" + harness, run);
-    live.binding.harness = harness;
-    live.run = run;
+    const { live, emit } = start(
+      sessions,
+      "gen-spoof-" + harness,
+      run,
+      "conv",
+      harness,
+    );
+    sessions.state.startTurn(live, run);
     // Expected protocol is independent of the descriptor under test.
     const expected = harness === "acp" || harness === "grok" ? "acp" : "native";
     const before = (await snapshot("conv")).body.items.length;
@@ -672,9 +672,12 @@ it("rejects settings writes from stale generations, including replacement during
   ).rejects.toThrow("Native session changed");
   expect(calls).toBe(0);
   let ready!: () => void;
-  current.live.ready = new Promise<void>((r) => {
-    ready = r;
-  });
+  sessions.state.ready(
+    current.live,
+    new Promise<void>((r) => {
+      ready = r;
+    }),
+  );
   const writing = sessions.setSetting("conv", "model", "b", 1, "controls-new");
   start(sessions, "controls-replacement", undefined);
   ready();
@@ -716,7 +719,7 @@ it("persists native tool items and deltas as paged activities across reloads and
   const run = claim("tool-worker", (candidate) => candidate.id === queued.id)!;
   const sessions = new NativeSessions();
   let current = start(sessions, "tools-g1", run, conversation);
-  current.live.run = run;
+  sessions.state.startTurn(current.live, run);
   const nativeId = "native:" + "same-prefix-".repeat(40);
   const item = (
     id: string,
@@ -767,7 +770,7 @@ it("persists native tool items and deltas as paged activities across reloads and
     expect((await snapshot(conversation)).body.items).toEqual(before.items);
     await sessions.dispose(current.live);
     current = start(sessions, "tools-g2", run, conversation);
-    current.live.run = run;
+    sessions.state.startTurn(current.live, run);
     current.emit(item(nativeId + "a", "first continued", "completed"));
     expect((await snapshot(conversation)).body.items).toHaveLength(2);
     for (let i = 0; i < 105; i++)
@@ -797,7 +800,7 @@ it("persists native tool items and deltas as paged activities across reloads and
       "tool-worker",
       (candidate) => candidate.id === next.id,
     )!;
-    current.live.run = nextRun;
+    sessions.state.startTurn(current.live, nextRun);
     current.emit(item(nativeId + "a", "next turn", "completed"));
     const reused = (await snapshot(conversation)).body.items.filter(
       (entry: any) => entry.record.data.links.trace === nativeId + "a",
