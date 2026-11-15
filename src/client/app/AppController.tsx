@@ -45,6 +45,7 @@ import {
 } from "../composerContext";
 import { OPEN_PULL } from "../PullRequests";
 import { useComposerContextDraft } from "./useComposerContextDraft";
+import { useSheetNavigation } from "./useSheetNavigation";
 import { useComposerFocus } from "./useComposerFocus";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
@@ -108,14 +109,22 @@ export function useAppController(seed?: AppNavigationInitial) {
     projectFilter,
     setProjectFilter,
   } = useAppNavigation(seed);
+  const {
+    settingsParent,
+    setSettingsParent,
+    setReturnToTeamDirectory,
+    environmentToOpen,
+    setEnvironmentToOpen,
+    environmentSetupProvider,
+    setEnvironmentSetupProvider,
+    closeSheet,
+    openSettingsPage,
+  } = useSheetNavigation({ sheet, setSheet, returnTo, setReturnTo });
   const [reviewTarget, setReviewTarget] = useState<{
     team?: string;
     folder?: string;
   } | null>(null);
   const [teamPreset, setTeamPreset] = useState<string | undefined>();
-  const [returnToTeamDirectory, setReturnToTeamDirectory] = useState(false);
-  const [environmentToOpen, setEnvironmentToOpen] = useState("");
-  const [environmentSetupProvider, setEnvironmentSetupProvider] = useState("");
   const [shareAgent, setShareAgent] = useState<string | undefined>();
   const { session, setSession, ownerRef } = useOwnerSession();
   const shellDraftSource = executionSourceId();
@@ -614,7 +623,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   >({});
   const workspaceLoadError =
     workspaceLoadErrors.bootstrap || workspaceLoadErrors.runs || "";
-  const [settingsParent, setSettingsParent] = useState(false);
   const previousPage = usePageHistory(
     JSON.stringify([
       tab,
@@ -680,32 +688,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   });
   const [editError, setEditError] = useState("");
   const [editBusy, setEditBusy] = useState(false);
-  function closeSheet() {
-    if (sheet === "create") {
-      setEnvironmentToOpen("");
-      setEnvironmentSetupProvider("");
-    }
-    if (sheet === "teams" && returnToTeamDirectory) {
-      setSheet("teamDirectory");
-      setReturnToTeamDirectory(false);
-      setReturnTo("");
-      return;
-    }
-    setSheet(
-      sheet === "create" && ["share", "teams"].includes(returnTo)
-        ? returnTo
-        : sheet === "environments" && returnTo === "create"
-          ? "create"
-          : settingsParent
-            ? "settings"
-            : "",
-    );
-    setReturnTo("");
-  }
-  function openSettingsPage(page: string) {
-    setSettingsParent(true);
-    setSheet(page);
-  }
   const [filing, setFiling] = useState<ResultAction | null>(null),
     [revision, setRevision] = useState(0);
   const [collectionRevisions, setCollectionRevisions] = useState<
