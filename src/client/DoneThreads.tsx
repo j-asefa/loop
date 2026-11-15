@@ -299,7 +299,7 @@ export function OrganizeCards({
           setUncertain(undefined);
           if (recovered) {
             setNotice(
-              "Earlier thread recovered. No cards were moved. Create a separate thread to combine this selection again.",
+              "Earlier request resolved. No separate grouping was started. Review the earlier thread before combining this selection again.",
             );
             return;
           }

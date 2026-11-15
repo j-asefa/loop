@@ -126,7 +126,9 @@ try {
   loseReply = false;
   await submit();
   await expect(
-    page.getByRole("status").filter({ hasText: "No cards were moved" }),
+    page
+      .getByRole("status")
+      .filter({ hasText: "No separate grouping was started" }),
   ).toBeVisible();
   assert.equal(
     await page.evaluate(() => window.doneCount || 0),

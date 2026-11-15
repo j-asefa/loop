@@ -258,12 +258,22 @@ export async function doneCardActionsSmoke(page, fixture, engine, capture) {
       .click();
     await expect(aggregation.getByRole("alert")).toBeVisible();
     await expect(
-      aggregation.getByRole("menuitem", { name: /^Combine into a new thread/ }),
+      aggregation.getByRole("menuitem", {
+        name: "Recover earlier thread",
+        exact: true,
+      }),
     ).toBeEnabled();
+    await expect(aggregation.getByLabel("New thread name")).toBeDisabled();
     await page.unroute("**/api/feed/threads", failingWrite);
     await aggregation
-      .getByRole("menuitem", { name: /^Combine into a new thread/ })
+      .getByRole("menuitem", { name: "Recover earlier thread", exact: true })
       .click();
+    await expect(
+      aggregation
+        .getByRole("status")
+        .filter({ hasText: "Earlier request resolved" }),
+    ).toBeVisible();
+    await close();
     await expect(aggregation).toHaveCount(0);
     const grouped = page.locator(".feed-results .feed-item-card").filter({
       has: page.getByRole("heading", {
