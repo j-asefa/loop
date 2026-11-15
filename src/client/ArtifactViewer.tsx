@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { downloadText } from "./downloadText";
 import { assertNever } from "../shared/assert-never";
 import { parse } from "./json";
 import {
@@ -395,16 +396,12 @@ export function ArtifactViewer({
               )}
               <button
                 onClick={() => {
-                  const blob = new Blob([target.content], {
-                    type: "text/plain",
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download =
-                    target.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md";
-                  a.click();
-                  URL.revokeObjectURL(url);
+                  downloadText(
+                    target.title.replace(/[^a-zA-Z0-9._-]/g, "-") + ".md",
+                    target.content,
+                    "text/plain",
+                    0,
+                  );
                 }}
               >
                 <Download size={16} />
