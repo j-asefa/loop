@@ -61,7 +61,7 @@ function guidanceFiles(root: string): string[] {
 // YAML front matter (Claude rules' `paths:`), replaced by blank lines so the
 // body keeps its line numbers.
 function frontMatter(text: string) {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   return {
     yaml: match?.[1] ?? "",
     body: match
@@ -411,7 +411,7 @@ it("reports Claude rules whose paths match nothing, keeping body line numbers", 
     ".claude/rules/b.md": "No front matter.\n",
     ".claude/rules/nested/c.md":
       '---\r\npaths: [\'src/*.ts\', "src"]\r\nother:\r\n  - "lib/**"\r\n---\r\nBody.\r\n',
-    ".claude/rules/d.md": '---\npaths: "src/a.ts"\n---\n',
+    ".claude/rules/d.md": '---\npaths: "src/a.ts"\n---',
   });
   expect(guidanceFiles(root)).toEqual([
     ".claude/rules/a.md",
