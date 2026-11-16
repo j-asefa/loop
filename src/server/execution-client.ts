@@ -107,6 +107,11 @@ export class ExecutionClient {
           owner: options.owner ?? OWNER,
           fleet: fleet?.grant,
           method,
+          // Effect-free operations (status and model refreshes) carry no
+          // command and create no receipt. A caller that supplies no command
+          // ID (Pi mutations, sign-in input and cancel) gets a fresh one per
+          // call, so separate HTTP requests are not deduplicated: after a lost
+          // response such callers inspect current state before acting again.
           commandId:
             operation.effect === "none"
               ? undefined
