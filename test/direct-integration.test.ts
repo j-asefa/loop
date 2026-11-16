@@ -177,8 +177,29 @@ describe("direct control authority", () => {
     c.confirmNextTurn();
     expect(c.settings.options[0]).toMatchObject({ confirmed: "b" });
     expect(c.settings.options[0].requested).toBeUndefined();
-    for (const e of events.filter((e) => e.type === "activity"))
-      expect(ActivityUpdate.safeParse(e.activity).success).toBe(true);
+    const activities = events
+      .filter((e) => e.type === "activity")
+      .map((e) => ActivityUpdate.parse(e.activity));
+    expect(activities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "settings",
+          patch: expect.objectContaining({
+            options: [
+              expect.objectContaining({ confirmed: "a", requested: "b" }),
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          kind: "settings",
+          patch: expect.objectContaining({
+            options: [
+              expect.objectContaining({ confirmed: "b", requested: null }),
+            ],
+          }),
+        }),
+      ]),
+    );
   });
   it("retains confirmed values after a failure and removes dependent settings", async () => {
     const events: any[] = [];
