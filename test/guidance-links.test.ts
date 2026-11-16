@@ -95,8 +95,28 @@ function linkTargets(markdown: string) {
   return found;
 }
 
+const entities: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+// Character references render as their character outside code spans.
+const unescape = (text: string) =>
+  text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, ref: string) =>
+    ref[0] === "#"
+      ? String.fromCodePoint(
+          ref[1].toLowerCase() === "x"
+            ? parseInt(ref.slice(2), 16)
+            : Number(ref.slice(1)),
+        )
+      : (entities[ref.toLowerCase()] ?? match),
+  );
+
 // Rendered heading text: code spans keep their literal text, links render as
-// their text, and HTML tags are dropped.
+// their text, HTML tags are dropped and character references are decoded.
 function plain(tokens: Node[]): string {
   return tokens
     .map((token) =>
@@ -104,7 +124,9 @@ function plain(tokens: Node[]): string {
         ? ""
         : token.type !== "codespan" && token.tokens
           ? plain(token.tokens as Node[])
-          : (token.text ?? ""),
+          : token.type === "codespan"
+            ? (token.text ?? "")
+            : unescape(token.text ?? ""),
     )
     .join("");
 }
@@ -151,9 +173,12 @@ function brokenGuidanceLinks(root: string, files: string[]): string[] {
     const source = join(root, file);
     const text = readFileSync(source, "utf8");
     for (const { target, offset } of linkTargets(text)) {
-      // Any URI scheme (https:, mailto:, tel:) is external and not fetched.
-      if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
-      const [rawPath, anchor] = target.split("#", 2);
+      // Any URI scheme (https:, mailto:, tel:) or a protocol-relative //host
+      // destination is external and not fetched.
+      if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(target)) continue;
+      const [beforeAnchor, anchor] = target.split("#", 2);
+      // A query string does not name a different local file.
+      const rawPath = beforeAnchor.split("?")[0];
       const path = decoded(rawPath);
       const resolved = path ? resolve(dirname(source), path) : source;
       const where = `${file}:${text.slice(0, offset).split("\n").length}`;
@@ -252,11 +277,14 @@ it("follows CommonMark for references, destinations, code and headings", () => {
       "",
       "[real](docs/after-fence.md) [percent](docs/100%-coverage.md)",
       "[call](tel:+15550100) [setext](docs/a%20guide.md#setext-title)",
+      "[host](//example.com/docs) [query](docs/a%20guide.md?plain=1#tom--jerry)",
     ].join("\n"),
     "docs/a guide.md": [
       "## `loop preview create <name>`",
       "",
       "## [Linked][ref] title",
+      "",
+      "## Tom &amp; Jerry",
       "",
       "Setext title",
       "============",
