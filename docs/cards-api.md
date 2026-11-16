@@ -10,9 +10,10 @@ dispatch work; the event acknowledgement confirms only that token's stream curso
 
 ## Integration tokens
 
-This contract targets fresh installations: a new data directory and newly paired
-devices, with every fleet peer on the same build. Credentials and pending
-creation receipts from earlier Loop versions are not supported. Only
+Upgrades must keep the credentials and pending creation receipts that released
+versions (v0.1.0 and later) created, as [AGENTS.md](../AGENTS.md) requires;
+formats from pre-release builds are not accepted. Fleet peers run the same
+build. Only
 `loop_token_` integration credentials with the scopes below and `loop_hook_`
 webhook secrets are created or accepted. Retired grants (`results:read` and
 `cards:read`) are not valid stored token metadata. Keeping the historical SQL

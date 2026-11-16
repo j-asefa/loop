@@ -182,7 +182,7 @@ export const FleetReadResponse = z.strictObject({
   clock: WorkspaceClock.optional(),
 });
 export type FleetReadResponse = z.infer<typeof FleetReadResponse>;
-// Fleet members use the same Loop build and fresh installations (AGENTS.md).
+// Fleet members run the same Loop build; mixed-version fleets are not supported (AGENTS.md).
 // The signed catalog has one current shape, without deployment-profile fields.
 export const FleetWorkspaceCatalog = z.strictObject({
   ...ResponseIdentity,

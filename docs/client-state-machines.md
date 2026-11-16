@@ -81,8 +81,9 @@ identity and each settlement, so concurrent tabs cannot overwrite one another's
 journal changes. Persistence failure refuses a new send before dispatch;
 settlement failure retains the pending identity. The composer checks its current
 view and starts dispatch synchronously in the preparation lock callback, then
-releases the lock before awaiting network IO or settlement. Earlier builds' receipt formats
-are outside the fresh-install support policy in [AGENTS.md](../AGENTS.md).
+releases the lock before awaiting network IO or settlement. Receipt formats from pre-release
+builds are not read; formats that released versions wrote must stay readable
+([AGENTS.md](../AGENTS.md)).
 Fleet sends also use
 the IndexedDB command journal in
 [`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
@@ -212,10 +213,10 @@ callers, and unresolved child records still require forced-stop recovery.
 
 ## Harness upgrade
 
-These states describe records written by the current build. Earlier Loop
-builds and their stored state shapes are outside the [fresh-install support
-policy](../AGENTS.md). Recovery preserves uncertain operations that the current
-build can create; it does not migrate earlier state formats.
+These states describe records the current build writes. Stored shapes that
+released versions wrote must stay readable ([AGENTS.md](../AGENTS.md)); shapes
+from pre-release builds are not migrated. Recovery preserves uncertain
+operations that the current build can create.
 
 [`harness-upgrades.ts`](../src/harness-upgrades.ts): running → complete /
 restart-required / failed / unconfirmed; unconfirmed after a host restart;

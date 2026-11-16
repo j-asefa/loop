@@ -57,11 +57,12 @@ Historical SQL remains unchanged. [The historical migration fixture](../test/fix
 files through prefix121 that write `schema_version`; only those immutable files
 may write that ledger. New installs execute the whole chain and record every
 completion in `schema_migrations`. Restarts consult only that named ledger.
-Earlier numbered-only databases are refused; start with a fresh data directory.
-Forward migrations assume data written by the current build. They do not
-repair rows only earlier builds wrote, and may drop them instead. Readers
-refuse such rows. Upgrading data that an earlier build wrote is unsupported;
-convert it outside Loop before the first start.
+Databases from pre-release builds that have only numbered completion records are
+refused; start those with a fresh data directory. Every migration must carry
+forward the rows that released versions (v0.1.0 and later) could write, and
+readers must accept those values ([AGENTS.md](../AGENTS.md)); a migration test
+with historical rows shows it. Rows that only pre-release builds wrote may be
+refused.
 
 ## Build provenance
 
