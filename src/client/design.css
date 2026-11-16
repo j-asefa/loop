@@ -1,49 +1,13 @@
 /* Loop's shared visual language. Layout/keyboard mechanics live in style.css. */
-:root {
-  --line: #e4e4df;
-  --soft: #f7f7f4;
-  --attention: #f8f3e4;
-  --attention-line: #dfc878;
-  --shadow: 0 8px 32px #24241908;
-}
-:root[data-theme="dark"] {
-  --soft: #222320;
-  --attention: #28251b;
-  --attention-line: #655426;
-  --line: #333431;
-}
 
 /* Calm surfaces, precise type, and one restrained accent. */
-body {
-  -webkit-font-smoothing: antialiased;
-}
-button,
-input,
-select,
-textarea {
-  font-family: inherit;
-}
-h1 {
-  font-weight: 650;
-  letter-spacing: -1px;
-}
 h2,
 h3 {
   letter-spacing: -0.35px;
 }
-.primary {
-  border-radius: 999px;
-  padding-inline: 20px;
-}
-.secondary {
-  border-radius: 999px;
-}
 .icon-button,
 .settings-button {
   border-radius: 50%;
-}
-.text-button {
-  font-weight: 500;
 }
 .primary:hover:not(:disabled) {
   filter: brightness(1.06);
@@ -55,11 +19,6 @@ a:focus-visible {
 .avatar,
 .avatar.generated {
   border-radius: 50%;
-}
-.avatar.generated svg {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 .avatar-3d {
   position: relative;
@@ -88,50 +47,10 @@ a:focus-visible {
   color: #34342b;
   font-size: 0.8em;
 }
-.wordmark {
-  font-weight: 700;
-  letter-spacing: -1.2px;
-}
-.wordmark-dot {
-  display: none;
-}
-.main-column {
-  background: var(--surface);
-}
-.topbar {
-  height: 72px;
-  padding-inline: 32px;
-  background: var(--surface);
-}
-.desktop-breadcrumb {
-  font-size: 13px;
-}
 .topbar .scope-chip select {
   max-width: 190px;
   border-color: transparent;
   background-color: transparent;
-}
-.private-indicator {
-  font-size: 11px;
-}
-.sidebar {
-  padding: 30px 22px;
-}
-.sidebar > .wordmark {
-  margin-bottom: 36px;
-}
-.sidebar nav {
-  gap: 8px;
-}
-.sidebar nav button {
-  border-radius: 999px;
-  padding: 13px 18px;
-  min-height: 50px;
-  font-size: 15px;
-}
-.sidebar nav .current {
-  color: var(--brass-text);
-  background: color-mix(in srgb, var(--brass) 12%, transparent);
 }
 .sidebar nav button > svg {
   width: 21px;
@@ -145,120 +64,23 @@ a:focus-visible {
 .sidebar .project-nav:hover {
   background: var(--secondary);
 }
-.sidebar-label {
-  letter-spacing: 1.5px;
-  font-size: 10px;
-  padding-left: 12px;
-}
-.workspace-content {
-  max-width: 820px;
-  padding: 24px 32px 245px;
-}
-.page-heading.compact {
-  margin-block: 8px 24px;
-}
-.page-heading.compact h1 {
-  font-size: 28px;
-}
 [data-page="feed"] .page-heading {
   margin-bottom: 12px;
 }
 [data-page="feed"] .page-heading h1 {
   font-size: 22px;
 }
-.workspace-scope {
-  margin-bottom: 8px;
-  justify-content: flex-end;
-}
-.workspace-scope .team-toolbar {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.workspace-scope .team-filter {
-  min-height: 44px;
-  border: 0;
-  padding: 4px 8px;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--muted);
-}
 
 /* The agent strip remains source-aware, with status carried beside the face. */
-.your-agents {
-  margin: 0 -32px 0;
-  padding: 8px 24px 18px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-}
-.your-agents > header {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-}
-.agent-strip {
-  grid-auto-columns: 96px;
-  gap: 12px;
-  padding: 4px 8px;
-  margin: 0;
-  scrollbar-width: none;
-}
-.agent-strip > button {
-  gap: 3px;
-  padding: 2px 0;
-}
 .agent-strip > button:hover .agent-portrait {
   transform: translateY(-2px);
-}
-.agent-portrait {
-  width: 64px;
-  height: 64px;
-  margin: 4px 0 5px;
-  transition: transform 0.18s ease;
-}
-.agent-strip .avatar {
-  border: 1px solid color-mix(in srgb, var(--text) 6%, transparent);
-}
-.agent-shortcut-model {
-  font-size: 10px;
-  font-weight: 500;
-}
-.agent-shortcut-name {
-  font-size: 13px;
-  font-weight: 650;
-}
-.agent-shortcut-status {
-  font-size: 12px;
 }
 .agent-shortcut-status[data-status="Needs you"] {
   color: var(--orange);
 }
-.agent-shortcut-environment {
-  font-size: 10px;
-}
-.agent-status-dot {
-  width: 14px;
-  height: 14px;
-  border-width: 3px;
-  right: 0;
-  bottom: 0;
-}
 .agent-status-dot[data-status="Ready"],
 .agent-status-dot[data-status="Working"] {
   background: var(--green);
-}
-.agent-status-dot[data-status="Needs you"] {
-  background: var(--orange);
-}
-.new-agent-shortcut .agent-portrait {
-  background: var(--soft);
-  border: 0;
-  border-radius: 50%;
-  color: var(--text);
 }
 
 /* Social profiles share a cover, an overlapping identity, and inline metadata. */
@@ -295,16 +117,6 @@ a:focus-visible {
 .profile-backbar .profile-settings {
   display: none;
 }
-.profile-head {
-  --cover-height: 184px;
-  display: block;
-  text-align: left;
-  margin: 0 -32px;
-  padding: calc(var(--cover-height) + 64px) 32px 16px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
 .profile-cover {
   position: absolute;
   inset: 0 0 auto;
@@ -317,22 +129,6 @@ a:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-.profile-head > .avatar {
-  position: absolute;
-  top: calc(var(--cover-height) - 48px);
-  left: 28px;
-  width: 112px;
-  height: 112px;
-  border: 5px solid var(--surface);
-  margin: 0;
-}
-.profile-head .profile-menu {
-  top: calc(var(--cover-height) + 13px);
-  right: 32px;
-  width: 44px;
-  height: 44px;
-  background: var(--soft);
 }
 .profile-head .profile-actions {
   position: absolute;
@@ -355,11 +151,6 @@ a:focus-visible {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-}
-.profile-head h1 {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.9px;
 }
 .agent-label {
   color: var(--muted);
@@ -421,9 +212,6 @@ a:focus-visible {
   padding: 0;
   margin: 0;
   gap: 2px 12px;
-}
-.profile-team-link {
-  flex-basis: 160px;
 }
 .profile-head .profile-team-link > span {
   display: flex;
@@ -504,10 +292,6 @@ a:focus-visible {
   padding: 0;
   background: transparent;
 }
-.feed-tabs {
-  margin: 0 -32px;
-  padding-inline: 32px;
-}
 .feed-tabs .chip,
 .profile-tabs button,
 .my-profile-tabs button,
@@ -522,10 +306,6 @@ a:focus-visible {
   padding: 13px 16px;
   font-size: 14px;
   font-weight: 500;
-}
-.feed-tabs .chip {
-  flex: 1;
-  justify-content: center;
 }
 .feed-tabs .chip[aria-selected="true"],
 .profile-tabs button.selected,
@@ -547,15 +327,6 @@ a:focus-visible {
   height: 3px;
   border-radius: 4px 4px 0 0;
   background: var(--brass);
-}
-.feed-tabs .chip-count {
-  position: static;
-  background: transparent;
-  color: inherit;
-  font-size: 12px;
-  font-weight: 400;
-  padding-inline: 2px;
-  box-shadow: none;
 }
 .feed-tabs [data-filter="done"] .chip-count,
 .feed-tabs [data-filter="working"] .chip-count,
@@ -687,20 +458,8 @@ a:focus-visible {
   background: transparent;
   padding: 48px 20px;
 }
-.empty-orbit {
-  background: var(--soft);
-  color: var(--brass-text);
-  border-radius: 50%;
-}
 
 /* Attention is a warm inset, with every decision and review control preserved. */
-.needs-stack {
-  margin: 18px 0 8px;
-  padding: 12px 16px 0;
-  background: var(--attention);
-  border: 1px solid var(--attention-line);
-  border-radius: 14px;
-}
 .needs-heading {
   display: flex;
   align-items: center;
@@ -784,43 +543,6 @@ a:focus-visible {
   margin-left: 0;
   width: 100%;
 }
-.needs-stack.stacked .needs-stack-cards {
-  margin-bottom: 0;
-}
-.needs-stack.stacked .needs-stack-cards::before,
-.needs-stack.stacked .needs-stack-cards::after {
-  display: none;
-}
-.needs-stack-bar {
-  margin: 0;
-  font-size: 12px;
-}
-.needs-stack-cards + .needs-stack-bar {
-  margin: 0;
-  border-top: 1px solid var(--attention-line);
-}
-.needs-stack-bar .text-button {
-  font-size: 12px;
-}
-.away-card {
-  margin: 0 -32px;
-  padding: 7px 32px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-}
-.away-head {
-  align-items: center;
-  gap: 4px;
-}
-.away-toggle {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  column-gap: 9px;
-  min-height: 44px;
-}
 .away-toggle > svg {
   color: var(--muted);
   flex: 0 0 auto;
@@ -830,15 +552,6 @@ a:focus-visible {
   font-size: 12px;
   font-weight: 400;
   color: var(--muted);
-}
-.away-toggle .away-link {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 .away-toggle::after {
   content: "›";
@@ -852,25 +565,6 @@ a:focus-visible {
 }
 
 /* Your profile belongs to the same family, retaining its real counts and tabs. */
-.my-profile-card {
-  --cover-height: 160px;
-  position: relative;
-  margin: 0 -32px;
-  padding: calc(var(--cover-height) - 40px) 32px 20px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-[data-theme="dark"] .my-profile-card {
-  background: transparent;
-  border: 0;
-}
-.my-profile-top {
-  position: relative;
-  align-items: flex-end;
-  gap: 12px;
-  margin-bottom: 14px;
-}
 .my-profile-actions {
   display: flex;
   align-items: center;
@@ -920,33 +614,12 @@ a:focus-visible {
   background: var(--surface);
   border-color: var(--line);
 }
-.my-profile-name h1 {
-  font-size: 28px;
-}
-.my-profile-handle {
-  font-size: 13px;
-}
-.my-profile-bio {
-  font-size: 15px;
-  line-height: 1.6;
-}
 .my-profile-counts,
 [data-theme="dark"] .my-profile-counts {
   border: 0;
   padding: 0;
   margin: 18px 0 0;
   gap: 24px;
-}
-.my-profile-counts button {
-  gap: 5px;
-  padding: 0;
-  min-height: 44px;
-  flex-direction: row;
-  align-items: center;
-  font-size: 13px;
-}
-.my-profile-counts strong {
-  font-size: 14px;
 }
 .personal-decision {
   overflow-wrap: anywhere;
@@ -1106,17 +779,6 @@ a:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.my-profile-tabs {
-  margin: 0 -32px 0;
-  padding-inline: 20px;
-  gap: 6px;
-}
-.my-profile-tabs button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
 .my-profile-tabs .chip-count {
   flex-shrink: 0;
 }
@@ -1127,20 +789,8 @@ a:focus-visible {
   margin-top: 0;
   line-height: 1.5;
 }
-.personal-you {
-  background: var(--soft);
-  color: var(--muted);
-}
 
 /* Sheets, conversations, directories, and project surfaces share the same finish. */
-.sheet {
-  border-color: var(--line);
-  box-shadow: 0 20px 80px #0002;
-}
-.sheet::backdrop {
-  background: #11130f66;
-  backdrop-filter: blur(5px);
-}
 .sheet > header {
   border-color: var(--line);
 }
@@ -1169,33 +819,9 @@ label.catalog-search {
   border-color: transparent;
   border-radius: 14px;
 }
-.project-agents.settings-list {
-  border: 0;
-  background: transparent;
-}
-.project-agents.settings-list .project-agent {
-  padding: 15px 4px;
-  gap: 12px;
-}
 .project-agents.settings-list .project-agent .avatar {
   width: 48px;
   height: 48px;
-}
-.agent-directory-group h3 {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-  margin-top: 24px;
-}
-.project-grid {
-  gap: 16px;
-}
-.project-tile {
-  padding: 22px;
-  border-radius: 18px;
-  background: var(--surface);
-  box-shadow: none;
-  border: 1px solid var(--line);
 }
 .project-tile:hover {
   border-color: var(--brass);
@@ -1205,84 +831,18 @@ label.catalog-search {
 .project-symbol {
   color: var(--brass-text);
 }
-.project-tile strong {
-  font-size: 17px;
-  font-weight: 600;
-}
-.project-tile > .project-tile-latest {
-  font-size: 13px;
-}
-.project-heading {
-  padding-block: 12px;
-}
-.project-tabs {
-  margin-block: 18px;
-}
 .settings-row-group,
 .settings-list {
   border-radius: 16px;
   box-shadow: none;
-}
-.settings-row {
-  padding-block: 15px;
-}
-.settings-row-icon {
-  border-radius: 12px;
-  background: var(--soft);
-  color: var(--brass-text);
 }
 .settings-card,
 .settings-note-card,
 .settings-empty {
   border-radius: 16px;
 }
-.settings-intro {
-  color: var(--muted);
-  font-size: 14px;
-}
-.drawer-segmented {
-  border-radius: 12px;
-  background: var(--soft);
-  padding: 4px;
-}
-.drawer-segmented button {
-  border-radius: 9px;
-}
-.drawer-segmented button[aria-pressed="true"] {
-  box-shadow: 0 1px 5px #00000008;
-}
-.search-box {
-  border-radius: 14px;
-  background: var(--soft);
-  padding-inline: 14px;
-}
-.search-result {
-  border-radius: 0;
-  box-shadow: none;
-  border-width: 0 0 1px;
-  padding-block: 20px;
-}
 .thread-head .avatar {
   border-radius: 50%;
-}
-.conversation-sheet .message {
-  border-radius: 16px;
-}
-.conversation-sheet .message.user {
-  background: var(--soft);
-}
-.conversation-composer .composer {
-  border-radius: 20px;
-}
-.composer {
-  border-color: var(--line);
-  box-shadow: 0 6px 28px #0000000c;
-}
-.composer-launch {
-  width: 56px;
-  height: 56px;
-  box-shadow: 0 4px 16px #75601d24;
-  color: #1a1a1c;
 }
 .composer-launch:hover {
   filter: brightness(1.05);
@@ -1321,6 +881,7 @@ label.catalog-search {
 }
 @media (max-width: 700px) {
   .topbar {
+    padding-top: env(safe-area-inset-top, 0px);
     height: calc(72px + env(safe-area-inset-top, 0px));
   }
 }
@@ -1336,10 +897,14 @@ label.catalog-search {
     padding-top: calc(18px + env(safe-area-inset-top, 0px));
   }
   .topbar {
+    border: 0;
+    /* Keep the toolbar below the status bar in the installed web app. */
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 18px 6px;
     height: calc(62px + env(safe-area-inset-top, 0px));
     padding-inline: 16px;
   }
   .mobile-brand {
+    display: flex;
     font-size: 25px;
     gap: 8px;
   }
@@ -1384,6 +949,7 @@ label.catalog-search {
     padding: 4px 8px 12px;
   }
   .agent-strip {
+    padding-bottom: 23px;
     grid-auto-columns: 80px;
     gap: 8px;
     padding-inline: 8px;
@@ -1543,11 +1109,30 @@ label.catalog-search {
     font-size: 12px;
   }
   .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    border-top: 1px solid var(--line);
+    padding: 5px 10px calc(8px + env(safe-area-inset-bottom));
+    height: calc(68px + env(safe-area-inset-bottom));
+    justify-content: space-around;
+    padding-inline: 4px;
     background: var(--surface);
     border-top-color: var(--line);
     box-shadow: none;
   }
   .mobile-nav button {
+    position: relative;
+    touch-action: manipulation;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 62px;
+    color: var(--muted);
     font-size: 10px;
     gap: 5px;
   }
@@ -1565,6 +1150,16 @@ label.catalog-search {
     padding-right: 16px;
   }
   .sheet {
+    position: fixed;
+    bottom: 0;
+    top: auto;
+    left: 0;
+    right: 0;
+    margin: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: min(92dvh, calc(var(--visual-viewport-height, 100dvh) - 16px));
+    border-bottom: 0;
     border-radius: 24px 24px 0 0;
   }
 }
@@ -1574,17 +1169,45 @@ label.catalog-search {
   }
 }
 
-button.profile-cover { padding: 0; border: 0; width: 100%; cursor: zoom-in; }
-button.avatar { padding: 0; cursor: zoom-in; }
-.profile-photo-viewer {
-  position: fixed; inset: 0; width: 100vw; height: 100dvh;
-  max-width: none; max-height: none; margin: 0; border: 0;
-  padding: 64px 16px 24px; background: rgba(0, 0, 0, .96); color: white;
+button.profile-cover {
+  padding: 0;
+  border: 0;
+  width: 100%;
+  cursor: zoom-in;
 }
-.profile-photo-viewer[open] { display: flex; align-items: center; justify-content: center; }
-.profile-photo-viewer::backdrop { background: black; }
-.profile-photo-viewer > img { max-width: 100%; max-height: 100%; object-fit: contain; }
+button.avatar {
+  padding: 0;
+  cursor: zoom-in;
+}
+.profile-photo-viewer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  padding: 64px 16px 24px;
+  background: rgba(0, 0, 0, 0.96);
+  color: white;
+}
+.profile-photo-viewer[open] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.profile-photo-viewer::backdrop {
+  background: black;
+}
+.profile-photo-viewer > img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
 .profile-photo-viewer > button {
-  position: absolute; top: max(12px, env(safe-area-inset-top));
-  right: max(12px, env(safe-area-inset-right)); color: white;
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  color: white;
 }
