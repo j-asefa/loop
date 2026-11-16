@@ -50,7 +50,7 @@ import { useComposerFocus } from "./useComposerFocus";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
 import { useLongPress } from "../gestures";
-import { type ScheduledSend } from "../ThreadTools";
+import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,

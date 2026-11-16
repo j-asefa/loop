@@ -37,7 +37,7 @@ import {
   ScheduledSends,
   undoReminder,
   type ScheduledSend,
-} from "./ThreadTools";
+} from "./LaterControls";
 import { Avatar, RichText, Sheet } from "./components";
 import { relativeTime, reminderReason } from "./threadView";
 import { notify } from "./toast";
