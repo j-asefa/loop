@@ -380,3 +380,71 @@ export function publishedArtifactObject(
 }
 
 export { parseCanonicalResult };
+
+// Conversations holding standalone answers, each with the conversations
+// its copied answers were copied from, in creation order.
+const historicalAnswerConversationsStatement = statement(
+  `SELECT c.owner_id,c.id conversation_id,
+     json_group_array(DISTINCT s.conversation_id) FILTER (WHERE s.conversation_id IS NOT NULL AND s.conversation_id<>c.id) sources
+   FROM conversations c
+   JOIN messages m ON m.owner_id=c.owner_id AND m.conversation_id=c.id AND m.run_id IS NULL AND m.role='assistant'
+   LEFT JOIN messages s ON s.owner_id=m.owner_id
+     AND s.id=CASE WHEN json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text' THEN json_extract(m.metadata,'$.sourceMessage') END
+   GROUP BY c.owner_id,c.id
+   ORDER BY c.owner_id ASC,c.created_at ASC,c.rowid ASC`,
+);
+const historicalAnswerConversationRow = z.object({
+  owner_id: z.string(),
+  conversation_id: z.string(),
+  sources: z.string().nullable(),
+});
+export function historicalAnswerConversations(db: Database.Database) {
+  return historicalAnswerConversationsStatement(db)
+    .all()
+    .map((row) => {
+      const parsed = parseRecord(
+        historicalAnswerConversationRow,
+        row,
+        "conversations",
+      );
+      return {
+        owner_id: parsed.owner_id,
+        conversation_id: parsed.conversation_id,
+        sources: z
+          .array(z.string())
+          .parse(parsed.sources ? JSON.parse(parsed.sources) : []),
+      };
+    });
+}
+
+// Rows inserted by the canonical-results SQL backfill await a digest. Their
+// predecessor is the previous sealed result of any kind in the conversation.
+const chainPendingBackfillStatement = statement(
+  `WITH ordered AS (
+     SELECT owner_id,id,
+       LAG(id) OVER (PARTITION BY owner_id,conversation_id ORDER BY created_at ASC,rowid ASC) previous_id
+     FROM results WHERE sealed=1
+   )
+   UPDATE results
+   SET lineage=json_set(lineage,'$.parentResultId',(
+     SELECT o.previous_id FROM ordered o WHERE o.owner_id=results.owner_id AND o.id=results.id
+   ))
+   WHERE origin_completeness='migrated_backfill' AND sealed=1
+     AND content_digest='0000000000000000000000000000000000000000000000000000000000000000'`,
+);
+export function chainPendingBackfill(db: Database.Database) {
+  return chainPendingBackfillStatement(db).run();
+}
+
+// Version 1 records predate sealed origins. These are the ones sealed for a
+// copied message, whose author can be checked against the copy's source.
+const unoriginatedCopiesStatement = statement(
+  `SELECT res.* FROM results res
+   JOIN messages m ON m.owner_id=res.owner_id AND m.id=res.message_id
+   WHERE res.sealed=1 AND res.schema_version=1 AND res.kind='imported_answer'
+     AND json_valid(m.metadata) AND json_type(m.metadata,'$.sourceMessage')='text'
+   ORDER BY res.owner_id ASC,res.created_at ASC,res.rowid ASC`,
+);
+export function unoriginatedCopies(db: Database.Database) {
+  return parseCanonicalResults(unoriginatedCopiesStatement(db).all());
+}

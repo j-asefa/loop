@@ -3761,6 +3761,12 @@ fieldset {
 .card-model {
   overflow-wrap: anywhere;
 }
+.card-finding {
+  color: var(--text);
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 .card-environment {
   color: var(--text);
   border: 1px solid var(--line);

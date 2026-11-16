@@ -152,7 +152,8 @@ WITH run_candidates AS (
       'conversationId', r.conversation_id,
       'runId', r.id,
       'messageId', m.id,
-      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
+      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL),
+      'origin', json_object('kind', 'produced')
     ) AS provenance,
     json_object(
       'parentResultId', NULL,
@@ -192,7 +193,7 @@ INSERT OR IGNORE INTO results (
   content_digest, stimulus, outcome, attachments, provenance, lineage
 )
 SELECT
-  id, owner_id, 1, kind, 'migrated_backfill', sealed,
+  id, owner_id, 2, kind, 'migrated_backfill', sealed,
   created_at, conversation_id, run_id, message_id, agent_id,
   '0000000000000000000000000000000000000000000000000000000000000000',
   stimulus, outcome, attachments, provenance, lineage
@@ -305,7 +306,8 @@ WITH reply_candidates AS (
       'conversationId', m.conversation_id,
       'runId', COALESCE(s.run_id, m.run_id),
       'messageId', m.id,
-      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
+      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL),
+      'origin', json_object('kind', 'produced')
     ) AS provenance,
     json_object(
       'parentResultId', NULL,
@@ -327,240 +329,15 @@ INSERT OR IGNORE INTO results (
   content_digest, stimulus, outcome, attachments, provenance, lineage
 )
 SELECT
-  id, owner_id, 1, kind, 'migrated_backfill', sealed,
+  id, owner_id, 2, kind, 'migrated_backfill', sealed,
   created_at, conversation_id, run_id, message_id, agent_id,
   '0000000000000000000000000000000000000000000000000000000000000000',
   stimulus, outcome, attachments, provenance, lineage
 FROM reply_candidates;
 
--- 3. Backfill standalone / imported assistant answers (message:<messageId>)
--- Fork and continuation copies keep the author of their source answer. A copy
--- names its source in `sourceMessage`; the chain is followed to the first
--- source with a sealed Result or to the original message.
-WITH RECURSIVE copy_chain(message_id, owner_id, source_id, depth) AS (
-  SELECT m.id, m.owner_id, json_extract(m.metadata, '$.sourceMessage'), 1
-  FROM messages m
-  WHERE m.run_id IS NULL
-    AND m.role = 'assistant'
-    AND json_valid(m.metadata)
-    AND json_type(m.metadata, '$.sourceMessage') = 'text'
-  UNION ALL
-  SELECT cc.message_id, cc.owner_id, json_extract(s.metadata, '$.sourceMessage'), cc.depth + 1
-  FROM copy_chain cc
-  JOIN messages s ON s.id = cc.source_id AND s.owner_id = cc.owner_id
-  WHERE cc.depth < 32
-    AND json_valid(s.metadata)
-    AND json_type(s.metadata, '$.sourceMessage') = 'text'
-    AND NOT EXISTS (
-      SELECT 1 FROM results sr
-      WHERE sr.owner_id = s.owner_id AND sr.message_id = s.id AND sr.sealed = 1
-    )
-),
-copy_root AS (
-  SELECT cc.message_id, cc.owner_id, cc.source_id
-  FROM copy_chain cc
-  WHERE cc.depth = (
-    SELECT MAX(c2.depth) FROM copy_chain c2
-    WHERE c2.message_id = cc.message_id AND c2.owner_id = cc.owner_id
-  )
-),
-copy_author AS (
-  SELECT
-    cr.message_id,
-    cr.owner_id,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.agentId')
-      WHEN sm.id IS NOT NULL THEN COALESCE(srun.agent_id, sc.agent_id)
-    END AS agent_id,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.agentName')
-      WHEN sm.id IS NOT NULL THEN COALESCE(
-        NULLIF(trim(sg.name), ''),
-        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.name') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.name')), '') END
-      )
-    END AS agent_name,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.provider')
-      WHEN sm.id IS NOT NULL THEN COALESCE(
-        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.provider') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.provider')), '') END,
-        sg.provider
-      )
-    END AS provider,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.model')
-      WHEN sm.id IS NOT NULL THEN COALESCE(
-        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.model') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.model')), '') END,
-        sg.model
-      )
-    END AS model,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.resolvedModel')
-      WHEN sm.id IS NOT NULL THEN COALESCE(
-        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.resolvedModel') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.resolvedModel')), '') END,
-        CASE WHEN json_valid(srun.result) AND json_type(srun.result, '$.resolvedModel') = 'text' THEN NULLIF(trim(json_extract(srun.result, '$.resolvedModel')), '') END
-      )
-    END AS resolved_model,
-    CASE
-      WHEN sres.id IS NOT NULL THEN json_extract(sres.provenance, '$.connectionId')
-      WHEN sm.id IS NOT NULL THEN COALESCE(
-        CASE WHEN json_valid(srun.payload) AND json_type(srun.payload, '$.connectionId') = 'text' THEN NULLIF(trim(json_extract(srun.payload, '$.connectionId')), '') END,
-        sc.execution_connection_id,
-        sg.connection_id
-      )
-    END AS connection_id
-  FROM copy_root cr
-  LEFT JOIN results sres ON sres.owner_id = cr.owner_id AND sres.id = (
-    SELECT r2.id FROM results r2
-    WHERE r2.owner_id = cr.owner_id AND r2.message_id = cr.source_id AND r2.sealed = 1
-    ORDER BY r2.created_at ASC, r2.rowid ASC
-    LIMIT 1
-  )
-  LEFT JOIN messages sm ON sm.id = cr.source_id AND sm.owner_id = cr.owner_id
-  LEFT JOIN conversations sc ON sc.id = sm.conversation_id AND sc.owner_id = sm.owner_id
-  LEFT JOIN runs srun ON srun.id = sm.run_id AND srun.owner_id = sm.owner_id
-  LEFT JOIN agents sg ON sg.id = COALESCE(srun.agent_id, sc.agent_id) AND sg.owner_id = cr.owner_id
-),
-message_candidates AS (
-  SELECT
-    'message:' || m.id AS id,
-    m.owner_id AS owner_id,
-    'imported_answer' AS kind,
-    1 AS sealed,
-    m.created_at AS created_at,
-    m.conversation_id AS conversation_id,
-    NULL AS run_id,
-    m.id AS message_id,
-    CASE WHEN ca.message_id IS NULL THEN c.agent_id ELSE ca.agent_id END AS agent_id,
-    json_object(
-      'kind', CASE WHEN c.origin IN ('import', 'openai-import', 'anthropic-import') THEN 'import' ELSE 'user_prompt' END,
-      'text', u.content,
-      'sourceMessageId', u.id,
-      'authorKind', 'owner',
-      'automationKind', NULL,
-      'automationFrom', NULL
-    ) AS stimulus,
-    json_object(
-      'title', substr(
-        COALESCE(
-          NULLIF(trim(replace(replace(replace(u.content, char(13), ' '), char(10), ' '), char(9), ' ')), ''),
-          NULLIF(trim(replace(replace(replace(m.content, char(13), ' '), char(10), ' '), char(9), ' ')), ''),
-          NULLIF(trim(c.title), ''),
-          'Result'
-        ),
-        1,
-        200
-      ),
-      'body', m.content,
-      'format', 'markdown'
-    ) AS outcome,
-    COALESCE((
-      SELECT json_group_array(json(att_obj))
-      FROM (
-        SELECT json_object(
-          'artifactId', a.id,
-          'objectId', (
-            SELECT o.id FROM objects o
-            WHERE o.owner_id = a.owner_id
-              AND o.id = CASE
-                WHEN json_valid(a.metadata) AND json_type(a.metadata, '$.objectId') = 'text'
-                THEN json_extract(a.metadata, '$.objectId')
-              END
-          ),
-          'version', CASE WHEN a.version IS NOT NULL AND a.version >= 1 THEN a.version ELSE 1 END,
-          'sha256', (SELECT ao.checksum FROM artifact_objects ao WHERE ao.artifact_id = a.id AND ao.owner_id = a.owner_id LIMIT 1),
-          'name', COALESCE(
-            NULLIF(trim(CASE WHEN json_type(je.value, '$.name') = 'text' THEN json_extract(je.value, '$.name') END), ''),
-            NULLIF(trim(a.title), ''),
-            a.id
-          ),
-          'mime', COALESCE(
-            NULLIF(trim(CASE WHEN json_type(je.value, '$.mime') = 'text' THEN json_extract(je.value, '$.mime') END), ''),
-            NULLIF(trim(CASE WHEN json_valid(a.metadata) AND json_type(a.metadata, '$.mime') = 'text' THEN json_extract(a.metadata, '$.mime') END), ''),
-            NULLIF(trim((SELECT ao.mime FROM artifact_objects ao WHERE ao.artifact_id = a.id AND ao.owner_id = a.owner_id LIMIT 1)), ''),
-            'application/octet-stream'
-          ),
-          'size', MAX(0, CAST(COALESCE(
-            CASE WHEN json_type(je.value, '$.size') IN ('integer', 'real') THEN json_extract(je.value, '$.size') END,
-            CASE WHEN json_valid(a.metadata) AND json_type(a.metadata, '$.size') IN ('integer', 'real') THEN json_extract(a.metadata, '$.size') END,
-            (SELECT ao.size FROM artifact_objects ao WHERE ao.artifact_id = a.id AND ao.owner_id = a.owner_id LIMIT 1),
-            0
-          ) AS INTEGER)),
-          'published', json(CASE WHEN EXISTS(SELECT 1 FROM artifact_objects ao WHERE ao.artifact_id = a.id AND ao.owner_id = a.owner_id) THEN 'true' ELSE 'false' END)
-        ) AS att_obj
-        FROM json_each(CASE
-          WHEN json_valid(m.metadata) AND json_type(m.metadata, '$.attachments') = 'array'
-          THEN json_extract(m.metadata, '$.attachments')
-          ELSE '[]'
-        END) je
-        JOIN artifacts a
-          ON json_type(je.value) = 'object'
-          AND json_type(je.value, '$.id') = 'text'
-          AND a.id = json_extract(je.value, '$.id')
-          AND a.owner_id = m.owner_id
-        ORDER BY je.key ASC
-      )
-    ), '[]') AS attachments,
-    json_object(
-      'agentId', CASE WHEN ca.message_id IS NULL THEN c.agent_id ELSE ca.agent_id END,
-      'agentName', CASE WHEN ca.message_id IS NULL THEN NULLIF(trim(g.name), '') ELSE ca.agent_name END,
-      'provider', CASE WHEN ca.message_id IS NULL THEN g.provider ELSE ca.provider END,
-      'model', CASE WHEN ca.message_id IS NULL THEN g.model ELSE ca.model END,
-      'resolvedModel', CASE WHEN ca.message_id IS NULL THEN NULL ELSE ca.resolved_model END,
-      'connectionId', CASE WHEN ca.message_id IS NULL THEN COALESCE(c.execution_connection_id, g.connection_id) ELSE ca.connection_id END,
-      'conversationId', m.conversation_id,
-      'runId', NULL,
-      'messageId', m.id,
-      'placement', json_object('status', 'unknown', 'folderId', NULL, 'projectId', NULL, 'projectName', NULL, 'teamId', NULL)
-    ) AS provenance,
-    json_object(
-      'parentResultId', NULL,
-      'triggerMessageId', u.id,
-      'suppliedContext', json('[]')
-    ) AS lineage
-  FROM messages m
-  JOIN conversations c ON c.id = m.conversation_id AND c.owner_id = m.owner_id
-  LEFT JOIN messages u ON u.id = (
-    SELECT u2.id FROM messages u2
-    WHERE u2.owner_id = m.owner_id
-      AND u2.conversation_id = m.conversation_id
-      AND u2.run_id IS NULL
-      AND u2.role = 'user'
-      AND (u2.created_at < m.created_at OR (u2.created_at = m.created_at AND u2.rowid < m.rowid))
-    ORDER BY u2.created_at DESC, u2.rowid DESC
-    LIMIT 1
-  ) AND u.owner_id = m.owner_id
-  LEFT JOIN agents g ON g.id = c.agent_id AND g.owner_id = m.owner_id
-  LEFT JOIN copy_author ca ON ca.message_id = m.id AND ca.owner_id = m.owner_id
-  WHERE m.run_id IS NULL
-    AND m.role = 'assistant'
-    AND (NOT json_valid(m.metadata) OR COALESCE(json_extract(m.metadata, '$.progress'), 0) = 0)
-    AND (NOT json_valid(m.metadata) OR COALESCE(json_extract(m.metadata, '$.partial'), 0) != 1)
-    AND length(trim(m.content, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
-)
-INSERT OR IGNORE INTO results (
-  id, owner_id, schema_version, kind, origin_completeness, sealed,
-  created_at, conversation_id, run_id, message_id, agent_id,
-  content_digest, stimulus, outcome, attachments, provenance, lineage
-)
-SELECT
-  id, owner_id, 1, kind, 'migrated_backfill', sealed,
-  created_at, conversation_id, run_id, message_id, agent_id,
-  '0000000000000000000000000000000000000000000000000000000000000000',
-  stimulus, outcome, attachments, provenance, lineage
-FROM message_candidates;
-
--- 4. Chain backfilled results chronologically across kinds within a conversation.
-WITH ordered AS (
-  SELECT owner_id, id,
-    LAG(id) OVER (PARTITION BY owner_id, conversation_id ORDER BY created_at ASC, rowid ASC) AS previous_id
-  FROM results
-  WHERE sealed = 1
-)
-UPDATE results
-SET lineage = json_set(lineage, '$.parentResultId', (
-  SELECT o.previous_id FROM ordered o WHERE o.owner_id = results.owner_id AND o.id = results.id
-))
-WHERE origin_completeness = 'migrated_backfill' AND sealed = 1;
+-- 3. Standalone, imported and copied answers are sealed after the schema
+-- migrations by result-history.ts, with the same policy as live publication.
+-- It also chains every backfilled result chronologically across kinds.
 
 INSERT OR IGNORE INTO feed_card_dirty(owner_id, conversation_id, card_key)
 SELECT owner_id, conversation_id, id FROM results

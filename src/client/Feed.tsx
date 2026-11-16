@@ -13,6 +13,7 @@ import {
   ProjectId,
 } from "../shared/contract-ids.js";
 import { feedItemOrder } from "../shared/feed-order";
+import type { ResultDefectKind } from "../shared/result";
 import { doneCardId } from "../shared/done-card-id";
 import {
   WORKING_RUN_DISPLAY_STATES,
@@ -161,6 +162,16 @@ import {
   feedCategories,
   type FeedView as FeedFilter,
 } from "../shared/feed-categories";
+
+// A published answer's original record stays as sealed; these say which of
+// its recorded facts Loop later found disputed by retained evidence.
+const RESULT_FINDING_LABEL: Record<ResultDefectKind, string> = {
+  copy_attribution: "Recorded author disputed",
+};
+const RESULT_FINDING_DETAIL: Record<ResultDefectKind, string> = {
+  copy_attribution:
+    "This copy was recorded with the agent that received it, not the author of its source answer.",
+};
 
 export type FeedItem = RouteResponse<
   typeof workspaceApi.feed
@@ -431,6 +442,15 @@ function FeedCard({
                 <time dateTime={new Date(item.last_activity_at).toISOString()}>
                   {relativeTime(item.last_activity_at)}
                 </time>
+                {item.result_findings?.map((finding) => (
+                  <span
+                    key={finding}
+                    className="card-finding"
+                    title={RESULT_FINDING_DETAIL[finding]}
+                  >
+                    {RESULT_FINDING_LABEL[finding]}
+                  </span>
+                ))}
               </span>
             </span>
           </button>

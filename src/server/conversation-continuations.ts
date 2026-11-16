@@ -115,7 +115,7 @@ export function continueConversation(
           message.created_at,
         );
       // Copied answers become sealed Results before the new run chains to them.
-      publishImportedConversationResults(owner, conversationId);
+      publishImportedConversationResults(owner, conversationId, db);
       const run = submit(owner, {
         agentId: agent.id,
         conversationId,
