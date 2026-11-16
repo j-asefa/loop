@@ -1,3 +1,4 @@
+import { useModelCatalog } from "./useModelCatalog";
 import { ErrorNotice } from "./ErrorNotice";
 import { downloadText } from "./downloadText";
 import { useProjectionQuery } from "./CollectionRead";
@@ -364,12 +365,6 @@ export function CreateFromDefinition({
       available.find((c) => c.id === connectionId)?.metadata,
       {},
     ).loopHarness;
-  type Catalog = { models?: ModelOption[]; error?: string };
-  const [catalogState, setCatalogState] = useState<{
-    key: string;
-    entries: Record<string, Catalog>;
-  }>({ key: "", entries: {} });
-  const [catalogRevision, setCatalogRevision] = useState(0);
   // Native choices start empty until discovery returns. Explicit models from
   // the definition stay selected so an unavailable request cannot fall back.
   const storedModels = (connectionId: string) =>
@@ -409,68 +404,29 @@ export function CreateFromDefinition({
       .filter(native)
       .sort(),
   );
-  const readProjection = useProjectionRoute({
-    source: sourceId,
-    key: JSON.stringify([catalogRevision, nativeIds]),
-  });
-  const catalogKey = JSON.stringify([sourceId, catalogRevision]);
-  const catalogs = catalogState.key === catalogKey ? catalogState.entries : {};
+  const { entries: catalogs, refresh: refreshCatalog } = useModelCatalog(
+    connections,
+    {
+      sourceId,
+      ids: nativeIds,
+      onModels: (connectionId, discovered) => {
+        setChoices((current) =>
+          Object.fromEntries(
+            Object.entries(current).map(([role, choice]) => [
+              role,
+              choice.connectionId === connectionId && !choice.model
+                ? { ...choice, model: discovered[0]?.id || "" }
+                : choice,
+            ]),
+          ),
+        );
+      },
+    },
+  );
   const models = (connectionId: string) =>
     native(connectionId)
       ? catalogs[connectionId]?.models || []
       : storedModels(connectionId);
-  useEffect(() => {
-    let active = true;
-    const owner = viewOwner();
-    // A role changing connection must not invalidate the other roles' loaded
-    // catalogs. An explicit refresh or workspace change still reloads them.
-    const cached = catalogState.key === catalogKey ? catalogState.entries : {};
-    setCatalogState((current) =>
-      current.key === catalogKey ? current : { key: catalogKey, entries: {} },
-    );
-    for (const connectionId of JSON.parse(nativeIds) as string[]) {
-      if (cached[connectionId]) continue;
-      void readProjection(
-        workspaceApi.connectionModels,
-        { params: { id: ConnectionId.parse(connectionId) } },
-        { mode: "once" },
-      ).then(
-        ({ models: discovered }) => {
-          if (!active || owner !== viewOwner()) return;
-          setCatalogState((current) => ({
-            key: catalogKey,
-            entries: {
-              ...current.entries,
-              [connectionId]: { models: discovered },
-            },
-          }));
-          setChoices((current) =>
-            Object.fromEntries(
-              Object.entries(current).map(([role, choice]) => [
-                role,
-                choice.connectionId === connectionId && !choice.model
-                  ? { ...choice, model: discovered[0]?.id || "" }
-                  : choice,
-              ]),
-            ),
-          );
-        },
-        (error: Error) => {
-          if (!active || owner !== viewOwner()) return;
-          setCatalogState((current) => ({
-            key: catalogKey,
-            entries: {
-              ...current.entries,
-              [connectionId]: { error: error.message },
-            },
-          }));
-        },
-      );
-    }
-    return () => {
-      active = false;
-    };
-  }, [catalogKey, nativeIds, sourceId]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -728,10 +684,7 @@ export function CreateFromDefinition({
           {Object.values(choices).some(
             (choice) => catalogs[choice.connectionId]?.error,
           ) && (
-            <button
-              type="button"
-              onClick={() => setCatalogRevision((value) => value + 1)}
-            >
+            <button type="button" onClick={refreshCatalog}>
               Refresh models
             </button>
           )}
