@@ -47,7 +47,6 @@ import type { FeedPage } from "../shared/workspace-api.js";
 import { FEED_FILTERS } from "../shared/feed-categories.js";
 import { projectFor, contains } from "./mobile-return/shared.js";
 
-// Keep the existing route and worker import surface stable.
 export {
   conversationReturnState,
   savePosition,
@@ -79,8 +78,6 @@ export {
 } from "./mobile-return/queued-runs.js";
 export { forkConversation } from "./mobile-return/forking.js";
 
-// ---------------------------------------------------------------------------
-// 2. Feed
 export { FEED_FILTERS } from "../shared/feed-categories.js";
 function readFeed(
   owner: string,
@@ -346,8 +343,6 @@ export function awaySummary(owner: string, since: number) {
   return runsQueries.awaySummary(db, owner, since, now);
 }
 
-// ---------------------------------------------------------------------------
-// 3. Saved
 // One list for everything you keep: results and messages alike. A reply that
 // has a result card is saved by pinning that result, so saving either one
 // saves both and the list shows it once.
@@ -390,7 +385,6 @@ export function listSaved(
     : null;
   if (options.folder) ownedFolder(options.folder, owner);
   const page = 30;
-  // The same project and team scope as the results feed.
   const params = {
     owner,
     at: cursor?.at ?? null,
@@ -403,7 +397,6 @@ export function listSaved(
     q: options.q?.trim() ? contains(options.q.trim()) : null,
   };
   const messages = messageBookmarksQueries.page(db, params);
-  // The same columns as a saved card in the results feed.
   const results = artifactsQueries.savedPage(db, params);
   const merged = [
     ...messages.map(({ key, saved_at, content, label, ...row }) => ({
@@ -455,8 +448,6 @@ export function setSavedLabel(owner: string, body: unknown) {
     .immediate();
 }
 
-// ---------------------------------------------------------------------------
-// 10. Usage
 type Tokens = { input_tokens: number; output_tokens: number };
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
@@ -535,8 +526,6 @@ export function conversationUsage(owner: string, conversation: string) {
   return { runs, total, memory };
 }
 
-// ---------------------------------------------------------------------------
-// 11. Snippets
 export function listSnippets(owner: string) {
   // Saving the same text twice makes two artifacts; offer it once, newest.
   // Duplicates collapse before the limit, so a run of repeated saves can't
@@ -546,8 +535,6 @@ export function listSnippets(owner: string) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 12. Project summaries
 export function projectSummaries(owner: string) {
   ensureWorkspaceProject(owner);
   const projects = foldersQueries.rootProjects(db, owner);

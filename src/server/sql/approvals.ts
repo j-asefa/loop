@@ -142,7 +142,7 @@ export function startApproved(db: Database.Database, id: string) {
 
 // A crash during a tool call leaves the approval 'executing' forever. Once
 // its run is no longer actively executing (recovered, ended), mark it
-// 'unknown' so the stored state reflects the uncertain outcome (#355 S1).
+// 'unknown' so the stored state reflects the uncertain outcome.
 const sweepExecutingStatement = statement(
   "UPDATE approvals SET state='unknown',result=? WHERE state='executing' AND run_id IN (SELECT id FROM runs WHERE state NOT IN ('running','pausing'))",
 );

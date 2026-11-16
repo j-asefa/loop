@@ -738,7 +738,7 @@ export function leaseError(
 // Graceful shutdown interrupts what a crash leaves recoverable. A run that is
 // only awaiting_approval (durable checkpoint, no in-flight execution) lives on
 // through a crash, so shutdown must not interrupt it either, or the two paths
-// disagree (#355 S3). Native awaiting_approval runs are still interrupted so
+// disagree. Native awaiting_approval runs are still interrupted so
 // native session teardown owns the transition before its IO is terminated.
 const workerShutdownIdentitiesStatement = statement(
   `SELECT r.id,r.owner_id FROM runs r
@@ -760,8 +760,8 @@ export function workerShutdownIdentities(
 
 // Non-native runs stuck in awaiting_approval with only expired pending
 // approvals (nothing actionable, nothing in flight) leave awaiting_approval so
-// they stop holding the agent's queue and the Feed stops hiding the approval
-// (#355 S2). Never runs the call: the caller only transitions the run.
+// they stop holding the agent's queue and the Feed stops hiding the approval.
+// Never runs the call: the caller only transitions the run.
 const staleAwaitingApprovalStatement = statement(
   `SELECT r.id, r.owner_id FROM runs r
    LEFT JOIN native_dispatch d ON d.run_id = r.id

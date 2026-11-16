@@ -15,8 +15,6 @@ import {
   Problem,
 } from "../domain.js";
 
-// ---------------------------------------------------------------------------
-// 9. Fork
 export function forkConversation(
   owner: string,
   conversation: string,

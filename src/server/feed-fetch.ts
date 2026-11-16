@@ -11,16 +11,14 @@ import type { FeedEntry, NewsStory } from "../shared/news.js";
 // catalog through the same code that serves it, without opening the database.
 
 const TIMEOUT_MS = 10_000;
-// A hard ceiling, not a budget: reading stops at MAX_STORIES items long before
-// this for any feed that closes its tags. Full-text feeds are routinely over
-// two megabytes, which is what the old cap silently excluded.
+// Full-text feeds routinely exceed two megabytes; the item limit can stop
+// reading before this byte ceiling.
 const MAX_BYTES = 8_000_000;
 const MAX_REDIRECTS = 3;
 const AGENT = "Loop/1.0 (feed reader)";
 // Items read from one feed. The parser keeps 50 and Social shows 20 of those,
 // so a feed that lists hundreds is cut off rather than downloaded whole.
 const MAX_ITEMS = 100;
-/** The longest feed or page address Loop will take. */
 const MAX_URL = 2048;
 /** A feed's picture, which Loop passes through rather than the browser. */
 const MAX_IMAGE_BYTES = 5_000_000;
@@ -44,7 +42,6 @@ const publicOnlyFetch: NewsFetch = (url, init) =>
   } as any) as unknown as Promise<Response>;
 let newsFetch: NewsFetch = publicOnlyFetch;
 
-/** Tests and the liveness script swap the network; returns a restore function. */
 export function withFeedFetch(fetcher: NewsFetch) {
   const previous = newsFetch;
   newsFetch = fetcher;
@@ -85,13 +82,11 @@ export function feedUrl(value: string) {
   return url;
 }
 
-/** An error that carries how long the feed asked to be left alone. */
 export const unavailable = (
   message: string,
   retryAfterMs: number | null = null,
 ) => Object.assign(new Problem(400, message), { retryAfterMs });
 
-/** The seconds or HTTP-date in a Retry-After header, as milliseconds. */
 function retryAfterOf(response: Response) {
   const value = response.headers.get("retry-after")?.trim();
   if (!value) return null;
