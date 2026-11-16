@@ -6,6 +6,7 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "loop-usage-index-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db, id, emit } = await import("../src/server/db");
+const usageQueries = await import("../src/server/sql/runs");
 const { conversationUsage } = await import("../src/server/mobile-return");
 afterAll(() => {
   db.close();
@@ -76,13 +77,7 @@ it("uses the usage-only index while preserving receipt totals and conversation o
   emit(foreignOwner, foreign, "native.usage", {
     usage: { input_tokens: 888, output_tokens: 888 },
   });
-  const prepare = db.prepare.bind(db),
-    queries: string[] = [];
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    if (sql.includes("SELECT e.run_id,e.type,e.payload FROM"))
-      queries.push(sql);
-    return prepare(sql);
-  });
+  const spy = vi.spyOn(usageQueries, "conversationUsageEvents");
   try {
     expect(conversationUsage(owner, cid)).toEqual({
       runs: {
@@ -92,11 +87,10 @@ it("uses the usage-only index while preserving receipt totals and conversation o
       total: { input_tokens: 400, output_tokens: 74 },
       memory: [],
     });
-    expect(queries).toHaveLength(1);
-    const plan = prepare("EXPLAIN QUERY PLAN " + queries[0]).all(
-      owner,
-      cid,
-    ) as { detail: string }[];
+    expect(spy).toHaveBeenCalledTimes(1);
+    const plan = db
+      .prepare("EXPLAIN QUERY PLAN " + usageQueries.conversationUsageEventsSql)
+      .all(owner, cid) as { detail: string }[];
     expect(
       plan.some((row) =>
         /SEARCH e USING INDEX events_usage \(owner_id=\? AND run_id=\?\)/.test(

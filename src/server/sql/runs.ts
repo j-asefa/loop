@@ -968,9 +968,9 @@ export function queuePeers(db: Database.Database, run: string, owner: string) {
     .map((row) => parseRecord(queuePeersRow, row, "runs"));
 }
 
-const conversationUsageEventsStatement =
-  statement(`SELECT e.run_id,e.type,e.payload FROM runs r CROSS JOIN events e INDEXED BY events_usage ON r.id=e.run_id AND r.owner_id=e.owner_id
-      WHERE r.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`);
+export const conversationUsageEventsSql = `SELECT e.run_id,e.type,e.payload FROM runs r CROSS JOIN events e INDEXED BY events_usage ON r.id=e.run_id AND r.owner_id=e.owner_id
+      WHERE r.owner_id=? AND r.conversation_id=? AND e.type IN ('provider.receipt','native.usage') ORDER BY e.id`;
+const conversationUsageEventsStatement = statement(conversationUsageEventsSql);
 const conversationUsageEventsRow = z.object({
   run_id: z.string(),
   type: z.string(),
