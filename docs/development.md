@@ -79,16 +79,18 @@ Runtime helpers live in their owning shared, adapter or server layer under `src/
 
 ## Tests by boundary
 
-| Check                      | Purpose                                                                                                         |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `npm run typecheck`        | Root TypeScript                                                                                                 |
-| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries and route contracts  |
-| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                              |
-| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                   |
-| `npm run test:all`         | Both root suites                                                                                                |
-| `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service |
-| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                      |
-| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                             |
+| Check                      | Purpose                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run typecheck`        | Root TypeScript                                                                                                                |
+| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries, guidance links and route contracts |
+| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                                             |
+| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                                  |
+| `npm run test:all`         | Both root suites                                                                                                               |
+| `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service                |
+| `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                                     |
+| `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                                            |
+
+[Guidance links](../test/guidance-links.test.ts) checks that every path, `@` import and heading anchor linked from `AGENTS.md`, `CLAUDE.md`, `docs/*.md` and nested `AGENTS.md` files under `src/`, `test/` and `migrations/` exists. It does not fetch external URLs.
 
 The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings from its child environment, preserving only explicit `LOOP_TEST_*` fixture controls. Vitest and native fixtures choose isolated data directories; no deployment profile is selected. Native harness launches also remove host configuration before any project command runs; see [server environment isolation](server.md#keep-agent-workloads-from-exhausting-the-server). Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
@@ -259,7 +261,7 @@ without emitting frames. Both use the production scanner and local decoder
 worker. Harness execution and peer routing are fixtures; this is not physical
 camera, provider or Internet tunnel acceptance.
 
-Lifecycle fixtures use [test-seams.ts](../src/test-seams.ts) to shorten deadlines without changing recovery paths. Production callers share a 20-second graceful-stop wait, a 5-second forced-stop grace, a 180-second connection-convergence wait and a 120-second connection-start wait. Graceful stop accommodates the application's shutdown; convergence accommodates tunnel/service startup before the application reattaches. Positive integer `LOOP_TEST_*` overrides are for isolated fixtures; invalid values use the production defaults.
+Lifecycle fixtures use [lifecycle-waits.ts](../src/lifecycle-waits.ts) to shorten deadlines without changing recovery paths. Production callers share a 20-second graceful-stop wait, a 5-second forced-stop grace, a 180-second connection-convergence wait and a 120-second connection-start wait. Graceful stop accommodates the application's shutdown; convergence accommodates tunnel/service startup before the application reattaches. Positive integer `LOOP_TEST_*` overrides are for isolated fixtures; invalid values use the production defaults.
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
