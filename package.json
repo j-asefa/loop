@@ -36,7 +36,8 @@
     "feeds:check": "node --import tsx scripts/feed-liveness.mjs",
     "openapi": "node --import tsx scripts/openapi.mjs",
     "openapi:check": "npm run openapi -- --check",
-    "sql-index": "node scripts/sql-index.mjs"
+    "sql-index": "node scripts/sql-index.mjs",
+    "new:sql-module": "node scripts/new-sql-module.mjs"
   },
   "repository": {
     "type": "git",
