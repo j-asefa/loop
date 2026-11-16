@@ -2,37 +2,18 @@
 
 ## Local control transport
 
-[local-control.ts](../src/local-control.ts) sends JSON control requests over loopback TCP or a Unix socket. Host administration, connection-service operations and backend probes share response decoding, bounded buffering and error settlement. Responses are decoded once after collecting complete UTF-8 bytes. Callers retain their endpoint budgets: host responses allow 1,000,000 bytes, connection responses 100,000 and probes 1,000; timeout choices remain at the caller. HTTP error messages and status codes reach the caller, while malformed, oversized, interrupted or timed-out responses reject the attempt. The transport never retries a request; callers must treat a lost response to a mutation as uncertain.
+The CLI, the companion host and the connection service talk over local control requests. Each file below states its own rules in comments; read it before changing the behaviour.
 
-The same library handles control-server dispatch, JSON replies and timing-safe authentication. Authentication compares UTF-8 byte lengths before comparing bytes. Host bodies require non-empty `application/json` and allow 100,000 bytes; connection-control bodies allow 16,000 bytes and treat an empty body as `{}`. `Problem` status and safe messages cross the boundary, while diagnostics and arbitrary exceptions do not. The relay shares JSON replies and the private probe header; its unknown-outcome and reconnecting responses retain their distinct headers.
+| File | Owns |
+| --- | --- |
+| [local-control.ts](../src/local-control.ts) | Control requests and replies, response limits, secret comparison, the `Problem` boundary |
+| [relay.ts](../src/relay.ts) | Forwarding to the application, the unknown-outcome and reconnecting replies |
+| [local-startup.ts](../src/local-startup.ts) | Detached spawning, readiness, entrypoint detection |
+| [connection-leases.ts](../src/connection-leases.ts) | Application lease ownership ([lease state machine](client-state-machines.md#connection-backend-lease)) |
+| [launch-record.ts](../src/launch-record.ts) | Saved launch settings and subprocess arguments, including the v0.1.0 argv format |
+| [cli.ts](../src/cli.ts) and [lifecycle-waits.ts](../src/lifecycle-waits.ts) | Commands, start decisions and lifecycle deadlines |
 
-[Local startup](../src/local-startup.ts) owns detached spawning, private log descriptors, readiness IPC, startup timeout and listener cleanup. The CLI forwards terminal interruptions only while awaiting readiness; the connection service remains in its own process group across application restarts. Callers retain their timeout messages and interpret readiness payloads, including the connection lock-busy outcome. Child entrypoints report once and disconnect IPC after sending; importing an entrypoint does not start it.
-
-The connection service delegates application lease ownership to
-[`ConnectionLeases`](../src/connection-leases.ts): generation-bound admission,
-post-probe ownership checks, heartbeat expiry and recoverable detachment. The
-service retains sockets, locks, relay and tunnel supervision. The registry
-publishes relay changes synchronously with its decisions; its clock and probe
-are dependencies. See the [lease state machine](client-state-machines.md#connection-backend-lease).
-
-The typed [launch record](../src/launch-record.ts) owns workspace and connection
-launch settings, saved workspace launch validation and subprocess argument
-encoding/decoding. Start, restart and service installation read fields from that
-record; the in-process connection entrypoint accepts its connection variant.
-Preferences remain separate fallbacks. User CLI validation and command effects
-stay in the CLI; OS service definitions receive rendered arguments. The reader
-normalizes the v0.1.0 saved argv format, and writes include derived argv for
-released readers; see [pairing and recovery](pairing.md).
-[CLI commands](../src/cli.ts) accept parsed inputs and dependencies for state paths,
-output, discovery, status and lifecycle deadlines. `main()` only parses and dispatches;
-command successes return exit code zero and the entrypoint maps thrown errors as before.
-`resolveStart` reads launch inputs and returns a launch decision or refusal without
-persisting a launch or starting processes. The start command applies effects in their
-existing order; refusals concerning a running workspace remain after connection recovery.
-[Lifecycle waits](../src/lifecycle-waits.ts) supplies production defaults at the calling
-boundary, and process fixtures retain the existing shortened-deadline environment inputs.
-`WorkspaceHost.start` receives one object naming runtime options and lifecycle callbacks.
-
+Across these files, one rule holds: the transport never retries a request, so every caller treats a lost response to a mutation as uncertain and inspects state before acting again.
 
 ## Agent sources and execution environments
 

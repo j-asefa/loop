@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { closeSync, openSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+// An entrypoint starts only when it is the process's main script, so importing
+// one (from tests or another entrypoint) never starts it.
 export function isEntrypoint(
   url: string,
   options: { unresolved?: "lexical" | "reject" } = {},
@@ -21,6 +23,8 @@ export function isEntrypoint(
   }
 }
 
+// A child reports readiness once, then disconnects IPC so the parent can exit
+// while the child keeps running.
 export function reportReady(message: object) {
   if (typeof process.send !== "function" || !process.connected) return;
   process.send(message, () => {
@@ -63,6 +67,8 @@ export async function spawnReady<T>(
   const abort = () => {
     child.kill("SIGTERM");
   };
+  // Terminal interruptions reach the child only while the caller waits for
+  // readiness; once ready, the detached child no longer follows the terminal.
   if (options.forwardSignals) {
     process.once("SIGINT", abort);
     process.once("SIGTERM", abort);

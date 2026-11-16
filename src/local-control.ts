@@ -20,7 +20,13 @@ export class ControlError extends Error {
   }
 }
 
-/** Local control performs one attempt. A lost response never authorizes replay. */
+/**
+ * Local control performs one attempt. A lost response never authorizes replay:
+ * callers treat a lost response to a mutation as uncertain. Malformed,
+ * oversized, interrupted or timed-out responses reject the attempt; a non-200
+ * reply rejects with the server's error message and status. Each caller keeps
+ * its own `maxBytes` and `timeout` for its endpoint.
+ */
 export function jsonClient(target: Target, token?: string) {
   return async function send<T = any>(
     path: string,
@@ -128,6 +134,8 @@ export async function readJsonBody(
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+// Compares UTF-8 byte lengths first (timingSafeEqual needs equal lengths), then
+// the bytes in constant time.
 export function equalSecret(a: string, b: string) {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
