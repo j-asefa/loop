@@ -13,7 +13,7 @@ const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
 vi.mock("better-sqlite3", async (load) => {
-  const original = await load<typeof import("better-sqlite3")>();
+  const original = await load<{ default: typeof import("better-sqlite3") }>();
   return {
     ...original,
     default: new Proxy(original.default, {
