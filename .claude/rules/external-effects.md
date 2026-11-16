@@ -6,5 +6,5 @@ paths:
 
 Pointers only; the root AGENTS.md is the source of truth.
 
-- Follow the [effect recipe](../../docs/architecture.md#recipe-add-an-external-effect); `executionCommand` in execution-commands.ts is its canonical example.
+- Follow the [effect recipe](../../docs/execution.md#recipe-add-an-external-effect); `executionCommand` in execution-commands.ts is its canonical example.
 - Do not resubmit an effect whose outcome is unknown.

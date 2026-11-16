@@ -8,6 +8,9 @@
 | [Harnesses](harnesses.md)                    | Native discovery, sign-in, models, team handoffs and services |
 | [Pairing and recovery](pairing.md)           | Phone access, device trust, tunnels, recovery and fleets          |
 | [Architecture](architecture.md)              | Entry points, execution paths, persistence, activities and memory |
+| [Execution paths](execution.md)               | Local control transport, agent sources and the companion execution authority |
+| [Workspace updates](workspace-updates.md)     | Change drains, event sockets, browser signals and page loading |
+| [Fleet architecture](fleet-architecture.md)   | Experimental fleet identity, directories, credentials, remote access and mail |
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
 | [State machines](state-machines.md)          | States, invariants and transition tables; known invalid states    |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and notifications          |
