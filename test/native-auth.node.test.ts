@@ -12,8 +12,7 @@ process.env.LOOP_DATA_DIR = dir;
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
 const { createAuthDriver } = await import("../src/native-auth/drivers.js");
-const { setAntigravityExchangeWait, setAntigravityStartWait } =
-  await import("../src/native-auth/antigravity.js");
+const { antigravityDriver } = await import("../src/native-auth/antigravity.js");
 after(async () => {
   db.close();
   await rm(dir, { recursive: true, force: true });
@@ -319,8 +318,9 @@ test("Antigravity signs in through agy's terminal sign-in and confirms with agy 
     `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
-  setAntigravityExchangeWait(5000);
-  const auth = new NativeSignIns(createAuthDriver);
+  const auth = new NativeSignIns(async (options) =>
+    antigravityDriver(options, { exchange: 5000 }),
+  );
   const opts = {
     name: "antigravity",
     executable,
@@ -380,7 +380,6 @@ test("Antigravity signs in through agy's terminal sign-in and confirms with agy 
     assert.equal(audit.match(/antigravity:login/g)?.length, 2);
   } finally {
     await auth.close();
-    setAntigravityExchangeWait(90000);
   }
 });
 
@@ -403,6 +402,12 @@ test("Antigravity completes when agy exits after saving its credential", async (
     await until(
       () => auth.status("antigravity").attempt?.state === "complete",
       15000,
+    );
+    assert.equal(auth.status("antigravity").attempt?.state, "complete");
+    assert.ok(existsSync(join(project, "antigravity-credential.json")));
+    assert.doesNotMatch(
+      JSON.stringify(auth.status("antigravity")),
+      /fixture-token-private/,
     );
   } finally {
     await auth.close();
@@ -462,8 +467,9 @@ test("Antigravity ends a sign-in whose terminal never shows its link", async () 
     `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
-  setAntigravityStartWait(1000);
-  const auth = new NativeSignIns(createAuthDriver);
+  const auth = new NativeSignIns(async (options) =>
+    antigravityDriver(options, { start: 1000 }),
+  );
   try {
     await auth.start(
       { name: "antigravity", executable, project },
@@ -475,6 +481,8 @@ test("Antigravity ends a sign-in whose terminal never shows its link", async () 
       () => auth.status("antigravity").attempt?.state === "failed",
       10000,
     );
+    assert.equal(auth.status("antigravity").attempt?.state, "failed");
+    assert.ok(!existsSync(join(project, "antigravity-credential.json")));
     const [pid] = (await readFile(join(project, "login-pids"), "utf8"))
       .trim()
       .split("\n")
@@ -489,7 +497,6 @@ test("Antigravity ends a sign-in whose terminal never shows its link", async () 
     }, 5000);
   } finally {
     await auth.close();
-    setAntigravityStartWait(30000);
   }
 });
 
@@ -550,18 +557,26 @@ test("Pi restarts an auth process that exited while idle", async () => {
     `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
-  const auth = new NativeSignIns(createAuthDriver);
+  const drivers: AuthDriver[] = [];
+  const auth = new NativeSignIns(async (options) => {
+    const driver = await createAuthDriver(options);
+    drivers.push(driver);
+    return driver;
+  });
   const opts = { name: "pi", executable, project };
   process.env.LOOP_TEST_PI_EXIT_IDLE = "1";
   try {
     const catalog = await auth.catalog(opts);
     await until(() => existsSync(join(project, "pi-exited-once")));
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await until(() => drivers[0].dead === true);
     await auth.start(opts, catalog.providers[0].id, "oauth", randomUUID());
     await until(() => !!auth.status("pi").attempt?.prompt);
     const attempt = auth.status("pi").attempt!;
     auth.answer("pi", attempt.id, attempt.prompt!.id, "fixture-code");
     await until(() => auth.status("pi").attempt?.state === "complete");
+    assert.equal(auth.status("pi").attempt?.state, "complete");
+    assert.equal(drivers.length, 2);
+    assert.ok(existsSync(join(project, "pi-credential.json")));
   } finally {
     delete process.env.LOOP_TEST_PI_EXIT_IDLE;
     await auth.close();
