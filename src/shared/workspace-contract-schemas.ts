@@ -153,7 +153,8 @@ export type Bootstrap = z.infer<typeof Bootstrap>;
 export const FeedItem = DoneDisplaySchema.extend({
   reply_card_key: Text.optional(),
   reply: SteeringReplyContext.optional(),
-  // Reply cards do not include pull-watch state.
+  // Reply cards do not include pull-watch state. An absent `pull` means
+  // unknown, distinct from an explicit null, which means no watch.
   pull: DoneDisplaySchema.shape.pull.optional(),
   last_activity_at: Time,
   last_message: DoneDisplaySchema.shape.last_message

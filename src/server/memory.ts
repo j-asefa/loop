@@ -180,6 +180,7 @@ function readMemory(
         : workspaceLink({ memory: s.id }),
   };
 }
+// Recall is untrusted historical evidence, never current authorization.
 export async function searchMemory(
   owner: string,
   project: string | null,

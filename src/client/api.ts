@@ -186,6 +186,8 @@ export function fetchStream<
 function encodedSourceFromPath(path: string) {
   return /^\/api\/agent-sources\/([^/]+)\//.exec(path)?.[1] ?? "";
 }
+// The Blob reader follows a redirect only when the final response stays on
+// this origin, under /api/, and on the same workspace API source.
 function sameWorkspaceRedirect(response: Response, requested: string) {
   try {
     const target = new URL(response.url),
