@@ -90,7 +90,7 @@ Runtime helpers live in their owning shared, adapter or server layer under `src/
 | `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                                     |
 | `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                                            |
 
-[Guidance links](../test/guidance-links.test.ts) checks that every path, `@` import and heading anchor linked from `AGENTS.md`, `CLAUDE.md`, `docs/*.md` and nested `AGENTS.md` and `CLAUDE.md` files under `src/`, `test/` and `migrations/` exists. It does not fetch external URLs.
+[Guidance links](../test/guidance-links.test.ts) checks that every path, `@` import and heading anchor linked from `AGENTS.md`, `CLAUDE.md`, `docs/*.md`, nested `AGENTS.md` and `CLAUDE.md` files under `src/`, `test/` and `migrations/`, and `.claude/rules/*.md` exists, and that every Claude rule's `paths:` glob matches a file. It does not fetch external URLs.
 
 The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime settings from its child environment, preserving only explicit `LOOP_TEST_*` fixture controls. Vitest and native fixtures choose isolated data directories; no deployment profile is selected. Native harness launches also remove host configuration before any project command runs; see [server environment isolation](server.md#keep-agent-workloads-from-exhausting-the-server). Both suites share `test/`. The `.node.test.ts` suffix selects Node-runner tests and excludes them from Vitest.
 
