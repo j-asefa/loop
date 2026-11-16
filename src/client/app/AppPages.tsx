@@ -31,7 +31,7 @@ import { Approvals } from "../Approvals";
 import { PullRequests } from "../PullRequests";
 import { Feed } from "../Feed";
 import { Later, SavedList } from "../Later";
-import { ScheduledSends } from "../ThreadTools";
+import { ScheduledSends } from "../LaterControls";
 import {
   RefreshCw,
   Plus,
