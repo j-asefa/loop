@@ -1,3 +1,4 @@
+import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { useModelCatalog } from "./useModelCatalog";
 import { ErrorNotice } from "./ErrorNotice";
 import { downloadText } from "./downloadText";
@@ -586,39 +587,26 @@ export function CreateFromDefinition({
                     onChange={(event) => change({ name: event.target.value })}
                   />
                 </label>
-                <label>
-                  {label} connection
-                  <select
-                    aria-label={`${label} connection`}
-                    value={chosen.connectionId}
-                    onChange={(event) => {
-                      const connectionId = event.target.value;
-                      change({
-                        connectionId: parseId(ConnectionId, connectionId),
-                        model: models(connectionId)[0]?.id || "",
-                        effort: null,
-                      });
-                    }}
-                  >
-                    <option value="">Choose a connection</option>
-                    {available.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  {label} model
-                  <select
-                    aria-label={`${label} model`}
-                    value={chosen.model}
-                    disabled={refreshing}
-                    onChange={(event) =>
-                      change({ model: event.target.value, effort: null })
-                    }
-                  >
-                    {!model && (
+                <ConnectionModelPicker
+                  connections={available}
+                  connection={chosen.connectionId}
+                  models={catalog}
+                  model={chosen.model}
+                  modelDisabled={refreshing}
+                  connectionLabel={`${label} connection`}
+                  modelLabel={`${label} model`}
+                  connectionAriaLabel={`${label} connection`}
+                  modelAriaLabel={`${label} model`}
+                  onConnection={(connectionId) =>
+                    change({
+                      connectionId: parseId(ConnectionId, connectionId),
+                      model: models(connectionId)[0]?.id || "",
+                      effort: null,
+                    })
+                  }
+                  onModel={(model) => change({ model, effort: null })}
+                  modelPlaceholder={
+                    !model && (
                       <option value={chosen.model} disabled>
                         {refreshing
                           ? "Loading models…"
@@ -626,45 +614,28 @@ export function CreateFromDefinition({
                             ? `${chosen.model} — unavailable; choose a model`
                             : "Choose a model"}
                       </option>
-                    )}
-                    {catalog.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {discovery?.error && (
-                  <ErrorNotice role="alert">
-                    Could not refresh {label.toLowerCase()} models.{" "}
-                    {discovery.error}
-                  </ErrorNotice>
-                )}
-                {(model?.effortLevels?.length || chosen.effort) && (
-                  <label>
-                    {label} effort
-                    <select
-                      aria-label={`${label} effort`}
-                      value={chosen.effort || ""}
-                      onChange={(event) =>
-                        change({ effort: event.target.value || null })
-                      }
-                    >
-                      <option value="">Default</option>
-                      {chosen.effort &&
-                        !model?.effortLevels?.some(
-                          (e) => e.value === chosen.effort,
-                        ) && (
-                          <option value={chosen.effort}>{chosen.effort}</option>
-                        )}
-                      {model?.effortLevels?.map((e) => (
-                        <option key={e.value} value={e.value}>
-                          {e.value}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
+                    )
+                  }
+                  modelNotice={
+                    discovery?.error && (
+                      <ErrorNotice role="alert">
+                        Could not refresh {label.toLowerCase()} models.{" "}
+                        {discovery.error}
+                      </ErrorNotice>
+                    )
+                  }
+                  effort={
+                    model?.effortLevels?.length || chosen.effort
+                      ? {
+                          model,
+                          value: chosen.effort || "",
+                          label: `${label} effort`,
+                          onChange: (effort) =>
+                            change({ effort: effort || null }),
+                        }
+                      : undefined
+                  }
+                />
                 <details>
                   <summary>{label} instructions</summary>
                   <p
