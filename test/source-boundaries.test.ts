@@ -292,7 +292,7 @@ function coreEffectImports(file: string, text: string) {
     const resolved = resolveModule(file, specifier);
     return resolved === "src/server/fleet-effect-authorizations.ts"
       ? [
-          `${path}:${line} imports ${resolved}: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/architecture.md#recipe-add-an-external-effect). ${escalate}`,
+          `${path}:${line} imports ${resolved}: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/execution.md#recipe-add-an-external-effect). ${escalate}`,
         ]
       : [];
   });
@@ -306,7 +306,7 @@ it("requires core effect callers to use the neutral authority seam", () => {
       'import { assertFleetEffect } from "./fleet-effect-authorizations.js";',
     ),
   ).toEqual([
-    "src/server/queue.ts:1 imports src/server/fleet-effect-authorizations.ts: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/architecture.md#recipe-add-an-external-effect). If this can't be satisfied, say so in the PR instead of changing the rule.",
+    "src/server/queue.ts:1 imports src/server/fleet-effect-authorizations.ts: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/execution.md#recipe-add-an-external-effect). If this can't be satisfied, say so in the PR instead of changing the rule.",
   ]);
   expect(
     coreEffectImports(
