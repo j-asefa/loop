@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { leftoverPan } from "../src/client/Pwa";
+import { leftoverPan } from "../src/client/pwa-viewport";
 import { visibleViewportTop } from "../src/shared/sheet-viewport";
 
 it("does not count Safari's keyboard page scroll twice", async () => {
@@ -14,7 +14,7 @@ it("does not count Safari's keyboard page scroll twice", async () => {
   expect(visibleViewportTop({ pageTop: 0, offsetTop: 0 }, 337)).toBe(0);
   // A stale offset after keyboard dismissal must not scroll the page again.
   expect(leftoverPan(captured, false, 337)).toBe(0);
-  const { viewportDrop } = await import("../src/client/Pwa");
+  const { viewportDrop } = await import("../src/client/pwa-viewport");
   expect(viewportDrop(captured, 362, false, 337)).toBe(0);
 });
 
@@ -33,7 +33,7 @@ it("folds a pan Safari leaves after the keyboard closes back into the page", () 
 });
 
 it("folds again once a scroll or touch ends, leaving the keyboard state alone", async () => {
-  const { watchViewport } = await import("../src/client/Pwa");
+  const { watchViewport } = await import("../src/client/pwa-viewport");
   vi.useFakeTimers();
   try {
     const win = Object.assign(new EventTarget(), {
@@ -83,7 +83,7 @@ it("folds again once a scroll or touch ends, leaving the keyboard state alone", 
 });
 
 it("folds once, retries a fold Safari ignored, and never folds mid-touch", async () => {
-  const { foldTarget } = await import("../src/client/Pwa");
+  const { foldTarget } = await import("../src/client/pwa-viewport");
   expect(foldTarget(0, false, 500, null)).toBe(null);
   expect(foldTarget(240, false, 500, null)).toBe(740);
   // During a touch Safari ignores the scroll; wait for the touch to end.
@@ -98,7 +98,7 @@ it("folds once, retries a fold Safari ignored, and never folds mid-touch", async
 });
 
 it("rechecks a late Safari viewport restoration, then stops sampling while idle", async () => {
-  const { watchViewport } = await import("../src/client/Pwa");
+  const { watchViewport } = await import("../src/client/pwa-viewport");
   vi.useFakeTimers();
   try {
     const win = Object.assign(new EventTarget(), {
@@ -135,7 +135,7 @@ it("rechecks a late Safari viewport restoration, then stops sampling while idle"
 });
 
 it("moves the bottom bars down to what you see when Safari's layout viewport ends above it", async () => {
-  const { viewportDrop } = await import("../src/client/Pwa");
+  const { viewportDrop } = await import("../src/client/pwa-viewport");
   // Panned 372px after the keyboard closed: bars move down 372px.
   expect(
     viewportDrop({ offsetTop: 372, height: 932, scale: 1 }, 932, false),
