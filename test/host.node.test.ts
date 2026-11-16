@@ -19,7 +19,12 @@ import { createHash, createHmac } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { WebSocket } from "ws";
 import { control } from "../src/host-control.js";
-import { Tunnel, tunnelUrl } from "../src/tunnel.js";
+import {
+  Tunnel,
+  tunnelUrl,
+  cloudflaredRelease,
+  cloudflaredBuilds,
+} from "../src/tunnel.js";
 test("cookie-only pairing enforces Origin and CSRF and rejects bearer authentication", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-cookie-"));
   const host = createHost(dir);
@@ -188,41 +193,44 @@ test("only complete Quick Tunnel hostnames are accepted", () => {
     assert.equal(tunnelUrl(text), undefined);
 });
 
-test("stopping during helper lookup cancels tunnel startup", async () => {
-  const assetHashes: Record<string, string> = {
-    "linux-x64":
-      "77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2",
-    "linux-arm64":
-      "aaeb2d7d0da3614634c7e03ab13487a1522c2e79165ed2929cfe23d5e95b326d",
-    "darwin-x64":
-      "d1155d0837487f261183b15c1eab6c4ebcad9dc49b94675f1524c3564cea3977",
-    "darwin-arm64":
-      "587c2cfb1c230fe36c7fa7727da78be459dae028cabe8c001291999350f07095",
-  };
-  const assetHash = assetHashes[`${process.platform}-${process.arch}`];
-  if (!assetHash) return;
-  const dir = await mkdtemp(join(tmpdir(), "loop-tunnel-"));
-  try {
-    const helperDir = join(dir, "helpers", "2026.9.3");
-    await mkdir(helperDir, { recursive: true });
-    const binary = Buffer.from("fixture, never executed");
-    await writeFile(join(helperDir, "cloudflared"), binary);
-    await writeFile(
-      join(helperDir, "manifest.json"),
-      JSON.stringify({
-        assetHash,
-        binaryHash: createHash("sha256").update(binary).digest("hex"),
-      }),
-    );
-    const tunnel = new Tunnel(dir, 12345, () => {});
-    const starting = tunnel.start();
-    await tunnel.stop();
-    await assert.rejects(starting, /startup cancelled/);
-    await assert.rejects(stat(join(dir, "quick-tunnel.yml")), /ENOENT/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+const tunnelBuild = cloudflaredBuilds[`${process.platform}-${process.arch}`];
+test(
+  "stopping during helper lookup cancels tunnel startup",
+  {
+    skip:
+      !tunnelBuild &&
+      "Automatic Quick Tunnels do not support this platform/architecture",
+  },
+  async () => {
+    assert.match(cloudflaredRelease, /^\d{4}\.\d+\.\d+$/);
+    for (const [asset, hash] of Object.values(cloudflaredBuilds)) {
+      assert.match(asset, /^cloudflared-(linux|darwin)-(amd64|arm64)(\.tgz)?$/);
+      assert.match(hash, /^[a-f0-9]{64}$/);
+    }
+    const assetHash = tunnelBuild[1];
+    const dir = await mkdtemp(join(tmpdir(), "loop-tunnel-"));
+    try {
+      const helperDir = join(dir, "helpers", cloudflaredRelease);
+      await mkdir(helperDir, { recursive: true });
+      const binary = Buffer.from("fixture, never executed");
+      await writeFile(join(helperDir, "cloudflared"), binary);
+      await writeFile(
+        join(helperDir, "manifest.json"),
+        JSON.stringify({
+          assetHash,
+          binaryHash: createHash("sha256").update(binary).digest("hex"),
+        }),
+      );
+      const tunnel = new Tunnel(dir, 12345, () => {});
+      const starting = tunnel.start();
+      await tunnel.stop();
+      await assert.rejects(starting, /startup cancelled/);
+      await assert.rejects(stat(join(dir, "quick-tunnel.yml")), /ENOENT/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("pairing TTL, exact Host, missing Origin and secure-cookie semantics", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-pair-"));
