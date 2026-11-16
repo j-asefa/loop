@@ -342,9 +342,11 @@ const exemptions = new Map<string, string>([
 // explained, so an agent fixes the access rather than the exemption list.
 const savedRows = "docs/architecture.md#saved-rows";
 const undeclaredPath = (file: string, failure: string) =>
-  `${file}: ${failure} is not a field of the column's shared schema. Declare the field in the column's owner (src/shared/message-metadata.ts, run-payload.ts or artifact-metadata.ts) or fix the path (${savedRows}).`;
+  failure.startsWith("Unresolved SQL column")
+    ? `${file}: ${failure}: the column's table could not be resolved from the query's FROM and JOIN aliases. Qualify it with an alias the query declares (${savedRows}).`
+    : `${file}: ${failure} is not a field of the column's shared schema. Declare the field in the column's owner (src/shared/message-metadata.ts, run-payload.ts or artifact-metadata.ts) or fix the path (${savedRows}).`;
 const rawCodec = (file: string) =>
-  `${file} parses or stringifies a messages, runs or artifacts JSON column directly. Read and write it through the column's codec in src/shared (${savedRows}). If this can't be satisfied, say so in the PR; do not add the file to the exemptions.`;
+  `${file} calls JSON.parse or JSON.stringify on a value named metadata, payload, messageMetadata, artifactMetadata or runPayload. For messages, runs or artifacts JSON, use that column's codec in src/shared (${savedRows}). For another column or an external payload, say so in the PR; do not add the file to the exemptions.`;
 
 it("names the column owners and saved-row guide in each failure", () => {
   expect(
@@ -353,7 +355,15 @@ it("names the column owners and saved-row guide in each failure", () => {
     "src/server/sql/probe.ts: messages.metadata '$.typo' is not a field of the column's shared schema. Declare the field in the column's owner (src/shared/message-metadata.ts, run-payload.ts or artifact-metadata.ts) or fix the path (docs/architecture.md#saved-rows).",
   );
   expect(rawCodec("src/server/probe.ts")).toBe(
-    "src/server/probe.ts parses or stringifies a messages, runs or artifacts JSON column directly. Read and write it through the column's codec in src/shared (docs/architecture.md#saved-rows). If this can't be satisfied, say so in the PR; do not add the file to the exemptions.",
+    "src/server/probe.ts calls JSON.parse or JSON.stringify on a value named metadata, payload, messageMetadata, artifactMetadata or runPayload. For messages, runs or artifacts JSON, use that column's codec in src/shared (docs/architecture.md#saved-rows). For another column or an external payload, say so in the PR; do not add the file to the exemptions.",
+  );
+  expect(
+    undeclaredPath(
+      "src/server/sql/probe.ts",
+      "Unresolved SQL column r.payload",
+    ),
+  ).toBe(
+    "src/server/sql/probe.ts: Unresolved SQL column r.payload: the column's table could not be resolved from the query's FROM and JOIN aliases. Qualify it with an alias the query declares (docs/architecture.md#saved-rows).",
   );
 });
 
