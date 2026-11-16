@@ -142,9 +142,16 @@ function anchors(markdown: string): Set<string> {
         .toLowerCase()
         .replace(/[^\p{L}\p{N}\s_-]/gu, "")
         .replace(/\s/g, "-");
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      result.add(count ? `${slug}-${count}` : slug);
+      // github-slugger: bump the base slug's counter until the suffixed
+      // anchor is unused, so "Foo", "Foo", "Foo-1" give foo, foo-1, foo-1-1.
+      let anchor = slug;
+      while (seen.has(anchor)) {
+        const count = seen.get(slug)! + 1;
+        seen.set(slug, count);
+        anchor = `${slug}-${count}`;
+      }
+      seen.set(anchor, 0);
+      result.add(anchor);
     }
     children(token).forEach(visit);
   };
@@ -180,9 +187,20 @@ function brokenGuidanceLinks(root: string, files: string[]): string[] {
       // A query string does not name a different local file.
       const rawPath = beforeAnchor.split("?")[0];
       const path = decoded(rawPath);
-      const resolved = path ? resolve(dirname(source), path) : source;
+      // GitHub resolves a leading slash from the repository root.
+      const resolved = !path
+        ? source
+        : path.startsWith("/")
+          ? join(root, path)
+          : resolve(dirname(source), path);
       const where = `${file}:${text.slice(0, offset).split("\n").length}`;
       const shown = relative(root, resolved).split(sep).join("/");
+      if (relative(root, resolved).split(sep)[0] === "..") {
+        broken.push(
+          `${where} links to ${path}, which is outside the repository. Link a repository file or an external URL.`,
+        );
+        continue;
+      }
       if (!existsSync(resolved)) {
         broken.push(
           `${where} links to ${shown}, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.`,
@@ -278,6 +296,7 @@ it("follows CommonMark for references, destinations, code and headings", () => {
       "[real](docs/after-fence.md) [percent](docs/100%-coverage.md)",
       "[call](tel:+15550100) [setext](docs/a%20guide.md#setext-title)",
       "[host](//example.com/docs) [query](docs/a%20guide.md?plain=1#tom--jerry)",
+      "[third](docs/a%20guide.md#foo-1-1) [rooted](/docs/a%20guide.md) [outside](../../etc/hosts)",
     ].join("\n"),
     "docs/a guide.md": [
       "## `loop preview create <name>`",
@@ -285,6 +304,12 @@ it("follows CommonMark for references, destinations, code and headings", () => {
       "## [Linked][ref] title",
       "",
       "## Tom &amp; Jerry",
+      "",
+      "## Foo",
+      "",
+      "## Foo",
+      "",
+      "## Foo-1",
       "",
       "Setext title",
       "============",
@@ -299,6 +324,7 @@ it("follows CommonMark for references, destinations, code and headings", () => {
     "AGENTS.md:1 links to docs/missing.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
     "AGENTS.md:1 links to docs/no guide.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
     "AGENTS.md:20 links to docs/after-fence.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
+    "AGENTS.md:23 links to ../../etc/hosts, which is outside the repository. Link a repository file or an external URL.",
   ]);
 });
 
