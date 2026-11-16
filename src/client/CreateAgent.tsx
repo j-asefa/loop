@@ -15,7 +15,7 @@ import {
 } from "./CreateAgentModelOptions";
 import { RuntimeSetup } from "./RuntimeSetup";
 import { useModelCatalog } from "./useModelCatalog";
-import { capabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
 import { parse } from "./json";
@@ -69,6 +69,7 @@ export function CreateAgent({
     sourceId: string,
   ) => void | Promise<void>;
 }) {
+  const capabilities = useShellCapabilities();
   const readProjection = useProjectionRoute();
 
   const connected = connections

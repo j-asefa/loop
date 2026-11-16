@@ -22,7 +22,6 @@ import { CardTokens } from "../CardTokens";
 import { Webhooks } from "../Webhooks";
 import { AgentModelSettings } from "../AgentModelSettings";
 import { agentModelName } from "../modelChoices";
-import { capabilities } from "../capabilities";
 import { SourceProvider } from "../SourceContext";
 import { executionSourceId, sourceUrl } from "../sourceRouting";
 import { NativeHistory } from "../NativeHistory";
@@ -83,6 +82,7 @@ import { renderSessionGate } from "./Session";
 import { renderAppPages } from "./AppPages";
 
 export function renderApp(props: AppViewProps) {
+  const capabilities = props.shellCapabilities;
   const {
     bootstrapOwner,
     composerOptions,

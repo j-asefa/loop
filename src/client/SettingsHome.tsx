@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { capabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import { SettingsPill, SettingsRow } from "./SettingsUI";
 import type { SettingsPage } from "./settings-pages";
 import type { Agent, Connection } from "../shared/types";
@@ -33,6 +33,7 @@ export function SettingsHome({
   agents?: Agent[];
   connections?: Connection[];
 }) {
+  const capabilities = useShellCapabilities();
   // Only summarize what the workspace has already loaded. A settings row never
   // starts a probe of its own just to show a badge.
   const connected = connections.filter((c) => c.status === "connected").length;

@@ -18,7 +18,7 @@ import {
   type CommandRouteContract,
   type RouteInput,
 } from "../../shared/workspace-api";
-import { capabilities as shellCapabilities } from "../capabilities";
+import { useShellCapabilities } from "../ShellCapabilities";
 import { composerBlockReason } from "../sourceAvailability";
 import { type WorkspaceCollection } from "../../shared/workspace-events";
 import { resultTarget, type ResultAction } from "../card-actions";
@@ -82,6 +82,7 @@ import {
 } from "./WorkspaceData";
 
 export function useAppController(seed?: AppNavigationInitial) {
+  const shellCapabilities = useShellCapabilities();
   const {
     initial,
     tab,
@@ -1016,6 +1017,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     }
   }, [projectFilter, teamKey, data.agents, conversation]);
   return {
+    shellCapabilities,
     editingFolder,
     editFolder,
     bootstrapOwner,
