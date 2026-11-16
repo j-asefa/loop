@@ -1,4 +1,4 @@
-// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md and nested AGENTS.md
+// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md and nested AGENTS.md or CLAUDE.md
 // files) must only point at paths and heading anchors that exist: agents
 // follow a stale pointer instead of the code. Links come from the marked
 // lexer (already a dependency), so code blocks, code spans, reference links
@@ -28,7 +28,7 @@ function nestedAgents(root: string, dir: string): string[] {
     if (entry.name === "node_modules" || entry.name.startsWith(".")) return [];
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return nestedAgents(root, path);
-    return entry.name === "AGENTS.md" ? [path] : [];
+    return ["AGENTS.md", "CLAUDE.md"].includes(entry.name) ? [path] : [];
   });
 }
 
@@ -256,12 +256,14 @@ it("reports missing paths and anchors with file, line and the fix", () => {
       "# Guide\n\n## First step\n\n## First step\n\n[self](#guide) [back](../AGENTS.md)\n",
     "src/a.ts": "export {};\n",
     "src/server/sql/AGENTS.md": "[up](../../../docs/guide.md#first-step)\n",
+    "src/server/sql/CLAUDE.md": "@AGENTS.md\n",
   });
   expect(guidanceFiles(root)).toEqual([
     "AGENTS.md",
     "CLAUDE.md",
     "docs/guide.md",
     "src/server/sql/AGENTS.md",
+    "src/server/sql/CLAUDE.md",
   ]);
   expect(brokenGuidanceLinks(root, guidanceFiles(root))).toEqual([
     "AGENTS.md:3 links to docs/missing.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
