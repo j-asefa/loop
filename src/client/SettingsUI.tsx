@@ -8,13 +8,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-/**
- * Shared settings presentation. Every settings page uses these so state reads
- * the same way: an icon, a label, one short description, the current state and
- * a single next action. Longer explanations belong in a row that opens them,
- * not in a paragraph above the controls.
- */
-
 type SettingsTone = "ready" | "attention" | "muted";
 
 /** A state label: a coloured dot plus a word. Colour never carries meaning alone. */
@@ -40,7 +33,6 @@ export function SettingsPill({
   );
 }
 
-/** A bordered group of rows. */
 export function SettingsList({
   children,
   label,
@@ -162,7 +154,6 @@ export function SettingsToggle({
   );
 }
 
-/** Context attached to the control it qualifies. */
 export function SettingsNote({
   icon: Icon,
   tone = "muted",
@@ -194,10 +185,6 @@ export function SettingsSteps({ children }: { children: ReactNode }) {
   return <ol className="settings-steps">{children}</ol>;
 }
 
-/**
- * A single copyable command. Long setup output stays collapsed until asked for
- * so the form below it remains reachable.
- */
 export function SettingsCommand({
   title,
   command,
@@ -343,7 +330,6 @@ export function SettingsProgress({
   );
 }
 
-/** A section heading with an optional action on the right. */
 export function SettingsSection({
   title,
   action,
