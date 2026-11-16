@@ -679,12 +679,12 @@ Explicit pre-dispatch refusals release the command for retry because no native e
 
 #### Recipe: add an external effect
 
-Canonical example: `executionCommand` in [execution-commands.ts](../src/server/execution-commands.ts), exercised by [execution-authority.node.test.ts](../test/execution-authority.node.test.ts).
+Canonical example: `executionCommand` in [execution-commands.ts](../src/server/execution-commands.ts), exercised by [execution-authority.node.test.ts](../test/execution-authority.node.test.ts). This recipe covers execution-authority commands; integration writes keyed by `request_id` follow the [write identity and replay rules](cards-api.md#write-identities-and-replay) instead.
 
-1. Give the effect a durable identity the caller supplies (a command ID, or `request_id` for integration writes) and keep it across client retries and reloads.
-2. In one `.immediate()` transaction, look up an existing receipt for that owner and identity, and record intent if there is none. Do not dispatch before that transaction commits.
-3. Scope the receipt to the owner. A retry while the original request is still running in this process joins it; an unfinished receipt with no live request returns the uncertain outcome instead of running again. For an effect bound to a live session, also store the current generation and refuse a different one; integration-write receipts have no generation and replay their completed result.
-4. After dispatch, record completion or `unknown`. Only an explicit pre-dispatch refusal (`ExecutionRefused`) releases the identity for retry. Do not resubmit an unknown effect automatically; the caller inspects current state.
+1. Give the command a durable ID the caller supplies, and keep it across client retries and reloads.
+2. In one `.immediate()` transaction, look up an existing receipt for that owner and command ID, and record intent if there is none. Do not dispatch before that transaction commits.
+3. Store the current generation on the receipt. A retry in the same generation while the original request is still running in this process joins it; an unfinished receipt with no live request returns the uncertain outcome instead of running again.
+4. After dispatch, record completion or `unknown`. Only an explicit pre-dispatch refusal (`ExecutionRefused`) releases the ID for retry. Do not resubmit an unknown command automatically; the caller inspects current state.
 5. Record run, steering and scheduled-work effects through [effect-authority.ts](../src/server/effect-authority.ts), never its fleet implementation. Add a regression that fails after dispatch and asserts the production retry or recovery caller does not dispatch again.
 
 Webhook delivery is a documented at-least-once exception with a stable delivery ID ([webhook deliveries](state-machines.md#webhook_deliveries-implicit)); don't copy it for other effects. If a step can't be followed, say which and why in the PR instead of working around it.
