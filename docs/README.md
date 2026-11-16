@@ -23,3 +23,5 @@ Generated contracts: [workspace and Cards HTTP](openapi.json),
 [fleet gateway HTTP](fleet-gateway-openapi.json) and
 [fleet administration HTTP](fleet-admin-openapi.json). Regenerate them with
 `npm run openapi`; [development](development.md) describes verification.
+The [SQL index](sql-index.md) lists every query module's exported functions;
+regenerate it with `npm run sql-index`.

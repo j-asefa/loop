@@ -29,6 +29,7 @@ const steps = [
   ["format", ["node_modules/prettier/bin/prettier.cjs", "--check", formatted]],
   ["typecheck", ["scripts/typecheck.mjs"]],
   ["openapi", ["--import", "tsx", "scripts/openapi.mjs", "--check"]],
+  ["sql-index", ["scripts/sql-index.mjs", "--check"]],
   [
     "contracts",
     [
