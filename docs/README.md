@@ -14,6 +14,9 @@
 | [Contract rules](contracts.md)               | API contract authoring, public projections and boundary evidence |
 | [State machines](state-machines.md)          | States, invariants and transition tables; known invalid states    |
 | [Workspace](workspace.md)                    | Connections, MCP, files, search, teams and notifications          |
+| [Teams and agents](teams.md)                  | Teams, Markdown agent and team definitions, agent messaging and retiring agents |
+| [MCP tools](mcp.md)                           | MCP connections, approvals, tools and GitHub pull requests |
+| [Social feeds](social-feeds.md)               | Social feeds, watches and digests |
 | [Integration API](cards-api.md)                    | Scoped tokens, workspace reads and Cards synchronization |
 | [Development](development.md)                | Tests, builds, packaging and manual verification                  |
 | [Fleet acceptance](fleet-acceptance.md)       | Isolated fixture/tunnel runner and separate-host/phone checklist  |

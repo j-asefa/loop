@@ -10,7 +10,7 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 | Device authentication, tunnels or reconnect        | [Pairing](docs/pairing.md)                                                 | —                                                         |
 | Runtime routing, persistence, activities or memory | [Architecture](docs/architecture.md)                                       | —                                                         |
 | A state, transition or writer of a stateful record | [State machines](docs/state-machines.md)                                   | [run-state.ts](src/shared/run-state.ts)                   |
-| MCP, teams or workspace features                   | [Workspace](docs/workspace.md)                                             | —                                                         |
+| MCP, teams or workspace features                   | [Workspace](docs/workspace.md), [teams](docs/teams.md), [MCP](docs/mcp.md) | —                                                         |
 | Tests, builds or CI                                | [Development](docs/development.md)                                         | —                                                         |
 | Add or change a workspace route                    | [Route recipe](docs/contracts.md#recipe-add-a-workspace-route)             | [webhook-routes.ts](src/server/webhook-routes.ts)         |
 | Add or extend a SQL table module                   | [SQL recipe](docs/architecture.md#recipe-add-or-extend-a-sql-table-module) | [mcp-preferences.ts](src/server/sql/mcp-preferences.ts)   |
