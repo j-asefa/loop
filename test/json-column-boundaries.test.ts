@@ -338,10 +338,41 @@ const exemptions = new Map<string, string>([
   ["src/server/db.ts", "events.payload transport envelope"],
 ]);
 
+// Failure text names the rule, the repository's pattern and where it is
+// explained, so an agent fixes the access rather than the exemption list.
+const savedRows = "docs/architecture.md#saved-rows";
+const undeclaredPath = (file: string, failure: string) =>
+  failure.startsWith("Unresolved SQL column")
+    ? `${file}: ${failure}: the column's table could not be resolved from the query's FROM and JOIN aliases. Qualify it with an alias the query declares (${savedRows}).`
+    : `${file}: ${failure} is not a field of the column's shared schema. Declare the field in the column's owner (src/shared/message-metadata.ts, run-payload.ts or artifact-metadata.ts) or fix the path (${savedRows}).`;
+const rawCodec = (file: string) =>
+  `${file} calls JSON.parse or JSON.stringify on a value named metadata, payload, messageMetadata, artifactMetadata or runPayload. For messages, runs or artifacts JSON, use that column's codec in src/shared (${savedRows}). For another column or an external payload, say so in the PR; do not add the file to the exemptions.`;
+
+it("names the column owners and saved-row guide in each failure", () => {
+  expect(
+    undeclaredPath("src/server/sql/probe.ts", "messages.metadata '$.typo'"),
+  ).toBe(
+    "src/server/sql/probe.ts: messages.metadata '$.typo' is not a field of the column's shared schema. Declare the field in the column's owner (src/shared/message-metadata.ts, run-payload.ts or artifact-metadata.ts) or fix the path (docs/architecture.md#saved-rows).",
+  );
+  expect(rawCodec("src/server/probe.ts")).toBe(
+    "src/server/probe.ts calls JSON.parse or JSON.stringify on a value named metadata, payload, messageMetadata, artifactMetadata or runPayload. For messages, runs or artifacts JSON, use that column's codec in src/shared (docs/architecture.md#saved-rows). For another column or an external payload, say so in the PR; do not add the file to the exemptions.",
+  );
+  expect(
+    undeclaredPath(
+      "src/server/sql/probe.ts",
+      "Unresolved SQL column r.payload",
+    ),
+  ).toBe(
+    "src/server/sql/probe.ts: Unresolved SQL column r.payload: the column's table could not be resolved from the query's FROM and JOIN aliases. Qualify it with an alias the query declares (docs/architecture.md#saved-rows).",
+  );
+});
+
 it("SQL JSON paths name fields declared by the column's shared schema", () => {
   const failures = files(join(root, "src/server/sql")).flatMap((file) =>
     queries(program(file, readFileSync(file, "utf8"))).flatMap((sql) =>
-      sqlPaths(sql).map((failure) => `${relative(root, file)}: ${failure}`),
+      sqlPaths(sql).map((failure) =>
+        undeclaredPath(relative(root, file), failure),
+      ),
     ),
   );
   expect([...new Set(failures)]).toEqual([]);
@@ -359,13 +390,13 @@ it("raw column codecs stay in their shared owner or shrinking file exemptions", 
   expect(
     found
       .filter(([file]) => !owners.has(file) && !exemptions.has(file))
-      .map(([file]) => file),
+      .map(([file]) => rawCodec(file)),
   ).toEqual([]);
   expect(
     [...exemptions.keys()].filter(
       (file) => !found.some(([path]) => path === file),
     ),
-    "Remove obsolete exemptions",
+    "Remove exemptions whose file no longer touches a JSON column codec",
   ).toEqual([]);
 });
 it("rejects undeclared nested paths and resolves aliases by query scope", () => {

@@ -24,10 +24,10 @@ const source = (directory: string): string[] =>
 // Module specifiers from the syntax tree, so comments, strings and regular
 // expressions never count. Covers static, type-only, side-effect, re-export,
 // dynamic, require, `import x = require()` and `import("...")` type forms.
-function specifiers(file: string, text: string) {
+function specifierSites(file: string, text: string) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
-  const found: string[] = [];
+  const found: { specifier: string; line: number }[] = [];
   const literal = (node: any) =>
     node?.type === "Literal" && typeof node.value === "string"
       ? node.value
@@ -49,12 +49,24 @@ function specifiers(file: string, text: string) {
               node.callee.name === "require"
             ? literal(node.arguments[0])
             : undefined;
-    if (specifier !== undefined) found.push(specifier);
+    if (specifier !== undefined)
+      found.push({
+        specifier,
+        line: text.slice(0, node.start).split("\n").length,
+      });
     for (const value of Object.values(node)) visit(value);
   };
   visit(program);
   return found;
 }
+const specifiers = (file: string, text: string) =>
+  specifierSites(file, text).map((site) => site.specifier);
+
+// Failure text names the rule, the repository's pattern and where it is
+// explained, so an agent can fix the import rather than the rule.
+const layersDoc = "docs/architecture.md#source-map";
+const escalate =
+  "If this can't be satisfied, say so in the PR instead of changing the rule.";
 
 const area = (path: string) => {
   const parts = relative(join(root, "src"), path).split(sep);
@@ -76,12 +88,16 @@ it("reads every import form and ignores imports in comments and strings", () => 
 
 function boundaryViolations(file: string, text: string) {
   const from = area(file);
-  return specifiers(file, text)
-    .filter((specifier) => specifier.startsWith("."))
-    .filter((specifier) =>
-      forbidden[from]?.includes(area(resolve(dirname(file), specifier))),
-    )
-    .map((specifier) => `${relative(root, file)} imports ${specifier}`);
+  return specifierSites(file, text)
+    .filter(({ specifier }) => specifier.startsWith("."))
+    .flatMap(({ specifier, line }) => {
+      const to = area(resolve(dirname(file), specifier));
+      return forbidden[from]?.includes(to)
+        ? [
+            `${relative(root, file)}:${line} imports ${specifier}: ${from} code may not import ${to} code. Move what both sides need into src/shared (${layersDoc}). ${escalate}`,
+          ]
+        : [];
+    });
 }
 
 it.each([
@@ -97,7 +113,22 @@ it.each([
       join(root, file),
       `import type { Probe } from "${target}";`,
     ),
-  ).toEqual([`${file} imports ${target}`]);
+  ).toEqual([
+    expect.stringMatching(
+      new RegExp(`^${file}:1 imports ${target.replaceAll(".", "\\.")}: `),
+    ),
+  ]);
+});
+
+it("names the line, the layer rule and its guide in a layer violation", () => {
+  expect(
+    boundaryViolations(
+      join(root, "src/client/probe.ts"),
+      `// leading comment\nimport { db } from "../server/db.js";`,
+    ),
+  ).toEqual([
+    "src/client/probe.ts:2 imports ../server/db.js: client code may not import server code. Move what both sides need into src/shared (docs/architecture.md#source-map). If this can't be satisfied, say so in the PR instead of changing the rule.",
+  ]);
 });
 
 it.each(["src/probe.ts", "src/adapters/probe.ts", "src/client/probe.ts"])(
@@ -176,12 +207,20 @@ function feedFleetImports(file: string, text: string) {
   const path = relative(root, file).split(sep).join("/");
   if (!feed.some((prefix) => path === prefix || path.startsWith(prefix)))
     return [];
-  return specifiers(file, text)
-    .filter((specifier) => specifier.startsWith("."))
-    .map((specifier) => resolveModule(file, specifier))
-    .filter(fleetModule)
-    .map((target) => `${path} imports ${target}`);
+  return specifierSites(file, text)
+    .filter(({ specifier }) => specifier.startsWith("."))
+    .map(({ specifier, line }) => ({
+      line,
+      target: resolveModule(file, specifier),
+    }))
+    .filter(({ target }) => fleetModule(target))
+    .map(
+      ({ target, line }) =>
+        `${path}:${line} imports ${target}: feed code reaches fleet code only through the neutral seams src/server/effect-authority.ts and src/client/sourceAvailability.ts (${layersDoc}). ${escalate} Do not add the file to feedFleetAllowance.`,
+    );
 }
+const firstLine = (messages: string[]) =>
+  messages.map((message) => message.split(": ")[0]);
 
 it("refuses a feed file that imports a fleet module", () => {
   const probe = join(root, "src/server/mobile-return/probe.ts");
@@ -191,16 +230,18 @@ it("refuses a feed file that imports a fleet module", () => {
       `import { recordFleetEffect } from "../fleet-effect-authorizations.js";`,
     ),
   ).toEqual([
-    "src/server/mobile-return/probe.ts imports src/server/fleet-effect-authorizations.ts",
+    "src/server/mobile-return/probe.ts:1 imports src/server/fleet-effect-authorizations.ts: feed code reaches fleet code only through the neutral seams src/server/effect-authority.ts and src/client/sourceAvailability.ts (docs/architecture.md#source-map). If this can't be satisfied, say so in the PR instead of changing the rule. Do not add the file to feedFleetAllowance.",
   ]);
   expect(
-    feedFleetImports(
-      join(root, "src/client/app/Probe.tsx"),
-      `import { FleetSettings } from "../FleetSettings";\nimport { fleetComposerReason } from "../fleetCapabilities";`,
+    firstLine(
+      feedFleetImports(
+        join(root, "src/client/app/Probe.tsx"),
+        `import { FleetSettings } from "../FleetSettings";\nimport { fleetComposerReason } from "../fleetCapabilities";`,
+      ),
     ),
   ).toEqual([
-    "src/client/app/Probe.tsx imports src/client/FleetSettings.tsx",
-    "src/client/app/Probe.tsx imports src/client/fleetCapabilities.ts",
+    "src/client/app/Probe.tsx:1 imports src/client/FleetSettings.tsx",
+    "src/client/app/Probe.tsx:2 imports src/client/fleetCapabilities.ts",
   ]);
   expect(
     feedFleetImports(
@@ -225,13 +266,16 @@ it("keeps feed code from importing fleet modules", () => {
       file,
       readFileSync(file, "utf8"),
     )) {
-      const path = violation.split(" imports ")[0];
+      const path = violation.split(":")[0];
       if (feedFleetAllowance.has(path)) allowed.add(path);
       else violations.push(violation);
     }
   expect(violations).toEqual([]);
   // The allowance only shrinks: every entry must still need it.
-  expect([...allowed].sort()).toEqual([...feedFleetAllowance].sort());
+  expect(
+    [...allowed].sort(),
+    "Remove feedFleetAllowance entries whose file no longer imports fleet code",
+  ).toEqual([...feedFleetAllowance].sort());
 }, 30_000);
 
 // Fleet implementation and the two process composition roots may install the
@@ -243,11 +287,13 @@ function coreEffectImports(file: string, text: string) {
     ["src/workspace-host.ts", "src/server/execution-worker.ts"].includes(path)
   )
     return [];
-  return specifiers(file, text).flatMap((specifier) => {
+  return specifierSites(file, text).flatMap(({ specifier, line }) => {
     if (!specifier.startsWith(".")) return [];
     const resolved = resolveModule(file, specifier);
     return resolved === "src/server/fleet-effect-authorizations.ts"
-      ? [`${path} imports ${resolved}`]
+      ? [
+          `${path}:${line} imports ${resolved}: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/architecture.md#recipe-add-an-external-effect). ${escalate}`,
+        ]
       : [];
   });
 }
@@ -260,7 +306,7 @@ it("requires core effect callers to use the neutral authority seam", () => {
       'import { assertFleetEffect } from "./fleet-effect-authorizations.js";',
     ),
   ).toEqual([
-    "src/server/queue.ts imports src/server/fleet-effect-authorizations.ts",
+    "src/server/queue.ts:1 imports src/server/fleet-effect-authorizations.ts: core effect callers use the database-free seam src/server/effect-authority.ts; only fleet code and the two composition roots install the fleet extension (docs/architecture.md#recipe-add-an-external-effect). If this can't be satisfied, say so in the PR instead of changing the rule.",
   ]);
   expect(
     coreEffectImports(

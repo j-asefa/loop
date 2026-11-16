@@ -46,7 +46,7 @@ const exemptions = new Map([
 // new files must use query modules and fully migrated files cannot regress.
 const allowance: string[] = [];
 
-function inventory(file: string, text: string) {
+function sqlCallLines(file: string, text: string) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
   const nodes: any[] = [];
@@ -129,14 +129,24 @@ function inventory(file: string, text: string) {
       }
     }
   }
-  return nodes.filter(
-    (node) =>
-      node.type === "CallExpression" &&
-      node.callee.type === "MemberExpression" &&
-      ["prepare", "exec"].includes(property(node.callee)) &&
-      isConnection(node.callee.object),
-  ).length;
+  return nodes
+    .filter(
+      (node) =>
+        node.type === "CallExpression" &&
+        node.callee.type === "MemberExpression" &&
+        ["prepare", "exec"].includes(property(node.callee)) &&
+        isConnection(node.callee.object),
+    )
+    .map((node) => text.slice(0, node.start).split("\n").length);
 }
+const inventory = (file: string, text: string) =>
+  sqlCallLines(file, text).length;
+
+// Failure text names the rule, the repository's pattern and its recipe.
+const sqlRecipe =
+  "docs/architecture.md#recipe-add-or-extend-a-sql-table-module";
+const directSql = (location: string) =>
+  `${location} calls prepare or exec on a database connection. Put the query in the module under src/server/sql/ that owns its table and call that (${sqlRecipe}). If this can't be satisfied, say so in the PR; do not add the file to the allowance.`;
 
 it("counts SQL calls and aliases without counting comments, strings or regular expressions", () => {
   expect(
@@ -159,8 +169,16 @@ it("counts SQL calls and aliases without counting comments, strings or regular e
   ).toBe(6);
 });
 
+it("names the line and the SQL recipe for a direct call", () => {
+  const text = 'import { db } from "./db.js";\n\ndb.prepare("SELECT 1");\n';
+  expect(sqlCallLines("probe.ts", text)).toEqual([3]);
+  expect(directSql("src/server/probe.ts:3")).toBe(
+    "src/server/probe.ts:3 calls prepare or exec on a database connection. Put the query in the module under src/server/sql/ that owns its table and call that (docs/architecture.md#recipe-add-or-extend-a-sql-table-module). If this can't be satisfied, say so in the PR; do not add the file to the allowance.",
+  );
+});
+
 it("keeps direct SQL in the shrinking named file allowance", () => {
-  const actual = new Set<string>();
+  const actual = new Map<string, string>();
   const serverFiles = files(join(root, "src/server"));
   const hostFiles = readdirSync(join(root, "src"))
     .filter((name) => name.endsWith(".ts"))
@@ -168,16 +186,24 @@ it("keeps direct SQL in the shrinking named file allowance", () => {
   for (const file of [...serverFiles, ...hostFiles].sort()) {
     const path = relative(join(root, "src/server"), file);
     if (path.startsWith("sql/") || exemptions.has(path)) continue;
-    if (inventory(file, readFileSync(file, "utf8"))) actual.add(path);
+    const lines = sqlCallLines(file, readFileSync(file, "utf8"));
+    if (lines.length) actual.set(path, `${relative(root, file)}:${lines[0]}`);
   }
   const allowed = new Set(allowance);
   expect(allowed.size, "Duplicate allowance entries").toBe(allowance.length);
   expect(
-    [...actual].filter((path) => !allowed.has(path)),
+    [...actual]
+      .filter(([path]) => !allowed.has(path))
+      .map(([, location]) => directSql(location)),
     "New or fully migrated files must put SQL in src/server/sql/",
   ).toEqual([]);
   expect(
-    allowance.filter((path) => !actual.has(path)),
+    allowance
+      .filter((path) => !actual.has(path))
+      .map(
+        (path) =>
+          `src/server/${path} has no direct SQL left; remove it from the allowance in test/sql-inventory.test.ts.`,
+      ),
     "Remove files from the allowance when their last direct call moves",
   ).toEqual([]);
 });
