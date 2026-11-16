@@ -1,8 +1,10 @@
-// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md, nested AGENTS.md or CLAUDE.md
-// files and .claude/rules/*.md) must only point at paths and heading anchors that exist: agents
-// follow a stale pointer instead of the code. Links come from the marked
-// lexer (already a dependency), so code blocks, code spans, reference links
-// and setext headings follow CommonMark; external URLs are not fetched.
+// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md, nested AGENTS.md or
+// CLAUDE.md files and .claude/rules/*.md) must only point at paths and heading
+// anchors that exist, and stay small: agents follow a stale pointer instead of
+// the code, and read a whole file to reach one section. Links, headings and
+// code blocks come from the marked lexer (already a dependency) through
+// walkTokens, so they follow CommonMark; external URLs are not fetched. Do not
+// add regex fence or link tracking here: it was wrong twice (#280, #308).
 import {
   existsSync,
   globSync,
@@ -122,13 +124,35 @@ function children(token: Node): Node[] {
   return [...(token.tokens ?? []), ...(token.items ?? []), ...cells] as Node[];
 }
 
+// Visits every marked token with its character offset. Top-level token sources
+// concatenate to the document; a child is located inside its parent's source.
+// The visitor returns false to skip the token's children.
+function walkTokens(
+  markdown: string,
+  visit: (token: Node, offset: number) => boolean,
+) {
+  const walk = (token: Node, base: number) => {
+    if (visit(token, base) === false) return;
+    let cursor = 0;
+    for (const child of children(token)) {
+      const at = child.raw ? token.raw.indexOf(child.raw, cursor) : -1;
+      if (at >= 0) cursor = at + child.raw.length;
+      walk(child, base + (at >= 0 ? at : cursor));
+    }
+  };
+  let offset = 0;
+  for (const token of Lexer.lex(markdown) as Node[]) {
+    walk(token, offset);
+    offset += token.raw.length;
+  }
+}
+
 // Each link or image destination and each standalone `@path` import line, with
-// its character offset. Top-level token sources concatenate to the document;
-// a child is located inside its parent's source.
+// its character offset.
 function linkTargets(markdown: string) {
   const found: { target: string; offset: number }[] = [];
-  const visit = (token: Node, base: number) => {
-    if (["code", "codespan", "html"].includes(token.type)) return;
+  walkTokens(markdown, (token, base) => {
+    if (["code", "codespan", "html"].includes(token.type)) return false;
     if ((token.type === "link" || token.type === "image") && token.href)
       found.push({ target: token.href, offset: base });
     if (token.type === "paragraph") {
@@ -139,19 +163,23 @@ function linkTargets(markdown: string) {
         at += line.length + 1;
       }
     }
-    let cursor = 0;
-    for (const child of children(token)) {
-      const at = child.raw ? token.raw.indexOf(child.raw, cursor) : -1;
-      if (at >= 0) cursor = at + child.raw.length;
-      visit(child, base + (at >= 0 ? at : cursor));
-    }
-  };
-  let offset = 0;
-  for (const token of Lexer.lex(markdown) as Node[]) {
-    visit(token, offset);
-    offset += token.raw.length;
-  }
+    return true;
+  });
   return found;
+}
+
+// Zero-based line numbers inside fenced or indented code blocks, as marked
+// (CommonMark) reads them.
+function codeLines(markdown: string) {
+  const lines = new Set<number>();
+  walkTokens(markdown, (token, base) => {
+    if (token.type !== "code") return true;
+    const first = markdown.slice(0, base).split("\n").length - 1;
+    const count = token.raw.replace(/\n+$/, "").split("\n").length;
+    for (let line = first; line < first + count; line++) lines.add(line);
+    return false;
+  });
+  return lines;
 }
 
 const entities: Record<string, string> = {
@@ -442,6 +470,56 @@ it("keeps every Claude rule's paths matching repository files", () => {
       .filter((file) => file.startsWith(".claude/rules/"))
       .flatMap((file) => deadRulePaths(repo, file)),
   ).toEqual([]);
+});
+
+// An agent reads a whole file to reach one section, and file readers cut very
+// long lines, so guidance pages stay small and prose lines stay short.
+// docs/sql-index.md is generated for grep and is exempt from the size limit.
+const maxGuidanceBytes = 40_000;
+const maxLineLength = 2_000;
+function oversizedGuidance(root: string, files: string[]): string[] {
+  return files.flatMap((file) => {
+    const text = readFileSync(join(root, file), "utf8");
+    const bytes = Buffer.byteLength(text);
+    const problems =
+      bytes > maxGuidanceBytes && file !== "docs/sql-index.md"
+        ? [
+            `${file} is ${bytes} bytes; guidance pages stay under ${maxGuidanceBytes} (about 10k tokens). Move whole sections to their own page and leave a pointer under each old heading, as docs/execution.md was split from docs/architecture.md.`,
+          ]
+        : [];
+    const lines = text.split("\n");
+    const code = codeLines(text);
+    lines.forEach((line, index) => {
+      if (line.length > maxLineLength && !code.has(index))
+        problems.push(
+          `${file}:${index + 1} is ${line.length} characters; file readers truncate long lines. Break the paragraph at sentence boundaries (Markdown joins the lines).`,
+        );
+    });
+    return problems;
+  });
+}
+
+it("reports oversized guidance pages and long prose lines", () => {
+  const root = fixture({
+    "AGENTS.md":
+      "a".repeat(2001) +
+      "\n\n````\n```\n" +
+      "b".repeat(2001) +
+      "\n````\n\n" +
+      "c".repeat(2001) +
+      "\n",
+    "docs/big.md": "x\n".repeat(20_001),
+    "docs/sql-index.md": "y\n".repeat(20_001),
+  });
+  expect(oversizedGuidance(root, guidanceFiles(root))).toEqual([
+    "AGENTS.md:1 is 2001 characters; file readers truncate long lines. Break the paragraph at sentence boundaries (Markdown joins the lines).",
+    "AGENTS.md:8 is 2001 characters; file readers truncate long lines. Break the paragraph at sentence boundaries (Markdown joins the lines).",
+    "docs/big.md is 40002 bytes; guidance pages stay under 40000 (about 10k tokens). Move whole sections to their own page and leave a pointer under each old heading, as docs/execution.md was split from docs/architecture.md.",
+  ]);
+});
+
+it("keeps every guidance page small and its prose lines short", () => {
+  expect(oversizedGuidance(repo, guidanceFiles(repo))).toEqual([]);
 });
 
 it("keeps every link and anchor in the repository's guidance files resolvable", () => {
