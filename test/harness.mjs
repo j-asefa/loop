@@ -320,7 +320,17 @@ if (kind !== "opencode") {
       if (reply) {
         const send = () =>
           "error" in reply
-            ? out({ id: m.id, error: reply.error })
+            ? out(
+                kind === "pi"
+                  ? {
+                      type: "response",
+                      id: m.id,
+                      command: type,
+                      success: false,
+                      error: reply.error,
+                    }
+                  : { id: m.id, error: reply.error },
+              )
             : result(reply.result ?? {});
         if (reply.waitFor) void fixtureGate(reply.waitFor).then(send);
         else send();
