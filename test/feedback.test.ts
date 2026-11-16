@@ -12,8 +12,10 @@ import { ownInstructions } from "./helpers/instructions";
 const dir = mkdtempSync(join(tmpdir(), "loop-feedback-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
-vi.mock("../src/server/local-embeddings.js", () => ({
-  localModel: "local:all-MiniLM-L6-v2:q8",
+vi.mock("../src/server/local-embeddings.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/server/local-embeddings.js")
+  >()),
   localEmbeddings: vi.fn(async (texts: string[]) =>
     texts.map((text) => (/car|automobile/.test(text) ? [1, 0] : [0, 1])),
   ),

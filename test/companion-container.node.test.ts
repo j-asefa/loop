@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { parseUserArguments } from "../src/cli.js";
+import { cloudflaredRelease } from "../src/tunnel.js";
 import { selectedHarnesses } from "../src/start-selection.js";
 
 test("a corrupt baked tunnel binary is never executed and falls back to the pinned download", async () => {
@@ -12,10 +14,7 @@ test("a corrupt baked tunnel binary is never executed and falls back to the pinn
   const originalFetch = globalThis.fetch;
   let requested = "";
   try {
-    const source = await import("node:fs/promises").then((fs) =>
-      fs.readFile("src/tunnel.ts", "utf8"),
-    );
-    const release = source.match(/const RELEASE = "([^"]+)"/)![1];
+    const release = cloudflaredRelease;
     const baked = join(root, "baked");
     await mkdir(join(baked, "helpers", release), { recursive: true });
     await writeFile(
@@ -46,17 +45,11 @@ test("a corrupt baked tunnel binary is never executed and falls back to the pinn
 
 test("the shipped Docker command selects all four runtimes with empty preferences", async () => {
   const { readFileSync } = await import("node:fs");
-  const { parseArgs } = await import("node:util");
   const dockerfile = readFileSync("Dockerfile.companion", "utf8");
   const cmd = JSON.parse(dockerfile.match(/^CMD (.+)$/m)![1]);
-  const { values, positionals } = parseArgs({
-    args: cmd.slice(1),
-    allowPositionals: true,
-    options: {
-      foreground: { type: "boolean" },
-      providers: { type: "string" },
-    },
-  });
+  const { values, positionals } = parseUserArguments(cmd.slice(1));
+  assert.equal(cmd[0], "loop");
+  assert.equal(values.foreground, true);
   assert.equal(positionals[0], "start");
   assert.deepEqual(selectedHarnesses(values.providers), [
     "codex",

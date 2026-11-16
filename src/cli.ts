@@ -632,8 +632,9 @@ async function logs(dir: string, follow: boolean, deps: CliDependencies) {
   clearInterval(timer);
   await handle.close();
 }
-function parseUserArguments() {
+export function parseUserArguments(args = process.argv.slice(2)) {
   return parseArgs({
+    args,
     allowPositionals: true,
     options: {
       help: { type: "boolean", short: "h" },

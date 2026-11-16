@@ -6,8 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 const fixture = vi.hoisted(() => ({ fail: false, stall: false, calls: 0 }));
-vi.mock("../src/server/local-embeddings.js", () => ({
-  localModel: "local:all-MiniLM-L6-v2:q8",
+vi.mock("../src/server/local-embeddings.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/server/local-embeddings.js")
+  >()),
   localEmbeddings: async (texts: string[]) => {
     fixture.calls++;
     if (fixture.fail) throw new Error("Do not expose fixture credentials");
@@ -18,6 +20,7 @@ vi.mock("../src/server/local-embeddings.js", () => ({
 const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const { localModel } = await import("../src/server/local-embeddings.js");
 const { db, id, now } = await import("../src/server/db");
 const { page: eventPage } = await import("../src/server/sql/events");
 const searchSignals = (owner: string) =>
@@ -33,10 +36,8 @@ vi.spyOn(Date, "now").mockImplementation(() => clock);
 const advance = (ms = 6000) => (clock += ms);
 const enable = (owner: string) =>
   db
-    .prepare(
-      "INSERT INTO preferences VALUES(?,NULL,'local:all-MiniLM-L6-v2:q8',1)",
-    )
-    .run(owner);
+    .prepare("INSERT INTO preferences VALUES(?,NULL,?,1)")
+    .run(owner, localModel);
 afterAll(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
