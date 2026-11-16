@@ -46,39 +46,96 @@ function guidanceFiles(root: string): string[] {
   return [...top, ...docs.sort(), ...nested.sort()];
 }
 
+// CommonMark fences: a closing fence uses the opening character, is at least
+// as long, and has no info string. Returns, per line, whether it is code.
+function codeLines(lines: string[]): boolean[] {
+  let open: { char: string; length: number } | null = null;
+  return lines.map((line) => {
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (!open) {
+      if (fence && !(fence[1][0] === "`" && fence[2].includes("`"))) {
+        open = { char: fence[1][0], length: fence[1].length };
+        return true;
+      }
+      return false;
+    }
+    if (
+      fence &&
+      fence[1][0] === open.char &&
+      fence[1].length >= open.length &&
+      !fence[2].trim()
+    )
+      open = null;
+    return true;
+  });
+}
+
 // Lines outside fenced code blocks, with inline code spans blanked.
 function prose(text: string): string[] {
-  let fenced = false;
-  return text.split("\n").map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced;
-      return "";
-    }
-    return fenced ? "" : line.replace(/`[^`]*`/g, "");
-  });
+  const lines = text.split("\n");
+  const code = codeLines(lines);
+  return lines.map((line, index) =>
+    code[index] ? "" : line.replace(/(`+)[^`]*?\1/g, ""),
+  );
 }
 
 // GitHub's heading anchors: rendered text, lowercased, punctuation other than
 // hyphens and underscores removed, spaces to hyphens, -1/-2 for duplicates.
+// Code spans keep their literal text; links and HTML tags outside them render
+// as their text.
 function anchors(markdown: string): Set<string> {
   const seen = new Map<string, number>();
   const result = new Set<string>();
-  let fenced = false;
-  for (const line of markdown.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    const heading = fenced ? null : /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-    if (!heading) continue;
-    const slug = heading[1]
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/<[^>]+>/g, "")
+  const lines = markdown.split("\n");
+  const code = codeLines(lines);
+  lines.forEach((line, index) => {
+    const heading = code[index]
+      ? null
+      : /^ {0,3}#{1,6}\s+(.*?)(?:\s+#+)?\s*$/.exec(line);
+    if (!heading) return;
+    const text = heading[1]
+      .split(/(`+[^`]*?`+)/)
+      .map((part) =>
+        part.startsWith("`")
+          ? part.replace(/^`+|`+$/g, "")
+          : part
+              .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+              .replace(/<[^>]+>/g, ""),
+      )
+      .join("");
+    const slug = text
       .toLowerCase()
       .replace(/[^\p{L}\p{N}\s_-]/gu, "")
       .replace(/\s/g, "-");
     const count = seen.get(slug) ?? 0;
     seen.set(slug, count + 1);
     result.add(count ? `${slug}-${count}` : slug);
-  }
+  });
   return result;
+}
+
+// Inline destinations (`[t](path)`, `[t](<path with spaces>)`), reference
+// definitions (`[label]: path`) and standalone `@path` import lines.
+function linkTargets(line: string): string[] {
+  return [
+    ...[...line.matchAll(/\]\(\s*(?:<([^>\n]*)>|([^)\s<>]+))/g)].map(
+      (match) => match[1] ?? match[2],
+    ),
+    ...(/^ {0,3}\[[^\]]+\]:\s*(?:<([^>]*)>|(\S+))/
+      .exec(line)
+      ?.slice(1)
+      .filter((target): target is string => target !== undefined) ?? []),
+    ...(/^@(\S+)\s*$/.exec(line.trim())?.slice(1) ?? []),
+  ];
+}
+
+// Literal `%` is a valid filename character; decode only well-formed escapes.
+function decoded(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function brokenGuidanceLinks(root: string, files: string[]): string[] {
@@ -93,16 +150,11 @@ function brokenGuidanceLinks(root: string, files: string[]): string[] {
     const source = join(root, file);
     const lines = prose(readFileSync(source, "utf8"));
     lines.forEach((line, index) => {
-      const targets = [
-        ...[...line.matchAll(/\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)].map(
-          (match) => match[1],
-        ),
-        ...(/^@(\S+)\s*$/.exec(line.trim())?.slice(1) ?? []),
-      ];
-      for (const target of targets) {
-        if (/^(https?:|mailto:)/.test(target)) continue;
+      for (const target of linkTargets(line)) {
+        // Any URI scheme (https:, mailto:, tel:) is external and not fetched.
+        if (/^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
         const [rawPath, anchor] = target.split("#", 2);
-        const path = decodeURIComponent(rawPath);
+        const path = decoded(rawPath);
         const resolved = path ? resolve(dirname(source), path) : source;
         const where = `${file}:${index + 1}`;
         const shown = relative(root, resolved).split(sep).join("/");
@@ -119,7 +171,7 @@ function brokenGuidanceLinks(root: string, files: string[]): string[] {
           );
           continue;
         }
-        if (!anchorsOf(resolved).has(decodeURIComponent(anchor)))
+        if (!anchorsOf(resolved).has(decoded(anchor)))
           broken.push(
             `${where} links to ${shown}#${anchor}, but no heading there produces that anchor. Link an existing heading or remove the anchor.`,
           );
@@ -174,6 +226,34 @@ it("reports missing paths and anchors with file, line and the fix", () => {
     "AGENTS.md:3 links to docs/guide.md#nowhere, but no heading there produces that anchor. Link an existing heading or remove the anchor.",
     "AGENTS.md:8 links to #L1 in src/a.ts; anchors are only checked in Markdown files. Link the file without the anchor.",
     "CLAUDE.md:2 links to missing.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
+  ]);
+});
+
+it("checks reference definitions, angle destinations, nested fences and literal percent signs", () => {
+  const root = fixture({
+    "AGENTS.md": [
+      "[guide][dev] [spaced](<docs/a guide.md>) [gone](<docs/no guide.md>)",
+      "[dev]: docs/missing.md",
+      "[ok]: <docs/a guide.md#loop-preview-create-name>",
+      "````md",
+      "```",
+      "[example](docs/ignored.md)",
+      "```",
+      "````",
+      "```",
+      "~~~",
+      "[example](docs/ignored-too.md)",
+      "```",
+      "[real](docs/after-fence.md) [percent](docs/100%-coverage.md)",
+      "[call](tel:+15550100)",
+    ].join("\n"),
+    "docs/a guide.md": "## `loop preview create <name>`\n",
+    "docs/100%-coverage.md": "# Coverage\n",
+  });
+  expect(brokenGuidanceLinks(root, ["AGENTS.md"])).toEqual([
+    "AGENTS.md:1 links to docs/no guide.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
+    "AGENTS.md:2 links to docs/missing.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
+    "AGENTS.md:13 links to docs/after-fence.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
   ]);
 });
 
