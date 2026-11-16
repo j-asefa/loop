@@ -3,8 +3,39 @@
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
-import { writeSync, appendFileSync, existsSync } from "node:fs";
+import {
+  writeSync,
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  watch,
+} from "node:fs";
+import { dirname } from "node:path";
 const kind = process.env.LOOP_TEST_HARNESS ?? "codex";
+const fixtureAudit = (row) => {
+  if (process.env.LOOP_TEST_HARNESS_AUDIT)
+    appendFileSync(
+      process.env.LOOP_TEST_HARNESS_AUDIT,
+      JSON.stringify({ harness: kind, cwd: process.cwd(), ...row }) + "\n",
+    );
+};
+if (!process.argv.includes("--version") && !process.argv.includes("auth"))
+  fixtureAudit({ type: "launch" });
+async function fixtureGate(path) {
+  if (existsSync(path)) return;
+  await new Promise((resolve, reject) => {
+    const watcher = watch(dirname(path), () => {
+      if (!existsSync(path)) return;
+      watcher.close();
+      resolve();
+    });
+    watcher.on("error", reject);
+    if (existsSync(path)) {
+      watcher.close();
+      resolve();
+    }
+  });
+}
 let threadId = randomUUID();
 let thinkingLevel = "medium";
 let elicitationChoice;
@@ -273,6 +304,29 @@ if (kind !== "opencode") {
             }
           : { id: m.id, result: value },
       );
+    fixtureAudit({
+      type: "request",
+      method: type,
+      params: {
+        cwd: m.params?.cwd,
+        cwds: m.params?.cwds,
+        threadId: m.params?.threadId,
+      },
+    });
+    if (process.env.LOOP_TEST_HARNESS_REPLIES) {
+      const reply = JSON.parse(
+        readFileSync(process.env.LOOP_TEST_HARNESS_REPLIES, "utf8"),
+      )[kind]?.[type];
+      if (reply) {
+        const send = () =>
+          "error" in reply
+            ? out({ id: m.id, error: reply.error })
+            : result(reply.result ?? {});
+        if (reply.waitFor) void fixtureGate(reply.waitFor).then(send);
+        else send();
+        return;
+      }
+    }
     if (type === "initialize") return result({});
     if (type === "account/read")
       return result({ account: { type: "chatgpt", planType: "plus" } });

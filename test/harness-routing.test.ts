@@ -16,8 +16,10 @@ import { randomBytes } from "node:crypto";
 import express from "express";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
+import { harnessFixture } from "./helpers/harness-fixture.js";
 
 const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-harness-routing-")));
+const harnesses = harnessFixture(dir);
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
@@ -25,16 +27,14 @@ const { core } = await import("../src/server/core-routes");
 const { nativeHistory } = await import("../src/server/native-history");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
-const { Codex } = await import("../src/adapters/codex");
-const { Pi } = await import("../src/adapters/pi");
 const originalProject = join(dir, "original");
 mkdirSync(originalProject);
-for (const harness of ["codex", "pi"]) {
+for (const harness of ["codex", "pi"] as const) {
   db.prepare("INSERT INTO harnesses VALUES(?,?,'{}','{}','[]',0)").run(
     harness,
     JSON.stringify({
       harness,
-      executable: "/fixture/" + harness,
+      executable: harnesses.executable(harness),
       project: dir,
       billing: "existing",
       version: "fixture",
@@ -92,7 +92,10 @@ async function catalog(aid: string, cid?: string) {
   );
   return { status: response.status, data: await response.json() };
 }
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  nativeSessions.projects.clearProbes();
+  harnesses.reset();
+});
 afterAll(async () => {
   server.close();
   await nativeSessions.close();
@@ -100,62 +103,30 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function piCommands(this: InstanceType<typeof Pi>) {
-  this.commands = [
-    {
-      name: "pi-command",
-      token: "/pi-command",
-      kind: "command",
-      description: "Pi command",
-    },
-  ];
-  return {} as any;
-}
-
 it("probes the agent's new harness in the chat's project after a switch to Pi", async () => {
   // session() rebinds the chat to Pi on its next turn and keeps the project,
   // so the catalog must list the commands that turn will accept.
   const aid = agent(),
     cid = directChat(aid);
-  const codex = vi.spyOn(Codex.prototype, "start");
-  const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(async function (
-    this: InstanceType<typeof Pi>,
-  ) {
-    expect((this as any).options).toMatchObject({
-      harness: "pi",
-      project: originalProject,
-      probeOnly: true,
-    });
-    return piCommands.call(this);
-  });
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid, cid)).toMatchObject({
     status: 200,
     data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
   });
-  expect(pi).toHaveBeenCalledOnce();
-  expect(codex).not.toHaveBeenCalled();
+  expect(harnesses.launches("pi")).toMatchObject([{ cwd: originalProject }]);
+  expect(harnesses.requests("pi", "prompt")).toEqual([]);
+  expect(harnesses.launches("codex")).toEqual([]);
 });
 
 it("probes the bound project when the chat stays on its harness", async () => {
   const aid = agent(codexConnection),
     cid = directChat(aid);
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      expect((this as any).options).toMatchObject({
-        harness: "codex",
-        project: originalProject,
-      });
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid, cid)).toMatchObject({
     status: 200,
     data: { runtime: "Codex" },
   });
-  expect(start).toHaveBeenCalledOnce();
+  expect(harnesses.launches("codex")).toMatchObject([{ cwd: originalProject }]);
+  expect(harnesses.requests("codex", "thread/start")).toEqual([]);
+  expect(harnesses.requests("codex", "thread/resume")).toEqual([]);
 });
 
 it("rejects a conversation bound to another agent before starting a native probe", async () => {
@@ -164,41 +135,43 @@ it("rejects a conversation bound to another agent before starting a native probe
   db.prepare(
     "UPDATE companion_sessions SET worktree_agent_id='other-agent' WHERE conversation_id=?",
   ).run(cid);
-  const start = vi.spyOn(Codex.prototype, "start");
   expect(await catalog(aid, cid)).toMatchObject({
     status: 409,
     data: { error: expect.stringContaining("Start a new conversation") },
   });
-  expect(start).not.toHaveBeenCalled();
+  expect(harnesses.launches("codex")).toEqual([]);
 });
 
 it("loads and reuses an ordinary-folder catalog despite inherited Git metadata", async () => {
   const aid = agent(codexConnection),
     cid = directChat(aid);
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      expect((this as any).options.project).toBe(originalProject);
-      this.commands = [
+  harnesses.respond("codex", "skills/list", {
+    result: {
+      data: [
         {
-          name: "fixture",
-          token: "/fixture",
-          kind: "command",
-          description: "Fixture",
+          skills: [
+            {
+              name: "fixture",
+              path: join(dir, "SKILL.md"),
+              enabled: true,
+              description: "Fixture",
+            },
+          ],
         },
-      ];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
+      ],
+    },
+  });
   nativeSessions.projects.clearProbes();
   vi.stubEnv("GIT_DIR", join(dir, "missing-git"));
   try {
     for (let request = 0; request < 2; request++)
       expect(await catalog(aid, cid)).toMatchObject({
         status: 200,
-        data: { commands: [{ token: "/fixture" }] },
+        data: { commands: [{ token: "$fixture" }] },
       });
-    expect(start).toHaveBeenCalledOnce();
+    expect(harnesses.launches("codex")).toMatchObject([
+      { cwd: originalProject },
+    ]);
   } finally {
     vi.unstubAllEnvs();
     nativeSessions.projects.clearProbes();
@@ -214,7 +187,6 @@ it("returns actionable guidance for a deleted catalog directory", async () => {
     "UPDATE companion_sessions SET project=? WHERE conversation_id=?",
   ).run(project, cid);
   rmSync(project, { recursive: true });
-  const start = vi.spyOn(Codex.prototype, "start");
   expect(await catalog(aid, cid)).toMatchObject({
     status: 422,
     data: {
@@ -223,7 +195,7 @@ it("returns actionable guidance for a deleted catalog directory", async () => {
       ),
     },
   });
-  expect(start).not.toHaveBeenCalled();
+  expect(harnesses.launches("codex")).toEqual([]);
 });
 
 it("keeps the API responsive, bounds shared catalog checks and recovers after Git failures", async () => {
@@ -251,13 +223,6 @@ setTimeout(finish, 2000);
 `,
     { mode: 0o755 },
   );
-  vi.spyOn(Codex.prototype, "start").mockImplementation(async function (
-    this: InstanceType<typeof Codex>,
-  ) {
-    this.commands = [];
-    return {} as any;
-  });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   nativeSessions.projects.clearProbes();
   const previousPath = process.env.PATH;
   process.env.PATH = bin + delimiter + (previousPath || "");
@@ -319,11 +284,9 @@ setTimeout(finish, 2000);
   db.prepare(
     "INSERT INTO native_catalog(id,harness,native_id,project,title,updated_at) VALUES(?,'codex',?,?,'Import fixture',?)",
   ).run(catalogId, "external-" + catalogId, originalProject, now());
-  vi.spyOn(Codex.prototype, "start").mockResolvedValue({} as any);
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  const fork = vi
-    .spyOn(Codex.prototype, "inspect")
-    .mockResolvedValue({ thread: { id: "fork-" + catalogId, turns: [] } });
+  harnesses.respond("codex", "thread/fork", {
+    result: { thread: { id: "fork-" + catalogId, turns: [] } },
+  });
   const previousPath = process.env.PATH;
   process.env.PATH = bin + delimiter + (previousPath || "");
   const request = () =>
@@ -339,7 +302,7 @@ setTimeout(finish, 2000);
   try {
     await until(() => existsSync(started));
     expect(db.inTransaction).toBe(false);
-    expect(fork).not.toHaveBeenCalled();
+    expect(harnesses.requests("codex", "thread/fork")).toEqual([]);
     const health = await fetch(
       `http://127.0.0.1:${(server.address() as any).port}/fixture-health`,
     );
@@ -351,7 +314,7 @@ setTimeout(finish, 2000);
         .prepare("SELECT 1 FROM native_history_actions WHERE id=?")
         .get(commandId),
     ).toBeUndefined();
-    expect(fork).not.toHaveBeenCalled();
+    expect(harnesses.requests("codex", "thread/fork")).toEqual([]);
     rmSync(failure);
     const otherCatalog = id();
     db.prepare(
@@ -386,7 +349,7 @@ setTimeout(finish, 2000);
         .prepare("SELECT 1 FROM native_history_actions WHERE id=?")
         .get(commandId),
     ).toBeUndefined();
-    expect(fork).not.toHaveBeenCalled();
+    expect(harnesses.requests("codex", "thread/fork")).toEqual([]);
     rmSync(started);
     rmSync(release);
     const racing = request();
@@ -409,16 +372,17 @@ setTimeout(finish, 2000);
         )
         .get(OWNER, commandId),
     ).toEqual({ workspace: winningWorkspace });
-    expect(fork).not.toHaveBeenCalled();
+    expect(harnesses.requests("codex", "thread/fork")).toEqual([]);
     const response = await request();
     expect(response.status).toBe(201);
     const imported = await response.json();
-    expect(fork).toHaveBeenCalledWith("thread/fork", {
-      threadId: "external-" + catalogId,
-      cwd: originalProject,
-    });
+    expect(harnesses.requests("codex", "thread/fork")).toMatchObject([
+      {
+        params: { threadId: "external-" + catalogId, cwd: originalProject },
+      },
+    ]);
     expect(await (await request()).json()).toEqual(imported);
-    expect(fork).toHaveBeenCalledOnce();
+    expect(harnesses.requests("codex", "thread/fork")).toHaveLength(1);
   } finally {
     writeFileSync(release, "continue");
     await Promise.allSettled([pending]);
@@ -437,21 +401,9 @@ it("preserves both records when a fork result is handed off elsewhere before its
   db.prepare(
     "INSERT INTO native_catalog(id,harness,native_id,project,title,updated_at) VALUES(?,'codex',?,?,'Competing fork fixture',?)",
   ).run(catalogId, "external-" + catalogId, originalProject, now());
-  vi.spyOn(Codex.prototype, "start").mockResolvedValue({} as any);
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-  let handoff: string | undefined;
-  const fork = vi
-    .spyOn(Codex.prototype, "inspect")
-    .mockImplementation(async () => {
-      handoff = await resumeFromDesktop(
-        {
-          ...nativeSessions.projects.registration("codex"),
-          project: destination,
-        },
-        nativeId,
-      );
-      return { thread: { id: nativeId, turns: [] } };
-    });
+  const release = harnesses.hold("codex", "thread/fork", {
+    thread: { id: nativeId, turns: [] },
+  });
   const request = () =>
     fetch(
       `http://127.0.0.1:${(server.address() as any).port}/native/history/${catalogId}/fork`,
@@ -461,33 +413,50 @@ it("preserves both records when a fork result is handed off elsewhere before its
         body: JSON.stringify({ commandId }),
       },
     );
-  const response = await request();
-  expect(response.status).toBe(409);
-  expect((await response.json()).error).toContain("different workspace");
-  expect(
-    db
-      .prepare("SELECT project FROM companion_sessions WHERE conversation_id=?")
-      .get(handoff),
-  ).toEqual({ project: destination });
-  expect(
-    db
+  const pending = request();
+  try {
+    await until(() => harnesses.requests("codex", "thread/fork").length === 1);
+    const handoff = await resumeFromDesktop(
+      {
+        ...nativeSessions.projects.registration("codex"),
+        project: destination,
+      },
+      nativeId,
+    );
+    release();
+    const response = await pending;
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toContain("different workspace");
+    expect(
+      db
+        .prepare(
+          "SELECT project FROM companion_sessions WHERE conversation_id=?",
+        )
+        .get(handoff),
+    ).toEqual({ project: destination });
+    expect(
+      db
+        .prepare(
+          "SELECT state,conversation_id FROM native_history_actions WHERE id=?",
+        )
+        .get(commandId),
+    ).toEqual({ state: "unknown", conversation_id: null });
+    const retained = db
       .prepare(
-        "SELECT state,conversation_id FROM native_history_actions WHERE id=?",
+        "SELECT workspace,imported_at FROM native_import_workspaces WHERE owner_id=? AND kind='fork' AND import_key=?",
       )
-      .get(commandId),
-  ).toEqual({ state: "unknown", conversation_id: null });
-  const retained = db
-    .prepare(
-      "SELECT workspace,imported_at FROM native_import_workspaces WHERE owner_id=? AND kind='fork' AND import_key=?",
-    )
-    .get(OWNER, commandId) as any;
-  expect(retained.imported_at).toBeNull();
-  expect(JSON.parse(retained.workspace)).toEqual({
-    directory: originalProject,
-    worktreeSource: null,
-  });
-  expect((await request()).status).toBe(409);
-  expect(fork).toHaveBeenCalledOnce();
+      .get(OWNER, commandId) as any;
+    expect(retained.imported_at).toBeNull();
+    expect(JSON.parse(retained.workspace)).toEqual({
+      directory: originalProject,
+      worktreeSource: null,
+    });
+    expect((await request()).status).toBe(409);
+    expect(harnesses.requests("codex", "thread/fork")).toHaveLength(1);
+  } finally {
+    release();
+    await Promise.allSettled([pending]);
+  }
 });
 
 it.each(["native-fork", "import-transaction"])(
@@ -502,14 +471,13 @@ it.each(["native-fork", "import-transaction"])(
     db.prepare(
       "INSERT INTO native_catalog(id,harness,native_id,project,title,updated_at) VALUES(?,'codex',?,?,'Failed fork fixture',?)",
     ).run(catalogId, "external-" + catalogId, project, now());
-    vi.spyOn(Codex.prototype, "start").mockResolvedValue({} as any);
-    vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
-    const fork = vi.spyOn(Codex.prototype, "inspect");
     if (mode === "native-fork")
-      fork.mockRejectedValue(new Error("fixture native fork failure"));
+      harnesses.respond("codex", "thread/fork", {
+        error: { code: -32000, message: "fixture native fork failure" },
+      });
     else {
-      fork.mockResolvedValue({
-        thread: { id: "fork-" + catalogId, turns: [] },
+      harnesses.respond("codex", "thread/fork", {
+        result: { thread: { id: "fork-" + catalogId, turns: [] } },
       });
       db.exec(
         "CREATE TRIGGER fail_fork_import BEFORE INSERT ON companion_sessions BEGIN SELECT RAISE(ABORT, 'fixture import failure'); END",
@@ -542,7 +510,7 @@ it.each(["native-fork", "import-transaction"])(
           .get(commandId),
       ).toEqual({ state: "unknown", conversation_id: null });
       expect((await request()).status).toBe(409);
-      expect(fork).toHaveBeenCalledOnce();
+      expect(harnesses.requests("codex", "thread/fork")).toHaveLength(1);
       const recovered = await prepareImportSession(
         { ...nativeSessions.projects.registration("codex"), project },
         "fork",
@@ -598,14 +566,12 @@ it("uses the live chat catalog only while the agent stays on that harness", asyn
     });
   const keptSession = attach(kept),
     movedSession = attach(moved);
-  const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   try {
     expect(await catalog(same, kept)).toMatchObject({
       status: 200,
       data: { runtime: "Codex", revision: 7, commands: [{ token: "/review" }] },
     });
-    expect(pi).not.toHaveBeenCalled();
+    expect(harnesses.launches("pi")).toEqual([]);
     expect(await catalog(switched, moved)).toMatchObject({
       status: 200,
       data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
@@ -622,23 +588,6 @@ it.each(["live", "cached"])(
     nativeSessions.projects.clearProbes();
     const aid = agent(codexConnection),
       cid = directChat(aid);
-    let release!: () => void;
-    const ready = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let block = false;
-    let starting = 0;
-    vi.spyOn(Codex.prototype, "start").mockImplementation(async function (
-      this: InstanceType<typeof Codex>,
-    ) {
-      if (block) {
-        starting++;
-        await ready;
-      }
-      this.commands = [];
-      return {} as any;
-    });
-    vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
     if (mode === "live")
       nativeSessions.state.attach({
         generation: "fixture",
@@ -654,7 +603,8 @@ it.each(["live", "cached"])(
         }),
       });
     else expect((await catalog(aid, cid)).status).toBe(200);
-    block = true;
+    const before = harnesses.launches("codex").length;
+    const release = harnesses.hold("codex", "skills/list", { data: [] });
     const pending: ReturnType<typeof catalog>[] = [];
     try {
       for (let i = 0; i < 3; i++) {
@@ -675,7 +625,7 @@ it.each(["live", "cached"])(
         );
         pending.push(catalog(other));
       }
-      await until(() => starting === 3);
+      await until(() => harnesses.launches("codex").length === before + 3);
       expect(await catalog(aid, cid)).toMatchObject({
         status: 200,
         data: { runtime: "Codex", commands: [] },
@@ -695,13 +645,6 @@ it("ignores a stale execution connection on a non-managed chat", async () => {
   const stale = connection({ backend: "runtime" });
   const cid = conversation(aid, stale);
   db.prepare("DELETE FROM connections WHERE id=?").run(stale);
-  vi.spyOn(Codex.prototype, "start").mockImplementation(async function (
-    this: InstanceType<typeof Codex>,
-  ) {
-    this.commands = [];
-    return {} as any;
-  });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid, cid)).toMatchObject({
     status: 200,
     data: { runtime: "Codex" },
@@ -715,37 +658,27 @@ it("reports a disconnected agent connection instead of probing a bound chat", as
   );
   const aid = agent(disconnected),
     cid = directChat(aid);
-  const start = vi.spyOn(Codex.prototype, "start");
   expect((await catalog(aid, cid)).status).toBe(409);
-  expect(start).not.toHaveBeenCalled();
+  expect(harnesses.launches("codex")).toEqual([]);
 });
 
 it("uses the agent's current harness for a new task", async () => {
   const aid = agent();
   directChat(aid);
-  const pi = vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid)).toMatchObject({
     status: 200,
     data: { runtime: "Pi", commands: [{ token: "/pi-command" }] },
   });
-  expect(pi).toHaveBeenCalledOnce();
+  expect(harnesses.launches("pi")).toHaveLength(1);
 });
 
 it("shares one recent probe across polls", async () => {
   const aid = agent(codexConnection),
     cid = directChat(aid);
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   nativeSessions.projects.clearProbes();
   expect((await catalog(aid, cid)).status).toBe(200);
   expect((await catalog(aid, cid)).status).toBe(200);
-  expect(start).toHaveBeenCalledOnce();
+  expect(harnesses.launches("codex")).toHaveLength(1);
   nativeSessions.projects.clearProbes();
 });
 
@@ -768,16 +701,8 @@ it("probes the folder the next turn uses, not the agent's newer folder", async (
   ).run(id(), OWNER, aid, cid, id(), now(), now());
   db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(folder, aid);
   nativeSessions.projects.clearProbes();
-  const start = vi
-    .spyOn(Codex.prototype, "start")
-    .mockImplementation(async function (this: InstanceType<typeof Codex>) {
-      expect((this as any).options.project).toBe(dir);
-      this.commands = [];
-      return {} as any;
-    });
-  vi.spyOn(Codex.prototype, "dispose").mockResolvedValue();
   expect((await catalog(aid, cid)).status).toBe(200);
-  expect(start).toHaveBeenCalledOnce();
+  expect(harnesses.launches("codex")).toMatchObject([{ cwd: dir }]);
   nativeSessions.projects.clearProbes();
 });
 
@@ -786,14 +711,11 @@ it("keeps discovery within the requested owner and agent", async () => {
     other = agent();
   // Another agent's conversation says nothing about this agent's next turn:
   // list this agent's new-task catalog, not the other conversation's.
-  const codex = vi.spyOn(Codex.prototype, "start");
-  vi.spyOn(Pi.prototype, "start").mockImplementation(piCommands);
-  vi.spyOn(Pi.prototype, "dispose").mockResolvedValue();
   expect(await catalog(aid, directChat(other))).toMatchObject({
     status: 200,
     data: { runtime: "Pi" },
   });
-  expect(codex).not.toHaveBeenCalled();
+  expect(harnesses.launches("codex")).toEqual([]);
   expect(
     (await catalog(aid, conversation(aid, codexConnection, "another-owner")))
       .status,
