@@ -14,7 +14,7 @@ import {
   connectionKey,
 } from "./CreateAgentModelOptions";
 import { RuntimeSetup } from "./RuntimeSetup";
-import type { ModelOption } from "../shared/models";
+import { useModelCatalog } from "./useModelCatalog";
 import { capabilities } from "./capabilities";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Plus } from "lucide-react";
@@ -181,101 +181,21 @@ export function CreateAgent({
       cancelled = true;
     };
   }, [source, nameRevision]);
-  const selectedConnection = selected?.id || "";
-  const savedModels = parse<ModelOption[]>(selected?.models, []);
-  const [catalog, setCatalog] = useState<{
-    connectionId: string;
-    source: string;
-    models?: ModelOption[];
-    error?: string;
-  }>();
-  const [catalogRevision, setCatalogRevision] = useState(0);
-  const catalogRequest = useRef<
-    | {
-        key: string;
-        cancel: () => void;
-        savedModels?: string;
-        succeeded: boolean;
-      }
-    | undefined
-  >(undefined);
-  useEffect(
-    () => () => {
-      catalogRequest.current?.cancel();
-      catalogRequest.current = undefined;
+  const {
+    currentCatalog,
+    refreshingModels,
+    models,
+    refresh: refreshModels,
+    invalidate: invalidateCatalog,
+    reset: resetCatalog,
+  } = useModelCatalog([], {
+    sourceId: source,
+    bootstrap: {
+      id: selected?.id || "",
+      models: selected?.models,
+      present: !!selected,
     },
-    [],
-  );
-  useEffect(() => {
-    const key = JSON.stringify([selectedConnection, source, catalogRevision]);
-    const previous = catalogRequest.current;
-    if (previous?.key === key) {
-      const changed = previous.savedModels !== selected?.models;
-      previous.savedModels = selected?.models;
-      // Keep pending discovery alive across its own metadata notification.
-      // After success, later workspace updates become the current catalog.
-      // Failures still require an explicit retry rather than falling back.
-      if (previous.succeeded && changed)
-        setCatalog({
-          connectionId: selectedConnection,
-          source,
-          models: savedModels,
-        });
-      return;
-    }
-    catalogRequest.current?.cancel();
-    catalogRequest.current = undefined;
-    setCatalog(undefined);
-    // Bootstrap already includes the validated catalog. Re-discovering a native
-    // harness here can take seconds; only discover missing catalogs or refresh
-    // when requested. Creation still validates against the owner's connection.
-    if (!selectedConnection || (savedModels.length && !catalogRevision)) return;
-    let current = true;
-    const discovery = {
-      key,
-      savedModels: selected?.models,
-      succeeded: false,
-      cancel: () => {
-        current = false;
-      },
-    };
-    catalogRequest.current = discovery;
-    setCatalog({ connectionId: selectedConnection, source });
-    void readProjection(
-      workspaceApi.connectionModels,
-      { params: { id: selectedConnection } },
-      { mode: "once", source: source },
-    ).then(
-      ({ models }) => {
-        if (current) {
-          discovery.succeeded = true;
-          setCatalog({ connectionId: selectedConnection, source, models });
-        }
-      },
-      (error: Error) => {
-        if (current)
-          setCatalog({
-            connectionId: selectedConnection,
-            source,
-            error: error.message,
-          });
-      },
-    );
-  }, [selectedConnection, source, catalogRevision, selected?.models]);
-  const currentCatalog =
-    catalog?.connectionId === selectedConnection && catalog.source === source
-      ? catalog
-      : undefined;
-  const refreshingModels =
-    !!selected &&
-    (currentCatalog
-      ? !currentCatalog.models && !currentCatalog.error
-      : !savedModels.length);
-  const models = currentCatalog ? currentCatalog.models || [] : savedModels;
-  function refreshModels() {
-    setCatalog({ connectionId: selectedConnection, source });
-    setCatalogRevision((revision) => revision + 1);
-  }
+  });
   const missingDefinitionModel =
     !!requestedModel && !models.some((m) => m.id === requestedModel);
   const chosen = missingDefinitionModel
@@ -414,7 +334,7 @@ export function CreateAgent({
             if (next && !selected) {
               setConnection(connectionKey(next));
             }
-            setCatalogRevision((revision) => revision + 1);
+            invalidateCatalog();
           }}
         />
       </div>
@@ -636,8 +556,7 @@ export function CreateAgent({
               setModel("");
               setRequestedModel("");
               setEffort("");
-              setCatalog(undefined);
-              setCatalogRevision(0);
+              resetCatalog();
             }}
             onModelChange={(value) => {
               setModel(value);
