@@ -13,6 +13,9 @@ import express from "express";
 import {
   triggerPrograms,
   triggerIndexSearches,
+  triggerStatements,
+  tableTriggerPrograms,
+  triggerFullScans,
 } from "./helpers/trigger-programs";
 import {
   CardSchema,
@@ -739,32 +742,41 @@ it("indexes reverse attachment edges and uses indexed candidates in production w
       )
       .all();
   expect(edges()).toEqual([{ target_id: file }]);
-  for (const trigger of [
+  const programs = new Map([
+    ...tableTriggerPrograms(db, "artifacts"),
+    ...tableTriggerPrograms(db, "objects"),
+    ...tableTriggerPrograms(db, "artifact_objects"),
+  ]);
+  for (const name of [
     "card_artifact_insert_refs",
     "card_object_insert",
     "card_artifact_object_insert",
   ]) {
-    const { sql } = db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?")
-      .get(trigger) as { sql: string };
-    const statement = sql
-      .split("BEGIN\n")[1]
-      .split(";")[0]
-      .replaceAll("new.owner_id", "'edges'")
-      .replaceAll("new.artifact_id", "'target'")
-      .replaceAll("new.id", "'target'")
-      .replaceAll("new.metadata", "'{}'");
-    const plan = (
-      db.prepare("EXPLAIN QUERY PLAN " + statement).all() as {
-        detail: string;
-      }[]
-    )
-      .map((r) => r.detail)
-      .join("\n");
-    expect(plan).toMatch(/SEARCH m .*\([^)]*\bid=\?\)/);
-    expect(plan).toContain("card_attachment_refs_target");
-    if (trigger === "card_object_insert")
-      expect(plan).toContain("card_artifact_object_link");
+    const program = programs.get(name);
+    expect(program, name).toBeDefined();
+    const statements = triggerStatements(program!);
+    expect(statements.length, name).toBeGreaterThan(0);
+    const searches = triggerIndexSearches(db, statements[0]);
+    expect(searches, name).toContainEqual(
+      expect.objectContaining({
+        index: "card_attachment_refs_target",
+        keys: 3,
+      }),
+    );
+    expect(
+      searches.some(
+        (search) =>
+          search.table === "messages" && search.columns.includes("id"),
+      ),
+      name,
+    ).toBe(true);
+    if (name === "card_object_insert")
+      expect(searches, name).toContainEqual(
+        expect.objectContaining({
+          index: "card_artifact_object_link",
+          keys: 2,
+        }),
+      );
   }
   db.prepare("UPDATE messages SET metadata=? WHERE id='edges-message'").run(
     JSON.stringify({ personal: true, attachments: [] }),
@@ -774,46 +786,60 @@ it("indexes reverse attachment edges and uses indexed candidates in production w
 
 it("limits folder invalidations to indexed conversation and run candidates", () => {
   setup("folder-index");
-  for (const trigger of [
+  const programs = tableTriggerPrograms(db, "folders");
+  for (const name of [
     "card_folder_insert",
     "card_folder_leaving",
     "card_folder_entering",
     "card_folder_delete",
   ]) {
-    const { sql } = db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?")
-      .get(trigger) as { sql: string };
-    const statements = sql.split("BEGIN\n")[1].split(";");
-    const plan = (index: number) =>
-      (
-        db
-          .prepare(
-            "EXPLAIN QUERY PLAN " +
-              statements[index]
-                .replaceAll(/(?:new|old)\.owner_id/g, "'folder-index'")
-                .replaceAll(/(?:new|old)\.id/g, "'folder-index'"),
-          )
-          .all() as { detail: string }[]
-      )
-        .map((r) => r.detail)
-        .join("\n");
-    const candidates = plan(1);
-    expect(candidates).toContain("card_conversations_project");
-    expect(candidates).toContain("card_runs_folder");
-    expect(candidates).toContain("card_messages_conversation");
-    expect(candidates).toMatch(/SEARCH mm .*\(owner_id=\? AND run_id=\?\)/);
-    expect(candidates).toMatch(
-      /card_runs_folder \(owner_id=\? AND <expr>=\?\)/,
-    );
-    expect(candidates).toMatch(/SEARCH m .*\([^)]*\bid=\?\)/);
-    expect(candidates).not.toMatch(/SCAN (m|mm)\b/);
-    // Ordinary folder changes never enter the broad logical Workspace update.
-    for (const index of [2, 3]) {
-      const steps = plan(index);
-      expect(steps).toMatch(/SEARCH wp .*\((?:owner|project)_id=\?\)/);
-      expect(steps.indexOf("SEARCH wp")).toBeLessThan(
-        steps.search(/SEARCH [am] /),
+    const program = programs.get(name);
+    expect(program, name).toBeDefined();
+    const statements = triggerStatements(program!);
+    expect(statements, name).toHaveLength(4);
+    const candidates = triggerIndexSearches(db, statements[1]);
+    for (const index of [
+      "card_conversations_project",
+      "card_runs_folder",
+      "card_messages_conversation",
+    ])
+      expect(candidates, name).toContainEqual(
+        expect.objectContaining({ index, keys: 2 }),
       );
+    expect(
+      candidates.some(
+        (search) =>
+          search.table === "messages" &&
+          search.columns[0] === "owner_id" &&
+          search.columns[1] === "run_id",
+      ),
+      name,
+    ).toBe(true);
+    expect(
+      candidates.some(
+        (search) =>
+          search.table === "messages" && search.columns.includes("id"),
+      ),
+      name,
+    ).toBe(true);
+    expect(
+      triggerFullScans(db, statements[1]).filter(
+        (scan) => scan.table === "messages",
+      ),
+      name,
+    ).toEqual([]);
+    // Each logical Workspace branch looks up its project before source rows.
+    for (const [index, table] of [
+      [2, "artifacts"],
+      [3, "messages"],
+    ] as const) {
+      const searches = triggerIndexSearches(db, statements[index]);
+      const workspace = searches.findIndex(
+        (search) => search.table === "workspace_projects",
+      );
+      const source = searches.findIndex((search) => search.table === table);
+      expect(workspace, name).toBeGreaterThanOrEqual(0);
+      expect(source, name).toBeGreaterThan(workspace);
     }
   }
 });
@@ -821,41 +847,34 @@ it("limits folder invalidations to indexed conversation and run candidates", () 
 it("uses indexed source candidates throughout production card invalidation triggers", () => {
   const triggers = db
     .prepare(
-      "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND (name LIKE 'card_%' OR name IN ('agent_feed_update','run_feed_update'))",
+      "SELECT name,tbl_name FROM sqlite_master WHERE type='trigger' AND (name LIKE 'card_%' OR name IN ('agent_feed_update','run_feed_update'))",
     )
-    .all() as { name: string; sql: string }[];
-  let checked = 0;
-  for (const { name, sql } of triggers) {
-    for (const match of sql.matchAll(
-      /INSERT INTO feed_revisions\(entity,object_id,owner_id,cursor\)\s+(SELECT[\s\S]*?);/g,
-    )) {
-      const statement = match[0].replaceAll(
-        /\b(?:new|old)\.([a-z_]+)/g,
-        (_match, column: string) =>
-          column === "metadata"
-            ? "'{}'"
-            : column === "rowid"
-              ? "1"
-              : "'audit-key'",
-      );
-      const plan = (
-        db.prepare("EXPLAIN QUERY PLAN " + statement).all() as {
-          detail: string;
-        }[]
-      )
-        .map((row) => row.detail)
-        .join("\n");
-      expect(plan, name).not.toMatch(/\bSCAN (?:m|a|mm|rr|cc)\b/);
-      if (name === "agent_feed_update" || name === "card_agent_delete") {
-        if (statement.includes("FROM messages m")) {
-          expect(plan, name).toContain("card_runs_agent");
-          expect(plan, name).toContain("card_conversations_agent");
+    .all() as { name: string; tbl_name: string }[];
+  expect(triggers.length).toBeGreaterThan(50);
+  const programs: ReturnType<typeof triggerPrograms> = new Map();
+  for (const table of new Set(triggers.map((trigger) => trigger.tbl_name)))
+    for (const [name, program] of tableTriggerPrograms(db, table))
+      programs.set(name, program);
+  for (const { name } of triggers) {
+    const program = programs.get(name);
+    expect(program, name).toBeDefined();
+    const scans = triggerFullScans(db, program!).filter((scan) =>
+      ["messages", "artifacts", "runs", "conversations"].includes(scan.table),
+    );
+    expect(scans, name).toEqual([]);
+    const statements = triggerStatements(program!);
+    expect(statements.length, name).toBeGreaterThan(0);
+    if (name === "agent_feed_update" || name === "card_agent_delete")
+      for (const statement of statements) {
+        const searches = triggerIndexSearches(db, statement);
+        if (searches.some((search) => search.table === "messages")) {
+          for (const index of ["card_runs_agent", "card_conversations_agent"])
+            expect(searches, name).toContainEqual(
+              expect.objectContaining({ index }),
+            );
         }
       }
-      checked++;
-    }
   }
-  expect(checked).toBeGreaterThan(50);
 });
 
 it.each(["list-out", "list-in", "changes-out", "changes-in"])(
@@ -1363,10 +1382,12 @@ it("keeps provider model aliases owner-scoped and reconciles their catalog depen
   ]) {
     const program = programs.get(name);
     expect(program, name).toBeDefined();
-    expect(triggerIndexSearches(db, program!), name).toContainEqual({
-      index: "card_artifact_model_connection",
-      keys: 2,
-    });
+    expect(triggerIndexSearches(db, program!), name).toContainEqual(
+      expect.objectContaining({
+        index: "card_artifact_model_connection",
+        keys: 2,
+      }),
+    );
   }
 });
 
