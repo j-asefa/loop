@@ -4,9 +4,9 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
-const accessStatement = statement(
-  "SELECT id,owner_id,team_id,folder_id,fingerprint,run_id,created_at,source_path\n      FROM code_reviews INDEXED BY code_reviews_access WHERE owner_id=? AND id=?",
-);
+export const reviewAccessSql =
+  "SELECT id,owner_id,team_id,folder_id,fingerprint,run_id,created_at,source_path\n      FROM code_reviews INDEXED BY code_reviews_access WHERE owner_id=? AND id=?";
+const accessStatement = statement(reviewAccessSql);
 const accessRow = QueryRecords.code_reviews.pick({
   id: true,
   owner_id: true,

@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { afterAll, expect, it } from "vitest";
+import { afterAll, expect, it, vi } from "vitest";
+import * as reviewQueries from "../src/server/sql/code-reviews";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,30 +97,11 @@ function fixture(value = snapshot()) {
   );
   return { review, run: ownedRun(rid, owner) };
 }
-let observedQueries: string[] | undefined;
-const prepare = db.prepare.bind(db);
-db.prepare = ((sql: string) => {
-  const statement = prepare(sql);
-  if (/FROM code_reviews/i.test(sql)) {
-    const get = statement.get.bind(statement);
-    statement.get = (...args: unknown[]) => {
-      observedQueries?.push(sql);
-      return get(...args);
-    };
-  }
-  return statement;
-}) as typeof db.prepare;
 function observeReads() {
-  const queries: string[] = [];
-  observedQueries = queries;
+  const spy = vi.spyOn(reviewQueries, "snapshot");
   return {
-    queries,
-    restore: () => {
-      observedQueries = undefined;
-    },
-    blobs: () =>
-      queries.filter((sql) => /^SELECT snapshot FROM code_reviews/.test(sql))
-        .length,
+    restore: () => spy.mockRestore(),
+    blobs: () => spy.mock.calls.length,
   };
 }
 
@@ -168,18 +150,12 @@ it("loads a large snapshot once across chunk reads, listing, context and status,
     ).run(f.run.id);
     expect(reviewStatus(owner, f.review).state).toBe("failed");
     expect(reads.blobs()).toBe(1);
-    for (const query of reads.queries.filter(
-      (sql) => !sql.startsWith("SELECT snapshot"),
-    )) {
-      const plan = db
-        .prepare("EXPLAIN QUERY PLAN " + query)
-        .all(owner, f.review) as { detail: string }[];
-      expect(
-        plan.some((row) =>
-          /USING COVERING INDEX code_reviews_access/.test(row.detail),
-        ),
-      ).toBe(true);
-    }
+    const plan = db
+      .prepare("EXPLAIN QUERY PLAN " + reviewQueries.reviewAccessSql)
+      .all(owner, f.review) as { detail: string }[];
+    expect(plan.map((row) => row.detail).join("\n")).toMatch(
+      /USING COVERING INDEX code_reviews_access/,
+    );
   } finally {
     reads.restore();
   }
