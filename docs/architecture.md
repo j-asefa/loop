@@ -66,7 +66,7 @@ Rules not yet stated in a single file:
 
 - Feed, conversation and Results handlers stay synchronous inside their snapshot transaction, so their bodies and watermarks describe the same committed state.
 - The paired host authorizes devices, origins and CSRF before forwarding, and the session GET projects only the shell's user id and name and the `paired` mode.
-- Automatic snapshot reads that exhaust their transient retries register recovery interest for their source and owner generation, and the shared watcher probes HTTP while it exists. Recovery cycles deliberately have no increasing backoff or retry cap, because a cap could leave a quiet failed view stale indefinitely; permanent refusals and writes never register recovery.
+- Automatic snapshot reads that exhaust their transient retries or fail on a network error register recovery interest for their source and owner generation, and the shared watcher probes HTTP while it exists. Recovery cycles deliberately have no increasing backoff or retry cap, because a cap could leave a quiet failed view stale indefinitely; permanent refusals and writes never register recovery.
 
 ## Execution paths
 
