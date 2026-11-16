@@ -11,9 +11,12 @@ import { PersonalDecisions } from "../PersonalDecisions";
 import { agentModelName } from "../modelChoices";
 import { UploadButton } from "../Attachments";
 import { executionSourceId } from "../sourceRouting";
-import { NativeDecisions, WorkspaceConnection } from "../NativeControls";
+import { NativeDecisions } from "../NativeControls";
 import { FleetAuthorityNotice } from "../FleetContext";
-import { BrowserBuildStatus } from "../BuildStatus";
+import {
+  BrowserBuildStatus,
+  WorkspaceConnection,
+} from "../WorkspaceConnection";
 import { YourAgents } from "../YourAgents";
 import { ProfileCover } from "../ProfileCover";
 import { AgentWork } from "../AgentWork";
