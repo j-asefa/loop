@@ -1,6 +1,6 @@
 # Development and verification
 
-Use Node 24 and lockfile installs. [AGENTS.md](../AGENTS.md) routes contributors to the relevant guide.
+Use Node 24 and lockfile installs. [AGENTS.md](../AGENTS.md) routes contributors to the relevant guide. [CLAUDE.md](../CLAUDE.md) only imports it, so edit `AGENTS.md`.
 
 ## Build and local development
 

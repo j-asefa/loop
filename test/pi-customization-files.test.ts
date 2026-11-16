@@ -94,6 +94,18 @@ it("shows project trust resources and effective instruction origins", () => {
   ).toEqual([join(project, ".pi", "SYSTEM.md"), join(project, "AGENTS.md")]);
 });
 
+it("prefers AGENTS.md over CLAUDE.md in the same directory", () => {
+  const { agent, project } = fixture();
+  writeFileSync(join(project, "AGENTS.md"), "context");
+  writeFileSync(join(project, "CLAUDE.md"), "@AGENTS.md");
+  expect(
+    piInstructionSources(agent, project, false)
+      .filter((item) => item.role === "Context")
+      .map((item) => item.path)
+      .filter((path) => path.startsWith(project)),
+  ).toEqual([join(project, "AGENTS.md")]);
+});
+
 it("asks for trust again after any change below a trusted resource", () => {
   const { project } = fixture();
   const tools = join(project, ".pi", "extensions", "tools");
