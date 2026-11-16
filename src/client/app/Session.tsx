@@ -117,6 +117,8 @@ export function useSessionLifecycle(
       void check(controller.signal).catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
+    // Expiry signs out and stays signed out: a null session never re-runs the
+    // check, so access returns only through explicit pairing.
     const expire = () => {
       sessionStorage.clear();
       replaceConversationLocation(executionSourceId(), null);
