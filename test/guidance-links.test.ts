@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Lexer, type Token } from "marked";
+import { parse as parseYaml } from "yaml";
 import { afterEach, expect, it } from "vitest";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -46,7 +47,11 @@ function guidanceFiles(root: string): string[] {
     nestedAgents(root, dir),
   );
   const rules = existsSync(join(root, ".claude/rules"))
-    ? readdirSync(join(root, ".claude/rules"))
+    ? (
+        readdirSync(join(root, ".claude/rules"), {
+          recursive: true,
+        }) as string[]
+      )
         .filter((file) => file.endsWith(".md"))
         .map((file) => join(".claude/rules", file))
     : [];
@@ -56,7 +61,7 @@ function guidanceFiles(root: string): string[] {
 // YAML front matter (Claude rules' `paths:`), replaced by blank lines so the
 // body keeps its line numbers.
 function frontMatter(text: string) {
-  const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
   return {
     yaml: match?.[1] ?? "",
     body: match
@@ -65,16 +70,36 @@ function frontMatter(text: string) {
   };
 }
 
-// The `paths:` globs of a Claude rule, each of which must match a file.
+// Claude rules here are path-scoped pointers: `paths:` must be a string or a
+// list of strings, and each glob must match at least one file.
 function deadRulePaths(root: string, file: string): string[] {
-  const { yaml } = frontMatter(readFileSync(join(root, file), "utf8"));
-  const globs = [...yaml.matchAll(/^\s*-\s*"?([^"\n]+?)"?\s*$/gm)].map(
-    (match) => match[1],
-  );
-  if (!globs.length)
-    return [`${file} has no paths: list; add the files it applies to.`];
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(
+      frontMatter(readFileSync(join(root, file), "utf8")).yaml,
+    );
+  } catch (error) {
+    return [
+      `${file} has front matter that is not valid YAML: ${(error as Error).message.split("\n")[0]}`,
+    ];
+  }
+  const value = (parsed as { paths?: unknown } | null)?.paths;
+  const globs = typeof value === "string" ? [value] : value;
+  if (
+    !Array.isArray(globs) ||
+    !globs.length ||
+    !globs.every((glob) => typeof glob === "string")
+  )
+    return [
+      `${file} has no paths: list of globs. Rules here are path-scoped pointers; put guidance for every file in AGENTS.md instead.`,
+    ];
   return globs
-    .filter((glob) => !globSync(glob, { cwd: root }).length)
+    .filter(
+      (glob) =>
+        !globSync(glob, { cwd: root }).some((match) =>
+          statSync(join(root, match)).isFile(),
+        ),
+    )
     .map(
       (glob) =>
         `${file} lists paths glob ${glob}, which matches no file. Fix the glob or remove the rule.`,
@@ -384,16 +409,27 @@ it("reports Claude rules whose paths match nothing, keeping body line numbers", 
     ".claude/rules/a.md":
       '---\npaths:\n  - "src/*.ts"\n  - "lib/**/*.ts"\n---\n\n[gone](../../missing.md)\n',
     ".claude/rules/b.md": "No front matter.\n",
+    ".claude/rules/nested/c.md":
+      '---\r\npaths: [\'src/*.ts\', "src"]\r\nother:\r\n  - "lib/**"\r\n---\r\nBody.\r\n',
+    ".claude/rules/d.md": '---\npaths: "src/a.ts"\n---\n',
   });
   expect(guidanceFiles(root)).toEqual([
     ".claude/rules/a.md",
     ".claude/rules/b.md",
+    ".claude/rules/d.md",
+    ".claude/rules/nested/c.md",
   ]);
+  // Flow lists, single quotes, CRLF and unrelated keys parse as YAML; a glob
+  // that matches only a directory matches no file.
+  expect(deadRulePaths(root, ".claude/rules/nested/c.md")).toEqual([
+    ".claude/rules/nested/c.md lists paths glob src, which matches no file. Fix the glob or remove the rule.",
+  ]);
+  expect(deadRulePaths(root, ".claude/rules/d.md")).toEqual([]);
   expect(deadRulePaths(root, ".claude/rules/a.md")).toEqual([
     ".claude/rules/a.md lists paths glob lib/**/*.ts, which matches no file. Fix the glob or remove the rule.",
   ]);
   expect(deadRulePaths(root, ".claude/rules/b.md")).toEqual([
-    ".claude/rules/b.md has no paths: list; add the files it applies to.",
+    ".claude/rules/b.md has no paths: list of globs. Rules here are path-scoped pointers; put guidance for every file in AGENTS.md instead.",
   ]);
   expect(brokenGuidanceLinks(root, [".claude/rules/a.md"])).toEqual([
     ".claude/rules/a.md:7 links to missing.md, which does not exist. Fix the link or remove it; agents follow a pointer even when it leads nowhere.",
