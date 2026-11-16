@@ -26,6 +26,10 @@ beforeAll(async () => {
   vi.spyOn(Date, "now").mockReturnValue(NOW);
   fixture = await createFeedFixture();
   app = await productionApp(OWNER);
+  // This fixed read-only oracle measures requests, not background delivery.
+  const { changes, deadlines } = await import("../src/server/db");
+  deadlines.close();
+  changes.close();
 });
 afterAll(async () => {
   await app.close();
