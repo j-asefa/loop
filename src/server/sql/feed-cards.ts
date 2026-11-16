@@ -87,8 +87,7 @@ const donePageRow = recordRow.extend({
   unread: z.number(),
   unread_version: z.number(),
 });
-export function feedPage(
-  db: Database.Database,
+export function feedPageSql(
   params: Scope & {
     at: number | null;
     after: string | null;
@@ -125,13 +124,18 @@ export function feedPage(
     COALESCE(sum(t.working),0) working,COALESCE(sum(t.queued),0) queued,
     (${doneUnreadSql(params)}) done_unread
     FROM feed_cards t WHERE t.kind='thread' AND ${scope("t", params)}`;
-  const rows = feedPageStatement(
-    `WITH summary AS (${summarySql})
+  return `WITH summary AS (${summarySql})
     SELECT page.*,summary.needs,summary.working,summary.queued,summary.done_unread FROM summary
     LEFT JOIN (${results ? sql : sql.replace(/\bt\./g, "p.")}) page ON 1
-    ORDER BY ${feedOrderSql({ at: "page.sort_at", conversation: "page.conversation_id", card: "page.card_key" })}`,
-    db,
-  )
+    ORDER BY ${feedOrderSql({ at: "page.sort_at", conversation: "page.conversation_id", card: "page.card_key" })}`;
+}
+export function feedPage(
+  db: Database.Database,
+  params: Parameters<typeof feedPageSql>[0],
+  filter: FeedFilter,
+  results: boolean,
+) {
+  const rows = feedPageStatement(feedPageSql(params, filter, results), db)
     .all(params)
     .map((row) => parseRecord(feedPageRow, row, "feed_cards"));
   return rows;

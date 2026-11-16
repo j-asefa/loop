@@ -9,25 +9,32 @@ import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
 } from "../src/shared/personal-decisions";
+const trace = vi.hoisted(() => ({
+  observe: undefined as ((sql: string) => void) | undefined,
+}));
+vi.mock("better-sqlite3", async (load) => {
+  const original = await load<{ default: typeof import("better-sqlite3") }>();
+  return {
+    ...original,
+    default: new Proxy(original.default, {
+      construct(Database, [filename, options]) {
+        return new Database(filename, {
+          ...options,
+          verbose(sql: string) {
+            options?.verbose?.(sql);
+            trace.observe?.(sql);
+          },
+        });
+      },
+    }),
+  };
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
 const { sealSeededHistory } = await import("./helpers/published-history");
-// Observe executions, including statements cached by earlier HTTP requests.
-const prepare = db.prepare.bind(db);
-let observeDoneQuery: ((sql: string, args: unknown[]) => void) | undefined;
-db.prepare = ((sql: string) => {
-  const statement = prepare(sql);
-  if (sql.includes("FROM feed_cards p")) {
-    const all = statement.all.bind(statement);
-    statement.all = (...args: unknown[]) => {
-      observeDoneQuery?.(sql, args);
-      return all(...args);
-    };
-  }
-  return statement;
-}) as typeof db.prepare;
+const projectionQueries = await import("../src/server/sql/feed-cards");
 const { ownedRun, ownedConversation, createAgent, Problem } =
   await import("../src/server/domain");
 const { recordConversationUpdate } =
@@ -975,24 +982,32 @@ it("reads the production Done page and summary in one indexed projection query",
   message(w.owner, cid, "assistant", "Run answer", run(w.owner, a.id, cid));
   message(w.owner, cid, "assistant", "Imported answer");
   let plan: { detail: string }[] = [];
-  let selections = 0;
-  observeDoneQuery = (sql, args) => {
-    selections++;
-    plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as {
-      detail: string;
-    }[];
+  const selection = vi.spyOn(projectionQueries, "feedPage");
+  let executions = 0;
+  trace.observe = (sql) => {
+    if (sql.includes("FROM feed_cards p ")) executions++;
   };
   try {
     // Exercise the cached path even when this test runs alone.
     for (let request = 0; request < 2; request++) {
-      selections = 0;
+      selection.mockClear();
+      executions = 0;
       const response = await api(w.owner, "/feed?filter=done");
       expect(response.status).toBe(200);
       expect(response.data.items).toHaveLength(2);
-      expect(selections).toBe(1);
+      expect(selection).toHaveBeenCalledTimes(1);
+      expect(executions).toBe(1);
+      const [connection, params, filter, results] = selection.mock.calls[0];
+      plan = connection
+        .prepare(
+          "EXPLAIN QUERY PLAN " +
+            projectionQueries.feedPageSql(params, filter, results),
+        )
+        .all(params) as { detail: string }[];
     }
   } finally {
-    observeDoneQuery = undefined;
+    selection.mockRestore();
+    trace.observe = undefined;
   }
   expect(
     plan.some((row) =>
