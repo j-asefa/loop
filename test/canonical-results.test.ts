@@ -249,6 +249,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
         size: 24,
         href: "/?artifact=art-1",
         download: "/api/objects/obj-1",
+        availability: "sealed",
       },
     ]);
 
@@ -306,6 +307,7 @@ describe("Canonical Result publication, immutability, and migration", () => {
         size: 24,
         href: "/?artifact=art-1",
         download: null,
+        availability: "unavailable",
       },
     ]);
 

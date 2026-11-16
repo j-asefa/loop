@@ -36,6 +36,11 @@ const CardAttachmentSchema = z.object({
   // to this API source and require ordinary browser authorization to open.
   href: z.string(),
   download: nullableText,
+  // `current` links follow the artifact as it is now. A published Result's
+  // attachment is `sealed` to the bytes it published, or `unavailable` when
+  // those bytes can no longer be identified; `href` then opens the current
+  // artifact only as an explicit, separate action.
+  availability: z.enum(["current", "sealed", "unavailable"]),
 });
 const common = {
   id: CardIdSchema,

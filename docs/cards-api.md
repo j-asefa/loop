@@ -443,7 +443,11 @@ Descriptors appear only for artifacts owned by the same owner. `href` opens
 Loop; nullable `download` is a protected file URL. File bytes require an owner session or a
 `read` integration token. Renaming a file does not rewrite the historical
 attachment description; deleting its target removes the descriptor through
-synchronization.
+synchronization. `availability` is `current` when `download` follows
+the artifact as it is now. A published Result's attachments are `sealed` to the
+bytes it published, so preview and download keep showing that version after
+the artifact changes; `unavailable` means those bytes can no longer be
+identified, `download` is null and `href` opens only the current artifact.
 
 Saving an existing result-backed message pins its result. A message bookmarked
 before a result exists keeps its identity until the owner explicitly saves or

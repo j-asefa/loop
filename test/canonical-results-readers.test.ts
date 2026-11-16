@@ -265,6 +265,7 @@ it("links attachments to the sealed version while keeping current authorization"
   for (const [oid, own] of [
     ["obj-sealed", owner],
     ["obj-new", owner],
+    ["obj-foreign", other],
   ]) {
     db.prepare(
       "INSERT INTO objects(id,owner_id,name,mime,bytes,created_at) VALUES(?,?,'f.md','text/markdown',x'41',1)",
@@ -294,10 +295,29 @@ it("links attachments to the sealed version while keeping current authorization"
   );
   // Authorization is still the owner's current access.
   expect(resultCardAttachments(other, ref({}))).toEqual([]);
-  // A sealed object that is gone yields no link rather than the current file.
+  expect(resultCardAttachments(owner, ref({}))![0]).toMatchObject({
+    name: "f.md",
+    availability: "sealed",
+    // Opening the current artifact stays a separate action.
+    href: `/?artifact=${artifact}`,
+  });
+  // Renaming the artifact keeps the published name.
+  db.prepare("UPDATE artifacts SET title='Renamed' WHERE id=?").run(artifact);
+  expect(resultCardAttachments(owner, ref({}))![0].name).toBe("f.md");
+  // A sealed object that is gone is reported unavailable rather than linked
+  // to the current file.
   expect(
-    resultCardAttachments(owner, ref({ objectId: "missing" }))![0].download,
-  ).toBeNull();
+    resultCardAttachments(owner, ref({ objectId: "missing" }))![0],
+  ).toMatchObject({ download: null, availability: "unavailable" });
+  // Another owner's existing object never resolves.
+  expect(
+    db
+      .prepare("SELECT owner_id FROM objects WHERE id=?")
+      .get("obj-foreign" + owner),
+  ).toEqual({ owner_id: other });
+  expect(
+    resultCardAttachments(owner, ref({ objectId: "obj-foreign" + owner }))![0],
+  ).toMatchObject({ download: null, availability: "unavailable" });
   // A published file only links while its bytes still match the sealed digest.
   db.prepare(
     "INSERT INTO artifact_objects(artifact_id,owner_id,run_id,call_id,object_key,mime,size,checksum) VALUES(?,?,'r','c','k','text/markdown',1,'aa')",
@@ -314,4 +334,12 @@ it("links attachments to the sealed version while keeping current authorization"
       ref({ objectId: null, published: true, sha256: "bb" }),
     )![0].download,
   ).toBeNull();
+  // A legacy reference without a recorded checksum proves nothing about the
+  // current bytes.
+  expect(
+    resultCardAttachments(
+      owner,
+      ref({ objectId: null, published: true, sha256: null }),
+    )![0],
+  ).toMatchObject({ download: null, availability: "unavailable" });
 });

@@ -46,11 +46,26 @@ function CardAttachments({ card }: { card: Card }) {
               {file.download ? (
                 <button
                   className="attachment-open"
-                  aria-label={`Preview ${file.name}`}
+                  aria-label={
+                    file.availability === "sealed"
+                      ? `Preview ${file.name} as published`
+                      : `Preview ${file.name}`
+                  }
                   onClick={() => setPreview(file)}
                 >
                   {file.name}
                 </button>
+              ) : file.availability === "unavailable" ? (
+                // Never open the current bytes as if they were published.
+                <span className="attachment-unavailable">
+                  {file.name}{" "}
+                  <span className="field-hint">
+                    Published version unavailable ·{" "}
+                    <a href={sourceCardHref(file.href, source)}>
+                      Open current file
+                    </a>
+                  </span>
+                </span>
               ) : (
                 <a href={sourceCardHref(file.href, source)}>{file.name}</a>
               )}

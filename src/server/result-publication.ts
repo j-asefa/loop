@@ -12,7 +12,6 @@ import {
   type CanonicalResult,
   type PublishResultInput,
   type RequestedResultContext,
-  type ResultAttachmentRef,
   type ResultId,
   type ResultOrigin,
   type ResultOriginCompleteness,
@@ -22,6 +21,7 @@ import {
   type ResultSupplyItem,
   UNKNOWN_RESULT_PLACEMENT,
 } from "../shared/result.js";
+import { sealAttachments } from "./result-attachments.js";
 import { computeResultContentDigest } from "./result-digest.js";
 import { parseCanonicalResult } from "./row-schemas.js";
 import * as foldersQueries from "./sql/folders.js";
@@ -416,66 +416,6 @@ function chainParent(
   return row ? ResultIdSchema.parse(row.id) : null;
 }
 
-export function snapshotMessageAttachments(
-  ownerId: string,
-  message: SnapshotMessage,
-  database: Database.Database,
-): ResultAttachmentRef[] {
-  const rawAttachments = message.metadata.attachments;
-  if (!Array.isArray(rawAttachments) || rawAttachments.length === 0) {
-    return [];
-  }
-  const refs: ResultAttachmentRef[] = [];
-  for (const item of rawAttachments) {
-    if (!item || typeof item.id !== "string" || !item.id) continue;
-    const artifact = resultsQueries.artifactById(database, ownerId, item.id);
-    if (!artifact) continue;
-    const artMeta = artifact.metadata as {
-      objectId?: unknown;
-      mime?: unknown;
-      size?: unknown;
-    };
-    const candidateObjectId =
-      typeof artMeta.objectId === "string" && artMeta.objectId.length > 0
-        ? artMeta.objectId
-        : null;
-    const objectId = candidateObjectId
-      ? (resultsQueries.ownedObjectId(database, ownerId, candidateObjectId)
-          ?.id ?? null)
-      : null;
-    const publishedObj = resultsQueries.publishedArtifactObject(
-      database,
-      ownerId,
-      artifact.id,
-    );
-    const name =
-      (typeof item.name === "string" && item.name.trim()) ||
-      artifact.title?.trim() ||
-      artifact.id;
-    const mime =
-      (typeof item.mime === "string" && item.mime.trim()) ||
-      (typeof artMeta.mime === "string" && artMeta.mime.trim()) ||
-      publishedObj?.mime ||
-      "application/octet-stream";
-    const rawSize = item.size ?? artMeta.size ?? publishedObj?.size ?? 0;
-    const size =
-      typeof rawSize === "number" && Number.isFinite(rawSize) && rawSize >= 0
-        ? Math.trunc(rawSize)
-        : 0;
-    refs.push({
-      artifactId: artifact.id,
-      objectId,
-      version: Math.max(1, Math.trunc(artifact.version || 1)),
-      sha256: publishedObj?.checksum ?? null,
-      name,
-      mime,
-      size,
-      published: Boolean(publishedObj),
-    });
-  }
-  return refs;
-}
-
 export function publishResult(
   input: PublishResultInput,
   database: Database.Database,
@@ -763,7 +703,11 @@ export function publishCompletedRunResult(
         body: answer.content,
         format: "markdown",
       },
-      attachments: snapshotMessageAttachments(ownerId, answer, database),
+      attachments: sealAttachments(
+        ownerId,
+        answer.metadata.attachments,
+        database,
+      ),
       provenance: {
         agentId,
         agentName,
@@ -879,9 +823,9 @@ export function publishSteeringReplyResult(
         body: message.content,
         format: "markdown",
       },
-      attachments: snapshotMessageAttachments(
+      attachments: sealAttachments(
         options.ownerId,
-        message,
+        message.metadata.attachments,
         database,
       ),
       provenance: {
@@ -1039,7 +983,11 @@ function publishStandaloneAnswers(
           body: message.content,
           format: "markdown",
         },
-        attachments: snapshotMessageAttachments(ownerId, message, database),
+        attachments: sealAttachments(
+          ownerId,
+          message.metadata.attachments,
+          database,
+        ),
         provenance: {
           agentId: authorship.agentId,
           agentName: authorship.agentName,
