@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useShellCapabilities } from "./ShellCapabilities";
-import { SettingsPill, SettingsRow } from "./SettingsUI";
+import { SettingsPill, SettingsRow, SettingsSegmented } from "./SettingsUI";
 import type { SettingsPage } from "./settings-pages";
 import type { Agent, Connection } from "../shared/types";
 
@@ -150,22 +150,16 @@ export function SettingsHome({
         aria-labelledby="appearance-label"
       >
         <h3 id="appearance-label">Appearance</h3>
-        <div
-          className="drawer-segmented"
-          role="group"
-          aria-labelledby="appearance-label"
-        >
-          {(["system", "light", "dark"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={theme === value}
-              onClick={() => onTheme(value)}
-            >
-              {value[0].toUpperCase() + value.slice(1)}
-            </button>
-          ))}
-        </div>
+        <SettingsSegmented
+          labelledBy="appearance-label"
+          value={theme}
+          options={[
+            { id: "system", label: "System" },
+            { id: "light", label: "Light" },
+            { id: "dark", label: "Dark" },
+          ]}
+          onChange={onTheme}
+        />
       </section>
       <section className="settings-navigation" aria-labelledby="settings-more">
         <h3 id="settings-more">More</h3>
