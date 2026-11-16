@@ -14,19 +14,10 @@ const trace = vi.hoisted(() => ({
 }));
 vi.mock("better-sqlite3", async (load) => {
   const original = await load<{ default: typeof import("better-sqlite3") }>();
+  const { traceDatabase } = await import("./helpers/sql-trace");
   return {
     ...original,
-    default: new Proxy(original.default, {
-      construct(Database, [filename, options]) {
-        return new Database(filename, {
-          ...options,
-          verbose(sql: string) {
-            options?.verbose?.(sql);
-            trace.observe?.(sql);
-          },
-        });
-      },
-    }),
+    default: traceDatabase(original.default, (sql) => trace.observe?.(sql)),
   };
 });
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
