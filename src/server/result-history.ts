@@ -20,7 +20,9 @@ import * as resultsQueries from "./sql/results.js";
 // transaction, so concurrent API and worker startups serialize on it. None
 // launches a model, reruns work or replays an external effect.
 // Answers from releases without Results are sealed with the live publication
-// policy and marked `migrated_backfill`, with an unknown publication placement.
+// policy and marked `migrated_backfill`. Their placement is the folder the run
+// recorded, or unknown when it recorded none (the conversation's current
+// folder is not evidence of where it ran).
 
 const AuthorEvidenceSchema = z.object({
   agentId: z.string().nullable(),
