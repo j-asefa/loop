@@ -5,22 +5,18 @@ export function failNextTokenCompletion() {
   failNext = true;
 }
 
-// Install before the production query cache is populated. Fault injection
-// targets one execution, whether its statement is new or already cached.
+// A connection-local trigger faults the stored transition, including cached
+// statements. The JS flag stays consumed when SQLite rolls the write back.
 export function installTokenCompletionHook(db: Database.Database) {
-  const prepare = db.prepare.bind(db);
-  db.prepare = ((sql: string) => {
-    const statement = prepare(sql);
-    if (sql.includes("UPDATE token_requests SET state='complete'")) {
-      const run = statement.run.bind(statement);
-      statement.run = (...args: unknown[]) => {
-        if (failNext) {
-          failNext = false;
-          throw new Error("Fixture crash before receipt completion");
-        }
-        return run(...args);
-      };
+  db.function("fixture_token_completion", () => {
+    if (failNext) {
+      failNext = false;
+      throw new Error("Fixture crash before receipt completion");
     }
-    return statement;
-  }) as typeof db.prepare;
+    return null;
+  });
+  db.exec(`CREATE TEMP TRIGGER fixture_token_completion
+    BEFORE UPDATE OF state ON main.token_requests
+    WHEN NEW.state='complete'
+    BEGIN SELECT fixture_token_completion(); END`);
 }
