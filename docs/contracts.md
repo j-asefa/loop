@@ -7,10 +7,10 @@ Every workspace, Cards and fleet API route is declared as a contract; the host's
 Canonical example: the webhook contracts in [webhook-routes.ts](../src/shared/webhook-routes.ts), their handlers in [server/webhook-routes.ts](../src/server/webhook-routes.ts), and the actual-HTTP test pattern in [memory-route-contracts.test.ts](../test/memory-route-contracts.test.ts).
 
 1. Declare the endpoint in the feature's `src/shared/<feature>-routes.ts` with `endpoint({ ...base, operation, method, path, params, query, body, response })`. Do not import `workspace-api.ts` from a feature module.
-2. For a new feature module, spread its routes into `workspaceRoutes` in [workspace-api.ts](../src/shared/workspace-api.ts), and add each new `operation` to the pinned list in [workspace-operation-contracts.test.ts](../test/workspace-operation-contracts.test.ts).
+2. Add each new `operation` to the pinned list in [workspace-operation-contracts.test.ts](../test/workspace-operation-contracts.test.ts). For a new feature module, also spread its routes into `workspaceRoutes` in [workspace-api.ts](../src/shared/workspace-api.ts).
 3. Handle it with `registrar("<name>")` and `routes.on(workspaceApi.<key>, …)`, taking the owner from `res.locals.owner`, and mount the registrar in [index.ts](../src/server/index.ts). Do not send a storage row; send a `Public*` projection.
 4. Run `npm run openapi` to regenerate `docs/openapi.json`.
-5. Add one actual-HTTP test at the production `app` on an isolated database, creating rows through production write paths. Do not use literal response fixtures.
+5. Add one actual-HTTP test at the production `app` on an isolated database, creating the rows the route returns through production write paths; prerequisite setup such as a connection may be inserted directly, as the example test does. Do not use literal response fixtures.
 
 If a step can't be followed, say which and why in the PR instead of working around it.
 
