@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { CopyButton } from "./CopyButton";
 import { downloadText } from "./downloadText";
 import { assertNever } from "../shared/assert-never";
 import { parse } from "./json";
@@ -407,12 +408,10 @@ export function ArtifactViewer({
                 <Download size={16} />
                 Download
               </button>
-              <button
-                onClick={() => navigator.clipboard.writeText(target.content)}
-              >
+              <CopyButton text={target.content}>
                 <Copy size={16} />
                 Copy
-              </button>
+              </CopyButton>
               <button onClick={() => setEditing(!editing)}>
                 <Code size={16} />
                 {editing ? "Preview" : "Edit"}
