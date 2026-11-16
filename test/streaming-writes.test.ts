@@ -5,6 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
+const trace = vi.hoisted(() => ({ executed: 0 }));
+vi.mock("better-sqlite3", async (load) => {
+  const original = await load<{ default: typeof import("better-sqlite3") }>();
+  const { traceDatabase } = await import("./helpers/sql-trace");
+  return {
+    ...original,
+    default: traceDatabase(original.default, () => trace.executed++),
+  };
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-streaming-writes-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -17,19 +26,7 @@ const { withTestAdapter } = await import("../src/server/providers");
 const { runPreview } = await import("../src/server/run-preview");
 const { feed } = await import("../src/server/mobile-return");
 
-let executed = 0;
 const prepare = db.prepare.bind(db);
-db.prepare = ((sql: string) => {
-  const statement = prepare(sql) as any;
-  for (const method of ["run", "get", "all", "iterate"] as const) {
-    const original = statement[method].bind(statement);
-    statement[method] = (...args: unknown[]) => {
-      executed++;
-      return original(...args);
-    };
-  }
-  return statement;
-}) as typeof db.prepare;
 
 const chunks = ["Streaming ", "one ", "answer ", "in ", "pieces."];
 const observed: {
@@ -55,12 +52,12 @@ const restore = withTestAdapter("openai", {
         JOIN feed_revisions r ON r.object_id=a.id AND r.entity='artifact'
         WHERE a.run_id=?`).get(runId);
       indexed ??= snapshot();
-      const before = executed;
+      const before = trace.executed;
       yield { text };
       // Fast chunks stay in memory. A 250ms batch makes exactly the same
       // prefix available to snapshots and events, then requests more tokens.
       if (index === 1 || index === 3) await vi.advanceTimersByTimeAsync(250);
-      const after = executed;
+      const after = trace.executed;
       expect(snapshot()).toEqual(indexed);
       const { artifact } = runPreview(db, "alice", runId);
       const stored = prepare(

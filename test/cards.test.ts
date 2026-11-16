@@ -16,27 +16,23 @@ import {
   CardChangesSchema,
   type CardSelection,
 } from "../src/shared/cards";
+const trace = vi.hoisted(() => ({
+  observe: undefined as ((sql: string) => void) | undefined,
+}));
+vi.mock("better-sqlite3", async (load) => {
+  const original = await load<{ default: typeof import("better-sqlite3") }>();
+  const { traceDatabase } = await import("./helpers/sql-trace");
+  return {
+    ...original,
+    default: traceDatabase(original.default, (sql) => trace.observe?.(sql)),
+  };
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-cards-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db } = await import("../src/server/db");
-// Observe executions so cached lazy statements participate in the same probes.
 const prepare = db.prepare.bind(db);
-let observeAll:
-  | ((sql: string, args: unknown[], read: () => unknown[]) => unknown[])
-  | undefined;
-db.prepare = ((sql: string) => {
-  const statement = prepare(sql);
-  if (
-    sql.startsWith("WITH card_projects(") ||
-    sql.includes("WITH RECURSIVE scope(id)")
-  ) {
-    const all = statement.all.bind(statement);
-    statement.all = (...args: unknown[]) =>
-      observeAll ? observeAll(sql, args, () => all(...args)) : all(...args);
-  }
-  return statement;
-}) as typeof db.prepare;
+const folderQueries = await import("../src/server/sql/folders");
 const cardReaders = await import("../src/server/cards");
 const { sealSeededHistory } = await import("./helpers/published-history");
 // Rows seeded with SQL are released history; it is sealed before each read.
@@ -416,23 +412,15 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
   setSaved("targeted", "targeted-message", true);
   const saved = listCards("targeted", { view: "saved" });
   const results = listCards("targeted", {});
-  const plans: string[][] = [];
-  observeAll = (sql, args, read) => {
-    if (sql.startsWith("WITH card_projects("))
-      plans.push(
-        (
-          prepare("EXPLAIN QUERY PLAN " + sql).all(...args) as {
-            detail: string;
-          }[]
-        ).map((row) => row.detail),
-      );
-    return read();
+  const queries: string[] = [];
+  trace.observe = (sql) => {
+    if (sql.startsWith("WITH card_projects(")) queries.push(sql);
   };
   try {
     expect(cardChanges("targeted", { after: results.revision }).items).toEqual(
       [],
     );
-    expect(plans).toHaveLength(0);
+    expect(queries).toHaveLength(0);
     cardDetail("targeted", "a:" + artifact);
     cardDetail("targeted", "m:targeted-message");
     db.prepare("UPDATE artifacts SET content='Changed' WHERE id=?").run(
@@ -443,6 +431,12 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
     ).run();
     cardChanges("targeted", { after: results.revision });
     cardChanges("targeted", { view: "saved", after: saved.revision });
+    trace.observe = undefined;
+    const plans = queries.map((sql) =>
+      (prepare("EXPLAIN QUERY PLAN " + sql).all() as { detail: string }[]).map(
+        (row) => row.detail,
+      ),
+    );
     expect(plans.length).toBeGreaterThanOrEqual(5);
     for (const plan of plans) {
       expect(
@@ -455,7 +449,7 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
       ).toBe(false);
     }
   } finally {
-    observeAll = undefined;
+    trace.observe = undefined;
   }
 });
 
@@ -883,9 +877,11 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
       "UPDATE artifacts SET content='Changed before folder move' WHERE id=?",
     ).run(id);
     let interleaved = false;
-    observeAll = (sql, _args, read) => {
-      const folders = read();
-      if (sql.includes("WITH RECURSIVE scope(id)")) {
+    const readFolders = folderQueries.descendants;
+    const observation = vi
+      .spyOn(folderQueries, "descendants")
+      .mockImplementation((...args) => {
+        const folders = readFolders(...args);
         if (!interleaved) {
           interleaved = true;
           const writer = spawnSync(
@@ -905,9 +901,8 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
           );
           expect(writer.status, writer.stderr).toBe(0);
         }
-      }
-      return folders;
-    };
+        return folders;
+      });
     try {
       if (scenario.startsWith("list")) {
         const page = listCards(owner, selection);
@@ -925,7 +920,7 @@ it.each(["list-out", "list-in", "changes-out", "changes-in"])(
         cache.revision = delta.revision;
       }
     } finally {
-      observeAll = undefined;
+      observation.mockRestore();
     }
     expect(interleaved).toBe(true);
     expectCurrent(owner, selection, cache);
