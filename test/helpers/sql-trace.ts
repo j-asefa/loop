@@ -3,7 +3,7 @@ import type SqliteDatabase from "better-sqlite3";
 /** Observe actual executions through SQLite's public logger, including cached statements. */
 export function traceDatabase(
   Database: typeof SqliteDatabase,
-  observe: (sql: string) => void,
+  observe: (sql: string, filename: unknown) => void,
 ) {
   return new Proxy(Database, {
     construct(Constructor, [filename, options]) {
@@ -11,7 +11,7 @@ export function traceDatabase(
         ...options,
         verbose(sql: string) {
           options?.verbose?.(sql);
-          observe(sql);
+          observe(sql, filename);
         },
       });
     },
