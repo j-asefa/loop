@@ -420,23 +420,26 @@ it("parses pathological markup in linear time", () => {
   // for busy CI machines.
   const twoMegabytes = (open: string, repeated: string, close = "") =>
     open + repeated.repeat(2_000_000 / repeated.length) + close;
-  for (const document of [
-    twoMegabytes("<rss><channel>", "<item><title>x</title>"),
-    twoMegabytes("<feed>", "<entry><title>x</title>"),
-    twoMegabytes("<rss><channel>", "<!--"),
-    twoMegabytes("<feed><entry>", "<link "),
-    twoMegabytes("<rss><channel><item><title>", "<![CDATA["),
-    twoMegabytes(
-      "<rss><channel><item><link>https://x.example/</link><title>t</title><author>",
-      "a@",
-      " x</author></item>",
-    ),
-  ]) {
+  for (const [document, expectedStories] of [
+    [twoMegabytes("<rss><channel>", "<item><title>x</title>"), []],
+    [twoMegabytes("<feed>", "<entry><title>x</title>"), []],
+    [twoMegabytes("<rss><channel>", "<!--"), []],
+    [twoMegabytes("<feed><entry>", "<link "), []],
+    [twoMegabytes("<rss><channel><item><title>", "<![CDATA["), []],
+    [
+      twoMegabytes(
+        "<rss><channel><item><link>https://x.example/</link><title>t</title><author>",
+        "a@",
+        " x</author></item>",
+      ),
+      [expect.objectContaining({ title: "t", url: "https://x.example/" })],
+    ],
+  ] as const) {
     const started = performance.now();
-    try {
-      parseFeed(document, "https://x.example/feed");
-    } catch {}
-    expect(performance.now() - started).toBeLessThan(2000);
+    const parsed = parseFeed(document, "https://x.example/feed");
+    const elapsed = performance.now() - started;
+    expect(parsed.stories).toEqual(expectedStories);
+    expect(elapsed).toBeLessThan(2000);
   }
   // Only the first hundred items are read, so stories after a hundred
   // unusable items are never reached.
