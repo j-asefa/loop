@@ -22,6 +22,22 @@ Worktrees live under the repository’s Git common directory in `loop-agent-work
 
 The [harness descriptor](../src/shared/harnesses.ts) owns discovery and policy facts, including activity transport, launch permission support and CLI sign-in commands, domains and response mode. The provider schema is derived from its provider identities plus API providers. The adapter and workspace-tool tables are exhaustive for their descriptor subsets; fixtures tie live steering to the adapter method. `Adapter.capabilities` remains adapter-owned: native discovery persists and returns it, and ACP uses its resume flag during startup.
 
+## Instruction files
+
+Only the root [AGENTS.md](../AGENTS.md) reaches every harness that reads instruction files, so every pattern is reachable from it in one hop. Nested files add pointers for the harnesses that load them. Agents start in the worktree root, or in a project subdirectory of it.
+
+| Harness | Read at start | Read when a file is touched | Source |
+| ------- | ------------- | --------------------------- | ------ |
+| Claude Code | `CLAUDE.md` and `CLAUDE.local.md` in the launch directory and above; `AGENTS.md` only when neither exists. The root `CLAUDE.md` imports `AGENTS.md`. | A subdirectory's `CLAUDE.md` (Loop's nested ones import the `AGENTS.md` beside them) and `.claude/rules/` files whose `paths:` match | [Claude Code memory docs](https://code.claude.com/docs/en/memory) |
+| Codex | `AGENTS.md` from the repository root down to the launch directory; not `CLAUDE.md` | None | Observation with codex-cli 0.167.0 on 2026-11-16 |
+| Pi | The first of `AGENTS.override.md`, `AGENTS.md` or `CLAUDE.md` in the agent directory and in each ancestor of the project | None | [pi-customization-files.ts](../src/server/pi-customization-files.ts) |
+| Antigravity | `AGENTS.md` and `GEMINI.md` in the launch directory and above; not `CLAUDE.md` | None observed | Observation with agy 1.5.9 on 2026-11-16 |
+| OpenCode | Unverified | Unverified | — |
+| Muse Code | None observed in `muse exec` | None observed | Observation with Muse Code 1.4.14 on 2026-11-16 |
+| Grok Build | None observed in `grok -p` | None observed | Observation with grok 1.0.70 on 2026-11-16 |
+
+The observations asked each CLI, in a scratch repository holding marker words in `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and a nested `sub/AGENTS.md`, to list the markers it had been given, from the root and from `sub/`. They describe those versions on one machine, not a vendor contract.
+
 ## Native behavior and billing
 
 Harnesses own their context, tools, configuration and credential homes. Available integrations depend on the native interface; see each harness below. Loop invokes their native protocols and adds pairing, durable work, approvals, files and team communication. It does not take over a live terminal session. Project selection is not shell confinement: native processes have their OS user's access.

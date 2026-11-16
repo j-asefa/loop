@@ -6,6 +6,7 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 | -------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Host operation or deployment                       | [Server operation](docs/server.md)                                         | —                                                         |
 | CLI, harness discovery or native launcher          | [Harnesses](docs/harnesses.md)                                             | —                                                         |
+| Instruction files each harness loads               | [Instruction files](docs/harnesses.md#instruction-files)                   | —                                                         |
 | Device authentication, tunnels or reconnect        | [Pairing](docs/pairing.md)                                                 | —                                                         |
 | Runtime routing, persistence, activities or memory | [Architecture](docs/architecture.md)                                       | —                                                         |
 | A state, transition or writer of a stateful record | [State machines](docs/state-machines.md)                                   | [run-state.ts](src/shared/run-state.ts)                   |
