@@ -7,6 +7,13 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "loop-decision-indexes-"));
 process.env.LOOP_DATA_DIR = dir;
 const { db, id } = await import("../src/server/db");
+const cleanupQueries = await import("../src/server/sql/native-decisions");
+const {
+  finishPendingRunSql,
+  finishPendingGenerationSql,
+  finishPendingSql,
+  finishDecidingSql,
+} = cleanupQueries;
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
@@ -79,29 +86,35 @@ it("uses indexed cleanup at real turn, disposal and recovery boundaries without 
   const deciding = decision(target, "deciding");
   const otherPending = decision(other, "pending");
   const indexes = new Set<string>();
-  const prepare = db.prepare.bind(db);
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    const statement = prepare(sql);
-    if (/^\s*UPDATE native_decisions SET state=\?/.test(sql)) {
-      const run = statement.run.bind(statement);
-      statement.run = (...params: unknown[]) => {
-        const plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...params) as {
-          detail: string;
-        }[];
-        expect(
-          plan.some((row) => /SCAN native_decisions/.test(row.detail)),
-        ).toBe(false);
-        for (const row of plan) {
-          const index = /USING (?:COVERING )?INDEX (native_decisions_\w+)/.exec(
-            row.detail,
-          )?.[1];
-          if (index) indexes.add(index);
-        }
-        return run(...params);
-      };
+  for (const [sql, params] of [
+    [finishPendingRunSql, ["expired", target.run.id, "expired"]],
+    [
+      finishPendingGenerationSql,
+      ["expired", target.run.conversation_id, "fixture", "expired"],
+    ],
+    [finishPendingSql, ["expired", "expired"]],
+    [finishDecidingSql, ["unknown", "unknown"]],
+  ] as const) {
+    const plan = db.prepare("EXPLAIN QUERY PLAN " + sql).all(...params) as {
+      detail: string;
+    }[];
+    expect(plan.length).toBeGreaterThan(0);
+    expect(plan.map((row) => row.detail).join("\n")).not.toMatch(
+      /SCAN native_decisions/,
+    );
+    for (const row of plan) {
+      const index = /USING (?:COVERING )?INDEX (native_decisions_\w+)/.exec(
+        row.detail,
+      )?.[1];
+      if (index) indexes.add(index);
     }
-    return statement;
-  });
+  }
+  const cleanupCalls = [
+    vi.spyOn(cleanupQueries, "finishPendingRun"),
+    vi.spyOn(cleanupQueries, "finishPendingGeneration"),
+    vi.spyOn(cleanupQueries, "finishPending"),
+    vi.spyOn(cleanupQueries, "finishDeciding"),
+  ];
   try {
     target.sessions.projector.event(target.live, {
       type: "status",
@@ -136,7 +149,8 @@ it("uses indexed cleanup at real turn, disposal and recovery boundaries without 
         "native_decisions_state_generation",
       ]),
     );
+    for (const call of cleanupCalls) expect(call).toHaveBeenCalled();
   } finally {
-    spy.mockRestore();
+    for (const call of cleanupCalls) call.mockRestore();
   }
 });

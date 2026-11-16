@@ -158,9 +158,9 @@ export function finishRequest(
     .immediate();
 }
 
-const finishPendingRunStatement = statement(
-  "UPDATE native_decisions SET state=? WHERE (run_id=? AND state='pending') AND state<>?\n",
-);
+export const finishPendingRunSql =
+  "UPDATE native_decisions SET state=? WHERE (run_id=? AND state='pending') AND state<>?\n";
+const finishPendingRunStatement = statement(finishPendingRunSql);
 export function finishPendingRun(
   db: Database.Database,
   state: "resolved" | "expired" | "unknown",
@@ -171,9 +171,9 @@ export function finishPendingRun(
     .immediate();
 }
 
-const finishPendingGenerationStatement = statement(
-  "UPDATE native_decisions SET state=? WHERE (conversation_id=? AND generation=? AND state='pending') AND state<>?\n",
-);
+export const finishPendingGenerationSql =
+  "UPDATE native_decisions SET state=? WHERE (conversation_id=? AND generation=? AND state='pending') AND state<>?\n";
+const finishPendingGenerationStatement = statement(finishPendingGenerationSql);
 export function finishPendingGeneration(
   db: Database.Database,
   state: "resolved" | "expired" | "unknown",
@@ -192,9 +192,9 @@ export function finishPendingGeneration(
     .immediate();
 }
 
-const finishPendingStatement = statement(
-  "UPDATE native_decisions SET state=? WHERE (state='pending') AND state<>?\n",
-);
+export const finishPendingSql =
+  "UPDATE native_decisions SET state=? WHERE (state='pending') AND state<>?\n";
+const finishPendingStatement = statement(finishPendingSql);
 export function finishPending(
   db: Database.Database,
   state: "resolved" | "expired" | "unknown",
@@ -204,9 +204,9 @@ export function finishPending(
     .immediate();
 }
 
-const finishDecidingStatement = statement(
-  "UPDATE native_decisions SET state=? WHERE (state='deciding') AND state<>?\n",
-);
+export const finishDecidingSql =
+  "UPDATE native_decisions SET state=? WHERE (state='deciding') AND state<>?\n";
+const finishDecidingStatement = statement(finishDecidingSql);
 export function finishDeciding(
   db: Database.Database,
   state: "resolved" | "expired" | "unknown",
