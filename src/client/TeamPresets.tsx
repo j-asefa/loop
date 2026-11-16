@@ -1,3 +1,4 @@
+import { ConnectionModelPicker } from "./ConnectionModelPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
@@ -106,44 +107,22 @@ export function PresetTeamForm({
     return (
       <fieldset>
         <legend>{label}</legend>
-        <label>
-          Connection
-          <select
-            aria-label={`${label} connection`}
-            value={value.connectionId}
-            onChange={(e) => {
-              const c = available.find((c) => c.id === e.target.value);
-              change({
-                connectionId: parseId(ConnectionId, c?.id || ""),
-                model: models(c)[0]?.id || "",
-              });
-            }}
-          >
-            <option value="">Choose a connection</option>
-            {available.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Model
-          <select
-            aria-label={`${label} model`}
-            value={value.model}
-            onChange={(e) => change({ ...value, model: e.target.value })}
-          >
-            <option value="">Choose a model</option>
-            {models(available.find((c) => c.id === value.connectionId)).map(
-              (m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.id}
-                </option>
-              ),
-            )}
-          </select>
-        </label>
+        <ConnectionModelPicker
+          connections={available}
+          connection={value.connectionId}
+          models={models(available.find((c) => c.id === value.connectionId))}
+          model={value.model}
+          connectionAriaLabel={`${label} connection`}
+          modelAriaLabel={`${label} model`}
+          onConnection={(id) => {
+            const c = available.find((c) => c.id === id);
+            change({
+              connectionId: parseId(ConnectionId, c?.id || ""),
+              model: models(c)[0]?.id || "",
+            });
+          }}
+          onModel={(model) => change({ ...value, model })}
+        />
       </fieldset>
     );
   }
