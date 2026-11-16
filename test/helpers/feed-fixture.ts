@@ -8,16 +8,33 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
+import { vi } from "vitest";
+
+const trace = vi.hoisted(() => ({
+  counted: 0,
+  database: undefined as string | undefined,
+}));
+vi.mock("better-sqlite3", async (load) => {
+  const original = await load<{ default: typeof import("better-sqlite3") }>();
+  const { traceDatabase } = await import("./sql-trace");
+  return {
+    ...original,
+    default: traceDatabase(original.default, (_sql, filename) => {
+      if (trace.database !== undefined && filename === trace.database)
+        trace.counted++;
+    }),
+  };
+});
+
 export const OWNER = "owner-feed";
 /** The fixed "now" every response is computed against. */
 export const NOW = 1_800_000_000_000;
 const HOUR = 3_600_000;
 
-let counted = 0;
-/** SQL statement executions (run/get/all/iterate) since the last reset. */
-export const statements = () => counted;
+/** Actual SQLite statement executions on the fixture connection since reset. */
+export const statements = () => trace.counted;
 export const resetStatements = () => {
-  counted = 0;
+  trace.counted = 0;
 };
 
 export async function createFeedFixture() {
@@ -27,7 +44,7 @@ export async function createFeedFixture() {
   const { db } = await import("../../src/server/db");
   const { sealUnpublishedAnswers } =
     await import("../../src/server/result-history");
-  countStatements(db);
+  trace.database = db.name;
   seed(db);
   // The seeded rows are history as released builds stored it, before
   // Results existed; an upgrade seals that history through this same path.
@@ -36,25 +53,11 @@ export async function createFeedFixture() {
   return {
     db,
     close() {
+      trace.database = undefined;
       db.close();
       rmSync(dir, { recursive: true, force: true });
     },
   };
-}
-
-function countStatements(db: import("better-sqlite3").Database) {
-  const prepare = db.prepare.bind(db);
-  db.prepare = ((sql: string) => {
-    const statement = prepare(sql) as any;
-    for (const method of ["run", "get", "all", "iterate"] as const) {
-      const original = statement[method].bind(statement);
-      statement[method] = (...args: unknown[]) => {
-        counted++;
-        return original(...args);
-      };
-    }
-    return statement;
-  }) as typeof db.prepare;
 }
 
 function seed(db: import("better-sqlite3").Database) {
