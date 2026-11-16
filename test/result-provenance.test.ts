@@ -437,18 +437,18 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
              ('owner-b-fa7', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Standalone', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-imp"}', 22),
              ('owner-b-fa5', 'owner-b', 'owner-b-fork', NULL, 'assistant', 'Loose', '{"sourceConversation":"owner-b-src","sourceMessage":"owner-b-loose"}', 20);
     `);
-    for (const [message, agent, name] of [
-      ["owner-b-fa3", "owner-b-author", "Author"],
-      ["owner-b-fa4", "owner-b-dest", "Destination"],
+    for (const [message, agent, name, parent] of [
+      ["owner-b-fa3", "owner-b-author", "Author", "message:owner-b-fa2"],
+      ["owner-b-fa4", "owner-b-dest", "Destination", "message:owner-b-fa3"],
       // Only the source conversation's current agent could contradict this
       // one, and that assignment can change.
-      ["owner-b-fa5", "owner-b-dest", "Destination"],
+      ["owner-b-fa5", "owner-b-dest", "Destination", "message:owner-b-fa4"],
       // Its source is a version 1 imported answer whose message is gone, so
       // that Result may itself have been a copy and settles nothing.
-      ["owner-b-fa6", "owner-b-dest", "Destination"],
+      ["owner-b-fa6", "owner-b-dest", "Destination", "message:owner-b-fa5"],
       // Its source's version 1 Result took its author from a conversation
       // setting, so it does not establish the author either.
-      ["owner-b-fa7", "owner-b-dest", "Destination"],
+      ["owner-b-fa7", "owner-b-dest", "Destination", "message:owner-b-fa6"],
     ]) {
       earlier
         .prepare(
@@ -460,10 +460,10 @@ it("flags, without rewriting, copies that a 247-era build sealed with the destin
              json_object('agentId',@agent,'agentName',@name,'provider',NULL,'model',NULL,'resolvedModel',NULL,'connectionId',NULL,
                'conversationId','owner-b-fork','runId',NULL,'messageId',@message,
                'placement',json_object('status','unknown','folderId',NULL,'projectId',NULL,'projectName',NULL,'teamId',NULL)),
-             json_object('parentResultId',NULL,'triggerMessageId',NULL,'suppliedContext',json('[]'))
+             json_object('parentResultId',@parent,'triggerMessageId',NULL,'suppliedContext',json('[]'))
            FROM messages m WHERE m.id=@message`,
         )
-        .run({ message, agent, name });
+        .run({ message, agent, name, parent });
     }
     earlier.exec(`
       INSERT INTO results(id, owner_id, schema_version, kind, origin_completeness, sealed, created_at, conversation_id, run_id, message_id, agent_id, content_digest, stimulus, outcome, attachments, provenance, lineage)

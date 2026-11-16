@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CanonicalResult } from "../shared/result.js";
 import {
   copiedAnswerEvidence,
+  importedStimulusResolver,
   publishHistoricalConversationResults,
 } from "./result-publication.js";
 import * as resultDefectsQueries from "./sql/result-defects.js";
@@ -32,12 +33,35 @@ export const CopyAttributionEvidenceSchema = z.object({
   }),
 });
 
+// The question recorded for an imported answer versus the one its export
+// branch identifies; `none` means the branch has no question.
+export const ImportStimulusEvidenceSchema = z.object({
+  recordedSourceMessageId: z.string().nullable(),
+  branch: z.enum(["question", "none"]),
+  branchSourceMessageId: z.string().nullable(),
+});
+
+// The predecessor recorded for an imported answer versus the latest Result
+// published before it in the canonical sequence.
+export const SequencePredecessorEvidenceSchema = z.object({
+  recordedParentResultId: z.string().nullable(),
+  sequenceParentResultId: z.string().nullable(),
+});
+
 // Each finding kind declares the evidence it stores; kinds are listed in
 // ResultDefectKindSchema.
 const StoredDefectSchema = z.discriminatedUnion("defect", [
   z.object({
     defect: z.literal("copy_attribution"),
     evidence: CopyAttributionEvidenceSchema,
+  }),
+  z.object({
+    defect: z.literal("import_stimulus"),
+    evidence: ImportStimulusEvidenceSchema,
+  }),
+  z.object({
+    defect: z.literal("sequence_predecessor"),
+    evidence: SequencePredecessorEvidenceSchema,
   }),
 ]);
 export type ResultDefect = z.infer<typeof StoredDefectSchema> & {
@@ -110,6 +134,80 @@ const passes: Pass[] = [
       }
     },
   },
+  {
+    // Builds before branch-aware stimulus took an imported answer's question
+    // from the chronologically latest user message, which in a branched
+    // export can belong to another branch.
+    name: "detect-import-stimulus",
+    appliesTo: "existing",
+    run: (database, at) => {
+      const resolvers = new Map<
+        string,
+        ReturnType<typeof importedStimulusResolver>
+      >();
+      for (const result of resultsQueries.branchedImportedResults(database)) {
+        const key = `${result.ownerId}\u001f${result.provenance.conversationId}`;
+        let resolve = resolvers.get(key);
+        if (!resolve) {
+          resolve = importedStimulusResolver(
+            result.ownerId,
+            result.provenance.conversationId,
+            database,
+          );
+          resolvers.set(key, resolve);
+        }
+        const message = resultsQueries.messageById(
+          database,
+          result.ownerId,
+          result.provenance.messageId,
+        );
+        if (!message) continue;
+        const branch = resolve(message);
+        // A branch that cannot be followed establishes nothing about the
+        // recorded question.
+        if (branch.kind === "unknown") continue;
+        const branchSourceMessageId =
+          branch.kind === "question" ? branch.message.id : null;
+        if (branchSourceMessageId === result.stimulus.sourceMessageId) continue;
+        recordDefect(database, findingTarget(result), at, {
+          defect: "import_stimulus",
+          evidence: {
+            recordedSourceMessageId: result.stimulus.sourceMessageId,
+            branch: branch.kind,
+            branchSourceMessageId,
+          },
+        });
+      }
+    },
+  },
+  {
+    // Builds before the cross-kind sequence chained an appended imported
+    // answer to the previous imported answer, skipping intervening runs.
+    name: "detect-import-sequence",
+    appliesTo: "existing",
+    run: (database, at) => {
+      for (const row of resultsQueries.importedSequence(database)) {
+        if (row.recorded === row.expected) continue;
+        recordDefect(
+          database,
+          {
+            ownerId: row.owner_id,
+            resultId: row.id,
+            conversationId: row.conversation_id,
+            kind: "imported_answer",
+          },
+          at,
+          {
+            defect: "sequence_predecessor",
+            evidence: {
+              recordedParentResultId: row.recorded,
+              sequenceParentResultId: row.expected,
+            },
+          },
+        );
+      }
+    },
+  },
 ];
 
 function author(p: {
@@ -148,7 +246,7 @@ function detectCopyAttribution(
   if (source.agentId === result.provenance.agentId) return;
   const recorded = author(result.provenance);
   const evidence = author(source);
-  recordDefect(database, result, at, {
+  recordDefect(database, findingTarget(result), at, {
     defect: "copy_attribution",
     evidence: {
       recorded,
@@ -162,27 +260,43 @@ function detectCopyAttribution(
   });
 }
 
+type FindingTarget = {
+  ownerId: string;
+  resultId: string;
+  conversationId: string;
+  kind: CanonicalResult["kind"];
+};
+
+function findingTarget(result: CanonicalResult): FindingTarget {
+  return {
+    ownerId: result.ownerId,
+    resultId: result.id,
+    conversationId: result.provenance.conversationId,
+    kind: result.kind,
+  };
+}
+
 function recordDefect(
   database: Database.Database,
-  result: CanonicalResult,
+  target: FindingTarget,
   at: number,
   finding: z.input<typeof StoredDefectSchema>,
 ) {
   const parsed = StoredDefectSchema.parse(finding);
   const inserted = resultDefectsQueries.insert(database, {
-    ownerId: result.ownerId,
-    resultId: result.id,
+    ownerId: target.ownerId,
+    resultId: target.resultId,
     defect: parsed.defect,
     evidence: JSON.stringify(parsed.evidence),
     detectedAt: at,
   });
   // Done cards present findings, so their projection is rebuilt.
-  if (inserted.changes > 0 && result.kind !== "steering_reply") {
+  if (inserted.changes > 0 && target.kind !== "steering_reply") {
     resultsQueries.markFeedCardDirty(
       database,
-      result.ownerId,
-      result.provenance.conversationId,
-      result.id,
+      target.ownerId,
+      target.conversationId,
+      target.resultId,
     );
   }
 }

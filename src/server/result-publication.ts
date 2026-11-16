@@ -301,14 +301,23 @@ function externalImportProvider(origin: string): string | null {
 // An imported answer's question is the nearest user message on its own
 // branch. OpenAI exports keep every branch with parent node pointers, so the
 // chronologically latest question can belong to a different branch. Walking
-// the pointers finds the right one; dropped nodes (tool calls) are bridged
-// through their stored parent's `children`. Messages without parent pointers,
-// or whose chain cannot be followed, keep the chronological rule.
-function importedStimulusResolver(
+// the pointers finds the right one; a dropped node (a tool call) is bridged
+// through its stored parent's `children`. Parent pointers name provider node
+// IDs, which can differ from message IDs. Formats without parent pointers are
+// linear and keep their documented order: the latest earlier question. A
+// branch whose chain cannot be followed (a missing node, a cycle, or several
+// consecutive dropped nodes) has an unknown question; it never borrows
+// another branch's.
+export type ImportedStimulus =
+  | { kind: "question"; message: SnapshotMessage }
+  | { kind: "none" }
+  | { kind: "unknown" };
+
+export function importedStimulusResolver(
   ownerId: string,
   conversationId: string,
   database: Database.Database,
-): (message: SnapshotMessage) => SnapshotMessage | undefined {
+): (message: SnapshotMessage) => ImportedStimulus {
   let index: {
     byNode: Map<string, SnapshotMessage>;
     storedParentOf: Map<string, string>;
@@ -330,9 +339,7 @@ function importedStimulusResolver(
         readNonEmptyString(rawRecord?.nodeId) ||
         readNonEmptyString(m.metadata.externalId);
       if (!nodeId) continue;
-      byNode.set(nodeId, m);
-      const externalId = readNonEmptyString(m.metadata.externalId);
-      if (externalId && !byNode.has(externalId)) byNode.set(externalId, m);
+      if (!byNode.has(nodeId)) byNode.set(nodeId, m);
       const children = rawRecord?.children;
       if (Array.isArray(children)) {
         for (const child of children) {
@@ -344,33 +351,39 @@ function importedStimulusResolver(
     }
     return { byNode, storedParentOf };
   };
-  const chronological = (message: SnapshotMessage) =>
-    resultsQueries.precedingStandaloneUserMessage(
-      database,
-      ownerId,
-      conversationId,
-      message.id,
-    );
   return (message) => {
-    if (message.metadata.parent === undefined) return chronological(message);
+    if (message.metadata.parent === undefined) {
+      const previous = resultsQueries.precedingStandaloneUserMessage(
+        database,
+        ownerId,
+        conversationId,
+        message.id,
+      );
+      return previous
+        ? { kind: "question", message: previous }
+        : { kind: "none" };
+    }
     index ??= build();
     const seen = new Set<string>();
     let current = message.metadata.parent;
     while (current) {
-      if (seen.has(current)) return chronological(message);
+      if (seen.has(current)) return { kind: "unknown" };
       seen.add(current);
       const node = index.byNode.get(current);
       if (node) {
-        if (node.role === "user") return node;
-        current = node.metadata.parent ?? null;
+        if (node.role === "user") return { kind: "question", message: node };
+        // Stored nodes from a format without pointers cannot be walked.
+        if (node.metadata.parent === undefined) return { kind: "unknown" };
+        current = node.metadata.parent;
         continue;
       }
-      const bridged = index.storedParentOf.get(current);
-      if (!bridged) return chronological(message);
-      current = bridged;
+      // A dropped node is bridged when its stored parent names it as a child.
+      const parent = index.storedParentOf.get(current);
+      if (!parent) return { kind: "unknown" };
+      current = parent;
     }
     // The branch root was reached without a question.
-    return undefined;
+    return { kind: "none" };
   };
 }
 
@@ -966,7 +979,8 @@ function publishStandaloneAnswers(
       published.push(parseCanonicalResult(existing));
       continue;
     }
-    const prompt = stimulusFor(message);
+    const stimulus = stimulusFor(message);
+    const prompt = stimulus.kind === "question" ? stimulus.message : null;
     const promptText = prompt?.content ?? null;
     const promptId = prompt?.id ?? null;
     const createdAt = Math.max(0, Math.trunc(message.created_at));
@@ -1012,7 +1026,7 @@ function publishStandaloneAnswers(
             : "user_prompt",
           text: promptText,
           sourceMessageId: promptId,
-          authorKind: "owner",
+          authorKind: stimulus.kind === "unknown" ? "unknown" : "owner",
           automationKind: null,
           automationFrom: null,
         },
