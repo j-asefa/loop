@@ -22,8 +22,9 @@ import {
 // Tabs share this storage, so a thread keeps one receipt per distinct message
 // (its signature), not one per thread: sending another message, from this tab
 // or another, never replaces a different message's uncertain receipt.
-// Settlement removes only the entry it sent. Older receipts written to
-// any storage backend by earlier builds are not migrated (AGENTS.md fresh-install policy).
+// Settlement removes only the entry it sent. Receipts that released versions
+// wrote (v0.1.0 onward use this key and shape) must stay readable (AGENTS.md);
+// receipts from pre-release builds are not migrated.
 
 const EMPTY: SendReceipt = { signature: "", key: "", unquoted: false };
 const MAX_RECEIPTS = 20;
