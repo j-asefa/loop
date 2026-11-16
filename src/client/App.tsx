@@ -1,3 +1,5 @@
+import { capabilities } from "./capabilities";
+import { ShellCapabilitiesProvider } from "./ShellCapabilities";
 import { OwnerSessionBoundary } from "./app/OwnerSessionBoundary";
 import type { AppNavigationInitial } from "./app/Navigation";
 import { useAppController } from "./app/AppController";
@@ -8,9 +10,11 @@ import "./design.css";
 
 export default function App() {
   return (
-    <OwnerSessionBoundary>
-      {(initial) => <WorkspaceApp initial={initial} />}
-    </OwnerSessionBoundary>
+    <ShellCapabilitiesProvider value={capabilities}>
+      <OwnerSessionBoundary>
+        {(initial) => <WorkspaceApp initial={initial} />}
+      </OwnerSessionBoundary>
+    </ShellCapabilitiesProvider>
   );
 }
 

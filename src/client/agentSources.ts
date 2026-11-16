@@ -17,7 +17,7 @@ import type {
 } from "../shared/types";
 import { parse } from "./json";
 import { retryAfter } from "./api";
-import { capabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import type { Capabilities } from "../shared/capabilities";
 import { executionSourceId } from "./sourceRouting";
 import { connectionLocation } from "./modelChoices";
@@ -131,6 +131,7 @@ export function useAgentSources(
   owner: string | undefined,
   current: CurrentData,
 ) {
+  const capabilities = useShellCapabilities();
   const currentSourceId = AgentSourceId.parse(executionSourceId());
   const localName = !currentSourceId
     ? current.environmentName || laptop.name

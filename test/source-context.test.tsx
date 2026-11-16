@@ -22,6 +22,36 @@ import {
 import { loopFileUrl } from "../src/client/FilePreview";
 import { RichText } from "../src/client/components";
 import { PublishedFile } from "../src/client/PublishedFiles";
+import { ShellCapabilitiesProvider } from "../src/client/ShellCapabilities";
+
+it("isolates shell capability snapshots and keeps explicit source capabilities authoritative", () => {
+  function Controls() {
+    const capabilities = useSourceCapabilities();
+    return (
+      <output>{capabilities.pairedDevices ? "devices" : "no devices"}</output>
+    );
+  }
+  const withDevices = { ...workspaceCapabilities(), pairedDevices: true };
+  const withoutDevices = { ...workspaceCapabilities(), pairedDevices: false };
+  const shell = (value: typeof withDevices) =>
+    renderToStaticMarkup(
+      <ShellCapabilitiesProvider value={value}>
+        <Controls />
+      </ShellCapabilitiesProvider>,
+    );
+  expect(shell(withDevices)).toBe("<output>devices</output>");
+  expect(shell(withoutDevices)).toBe("<output>no devices</output>");
+  expect(shell(withDevices)).toBe("<output>devices</output>");
+  expect(
+    renderToStaticMarkup(
+      <ShellCapabilitiesProvider value={withDevices}>
+        <SourceProvider sourceId="docker:linked" capabilities={withoutDevices}>
+          <Controls />
+        </SourceProvider>
+      </ShellCapabilitiesProvider>,
+    ),
+  ).toBe("<output>no devices</output>");
+});
 
 const server = { ...workspaceCapabilities(), pairedDevices: false };
 afterEach(() => {

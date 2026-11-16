@@ -2,6 +2,7 @@ import type { AppModel } from "./AppController";
 
 export type AppViewProps = Pick<
   AppModel,
+  | "shellCapabilities"
   | "editingFolder"
   | "editFolder"
   | "bootstrapOwner"

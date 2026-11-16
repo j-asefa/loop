@@ -1,4 +1,4 @@
-import { capabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import { PairedDevices } from "./PairedDevices";
 import { AddMachineButton } from "./AddMachineButton";
 import { useFleet } from "./FleetContext";
@@ -45,6 +45,7 @@ function CompanionRuntimeHosts({ onClose }: { onClose: () => void }) {
 }
 
 export function RuntimeHosts({ onClose }: { onClose: () => void }) {
+  const capabilities = useShellCapabilities();
   return capabilities.pairedDevices ? (
     <CompanionRuntimeHosts onClose={onClose} />
   ) : null;

@@ -4,7 +4,7 @@ import {
 } from "./fleetCapabilities";
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { ReadMode } from "./read-executor";
-import { capabilities as shellCapabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import type { Capabilities } from "../shared/capabilities";
 import { useCollectionRead } from "./CollectionRead";
@@ -43,6 +43,7 @@ export function useSourceId() {
   return useContext(SourceContext)?.sourceId ?? executionSourceId();
 }
 export function useSourceCapabilities() {
+  const shellCapabilities = useShellCapabilities();
   return useContext(SourceContext)?.capabilities ?? shellCapabilities;
 }
 export function useSourceOperation(contract: RouteContract) {

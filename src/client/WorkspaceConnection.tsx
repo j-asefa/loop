@@ -7,7 +7,7 @@ import { watchWorkspaceEvents } from "./workspace-events";
 import { publishProjectionFrame } from "./workspace-projections";
 import { WorkspaceChangeQueue } from "./workspace-changes";
 import type { WorkspaceEvent } from "../shared/workspace-events";
-import { capabilities } from "./capabilities";
+import { useShellCapabilities } from "./ShellCapabilities";
 import { multiplexWorkspaceSocket } from "./workspace-multiplex";
 import { executionSourceId, sourceApiPathAt } from "./sourceRouting";
 import {
@@ -32,6 +32,7 @@ export function WorkspaceConnection({
   sources: { id: string }[];
   stopRef: RefObject<() => void>;
 }) {
+  const capabilities = useShellCapabilities();
   const [status, setStatus] = useState("Connecting to workspace…");
   const sourceKey = JSON.stringify(
     [...new Set(["", executionSourceId(), ...sources.map((s) => s.id)])].sort(),
