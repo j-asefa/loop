@@ -19,6 +19,11 @@ import * as resultsQueries from "./sql/results.js";
 // finding beside the original. Passes run once each, inside the migration
 // transaction, so concurrent API and worker startups serialize on it. None
 // launches a model, reruns work or replays an external effect.
+// Answers from releases without Results are sealed with the live publication
+// policy and marked `migrated_backfill`. Each publish path records placement
+// only from evidence it holds (a run's recorded folder, a copy's source) and
+// otherwise leaves it unknown; the conversation's current folder is never
+// used as evidence of where an answer ran.
 
 const AuthorEvidenceSchema = z.object({
   agentId: z.string().nullable(),

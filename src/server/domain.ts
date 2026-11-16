@@ -104,6 +104,11 @@ export function ownedRun(recordId: string, owner: string) {
 export function ownedRunNotice(recordId: string, owner: string) {
   return requireOwned(runsQueries.ownedNotice(db, recordId, owner));
 }
+// Control actions (cancellation, dismissal, approval rejection, revocation,
+// native interruption) use owner-checked control fields like these rather than
+// the full payload, so they work on a run whose payload is invalid without
+// executing or repairing it. Resuming or retrying saved work still requires
+// ownedRun's validated row.
 export function ownedRunControl(recordId: string, owner: string) {
   return requireOwned(runsQueries.ownedControl(db, recordId, owner));
 }
