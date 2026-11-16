@@ -6,8 +6,6 @@ import { ownedConversation } from "../domain.js";
 import { contains } from "./shared.js";
 import { conversationReturnState } from "./reading-position.js";
 
-// ---------------------------------------------------------------------------
-// 4. Outline
 type OutlineItem = {
   message_id: string;
   kind: "prompt" | "result" | "approval" | "failure" | "saved";

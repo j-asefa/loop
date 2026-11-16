@@ -233,8 +233,6 @@ const handlers: Handlers = {
     nativeSessions.pi.piPackageAction(agent(agentId), action, source, scope),
 };
 
-/** The sole owner of live sessions, tool tickets, sign-ins, upgrades and the
- * scheduler. PR 8a invokes it in-process through the same validated wire data. */
 class ExecutionAuthority {
   readonly generation = executionGeneration() ?? randomUUID();
   private state: "starting" | "ready" | "stopping" | "disconnected" = "ready";
@@ -419,6 +417,6 @@ class ExecutionAuthority {
   }
 }
 
-// In 8a there is one in-process authority. The process activation changes the
-// transport, not the objects it owns or the operations its routes may invoke.
+// Process activation changes the transport, not the objects this authority
+// owns or the operations its routes may invoke.
 export const executionAuthority = new ExecutionAuthority();

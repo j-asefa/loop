@@ -24,8 +24,6 @@ import {
   withEffect,
 } from "../effect-authority.js";
 
-// ---------------------------------------------------------------------------
-// 6. Scheduled sends
 const MAX_PENDING_SENDS = 100;
 const MONTH = 30 * 24 * 60 * 60 * 1000;
 type ScheduledSend = {

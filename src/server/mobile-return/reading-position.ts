@@ -5,9 +5,6 @@ import { PositionInput } from "../../shared/mobile-contract-schemas.js";
 import { db, now } from "../db.js";
 import { ownedConversation, Problem } from "../domain.js";
 
-// ---------------------------------------------------------------------------
-// 1. Reading position
-// Where you stopped reading a thread, so reopening it continues from there.
 function readingPosition(owner: string, conversation: string) {
   return (
     conversationPositionsQueries.position(db, owner, conversation)

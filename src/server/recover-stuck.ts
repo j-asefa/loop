@@ -6,7 +6,7 @@ import { transition, RunIdentity } from "./queue.js";
 
 // An approval or tool invocation left 'executing' by a crashed worker becomes
 // 'unknown' once its run is no longer actively executing (recovered or ended),
-// so the stored state reflects the uncertain outcome (#355 S1). A completing
+// so the stored state reflects the uncertain outcome. A completing
 // call is harmless whether it wins or loses the race (its result overwrites).
 // Runs once at worker startup, after the stale-run recovery, not every tick.
 export function sweepLeftoverToolCalls() {
@@ -31,7 +31,7 @@ export function sweepLeftoverToolCalls() {
 
 // A non-native run stuck in 'awaiting_approval' with only expired pending
 // approvals leaves it (marked failed) so it stops holding the agent's queue
-// and the Feed stops hiding the approval (#355 S2). The call is never run.
+// and the Feed stops hiding the approval. The call is never run.
 // Runs on each tick, but only matches runs awaiting_approval with an expired,
 // nothing-actionable approval; it rechecks each run inside the same
 // transaction as the fail so a concurrent approve is never overwritten.

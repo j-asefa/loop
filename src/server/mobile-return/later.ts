@@ -13,9 +13,6 @@ import { savedStory } from "../news.js";
 import { feedCardTitle } from "../feed-card-display.js";
 import { projectFor } from "./shared.js";
 
-// A conversation's folder: its recorded project, else its latest run's folder.
-// ---------------------------------------------------------------------------
-// 5. Later
 type LaterItem = {
   id: string;
   owner_id: string;
