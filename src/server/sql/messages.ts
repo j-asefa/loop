@@ -525,9 +525,9 @@ export function upsertConversationUpdate(
     : parseRecord(upsertConversationUpdateRow, row, "messages");
 }
 
-const memoryCandidatesStatement =
-  statement(`SELECT m.*,c.project_id,c.title,c.agent_id,r.state FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN runs r ON r.id=m.run_id
-      WHERE m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (r.state IN ('completed','failed','cancelled') OR m.run_id IS NULL) AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.owner_id=m.owner_id AND s.kind='message' AND s.source_id=m.id AND s.updated_at>=m.created_at AND s.content_hash IS NOT NULL AND s.content=m.content) LIMIT 250`);
+export const memoryCandidatesSql = `SELECT m.*,c.project_id,c.title,c.agent_id,r.state FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN runs r ON r.id=m.run_id
+      WHERE m.role IN ('user','assistant') AND json_extract(m.metadata,'$.progress') IS NOT 1 AND ${READABLE_MAIL_SQL} AND (r.state IN ('completed','failed','cancelled') OR m.run_id IS NULL) AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.owner_id=m.owner_id AND s.kind='message' AND s.source_id=m.id AND s.updated_at>=m.created_at AND s.content_hash IS NOT NULL AND s.content=m.content) LIMIT 250`;
+const memoryCandidatesStatement = statement(memoryCandidatesSql);
 const memoryCandidatesRow = QueryRecords.messages.extend({
   project_id: z.string().nullable(),
   title: z.string(),

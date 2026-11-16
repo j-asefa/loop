@@ -8,6 +8,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-memory-capture-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const memoryQueries = await import("../src/server/sql/messages");
 const { captureMemory } = await import("../src/server/memory");
 
 afterAll(() => {
@@ -27,23 +28,15 @@ function message(owner: string, content: string) {
   return message;
 }
 
-// The query module prepares once per connection; retain the captured SQL for
-// subsequent query-plan assertions against this same fixture connection.
-let query = "";
 function captureQuery() {
-  const prepare = db.prepare.bind(db);
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    if (sql.includes("SELECT m.*") && sql.includes("FROM memory_sources s"))
-      query = sql;
-    return prepare(sql);
-  });
+  const spy = vi.spyOn(memoryQueries, "memoryCandidates");
   try {
     captureMemory();
+    expect(spy).toHaveBeenCalledTimes(1);
   } finally {
     spy.mockRestore();
   }
-  expect(query).not.toBe("");
-  return query;
+  return memoryQueries.memoryCandidatesSql;
 }
 const plan = (query: string) =>
   (db.prepare("EXPLAIN QUERY PLAN " + query).all() as { detail: string }[])
@@ -105,7 +98,10 @@ it("does not let another owner's saved source suppress capture", () => {
 });
 
 it("can add the lookup index before restart and migrate without rewriting existing sources", () => {
-  const legacy = captureQuery().replace("s.owner_id=m.owner_id AND ", "");
+  const current = captureQuery();
+  // Migration 111 also supports the owner-unqualified lookup used before it.
+  const legacy = current.replace("s.owner_id=m.owner_id AND ", "");
+  expect(legacy).not.toBe(current);
   const before = db.prepare("SELECT * FROM memory_sources ORDER BY id").all();
   db.exec(
     "DROP INDEX memory_sources_capture; DELETE FROM schema_version WHERE version=111",
