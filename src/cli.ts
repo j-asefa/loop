@@ -1438,6 +1438,8 @@ export async function startCommand(
         : { ...preferences.billing, [selected]: billing },
     });
   if (running) {
+    // Repair the running workspace's connection before refusing a conflicting
+    // start, so a refused start still leaves the workspace reachable.
     await recoverConnection(dir, root, connection, running, tunnelMode, deps);
     if (runningRefusal) throw runningRefusal;
     if (neutral) {
