@@ -1,3 +1,11 @@
+// Typed readers for saved rows. Each persisted execution payload and JSON
+// metadata column is validated once, keeping owner predicates. New records and
+// update patches are strict, and saved execution payloads reject unknown
+// fields; metadata readers keep extra fields that imported content uses while
+// rejecting malformed identity, routing, permission and credential fields.
+// Execution projects known fields into new output and leaves the saved
+// historical payload intact. An invalid record fails closed with its table,
+// row ID and column (InvalidRow); readers never repair it.
 import {
   RowId as Id,
   RunRecord,

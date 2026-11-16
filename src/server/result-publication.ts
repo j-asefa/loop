@@ -386,6 +386,10 @@ export function importedStimulusResolver(
   };
 }
 
+// Lineage parent is the chronological predecessor: the latest sealed Result of
+// any kind in the conversation created no later than this one, independent of
+// stimulus and supplied context. Earlier history imported later starts its own
+// link, and sealed successors keep theirs.
 function chainParent(
   ownerId: string,
   conversationId: string,
@@ -426,6 +430,8 @@ export function publishResult(
   return database
     .transaction((): CanonicalResult => {
       const existing = resultsQueries.byId(database, parsed.ownerId, parsed.id);
+      // Sealing is idempotent for identical facts; reusing the identity with
+      // different content is refused.
       if (existing) {
         if (existing.sealed === 1) {
           if (existing.content_digest === contentDigest) {
