@@ -17,6 +17,7 @@ export async function cardsFixture(
     nodeEnv?: "test" | "production";
     relay?: boolean;
     webhookReceiver?: string;
+    resultReadRace?: boolean;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
@@ -25,9 +26,11 @@ export async function cardsFixture(
     spawn(
       process.execPath,
       [
+        ...(options.webhookReceiver || options.resultReadRace
+          ? ["--experimental-test-module-mocks"]
+          : []),
         ...(options.webhookReceiver
           ? [
-              "--experimental-test-module-mocks",
               "--import",
               fileURLToPath(
                 new URL("../fixtures/webhook-network.mjs", import.meta.url),
@@ -52,6 +55,7 @@ export async function cardsFixture(
           LOOP_TEST_CARDS_SOURCE: typeof compiled === "string" ? compiled : "",
           LOOP_TEST_CARDS_RELAY: options.relay ? "1" : "0",
           LOOP_TEST_WEBHOOK_RECEIVER: options.webhookReceiver || "",
+          LOOP_TEST_RESULTS_READ_RACE: options.resultReadRace ? "1" : "0",
           NODE_ENV: options.nodeEnv ?? "test",
           TEST: options.nodeEnv === "production" ? "" : process.env.TEST,
           LOOP_ENCRYPTION_KEY: encryptionKey,

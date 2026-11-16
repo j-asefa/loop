@@ -12,10 +12,13 @@ import { join } from "node:path";
 const source =
   process.env.LOOP_TEST_CARDS_SOURCE ||
   (process.env.LOOP_TEST_CARDS_COMPILED === "1" ? "../../dist/" : "../../src/");
+if (process.env.LOOP_TEST_RESULTS_READ_RACE === "1")
+  await installResultReadHook(
+    new URL(source + "server/sql/feed-revisions.js", import.meta.url),
+  );
 const { config } = await import(source + "server/config.js");
 const { db, changes } = await import(source + "server/db.js");
 installTokenCompletionHook(db);
-installResultReadHook(db);
 const { seal } = await import(source + "server/secrets.js");
 let close: () => Promise<void>;
 let origin: string;
