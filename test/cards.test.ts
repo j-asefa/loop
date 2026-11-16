@@ -11,6 +11,10 @@ import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import express from "express";
 import {
+  triggerPrograms,
+  triggerIndexSearches,
+} from "./helpers/trigger-programs";
+import {
   CardSchema,
   CardPageSchema,
   CardChangesSchema,
@@ -1347,12 +1351,23 @@ it("keeps provider model aliases owner-scoped and reconciles their catalog depen
     "UPDATE connections SET owner_id='model-labels' WHERE id='model-account'",
   ).run();
   check("Claude Opus 5.8");
-  const plan = db
-    .prepare(
-      "EXPLAIN QUERY PLAN SELECT a.id FROM artifacts a WHERE a.owner_id=? AND json_extract(a.metadata,'$.connectionId')=?",
-    )
-    .all("model-labels", "model-account");
-  expect(JSON.stringify(plan)).toContain("card_artifact_model_connection");
+  const programs = triggerPrograms(
+    db,
+    "UPDATE connections SET models=? WHERE id=?",
+    catalog("5-9"),
+    "model-account",
+  );
+  for (const name of [
+    "card_reader_connections_update_old",
+    "card_reader_connections_update_new",
+  ]) {
+    const program = programs.get(name);
+    expect(program, name).toBeDefined();
+    expect(triggerIndexSearches(db, program!), name).toContainEqual({
+      index: "card_artifact_model_connection",
+      keys: 2,
+    });
+  }
 });
 
 it("invalidates partial Saved display changes without revising every body chunk", () => {
