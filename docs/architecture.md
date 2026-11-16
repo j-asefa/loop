@@ -683,9 +683,9 @@ Canonical example: `executionCommand` in [execution-commands.ts](../src/server/e
 
 1. Give the effect a durable identity the caller supplies (a command ID, or `request_id` for integration writes) and keep it across client retries and reloads.
 2. In one `.immediate()` transaction, look up an existing receipt for that owner and identity, and record intent if there is none. Do not dispatch before that transaction commits.
-3. Store the owner and the current generation on the receipt. An unfinished prior receipt returns the uncertain outcome instead of running again; a decision tied to a session also refuses a different generation.
+3. Scope the receipt to the owner. An unfinished prior receipt returns the uncertain outcome instead of running again. For an effect bound to a live session, also store the current generation and refuse a different one; integration-write receipts have no generation and replay their completed result.
 4. After dispatch, record completion or `unknown`. Only an explicit pre-dispatch refusal (`ExecutionRefused`) releases the identity for retry. Do not resubmit an unknown effect automatically; the caller inspects current state.
-5. Core callers reach effects through [effect-authority.ts](../src/server/effect-authority.ts). Add a regression that fails after dispatch and asserts the production retry or recovery caller does not dispatch again.
+5. Record run, steering and scheduled-work effects through [effect-authority.ts](../src/server/effect-authority.ts), never its fleet implementation. Add a regression that fails after dispatch and asserts the production retry or recovery caller does not dispatch again.
 
 Webhook delivery is a documented at-least-once exception with a stable delivery ID ([webhook deliveries](state-machines.md#webhook_deliveries-implicit)); don't copy it for other effects. If a step can't be followed, say which and why in the PR instead of working around it.
 
