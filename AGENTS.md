@@ -45,3 +45,5 @@ Reviewers should identify the relevant evidence in the diff and PR:
 | Verification claims | The PR records the submitted commit, commands, observed exits and relevant limitations. Fixture results are labelled separately from live provider, tunnel or device validation; a requested or timed-out review is not an approval. |
 
 State observations in PR descriptions: for example, “the fixture rejected an old generation” or “the command exited 0,” with the test or command that established it. Do not turn those observations into claims about untested providers or devices. The [development guide](docs/development.md#manual-verification) defines the required checks; review teams inspect snapshots and do not run them.
+
+Phrase a pattern finding as what is wrong (file and line), the repository's pattern, and the recipe or canonical example to follow. When a finding repeats one already fixed in an earlier PR, the fix also adds a recipe step, a narrow bound or a check message, and removes any guidance line the code no longer matches.
