@@ -48,7 +48,8 @@ import { AttachmentList, UploadButton } from "../Attachments";
 import { HarnessPicker } from "../HarnessPicker";
 import { VoiceButton } from "../Voice";
 import { RichText, Sheet } from "../components";
-import { ActionSheet, type useLongPress } from "../ThreadTools";
+import { ActionSheet } from "../components";
+import { type useLongPress } from "../gestures";
 import { agentModelName, effortName } from "../modelChoices";
 import { notify } from "../toast";
 import {

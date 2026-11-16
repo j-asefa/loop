@@ -50,7 +50,8 @@ import {
 } from "../shared/workspace-api";
 import { listenWorkspaceChanges } from "./workspace-changes";
 import { Sheet } from "./components";
-import { LaterSheet, undoReminder, useSwipe } from "./ThreadTools";
+import { LaterSheet, undoReminder } from "./ThreadTools";
+import { useSwipe } from "./gestures";
 import { notify } from "./toast";
 import { cacheView, cachedView, viewOwner, viewGeneration } from "./viewCache";
 import { relativeTime } from "./threadView";
