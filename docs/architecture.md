@@ -802,6 +802,6 @@ Canonical example: [sql/mcp-preferences.ts](../src/server/sql/mcp-preferences.ts
 2. Declare each query with `statement()` from [sql/statement.ts](../src/server/sql/statement.ts) and call it with the connection the caller supplies. Do not call `prepare` at module load or import `db` into the module.
 3. Take the owner as a parameter and filter by `owner_id` in the SQL when the table has one. Do not open transactions in the module; callers keep `.immediate()` and their ownership checks.
 4. Parse rows with `parseRecord` and `QueryRecords.<table>`, using `pick` or `extend` for partial and joined selections. For a new table, add its migration and `QueryRecords` entry; [row-schema-columns.test.ts](../test/row-schema-columns.test.ts) compares them.
-5. Import the module as a namespace (`import * as <table>Queries from "./sql/<table>.js"`) and test it through its production caller. The [SQL inventory](../test/sql-inventory.test.ts) must stay green.
+5. Import the module as a namespace by its path from the caller (`import * as <table>Queries from "./sql/<table>.js"` in `src/server/`, `"../sql/<table>.js"` one level down) and test it through its production caller. The [SQL inventory](../test/sql-inventory.test.ts) must stay green.
 
 If a step can't be followed, say which and why in the PR instead of working around it.
