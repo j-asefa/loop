@@ -56,6 +56,10 @@ export function spawnHarnessProcess(
 const HARNESS_STOP_GRACE_MS = 2500;
 const stops = new WeakMap<ChildProcess, Promise<void>>();
 
+// Disposal checks only the owned process group. A process in uninterruptible
+// sleep or running under credentials that block signals keeps it pending
+// indefinitely; a descendant that moved to another group is not covered.
+// Sending SIGKILL is not proof of termination.
 export function stopHarnessProcess(child?: ChildProcess): Promise<void> {
   if (!child?.pid) return Promise.resolve();
   const pending = stops.get(child);

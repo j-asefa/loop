@@ -70,6 +70,8 @@ type ReconcileInputs = {
   authStart: ExecutionInput<"auth.start">;
   authAttempt: ExecutionInput<"auth.input" | "auth.cancel">;
 };
+// A sign-in start reconciles by its originating command ID, so recovery
+// cannot mistake an older completed login for the requested account change.
 const reconcilers: {
   [
     K in NonNullable<(typeof executionOperations)[ExecutionMethod]["reconcile"]>
