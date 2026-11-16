@@ -1,6 +1,7 @@
-// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md, nested AGENTS.md or CLAUDE.md
-// files and .claude/rules/*.md) must only point at paths and heading anchors that exist: agents
-// follow a stale pointer instead of the code. Links come from the marked
+// Guidance files (AGENTS.md, CLAUDE.md, docs/*.md, nested AGENTS.md or
+// CLAUDE.md files and .claude/rules/*.md) must only point at paths and heading
+// anchors that exist, and stay small: agents follow a stale pointer instead of
+// the code, and read a whole file to reach one section. Links come from the marked
 // lexer (already a dependency), so code blocks, code spans, reference links
 // and setext headings follow CommonMark; external URLs are not fetched.
 import {
@@ -442,6 +443,54 @@ it("keeps every Claude rule's paths matching repository files", () => {
       .filter((file) => file.startsWith(".claude/rules/"))
       .flatMap((file) => deadRulePaths(repo, file)),
   ).toEqual([]);
+});
+
+// An agent reads a whole file to reach one section, and file readers cut very
+// long lines, so guidance pages stay small and prose lines stay short.
+// docs/sql-index.md is generated for grep and is exempt from the size limit.
+const maxGuidanceBytes = 40_000;
+const maxLineLength = 2_000;
+function oversizedGuidance(root: string, files: string[]): string[] {
+  return files.flatMap((file) => {
+    const text = readFileSync(join(root, file), "utf8");
+    const bytes = Buffer.byteLength(text);
+    const problems =
+      bytes > maxGuidanceBytes && file !== "docs/sql-index.md"
+        ? [
+            `${file} is ${bytes} bytes; guidance pages stay under ${maxGuidanceBytes} (about 10k tokens). Move whole sections to their own page and leave a pointer under each old heading, as docs/execution.md was split from docs/architecture.md.`,
+          ]
+        : [];
+    const lines = text.split("\n");
+    const code = new Set<number>();
+    let fenced = false;
+    lines.forEach((line, index) => {
+      if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+      else if (fenced) code.add(index);
+    });
+    lines.forEach((line, index) => {
+      if (line.length > maxLineLength && !code.has(index))
+        problems.push(
+          `${file}:${index + 1} is ${line.length} characters; file readers truncate long lines. Break the paragraph at sentence boundaries (Markdown joins the lines).`,
+        );
+    });
+    return problems;
+  });
+}
+
+it("reports oversized guidance pages and long prose lines", () => {
+  const root = fixture({
+    "AGENTS.md": "a".repeat(2001) + "\n```\n" + "b".repeat(2001) + "\n```\n",
+    "docs/big.md": "x\n".repeat(20_001),
+    "docs/sql-index.md": "y\n".repeat(20_001),
+  });
+  expect(oversizedGuidance(root, guidanceFiles(root))).toEqual([
+    "AGENTS.md:1 is 2001 characters; file readers truncate long lines. Break the paragraph at sentence boundaries (Markdown joins the lines).",
+    "docs/big.md is 40002 bytes; guidance pages stay under 40000 (about 10k tokens). Move whole sections to their own page and leave a pointer under each old heading, as docs/execution.md was split from docs/architecture.md.",
+  ]);
+});
+
+it("keeps every guidance page small and its prose lines short", () => {
+  expect(oversizedGuidance(repo, guidanceFiles(repo))).toEqual([]);
 });
 
 it("keeps every link and anchor in the repository's guidance files resolvable", () => {

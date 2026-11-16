@@ -13,7 +13,7 @@ The connection service delegates application lease ownership to
 post-probe ownership checks, heartbeat expiry and recoverable detachment. The
 service retains sockets, locks, relay and tunnel supervision. The registry
 publishes relay changes synchronously with its decisions; its clock and probe
-are dependencies. See the [lease state machine](state-machines.md#connection-backend-lease).
+are dependencies. See the [lease state machine](client-state-machines.md#connection-backend-lease).
 
 The typed [launch record](../src/launch-record.ts) owns workspace and connection
 launch settings, saved workspace launch validation and subprocess argument

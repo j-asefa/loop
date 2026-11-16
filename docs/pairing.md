@@ -66,14 +66,14 @@ The `directory/` endpoints exchange signed history and acknowledgements under
 existing local grants. The `handoff/` endpoints accept an old controller's exact
 signed transition and serve proof-bound receipts. Neither protocol grants a
 browser device session or permits a peer to choose a local owner. The authority
-and recovery rules are described in [architecture](architecture.md#source-map).
+and recovery rules are described in [fleet architecture](fleet-architecture.md).
 
 Peer clients contact bare public HTTPS origins through connection-time DNS
 validation. They verify the confirmed machine identity before transmitting the
 enrollment capability and refuse redirects. Requests and responses are bounded
 to 4 MiB; peer HTTP transport has a 15-second deadline and does not retry
 uncertain effects. The companion admits at most 16 incomplete protocol
-requests at a time, within the shared [browser/peer capacity budget](architecture.md#source-map).
+requests at a time, within the shared [browser/peer capacity budget](fleet-architecture.md).
 Its separate machine event socket uses events-scoped credentials, signed frames,
 bounded buffers and expiry/heartbeat closure. Browser cookies never authenticate
 that machine connection. The companion's local
