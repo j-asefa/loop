@@ -121,6 +121,11 @@ export const DoneDisplaySchema = z.object({
   // Recorded facts of this card's Result that retained evidence disputes.
   // Absent when there are none.
   result_findings: z.array(ResultDefectKindSchema).optional(),
+  // The project recorded when the Result was published, present only when
+  // it differs from the conversation's current project.
+  produced_in: z
+    .object({ project_id: ProjectId.nullable(), project_name: text })
+    .optional(),
   next_action: z
     .object({
       kind: z.literal("result"),

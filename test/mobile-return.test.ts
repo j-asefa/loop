@@ -13,6 +13,7 @@ const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now, emit } = await import("../src/server/db");
+const { sealSeededHistory } = await import("./helpers/published-history");
 // Observe executions, including statements cached by earlier HTTP requests.
 const prepare = db.prepare.bind(db);
 let observeDoneQuery: ((sql: string, args: unknown[]) => void) | undefined;
@@ -76,6 +77,7 @@ async function api(
   method = "GET",
   body?: unknown,
 ) {
+  if (method === "GET") sealSeededHistory(db);
   const response = await fetch(
     `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
     {
@@ -1012,7 +1014,7 @@ it("reads the production Done page and summary in one indexed projection query",
 });
 
 it.each(["run", "imported"])(
-  "updates indexed %s answer eligibility when message content or progress changes",
+  "keeps a published %s answer's Done card when its transcript message changes",
   async (kind) => {
     const w = workspaceFor(),
       a = w.agent();
@@ -1025,21 +1027,30 @@ it.each(["run", "imported"])(
       run(w.owner, a.id, cid),
     );
     const rid = kind === "run" ? run(w.owner, a.id, cid) : undefined;
-    const mid = message(w.owner, cid, "assistant", "\n\t", rid);
+    const mid = message(w.owner, cid, "assistant", "New answer", rid);
     const page = async () =>
       (await api(w.owner, "/feed?filter=done")).data.items;
-    expect(await page()).toHaveLength(1);
-    db.prepare("UPDATE messages SET content='New answer' WHERE id=?").run(mid);
     expect(await page()).toHaveLength(2);
-    db.prepare("UPDATE messages SET metadata=? WHERE id=?").run(
-      '{"progress":true}',
-      mid,
-    );
-    expect(await page()).toHaveLength(1);
-    db.prepare("UPDATE messages SET metadata='{}' WHERE id=?").run(mid);
-    expect(await page()).toHaveLength(2);
-    db.prepare("UPDATE messages SET content=? WHERE id=?").run("\n\t", mid);
-    expect(await page()).toHaveLength(1);
+    // Eligibility was decided when the answer was published; transcript
+    // edits neither withdraw nor rewrite it.
+    for (const change of [
+      ["metadata", '{"progress":true}'],
+      ["content", "\n\t"],
+      ["content", "Rewritten"],
+    ]) {
+      db.prepare(`UPDATE messages SET ${change[0]}=? WHERE id=?`).run(
+        change[1],
+        mid,
+      );
+      db.prepare(
+        "INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key) VALUES(?,?,'*')",
+      ).run(w.owner, cid);
+      const items = await page();
+      expect(items).toHaveLength(2);
+      expect(
+        items.some((item: any) => item.last_message?.content === "New answer"),
+      ).toBe(true);
+    }
   },
 );
 
@@ -1558,8 +1569,9 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
       run: { id: latest },
       last_message: { role: "assistant", content: "Pushed." },
     });
-  // A run without a prompt keeps the thread title.
-  db.prepare("UPDATE runs SET input='  ' WHERE id=?").run(latest);
+  // A run published without a prompt keeps the thread title.
+  const blank = run(w.owner, a.id, cid, "completed", { input: "  " });
+  message(w.owner, cid, "assistant", "Unprompted.", blank);
   expect((await card("done")).title).toBe(title);
 });
 

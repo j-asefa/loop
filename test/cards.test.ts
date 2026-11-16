@@ -37,8 +37,18 @@ db.prepare = ((sql: string) => {
   }
   return statement;
 }) as typeof db.prepare;
-const { listCards, cardDetail, cardChanges } =
-  await import("../src/server/cards");
+const cardReaders = await import("../src/server/cards");
+const { sealSeededHistory } = await import("./helpers/published-history");
+// Rows seeded with SQL are released history; it is sealed before each read.
+const sealed =
+  <A extends unknown[], R>(read: (...args: A) => R) =>
+  (...args: A): R => {
+    sealSeededHistory(db);
+    return read(...args);
+  };
+const listCards = sealed(cardReaders.listCards);
+const cardDetail = sealed(cardReaders.cardDetail);
+const cardChanges = sealed(cardReaders.cardChanges);
 const { setSaved, setSavedLabel, listSaved } =
   await import("../src/server/mobile-return");
 const { saveArtifact } = await import("../src/server/artifacts");
@@ -1488,13 +1498,18 @@ it("Done imports, ties, explicit Workspace and idle fallbacks converge", () => {
       project: "done-imports",
     }).items.map((i) => i.card.id),
   ).toEqual(["d:message:import-b", "d:message:import-a"]);
+  // Published Results stay published when their transcript rows and run
+  // state later change.
   db.prepare("DELETE FROM messages WHERE owner_id='done-imports'").run();
   db.prepare(
     "UPDATE runs SET state='cancelled' WHERE id='done-workspace'",
   ).run();
+  db.prepare(
+    "INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key) VALUES('done-imports','done-imports','*')",
+  ).run();
   expectCurrent("done-imports", { view: "done" }, cache);
-  expect(cache.items.size).toBe(1);
-  expect([...cache.items.values()][0].card.content).toBe("");
+  expect(cache.items.size).toBe(3);
+  expect(cache.items.get("d:message:import-a")!.card.content).toBe("Imported");
 });
 
 it("Done reconciles more than eighty newer results without losing loaded history", () => {
@@ -1762,7 +1777,7 @@ it("Done reconciles Workspace renames for ordinary folders outside its parent su
   expect(card.type === "done" && card.display.position_message_id).toBeNull();
 });
 
-it("Done revises eligible partial answers and preserves conversation-agent attribution", async () => {
+it("Done publishes answers whose stream was never marked final and attributes them to their sealed author", async () => {
   const owner = "done-partial-agent";
   setup(owner);
   db.prepare(
@@ -1775,17 +1790,19 @@ it("Done revises eligible partial answers and preserves conversation-agent attri
     "UPDATE runs SET agent_id='historical-agent' WHERE id='partial-run'",
   ).run();
   const cache = all(owner, { view: "done" });
+  const published = cache.items.get("d:run:partial-run")!.card.content;
+  expect(published).toBe("Body partial-run");
+  // Done shows the published answers; later transcript edits do not revise
+  // them.
   for (const id of ["partial-run", "partial-import"]) {
     db.prepare(
       "UPDATE messages SET content='Updated partial answer',metadata=json_set(metadata,'$.attachments',json('[]')) WHERE id=?",
     ).run(id);
   }
   expectCurrent(owner, { view: "done" }, cache);
-  expect(cache.items.get("d:run:partial-run")!.card.content).toBe(
-    "Updated partial answer",
-  );
+  expect(cache.items.get("d:run:partial-run")!.card.content).toBe(published);
   expect(cache.items.get("d:message:partial-import")!.card.content).toBe(
-    "Updated partial answer",
+    "Body partial-import",
   );
   expect(cache.items.get("d:message:partial-import")!.card.author).toEqual({
     kind: "unknown",
@@ -1794,13 +1811,16 @@ it("Done revises eligible partial answers and preserves conversation-agent attri
     provider: null,
   });
   const { feed } = await import("../src/server/mobile-return");
+  // Done attributes each Result to its sealed author: the run's agent, or
+  // the conversation's agent for a standalone answer.
   expect(
-    listCards(owner, { view: "done", agent: "historical-agent" }).items,
-  ).toHaveLength(0);
+    listCards(owner, { view: "done", agent: "historical-agent" }).items.map(
+      (e) => e.card.id,
+    ),
+  ).toEqual(["d:run:partial-run"]);
   const cards = listCards(owner, { view: "done", agent: owner }).items;
-  expect(cards.map((e) => e.card.source.agent_id)).toEqual(
-    cards.map(() => owner),
-  );
+  expect(cards.map((e) => e.card.id)).toEqual(["d:message:partial-import"]);
+  expect(cards.map((e) => e.card.source.agent_id)).toEqual([owner]);
   expect(
     cards.map((e) => e.card.type === "done" && e.card.display.done_card_key),
   ).toEqual(

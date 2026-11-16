@@ -25,8 +25,13 @@ export async function createFeedFixture() {
   process.env.LOOP_DATA_DIR = dir;
   process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
   const { db } = await import("../../src/server/db");
+  const { sealUnpublishedAnswers } =
+    await import("../../src/server/result-history");
   countStatements(db);
   seed(db);
+  // The seeded rows are history as released builds stored it, before
+  // Results existed; an upgrade seals that history through this same path.
+  db.transaction(() => sealUnpublishedAnswers(db)).immediate();
   resetStatements();
   return {
     db,

@@ -10,7 +10,16 @@ let readers: typeof import("../src/server/mobile-return");
 beforeAll(async () => {
   vi.spyOn(Date, "now").mockReturnValue(NOW);
   fixture = await createFeedFixture();
-  readers = await import("../src/server/mobile-return");
+  const module = await import("../src/server/mobile-return");
+  const { sealSeededHistory } = await import("./helpers/published-history");
+  // Rows this file seeds with SQL are released history, sealed before reads.
+  readers = {
+    ...module,
+    feed: (...args: Parameters<typeof module.feed>) => {
+      sealSeededHistory(fixture.db);
+      return module.feed(...args);
+    },
+  };
   app = await productionApp(OWNER);
 });
 afterAll(async () => {
@@ -19,6 +28,8 @@ afterAll(async () => {
   vi.restoreAllMocks();
 });
 async function equivalent() {
+  const { sealSeededHistory } = await import("./helpers/published-history");
+  sealSeededHistory(fixture.db);
   for (const filter of readers.FEED_FILTERS)
     for (const scope of [
       {},
@@ -485,7 +496,7 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
   await equivalent();
 }, 30_000);
 
-it("recreates an idle fallback when the last result becomes ineligible", async () => {
+it("keeps an idle fallback until an answer is published, then keeps its result", async () => {
   const { db } = fixture;
   db.transaction(() => {
     db.prepare(
@@ -501,19 +512,15 @@ it("recreates an idle fallback when the last result becomes ineligible", async (
         "SELECT kind FROM feed_cards WHERE conversation_id='projection-idle' ORDER BY kind",
       )
       .all();
-  expect(kinds()).toEqual([{ kind: "result" }, { kind: "thread" }]);
-  db.prepare(
-    "UPDATE messages SET metadata=json_object('progress',1) WHERE id='projection-idle'",
-  ).run();
+  // An answer without a sealed Result is not a published output.
   expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
-  await equivalent();
-  const done = readers.doneCardRows(OWNER, {
+  const idle = readers.doneCardRows(OWNER, {
     folders: null,
     teamIds: [],
     ids: ["d:message:projection-idle"],
     limit: 1,
   })[0]?.display;
-  expect(done).toMatchObject({
+  expect(idle).toMatchObject({
     done_card_key: "message:projection-idle",
     last_message: null,
   });
@@ -521,14 +528,16 @@ it("recreates an idle fallback when the last result becomes ineligible", async (
     "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,worker_id,created_at,updated_at) VALUES('projection-idle-work',?,'projection-idle','Working','running','projection-idle-work','fixture',3,3)",
   ).run(OWNER);
   expect(kinds()).toEqual([{ kind: "thread" }]);
-  await equivalent();
   db.prepare(
     "UPDATE runs SET state='cancelled' WHERE id='projection-idle-work'",
   ).run();
   expect(kinds()).toEqual([{ kind: "idle" }, { kind: "thread" }]);
+  // Sealing the answer replaces the idle fallback with its result.
   await equivalent();
+  expect(kinds()).toEqual([{ kind: "result" }, { kind: "thread" }]);
+  // Later transcript edits do not withdraw the published result.
   db.prepare(
-    "UPDATE messages SET metadata='{}' WHERE id='projection-idle'",
+    "UPDATE messages SET metadata=json_object('progress',1) WHERE id='projection-idle'",
   ).run();
   expect(kinds()).toEqual([{ kind: "result" }, { kind: "thread" }]);
   await equivalent();
@@ -579,7 +588,9 @@ it("bounds streamed thread display storage while preserving complete results and
   // Include the public 4000-UTF-16 live preview, Unicode message prefixes and
   // row context, while excluding the unbounded source text and metadata.
   expect(size).toBeLessThan(32_000);
+  const { sealSeededHistory } = await import("./helpers/published-history");
   const check = async () => {
+    sealSeededHistory(db);
     const options = { filter: "working" as const, agent: "agent-api" };
     const response = await app.fetch(
       "/api/feed?filter=working&agent=agent-api",
@@ -625,6 +636,7 @@ it("bounds streamed thread display storage while preserving complete results and
   db.prepare(
     "UPDATE runs SET state='completed',updated_at=updated_at+1 WHERE id=?",
   ).run(key);
+  sealSeededHistory(db);
   const options = {
     folders: null,
     teamIds: [],

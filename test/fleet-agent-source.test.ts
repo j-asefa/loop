@@ -70,6 +70,7 @@ const { FleetWorkspaceUploadHttpTransport } =
   await import("../src/server/fleet-workspace-upload-http.js");
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
+const { sealSeededHistory } = await import("./helpers/published-history");
 const { OWNER, nativeSessions } =
   await import("../src/server/native-sessions.js");
 const { closeExecution } = await import("../src/server/execution-client.js");
@@ -677,6 +678,10 @@ it("pages complete remote Done groups and destinations without crossing owners o
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Large group',1)",
   ).run(conversation, OWNER, agent);
   const content = "Complete result. ".repeat(1536);
+  // A small member count can still exceed the byte budget: the first three
+  // published answers are much larger than the rest.
+  const larger = content.repeat(25);
+  const body = (index: number) => (index < 3 ? larger : content) + index;
   const cards = Array.from({ length: 100 }, (_, index) => {
     const run = randomUUID();
     db.prepare(
@@ -684,9 +689,11 @@ it("pages complete remote Done groups and destinations without crossing owners o
     ).run(run, OWNER, agent, conversation, run, index + 1, index + 2);
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-    ).run(run, OWNER, conversation, run, content + index, index + 2);
+    ).run(run, OWNER, conversation, run, body(index), index + 2);
     return "d:run:" + run;
   });
+  // The seeded answers are published history.
+  sealSeededHistory(db);
   const created = await browser(
     prefix + "/feed/threads",
     "POST",
@@ -710,16 +717,9 @@ it("pages complete remote Done groups and destinations without crossing owners o
   expect(pageRequests.length).toBeGreaterThan(1);
   expect(detail.cards.map((card) => card.id)).toEqual(cards);
   expect(detail.cards.map((card) => card.content)).toEqual(
-    cards.map((_, index) => content + index),
+    cards.map((_, index) => body(index)),
   );
-  // A small member count can still exceed the byte budget. Preserve each
-  // complete card while stopping the page before that budget is crossed.
-  const larger = content.repeat(25);
-  for (let index = 0; index < 3; index++)
-    db.prepare("UPDATE messages SET content=? WHERE id=?").run(
-      larger + index,
-      cards[index].slice("d:run:".length),
-    );
+  // Each complete card is preserved while the page stops before the budget.
   const bytePage = await browser(prefix + `/feed/threads/${group}/page`);
   expect(bytePage.status).toBe(200);
   expect(bytePage.body.cards.length).toBeLessThan(20);
@@ -792,13 +792,34 @@ it("pages complete remote Done groups and destinations without crossing owners o
   );
   // One indivisible result cannot fit a page: preserve a bounded 413 through
   // the actual owning app, peer transport and paired gateway.
-  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
-    "x".repeat(DONE_THREAD_PAGE_BYTES),
-    cards[48].slice("d:run:".length),
-  );
-  const oversized = await browser(prefix + `/feed/threads/${group}/page`);
+  const huge = randomUUID(),
+    hugeGroup = randomUUID();
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Task','completed',?,200,201)",
+  ).run(huge, OWNER, agent, conversation, huge);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',201)",
+  ).run(huge, OWNER, conversation, huge, "x".repeat(DONE_THREAD_PAGE_BYTES));
+  sealSeededHistory(db);
+  // Grouping through the API would return the oversized card itself, so the
+  // membership is seeded directly.
+  db.prepare(
+    "INSERT INTO done_threads(id,owner_id,title,created_at) VALUES(?,?,'Oversized',1)",
+  ).run(hugeGroup, OWNER);
+  db.prepare(
+    "INSERT INTO done_thread_members(owner_id,card_id,thread_id,conversation_id) VALUES(?,?,?,?)",
+  ).run(OWNER, "d:run:" + huge, hugeGroup, conversation);
+  const oversized = await browser(prefix + `/feed/threads/${hugeGroup}/page`);
   expect(oversized.status).toBe(413);
   expect(Buffer.byteLength(JSON.stringify(oversized.body))).toBeLessThan(1024);
+  // Keep the oversized fixture result out of later Done pages.
+  db.prepare(
+    "INSERT INTO done_card_dismissals(owner_id,conversation_id,card_key,created_at) VALUES(?,?,?,1)",
+  ).run(OWNER, conversation, "run:" + huge);
+  db.prepare(
+    "INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key) VALUES(?,?,?)",
+  ).run(OWNER, conversation, "run:" + huge);
+  sealSeededHistory(db);
 }, 15_000);
 
 it("loads, pages and refreshes remote Done cards through the paired gateway without exposing another owner", async () => {
@@ -822,6 +843,8 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Fleet answer','{}',?)",
     ).run(id, account, id, id, at);
+    // The run's answer is published as its writer would.
+    sealSeededHistory(db);
     return id;
   }
   const older = completed(OWNER, agent, 10),
@@ -858,8 +881,12 @@ it("loads, pages and refreshes remote Done cards through the paired gateway with
   db.prepare(
     "UPDATE messages SET content='Updated fleet answer' WHERE id=?",
   ).run(newer);
+  // A refresh keeps the published answer, then picks up a newer Result.
+  const unchanged = await reader.load(request, selection, false);
+  expect(unchanged?.page.items[0].card.content).toBe("Fleet answer");
+  const newest = completed(OWNER, agent, 25);
   const updated = await reader.load(request, selection, false);
-  expect(updated?.page.items[0].card.content).toBe("Updated fleet answer");
+  expect(updated?.page.items[0].card.id).toBe("d:run:" + newest);
   const cards = contractCardReader(request);
   expect((await cards.detail("d:run:" + older)).content).toBe("Fleet answer");
   const all = await cards.list({ view: "done" });

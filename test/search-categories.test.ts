@@ -19,6 +19,7 @@ const directory = mkdtempSync(join(tmpdir(), "loop-search-categories-"));
 process.env.LOOP_DATA_DIR = directory;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
+const { sealSeededHistory } = await import("./helpers/published-history");
 const { workspace } = await import("../src/server/workspace-routes");
 const { ownedRun } = await import("../src/server/domain");
 const { publishReply, setReplyState } =
@@ -53,6 +54,8 @@ async function request(
   filters: Record<string, string> = {},
   q = "categoryneedle",
 ) {
+  // Answers this file completes with SQL are sealed as published history.
+  sealSeededHistory(db);
   const response = await fetch(
     `${origin}/api/search?${new URLSearchParams({ q, ...filters })}`,
     {

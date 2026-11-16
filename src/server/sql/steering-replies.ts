@@ -12,14 +12,15 @@ export type ReplyScope = {
 };
 const replyFolder =
   "CASE WHEN json_type(r.payload,'$.folderId') IS NOT NULL THEN json_extract(r.payload,'$.folderId') ELSE c.project_id END";
+// Replies are the sealed steering-reply Results; `steering_replies` holds
+// their read and archive state. A reply lists with the question it answered. Run and conversation rows supply current
+// organization and run state only.
 const replyScopeSql = `FROM steering_replies p
-  JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
-  JOIN run_steering s ON s.id=p.steering_id AND s.owner_id=p.owner_id
-  JOIN messages q ON q.id=s.message_id AND q.owner_id=p.owner_id
-  JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=p.owner_id
-  JOIN runs r ON r.id=m.run_id AND r.owner_id=p.owner_id
-  LEFT JOIN results res ON res.owner_id=p.owner_id AND res.id='reply:'||p.message_id AND res.sealed=1
+  JOIN results res ON res.owner_id=p.owner_id AND res.id='reply:'||p.message_id AND res.sealed=1
+  JOIN conversations c ON c.id=res.conversation_id AND c.owner_id=p.owner_id
+  JOIN runs r ON r.id=res.run_id AND r.owner_id=p.owner_id
   WHERE p.owner_id=@owner AND p.archived_at IS NULL
+    AND json_extract(res.stimulus,'$.sourceMessageId') IS NOT NULL
     AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
     AND (@agent IS NULL OR r.agent_id=@agent)
     AND (@folders IS NULL OR ${replyFolder} IN (SELECT value FROM json_each(@folders))
@@ -38,17 +39,17 @@ export function unread(db: Database.Database, params: ReplyScope) {
 }
 
 const pageStatement = statement(`SELECT p.message_id,p.created_at,p.read_at,
-    COALESCE(json_extract(res.stimulus,'$.sourceMessageId'),q.id) question_id,
-    substr(COALESCE(json_extract(res.stimulus,'$.text'),q.content),1,1000) question,
-    substr(COALESCE(json_extract(res.outcome,'$.body'),m.content),1,1000) content,
+    json_extract(res.stimulus,'$.sourceMessageId') question_id,
+    substr(COALESCE(json_extract(res.stimulus,'$.text'),''),1,1000) question,
+    substr(json_extract(res.outcome,'$.body'),1,1000) content,
     c.id conversation_id,c.title,c.origin,c.team_id,r.agent_id,
     ${replyFolder} folder_id,r.id run_id,r.state,r.error,r.input,r.created_at run_created_at,r.updated_at,
-    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.connectionId') ELSE json_extract(r.payload,'$.connectionId') END connection_id,
-    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.model') ELSE json_extract(r.payload,'$.model') END model,
-    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.resolvedModel') ELSE json_extract(r.payload,'$.resolvedModel') END resolved_model,
-    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.provider') ELSE json_extract(r.payload,'$.provider') END provider,
-    CASE WHEN res.sealed=1 THEN json_extract(res.provenance,'$.agentName') ELSE COALESCE(json_extract(r.payload,'$.name'),(SELECT name FROM agents WHERE id=r.agent_id AND owner_id=@owner)) END agent_name,
-    EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=m.id) saved
+    json_extract(res.provenance,'$.connectionId') connection_id,
+    json_extract(res.provenance,'$.model') model,
+    json_extract(res.provenance,'$.resolvedModel') resolved_model,
+    json_extract(res.provenance,'$.provider') provider,
+    json_extract(res.provenance,'$.agentName') agent_name,
+    EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=p.message_id) saved
     ${replyScopeSql}
       AND (@at IS NULL OR (p.created_at,c.id,'reply:'||p.message_id)<(@at,@after,@afterCard))
     ORDER BY ${feedOrderSql({ at: "p.created_at", conversation: "c.id", card: "p.message_id" })} LIMIT @limit`);

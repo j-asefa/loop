@@ -37,11 +37,19 @@ export function exists(db: Database.Database, owner: string, message: string) {
 
 const pageStatement = statement(`WITH RECURSIVE ${FOLDER_PROJECT}
       SELECT 'm:'||b.message_id key,b.created_at saved_at,b.message_id,m.conversation_id,
-        c.title conversation_title,m.role,substr(m.content,1,4000) content,m.created_at,
-        a.id agent_id,a.name agent_name,a.provider,project.name project_name,l.label
+        c.title conversation_title,m.role,
+        substr(CASE WHEN res.id IS NOT NULL THEN json_extract(res.outcome,'$.body') ELSE m.content END,1,4000) content,m.created_at,
+        CASE WHEN res.id IS NOT NULL THEN res.agent_id ELSE a.id END agent_id,
+        CASE WHEN res.id IS NOT NULL THEN json_extract(res.provenance,'$.agentName') ELSE a.name END agent_name,
+        CASE WHEN res.id IS NOT NULL THEN json_extract(res.provenance,'$.provider') ELSE a.provider END provider,
+        project.name project_name,l.label
       FROM message_bookmarks b
       LEFT JOIN saved_labels l ON l.owner_id=b.owner_id AND l.item_key='m:'||b.message_id
       JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id
+      -- A saved published answer shows its sealed Result, not the transcript.
+      LEFT JOIN results res ON res.owner_id=b.owner_id AND res.id=(
+        SELECT r2.id FROM results r2 WHERE r2.owner_id=b.owner_id AND r2.message_id=b.message_id AND r2.sealed=1
+        ORDER BY r2.created_at ASC,r2.rowid ASC LIMIT 1)
       JOIN conversations c ON c.id=m.conversation_id AND c.owner_id=b.owner_id
       LEFT JOIN runs r ON r.id=m.run_id AND r.owner_id=b.owner_id
       LEFT JOIN agents a ON a.id=COALESCE(r.agent_id,c.agent_id) AND a.owner_id=b.owner_id
@@ -50,7 +58,7 @@ const pageStatement = statement(`WITH RECURSIVE ${FOLDER_PROJECT}
       WHERE b.owner_id=@owner AND (@at IS NULL OR b.created_at<@at OR (b.created_at=@at AND 'm:'||b.message_id<@key))
         AND (@folders IS NULL OR EXISTS(SELECT 1 FROM json_each(@folders) WHERE value IS COALESCE(json_extract(r.payload,'$.folderId'),c.project_id)))
         AND (@teams IS NULL OR c.team_id IN (SELECT value FROM json_each(@teams)))
-        AND (@q IS NULL OR m.content LIKE @q ESCAPE '\\' OR c.title LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
+        AND (@q IS NULL OR (CASE WHEN res.id IS NOT NULL THEN json_extract(res.outcome,'$.body') ELSE m.content END) LIKE @q ESCAPE '\\' OR c.title LIKE @q ESCAPE '\\' OR l.label LIKE @q ESCAPE '\\')
       ORDER BY b.created_at DESC,key DESC LIMIT @limit`);
 const pageRow = z.object({
   key: z.string(),

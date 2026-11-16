@@ -169,7 +169,6 @@ WITH run_candidates AS (
       AND m2.run_id = r.id
       AND m2.role = 'assistant'
       AND (NOT json_valid(m2.metadata) OR COALESCE(json_extract(m2.metadata, '$.progress'), 0) = 0)
-      AND (NOT json_valid(m2.metadata) OR COALESCE(json_extract(m2.metadata, '$.partial'), 0) != 1)
       AND length(trim(m2.content, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
     ORDER BY m2.created_at DESC, m2.rowid DESC
     LIMIT 1

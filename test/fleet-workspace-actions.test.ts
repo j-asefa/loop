@@ -27,6 +27,7 @@ process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.LOOP_DATA_DIR);
 const { app } = await import("../src/server/index.js");
 const { db } = await import("../src/server/db.js");
+const { sealSeededHistory } = await import("./helpers/published-history");
 // Match WorkspaceHost composition: these fixtures explicitly enable fleet effects.
 const { registerEffectAuthority } =
   await import("../src/server/effect-authority.js");
@@ -428,6 +429,8 @@ it("routes Done grouping through a durable command and rechecks the grant inside
     ).run(message, OWNER, conversation, run);
     return `d:run:${run}`;
   });
+  // The seeded answers are published history.
+  sealSeededHistory(db);
   const group = randomUUID();
   const create = command(
     "doneThreadCreate",

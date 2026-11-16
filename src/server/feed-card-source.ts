@@ -45,12 +45,6 @@ export type SourceRow = FeedRow & {
   hide_results: number;
 };
 
-// A sealed Result keeps the folder where it was produced. Results whose
-// placement is unknown (migrated history) follow the existing folder rules.
-const placementRecorded = (res: string) =>
-  `COALESCE(CASE WHEN json_valid(${res}.provenance) THEN json_extract(${res}.provenance,'$.placement.status')='recorded' END,0)`;
-const placementFolder = (res: string) =>
-  `CASE WHEN json_valid(${res}.provenance) THEN json_extract(${res}.provenance,'$.placement.folderId') END`;
 const assistantAnswer = (run: string) =>
   `(SELECT m.id FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=k.conversation_id AND m.run_id=${run} AND ${answerPredicate("m")} ORDER BY m.created_at DESC,m.rowid DESC LIMIT 1)`;
 const cardSql = (doneOnly = false) => `
@@ -121,6 +115,8 @@ SELECT k.*,
   d.run_id decision_run_id,d.request decision_request,
   l.due_at later_due_at,l.condition later_condition,l.surfaced_at later_surfaced_at,
   CASE WHEN res.sealed=1 THEN res.attachments ELSE NULL END result_attachments,
+  CASE WHEN res.sealed=1 AND json_valid(res.provenance) AND json_extract(res.provenance,'$.placement.status')='recorded'
+    THEN json_object('project_id',json_extract(res.provenance,'$.placement.projectId'),'project_name',json_extract(res.provenance,'$.placement.projectName')) END result_placement,
   -- Finding kinds this build presents; a newer build's are not shown.
   CASE WHEN res.sealed=1 THEN (SELECT json_group_array(f.defect) FROM (SELECT df.defect FROM result_defects df
     WHERE df.owner_id=@owner AND df.result_id=res.id AND df.defect IN (${ResultDefectKindSchema.options.map((kind) => `'${kind}'`).join(",")})
@@ -177,33 +173,20 @@ export function sourceCards(
     : "c.feed_folder_id";
   const query = `WITH RECURSIVE ${FOLDER_PROJECT}, ${stateSql},
   completed_results AS (
-    SELECT r.id run_id,NULL message_id,
-      COALESCE((SELECT res.created_at FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1),r.updated_at) done_at,
-      'run:'||r.id card_key,
-      CASE WHEN ${placementRecorded("placed")} THEN ${placementFolder("placed")} ELSE json_extract(r.payload,'$.folderId') END folder_id,
-      ${placementRecorded("placed")} OR json_type(r.payload,'$.folderId') IS NOT NULL has_folder
-    FROM runs r
-    LEFT JOIN results placed ON placed.owner_id=r.owner_id AND placed.id='run:'||r.id AND placed.sealed=1 WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND r.state='completed'
-      AND (@keys IS NULL OR 'run:'||r.id IN (SELECT value FROM json_each(@keys)))
-      AND (
-        EXISTS(SELECT 1 FROM results res WHERE res.owner_id=r.owner_id AND res.id='run:'||r.id AND res.sealed=1)
-        OR EXISTS(SELECT 1 FROM messages m INDEXED BY messages_feed_answers WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id
-          AND m.run_id=r.id AND ${answerPredicate("m")})
-      )
-    UNION ALL
-    SELECT NULL,id,created_at,'message:'||id,NULL,0 FROM messages INDEXED BY messages_feed_answers
-    WHERE owner_id=@owner AND conversation_id=@conversation AND run_id IS NULL
-      AND (@keys IS NULL OR 'message:'||id IN (SELECT value FROM json_each(@keys)))
-      AND ${answerPredicate()}
-      AND NOT EXISTS(SELECT 1 FROM results res WHERE res.owner_id=@owner AND res.id='message:'||messages.id AND res.sealed=1)
-    UNION ALL
-    SELECT NULL,res.message_id,res.created_at,res.id,
-      CASE WHEN ${placementRecorded("res")} THEN ${placementFolder("res")} END,${placementRecorded("res")} FROM results res
-    WHERE res.owner_id=@owner AND res.conversation_id=@conversation AND res.kind='imported_answer' AND res.sealed=1
+    -- The published outputs are the conversation's sealed Results, attributed
+    -- to their sealed author. Folders follow current organization: the folder
+    -- the run ran in, otherwise the conversation's current folder.
+    SELECT res.run_id run_id,res.message_id message_id,res.created_at done_at,res.id card_key,res.agent_id agent_id,
+      json_extract(r.payload,'$.folderId') folder_id,
+      COALESCE(json_type(r.payload,'$.folderId') IS NOT NULL,0) has_folder
+    FROM results res
+    LEFT JOIN runs r ON r.owner_id=res.owner_id AND r.id=res.run_id
+    WHERE res.owner_id=@owner AND res.conversation_id=@conversation AND res.sealed=1
+      AND res.kind IN ('run_answer','imported_answer')
       AND (@keys IS NULL OR res.id IN (SELECT value FROM json_each(@keys)))
   ), flagged AS (
     SELECT c.id conversation_id,c.title,
-      ${results ? "CASE WHEN EXISTS(SELECT 1 FROM results res WHERE res.owner_id=c.owner_id AND res.id=completed.card_key AND res.sealed=1) THEN (SELECT res.agent_id FROM results res WHERE res.owner_id=c.owner_id AND res.id=completed.card_key AND res.sealed=1) ELSE c.agent_id END" : "c.agent_id"} agent_id,
+      ${results ? "completed.agent_id" : "c.agent_id"} agent_id,
       c.execution_connection_id,c.team_id,c.origin,
       ${folder} folder_id,c.feed_run_id run_id,c.run_state,${doneRun} done_run_id,${doneAt} done_at,
       ${results ? "completed.message_id" : "NULL"} done_message_id,${expanded ? 1 : 0} expanded_done,

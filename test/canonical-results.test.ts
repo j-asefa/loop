@@ -756,12 +756,15 @@ describe("Canonical Result publication, immutability, and migration", () => {
         "c-hist",
         upgradeDb,
       );
+      // Done listed the never-finalized partial draft, so it is published
+      // history too.
       expect(reimported.map((r) => r.id)).toEqual([
         "message:m-hist-imp-a",
+        "message:m-hist-partial",
         "message:m-hist-imp-a2",
         "message:m-hist-imp-a3",
       ]);
-      expect(reimported[2]?.lineage.parentResultId).toBe(
+      expect(reimported[3]?.lineage.parentResultId).toBe(
         "message:m-hist-imp-a2",
       );
 
@@ -799,10 +802,14 @@ describe("Canonical Result publication, immutability, and migration", () => {
         computeResultContentDigest(backfilledStandalone!),
       );
 
-      // Partial draft was NOT sealed into results
+      // Released Done listed the never-finalized draft; it is sealed as
+      // migrated history rather than dropped.
       expect(
         getResult("owner-1", "message:m-hist-partial", upgradeDb),
-      ).toBeUndefined();
+      ).toMatchObject({
+        originCompleteness: "migrated_backfill",
+        outcome: { body: "Unfinished partial draft" },
+      });
 
       // User overlays remain intact
       expect(
