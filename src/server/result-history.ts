@@ -34,10 +34,10 @@ export const CopyAttributionEvidenceSchema = z.object({
 });
 
 // The question recorded for an imported answer versus the one its export
-// branch identifies. `unknown` means the branch could not be followed.
+// branch identifies; `none` means the branch has no question.
 export const ImportStimulusEvidenceSchema = z.object({
   recordedSourceMessageId: z.string().nullable(),
-  branch: z.enum(["question", "none", "unknown"]),
+  branch: z.enum(["question", "none"]),
   branchSourceMessageId: z.string().nullable(),
 });
 
@@ -163,6 +163,9 @@ const passes: Pass[] = [
         );
         if (!message) continue;
         const branch = resolve(message);
+        // A branch that cannot be followed establishes nothing about the
+        // recorded question.
+        if (branch.kind === "unknown") continue;
         const branchSourceMessageId =
           branch.kind === "question" ? branch.message.id : null;
         if (branchSourceMessageId === result.stimulus.sourceMessageId) continue;

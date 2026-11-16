@@ -461,8 +461,9 @@ export function branchedImportedResults(db: Database.Database) {
   return parseCanonicalResults(branchedImportedResultsStatement(db).all());
 }
 
-// For each imported answer sealed at publication, the predecessor the
-// canonical sequence chose from Results published before it.
+// For each imported answer an earlier build sealed at publication (version
+// 1), the predecessor the canonical sequence chooses from Results inserted
+// before it. Earlier builds sealed Results on insertion.
 const importedSequenceStatement = statement(
   `SELECT res.owner_id,res.id,res.conversation_id,
      json_extract(res.lineage,'$.parentResultId') recorded,
@@ -472,6 +473,7 @@ const importedSequenceStatement = statement(
       ORDER BY p.created_at DESC,p.rowid DESC LIMIT 1) expected
    FROM results res
    WHERE res.sealed=1 AND res.kind='imported_answer' AND res.origin_completeness='sealed_at_publication'
+     AND res.schema_version=1
    ORDER BY res.owner_id ASC,res.created_at ASC,res.rowid ASC`,
 );
 const importedSequenceRow = z.object({

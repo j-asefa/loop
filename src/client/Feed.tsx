@@ -174,9 +174,9 @@ const RESULT_FINDING_DETAIL: Record<ResultDefectKind, string> = {
   copy_attribution:
     "This copy was recorded with the agent that received it, not the author of its source answer.",
   import_stimulus:
-    "This imported answer was recorded with a question from another branch of its conversation.",
+    "This imported answer's recorded question differs from the one its branch of the conversation identifies.",
   sequence_predecessor:
-    "This imported answer was recorded as following an earlier answer, skipping a Result published in between.",
+    "This imported answer's recorded predecessor differs from the Result published just before it.",
 };
 
 export type FeedItem = RouteResponse<

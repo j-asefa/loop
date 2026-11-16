@@ -353,6 +353,16 @@ function seedBranchedImport(database: Database.Database) {
       meta("n-a1", "n-q1", []),
       3,
     );
+    // An answer whose recorded parent is not in the export.
+    insert.run(
+      `${owner}-orphan`,
+      owner,
+      `${owner}-conv`,
+      "assistant",
+      "Orphan",
+      meta("n-orphan", "n-gone", []),
+      4,
+    );
   }
 }
 
@@ -365,10 +375,19 @@ it("seals released branched imports with their own question on upgrade from v0.1
     seedBranchedImport(upgrade);
     applyMigrations(upgrade);
     for (const owner of ["owner-a", "owner-b"]) {
-      const [a1] = listConversationResults(owner, `${owner}-conv`, upgrade);
+      const [a1, orphan] = listConversationResults(
+        owner,
+        `${owner}-conv`,
+        upgrade,
+      );
       expect(a1).toMatchObject({
         originCompleteness: "migrated_backfill",
         stimulus: { text: "First question", sourceMessageId: `${owner}-q1` },
+      });
+      expect(orphan.stimulus).toMatchObject({
+        text: null,
+        sourceMessageId: null,
+        authorKind: "unknown",
       });
     }
     expect(
@@ -468,6 +487,11 @@ it("flags, without rewriting, a 247-era import's chronological question and skip
         },
       ]);
     }
+    // Ancestry that cannot be followed contradicts nothing.
+    for (const owner of ["owner-a", "owner-b"])
+      expect(resultDefects(owner, `message:${owner}-orphan`, upgraded)).toEqual(
+        [],
+      );
     expect(resultDefects("owner-a", "message:owner-a-c", upgraded)).toEqual([
       {
         defect: "sequence_predecessor",
