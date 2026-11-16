@@ -45,7 +45,8 @@ import { RetireAgent } from "../RetireAgent";
 import { Tools } from "../Tools";
 import { PiCustomizations } from "../PiCustomizations";
 
-import { ActionSheet, LaterSheet, undoReminder } from "../ThreadTools";
+import { ActionSheet } from "../components";
+import { LaterSheet, undoReminder } from "../ThreadTools";
 import { Toasts, notify } from "../toast";
 import {
   GLOBAL_DRAFT,

@@ -49,7 +49,8 @@ import { useSheetNavigation } from "./useSheetNavigation";
 import { useComposerFocus } from "./useComposerFocus";
 import { useComposerViewport } from "../useSheetViewport";
 import { showLater } from "../Later";
-import { useLongPress, type ScheduledSend } from "../ThreadTools";
+import { useLongPress } from "../gestures";
+import { type ScheduledSend } from "../ThreadTools";
 import { notify } from "../toast";
 import {
   appendDraftText,

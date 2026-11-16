@@ -23,7 +23,7 @@ import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 import { executionSourceId } from "./sourceRouting";
 import { SearchExcerpt } from "./SearchExcerpt";
 import { cacheView, cachedView, viewOwner } from "./viewCache";
-import { Chip } from "./ThreadTools";
+import { Chip } from "./components";
 import { relativeTime } from "./threadView";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import { belongsToProject } from "../shared/projects";

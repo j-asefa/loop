@@ -129,13 +129,8 @@ import {
   type ExecutionLocation,
 } from "./modelChoices";
 import type { Agent } from "../shared/types";
-import {
-  ActionSheet,
-  Chip,
-  LaterSheet,
-  undoReminder,
-  type Action,
-} from "./ThreadTools";
+import { ActionSheet, Chip, type Action } from "./components";
+import { LaterSheet, undoReminder } from "./ThreadTools";
 import { shareLink } from "./Handoff";
 import { threadDraft, sourceDraftId } from "./drafts";
 import {

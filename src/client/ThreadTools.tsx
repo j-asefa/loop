@@ -12,19 +12,17 @@ import {
 } from "../shared/contract-ids.js";
 import { literalEntry, proseEntry } from "./textEntry";
 import { useSourceRoute, useSourceId } from "./SourceContext";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlarmClock,
   Bookmark,
   BookmarkCheck,
-  ChevronDown,
   CircleAlert,
   Clock3,
   Copy,
   GitBranch,
   Link as LinkIcon,
   MessageSquareQuote,
-  MoreHorizontal,
   PencilLine,
   Reply,
   Search,
@@ -48,7 +46,7 @@ import {
 } from "../shared/workspace-api";
 import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
-import { RichText, Sheet } from "./components";
+import { RichText, Sheet, type Action } from "./components";
 import type { Agent } from "../shared/types";
 import {
   compactNumber,
@@ -58,97 +56,6 @@ import {
   preview,
   timeLabel,
 } from "./threadView";
-
-export type Action = {
-  id: string;
-  label: string;
-  icon?: ReactNode;
-  hint?: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-};
-
-/**
- * A bottom sheet of large, labelled actions: the mobile context menu.
- * `primary` actions sit in a row at the top; with `moreLabel` the other
- * actions stay behind a visible "More" control until it is opened.
- */
-export function ActionSheet({
-  title,
-  actions,
-  primary,
-  moreLabel,
-  onClose,
-  children,
-}: {
-  title: string;
-  actions: Action[];
-  primary?: Action[];
-  moreLabel?: string;
-  onClose: () => void;
-  children?: ReactNode;
-}) {
-  const [more, setMore] = useState(!moreLabel);
-  const select = (action: Action) => {
-    onClose();
-    action.onSelect();
-  };
-  return (
-    <Sheet title={title} onClose={onClose} className="action-sheet">
-      {children}
-      {!!primary?.length && (
-        <div className="action-primary" role="group" aria-label="Main actions">
-          {primary.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className={action.danger ? "danger" : ""}
-              disabled={action.disabled}
-              onClick={() => select(action)}
-            >
-              {action.icon}
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-      {moreLabel && (
-        <button
-          type="button"
-          className="action-more-toggle"
-          aria-expanded={more}
-          aria-controls="action-more-list"
-          onClick={() => setMore((open) => !open)}
-        >
-          <MoreHorizontal size={20} aria-hidden="true" />
-          <span>{moreLabel}</span>
-          <ChevronDown size={18} aria-hidden="true" className="toggle-caret" />
-        </button>
-      )}
-      {more && (
-        <div className="action-list" role="menu" id="action-more-list">
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              role="menuitem"
-              type="button"
-              className={action.danger ? "danger" : ""}
-              disabled={action.disabled}
-              onClick={() => select(action)}
-            >
-              {action.icon}
-              <span>
-                {action.label}
-                {action.hint && <small>{action.hint}</small>}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </Sheet>
-  );
-}
 
 /**
  * A message's menu. Reply, Save and Remind me are the main actions; the rest
@@ -1202,145 +1109,4 @@ export function UsageLine({
       {compactNumber(usage.output_tokens)} out tokens
     </p>
   );
-}
-
-/**
- * Long press (500ms, cancelled by movement) for touch context menus. Returns
- * pointer handlers; the click that follows a completed press is suppressed.
- */
-export function useLongPress(
-  onPress: () => void,
-  enabled = true,
-  { onControls = false }: { onControls?: boolean } = {},
-) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const origin = useRef({ x: 0, y: 0 });
-  const fired = useRef(false);
-  const clear = () => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-  };
-  useEffect(() => clear, [enabled]);
-  if (!enabled) return {};
-  return {
-    onPointerDown: (e: React.PointerEvent) => {
-      fired.current = false;
-      if (
-        e.button !== 0 ||
-        (!onControls &&
-          (e.target as HTMLElement).closest(
-            "a,button,summary,input,textarea,select,pre,.table-scroll",
-          ))
-      )
-        return;
-      origin.current = { x: e.clientX, y: e.clientY };
-      clear();
-      timer.current = setTimeout(() => {
-        fired.current = true;
-        navigator.vibrate?.(10);
-        onPress();
-      }, 500);
-    },
-    onPointerMove: (e: React.PointerEvent) => {
-      if (
-        Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) >
-        10
-      )
-        clear();
-    },
-    onPointerUp: clear,
-    onPointerCancel: clear,
-    onPointerLeave: clear,
-    onContextMenu: (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("a,pre,code,img")) return;
-      e.preventDefault();
-      clear();
-      fired.current = true;
-      onPress();
-    },
-    onClickCapture: (e: React.MouseEvent) => {
-      if (fired.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        fired.current = false;
-      }
-    },
-  };
-}
-
-/**
- * Horizontal swipe on a row or message. Returns the live offset for styling and
- * pointer handlers. `onLeft`/`onRight` fire past 72px when the gesture is
- * clearly horizontal; vertical scrolling is never captured.
- */
-export function useSwipe({
-  onLeft,
-  onRight,
-}: {
-  onLeft?: () => void;
-  onRight?: () => void;
-}) {
-  const [offset, setOffset] = useState(0);
-  const start = useRef<{ x: number; y: number; id: number } | null>(null);
-  const horizontal = useRef<boolean | null>(null);
-  // A horizontal drag must not also count as a tap on the row it moved.
-  const dragged = useRef(false);
-  const threshold = 72;
-  const reset = () => {
-    start.current = null;
-    horizontal.current = null;
-    setOffset(0);
-  };
-  return {
-    offset,
-    armed: offset >= threshold ? "right" : offset <= -threshold ? "left" : null,
-    handlers: {
-      onPointerDown: (e: React.PointerEvent) => {
-        // Any new press, even a mouse click after a touch swipe, is a tap
-        // until it drags.
-        dragged.current = false;
-        if (e.pointerType === "mouse") return;
-        if (
-          (e.target as HTMLElement).closest("pre,.table-scroll,input,textarea")
-        )
-          return;
-        start.current = { x: e.clientX, y: e.clientY, id: e.pointerId };
-        horizontal.current = null;
-      },
-      onPointerMove: (e: React.PointerEvent) => {
-        const s = start.current;
-        if (!s || s.id !== e.pointerId) return;
-        const dx = e.clientX - s.x,
-          dy = e.clientY - s.y;
-        if (horizontal.current === null && Math.hypot(dx, dy) > 10)
-          horizontal.current = Math.abs(dx) > Math.abs(dy) * 1.5;
-        if (!horizontal.current) return;
-        dragged.current = true;
-        const allowed = (dx > 0 && onRight) || (dx < 0 && onLeft);
-        setOffset(allowed ? Math.max(-120, Math.min(120, dx)) : 0);
-      },
-      onPointerUp: () => {
-        if (offset >= threshold) onRight?.();
-        else if (offset <= -threshold) onLeft?.();
-        reset();
-      },
-      onPointerCancel: reset,
-      onClickCapture: (e: React.MouseEvent) => {
-        if (!dragged.current) return;
-        dragged.current = false;
-        e.preventDefault();
-        e.stopPropagation();
-      },
-    },
-  };
-}
-
-export function Chip({
-  tone,
-  children,
-}: {
-  tone: string;
-  children: ReactNode;
-}) {
-  return <span className={"status-chip " + tone}>{children}</span>;
 }

@@ -25,6 +25,7 @@ import {
 } from "react";
 import {
   X,
+  ChevronDown,
   ArrowUpRight,
   MessageSquare,
   Bookmark,
@@ -43,7 +44,7 @@ import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
 import { useSheetViewport } from "./useSheetViewport";
 import { openModalDialog } from "./modalDialog";
-import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
+import { useLongPress, useSwipe } from "./gestures";
 import { FileLink, loopFileUrl } from "./FilePreview";
 import {
   browserPreview,
@@ -865,4 +866,105 @@ export function ArtifactCard({
       )}
     </div>
   );
+}
+
+export type Action = {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+  hint?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+};
+
+/**
+ * A bottom sheet of large, labelled actions: the mobile context menu.
+ * `primary` actions sit in a row at the top; with `moreLabel` the other
+ * actions stay behind a visible "More" control until it is opened.
+ */
+export function ActionSheet({
+  title,
+  actions,
+  primary,
+  moreLabel,
+  onClose,
+  children,
+}: {
+  title: string;
+  actions: Action[];
+  primary?: Action[];
+  moreLabel?: string;
+  onClose: () => void;
+  children?: ReactNode;
+}) {
+  const [more, setMore] = useState(!moreLabel);
+  const select = (action: Action) => {
+    onClose();
+    action.onSelect();
+  };
+  return (
+    <Sheet title={title} onClose={onClose} className="action-sheet">
+      {children}
+      {!!primary?.length && (
+        <div className="action-primary" role="group" aria-label="Main actions">
+          {primary.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              className={action.danger ? "danger" : ""}
+              disabled={action.disabled}
+              onClick={() => select(action)}
+            >
+              {action.icon}
+              <span>{action.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {moreLabel && (
+        <button
+          type="button"
+          className="action-more-toggle"
+          aria-expanded={more}
+          aria-controls="action-more-list"
+          onClick={() => setMore((open) => !open)}
+        >
+          <MoreHorizontal size={20} aria-hidden="true" />
+          <span>{moreLabel}</span>
+          <ChevronDown size={18} aria-hidden="true" className="toggle-caret" />
+        </button>
+      )}
+      {more && (
+        <div className="action-list" role="menu" id="action-more-list">
+          {actions.map((action) => (
+            <button
+              key={action.id}
+              role="menuitem"
+              type="button"
+              className={action.danger ? "danger" : ""}
+              disabled={action.disabled}
+              onClick={() => select(action)}
+            >
+              {action.icon}
+              <span>
+                {action.label}
+                {action.hint && <small>{action.hint}</small>}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+export function Chip({
+  tone,
+  children,
+}: {
+  tone: string;
+  children: ReactNode;
+}) {
+  return <span className={"status-chip " + tone}>{children}</span>;
 }

@@ -106,9 +106,8 @@ import { VerificationSheet } from "./Verification";
 import { ConversationPulls } from "./ConversationPulls";
 import { ConversationFiles } from "./PublishedFiles";
 import { NativeConversation, MemoryUsed } from "./Memory";
+import { ActionSheet, Chip } from "./components";
 import {
-  ActionSheet,
-  Chip,
   ForkSheet,
   LaterSheet,
   OutlineSheet,
@@ -117,8 +116,8 @@ import {
   UsageLine,
   messageActions,
   undoReminder,
-  useSwipe,
 } from "./ThreadTools";
+import { useSwipe } from "./gestures";
 import { notify } from "./toast";
 import { HandoffSheet, shareLink } from "./Handoff";
 import { EditQueued, type QueuedMessage } from "./Feed";

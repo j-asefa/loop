@@ -6,7 +6,7 @@ import {
   MousePointer2,
 } from "lucide-react";
 import { Sheet } from "./components";
-import type { Action } from "./ThreadTools";
+import type { Action } from "./components";
 
 function MenuAction({
   action,

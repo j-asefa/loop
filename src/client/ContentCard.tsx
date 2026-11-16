@@ -19,7 +19,8 @@ import {
 import { ResultBody } from "./ArtifactViewer";
 import { FilePreview } from "./FilePreview";
 import { useSourcePath, useSourceId } from "./SourceContext";
-import { ActionSheet, useLongPress, useSwipe } from "./ThreadTools";
+import { ActionSheet } from "./components";
+import { useLongPress, useSwipe } from "./gestures";
 
 export function opensContentCard(
   target: EventTarget | null,

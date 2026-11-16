@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { useLongPress, useSwipe } from "./ThreadTools";
+import { useLongPress, useSwipe } from "./gestures";
 
 const CARD_TYPE = "application/x-loop-done-card";
 const controls = "a,button,summary,input,textarea,select,pre,.table-scroll";
