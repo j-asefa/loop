@@ -35,7 +35,8 @@
     "smoke:fleet-commands": "node scripts/heavy-command.mjs scripts/fleet-command-browser-smoke.mjs",
     "feeds:check": "node --import tsx scripts/feed-liveness.mjs",
     "openapi": "node --import tsx scripts/openapi.mjs",
-    "openapi:check": "npm run openapi -- --check"
+    "openapi:check": "npm run openapi -- --check",
+    "sql-index": "node scripts/sql-index.mjs"
   },
   "repository": {
     "type": "git",

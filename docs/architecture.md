@@ -798,7 +798,7 @@ Domain SQL moves into one module per primary table under `src/server/sql/`. Modu
 
 Canonical example: [sql/mcp-preferences.ts](../src/server/sql/mcp-preferences.ts), its caller [mcp/approval-policy.ts](../src/server/mcp/approval-policy.ts), and the route test that exercises it, [mcp-route-contracts.test.ts](../test/mcp-route-contracts.test.ts).
 
-1. Search `src/server/sql/` for a module that owns the table and extend it; add a new `src/server/sql/<table>.ts` only for a new primary table.
+1. Search the generated [SQL index](sql-index.md) for the table and the function you need, and extend the module that owns the table; add a new `src/server/sql/<table>.ts` only for a new primary table. Run `npm run sql-index` after changing a module.
 2. Declare each query with `statement()` from [sql/statement.ts](../src/server/sql/statement.ts) and call it with the connection the caller supplies. Do not call `prepare` at module load or import `db` into the module.
 3. Take the owner as a parameter and filter by `owner_id` in the SQL when the table has one. Do not open transactions in the module; callers keep `.immediate()` and their ownership checks.
 4. Parse rows with `parseRecord` and `QueryRecords.<table>`, using `pick` or `extend` for partial and joined selections. For a new table, add its migration and `QueryRecords` entry; [row-schema-columns.test.ts](../test/row-schema-columns.test.ts) compares them.
