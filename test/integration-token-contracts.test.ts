@@ -427,7 +427,7 @@ it("companion qualifies Results/artifact disclosures per token before returning 
 }, 60000);
 
 it("companion keeps Results reads and disclosures coherent while a worker tries to commit", async () => {
-  const f = await cardsFixture();
+  const f = await cardsFixture(false, { resultReadRace: true });
   const records = await f.integrationRecords();
   for (const path of [
     "/api/results",
