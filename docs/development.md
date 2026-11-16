@@ -211,6 +211,11 @@ suites still run locally. CI keeps pinned checkout/Node/Python actions,
 read-only repository permissions and cancellation of superseded runs on the same
 ref; the repository owner controls approval of fork-PR runs.
 
+Each PR body records the submitted commit, the commands run and their exits, and one line
+`Canonical example followed: <file>` naming the canonical example from the
+[AGENTS.md](../AGENTS.md) index that the change copies, or
+`Canonical example followed: none: <reason>`.
+
 ### Releases
 
 Pushing a tag `vX.Y.Z` that matches the `package.json` version runs the
