@@ -309,9 +309,14 @@ it("links attachments to the sealed version while keeping current authorization"
   expect(
     resultCardAttachments(owner, ref({ objectId: "missing" }))![0],
   ).toMatchObject({ download: null, availability: "unavailable" });
-  // Another owner's object identifiers never resolve.
+  // Another owner's existing object never resolves.
   expect(
-    resultCardAttachments(owner, ref({ objectId: "obj-foreign" + other }))![0],
+    db
+      .prepare("SELECT owner_id FROM objects WHERE id=?")
+      .get("obj-foreign" + owner),
+  ).toEqual({ owner_id: other });
+  expect(
+    resultCardAttachments(owner, ref({ objectId: "obj-foreign" + owner }))![0],
   ).toMatchObject({ download: null, availability: "unavailable" });
   // A published file only links while its bytes still match the sealed digest.
   db.prepare(
