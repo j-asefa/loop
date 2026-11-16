@@ -9,6 +9,26 @@ import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
 } from "../src/shared/personal-decisions";
+const trace = vi.hoisted(() => ({
+  observe: undefined as ((sql: string) => void) | undefined,
+}));
+vi.mock("better-sqlite3", async (load) => {
+  const original = await load<typeof import("better-sqlite3")>();
+  return {
+    ...original,
+    default: new Proxy(original.default, {
+      construct(Database, [filename, options]) {
+        return new Database(filename, {
+          ...options,
+          verbose(sql: string) {
+            options?.verbose?.(sql);
+            trace.observe?.(sql);
+          },
+        });
+      },
+    }),
+  };
+});
 const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
@@ -963,14 +983,20 @@ it("reads the production Done page and summary in one indexed projection query",
   message(w.owner, cid, "assistant", "Imported answer");
   let plan: { detail: string }[] = [];
   const selection = vi.spyOn(projectionQueries, "feedPage");
+  let executions = 0;
+  trace.observe = (sql) => {
+    if (sql.includes("FROM feed_cards p ")) executions++;
+  };
   try {
     // Exercise the cached path even when this test runs alone.
     for (let request = 0; request < 2; request++) {
       selection.mockClear();
+      executions = 0;
       const response = await api(w.owner, "/feed?filter=done");
       expect(response.status).toBe(200);
       expect(response.data.items).toHaveLength(2);
       expect(selection).toHaveBeenCalledTimes(1);
+      expect(executions).toBe(1);
       const [connection, params, filter, results] = selection.mock.calls[0];
       plan = connection
         .prepare(
@@ -981,6 +1007,7 @@ it("reads the production Done page and summary in one indexed projection query",
     }
   } finally {
     selection.mockRestore();
+    trace.observe = undefined;
   }
   expect(
     plan.some((row) =>
