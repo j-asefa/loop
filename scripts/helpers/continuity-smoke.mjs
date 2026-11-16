@@ -5,10 +5,6 @@ import { expect } from "@playwright/test";
 import { seedCheckout } from "./checkout-fixture.mjs";
 import { runReceipt } from "./run-receipt.mjs";
 
-// Continuity journeys: resume unfinished work from the Feed, return to an
-// earlier point in a long thread and back, defer with Remind me and Send
-// later (with links, Undo and recovery), find saved decisions and project
-// history, manage queued messages, and review captured Git changes.
 // Everything goes through the production routes and persisted state; the
 // fixture has no worker, so queued and scheduled work stays put.
 export async function continuitySmoke(page, fixture, capture) {
@@ -21,7 +17,6 @@ export async function continuitySmoke(page, fixture, capture) {
       has: page.locator(`.feed-row[aria-label^="${title}"]`),
     });
   const later = page.getByRole("region", { name: "Later", exact: true });
-  // Later's sections are tabs on your profile.
   const laterTab = (name) =>
     page
       .getByRole("region", { name: "Your profile", exact: true })
@@ -273,8 +268,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.goto(fixture.base, { waitUntil: "networkidle" });
 
     requestWindow();
-    // 1. Resume work from the Feed: each card names one specific action and
-    // opens exactly there.
     const done = fixture.conversations.find((c) => c.state === "completed");
     const asking = fixture.conversations.find(
       (c) => c.state === "awaiting_approval",
@@ -373,8 +366,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
 
     requestWindow();
-    // 2. Resume reading, jump to a search match, then Latest. The detour
-    // never replaces the saved reading position.
+    // Search and Latest detours must not replace the saved reading position.
     db.prepare(
       "INSERT INTO conversation_positions(owner_id,conversation_id,position_message_id,updated_at) VALUES(?,?,?,?)",
     ).run(owner, long, longIds[10], now);
@@ -417,8 +409,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
 
     requestWindow();
-    // 3. Send later from outside a thread: confirm who, where and when,
-    // follow the link, edit, then Undo/cancel.
     await nav("Feed").click();
     await page.getByRole("button", { name: "Compose a message" }).click();
     const composer = page.locator(".composer-dock");
@@ -578,8 +568,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await page.getByRole("tab", { name: /^Scheduled/ }).waitFor();
 
     requestWindow();
-    // 4. Reminders: create from a message, see why it is back, Done, and
-    // Snooze again; both survive a reload.
     await page.goto(
       `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
       {
@@ -647,8 +635,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(snoozed.locator(".subline")).toContainText("Tomorrow at");
 
     requestWindow();
-    // 5. Saved: a label to recognise a decision, search by it, open and
-    // come back to the same search. Cards keep their size.
     await page.goto(
       `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
       {
@@ -732,8 +718,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await later.getByLabel("Search Saved").fill("");
 
     requestWindow();
-    // 6. Project history: search, outcomes, saved decisions and unfinished
-    // work, keeping project scope through a thread and back.
     let currentSearch = false;
     const searchCurrentFields = async (route) => {
       const response = await route.fetch();
@@ -785,8 +769,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await expect(page.locator(".project-history-head")).toHaveCount(0);
 
     requestWindow();
-    // 7. Steer, queue or send later in a working thread; a queued message
-    // can be read, explained and moved back to a draft with its files.
     const form = new FormData();
     form.set(
       "file",
@@ -977,7 +959,7 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
 
     requestWindow();
-    // 8. One Git review per run, even when tool reports disagree.
+    // Tool reports can disagree; the Git review still describes one run.
     let historicalCheckout = false;
     const checkoutWithoutLaterFields = async (route) => {
       const response = await route.fetch();
@@ -1081,8 +1063,6 @@ export async function continuitySmoke(page, fixture, capture) {
     await closeThread();
 
     requestWindow();
-    // 9. Keyboard: the message menu, More and focus return work without a
-    // pointer.
     await page.goto(
       `${fixture.base}/?conversation=${long}&message=${longIds[30]}`,
       {
