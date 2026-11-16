@@ -1,9 +1,10 @@
 // Scaffolds a per-table query module in the shape of the SQL recipe's
 // canonical example (src/server/sql/mcp-preferences.ts) and refreshes the SQL
 // index. Usage: npm run new:sql-module -- <table_name>
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { format, resolveConfig } from "prettier";
 import { sqlIndex } from "./sql-index.mjs";
 
 const recipe = "docs/architecture.md#recipe-add-or-extend-a-sql-table-module";
@@ -29,8 +30,10 @@ export function owned(db: Database.Database, owner: string) {
 `;
 }
 
-/** Writes src/server/sql/<table>.ts under `root` and regenerates the index. */
-export function generateSqlModule(root, table) {
+/** Writes src/server/sql/<table>.ts under `root`, formatted with the pinned
+ * prettier, and regenerates the index. If the index cannot be regenerated the
+ * new module is removed, so a retry starts clean. */
+export async function generateSqlModule(root, table) {
   if (!/^[a-z][a-z0-9_]*$/.test(table))
     throw new Error(
       `Table name "${table}" must be lowercase letters, digits and underscores`,
@@ -42,8 +45,19 @@ export function generateSqlModule(root, table) {
     throw new Error(
       `src/server/sql/${module} already exists; extend it instead (${recipe})`,
     );
-  writeFileSync(path, sqlModuleTemplate(table));
-  writeFileSync(join(root, "docs/sql-index.md"), sqlIndex(directory).text);
+  const text = await format(sqlModuleTemplate(table), {
+    ...(await resolveConfig(
+      fileURLToPath(new URL("../src/server/sql/statement.ts", import.meta.url)),
+    )),
+    filepath: path,
+  });
+  writeFileSync(path, text);
+  try {
+    writeFileSync(join(root, "docs/sql-index.md"), sqlIndex(directory).text);
+  } catch (error) {
+    rmSync(path, { force: true });
+    throw error;
+  }
   return `src/server/sql/${module}`;
 }
 
@@ -58,7 +72,7 @@ if (
   }
   const root = fileURLToPath(new URL("..", import.meta.url));
   try {
-    const created = generateSqlModule(root, table);
+    const created = await generateSqlModule(root, table);
     console.log(`Created ${created} and refreshed docs/sql-index.md. Next:
 1. Create the ${table} table in a new migration under migrations/.
 2. Add ${table} to QueryRecords in src/server/sql/rows.ts; test/row-schema-columns.test.ts compares them.

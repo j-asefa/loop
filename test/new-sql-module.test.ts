@@ -4,9 +4,11 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { check, resolveConfig } from "prettier";
 import { afterEach, expect, it } from "vitest";
 import {
   generateSqlModule,
@@ -27,9 +29,9 @@ function scratch() {
   return root;
 }
 
-it("writes a module and refreshes the index, refusing bad names and overwrites", () => {
+it("writes a module and refreshes the index, refusing bad names and overwrites", async () => {
   const root = scratch();
-  expect(generateSqlModule(root, "saved_notes")).toBe(
+  expect(await generateSqlModule(root, "saved_notes")).toBe(
     "src/server/sql/saved-notes.ts",
   );
   expect(
@@ -38,11 +40,33 @@ it("writes a module and refreshes the index, refusing bad names and overwrites",
   expect(readFileSync(join(root, "docs/sql-index.md"), "utf8")).toContain(
     "- `owned(db, owner)` — Rows of saved_notes owned by `owner`.",
   );
-  expect(() => generateSqlModule(root, "saved_notes")).toThrow(
+  await expect(generateSqlModule(root, "saved_notes")).rejects.toThrow(
     /already exists; extend it instead/,
   );
   for (const name of ["Saved", "notes-x", "1notes", "../x"])
-    expect(() => generateSqlModule(root, name)).toThrow(/must be lowercase/);
+    await expect(generateSqlModule(root, name)).rejects.toThrow(
+      /must be lowercase/,
+    );
+});
+
+it("formats long names and removes the module when the index cannot be rebuilt", async () => {
+  const root = scratch();
+  const table = "a_very_long_table_name_that_pushes_the_statement_past_eighty";
+  await generateSqlModule(root, table);
+  const written = readFileSync(
+    join(root, "src/server/sql", table.replaceAll("_", "-") + ".ts"),
+    "utf8",
+  );
+  // The repository's formatter accepts the output unchanged.
+  expect(
+    await check(written, {
+      ...(await resolveConfig(join(repo, "src/server/sql/statement.ts"))),
+      filepath: "module.ts",
+    }),
+  ).toBe(true);
+  writeFileSync(join(root, "src/server/sql/broken.ts"), "export function (");
+  await expect(generateSqlModule(root, "saved_notes")).rejects.toThrow();
+  expect(existsSync(join(root, "src/server/sql/saved-notes.ts"))).toBe(false);
 });
 
 it("keeps the template's imports and helpers in step with the canonical module", () => {
