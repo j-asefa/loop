@@ -205,7 +205,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   draftRef.current = draft;
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
-  // A notice, optionally with one follow-up action (e.g. view what was scheduled).
   const [dismissNotice, setDismissNotice] = useState<
     string | { text: string; action: string; onAction: () => void }
   >("");
@@ -230,7 +229,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   const [newAgentPrompt, setNewAgentPrompt] = useState("");
   const [laterCard, setLaterCard] = useState<ResultAction | null>(null);
   const [threadNotice, setThreadNotice] = useState("");
-  // The open thread's current work, so a send can say what it will do.
   const [threadWork, setThreadWork] = useState<ThreadWork | null>(null);
   const sendPress = useLongPress(
     () => {
@@ -354,7 +352,6 @@ export function useAppController(seed?: AppNavigationInitial) {
     setDraft((current) => appendDraftText(current, text));
     focusComposer();
   }
-  // A PR card's "Open in Pull requests" leaves its thread for the tab.
   const openPullRef = useRef((_key: string) => {});
   openPullRef.current = (key: string) => {
     if (conversation) setConversation(null);
@@ -668,7 +665,6 @@ export function useAppController(seed?: AppNavigationInitial) {
       afterSheetsClose(() => restoreScroll(scroll));
     },
   );
-  // Pull down at the top of any page to refresh what it shows.
   const pullRefresh = usePullToRefresh(Boolean(session?.user), async () => {
     emitClientEvent("loop-refresh");
     await changed();
@@ -695,7 +691,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   >({});
   const revisionFor = (collection: WorkspaceCollection) =>
     revision + (collectionRevisions[collection] || 0);
-  // Your profile and its counts; refreshed while the profile is open.
   const signedIn: string | undefined = session?.user?.id;
   const unified = useAgentSources(signedIn, { ...data, runs });
   const currentSourceName =
@@ -739,7 +734,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   );
   const myProfile = myProfileRead.data ?? null;
   const setMyProfile = myProfileRead.replace;
-  // The name shown for you: your profile's, else the account's.
   const accountName: string = session?.user?.name?.trim() || "You";
   const displayName = myProfile?.display_name || accountName;
   // A pending receipt survives restart, a new tab and auth expiry: it is kept
@@ -765,7 +759,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   const request = receiptBox.current.box;
   const stopWorkspaceEvents = useRef<() => void>(() => {});
   const resultsVisible = useRef(true);
-  // Project activity and files also follow feed changes to refresh in place.
   resultsVisible.current =
     (tab === "projects" && !!project) ||
     (!!profile && ["all", "files"].includes(view));
@@ -821,7 +814,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   useEffect(() => {
     if (session?.user && resultsVisible.current) void loadResults(false, false);
   }, [tab, feedFilter, project]);
-  // Inside a project the default recipient is one of that project's agents.
   useEffect(() => {
     if (tab !== "projects" || !project || conversation || draft.trim()) return;
     const current = data.agents.find((a) => a.id === selected);

@@ -1,6 +1,5 @@
 /* Loop's shared visual language. Layout/keyboard mechanics live in style.css. */
 
-/* Calm surfaces, precise type, and one restrained accent. */
 h2,
 h3 {
   letter-spacing: -0.35px;
@@ -71,7 +70,6 @@ a:focus-visible {
   font-size: 22px;
 }
 
-/* The agent strip remains source-aware, with status carried beside the face. */
 .agent-strip > button:hover .agent-portrait {
   transform: translateY(-2px);
 }
@@ -83,7 +81,6 @@ a:focus-visible {
   background: var(--green);
 }
 
-/* Social profiles share a cover, an overlapping identity, and inline metadata. */
 .profile-backbar {
   display: flex;
   align-items: center;
@@ -277,7 +274,6 @@ a:focus-visible {
   font-weight: 500;
 }
 
-/* Underline tabs distinguish content navigation from form choices. */
 .feed-tabs,
 .profile-head + .profile-tabs,
 .my-profile-tabs,
@@ -350,7 +346,6 @@ a:focus-visible {
   padding-inline: 20px;
 }
 
-/* Continuous posts. The avatar provides the left edge; content aligns with the author. */
 .workspace-content .feed,
 .workspace-content .feed-list {
   gap: 0;
@@ -467,7 +462,6 @@ a:focus-visible {
   padding: 48px 20px;
 }
 
-/* Attention is a warm inset, with every decision and review control preserved. */
 .needs-heading {
   display: flex;
   align-items: center;
@@ -572,7 +566,6 @@ a:focus-visible {
   height: 44px;
 }
 
-/* Your profile belongs to the same family, retaining its real counts and tabs. */
 .my-profile-actions {
   display: flex;
   align-items: center;
@@ -600,7 +593,7 @@ a:focus-visible {
   border-radius: 50%;
   background: var(--orange);
 }
-/* Profile actions live with the identity, leaving its reading area clear. */
+
 [data-page="profile"]
   > .main-column
   > .composer-dock.collapsed
@@ -810,7 +803,6 @@ a:focus-visible {
   line-height: 1.5;
 }
 
-/* Sheets, conversations, directories, and project surfaces share the same finish. */
 .sheet > header {
   border-color: var(--line);
 }
@@ -1052,7 +1044,7 @@ label.catalog-search {
     font-size: 13px;
     padding: 24px 4px 8px;
   }
-  /* Five tabs fit a narrow phone; counts use the space above their labels. */
+
   .feed-tabs .chip-count {
     position: absolute;
     top: 3px;

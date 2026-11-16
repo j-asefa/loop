@@ -219,10 +219,6 @@ const feedItemKey = (item: FeedItem, source = item.sourceId || "") =>
 
 const AWAY_AFTER = 30 * 60_000;
 
-/**
- * A thread in the Feed, shown at the same size as a result card: agent
- * byline, status and project, the thread title and the latest message.
- */
 // Run states whose prompt the Feed hides until the agent writes something.
 
 function FeedCard({
@@ -930,7 +926,6 @@ function AwaySummary({
   );
 }
 
-/** One queued message, independent of the thread's current run. */
 export type QueuedMessage = {
   id: string;
   input: string;
@@ -1065,7 +1060,6 @@ function MoveQueued({
   );
 }
 
-// Every card that waits on you, whichever component renders it.
 const NEEDS_CARDS =
   ".approval-card, .native-decision, .scheduled-message, .feed-item-wrap";
 
@@ -1181,7 +1175,7 @@ export function Feed({
   onAgent: (agent: Agent) => void;
   onChanged: () => void;
   header?: ReactNode;
-  /** Approval, decision and unsent-message cards for the Needs you stack. */
+
   needsSlot?: ReactNode;
   emptyAction?: ReactNode;
   hideFilters?: boolean;
@@ -1193,11 +1187,11 @@ export function Feed({
     quote?: FeedReplyQuote,
   ) => void;
   agent?: string;
-  /** Open Later → Scheduled. */
+
   onScheduled?: () => void;
-  /** Open Later → Reminders at one reminder. */
+
   onShowReminder?: (id: string) => void;
-  /** Start a new message with this text (a news card's "Ask an agent"). */
+
   onAsk?: (text: string) => void;
   /** Present only for the combined top-level Feed. */
   sources?: AgentSource[];
@@ -1596,7 +1590,6 @@ export function Feed({
     setSelectedCards(null);
   }, [filter, project, agent, teams, sourceKey, doneRead, generation]);
   const [later, setLater] = useState<FeedItem | null>(null);
-  // Finished cards have their own message; work in progress keeps thread reminders.
   const reminderMessage =
     later &&
     (later.done_card_key ||

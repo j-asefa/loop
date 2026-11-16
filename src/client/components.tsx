@@ -878,11 +878,6 @@ export type Action = {
   onSelect: () => void;
 };
 
-/**
- * A bottom sheet of large, labelled actions: the mobile context menu.
- * `primary` actions sit in a row at the top; with `moreLabel` the other
- * actions stay behind a visible "More" control until it is opened.
- */
 export function ActionSheet({
   title,
   actions,

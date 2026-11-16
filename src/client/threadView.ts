@@ -6,7 +6,6 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Short relative time for rows and status lines: "Just now", "5m ago", "3h ago", "2d ago". */
 export function relativeTime(at: number, now = Date.now()) {
   const delta = Math.max(0, now - at);
   if (delta < MINUTE) return "Just now";
@@ -19,7 +18,6 @@ export function relativeTime(at: number, now = Date.now()) {
   });
 }
 
-/** Duration without the "ago": "45s", "12m", "2h 5m", "3d". */
 export function duration(ms: number) {
   const value = Math.max(0, ms);
   if (value < MINUTE) return `${Math.max(1, Math.floor(value / 1000))}s`;
@@ -37,7 +35,6 @@ function startOfDay(at: number) {
   return date.getTime();
 }
 
-/** Day label: "Today", "Yesterday", "Tomorrow", or a short weekday date. */
 export function dayLabel(at: number, now = Date.now()) {
   const days = Math.round((startOfDay(now) - startOfDay(at)) / DAY);
   if (days === 0) return "Today";
@@ -60,12 +57,10 @@ export function timeLabel(at: number) {
   });
 }
 
-/** Returns true when `at` starts a new calendar day relative to `previous`. */
 export function startsNewDay(at: number, previous?: number) {
   return previous === undefined || startOfDay(at) !== startOfDay(previous);
 }
 
-/** "Started 2h ago · last update 3m ago" for queued and running work. */
 export function runTiming(
   run: { created_at: number; updated_at: number; state: string },
   now = Date.now(),
@@ -78,7 +73,6 @@ export function runTiming(
 
 type RunTone = "needs" | "working" | "queued" | "done" | "failed" | "idle";
 
-/** One status vocabulary for Feed rows, thread headers and run cards. */
 export function runStatus(
   state: string | null | undefined,
   pendingApprovals = 0,
@@ -131,7 +125,6 @@ export function mergeActivityRecords(
   return [...merged.values()];
 }
 
-/** Compact token counts: 950 → "950", 12_300 → "12.3k", 2_400_000 → "2.4M". */
 export function compactNumber(value: number) {
   if (value < 1000) return String(value);
   if (value < 1_000_000)
@@ -139,7 +132,6 @@ export function compactNumber(value: number) {
   return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-/** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export const preview = plainPreview;
 
 type LaterChoice = {
@@ -150,7 +142,6 @@ type LaterChoice = {
   dueAt?: number;
 };
 
-/** Standard snooze choices, computed against the local clock. */
 export function laterChoices(
   now = Date.now(),
   options: { running?: boolean; project?: { id: string; name: string } } = {},

@@ -134,7 +134,6 @@ export type ThreadWork = {
   steerable: boolean;
 };
 
-/** One message with swipe-right to reply; native text selection owns a hold. */
 function MessageShell({
   id,
   className,
@@ -235,16 +234,16 @@ function ConversationView({
   onLatestAgentMessage?: (latest: LatestAgentMessage) => void;
   onReply: (context: ComposerContext) => void;
   onUsePrompt: (text: string) => void;
-  /** Put a message back into the composer with its files (nothing is sent). */
+
   onRestoreDraft: (text: string, files: UploadedFile[]) => void;
-  /** Take a queued message that has not started back into the composer. */
+
   onWithdraw: (runId: string) => Promise<void>;
   onSubmitted: () => void;
   onProfile: (agent: Agent) => void;
   onAgentChanged?: () => void;
   onNewConversation: (agent: Agent) => void;
   onNotice?: (text: string) => void;
-  /** Open Later at a section, highlighting one item. */
+
   onShowLater?: (section: "reminders" | "scheduled", focusId?: string) => void;
   /**
    * The thread's current work, so the composer can say what a send does:
@@ -468,7 +467,7 @@ function ConversationView({
         ? offset - (messages.clientHeight - message.offsetHeight) / 2
         : offset;
   }
-  /** Messages currently inside the scroll viewport, top to bottom. */
+
   function visibleMessageIds() {
     const box = messagesRef.current?.getBoundingClientRect();
     if (!box) return [];
@@ -483,7 +482,7 @@ function ConversationView({
       })
       .map((node) => node.dataset.messageId!);
   }
-  /** Remember where you stopped reading, to reopen this thread there. */
+
   function saveReadingPosition() {
     const current = dataRef.current;
     if (
@@ -989,7 +988,6 @@ function ConversationView({
     return stop;
   }, [data?.conversation.id, id, anchor, highlight]);
 
-  /** Go to one message from Jump to, remembering where you were. */
   function jumpTo(target: string) {
     if (!originRef.current)
       setOrigin({
