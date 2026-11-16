@@ -677,6 +677,18 @@ Settings and enablement retain command identities across client retries. Durable
 
 Explicit pre-dispatch refusals release the command for retry because no native effect was attempted. Failed prompt-free verification can also be retried once its adapter has shut down, before registration changes. Native decisions and upgrades retain their existing durable identities. Sign-in receipts store a process-local keyed digest and outcome without credentials or short-lived codes; only the originating live authority can reconcile the original attempt. A new command after an unknown result requires inspecting the native state first. Sign-in attempts carry their originating command ID so recovery cannot mistake an older completed login for a requested account change; a fresh authority reloads its provider catalog during inspection when needed.
 
+#### Recipe: add an external effect
+
+Canonical example: `executionCommand` in [execution-commands.ts](../src/server/execution-commands.ts), exercised by [execution-authority.node.test.ts](../test/execution-authority.node.test.ts).
+
+1. Give the effect a durable identity the caller supplies (a command ID, or `request_id` for integration writes) and keep it across client retries and reloads.
+2. In one `.immediate()` transaction, look up an existing receipt for that owner and identity, and record intent if there is none. Do not dispatch before that transaction commits.
+3. Store the owner and the current generation on the receipt. An unfinished prior receipt returns the uncertain outcome instead of running again; a decision tied to a session also refuses a different generation.
+4. After dispatch, record completion or `unknown`. Only an explicit pre-dispatch refusal (`ExecutionRefused`) releases the identity for retry. Do not resubmit an unknown effect automatically; the caller inspects current state.
+5. Core callers reach effects through [effect-authority.ts](../src/server/effect-authority.ts). Add a regression that fails after dispatch and asserts the production retry or recovery caller does not dispatch again.
+
+Webhook delivery is a documented at-least-once exception with a stable delivery ID ([webhook deliveries](state-machines.md#webhook_deliveries-implicit)); don't copy it for other effects. If a step can't be followed, say which and why in the PR instead of working around it.
+
 ## Workspace updates
 
 The webhook outbox records `run.stopped` deliveries with the run transition and its change-log ID in one transaction. Activated and failed subscriptions retain one delivery identity per transition; failed subscriptions keep accumulating a backlog. The worker’s maintenance pass shares scheduling with Web Push while each delivery path keeps its own tables, claims and retry policy. Webhook subscription and delivery writes commit scoped `webhooks` invalidations through the database change log. Lease expirations add restart-safe notification obligations to the shared deadline scheduler; processing them changes neither the lease nor delivery state. Settings list and selected delivery history use independent shared read executors, retain their own errors and refresh from source-scoped notifications and shared disconnect/deadline recovery, without a separate interval. Explicit actions supersede older read snapshots while preserving their durable command identities. Webhooks use sealed signing secrets, fenced leases, installation-dependent destination checks, same-identity retry and visible exhaustion in Settings; [Integration API](cards-api.md#outbound-webhooks) defines activation, payloads and receiver verification.
@@ -781,3 +793,15 @@ Dependencies retain their upstream licenses.
 The application host is a single point of failure. Native tools are not a multi-tenant sandbox. Fixture tests establish protocol behavior, not provider availability, billing entitlement, device acceptance or deployment capacity. See [development](development.md) for verification boundaries.
 
 Domain SQL moves into one module per primary table under `src/server/sql/`. Modules prepare statements lazily per supplied connection and parse returned rows with `parseRecord` and the canonical `QueryRecords` in [sql/rows.ts](../src/server/sql/rows.ts); partial and joined selections declare their columns beside the query. Callers retain ownership checks and transaction scopes, including `.immediate()`. The [SQL inventory](../test/sql-inventory.test.ts), run by `npm run check`, has a named file allowance that only shrinks: new files must use query modules, and a file leaves the allowance when its last direct call moves. The [column-parity check](../test/row-schema-columns.test.ts) compares every declared table record with a freshly migrated database. Migration runners, change publication and feed-projector infrastructure have explicit permanent exemptions; migrations remain point-in-time SQL.
+
+### Recipe: add or extend a SQL table module
+
+Canonical example: [sql/mcp-preferences.ts](../src/server/sql/mcp-preferences.ts), its caller [mcp/approval-policy.ts](../src/server/mcp/approval-policy.ts), and the route test that exercises it, [mcp-route-contracts.test.ts](../test/mcp-route-contracts.test.ts).
+
+1. Search `src/server/sql/` for a module that owns the table and extend it; add a new `src/server/sql/<table>.ts` only for a new primary table.
+2. Declare each query with `statement()` from [sql/statement.ts](../src/server/sql/statement.ts) and call it with the connection the caller supplies. Do not call `prepare` at module load or import `db` into the module.
+3. Take the owner as a parameter and filter by `owner_id` in the SQL when the table has one. Do not open transactions in the module; callers keep `.immediate()` and their ownership checks.
+4. Parse rows with `parseRecord` and `QueryRecords.<table>`, using `pick` or `extend` for partial and joined selections. For a new table, add its migration and `QueryRecords` entry; [row-schema-columns.test.ts](../test/row-schema-columns.test.ts) compares them.
+5. Import the module as a namespace (`import * as <table>Queries from "./sql/<table>.js"`) and test it through its production caller. The [SQL inventory](../test/sql-inventory.test.ts) must stay green.
+
+If a step can't be followed, say which and why in the PR instead of working around it.
