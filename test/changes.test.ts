@@ -1,3 +1,4 @@
+import * as eventQueries from "../src/server/sql/events";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -178,23 +179,16 @@ it("drains all bounded pages without another write and accepts subscriptions dur
 
 it("polls foreign commits and retains a commit that lands just after a drain read", async () => {
   local.changes.close();
-  const prepare = local.db.prepare.bind(local.db);
   let inject = false,
     inserted = 0;
-  vi.spyOn(local.db, "prepare").mockImplementation((sql: string) => {
-    const statement = prepare(sql);
-    if (sql.includes("FROM events WHERE id>")) {
-      const all = statement.all.bind(statement);
-      vi.spyOn(statement, "all").mockImplementation((...args: unknown[]) => {
-        const rows = all(...args);
-        if (inject) {
-          inject = false;
-          inserted = insertForeign("one", "after-read");
-        }
-        return rows;
-      });
+  const readPage = eventQueries.committedPage;
+  vi.spyOn(eventQueries, "committedPage").mockImplementation((...args) => {
+    const rows = readPage(...args);
+    if (inject) {
+      inject = false;
+      inserted = insertForeign("one", "after-read");
     }
-    return statement;
+    return rows;
   });
   const bus = createChangeBus(local.db, { pollMs: 10 });
   const seen: CommittedEvent[] = [];
@@ -231,21 +225,14 @@ it.each(["sample", "queued"])(
     local.changes.close();
     let armed = false,
       failures = 0;
-    const prepare = local.db.prepare.bind(local.db);
-    vi.spyOn(local.db, "prepare").mockImplementation((sql: string) => {
-      const statement = prepare(sql);
-      if (failure === "queued" && sql.includes("FROM events WHERE id>")) {
-        const all = statement.all.bind(statement);
-        vi.spyOn(statement, "all").mockImplementation((...args: unknown[]) => {
-          if (armed) {
-            armed = false;
-            failures++;
-            throw new Error("transient page read");
-          }
-          return all(...args);
-        });
+    const readPage = eventQueries.committedPage;
+    vi.spyOn(eventQueries, "committedPage").mockImplementation((...args) => {
+      if (failure === "queued" && armed) {
+        armed = false;
+        failures++;
+        throw new Error("transient page read");
       }
-      return statement;
+      return readPage(...args);
     });
     const bus = createChangeBus(local.db, { pollMs: 60000 });
     // Keep emit as the production entrypoint while instrumenting this connection.

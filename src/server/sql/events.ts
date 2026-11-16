@@ -85,3 +85,25 @@ export function previewQueued(
     ? undefined
     : parseRecord(previewQueuedRow, row, "events");
 }
+
+const committedPageStatement = statement(
+  "SELECT id,owner_id,run_id,subject_kind,subject_id,type FROM events WHERE id>? ORDER BY id LIMIT ?",
+);
+const committedPageRow = QueryRecords.events.pick({
+  id: true,
+  owner_id: true,
+  run_id: true,
+  subject_kind: true,
+  subject_id: true,
+  type: true,
+});
+/** Durable event identities after a cursor, in commit order, without payloads. */
+export function committedPage(
+  db: Database.Database,
+  after: number,
+  limit: number,
+) {
+  return committedPageStatement(db)
+    .all(after, limit)
+    .map((row) => parseRecord(committedPageRow, row, "events"));
+}

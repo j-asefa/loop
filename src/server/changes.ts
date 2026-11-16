@@ -1,3 +1,4 @@
+import * as eventQueries from "./sql/events.js";
 import { withoutPassiveWorkspaceRead } from "./workspace-read-context.js";
 import type { WorkspaceSubject } from "../shared/workspace-events.js";
 import type Database from "better-sqlite3";
@@ -23,9 +24,6 @@ export function createChangeBus(
   if (db.inTransaction)
     throw new Error("Create the change bus outside a transaction");
   const subscribers = new Map<string | null, Set<Subscriber>>();
-  const select = db.prepare(
-    "SELECT id,owner_id,run_id,subject_kind,subject_id,type FROM events WHERE id>? ORDER BY id LIMIT ?",
-  );
   const localChanges = db.prepare("SELECT total_changes() n");
   let localVersion = (localChanges.get() as { n: number }).n;
   let version = db.pragma("data_version", { simple: true });
@@ -93,7 +91,11 @@ export function createChangeBus(
       // baseline after reading and accidentally absorb an unread foreign row.
       version = db.pragma("data_version", { simple: true });
       localVersion = (localChanges.get() as { n: number }).n;
-      const rows = select.all(cursor, limit) as CommittedEvent[];
+      const rows = eventQueries.committedPage(
+        db,
+        cursor,
+        limit,
+      ) as CommittedEvent[];
       const through = rows.at(-1)?.id;
       const byOwner = new Map<string | null, CommittedEvent[]>();
       for (const row of rows) {
