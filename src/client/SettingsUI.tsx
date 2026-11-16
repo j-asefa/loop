@@ -284,17 +284,24 @@ export function SettingsEmpty({
 
 export function SettingsSegmented<T extends string>({
   label,
+  labelledBy,
   value,
   options,
   onChange,
 }: {
-  label: string;
-  value: T;
+  value: string;
   options: { id: T; label: string }[];
   onChange: (next: T) => void;
-}) {
+} & (
+  { label: string; labelledBy?: never } | { label?: never; labelledBy: string }
+)) {
   return (
-    <div className="drawer-segmented" role="group" aria-label={label}>
+    <div
+      className="drawer-segmented"
+      role="group"
+      aria-label={label}
+      aria-labelledby={labelledBy}
+    >
       {options.map((option) => (
         <button
           key={option.id}

@@ -1,3 +1,4 @@
+import { SettingsSegmented } from "./SettingsUI";
 import { ErrorNotice } from "./ErrorNotice";
 import { literalEntry, proseEntry } from "./textEntry";
 import { workspaceApi } from "../shared/workspace-api";
@@ -78,26 +79,15 @@ export function NativeConnections({
             })}
         </section>
       )}
-      <div
-        className="drawer-segmented"
-        role="group"
-        aria-label="Connection type"
-      >
-        <button
-          type="button"
-          aria-pressed={tab === "harnesses"}
-          onClick={() => setTab("harnesses")}
-        >
-          Harnesses
-        </button>
-        <button
-          type="button"
-          aria-pressed={tab === "api"}
-          onClick={() => setTab("api")}
-        >
-          Loop runtime API
-        </button>
-      </div>
+      <SettingsSegmented
+        label="Connection type"
+        value={tab}
+        options={[
+          { id: "harnesses", label: "Harnesses" },
+          { id: "api", label: "Loop runtime API" },
+        ]}
+        onChange={setTab}
+      />
       {tab === "harnesses" && (
         <RuntimeSetup onEnabled={onChange} connections={connections} />
       )}
