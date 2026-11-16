@@ -14,6 +14,8 @@ Start with [README.md](README.md) for build and run commands. Load only the guid
 
 Keep one canonical explanation per topic and link to it. Verify commands against package scripts and CLI parsing, behavior against production entrypoints, and pins against their source files. Historical plans and validation reports live in Git history; record new execution evidence in the PR rather than presenting it as permanent product behavior.
 
+When a guide and the code disagree, follow the code at its production entrypoint and list each inconsistency in the PR.
+
 Preserve owner/profile isolation, durable dispatch identities and generation-bound decisions. Never replay an uncertain external effect automatically. Keep native context owned by its harness and credentials out of browser-visible content. Add regressions at the production boundary being changed; use [development](docs/development.md) to choose checks. Run `npm run check` before every PR and record its output there. Distinguish fixture coverage from live provider/device validation.
 
 Loop v0.1.0 has an installed user base. Upgrades must preserve historical data and conversations, including saved answers, published files and their references, and related durable identities. Validate migrations and stored-record readers against records that released versions could create; a fresh database alone does not establish upgrade safety. Keep compatibility at storage boundaries where it is needed to retain readable history. Never reconstruct missing history by automatically replaying uncertain external effects.
