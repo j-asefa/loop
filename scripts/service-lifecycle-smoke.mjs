@@ -1,7 +1,7 @@
 // Linux user systemd: `loop service install` with a real Quick Tunnel. The
 // application unit restarts (via loop restart and systemctl) while the
 // connection unit, its cloudflared and the address stay; loop stop stays
-// stopped. Needs a user systemd manager (CI enables lingering) and installs
+// stopped. Needs a user systemd manager and installs
 // into a private npm prefix and LOOP_HOME. Uses the fixture harness.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

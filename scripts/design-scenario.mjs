@@ -293,7 +293,6 @@ for (const engine of selectedEngines()) {
         await expect(
           page.getByRole("heading", { name: "Feed", exact: true }),
         ).toBeVisible();
-        // The Feed title replaced the old tagline; nothing wraps above threads.
         await expect(page.locator(".page-description")).toHaveCount(0);
         const checkAboveComposer = async (target, label) => {
           await expect(target).toBeInViewport({ ratio: 1 });
@@ -304,7 +303,6 @@ for (const engine of selectedEngines()) {
             `${label} must remain above the composer: ${JSON.stringify({ box, composer })}`,
           );
         };
-        // Minimized, the composer is a plus button in the bottom-right corner.
         const launch = await page.locator(".composer-launch").boundingBox();
         const viewport = page.viewportSize();
         assert(
@@ -314,7 +312,6 @@ for (const engine of selectedEngines()) {
             launch.x > viewport.width / 2,
           `The minimized composer must be a corner button: ${JSON.stringify({ launch, viewport })}`,
         );
-        // What needs you leads the Feed; its first card stays in view.
         await checkAboveComposer(
           needsStack.locator(".approval-card").first(),
           "First card that needs you",
@@ -330,19 +327,16 @@ for (const engine of selectedEngines()) {
         await expect(
           feedFilters.getByRole("tab", { name: /^Done/ }),
         ).toHaveAttribute("aria-selected", "true");
-        // Every Feed filter fits a small phone. Social lives on Your profile.
         await page.setViewportSize({ width: 360, height: 780 });
         assert.ok(
           await feedFilters.evaluate((el) => el.scrollWidth <= el.clientWidth),
           "The Feed filters fit a 360px phone",
         );
         await page.setViewportSize({ width: 390, height: 844 });
-        // Done holds only finished threads: none working, queued or needing you.
         const finished = fixture.conversations.filter(
           (c) => c.state === "completed",
         ).length;
         await expect(feedRows).toHaveCount(finished);
-        // Unknown filter input selects the default without changing results.
         await page.goto(fixture.base + "/?filter=fixture-unknown");
         await expect(
           feedFilters.getByRole("tab", { name: /^Done/ }),
@@ -506,8 +500,6 @@ for (const engine of selectedEngines()) {
           "title",
           /@code-reviewer/,
         );
-        // The personal "Your prompts" tab moved to Search; the agent's threads
-        // gained their own tab.
         await expect(
           page.locator(".profile-head ~ .segmented button"),
         ).toHaveText([
@@ -573,7 +565,6 @@ for (const engine of selectedEngines()) {
         fixture.db
           .prepare("UPDATE runs SET input=? WHERE id=?")
           .run(longPrompt, fixture.conversations[0].run);
-        // Exercise the current production message and trace responses.
         await page.getByRole("tab", { name: "Messages", exact: true }).click();
         const agentMessages = page.getByRole("region", {
           name: "Agent messages",
@@ -687,13 +678,11 @@ for (const engine of selectedEngines()) {
         ).toBeVisible();
         await close();
         await expect(page.locator("dialog[open]")).toHaveCount(1);
-        // Per-message actions moved from a Copy/Link row into one menu.
         await thread()
           .getByRole("button", { name: "Message actions", exact: true })
           .last()
           .click();
         await expect(dialog()).toHaveAttribute("aria-label", "Message");
-        // Reply, Save and Remind me lead; the rest wait behind a visible More.
         await expect(
           dialog()
             .getByRole("group", { name: "Main actions" })
@@ -785,9 +774,7 @@ for (const engine of selectedEngines()) {
           .getByLabel("Filter by project")
           .selectOption(fixture.projects[0].id);
         await expect(shortcuts.locator(".agent-strip button")).toHaveCount(5);
-        // What needs you stacks above the filters: one card, the rest behind.
         await expect(needsStack).toContainText("1 more needs you");
-        // The Running tab became the Feed Working filter.
         await feedFilters.getByRole("tab", { name: /^Working/ }).click();
         await expect(page).toHaveURL(/filter=working/);
         await expect(page.getByLabel("Filter by project")).toHaveValue(
@@ -1124,7 +1111,6 @@ for (const engine of selectedEngines()) {
           /preserve/i,
         );
         await capture("search");
-        // The Profile tab's prompt history is the Search "Your prompts" scope.
         fixture.db
           .prepare(
             "UPDATE messages SET metadata='{\"personal\":true}' WHERE run_id=? AND role='user'",
@@ -1154,7 +1140,6 @@ for (const engine of selectedEngines()) {
           .getByRole("button", { name: "Dark", exact: true })
           .click();
         await close();
-        // Closing the drawer releases the page again.
         assert.notEqual(await pageOverflow(), "hidden");
         await openConversation();
         await capture("conversation-dark");

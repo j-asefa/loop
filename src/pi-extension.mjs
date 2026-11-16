@@ -1,4 +1,3 @@
-// Loaded process-locally by `loop pi`. No credentials, model overrides or settings writes.
 import { writeSync } from "node:fs";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 export default function loopMetadata(pi) {

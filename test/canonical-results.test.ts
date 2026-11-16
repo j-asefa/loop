@@ -67,7 +67,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
        VALUES ('art-1', ?, 'run-setup', 'call-1', 'key-1', 'text/markdown', 24, 'abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234')`,
     ).run(owner);
 
-    // 1. Complete first run via production queue state machine
     const run1 = enqueue(
       owner,
       "Draft the canonical result model",
@@ -130,7 +129,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
     );
     transition(claimed1!, "completed");
 
-    // 2. Complete a second run in the same conversation to verify parentResultId chaining
     const run2 = enqueue(owner, "Add context edges index", "idem-run-2", {
       agent: "agent-1",
       conversation: "conv-1",
@@ -144,7 +142,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
     ).run(owner, run2.id);
     transition(claimed2!, "completed");
 
-    // 3. Import standalone messages in an imported conversation and seal them
     db.prepare(
       `INSERT INTO conversations(id, owner_id, agent_id, title, origin, created_at)
        VALUES ('conv-import', ?, 'agent-1', 'Imported Notes', 'import', 140)`,
@@ -221,11 +218,9 @@ describe("Canonical Result publication, immutability, and migration", () => {
       projectFeed(db, () => {});
     }).immediate();
 
-    // 1. CanonicalResult reads remain 100% unchanged
     const afterRun1 = getResult(owner, `run:${run1.id}`, db);
     expect(afterRun1).toEqual(sealedRun1);
 
-    // 2. Done Cards API (/api/v1/cards?view=done) serves sealed content, prompt, attribution, and attachments
     const cards = doneCards(owner, {
       folders: null,
       teamIds: [],
@@ -257,7 +252,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
     expect(cardImport).toBeDefined();
     expect(cardImport?.card.content).toBe("Storing immutable domain facts.");
 
-    // 3. Done Feed (/api/feed?filter=done) serves sealed content and attribution even when conv agent_id was cleared
     const doneFeed = feed(owner, { filter: "done" });
     const doneItem1 = doneFeed.items.find(
       (c) => c.done_card_key === `run:${run1.id}`,
@@ -272,7 +266,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
     );
     expect(doneItem1?.run?.input).toBe("Draft the canonical result model");
 
-    // 4. Steering Replies Feed (/api/feed?filter=replies) serves sealed question, body, and agent_name
     const repliesFeed = feed(owner, { filter: "replies" });
     const replyItem = repliesFeed.items.find(
       (c) => c.reply_card_key === `reply:${publishedReply.messageId}`,
@@ -284,7 +277,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
       "No, results are sealed at publication.",
     );
 
-    // 5. Revoking live object/publication revokes download URLs while preserving sealed display metadata
     db.prepare(
       "DELETE FROM artifact_objects WHERE artifact_id = 'art-1'",
     ).run();
@@ -311,7 +303,6 @@ describe("Canonical Result publication, immutability, and migration", () => {
       },
     ]);
 
-    // 6. Unsealed draft rows (sealed = 0) are excluded from canonical readers and supplied-context resolution
     db.prepare(
       `INSERT INTO results (
         id, owner_id, schema_version, kind, origin_completeness, sealed,

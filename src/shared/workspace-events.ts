@@ -622,7 +622,7 @@ export function reconciliationScopes(
     return [{ kind: "collection" as const, id: "metadata" as const }];
   if (event.type.startsWith("message.") || event.type === "native.event")
     return [];
-  // PR 6's transactional producer inventory covers run, conversation and
+  // The transactional producer inventory covers run, conversation and
   // subject changes. Those identities alone are not broad invalidations.
   return eventScopes(event)
     .filter((scope) => scope.kind === "collection")
