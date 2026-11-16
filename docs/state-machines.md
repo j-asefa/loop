@@ -25,6 +25,18 @@ window. The guard column uses these terms:
 
 Terminal states are written in **bold**.
 
+## Recipe: add a state or transition
+
+Canonical example: `RUN_TRANSITIONS` in [run-state.ts](../src/shared/run-state.ts), applied by `transition()` in [queue-machine.ts](../src/server/queue-machine.ts), with [run-state-documentation.test.ts](../test/run-state-documentation.test.ts) keeping the [`runs.state`](#runsstate) table in step.
+
+1. Add the state or edge to the machine's single owner (its transition table or owning module), and name that owner in the machine's section below.
+2. Write the state only through the owner's transition function, which re-reads the row inside one `.immediate()` transaction (**tx**) or requires the prior state in its `UPDATE` (**sql**). Do not write the state column from another module. A documented lease operation, such as the `runs` claim and `deferUndispatched` in `sql/runs.ts`, is the exception; name any new one in the machine's section.
+3. Update the machine's table here with the edge and its guard term from [Conventions](#conventions). For `runs.state`, the documentation test fails until the table matches `RUN_TRANSITIONS`.
+4. Keep readers accepting every state a released version wrote. A trigger or `CHECK` constraint needs a migration ([database migrations](development.md#database-migrations)) and an upgrade fixture with historical rows.
+5. Add a regression for the new edge, and for a stale caller being refused, at the production caller.
+
+If a step can't be followed, say which and why in the PR instead of working around it.
+
 ## Runs
 
 ### `runs.state`
