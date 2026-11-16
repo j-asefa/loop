@@ -1,3 +1,9 @@
+import {
+  finishPendingRunSql,
+  finishPendingGenerationSql,
+  finishPendingSql,
+  finishDecidingSql,
+} from "../src/server/sql/native-decisions";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -79,64 +85,60 @@ it("uses indexed cleanup at real turn, disposal and recovery boundaries without 
   const deciding = decision(target, "deciding");
   const otherPending = decision(other, "pending");
   const indexes = new Set<string>();
-  const prepare = db.prepare.bind(db);
-  const spy = vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    const statement = prepare(sql);
-    if (/^\s*UPDATE native_decisions SET state=\?/.test(sql)) {
-      const run = statement.run.bind(statement);
-      statement.run = (...params: unknown[]) => {
-        const plan = prepare("EXPLAIN QUERY PLAN " + sql).all(...params) as {
-          detail: string;
-        }[];
-        expect(
-          plan.some((row) => /SCAN native_decisions/.test(row.detail)),
-        ).toBe(false);
-        for (const row of plan) {
-          const index = /USING (?:COVERING )?INDEX (native_decisions_\w+)/.exec(
-            row.detail,
-          )?.[1];
-          if (index) indexes.add(index);
-        }
-        return run(...params);
-      };
-    }
-    return statement;
-  });
-  try {
-    target.sessions.projector.event(target.live, {
-      type: "status",
-      status: "completed",
-    });
-    expect(target.live.finish).toHaveBeenCalledWith("completed");
-    expect(state(pending)).toBe("expired");
-    expect(state(deciding)).toBe("deciding");
-    expect(state(otherPending)).toBe("pending");
-    const disposable = decision(target, "pending");
-    const otherGeneration = decision(target, "pending", "next-generation");
-    await target.sessions.dispose(target.live);
-    expect(state(disposable)).toBe("expired");
-    expect(state(otherGeneration)).toBe("pending");
-    expect(state(otherPending)).toBe("pending");
-    expect(target.dispose).toHaveBeenCalledTimes(1);
-    target.sessions.recover();
-    expect(state(otherGeneration)).toBe("expired");
-    expect(state(otherPending)).toBe("expired");
-    expect(state(deciding)).toBe("unknown");
-    expect(
-      history.every((decisionId) => state(decisionId) === "resolved"),
-    ).toBe(true);
-    expect(
-      db
-        .prepare("SELECT request FROM native_decisions WHERE id=?")
-        .get(history[0]),
-    ).toEqual({ request: largeRequest });
-    expect(indexes).toEqual(
-      new Set([
-        "native_decisions_run_state",
-        "native_decisions_state_generation",
-      ]),
+  for (const [sql, params] of [
+    [finishPendingRunSql, ["expired", target.run.id, "expired"]],
+    [
+      finishPendingGenerationSql,
+      ["expired", target.run.conversation_id, "fixture", "expired"],
+    ],
+    [finishPendingSql, ["expired", "expired"]],
+    [finishDecidingSql, ["unknown", "unknown"]],
+  ] as const) {
+    const plan = db.prepare("EXPLAIN QUERY PLAN " + sql).all(...params) as {
+      detail: string;
+    }[];
+    expect(plan.length).toBeGreaterThan(0);
+    expect(plan.map((row) => row.detail).join("\n")).not.toMatch(
+      /SCAN native_decisions/,
     );
-  } finally {
-    spy.mockRestore();
+    for (const row of plan) {
+      const index = /USING (?:COVERING )?INDEX (native_decisions_\w+)/.exec(
+        row.detail,
+      )?.[1];
+      if (index) indexes.add(index);
+    }
   }
+  target.sessions.projector.event(target.live, {
+    type: "status",
+    status: "completed",
+  });
+  expect(target.live.finish).toHaveBeenCalledWith("completed");
+  expect(state(pending)).toBe("expired");
+  expect(state(deciding)).toBe("deciding");
+  expect(state(otherPending)).toBe("pending");
+  const disposable = decision(target, "pending");
+  const otherGeneration = decision(target, "pending", "next-generation");
+  await target.sessions.dispose(target.live);
+  expect(state(disposable)).toBe("expired");
+  expect(state(otherGeneration)).toBe("pending");
+  expect(state(otherPending)).toBe("pending");
+  expect(target.dispose).toHaveBeenCalledTimes(1);
+  target.sessions.recover();
+  expect(state(otherGeneration)).toBe("expired");
+  expect(state(otherPending)).toBe("expired");
+  expect(state(deciding)).toBe("unknown");
+  expect(history.every((decisionId) => state(decisionId) === "resolved")).toBe(
+    true,
+  );
+  expect(
+    db
+      .prepare("SELECT request FROM native_decisions WHERE id=?")
+      .get(history[0]),
+  ).toEqual({ request: largeRequest });
+  expect(indexes).toEqual(
+    new Set([
+      "native_decisions_run_state",
+      "native_decisions_state_generation",
+    ]),
+  );
 });
