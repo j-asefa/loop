@@ -292,6 +292,10 @@ a:focus-visible {
   padding: 0;
   background: transparent;
 }
+.feed-tabs {
+  margin: 0 -32px;
+  padding-inline: 32px;
+}
 .feed-tabs .chip,
 .profile-tabs button,
 .my-profile-tabs button,
@@ -306,6 +310,10 @@ a:focus-visible {
   padding: 13px 16px;
   font-size: 14px;
   font-weight: 500;
+}
+.feed-tabs .chip {
+  flex: 1;
+  justify-content: center;
 }
 .feed-tabs .chip[aria-selected="true"],
 .profile-tabs button.selected,
@@ -779,6 +787,18 @@ a:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.my-profile-tabs {
+  margin: 0 -32px 0;
+  padding-inline: 20px;
+  gap: 6px;
+}
+.my-profile-tabs button {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
 .my-profile-tabs .chip-count {
   flex-shrink: 0;
 }
@@ -830,6 +850,10 @@ label.catalog-search {
 .project-tile > svg:first-child,
 .project-symbol {
   color: var(--brass-text);
+}
+.project-tabs {
+  margin: 18px 0;
+  margin-block: 18px;
 }
 .settings-row-group,
 .settings-list {
@@ -949,7 +973,6 @@ label.catalog-search {
     padding: 4px 8px 12px;
   }
   .agent-strip {
-    padding-bottom: 23px;
     grid-auto-columns: 80px;
     gap: 8px;
     padding-inline: 8px;
@@ -1131,7 +1154,6 @@ label.catalog-search {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-width: 62px;
     color: var(--muted);
     font-size: 10px;
     gap: 5px;
@@ -1157,7 +1179,6 @@ label.catalog-search {
     right: 0;
     margin: 0;
     width: 100%;
-    max-width: 100%;
     max-height: min(92dvh, calc(var(--visual-viewport-height, 100dvh) - 16px));
     border-bottom: 0;
     border-radius: 24px 24px 0 0;
