@@ -17,59 +17,27 @@ Across these files, one rule holds: the transport never retries a request, so ev
 
 ## Agent sources and execution environments
 
-An agent belongs to one owner on one Loop API source and has a connection that selects its execution environment. The paired client reads each available source's owner-scoped agent, run and Feed projections and merges the Feed by activity time. Source IDs qualify agent, conversation and run identities in the client; source-scoped writes go only to the owning API. A late response from a prior signed-in owner is discarded. Project and team filters remain scoped to their source. The source's database, credentials and dispatch identities are never copied to the companion host. Opening a conversation on another source keeps the Feed mounted. The thread binds its reads, controls, uploads and file links to that source; the shell retains its original source. Drafts and pending send receipts include the owner, source and conversation, and late responses cannot overwrite the newly opened thread. Source failures appear in the thread with a retry action.
+An agent belongs to one owner on one Loop API source, and its connection selects where it runs: API connections use Loop's model loop, native connections dispatch through native adapters. Each file below states its own rules in comments.
 
-[agent-sources.ts](../src/agent-sources.ts) maps opaque source IDs to adapters. Enrolled companions use the owner-bound fleet peer adapter and remain visible during an outage, including companions running in Docker. Unknown IDs cannot nominate a network destination. The client uses the source-keyed Feed and **Run on** form to select a companion.
+| File | Owns |
+| --- | --- |
+| [agent-sources.ts](../src/agent-sources.ts) | Mapping opaque source IDs to adapters |
+| [client/agentSources.ts](../src/client/agentSources.ts) and [Feed.tsx](../src/client/Feed.tsx) | Per-source metadata and Feed reads, retained data for failed sources |
+| [OwnerSessionBoundary.tsx](../src/client/app/OwnerSessionBoundary.tsx) and [Session.tsx](../src/client/app/Session.tsx) | Owner-generation remounts, entry and share links, session expiry |
+| [sendReceiptStore.ts](../src/client/sendReceiptStore.ts) and [Composer.tsx](../src/client/app/Composer.tsx) | Owner/source/thread-scoped send receipts and draft saves |
+| [native-sessions.ts](../src/server/native-sessions.ts) and [native/supervisor.ts](../src/server/native/supervisor.ts) | Live native sessions, generations, settings, idle disposal and recovery |
+| [adapters/types.ts](../src/adapters/types.ts) | The dispatch and setting guard contract adapters follow before native submission |
+| [effect-authority.ts](../src/server/effect-authority.ts) | The database-free seam for dispatch, steering, decisions and dependent work |
+| [native-tools.ts](../src/server/native-tools.ts) | The private tool bridge, including what a handoff does and does not transfer |
 
-Linked-source metadata uses four concurrent source workers and publishes each
-completed projection immediately. A slow source does not delay another source's
-agents or creation choices. Failed sources retain their last loaded metadata and
-are named in the connection notice. Discovery requests and source-specific
-changes queued during a refresh both survive; hidden pages defer new metadata
-work until foreground. Source removal stops displaying that source's cached rows.
+Rules that span these files:
 
-Combined Feed head reads use four concurrent source workers with one active
-read and one coalesced trailing read per source. A source can publish another
-head update while another machine's read remains pending. Cold results appear
-before the roster has a complete paging window; pagination starts after that
-first window settles. An incomplete Working or Queued head retains its loaded
-history and cursor together until the pass settles or Load more supersedes it.
-An exhaustive response replaces that source immediately, including when all its
-rows disappear. If the last visible rows disappear while another source is
-pending, the view shows loading until that read settles; it does not claim a
-complete empty result. Owner and view generations reject obsolete reads and
-queued invalidations.
-
-Needs-you cards and operational counters publish each source's successful read
-independently of Done's selected agent and read filter. Needs reads share a
-separate four-source queue with one coalesced trailing read per source; failed
-sources retain their cached cards while healthy sources continue refreshing.
-
-Session composer choices, quoted context, shared-link drafts and agent tabs are
-qualified by authenticated owner, source and entity. They hydrate only after the
-owner is known; an obsolete view cannot write after that owner's generation
-changes. A fresh OS share URL belongs to the first authenticated owner opening
-it. The app controller remounts on an owner-generation change; a same-owner
-session refresh retains its state. Initial navigation survives the first
-authentication remount, while replacement owners start without the previous
-owner's URL targets. Expiry stays signed out until explicit pairing. Pending
-thread draft saves flush to their captured owner before unmount; accepted sends
-cancel that pending save. References held by old controller work become invalid
-when the owner generation changes, including a change away and back.
-Existing thread drafts and durable send identities retain their separate owning
-keys.
-
-API connections use Loop's model loop. Native connections dispatch through native adapters. Native context belongs to its harness; Loop persists the display projection, dispatch identity, approvals and tool receipts. Codex, Claude Code, Pi, Muse Code and Antigravity support live input; OpenCode, Grok Build and ACP queue follow-ups. Each native conversation has an independent session and serialized turns.
-
-Native prompt, live-input and answer methods accept a synchronous dispatch guard from their owning runtime. Adapters recheck it immediately before native submission, including after account/configuration reads, interruption confirmation or queued preparation. A refusal prevents that submission and leaves unsent decisions pending. Callers without a guard retain their existing behavior; a guard does not replay an uncertain native effect. If Pi ends a turn with guarded input still queued, Loop preserves that native queue and reports an unconfirmed outcome. Pi exposes no durable per-entry identity, so Loop cannot safely clear and restore a queue shared with another native writer.
-
-Core dispatch, steering, decisions and dependent work use the database-free [effect authority interface](../src/server/effect-authority.ts). Database startup installs a local guard that refuses recorded delegated work; the workspace and execution-worker composition roots install fleet authority only when enabled. Definitive non-delivery recovery and execution-grant validation use the same interface.
-
-The internal [fleet effect store](../src/server/fleet-effect-authorizations.ts) binds creator and editor grants to an owner, effect kind and durable effect identity. Acceptance and inheritance require an owning database transaction. Revalidation checks every retained grant, including editor-only and inherited constraints. Reusing a contribution command with a different grant is refused; inheritance detects those conflicts and rolls back with its owning transaction. Definitive non-delivery recovery can discard only a newly inserted edit, inside its recovery transaction; an idempotent duplicate cannot discard a pre-existing contribution. The authenticated action context is supplied by trusted server code, never by a request header. These primitives do not mount a peer action route or install a native runtime caller by themselves.
-
-[native-sessions.ts](../src/server/native-sessions.ts) is the stable import facade. Its [supervisor](../src/server/native/supervisor.ts) owns live sessions, generations, execution, settings, idle disposal and recovery. The same instance supplies its live-session map and callbacks to the [projector](../src/server/native/projector.ts), [decisions](../src/server/native/decisions.ts), [Pi customization](../src/server/native/pi-customization.ts) and [projects/catalogs](../src/server/native/projects.ts) modules. [Workspace preparation](../src/server/native/workspace.ts) shares the existing identity and checkout checks. Worker ownership remains at the execution authority boundary described below.
-
-The private native tool bridge gives ordinary harness runs the same owner-scoped agent directory, direct/team mail, handoff, memory and published-file tools; delegation remains a team-manager operation and snapshot reviews keep their restricted catalog. [Agent messaging](teams.md#agent-messaging) preserves local owner isolation; direct mail and handoffs can target explicitly authorized fleet peers. Team and delegation operations remain source-local. Direct threads have two fixed participants and conversation bindings. Pending mail is durable; the atomic queue claim serializes mail against conflicting agent work and rechecks authorization before dispatch. Team mail retains membership checks. Handoffs transfer a task and context summary without transferring a provider session or additional authority, and file access is checked on forwarding and reading.
+- Source IDs qualify agent, conversation and run identities in the client, and source-scoped writes go only to the owning API. A source's database, credentials and dispatch identities are never copied to the companion host.
+- Owner and view generations reject late responses from a previous owner, an obsolete view or a thread no longer open. Sources load and fail independently, and an incomplete read never shows as a complete empty result.
+- Native context belongs to its harness. Loop persists only the display projection, dispatch identity, approvals and tool receipts; each native conversation has its own session and serialized turns. Live-input support per harness is in [harnesses](harnesses.md).
+- A refused dispatch guard prevents the native submission and leaves unsent decisions pending; a guard never replays an uncertain native effect.
+- Core callers go through the effect authority; only the workspace and execution-worker composition roots install the fleet implementation, and only when fleets are enabled ([fleet architecture](fleet-architecture.md)).
+- Agent mail from the tool bridge follows [agent messaging](teams.md#agent-messaging): delegation stays a team-manager operation, team operations stay source-local, and queued mail rechecks authorization before dispatch.
 
 ## Companion execution authority
 
