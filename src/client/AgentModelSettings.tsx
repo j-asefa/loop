@@ -1,11 +1,11 @@
 import { ErrorNotice } from "./ErrorNotice";
-import { useProjectionRoute } from "./SourceContext";
+import { useModelCatalog } from "./useModelCatalog";
 import { ModelId } from "../shared/contract-ids.js";
 import { ConnectionId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { useSourceOperation, useSourceRoute } from "./SourceContext";
 import { workspaceApi } from "../shared/workspace-api";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { Sheet } from "./components";
 import {
@@ -15,7 +15,6 @@ import {
   modelOptionLabel,
 } from "./modelChoices";
 import type { Agent, Connection } from "../shared/types";
-import type { ModelOption } from "../shared/models";
 
 // Radio-style choices support the same arrow navigation as native radio inputs.
 function navigateChoices(event: KeyboardEvent<HTMLDivElement>) {
@@ -63,55 +62,15 @@ export function AgentModelSettings({
   onClose: () => void;
   onSaved: (agent: Agent) => void;
 }) {
-  const readProjection = useProjectionRoute();
-
   const route = useSourceRoute();
   const unavailable = useSourceOperation(workspaceApi.agentUpdate);
   const [selected, setSelected] = useState(agent);
-  const [catalog, setCatalog] = useState<Record<string, ModelOption[]>>({});
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false),
     [query, setQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(true),
-    [stale, setStale] = useState(false);
-  const [revision, setRevision] = useState(0);
   const locked = useRef(false);
-  const connectionsRef = useRef(connections);
-  connectionsRef.current = connections;
-  const connectionKey = connections
-    .filter((c) => c.status === "connected")
-    .map((c) => c.id)
-    .join(",");
-  useEffect(() => {
-    let current = true;
-    setRefreshing(true);
-    setStale(false);
-    void Promise.all(
-      connectionsRef.current
-        .filter((c) => c.status === "connected")
-        .map(async (connection) => {
-          try {
-            const result = await readProjection(
-              workspaceApi.connectionModels,
-              {
-                params: { id: connection.id },
-              },
-              { mode: "once" },
-            );
-            if (current)
-              setCatalog((old) => ({ ...old, [connection.id]: result.models }));
-          } catch {
-            if (current) setStale(true);
-          }
-        }),
-    ).finally(() => {
-      if (current) setRefreshing(false);
-    });
-    return () => {
-      current = false;
-    };
-  }, [connectionKey, revision]);
+  const { catalog, refreshing, stale, refresh } = useModelCatalog(connections);
   const groups = modelGroups(connections, catalog);
   const chosen = groups
     .find((group) => group.connection.id === selected.connection_id)
@@ -311,11 +270,7 @@ export function AgentModelSettings({
         ) : stale ? (
           <p className="field-hint">
             Some harnesses are unavailable. Their saved model lists are shown.{" "}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => setRevision((value) => value + 1)}
-            >
+            <button type="button" className="text-button" onClick={refresh}>
               Refresh
             </button>
           </p>
