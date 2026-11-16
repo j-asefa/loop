@@ -45,7 +45,8 @@ export function OwnerSessionBoundary({
   // Keep the entry link (including an OS share link) across the initial
   // authentication remount, but never give it to a replacement owner.
   // Same-owner metadata retains the controller. Keying on the generation
-  // remounts everything below on an owner change, so state and in-flight work
-  // captured for the previous owner cannot write after it changes.
+  // remounts everything below on an owner change, discarding the previous
+  // owner's component state; asynchronous work still checks the owner
+  // generation itself before writing (see Session.tsx).
   return <Fragment key={generation}>{children(initial)}</Fragment>;
 }

@@ -26,7 +26,7 @@ An agent belongs to one owner on one Loop API source, and its connection selects
 | [OwnerSessionBoundary.tsx](../src/client/app/OwnerSessionBoundary.tsx) and [Session.tsx](../src/client/app/Session.tsx) | Owner-generation remounts, entry and share links, session expiry |
 | [sendReceiptStore.ts](../src/client/sendReceiptStore.ts) and [Composer.tsx](../src/client/app/Composer.tsx) | Owner/source/thread-scoped send receipts and draft saves |
 | [native-sessions.ts](../src/server/native-sessions.ts) and [native/supervisor.ts](../src/server/native/supervisor.ts) | Live native sessions, generations, settings, idle disposal and recovery |
-| [adapters/types.ts](../src/adapters/types.ts) | The dispatch and setting guards every adapter rechecks before native submission |
+| [adapters/types.ts](../src/adapters/types.ts) | The dispatch and setting guard contract adapters follow before native submission |
 | [effect-authority.ts](../src/server/effect-authority.ts) | The database-free seam for dispatch, steering, decisions and dependent work |
 | [native-tools.ts](../src/server/native-tools.ts) | The private tool bridge, including what a handoff does and does not transfer |
 

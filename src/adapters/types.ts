@@ -52,10 +52,6 @@ export interface Adapter {
   /** Call beforeApply after validation, immediately before changing state or
    * handing the setting to the harness. Preflight rejection must not call it;
    * a failure after this point can represent an uncertain effect. */
-  /** `beforeApply` runs after the setting and value are validated, immediately
-   * before pending options change or the setting reaches the harness. A
-   * rejected preflight never calls it; a failure after it can still leave
-   * the setting's effect uncertain. */
   setSetting?(
     id: string,
     value: SettingValue,
