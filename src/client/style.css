@@ -4894,8 +4894,6 @@ select {
   line-height: 20px;
   text-align: center;
 }
-/* The four Feed filters fit a phone without scrolling: they share the row
-   and their counts sit on the corner instead of widening the chip. */
 .feed-tabs .chip-count {
   top: -8px;
   right: 2px;
