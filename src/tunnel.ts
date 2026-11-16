@@ -13,9 +13,9 @@ import { privateDir, atomic } from "./state.js";
 import { recordOwnedChild } from "./process-records.js";
 import { bareHttpsOrigin } from "./shared/origin.js";
 const exec = promisify(execFile);
-const RELEASE = "2026.9.3";
+export const cloudflaredRelease = "2026.9.3";
 // Release asset SHA-256 digests from cloudflare/cloudflared release 2026.9.3.
-const BUILDS: Record<string, [string, string]> = {
+export const cloudflaredBuilds: Record<string, [string, string]> = {
   "linux-x64": [
     "cloudflared-linux-amd64",
     "77e26d8d900e0b8469f416239d14b5f296525fdf79fee6f511ef55609e3fbac2",
@@ -35,12 +35,12 @@ const BUILDS: Record<string, [string, string]> = {
 };
 const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 export async function helper(root: string) {
-  const build = BUILDS[`${process.platform}-${process.arch}`];
+  const build = cloudflaredBuilds[`${process.platform}-${process.arch}`];
   if (!build)
     throw new Error(
       "Automatic Quick Tunnels support macOS/Linux x64/arm64. Use a stable --public-url endpoint on other platforms.",
     );
-  const dir = join(root, "helpers", RELEASE);
+  const dir = join(root, "helpers", cloudflaredRelease);
   privateDir(dir);
   const binary = join(dir, "cloudflared");
   try {
@@ -59,7 +59,12 @@ export async function helper(root: string) {
   // release digest before copying into persistent state; never trust its manifest.
   if (process.platform === "linux" && process.env.LOOP_BAKED_HELPERS) {
     const bytes = await readFile(
-      join(process.env.LOOP_BAKED_HELPERS, "helpers", RELEASE, "cloudflared"),
+      join(
+        process.env.LOOP_BAKED_HELPERS,
+        "helpers",
+        cloudflaredRelease,
+        "cloudflared",
+      ),
     ).catch(() => undefined);
     if (bytes && digest(bytes) === build[1]) {
       await writeFile(binary, bytes, { mode: 0o700 });
@@ -67,13 +72,13 @@ export async function helper(root: string) {
       atomic(join(dir, "manifest.json"), {
         assetHash: build[1],
         binaryHash: build[1],
-        version: RELEASE,
+        version: cloudflaredRelease,
       });
       return binary;
     }
   }
   const response = await fetch(
-    `https://github.com/cloudflare/cloudflared/releases/download/${RELEASE}/${build[0]}`,
+    `https://github.com/cloudflare/cloudflared/releases/download/${cloudflaredRelease}/${build[0]}`,
     { signal: AbortSignal.timeout(120000) },
   );
   if (!response.ok || !response.body)
@@ -111,7 +116,7 @@ export async function helper(root: string) {
     atomic(join(dir, "manifest.json"), {
       assetHash: build[1],
       binaryHash: digest(await readFile(binary)),
-      version: RELEASE,
+      version: cloudflaredRelease,
     });
   } finally {
     await rm(tmp, { force: true });
