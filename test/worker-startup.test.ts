@@ -33,12 +33,8 @@ it("starts a worker on a populated database without replaying history into claim
   vi.resetModules();
   const { db, changes, emit } = await import("../src/server/db");
   const { startWorker } = await import("../src/server/worker");
-  const prepare = db.prepare.bind(db);
-  let claims = 0;
-  vi.spyOn(db, "prepare").mockImplementation((sql: string) => {
-    if (sql.includes("WITH candidates AS")) claims++;
-    return prepare(sql);
-  });
+  const queue = await import("../src/server/queue");
+  const claims = vi.spyOn(queue, "claim");
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   const stop = startWorker();
   const delivered: string[] = [];
@@ -50,7 +46,7 @@ it("starts a worker on a populated database without replaying history into claim
     await expect.poll(() => delivered).toEqual(["attention.dismissed"]);
     await new Promise<void>((resolve) => setImmediate(resolve));
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(claims).toBe(1);
+    expect(claims).toHaveBeenCalledTimes(1);
   } finally {
     unsubscribe();
     await stop();
