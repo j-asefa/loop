@@ -555,4 +555,4 @@ same versioned Cards service through bounded windows
 [feed-cards.ts](../src/client/feed-cards.ts)); a 409 reset resynchronizes within
 the Cards contract. The Files tab, the operational Feed summaries and the
 `/api/results`, `/api/results/updates`, `/api/saved` and `/api/me/prompts`
-routes keep their own contracts; integrations use the Cards routes above.
+routes keep their own contracts.
