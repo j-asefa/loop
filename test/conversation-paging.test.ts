@@ -1,10 +1,10 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
 import { afterAll, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 
 import Database from "better-sqlite3";
-import express from "express";
 
 testDirectory();
 
@@ -17,7 +17,6 @@ const { recordConversationUpdate } =
 // covers requests and assertions instead of cold module transformation.
 const { core } = await import("../src/server/core-routes");
 const { savePosition } = await import("../src/server/mobile-return");
-const { Problem } = await import("../src/server/domain");
 afterAll(() => {
   db.close();
 });
@@ -389,30 +388,20 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
   const ids = Array.from({ length: 125 }, () => message(conversation, null));
   savePosition("alice", conversation, { positionMessageId: ids[30] });
   let requests = 0;
-  const app = express();
-  app.use((req, res, next) => {
-    requests++;
-    res.locals.owner = req.get("x-owner") || "alice";
-    next();
-  });
-  app.use(core);
-  app.use(
-    (
-      error: Error,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      res
-        .status(error instanceof Problem ? error.status : 400)
-        .json({ error: error.message });
-    },
+  const app = await productionApp(
+    "alice",
+    [
+      (_req, _res, next) => {
+        requests++;
+        next();
+      },
+      core,
+    ],
+    { ownerHeader: "x-owner", json: false },
   );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
   const get = async (query = "", owner = "alice") => {
     const response = await fetch(
-      `http://127.0.0.1:${(server.address() as { port: number }).port}/conversations/${conversation}${query}`,
+      `${app.url}/api/conversations/${conversation}${query}`,
       { headers: { "x-owner": owner } },
     );
     return { status: response.status, body: (await response.json()) as any };
@@ -449,6 +438,6 @@ it("serves a saved-position page in one resume request while ordinary refreshes,
     expect(malformed.status).toBe(400);
     expect(malformed.body.error).toBe("Invalid conversation cursor");
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await app.close();
   }
 });

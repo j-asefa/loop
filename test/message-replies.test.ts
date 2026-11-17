@@ -1,8 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { assertAnswerStored } from "./fixtures/answer-record.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
-import express from "express";
 
 import type { Run } from "../src/server/queue";
 import { replyPrompt } from "../src/shared/replies";
@@ -20,21 +20,8 @@ const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { core } = await import("../src/server/core-routes");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
+const base = app.url + "/api";
 async function request(path: string, body?: unknown, owner = "alice") {
   const response = await fetch(base + path, {
     method: body ? "POST" : "GET",
@@ -93,7 +80,7 @@ function trace(
   );
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 
