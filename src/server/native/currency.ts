@@ -1,3 +1,9 @@
+// Named currency policies. Dispatch checks the attached turn, generation,
+// cancellation and active run state; decision answers also check their
+// delivery receipt. Delayed output requires the same run object. Stored-
+// generation checks stay specific to settings and usage, activity and model
+// projections and are not added to prompt or decision dispatch; definitive
+// non-delivery can reopen a decision without the dispatch cancellation check.
 import type { Live } from "./state.js";
 import type { Run } from "../queue.js";
 

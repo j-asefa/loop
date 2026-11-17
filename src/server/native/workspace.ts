@@ -1,3 +1,9 @@
+// Preparation awaits Git without holding a database transaction, so before
+// changing a binding the caller rechecks the live session, binding identity and
+// run state captured before that await. Same-process callers preparing the same
+// checkout share one pending preparation; fetch and base-commit resolution are
+// serialized per Git common directory, and Git locks arbitrate between
+// processes.
 import { harnesses } from "../../shared/harnesses.js";
 import {
   agentWorkspace,

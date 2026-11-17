@@ -7,7 +7,10 @@ import { RunDisplayState, RunKind } from "./run-state.js";
 import { PublicArtifact } from "./artifact-contract-schema.js";
 // Run arms follow storage transitions and every public projection. Preview and
 // queue fields are shared: attention(active=false) returns them for every state,
-// and queue_rank is retained when a queued run starts.
+// and queue_rank is retained when a queued run starts. A paused run can keep its
+// lease and saved answer, and running or pausing work can save an answer before
+// completing, so neither field proves a run is executing. Stored native errors
+// survive a later completion, and every arm keeps that error field.
 const RunBaseSchema = z.object({
   id: RunId,
   owner_id: OwnerId.optional(),
