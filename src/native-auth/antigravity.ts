@@ -7,15 +7,12 @@ import { spawnHarnessProcess, stopHarnessProcess } from "../native-spawn.js";
 // for a terminal wide enough to print Google's URL on one line, choose Google
 // OAuth and type back the code that antigravity.google shows. agy stores the
 // credential; `agy models`, the adapter's own sign-in check, confirms it.
-let antigravityExchangeWait = 90000;
-let antigravityStartWait = 30000;
-export function setAntigravityExchangeWait(ms: number) {
-  antigravityExchangeWait = ms;
-}
-export function setAntigravityStartWait(ms: number) {
-  antigravityStartWait = ms;
-}
-export function antigravityDriver(options: AuthOptions): AuthDriver {
+export function antigravityDriver(
+  options: AuthOptions,
+  waits: { exchange?: number; start?: number } = {},
+): AuthDriver {
+  const exchangeWait = waits.exchange ?? 90000;
+  const startWait = waits.start ?? 30000;
   let child: ChildProcess | undefined;
   const env = {
     ...(options.env ?? process.env),
@@ -160,7 +157,7 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
                     );
                     timer = setTimeout(
                       () => finish(new Error("Sign-in timed out")),
-                      antigravityExchangeWait,
+                      exchangeWait,
                     );
                     void confirm();
                   },
@@ -186,7 +183,7 @@ export function antigravityDriver(options: AuthOptions): AuthDriver {
           // An agy that stalls before its link ends the attempt.
           timer = setTimeout(
             () => finish(new Error("Sign-in timed out")),
-            antigravityStartWait,
+            startWait,
           );
           if (io.signal.aborted) abort();
         });
