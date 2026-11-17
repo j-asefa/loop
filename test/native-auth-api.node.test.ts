@@ -1,18 +1,12 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  mkdir,
-  writeFile,
-  readFile,
-  readdir,
-  rm,
-} from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
-await mkdir(".tmp", { recursive: true });
-const dir = await mkdtemp(resolve(".tmp/native-auth-api-"));
+const workspace = createTestWorkspace("native-auth-api-");
+const dir = workspace.directory;
 process.env.LOOP_DATA_DIR = dir;
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db } = await import("../src/server/db.js");
@@ -262,6 +256,6 @@ test("paired provider authentication protects credentials, checks project owners
     await host.close();
     process.env.PATH = originalPath;
     db.close();
-    await rm(dir, { recursive: true, force: true });
+    workspace.close();
   }
 });

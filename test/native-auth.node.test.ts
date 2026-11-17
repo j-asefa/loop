@@ -1,13 +1,14 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
 import type { AuthDriver } from "../src/native-auth/types.js";
-await mkdir(".tmp", { recursive: true });
-const dir = await mkdtemp(resolve(".tmp/native-auth-test-"));
+const workspace = createTestWorkspace("native-auth-test-");
+const dir = workspace.directory;
 process.env.LOOP_DATA_DIR = dir;
 const { NativeSignIns } = await import("../src/server/native-auth.js");
 const { db } = await import("../src/server/db.js");
@@ -15,7 +16,7 @@ const { createAuthDriver } = await import("../src/native-auth/drivers.js");
 const { antigravityDriver } = await import("../src/native-auth/antigravity.js");
 after(async () => {
   db.close();
-  await rm(dir, { recursive: true, force: true });
+  workspace.close();
 });
 const options = { name: "pi", executable: "fixture", project: dir };
 const providers = [

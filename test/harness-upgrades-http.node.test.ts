@@ -1,25 +1,22 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
+import { productionApp } from "./helpers/app.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import express from "express";
 import {
-  mkdtempSync,
   mkdirSync,
   writeFileSync,
-  rmSync,
-  realpathSync,
   readFileSync,
   existsSync,
   unlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
 import { until } from "./helpers.js";
 
 test("paired runtime upgrade HTTP boundary fixes the executable, persists status and deduplicates reconnects", async (t) => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-upgrade-http-")));
-  process.env.LOOP_DATA_DIR = join(dir, "data");
+  const workspace = createTestWorkspace("loop-upgrade-http-");
+  const dir = workspace.root;
+  process.env.LOOP_DATA_DIR = workspace.directory;
   const oldPath = process.env.PATH;
   const bin = join(dir, "bin");
   mkdirSync(bin);
@@ -43,7 +40,6 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   process.env.npm_config_registry = "http://127.0.0.1:9/";
   process.env.PATH = bin + ":" + oldPath;
   const interruptedId = randomUUID();
-  mkdirSync(process.env.LOOP_DATA_DIR!, { recursive: true });
   writeFileSync(
     join(process.env.LOOP_DATA_DIR!, "harness-upgrades.json"),
     JSON.stringify({
@@ -58,31 +54,14 @@ test("paired runtime upgrade HTTP boundary fixes the executable, persists status
   const { companion } = await import("../src/server/companion-routes.js");
   const { db } = await import("../src/server/db.js");
   const { harnessUpgrades } = await import("../src/server/harness-upgrades.js");
-  const app = express();
-  app.use(express.json(), companion);
-  app.use(
-    (
-      e: any,
-      _req: express.Request,
-      res: express.Response,
-      _next: express.NextFunction,
-    ) =>
-      res
-        .status(e.status || (e.name === "ZodError" ? 400 : 500))
-        .json({ error: e.message }),
-  );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
-  });
+  const app = await productionApp(undefined, [companion]);
   t.after(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await app.close();
     db.close();
     process.env.PATH = oldPath;
-    rmSync(dir, { recursive: true, force: true });
+    workspace.close();
   });
-  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/workspace/runtimes/opencode/upgrade`;
+  const base = `${app.url}/api/workspace/runtimes/opencode/upgrade`;
   const post = (body: unknown, path = base) =>
     fetch(path, {
       method: "POST",
