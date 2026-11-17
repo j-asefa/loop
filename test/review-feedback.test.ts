@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
@@ -23,15 +24,13 @@ const { closeFinishedSessions } = await import("../src/server/mcp/sessions");
 const { decide } = await import("../src/server/approvals");
 function agent(owner: string) {
   const c = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    c,
-    owner,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: c,
+    owner_id: owner,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent(owner, {
     name: "review-" + id().slice(0, 8),
     connectionId: c,

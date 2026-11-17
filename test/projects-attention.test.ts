@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -36,9 +37,13 @@ async function api(
   return { status: response.status, data: await response.json() };
 }
 const connection = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture','','connected',?,?)",
-).run(connection, JSON.stringify([{ id: "fixture" }]), now());
+seedConnection(db, {
+  id: connection,
+  owner_id: "alice",
+  secret: "",
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 async function project(owner = "alice") {
   return (
     await api(

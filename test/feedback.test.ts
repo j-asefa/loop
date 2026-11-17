@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
@@ -60,15 +61,13 @@ async function api(
 }
 function agent(name: string, owner = "feedback") {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture-key", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture-key", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent(owner, {
     name,
     connectionId: connection,

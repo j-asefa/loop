@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -29,14 +30,13 @@ const account = id(),
   connection = id();
 const token = 'fixture-secret-"key+/ &\\ end';
 const rejection = "Review Can not request changes on your own pull request";
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-).run(
-  account,
-  seal("fixture", "alice"),
-  JSON.stringify([{ id: "fixture" }]),
-  now(),
-);
+seedConnection(db, {
+  id: account,
+  owner_id: "alice",
+  secret: seal("fixture", "alice"),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agent = createAgent("alice", {
   name: "review-error-fixture",
   connectionId: account,

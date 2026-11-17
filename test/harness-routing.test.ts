@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -43,9 +44,15 @@ for (const harness of ["codex", "pi"] as const) {
 }
 function connection(metadata: object, owner = OWNER) {
   const cid = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'codex','Fixture','','connected','[]',?,?)",
-  ).run(cid, owner, JSON.stringify(metadata), now());
+  seedConnection(db, {
+    id: cid,
+    owner_id: owner,
+    provider: "codex",
+    secret: "",
+    models: "[]",
+    metadata: JSON.stringify(metadata),
+    created_at: now(),
+  });
   return cid;
 }
 const codexConnection = connection({ loopHarness: "codex" });

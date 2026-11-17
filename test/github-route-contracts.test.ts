@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { parsePullNumber } from "../src/shared/contract-ids.js";
 import express from "express";
@@ -128,15 +129,13 @@ function valid(
 }
 function agentFor(who: string) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    who,
-    seal("private-connection-key", who),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: who,
+    secret: seal("private-connection-key", who),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent(who, {
     name: "contract-reader-" + who.slice(0, 8),
     connectionId: connection,

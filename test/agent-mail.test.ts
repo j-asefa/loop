@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -55,16 +56,14 @@ async function http(owner: string, path: string, body?: object) {
 let agentSequence = 0;
 function agent(owner: string, name: string, metadata: object = {}) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture-key", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(metadata),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture-key", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    metadata: JSON.stringify(metadata),
+    created_at: now(),
+  });
   return createAgent(owner, {
     name: name + "-" + ++agentSequence,
     connectionId: connection,

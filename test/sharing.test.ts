@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
 
@@ -11,9 +12,13 @@ const { SharedSource } = await import("../src/shared/team-contract-schemas");
 const { submit } = await import("../src/server/agent-runtime");
 const { claim } = await import("../src/server/queue");
 const c = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-).run(c, seal("fixture", "alice"), JSON.stringify([{ id: "fixture" }]), now());
+seedConnection(db, {
+  id: c,
+  owner_id: "alice",
+  secret: seal("fixture", "alice"),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const a = createAgent("alice", {
   name: "share-agent",
   connectionId: c,

@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -52,9 +53,13 @@ function fixture() {
   folder.run(named, owner, null, "project", "Release", now());
   folder.run(loose, owner, null, "folder", "Notes", now());
   folder.run(nested, owner, loose, "project", "Independent project", now());
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected','[{\"id\":\"fixture\"}]',?)",
-  ).run(connection, owner, seal("fixture-only", owner), now());
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture-only", owner),
+    models: '[{"id":"fixture"}]',
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,?,?,'openai',?,'fixture',?)",
   ).run(agent, owner, agent, agent, connection, now());

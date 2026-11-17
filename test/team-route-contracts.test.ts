@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -81,15 +82,13 @@ function valid(
   expect(contract.response.parse(result.data)).toEqual(result.data);
 }
 const connection = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-).run(
-  connection,
-  owner,
-  seal("private-connection-key", owner),
-  JSON.stringify([{ id: "fixture" }]),
-  now(),
-);
+seedConnection(db, {
+  id: connection,
+  owner_id: owner,
+  secret: seal("private-connection-key", owner),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agents = Array.from({ length: 3 }, (_, i) =>
   createAgent(owner, {
     name: `contract-agent-${i}`,

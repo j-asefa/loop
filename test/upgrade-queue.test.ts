@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 
@@ -12,9 +13,15 @@ const { harnessUpgrades } = await import("../src/server/harness-upgrades");
 const { harnessHolds } = await import("../src/server/harness-holds");
 const { nativeSignIns } = await import("../src/server/native-auth");
 const { executeAgent } = await import("../src/server/agent-runtime");
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('codex','local-workspace','openai','fixture','','connected','[]',?,0)",
-).run(JSON.stringify({ loopHarness: "codex" }));
+seedConnection(db, {
+  id: "codex",
+  owner_id: "local-workspace",
+  label: "fixture",
+  secret: "",
+  models: "[]",
+  metadata: JSON.stringify({ loopHarness: "codex" }),
+  created_at: 0,
+});
 const outcome = (run: { id: string }) =>
   db
     .prepare("SELECT state,error,idempotency_key FROM runs WHERE id=?")
