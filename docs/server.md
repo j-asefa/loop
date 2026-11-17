@@ -73,15 +73,9 @@ that this run ran out of memory. Raw process output and credentials are never
 used to compose this message. Monitoring does not change resource limits or
 automatically retry work.
 
-Database liveness heartbeats use a nonblocking write. If another process owns
-SQLite's write lock, the timestamp remains unchanged and the next timer tries
-again; stale observations still expire. Contention cannot terminate the server
-through those timer callbacks. Ordinary writes retain their normal timeout and
-error behavior.
-
-Periodic native display updates also defer on a busy database, retaining their
-pending output for the next tick. They do not block the worker or retry native
-commands. Completion and other authoritative writes retain their normal policy.
+Liveness heartbeats and periodic native display updates skip a tick rather
+than wait when another process holds SQLite's write lock; ordinary and
+completion writes keep their normal timeout ([busy-wait.ts](../src/server/busy-wait.ts)).
 
 ## Archive deployment backups
 
