@@ -143,8 +143,10 @@ test("OpenCode fails the turn when final recovery retries are exhausted", async 
   await f.control({ failures: { "/permission": 4 }, resetCalls: true });
   await f.idle();
   await until(() => terminal(f.events, "failed"));
+  // An accidental post-exhaustion refresh restarts at the 100 ms base delay.
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const { calls } = await f.control();
-  assert.equal(calls.filter((p) => p === "/permission").length, 4);
+  assert.deepEqual(calls, Array(4).fill("/permission"));
   assert.equal(f.events.at(-1).recoverable, true);
   assert.equal(f.events.at(-1).status, "failed");
   await f.adapter.prompt("next");
