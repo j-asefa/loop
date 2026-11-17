@@ -1,3 +1,12 @@
+// Bundles the production typed client and receipt panel and exercises IndexedDB
+// transactions and Web Locks across reloads and concurrent tabs. Its HTTP
+// receipt server drops a response after acceptance and checks that the next
+// attempt queries the original command; it reloads without the original action
+// body and checks the persisted destination, command ID, action type and
+// digest. The panel copies a receipt between origins, retains an unknown
+// outcome and aborts a lookup when the signed-in owner changes; importing a
+// receipt submits no action. It does not validate companion admission, live
+// providers or tunnels.
 // Real browser storage, Web Locks and the production typed client transport.
 // The HTTP receipt server is a deterministic fixture, not a companion or a
 // provider. Production gateway/destination admission is covered by HTTP tests.

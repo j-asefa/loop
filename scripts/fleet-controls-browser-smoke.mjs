@@ -1,3 +1,12 @@
+// Drives the production native-question and sharing UI with source context
+// against an isolated HTTP fixture: read-only and mismatched-machine
+// capabilities, source-bound command IDs, storage failure before dispatch, and
+// source changes during a pending share preview (reading a preview does not
+// grant permission to send it). It also renders the agent-mail sheet and thread
+// reader with machine-qualified references: duplicate display names, navigation
+// to the owning peer, source-bound attachment links and unavailable directory
+// state. Its HTTP projections are scripted; this is browser fixture evidence,
+// not a native provider or live tunnel run.
 // Actual source context, native-question UI and typed browser transport against
 // an isolated deterministic HTTP fixture. No provider or user workspace is used.
 import { chromium, webkit, expect } from "@playwright/test";

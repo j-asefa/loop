@@ -1,3 +1,6 @@
+// Opens a long transcript and verifies that older activity is fetched only when
+// requested, historical file reviews remain available, and live updates keep
+// their own cursor.
 import {
   openChatOptions,
   openTab,

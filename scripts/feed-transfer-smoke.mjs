@@ -1,3 +1,7 @@
+// After a build, checks a phone-sized Feed with 100 additional avatars in
+// Chromium and WebKit: deferred image loading and production cache/compression
+// headers; Chromium also checks encoded transfer sizes and cache reuse on
+// reload. No live providers or Internet tunnel are used.
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";

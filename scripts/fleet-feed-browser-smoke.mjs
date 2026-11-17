@@ -1,5 +1,8 @@
 // Production source-loading and composer-lifetime hooks in real browsers with
 // isolated HTTP fixtures. This measures browser scheduling, not live tunnels.
+// The nine-source fixture holds one response while healthy sources render,
+// then returns 503 and records request counts, bytes and partial-result timing;
+// these describe the fixture workload, not Internet latency.
 import { chromium, webkit, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

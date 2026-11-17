@@ -1,3 +1,10 @@
+// Runs Chromium and WebKit against compiled companion and paired entrypoints,
+// including two enrolled fixture companions. It blocks HTTP event polling while
+// checking Working-to-Done transitions, retained history, updates during
+// pending reads and reconnect catch-up, then blocks WebSockets to check HTTP
+// fallback and connection status; a Chromium case checks the HTTP request
+// budget while two Done tabs receive sustained updates. It uses no real Docker
+// daemon or provider.
 import { installEventStreamProbe } from "./helpers/event-stream-probe.mjs";
 import { pendingSourceRefreshSmoke } from "./helpers/feed-pending-refresh-smoke.mjs";
 import { sourceRetryFeedSmoke } from "./helpers/feed-source-retry-smoke.mjs";

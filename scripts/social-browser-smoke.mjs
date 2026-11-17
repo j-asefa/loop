@@ -1,3 +1,5 @@
+// Seeds stories straight into the feed store, so it drives Social's reading,
+// saving, filtering, search and watches without reaching a feed.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";

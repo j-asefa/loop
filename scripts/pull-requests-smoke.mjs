@@ -1,3 +1,5 @@
+// Drives the Pull requests tab against a scripted GitHub (helpers/fake-
+// github.mjs); it does not reach GitHub.
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
