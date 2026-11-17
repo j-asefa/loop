@@ -1,19 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { Native, NativeRpcError, NativeTransportError } from "../src/native";
 import { NativeMemoryError } from "../src/native-memory";
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, realpathSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-native-startup-")));
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(testDirectory());
+
 gitProject(dir);
 const { db } = await import("../src/server/db");
 db.prepare(
@@ -213,7 +208,6 @@ it("persists a running agent's confirmed memory failure for cards without replay
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("preserves safe subscription setup guidance through the real worker and trace boundary without dispatch", async () => {

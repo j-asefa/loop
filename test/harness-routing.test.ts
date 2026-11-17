@@ -1,8 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import {
   existsSync,
-  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -10,18 +10,17 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { delimiter, join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 import { harnessFixture } from "./helpers/harness-fixture.js";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-harness-routing-")));
+const dir = realpathSync(testDirectory());
 const harnesses = harnessFixture(dir);
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
 const { db, id, now } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { nativeHistory } = await import("../src/server/native-history");
@@ -100,7 +99,6 @@ afterAll(async () => {
   server.close();
   await nativeSessions.close();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("probes the agent's new harness in the chat's project after a switch to Pi", async () => {

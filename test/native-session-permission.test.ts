@@ -1,20 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, readFileSync, realpathSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as nativeDecisionsQueries from "../src/server/sql/native-decisions";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-session-mode-")));
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(testDirectory());
+
 gitProject(dir);
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.LOOP_TEST_ARGV = join(dir, "argv.jsonl");
@@ -41,7 +36,7 @@ db.prepare(
 ).run(OWNER, JSON.stringify({ loopHarness: "claude" }));
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
+
   delete process.env.LOOP_TEST_HARNESS;
   delete process.env.LOOP_TEST_ARGV;
 });
