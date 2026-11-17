@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -89,9 +89,15 @@ async function reply(f: ReturnType<typeof fixture>, replyTo: string) {
 }
 function complete(f: ReturnType<typeof fixture>, text = "Final answer.") {
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-  ).run(message, f.owner, f.run.conversation_id, f.run.id, text, now() + 5);
+  seedMessage(db, {
+    id: message,
+    owner_id: f.owner,
+    conversation_id: f.run.conversation_id!,
+    run_id: f.run.id,
+    role: "assistant",
+    content: text,
+    created_at: now() + 5,
+  });
   db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
     now() + 10,
     f.run.id,
@@ -170,16 +176,14 @@ it("chains results chronologically across kinds and joins imported history", asy
     [2, "assistant"],
     [3, "assistant"],
   ] as const) {
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,?,?,'{}',?)",
-    ).run(
-      `imp-${conversation}-${n}`,
-      f.owner,
-      conversation,
-      role,
-      `text ${n}`,
-      n,
-    );
+    seedMessage(db, {
+      id: `imp-${conversation}-${n}`,
+      owner_id: f.owner,
+      conversation_id: conversation,
+      role: role,
+      content: `text ${n}`,
+      created_at: n,
+    });
   }
   const imported = publishImportedConversationResults(
     f.owner,

@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -164,9 +165,15 @@ it("defers search and feed revisions for a message-linked answer until the messa
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
   ).run(run, agent, conv, "k-" + run);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{}',1)",
-  ).run(msg, conv, run);
+  seedMessage(db, {
+    id: msg,
+    owner_id: "alice",
+    conversation_id: conv,
+    run_id: run,
+    role: "assistant",
+    content: "",
+    created_at: 1,
+  });
   const artifact = saveArtifact("alice", {
     agent,
     conversation: conv,
@@ -240,9 +247,16 @@ it("moves a streaming answer's search scope without indexing chunk content", () 
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
   ).run(run, agent, conv, "k-" + run);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{\"partial\":true}',1)",
-  ).run(msg, conv, run);
+  seedMessage(db, {
+    id: msg,
+    owner_id: "alice",
+    conversation_id: conv,
+    run_id: run,
+    role: "assistant",
+    content: "",
+    metadata: '{"partial":true}',
+    created_at: 1,
+  });
   const artifact = saveArtifact("alice", {
     agent,
     conversation: conv,
@@ -279,9 +293,16 @@ it("reindexes an interrupted answer when the owner edits it", async () => {
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','interrupted',?,1,1)",
   ).run(run, agent, conv, "k-" + run);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','','{\"partial\":true}',1)",
-  ).run(msg, conv, run);
+  seedMessage(db, {
+    id: msg,
+    owner_id: "alice",
+    conversation_id: conv,
+    run_id: run,
+    role: "assistant",
+    content: "",
+    metadata: '{"partial":true}',
+    created_at: 1,
+  });
   const artifact = saveArtifact("alice", {
     agent,
     conversation: conv,

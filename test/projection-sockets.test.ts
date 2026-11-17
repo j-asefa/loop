@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -26,11 +27,14 @@ it("replays bounded, whole append events after disconnect halfway through a larg
       "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread',?,'Delta',1)",
     )
     .run(f.owner);
-  f.db
-    .prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('message',?,'thread','assistant','A',1)",
-    )
-    .run(f.owner);
+  seedMessage(f.db, {
+    id: "message",
+    owner_id: f.owner,
+    conversation_id: "thread",
+    role: "assistant",
+    content: "A",
+    created_at: 1,
+  });
   const projection = new TranscriptProjection();
   const frames: WorkspaceFrameV3[] = [];
   let disconnected = false,
@@ -209,11 +213,15 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
   expect(shown.items).toEqual((await read("/api/feed?filter=working")).items);
   f.db
     .transaction(() => {
-      f.db
-        .prepare(
-          "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('feed-long-answer',?,'feed-b','feed-b','assistant',?,2)",
-        )
-        .run(f.owner, "Large streamed answer ".repeat(2000));
+      seedMessage(f.db, {
+        id: "feed-long-answer",
+        owner_id: f.owner,
+        conversation_id: "feed-b",
+        run_id: "feed-b",
+        role: "assistant",
+        content: "Large streamed answer ".repeat(2000),
+        created_at: 2,
+      });
       f.db
         .prepare("UPDATE runs SET updated_at=updated_at+1 WHERE id='feed-b'")
         .run();

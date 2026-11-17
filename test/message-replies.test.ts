@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import type { Provider } from "../src/shared/types.js";
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
@@ -267,9 +268,15 @@ it("retains the original quote across uncertain sends and explicit retries", asy
 it("supports saved final messages and carries their quote into native harness prompts", async () => {
   const { agent, run } = source();
   const answer = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','The migration is ready.','{}',?)",
-  ).run(answer, run.conversation_id, run.id, now());
+  seedMessage(db, {
+    id: answer,
+    owner_id: "alice",
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "The migration is ready.",
+    created_at: now(),
+  });
   const reply = submit("alice", {
     agentId: agent.id,
     conversationId: run.conversation_id!,
@@ -390,9 +397,15 @@ it("opens and replies to progress from an imported run without a user prompt", a
   // Public updates can exist without an imported prompt or final answer.
   const path = `/conversations/${run.conversation_id}?message=${message}`;
   expect((await request(path)).status).toBe(200);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'alice',?,?,'assistant','Imported answer',?)",
-  ).run(id(), run.conversation_id, run.id, now());
+  seedMessage(db, {
+    id: id(),
+    owner_id: "alice",
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Imported answer",
+    created_at: now(),
+  });
   const opened = await request(path);
   expect(opened.status).toBe(200);
   expect(opened.data.messages.at(-1).id).toBe(message);

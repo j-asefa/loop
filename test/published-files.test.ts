@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -210,18 +210,15 @@ it("makes small text files downloadable, with safe names and no inline active co
   });
   expect(artifact.content).toBe("<script>alert(1)</script>");
   const messagesId = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
-    messagesId,
-    "alice",
-    f.run.conversation_id,
-    f.run.id,
-    "assistant",
-    "Published your file",
-    "{}",
-    now(),
-  );
+  seedMessage(db, {
+    id: messagesId,
+    owner_id: "alice",
+    conversation_id: f.run.conversation_id!,
+    run_id: f.run.id,
+    role: "assistant",
+    content: "Published your file",
+    created_at: now(),
+  });
   expect(agentMessages("alice", f.agent.id).items[0].model).toBe("gpt-6-astra");
   db.prepare("UPDATE agents SET model='changed-model' WHERE id=?").run(
     f.agent.id,
@@ -515,7 +512,7 @@ it("lists durable profile files independently of feed visibility, with private f
   expect(first.items[0]).toMatchObject({
     agent_name: f.agent.name,
     project_name: "File library project",
-    conversation_id: f.run.conversation_id,
+    conversation_id: f.run.conversation_id!,
   });
   expect(JSON.parse(first.items[0].metadata)).toMatchObject({
     name: "library-41.html",

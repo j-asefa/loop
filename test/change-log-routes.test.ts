@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -64,11 +64,15 @@ function seed(f: Awaited<ReturnType<typeof fixture>>) {
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'agent','thread','Prompt','completed','key',1,1)",
     )
     .run(f.owner);
-  f.db
-    .prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES('message',?,'thread','run','assistant','Answer',2)",
-    )
-    .run(f.owner);
+  seedMessage(f.db, {
+    id: "message",
+    owner_id: f.owner,
+    conversation_id: "thread",
+    run_id: "run",
+    role: "assistant",
+    content: "Answer",
+    created_at: 2,
+  });
 }
 it.each(["mutation", "socket"] as const)(
   "reads a new owner's snapshot clock under a writer lock before its first %s",

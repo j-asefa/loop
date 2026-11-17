@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -112,20 +112,25 @@ function task(
       at,
       at,
     );
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user',?,?)",
-    ).run(
-      prompt,
-      f.owner,
-      conversation,
-      run,
-      `categoryneedle ${state} prompt`,
-      at,
-    );
+    seedMessage(db, {
+      id: prompt,
+      owner_id: f.owner,
+      conversation_id: conversation,
+      run_id: run,
+      role: "user",
+      content: `categoryneedle ${state} prompt`,
+      created_at: at,
+    });
     if (state === "completed")
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','categoryneedle finished answer',?)",
-      ).run(answer, f.owner, conversation, run, at + 1);
+      seedMessage(db, {
+        id: answer,
+        owner_id: f.owner,
+        conversation_id: conversation,
+        run_id: run,
+        role: "assistant",
+        content: "categoryneedle finished answer",
+        created_at: at + 1,
+      });
   })();
   return { run, prompt, answer, conversation, at };
 }
@@ -155,9 +160,14 @@ it("filters the production search route by Feed categories and each document's r
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Imported thread',?)",
   ).run(importedConversation, f.owner, now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'assistant','categoryneedle imported answer',?)",
-  ).run(imported, f.owner, importedConversation, now());
+  seedMessage(db, {
+    id: imported,
+    owner_id: f.owner,
+    conversation_id: importedConversation,
+    role: "assistant",
+    content: "categoryneedle imported answer",
+    created_at: now(),
+  });
   const standalone = saveArtifact(f.owner, {
     title: "categoryneedle standalone",
     content: "Outside a thread",
