@@ -11,7 +11,6 @@ import { discover } from "../src/host-control.js";
 import { RuntimeHarness } from "../src/shared/execution-authority.js";
 
 const exec = promisify(execFile);
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function alive(pid: number) {
   try {
     process.kill(pid, 0);

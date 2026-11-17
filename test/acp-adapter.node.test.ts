@@ -184,7 +184,8 @@ test("ACP process crash fails the active turn", async () => {
     await wait(events, "failed");
     await adapter.dispose();
     const failures = events.filter(
-      (event) => event.type === "status" && event.status === "failed",
+      (event): event is Extract<AdapterEvent, { type: "status" }> =>
+        event.type === "status" && event.status === "failed",
     );
     assert.equal(failures.length, 1);
     assert.equal(
