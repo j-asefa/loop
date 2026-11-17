@@ -1,15 +1,13 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
+import { productionApp } from "./helpers/app.js";
 import { expect, it, vi } from "vitest";
-import express from "express";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AddressInfo } from "node:net";
 import { gitProject } from "./git-project";
 
 it("rejects unsupported team connection edits, submissions and persisted dispatches", async () => {
   vi.resetModules();
-  const dir = mkdtempSync(join(tmpdir(), "loop-agy-team-"));
-  process.env.LOOP_DATA_DIR = join(dir, "data");
+  const dir = testRootDirectory();
   gitProject(dir);
   writeFileSync(join(dir, "review.ts"), "export const reviewed = true;\n");
   const { db, id } = await import("../src/server/db");
@@ -21,21 +19,8 @@ it("rejects unsupported team connection edits, submissions and persisted dispatc
   const { submit, executeAgent } = await import("../src/server/agent-runtime");
   const { startCodeReview } = await import("../src/server/code-reviews");
   const { nativeSessions } = await import("../src/server/native-sessions");
-  const app = express();
-  app.use(
-    express.json(),
-    (req, res, next) => {
-      res.locals.owner = req.get("x-owner") || "alice";
-      next();
-    },
-    core,
-  );
-  app.use((error: any, _req: any, res: any, _next: any) =>
-    res.status(error.status || 500).json({ error: error.message }),
-  );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const url = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+  const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
+  const url = app.url + "/api";
   const patch = async (agentId: string, owner = "alice") => {
     const response = await fetch(url + "/agents/" + agentId, {
       method: "PATCH",
@@ -168,9 +153,8 @@ it("rejects unsupported team connection edits, submissions and persisted dispatc
     deleteTeam("alice", team.id);
     expect((await patch(manager.id)).status).toBe(200);
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await app.close();
     await nativeSessions.close();
     db.close();
-    rmSync(dir, { recursive: true, force: true });
   }
 });
