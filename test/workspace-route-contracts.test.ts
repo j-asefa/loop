@@ -1,9 +1,7 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import type { AddressInfo } from "node:net";
 import { request as httpRequest } from "node:http";
 import { z } from "zod";
@@ -12,9 +10,8 @@ import { Problem, ExecutionProblem } from "../src/shared/problem";
 import { registrar, mountedRoute } from "../src/server/registrar";
 import { integrationTokenRequest } from "../src/shared/card-access";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-route-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -169,7 +166,6 @@ afterAll(async () => {
   ]);
   await closeExecution();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("keeps input errors identical to existing Zod/Problem handling and strips undeclared response fields", async () => {

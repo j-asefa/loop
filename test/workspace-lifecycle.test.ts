@@ -1,13 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+
 import { randomBytes } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop-workspace-lifecycle-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
@@ -79,7 +78,6 @@ const makeSubscription = () => ({
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("Saved is only bookmarked full cards, including feed-archived cards, filtered by team and project", async () => {

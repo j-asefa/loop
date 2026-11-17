@@ -1,6 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import {
@@ -9,8 +9,8 @@ import {
   type TranscriptEvent,
 } from "../src/shared/transcript-projection";
 import { historicalEvent } from "../src/shared/workspace-events";
-const dir = mkdtempSync(join(tmpdir(), "loop-transcript-delta-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
@@ -18,7 +18,6 @@ const { conversationMessages } =
   await import("../src/server/conversation-messages");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 function seed(key: string) {
   db.prepare(

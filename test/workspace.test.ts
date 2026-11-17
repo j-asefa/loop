@@ -1,12 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, it, expect, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop-workspace-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+import { readFileSync } from "node:fs";
+
+testDirectory();
+
 const { page: eventPage } = await import("../src/server/sql/events");
 const importSignals = (owner: string) =>
   eventPage(db, owner, 0).filter(
@@ -23,7 +21,6 @@ const { moveArtifact, undoMove, naturalDestination } =
 const { lexical } = await import("../src/server/search");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 it("preserves representative ChatGPT branches and Claude attachments without inventing bytes", () => {
   const a = parseConversations(

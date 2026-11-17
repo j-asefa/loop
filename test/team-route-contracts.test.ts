@@ -1,6 +1,7 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { request as httpRequest } from "node:http";
@@ -10,13 +11,12 @@ import { ToolMailStatus } from "../src/shared/agent-mail";
 import { DEFINITION_EXAMPLES } from "../src/shared/agent-definitions";
 import { gitProject } from "./git-project";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-team-contracts-"));
+const directory = testDirectory();
 const project = join(directory, "project");
 mkdirSync(project);
 gitProject(project);
 writeFileSync(join(project, "tracked.txt"), "review this change");
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -165,7 +165,6 @@ afterAll(async () => {
   await closeExecution();
   await nativeSessions.close();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("teamList projects owned teams and keeps preset_config as text", async () => {

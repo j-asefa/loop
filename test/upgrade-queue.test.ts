@@ -1,9 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-const dir = mkdtempSync(join(tmpdir(), "loop-upgrade-queue-"));
-process.env.LOOP_DATA_DIR = dir;
+
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim, deferUndispatched } =
   await import("../src/server/queue");
@@ -23,7 +22,6 @@ const outcome = (run: { id: string }) =>
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("leaves held prompts queued while an unrelated runtime progresses, then executes the original identity", async () => {
