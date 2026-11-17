@@ -22,7 +22,7 @@ const watchNativeCreatedPullRequest = (
 const app = await productionApp(
   undefined,
   [(_req, _res, next) => withGithubClient(githubClient, next), core],
-  { ownerHeader: "x-owner" },
+  { ownerHeader: "x-owner", json: false },
 );
 const origin = `${app.url}/api`;
 async function read(owner: string, thread: string, refresh = false) {

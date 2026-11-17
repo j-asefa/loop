@@ -19,7 +19,7 @@ const { prWatches } = await import("../src/server/pr-watches");
 let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
   app = await productionApp(
-    "alice",
+    undefined,
     [teams, agentDefinitions, workspace, prWatches],
     { ownerHeader: "x-owner" },
   );

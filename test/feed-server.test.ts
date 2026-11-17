@@ -11,7 +11,10 @@ const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const { enqueue } = await import("../src/server/queue");
-const app = await productionApp(undefined, [core], { ownerHeader: "x-owner" });
+const app = await productionApp(undefined, [core], {
+  ownerHeader: "x-owner",
+  json: false,
+});
 const get = async (path: string, owner: string) => {
   const response = await fetch(`${app.url}/api${path}`, {
     headers: { "x-owner": owner },

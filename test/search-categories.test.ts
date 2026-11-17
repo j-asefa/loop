@@ -27,6 +27,7 @@ const { indexPending, searchStatus } = await import("../src/server/search");
 const { feed, setDoneCardHidden } = await import("../src/server/mobile-return");
 const app = await productionApp(undefined, [workspace], {
   ownerHeader: "x-owner",
+  json: false,
 });
 const origin = `${app.url}`;
 let clock = Date.now();

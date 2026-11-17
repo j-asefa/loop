@@ -61,7 +61,7 @@ const { ensureWorkspaceProject } =
   await import("../src/server/workspace-project");
 const { cards } = await import("../src/server/card-routes");
 
-const app = await productionApp("http", [cards]);
+const app = await productionApp("http", [cards], { json: false });
 const base = `${app.url}/api/v1/cards`;
 afterAll(async () => {
   await app.close();
@@ -1037,6 +1037,27 @@ it("rejects selection/owner/future cursors, unsupported filters, and arbitrary d
     (await fetch(base, { headers: { authorization: "Bearer invalid" } }))
       .status,
   ).toBe(401);
+  expect(
+    (
+      await fetch(base, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer invalid",
+          "content-type": "application/json",
+        },
+        body: "{",
+      })
+    ).status,
+  ).toBe(401);
+  expect(
+    (
+      await fetch(base + "/fixture-parser-probe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fixture: "x".repeat(110 * 1024) }),
+      })
+    ).status,
+  ).toBe(404);
   for (const query of [
     "limit=0",
     "owner=foreign",

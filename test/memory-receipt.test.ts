@@ -13,6 +13,7 @@ const { memoryReceiptText } = await import("../src/client/Memory");
 
 const app = await productionApp(undefined, [memoryRoutes], {
   ownerHeader: "x-owner",
+  json: false,
 });
 async function receipt(owner: string, runId: string) {
   const response = await fetch(`${app.url}/api/runs/${runId}/memory`, {

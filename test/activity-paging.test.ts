@@ -13,6 +13,7 @@ db.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('c','ali
   VALUES('r','alice','c','agent','prompt','completed','r',1,1),('other','alice','other','agent','prompt','completed','other',1,1);`);
 const app = await productionApp("alice", [activityRoutes], {
   ownerHeader: "x-owner",
+  json: false,
 });
 const base = `${app.url}/api`;
 const get = async (query: string, owner = "alice", conversation = "c") => {
