@@ -1092,6 +1092,16 @@ if (kind !== "opencode") {
     });
     event("session.status", { sessionID: "ses_1", status: { type: "idle" } });
   };
+  const control = process.env.LOOP_TEST_OPENCODE_SOCKET
+    ? await import("./fixtures/opencode-control.mjs").then(
+        ({ opencodeControl }) =>
+          opencodeControl(
+            process.env.LOOP_TEST_OPENCODE_SOCKET,
+            event,
+            streams,
+          ),
+      )
+    : undefined;
   const server = createServer(async (req, res) => {
     if (
       req.headers.authorization !==
@@ -1104,19 +1114,30 @@ if (kind !== "opencode") {
       return;
     }
     const path = new URL(req.url, "http://localhost").pathname;
+    if (control?.fails(req.url)) {
+      res.writeHead(503).end("fixture unavailable");
+      return;
+    }
     let input = "";
     for await (const b of req) input += b;
     const data = input ? JSON.parse(input) : {};
     if (path === "/event") {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      // Split both CRLF pairs across writes to exercise streaming SSE framing.
-      res.write(
-        'data: {"type":"fixture.noop","properties":{"sessionID":"ses_1"}}\r',
-      );
-      await new Promise((r) => setTimeout(r, 5));
-      res.write("\n\r");
-      await new Promise((r) => setTimeout(r, 5));
-      res.write("\n");
+      // Reconnect controls may emit as soon as the adapter reports ready.
+      if (control) {
+        res.write(
+          'data: {"type":"fixture.noop","properties":{"sessionID":"ses_1"}}\n\n',
+        );
+      } else {
+        // Split both CRLF pairs across writes to exercise streaming SSE framing.
+        res.write(
+          'data: {"type":"fixture.noop","properties":{"sessionID":"ses_1"}}\r',
+        );
+        await new Promise((r) => setTimeout(r, 5));
+        res.write("\n\r");
+        await new Promise((r) => setTimeout(r, 5));
+        res.write("\n");
+      }
       streams.add(res);
       res.on("close", () => streams.delete(res));
       streamReady();
@@ -1125,11 +1146,17 @@ if (kind !== "opencode") {
     let answer = {};
     if (path === "/session") answer = { id: "ses_1" };
     if (path === "/config") answer = { model: "fixture/model" };
-    if (path.endsWith("/message")) answer = history;
+    if (path.endsWith("/message"))
+      answer = control ? control.state.history : history;
+    if (path === "/session/status" && control) answer = control.state.status;
     if (path === "/permission") answer = permissions;
     if (path === "/question") answer = [];
     if (path.endsWith("prompt_async")) {
       await listening;
+      if (control) {
+        res.writeHead(204).end();
+        return;
+      }
       audit();
       active = "prt_" + ++count;
       const text = data.parts[0].text;

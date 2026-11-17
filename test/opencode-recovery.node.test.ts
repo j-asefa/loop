@@ -1,104 +1,68 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { recordOwnedProcesses, identity } from "../src/process-records.js";
-
-function fixture() {
-  const events: any[] = [];
-  const adapter: any = new OpenCode(
-    {
-      harness: "opencode",
-      executable: "unused",
-      project: ".",
-      version: "fixture",
-      billing: "existing",
-    },
-    (e) => events.push(e),
-  );
-  adapter.session = "session";
-  let messages: any[] = [];
-  let status = {};
-  adapter.api = async (path: string) =>
-    path.includes("/message?")
-      ? messages
-      : path === "/session/status"
-        ? status
-        : [];
-  const message = (id: string, error?: any) => ({
-    info: { id, role: "assistant", error },
-    parts: [
-      {
-        id: id + "-text",
-        messageID: id,
-        sessionID: "session",
-        type: "text",
-        text: id,
-      },
-      {
-        id: id + "-tool",
-        messageID: id,
-        sessionID: "session",
-        type: "tool",
-        tool: "fixture",
-        state: { status: "completed" },
-      },
-    ],
-  });
-  return {
-    adapter,
-    events,
-    message,
-    history: (value: any[]) => (messages = value),
-    status: (value: any) => (status = value),
-  };
-}
+import { until } from "./helpers.js";
+import {
+  opencodeFixture,
+  nativeMessage as message,
+} from "./helpers/opencode-fixture.js";
+const terminal = (events: any[], status: string) =>
+  events.some((e) => e.type === "status" && e.status === status);
 for (const outcome of ["completed", "failed", "interrupted"]) {
-  test(`OpenCode recovers ${outcome} turn before settling, excluding prior run items`, async () => {
-    const f = fixture();
-    f.history([f.message("old")]);
-    await f.adapter.reconcile();
+  test(`OpenCode recovers ${outcome} turn before settling, excluding prior run items`, async (t) => {
+    const f = await opencodeFixture(t, [message("old")]);
     assert.equal(f.events.at(-1).status, "ready");
     await f.adapter.prompt("follow-up");
-    f.events.length = 0;
-    f.adapter.reconcileOnly = true;
-    f.history([
-      f.message("old"),
-      f.message(
-        "new",
-        outcome === "failed"
-          ? { name: "APIError" }
-          : outcome === "interrupted"
-            ? { name: "MessageAbortedError" }
-            : undefined,
-      ),
-    ]);
-    await f.adapter.reconcile();
+    await f.recover();
+    const current = message(
+      "new",
+      outcome === "failed"
+        ? { name: "APIError" }
+        : outcome === "interrupted"
+          ? { name: "MessageAbortedError" }
+          : undefined,
+    );
+    await f.control({ history: [message("old"), current], status: {} });
+    await f.idle();
+    await until(() => terminal(f.events, outcome));
     assert.deepEqual(
       f.events.filter((e) => e.type === "item").map((e) => e.item.id),
       ["new-text", "new-tool"],
     );
     assert.equal(f.events.at(-1).status, outcome);
-    assert.equal(f.adapter.activeTurn, false);
-    // Delayed old SSE parts must not migrate ownership either.
-    f.adapter.event({
-      type: "message.part.updated",
-      properties: { part: f.message("old").parts[0] },
+    const barrier = f.events.length;
+    await f.control({
+      events: [
+        {
+          type: "message.part.updated",
+          properties: { part: message("old").parts[0] },
+        },
+        {
+          type: "message.part.updated",
+          properties: { part: current.parts[0] },
+        },
+        {
+          type: "session.status",
+          properties: { sessionID: "ses_1", status: { type: "busy" } },
+        },
+      ],
     });
+    await until(() => terminal(f.events.slice(barrier), "running"));
     assert(!f.events.some((e) => e.item?.id === "old-text"));
-    f.adapter.event({
-      type: "message.part.updated",
-      properties: { part: f.message("new").parts[0] },
-    });
     assert.equal(f.events.filter((e) => e.item?.id === "new-text").length, 1);
-    // A second queued follow-up has a new boundary and settles normally.
     await f.adapter.prompt("next");
-    f.events.length = 0;
-    f.history([f.message("old"), f.message("new"), f.message("next")]);
-    await f.adapter.reconcile();
+    await f.recover();
+    await f.control({
+      history: [message("old"), current, message("next")],
+      status: {},
+    });
+    await f.idle();
+    await until(() => terminal(f.events, "completed"));
     assert.deepEqual(
       f.events.filter((e) => e.type === "item").map((e) => e.item.id),
       ["next-text", "next-tool"],
@@ -106,126 +70,138 @@ for (const outcome of ["completed", "failed", "interrupted"]) {
     assert.equal(f.events.at(-1).status, "completed");
   });
 }
-test("OpenCode recovery keeps busy turns running and refreshes final output before idle", async () => {
-  const f = fixture();
-  await f.adapter.reconcile();
+test("OpenCode recovery keeps busy turns running and refreshes final output before idle", async (t) => {
+  const f = await opencodeFixture(t);
   await f.adapter.prompt("test");
-  f.adapter.reconcileOnly = true;
-  f.status({ session: { type: "busy" } });
-  await f.adapter.reconcile();
-  assert.equal(f.events.at(-1).status, "running");
-  assert.equal(f.adapter.activeTurn, true);
-  f.adapter.scheduleHistory(); // An already scheduled refresh must retain the final flag.
-  f.events.length = 0;
-  f.history([f.message("final")]);
-  f.status({});
-  f.adapter.event({
-    type: "session.status",
-    properties: { sessionID: "session", status: { type: "idle" } },
+  await f.recover();
+  await f.control({
+    history: [message("final")],
+    status: {},
+    events: [
+      {
+        type: "message.part.delta",
+        properties: {
+          sessionID: "ses_1",
+          messageID: "final",
+          partID: "final-text",
+          field: "text",
+          delta: "stale",
+        },
+      },
+      {
+        type: "session.status",
+        properties: { sessionID: "ses_1", status: { type: "idle" } },
+      },
+    ],
   });
-  assert.equal(f.events.length, 0);
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await until(() => terminal(f.events, "completed"));
   assert.deepEqual(
     f.events.map((e) => e.type),
     ["item", "item", "status"],
   );
   assert.equal(f.events.at(-1).status, "completed");
-  await f.adapter.dispose();
 });
-
 for (const path of [
   "/permission",
   "/question",
-  "/api/session/session/permission",
-  "/api/session/session/question",
+  "/api/session/ses_1/permission",
+  "/api/session/ses_1/question",
   "/session/status",
-  "/session/session/message?limit=100",
+  "/session/ses_1/message?limit=100",
 ]) {
   test(`OpenCode retries final recovery after a transient ${path} failure`, async (t) => {
-    const f = fixture();
-    t.after(() => f.adapter.dispose());
-    await f.adapter.reconcile();
+    const f = await opencodeFixture(t);
     await f.adapter.prompt("test");
-    f.adapter.reconcileOnly = true;
-    f.history([f.message("final")]);
-    const api = f.adapter.api;
-    let calls = 0;
-    f.adapter.api = async (requested: string) => {
-      if (requested === path && ++calls === 1) throw new Error("temporary");
-      return api(requested);
-    };
-    f.events.length = 0;
-    f.adapter.event({
-      type: "session.status",
-      properties: { sessionID: "session", status: { type: "idle" } },
+    await f.recover();
+    await f.control({
+      history: [message("final")],
+      status: {},
+      failures: { [path]: 1 },
+      resetCalls: true,
     });
-    await waitForSettlement(f.adapter);
-    assert.equal(calls, 2);
+    await f.idle();
+    await until(() => terminal(f.events, "completed"));
+    const { calls } = await f.control();
+    assert.equal(calls.filter((p) => p === path).length, 2);
     assert.deepEqual(
       f.events.map((e) => e.type),
       ["error", "item", "item", "status"],
     );
     assert.equal(f.events.at(-1).status, "completed");
-    // No second idle event was needed, and a queued follow-up can complete.
     await f.adapter.prompt("next");
-    await f.adapter.reconcile();
-    assert.equal(f.adapter.activeTurn, false);
+    await f.recover();
+    await f.control({ status: {} });
+    await f.idle();
+    await until(() => terminal(f.events, "completed"));
+    assert.equal(f.events.at(-1).status, "completed");
   });
 }
-
 test("OpenCode fails the turn when final recovery retries are exhausted", async (t) => {
-  const f = fixture();
-  t.after(() => f.adapter.dispose());
-  await f.adapter.reconcile();
+  const f = await opencodeFixture(t);
   await f.adapter.prompt("test");
-  f.adapter.reconcileOnly = true;
-  let calls = 0;
-  f.adapter.api = async () => {
-    calls++;
-    throw new Error("unavailable");
-  };
-  f.events.length = 0;
-  f.adapter.scheduleHistory(true);
-  await waitForSettlement(f.adapter);
-  assert.equal(calls, 4);
-  assert.equal(f.events.at(-1).status, "failed");
-  assert.equal(f.events.at(-1).recoverable, true);
-  assert.equal(f.adapter.refresh, undefined);
-  assert.equal(f.adapter.finalRefresh, false);
-});
-
-test("OpenCode disposal cancels pending final recovery retries", async () => {
-  const f = fixture();
-  await f.adapter.prompt("test");
-  let calls = 0;
-  f.adapter.api = async () => {
-    calls++;
-    throw new Error("unavailable");
-  };
-  f.adapter.scheduleHistory(true);
-  await new Promise((resolve) => setTimeout(resolve, 150));
-  await f.adapter.dispose();
+  await f.recover();
+  await f.control({ failures: { "/permission": 4 }, resetCalls: true });
+  await f.idle();
+  await until(() => terminal(f.events, "failed"));
+  // An accidental post-exhaustion refresh restarts at the 100 ms base delay.
   await new Promise((resolve) => setTimeout(resolve, 250));
-  assert.equal(calls, 1);
-  assert(!f.events.some((e) => e.type === "status"));
+  const { calls } = await f.control();
+  assert.deepEqual(calls, Array(4).fill("/permission"));
+  assert.equal(f.events.at(-1).recoverable, true);
+  assert.equal(f.events.at(-1).status, "failed");
+  await f.adapter.prompt("next");
+  await f.recover();
+  await f.control({ status: {}, history: [message("next")] });
+  await f.idle();
+  await until(() => terminal(f.events, "completed"));
+  assert.equal(f.events.at(-1).status, "completed");
 });
-
-async function waitForSettlement(adapter: any) {
-  const deadline = Date.now() + 5000;
-  while (adapter.activeTurn && Date.now() < deadline)
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(adapter.activeTurn, false, "turn must eventually settle");
-}
-
+test("OpenCode disposal cancels pending final recovery retries", async (t) => {
+  const f = await opencodeFixture(t);
+  await f.adapter.prompt("test");
+  await f.recover();
+  await f.control({ failures: { "/permission": 4 }, resetCalls: true });
+  let disposed: Promise<void> | undefined;
+  let beforeDispose = 0;
+  let disposalQueued = false;
+  f.onEvent((event) => {
+    if (event.type !== "error" || disposalQueued) return;
+    disposalQueued = true;
+    // Let failure handling queue its retry, then dispose before timers run.
+    queueMicrotask(() => {
+      beforeDispose = f.events.length;
+      disposed = f.dispose();
+    });
+  });
+  await f.idle();
+  await until(() => disposed !== undefined);
+  await disposed;
+  const calls = await f.callsAfterDispose();
+  assert.equal(calls.filter((p) => p === "/permission").length, 1);
+  // The next retry would be due after 200 ms; no terminal event may escape disposal.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  assert(!f.events.some((e) => e.type === "status"));
+  assert.equal(f.events.length, beforeDispose);
+  await assert.rejects(f.control(), /ENOENT/);
+});
 test("OpenCode's detached server is recorded for a forced loop stop", async () => {
   const dir = await mkdtemp(join(tmpdir(), "loop-opencode-"));
   const registry = join(dir, "children.json");
   recordOwnedProcesses(registry);
-  // Node can't load a script named "serve", so this server exits at startup.
-  const adapter: any = new OpenCode(
+  const executable = join(dir, "server-exits");
+  const observedPid = join(dir, "server-pid");
+  await writeFile(
+    executable,
+    `#!${process.execPath}
+require("node:fs").writeFileSync(${JSON.stringify(observedPid)}, String(process.pid));
+process.exit(1);
+`,
+    { mode: 0o755 },
+  );
+  const adapter = new OpenCode(
     {
       harness: "opencode",
-      executable: process.execPath,
+      executable,
       project: dir,
       version: "fixture",
       billing: "existing",
@@ -235,9 +211,14 @@ test("OpenCode's detached server is recorded for a forced loop stop", async () =
   try {
     const started = adapter.start();
     const [recorded] = JSON.parse(readFileSync(registry, "utf8"));
-    assert.equal(recorded.pid, adapter.child.pid);
-    assert.equal(recorded.identity, identity(adapter.child.pid));
+    assert.ok(
+      recorded,
+      "The spawned native server must have an ownership record",
+    );
+    assert.ok(recorded.pid > 0);
+    assert.equal(recorded.identity, identity(recorded.pid));
     await assert.rejects(started, /exited during startup/);
+    assert.equal(recorded.pid, Number(readFileSync(observedPid, "utf8")));
     assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")), []);
   } finally {
     await rm(dir, { recursive: true, force: true });
