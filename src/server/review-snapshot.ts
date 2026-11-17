@@ -20,9 +20,11 @@ export type ReviewSnapshot = {
 // MAX_CONTEXT_FILES unchanged files are recorded by Git blob identity only and
 // read later through review-access.ts, which verifies that identity and never
 // falls back to the current checkout. Omitted paths (hidden, credential-like,
-// generated/vendor, submodules, symlinks, binary, over MAX_REVIEW_FILE_BYTES)
-// are listed in the snapshot. These filename filters are not a content secret
-// scanner: selected source text is sent to the chosen providers. The caller
+// generated/vendor, submodules, symlinks, changed binary files, over
+// MAX_REVIEW_FILE_BYTES) are listed in the snapshot; unchanged binary context
+// is detected only when read and is not added to that list. These filename
+// filters are not a content secret scanner: selected source text is sent to
+// the chosen providers. The caller
 // (code-reviews.ts) captures twice and rejects the review if the fingerprints
 // differ.
 const MAX_TOTAL = 16_000_000,
