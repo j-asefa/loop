@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { ProviderSchema } from "../src/shared/provider-schema";
-import express from "express";
 import { until } from "./helpers";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
@@ -223,14 +223,7 @@ it.each([true, false])(
   async (enabled) => {
     process.env.LOOP_TEST_HARNESS = "codex";
     const { core } = await import("../src/server/core-routes");
-    const app = express();
-    app.use(express.json(), (_req, res, next) => {
-      res.locals.owner = "local-workspace";
-      next();
-    });
-    app.use(core);
-    const server = app.listen(0, "127.0.0.1");
-    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const app = await productionApp("local-workspace", [core]);
     const run = submit(`cancel-${enabled}`, "codex", `cancel-${enabled}`);
     db.prepare("UPDATE runs SET input='wait' WHERE id=?").run(run.id);
     const bus = enabled
@@ -250,10 +243,9 @@ it.each([true, false])(
           )?.state === "accepted",
       );
       const started = Date.now();
-      const response = await fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
-        { method: "POST" },
-      );
+      const response = await fetch(`${app.url}/api/runs/${run.id}/cancel`, {
+        method: "POST",
+      });
       expect(response.status).toBe(200);
       await until(() => finished, 2400);
       await work;
@@ -270,7 +262,7 @@ it.each([true, false])(
       bus?.mockRestore();
       await nativeSessions.interrupt(run.id);
       await work;
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await app.close();
     }
   },
   10000,

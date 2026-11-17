@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 
@@ -163,22 +164,13 @@ it("keeps an explicitly revoked damaged native connection disconnected on startu
   db.prepare(
     "UPDATE connections SET metadata=json_set(metadata,'$.permissionMode','bogus') WHERE id='native-codex'",
   ).run();
-  const { default: express } = await import("express");
   const { core } = await import("../src/server/core-routes");
-  const { errorHandler } = await import("../src/server/error-handler");
-  const app = express();
-  app.use((req, res, next) => {
-    res.locals.owner = req.get("x-owner");
-    next();
+  const app = await productionApp(undefined, [core], {
+    ownerHeader: "x-owner",
+    json: false,
   });
-  app.use(core, errorHandler);
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const address = server.address();
-  if (!address || typeof address === "string")
-    throw new Error("Missing fixture address");
   try {
-    const url = `http://127.0.0.1:${address.port}/connections/native-codex`;
+    const url = `${app.url}/api/connections/native-codex`;
     expect(
       (
         await fetch(url, {
@@ -211,6 +203,6 @@ it("keeps an explicitly revoked damaged native connection disconnected on startu
       permissionMode: "bogus",
     });
   } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await app.close();
   }
 });

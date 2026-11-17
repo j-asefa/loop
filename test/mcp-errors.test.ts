@@ -1,5 +1,5 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import express from "express";
 import { afterAll, expect, it, vi } from "vitest";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -406,14 +406,7 @@ it.each([true, false])(
   "cancels in-flight MCP IO through the route without replay (bus=%s)",
   async (enabled) => {
     const { core } = await import("../src/server/core-routes");
-    const app = express();
-    app.use(express.json(), (_req, res, next) => {
-      res.locals.owner = "alice";
-      next();
-    });
-    app.use(core);
-    const server = app.listen(0, "127.0.0.1");
-    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const app = await productionApp("alice", [core]);
     const bus = enabled
       ? undefined
       : vi.spyOn(changes, "subscribe").mockImplementation(() => () => {});
@@ -453,10 +446,9 @@ it.each([true, false])(
       const work = tick(execute);
       await waiting;
       const at = Date.now();
-      const response = await fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
-        { method: "POST" },
-      );
+      const response = await fetch(`${app.url}/api/runs/${run.id}/cancel`, {
+        method: "POST",
+      });
       expect(response.status).toBe(200);
       await work;
       expect(cancelled).toBe(true);
@@ -485,7 +477,7 @@ it.each([true, false])(
       ).toBeUndefined();
     } finally {
       bus?.mockRestore();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await app.close();
       restore();
     }
   },

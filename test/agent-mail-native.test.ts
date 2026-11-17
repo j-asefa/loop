@@ -1,5 +1,5 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import express from "express";
 import { until } from "./helpers";
 import { createHash } from "node:crypto";
 import { afterAll, expect, it, vi } from "vitest";
@@ -367,14 +367,7 @@ it.each([
       ? vi.spyOn(changes, "subscribe").mockImplementation(() => () => {})
       : undefined;
     const { core } = await import("../src/server/core-routes");
-    const app = express();
-    app.use(express.json(), (_req, res, next) => {
-      res.locals.owner = owner;
-      next();
-    });
-    app.use(core);
-    const server = app.listen(0, "127.0.0.1");
-    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const app = await productionApp(owner, [core]);
     const { withTestMcp } = await import("../src/server/mcp/client");
     const { setMcpApprovalMode } =
       await import("../src/server/mcp/approval-policy");
@@ -469,10 +462,9 @@ it.each([
         });
         expect(expired.isError).toBe(true);
         expect(JSON.stringify(expired)).toContain("expired");
-        const response = await fetch(
-          `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
-          { method: "POST" },
-        );
+        const response = await fetch(`${app.url}/api/runs/${run.id}/cancel`, {
+          method: "POST",
+        });
         expect(response.status).toBe(200);
       } else if (child) {
         const childId = (
@@ -492,10 +484,9 @@ it.each([
         );
         transition(childRun, "completed");
       } else if (cause.startsWith("cancel")) {
-        const response = await fetch(
-          `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
-          { method: "POST" },
-        );
+        const response = await fetch(`${app.url}/api/runs/${run.id}/cancel`, {
+          method: "POST",
+        });
         expect(response.status).toBe(200);
       } else if (cause !== "expiry") decide(owner, approval!.id, "approve");
       const result = await answer;
@@ -527,7 +518,7 @@ it.each([
       await work;
       bus?.mockRestore();
       restore();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await app.close();
     }
   },
   10000,
