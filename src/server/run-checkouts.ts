@@ -55,6 +55,10 @@ export { checkoutLine };
 /** Stored patches stop at this many bytes, on a line boundary. */
 export const PATCH_LIMIT = 300 * 1024;
 const GIT_TIMEOUT_MS = 30000;
+// Per-command output cap. It also bounds the start record's complete binary
+// patch of pre-existing tracked changes: a truncated command is not ok, so a
+// larger baseline records a failed capture. Untracked files are recorded by
+// name only; their contents are never captured.
 const OUTPUT_LIMIT = 4 * 1024 * 1024;
 
 class CheckoutError extends Error {}
