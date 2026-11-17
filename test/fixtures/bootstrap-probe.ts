@@ -3,6 +3,7 @@ import {
   appendFileSync,
   existsSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -18,6 +19,8 @@ export function bootstrapProbe(label: string) {
   it("owns a fresh directory and key before test-file imports", () => {
     expect(readdirSync(directory)).toEqual([]);
     expect(dirname(directory)).toBe(root);
+    expect(statSync(directory).mode & 0o077).toBe(0);
+    expect(statSync(root).mode & 0o077).toBe(0);
     expect(readdirSync(root)).toEqual(["data"]);
     const originalDirectory = process.env.LOOP_DATA_DIR;
     try {
