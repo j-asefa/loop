@@ -1,7 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
-import express from "express";
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
@@ -14,21 +14,8 @@ const { transition } = await import("../src/server/queue");
 const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(core);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((r, j) => {
-  server.once("listening", r);
-  server.once("error", j);
-});
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
+const base = app.url + "/api";
 const connection = id();
 db.prepare(
   "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
@@ -48,7 +35,7 @@ const record = (id: string) =>
 const get = async (path: string, owner = "alice") =>
   (await fetch(base + path, { headers: { "x-owner": owner } })).json();
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 

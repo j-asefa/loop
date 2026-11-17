@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import {
@@ -14,7 +15,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import express from "express";
+
 import {
   readPublishedChunk,
   FILE_CHUNK_BYTES,
@@ -37,18 +38,10 @@ const { workspace: routes } = await import("../src/server/workspace-routes");
 const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { agentMessages } = await import("../src/server/agent-messages");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [core, routes], {
+  ownerHeader: "x-owner",
 });
-app.use("/api", core, routes);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((r) => server.once("listening", r));
-const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const base = `${app.url}`;
 const request = (path: string, owner = "alice") =>
   fetch(base + "/api" + path, { headers: { "x-owner": owner } });
 function fixture() {
@@ -98,7 +91,7 @@ async function publish(
   };
 }
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 

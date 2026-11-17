@@ -1,12 +1,11 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it } from "vitest";
-import express from "express";
 
 import { parseEmission, eventScopes } from "../src/shared/workspace-events";
 
 testDirectory();
 
-const { errorHandler } = await import("../src/server/error-handler");
 const {
   news,
   withNewsFixture,
@@ -28,37 +27,26 @@ const { db, id } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { feedById } = await import("../src/shared/news");
 
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [news, feedDigests], {
+  ownerHeader: "x-owner",
 });
-app.use(news);
-app.use(feedDigests);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 const call = async (
   path: string,
   method = "GET",
   body?: unknown,
   owner = "alice",
 ) => {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: await response.json() };
 };
 let restore = () => {};
 afterEach(() => restore());
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
 });
 
 const rss = `<rss version="2.0"><channel><title>Hacker News</title>

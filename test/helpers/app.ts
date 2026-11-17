@@ -27,11 +27,17 @@ export async function productionApp(
   app.use("/api", ...routers);
   app.use(errorHandler);
   const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     url,
     fetch: (path: string, init?: RequestInit) => fetch(url + path, init),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
   };
 }

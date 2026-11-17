@@ -1,10 +1,11 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { randomBytes } from "node:crypto";
 import { runInNewContext } from "node:vm";
-import express from "express";
+
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
@@ -24,32 +25,22 @@ const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { submit } = await import("../src/server/agent-runtime");
 const { routeHandle } = await import("../src/server/sharing");
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "owner";
-  next();
-});
-app.use(core, workspace, teams, notifications);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
+const app = await productionApp(
+  "owner",
+  [core, workspace, teams, notifications],
+  { ownerHeader: "x-owner" },
 );
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function api(
   path: string,
   body?: unknown,
   method?: string,
   owner = "owner",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method: method || (body ? "POST" : "GET"),
-      headers: { "content-type": "application/json", "x-owner": owner },
-      body: body ? JSON.stringify(body) : undefined,
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method: method || (body ? "POST" : "GET"),
+    headers: { "content-type": "application/json", "x-owner": owner },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: response.status, data: await response.json() };
 }
 const connection = id();
@@ -76,7 +67,7 @@ const makeSubscription = () => ({
   },
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

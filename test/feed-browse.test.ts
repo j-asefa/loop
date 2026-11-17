@@ -1,46 +1,33 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
-const { errorHandler } = await import("../src/server/error-handler");
 const { parseFeed } = await import("../src/server/syndication");
 const { news, withNewsFixture, feedStories } =
   await import("../src/server/news");
 const { feedById } = await import("../src/shared/news");
 const { db } = await import("../src/server/db");
 
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(news);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const app = await productionApp("alice", [news], { ownerHeader: "x-owner" });
 const call = async (
   path: string,
   method = "GET",
   body?: unknown,
   owner = "alice",
 ) => {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: await response.json() };
 };
 let restore = () => {};
 afterEach(() => restore());
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
 });
 
 it("reads the picture and the audio or video a feed offered", () => {
@@ -343,10 +330,9 @@ it("serves a feed's picture through Loop, not from the publisher", async () => {
   const page = await call("/social", "GET", undefined, "zara");
   const [picture, drawing, none] = page.data.stories;
   const image = async (story: string) =>
-    fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/social/image?story=${encodeURIComponent(story)}`,
-      { headers: { "x-owner": "zara" } },
-    );
+    fetch(`${app.url}/api/social/image?story=${encodeURIComponent(story)}`, {
+      headers: { "x-owner": "zara" },
+    });
   const served = await image(picture.id);
   expect(served.status).toBe(200);
   expect(served.headers.get("content-type")).toMatch(/^image\/png/);
@@ -357,7 +343,7 @@ it("serves a feed's picture through Loop, not from the publisher", async () => {
   expect((await image(none.id)).status).toBe(404);
   // Nor is a story of a feed you do not follow.
   const other = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/social/image?story=${encodeURIComponent(picture.id)}`,
+    `${app.url}/api/social/image?story=${encodeURIComponent(picture.id)}`,
     { headers: { "x-owner": "aled" } },
   );
   expect(other.status).toBe(404);

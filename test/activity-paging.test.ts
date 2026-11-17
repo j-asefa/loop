@@ -1,6 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
+
 import { recordedSessionControls } from "../src/client/activityView";
 
 testDirectory();
@@ -10,18 +11,10 @@ const { activityRoutes, applyActivity, setActivityCapabilities } =
 db.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('c','alice','Long',1),('other','alice','Other',1);
   INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at)
   VALUES('r','alice','c','agent','prompt','completed','r',1,1),('other','alice','other','agent','prompt','completed','other',1,1);`);
-const app = express();
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [activityRoutes], {
+  ownerHeader: "x-owner",
 });
-app.use(activityRoutes);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const base = `${app.url}/api`;
 const get = async (query: string, owner = "alice", conversation = "c") => {
   const res = await fetch(
     `${base}/conversations/${conversation}/activities${query}`,
@@ -30,7 +23,7 @@ const get = async (query: string, owner = "alice", conversation = "c") => {
   return { status: res.status, body: await res.json() };
 };
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

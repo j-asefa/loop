@@ -1,7 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { parseConnection } from "../src/server/row-schemas.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
+
 import { readFileSync } from "node:fs";
 
 import { modelOptions } from "../src/shared/model-options.js";
@@ -21,21 +22,10 @@ const { workspace } = await import("../src/server/workspace-routes");
 const { teams, createTeam, listTeams } = await import("../src/server/teams");
 const { readRunFile, localAttachmentPrompt, uploadFile, attachmentPrompt } =
   await import("../src/server/uploads");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [core, workspace, teams], {
+  ownerHeader: "x-owner",
 });
-app.use("/api", core, workspace, teams);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = `http://127.0.0.1:${(server.address() as any).port}/api`;
+const base = `${app.url}/api`;
 const request = async (
   path: string,
   body?: unknown,
@@ -107,7 +97,7 @@ async function upload(
   return { status: response.status, data: await response.json() };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

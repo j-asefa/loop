@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
@@ -5,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
-import express from "express";
+
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
@@ -23,21 +24,8 @@ const { listRuns } = await import("../src/server/run-attention");
 const { search } = await import("../src/server/search");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { core } = await import("../src/server/core-routes");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(core);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
+const base = app.url + "/api";
 const get = async (path: string, owner = "alice") =>
   (await fetch(base + path, { headers: { "x-owner": owner } })).json();
 function agent(owner = "alice") {
@@ -58,7 +46,7 @@ function agent(owner = "alice") {
   });
 }
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 
