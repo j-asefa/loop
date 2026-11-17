@@ -9,7 +9,8 @@ export function createTestWorkspace(prefix = "loop-test-") {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const directory = join(root, "data");
   try {
-    mkdirSync(directory);
+    // Match config.ts: pre-creating data must retain its private mode.
+    mkdirSync(directory, { mode: 0o700 });
   } catch (error) {
     rmSync(root, { recursive: true, force: true });
     throw error;

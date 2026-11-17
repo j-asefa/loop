@@ -1,24 +1,23 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import { inProcessExecution } from "./in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
-  mkdtempSync,
   mkdirSync,
   readFileSync,
   renameSync,
-  rmSync,
   writeFileSync,
   unlinkSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-authority-"));
-process.env.LOOP_DATA_DIR = join(directory, "data");
+const workspace = createTestWorkspace("loop-authority-");
+const directory = workspace.root;
+process.env.LOOP_DATA_DIR = workspace.directory;
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.LOOP_TEST_PROBE_AUDIT = join(directory, "probes");
 process.env.LOOP_TEST_PROBE_FAIL_FILE = join(directory, "refuse-probe");
@@ -55,7 +54,7 @@ test(
     t.after(async () => {
       await host.close();
       db.close();
-      rmSync(directory, { recursive: true, force: true });
+      workspace.close();
     });
     await host.start({
       options: {
