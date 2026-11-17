@@ -174,6 +174,8 @@ export class DevicePairing implements DeviceTrust {
     const { device, now } = checked;
     if (device.expires < Math.min(device.maxExpires, now + year - 86_400_000)) {
       const expires = Math.min(device.maxExpires, now + year);
+      // Renewal is optional: under database writer contention the device
+      // still authenticates and renewal waits for a later request.
       try {
         let renewed = false;
         const written = tryWithoutBusyWait(this.db, "device-renewal", () => {

@@ -24,18 +24,11 @@ the complete workspace directory, including the database and
 `device-expiry-checks/`, together. Isolated previews use their own database and
 cookie namespace; their paired devices cannot access the everyday workspace.
 
-The gateway checks device expiry on access, at startup and on its heartbeat.
-Before reading the clock, it writes a durable check containing only the owner
-and device IDs. A successful check removes that record after any expired device
-has been deleted from the database. If storage fails or the process exits during
-the check, recovery retires the named devices before opening the gateway, even
-if the clock has moved backwards. This can require a device to pair again after
-an interrupted check; completed checks preserve ordinary restart sessions.
-Unreadable checks, a clock rollback or failure to record a new check refuse
-device access until the clock/storage issue is repaired and Loop restarts.
-Local `loop devices` listing and revocation remain available independently of
-authentication eligibility. Valid devices can still authenticate during database
-writer contention; optional session renewal defers on contention.
+An interrupted expiry check can require a device to pair again. If expiry checks
+are unreadable, the clock moved backwards or a check cannot be recorded, device
+access is refused until the clock or storage is repaired and Loop restarts;
+`loop devices` listing and revocation still work. The check protocol is described
+in [device-expiry.ts](../src/server/device-expiry.ts).
 
 ## Fleets (experimental)
 
@@ -169,9 +162,7 @@ While the application restarts, the relay answers `503` with `Retry-After` and `
 
 The address is preserved only while the connection service and its Quick Tunnel live. `loop stop`, a reboot, replacing the connection service or an actual cloudflared failure that reconnects with a new hostname can change it; then run `loop pair` and scan the code from the Loop app. A Quick Tunnel hostname cannot be reserved, and Cloudflare documents no uptime guarantee for Quick Tunnels. Browser storage and home-screen icons belong to an origin, so a changed address needs a new home-screen install; device records survive, and a new scan creates a fresh entry you can revoke.
 
-**Security boundary.** The connection service never sees provider credentials and is not a workspace API. Its relay listens only on `127.0.0.1` and forwards the original Host, Origin, cookies and CSRF header, so the application keeps enforcing device authentication. A new launch receives a generation-bound lease, listens on a private Unix socket in a `0700` directory, and must answer an HMAC challenge keyed by that lease before the service forwards anything to it; an unrelated listener or a superseded launch never receives browser traffic. A launch that stops answering or sending heartbeats is withdrawn within seconds. The service keeps its records in `connection/` under `LOOP_HOME` (`connection.json` holds the control token, mode `0600`); socket paths too long for Unix sockets move to `/tmp/loop-UID/`.
-
-**Records and recovery.** `connection.json` is versioned (`schema`, `protocol`). A CLI that finds a service it cannot confirm, or one speaking another protocol, reports it and does not replace it silently; `loop stop` replaces it, changing the Quick Tunnel address. A stale record whose process has exited is cleaned up by the next `loop start` or `loop stop`, which also stops the recorded cloudflared only after confirming its process identity. Service output goes to `connection/daemon.log`.
+**Security boundary and records.** The connection service never sees provider credentials and is not a workspace API; the application keeps enforcing device authentication behind it. Its records live in `connection/` under `LOOP_HOME`, and its output goes to `connection/daemon.log`. A CLI that finds a service it cannot confirm, or one speaking another protocol, reports it rather than replacing it; `loop stop` replaces it, changing the Quick Tunnel address. The lease, socket and record rules are in [connection.ts](../src/connection.ts).
 
 `--local-only` creates loopback URLs for desktop testing; these cannot be reached from a phone and never start the connection service or cloudflared. For your own proxy use `--public-url https://loop.example.com` and forward to the printed loopback port; Loop does not start or manage that proxy, and the printed port changes when the application restarts. Never expose private administration or native tool endpoints.
 
@@ -189,7 +180,7 @@ Use a dedicated tunnel. Loop generates ingress only for its authenticated gatewa
 
 `LOOP_HOME` defaults to `~/.local/state/loop`. Workspace state and its private encryption key live under `workspace/`. Stop Loop before backing up that complete directory; also preserve provider homes, project files and Docker companion volumes when applicable. Native history belongs to its harness.
 
-`workspace/launch.json` records the resolved launch once the workspace is ready, for restart and service installation. [launch-record.ts](../src/launch-record.ts) owns its typed schema and process argument encoding. It reads the `{schema:1,args,version}` records written by released Loop 0.1.0, including its fallback to saved tunnel preferences. New writes retain a derived `args` field so 0.1.0 can still read the file; current code uses the typed fields. Failed startup before readiness leaves the previous launch intact. `workspace/preferences.json` retains managed-start project/provider defaults, per-harness billing choices and tunnel defaults for compatibility with released clients. Explicit flags take precedence; a fresh start uses preferences before saved launch defaults, while restart and service installation repeat the saved launch. `--local-only` bypasses saved tunnel defaults. A one-off harness launch does not rewrite the managed-start project. Resume is a one-time handoff and is not stored in the launch.
+`workspace/launch.json` records the resolved launch once the workspace is ready, for restart and service installation. [launch-record.ts](../src/launch-record.ts) owns its schema, including reading and staying readable by records from released Loop 0.1.0. Failed startup before readiness leaves the previous launch intact. `workspace/preferences.json` retains managed-start project/provider defaults, per-harness billing choices and tunnel defaults for compatibility with released clients. Explicit flags take precedence; a fresh start uses preferences before saved launch defaults, while restart and service installation repeat the saved launch. `--local-only` bypasses saved tunnel defaults. A one-off harness launch does not rewrite the managed-start project. Resume is a one-time handoff and is not stored in the launch.
 
 Background output is `workspace/daemon.log`, rotated at 5 MB to `daemon.log.1`; the connection service writes `connection/daemon.log`. Pairing codes are not logged. Keep the computer awake; phone disconnection does not stop work.
 
@@ -197,7 +188,7 @@ If status reports a crash or unresponsive workspace, inspect logs and use `loop 
 
 The companion runs its HTTP gateway and native execution worker in separate processes. A worker crash keeps the gateway and pairing available while the host attempts replacement; interrupted work is not resent. `loop stop` stops both processes and their recorded native children, while ordinary `loop restart` still refuses active runs and preserves the connection service address. If execution ownership or child processes cannot be confirmed, recovery stops with the records under `workspace/execution/` retained for inspection. Do not delete `ownership.sqlite` to force takeover. A retained owner from a stopped container has a [generation-bound recovery command](#recovering-retained-execution-ownership). See the [execution authority](execution.md#companion-execution-authority) for the ownership contract.
 
-Authenticated `/api/build` includes API event-loop delay statistics in milliseconds. The API also emits an `api-event-loop` diagnostic every 30 seconds to the existing logs, with its sample count, window length, mean, p95, p99 and maximum. Compare these with client request times when investigating a slow streaming conversation; they measure event-loop scheduling delay, not provider response time. Native control ownership is described in the [execution authority](execution.md#companion-execution-authority).
+When a streaming conversation is slow, compare client request times with the API event-loop delay reported by authenticated `/api/build` and by the `api-event-loop` lines in the logs ([event-loop-health.ts](../src/server/event-loop-health.ts)). Native control ownership is described in the [execution authority](execution.md#companion-execution-authority).
 
 ## Unified agents and Feed
 

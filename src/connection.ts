@@ -1,7 +1,23 @@
 /**
  * Shared records and private control protocol of the per-workspace connection
  * service. The service owns Cloudflared and a stable local relay; the Loop
- * application registers behind it once per launch. See docs/pairing.md.
+ * application registers behind it once per launch.
+ *
+ * Security boundary: the service never sees provider credentials and is not a
+ * workspace API. Its relay listens only on 127.0.0.1 and forwards the original
+ * Host, Origin, cookies and CSRF header, so the application keeps enforcing
+ * device authentication. Each launch gets a generation-bound lease, listens on
+ * a private socket in a 0700 directory and must answer an HMAC challenge keyed
+ * by that lease before anything is forwarded to it; an unrelated listener or a
+ * superseded launch never receives browser traffic, and a launch that stops
+ * heartbeating is withdrawn (connection-daemon.ts LEASE_TIMEOUT_MS).
+ *
+ * Records: connection/connection.json under LOOP_HOME holds the control token
+ * (mode 0600) and is versioned by `schema` and CONNECTION_PROTOCOL. A CLI that
+ * cannot confirm a service, or finds one speaking another protocol, reports it
+ * rather than replacing it; `loop stop` replaces it. A stale record whose
+ * process exited is cleaned up by the next start or stop, which stops the
+ * recorded cloudflared only after confirming its process identity.
  */
 import { jsonClient, ControlError } from "./local-control.js";
 import { createHash, createHmac, randomBytes } from "node:crypto";
@@ -11,7 +27,7 @@ import { z } from "zod";
 import { bareHttpsOrigin } from "./shared/origin.js";
 import { pidNamespace, processState } from "./process-records.js";
 
-/** Bumped only for incompatible control changes; see compatibility in docs/pairing.md. */
+/** Bumped only for incompatible control changes; see Records above. */
 export const CONNECTION_PROTOCOL = 1;
 export const CONNECTION_RECORD = "connection.json";
 export const CONNECTION_LOCK = {

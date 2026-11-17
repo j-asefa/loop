@@ -5,7 +5,11 @@ let users = 0;
 let started = 0;
 let timer: ReturnType<typeof setInterval> | undefined;
 
-/** API-process observation, including time before a request callback can run. */
+/**
+ * API-process observation, including time before a request callback can run.
+ * Served on authenticated /api/build and logged every 30 seconds. It measures
+ * event-loop scheduling delay, not provider response time.
+ */
 export function eventLoopHealth() {
   const milliseconds = (value: number) =>
     Number.isFinite(value) ? Math.round(value / 1000) / 1000 : 0;

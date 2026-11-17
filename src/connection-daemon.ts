@@ -10,8 +10,8 @@ import {
 /**
  * Loop's per-workspace connection service: owns Cloudflared, the stable relay
  * listener and the private control socket. It is bundled into one immutable
- * file so a package upgrade cannot remove code it loads later. See
- * docs/pairing.md for the protocol and recovery rules.
+ * file so a package upgrade cannot remove code it loads later. The security
+ * boundary and record rules are in connection.ts.
  */
 import { createServer } from "node:http";
 import { jsonClient, jsonServer, BACKEND_PROBE } from "./local-control.js";
