@@ -1,9 +1,10 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
 
-import express from "express";
+import { Router } from "express";
 import { belongsToProject } from "../src/shared/projects";
 
 testDirectory();
@@ -13,24 +14,14 @@ const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { submit } = await import("../src/server/agent-runtime");
 const { listRuns } = await import("../src/server/run-attention");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.get("/runs", (req, res) =>
+const attention = Router();
+attention.get("/runs", (req, res) =>
   res.json(listRuns(res.locals.owner, [], req.query.active === "1")),
 );
-app.use(core, workspace);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
+const app = await productionApp("alice", [attention, core, workspace], {
+  ownerHeader: "x-owner",
 });
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const base = app.url + "/api";
 async function api(
   path: string,
   body?: unknown,
@@ -71,7 +62,7 @@ async function agent(folderId?: string) {
 const record = (run: string) =>
   db.prepare("SELECT * FROM runs WHERE id=?").get(run) as any;
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 

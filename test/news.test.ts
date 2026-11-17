@@ -1,10 +1,9 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
-const { errorHandler } = await import("../src/server/error-handler");
 const { parseFeed } = await import("../src/server/syndication");
 const {
   news,
@@ -31,33 +30,15 @@ const LOBSTERS_RSS = feedById.get("lobsters")!.url;
 const REDDIT_ATOM = "https://www.reddit.com/r/programming/hot/.rss?limit=50";
 
 const { mobile } = await import("../src/server/mobile-routes");
-const owner = (req: any, res: any, next: any) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-};
-const app = express();
-app.use(express.json());
-app.use(owner);
-app.use(news);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-const laterApp = express();
-laterApp.use(express.json());
-laterApp.use(owner);
-laterApp.use(mobile);
-laterApp.use(errorHandler);
-const later = laterApp.listen(0, "127.0.0.1");
-await Promise.all(
-  [server, later].map(
-    (listener) =>
-      new Promise<void>((resolve) => listener.once("listening", resolve)),
-  ),
-);
+const [app, laterApp] = await Promise.all([
+  productionApp("alice", [news], { ownerHeader: "x-owner" }),
+  productionApp("alice", [mobile], { ownerHeader: "x-owner" }),
+]);
 async function call(path: string, method = "GET", owner = "alice") {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    { method, headers: { "x-owner": owner } },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner },
+  });
   return { status: response.status, data: await response.json() };
 }
 const get = (path: string, owner?: string) => call(path, "GET", owner);
@@ -67,14 +48,11 @@ async function send(
   body?: unknown,
   owner = "alice",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: await response.json() };
 }
 /** Later lives on the mobile routes; a saved story is read back through them. */
@@ -84,25 +62,17 @@ async function laterCall(
   body?: unknown,
   owner = "alice",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(later.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${laterApp.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: await response.json() };
 }
 let restore = () => {};
 afterEach(() => restore());
 afterAll(async () => {
-  await Promise.all(
-    [server, later].map(
-      (listener) =>
-        new Promise<void>((resolve) => listener.close(() => resolve())),
-    ),
-  );
+  await Promise.all([app.close(), laterApp.close()]);
 });
 
 // The shape of news.ycombinator.com/rss, trimmed to the cases that matter.

@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -13,7 +14,7 @@ import {
 
 import { delimiter, join } from "node:path";
 
-import express from "express";
+import { Router } from "express";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
 import { harnessFixture } from "./helpers/harness-fixture.js";
@@ -70,23 +71,12 @@ function directChat(aid: string) {
   ).run(cid, originalProject, now(), aid);
   return cid;
 }
-const app = express();
-app.use(express.json());
-app.get("/fixture-health", (_req, res) => res.json({ ok: true }));
-app.use((_req, res, next) => {
-  res.locals.owner = OWNER;
-  next();
-});
-app.use(core);
-app.use(nativeHistory);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 500).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const health = Router();
+health.get("/fixture-health", (_req, res) => res.json({ ok: true }));
+const app = await productionApp(OWNER, [health, core, nativeHistory]);
 async function catalog(aid: string, cid?: string) {
   const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/agents/${aid}/harness` +
+    `${app.url}/api/agents/${aid}/harness` +
       (cid ? "?conversation=" + cid : ""),
   );
   return { status: response.status, data: await response.json() };
@@ -96,7 +86,7 @@ afterEach(() => {
   harnesses.reset();
 });
 afterAll(async () => {
-  server.close();
+  await app.close();
   await nativeSessions.close();
   db.close();
 });
@@ -235,9 +225,7 @@ setTimeout(finish, 2000);
     const busyAgent = agent(codexConnection),
       busyChat = directChat(busyAgent);
     expect((await catalog(busyAgent, busyChat)).status).toBe(429);
-    const health = await fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/fixture-health`,
-    );
+    const health = await fetch(`${app.url}/api/fixture-health`);
     expect(await health.json()).toEqual({ ok: true });
     expect(existsSync(finished)).toBe(false);
     expect(readFileSync(started, "utf8").trim().split("\n")).toHaveLength(3);
@@ -288,22 +276,17 @@ setTimeout(finish, 2000);
   const previousPath = process.env.PATH;
   process.env.PATH = bin + delimiter + (previousPath || "");
   const request = () =>
-    fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/native/history/${catalogId}/fork`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commandId }),
-      },
-    );
+    fetch(`${app.url}/api/native/history/${catalogId}/fork`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commandId }),
+    });
   const pending = request();
   try {
     await until(() => existsSync(started));
     expect(db.inTransaction).toBe(false);
     expect(harnesses.requests("codex", "thread/fork")).toEqual([]);
-    const health = await fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/fixture-health`,
-    );
+    const health = await fetch(`${app.url}/api/fixture-health`);
     expect(await health.json()).toEqual({ ok: true });
     writeFileSync(release, "continue");
     expect((await pending).status).toBe(409);
@@ -324,7 +307,7 @@ setTimeout(finish, 2000);
       )
       .get(OWNER, commandId);
     const rebound = await fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/native/history/${otherCatalog}/fork`,
+      `${app.url}/api/native/history/${otherCatalog}/fork`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -403,14 +386,11 @@ it("preserves both records when a fork result is handed off elsewhere before its
     thread: { id: nativeId, turns: [] },
   });
   const request = () =>
-    fetch(
-      `http://127.0.0.1:${(server.address() as any).port}/native/history/${catalogId}/fork`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commandId }),
-      },
-    );
+    fetch(`${app.url}/api/native/history/${catalogId}/fork`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commandId }),
+    });
   const pending = request();
   try {
     await until(() => harnesses.requests("codex", "thread/fork").length === 1);
@@ -482,14 +462,11 @@ it.each(["native-fork", "import-transaction"])(
       );
     }
     const request = () =>
-      fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/native/history/${catalogId}/fork`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ commandId }),
-        },
-      );
+      fetch(`${app.url}/api/native/history/${catalogId}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commandId }),
+      });
     try {
       expect((await request()).status).toBe(500);
       const preparation = db
