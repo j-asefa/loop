@@ -1,21 +1,20 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
-  mkdtempSync,
   realpathSync,
   rmSync,
   writeFileSync,
   mkdirSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { gitProject } from "./git-project.js";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-checkout-")));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = realpathSync(testDirectory());
+
 const project = join(dir, "repo");
 mkdirSync(project);
 gitProject(project);
@@ -51,7 +50,6 @@ import type { Run } from "../src/server/queue";
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 const owner = "owner";

@@ -1,21 +1,16 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { ProviderSchema } from "../src/shared/provider-schema";
 import express from "express";
 import { until } from "./helpers";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  readFileSync,
-  existsSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { realpathSync, readFileSync, existsSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-turn-recovery-")));
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(testDirectory());
+
 gitProject(dir);
 const { db, changes } = await import("../src/server/db");
 db.prepare(
@@ -53,7 +48,6 @@ afterEach(() => {
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 function submit(conversation: string, harness: string, key: string) {
   db.prepare(

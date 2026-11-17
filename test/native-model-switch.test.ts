@@ -1,13 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+
 import { fileURLToPath } from "node:url";
 
-const dir = realpathSync(mkdtempSync(join(tmpdir(), "loop-model-switch-")));
-process.env.LOOP_DATA_DIR = dir;
+const dir = realpathSync(testDirectory());
+
 gitProject(dir);
 const { db, now } = await import("../src/server/db");
 db.prepare(
@@ -21,7 +21,6 @@ const fixture = fileURLToPath(
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("moves a native conversation to the agent's new harness with Loop's transcript", async () => {
