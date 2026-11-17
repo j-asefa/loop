@@ -581,14 +581,19 @@ it("lets a working agent request a review of its own worktree, waits for the lea
 }, 30000);
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','anthropic','Claude Code · this computer','','connected',?,?,?)",
-  ).run(
-    harness,
-    JSON.stringify([{ id: "native-default" }]),
-    JSON.stringify({ loopHarness: "claude", authMode: "subscription" }),
-    now(),
-  );
+  seedConnection(db, {
+    id: harness,
+    owner_id: "alice",
+    provider: "anthropic",
+    label: "Claude Code · this computer",
+    secret: "",
+    models: JSON.stringify([{ id: "native-default" }]),
+    metadata: JSON.stringify({
+      loopHarness: "claude",
+      authMode: "subscription",
+    }),
+    created_at: now(),
+  });
   const native = createPresetTeam("alice", {
     ...details,
     name: "Native review team",

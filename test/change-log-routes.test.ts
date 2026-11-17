@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -40,11 +41,13 @@ function watch(f: Awaited<ReturnType<typeof fixture>>, query = "") {
 function seed(f: Awaited<ReturnType<typeof fixture>>) {
   if (!f.fixtureSecret)
     throw new Error("This route fixture requires its single owner credential");
-  f.db
-    .prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES('connection',?,'openai','Fixture',?,'connected','[{\"id\":\"fixture\"}]',1)",
-    )
-    .run(f.owner, f.fixtureSecret);
+  seedConnection(f.db, {
+    id: "connection",
+    owner_id: f.owner,
+    secret: f.fixtureSecret,
+    models: '[{"id":"fixture"}]',
+    created_at: 1,
+  });
   for (const agent of ["agent", "worker", "extra"])
     f.db
       .prepare(

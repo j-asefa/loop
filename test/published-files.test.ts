@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -46,9 +47,15 @@ const request = (path: string, owner = "alice") =>
   fetch(base + "/api" + path, { headers: { "x-owner": owner } });
 function fixture() {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','codex','Fixture',?,'connected','[{\"id\":\"gpt-6-astra\"}]','{\"loopHarness\":\"codex\"}',?)",
-  ).run(connection, seal("fixture", "alice"), now());
+  seedConnection(db, {
+    id: connection,
+    owner_id: "alice",
+    provider: "codex",
+    secret: seal("fixture", "alice"),
+    models: '[{"id":"gpt-6-astra"}]',
+    metadata: '{"loopHarness":"codex"}',
+    created_at: now(),
+  });
   const agent = createAgent("alice", {
     name: "publisher-" + id().slice(0, 8),
     connectionId: connection,

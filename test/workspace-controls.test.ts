@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { parseConnection } from "../src/server/row-schemas.js";
@@ -42,16 +43,14 @@ const request = async (
   });
   return { status: response.status, data: await response.json() };
 };
-function connection(provider: string, owner = "alice") {
+function connection(provider: Connection["provider"], owner = "alice") {
   const key = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,?,'Fixture',?,'connected',?,?)",
-  ).run(
-    key,
-    owner,
-    provider,
-    seal("fixture", owner),
-    JSON.stringify([
+  seedConnection(db, {
+    id: key,
+    owner_id: owner,
+    provider: provider,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([
       {
         id: "fixture",
         name: "Fixture",
@@ -62,11 +61,11 @@ function connection(provider: string, owner = "alice") {
         defaultEffort: "low",
       },
     ]),
-    now(),
-  );
+    created_at: now(),
+  });
   return key;
 }
-function agent(provider = "openai", owner = "alice") {
+function agent(provider: Connection["provider"] = "openai", owner = "alice") {
   return createAgent(owner, {
     name: "agent-" + id().slice(0, 8),
     connectionId: connection(provider, owner),

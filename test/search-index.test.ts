@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import Database from "better-sqlite3";
 import * as preferenceQueries from "../src/server/sql/preferences";
@@ -323,9 +324,13 @@ it.each(["metadata", "secret"] as const)(
       content: "A car",
       role: "answer",
     });
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)",
-    ).run(connection, owner, seal("fixture-key", owner), now());
+    seedConnection(db, {
+      id: connection,
+      owner_id: owner,
+      secret: seal("fixture-key", owner),
+      created_at: now(),
+      models: "[]",
+    });
     db.prepare("INSERT INTO preferences VALUES(?,?,'fixture-embedding',1)").run(
       owner,
       connection,

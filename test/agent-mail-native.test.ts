@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers";
@@ -45,16 +46,14 @@ it("does not transfer refused mail into a newly selected native harness", async 
     [apiConnection, {}],
     [nativeConnection, { loopHarness: "codex" }],
   ] as const)
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
-    ).run(
-      cid,
-      owner,
-      seal("fixture", owner),
-      JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify(metadata),
-      now(),
-    );
+    seedConnection(db, {
+      id: cid,
+      owner_id: owner,
+      secret: seal("fixture", owner),
+      models: JSON.stringify([{ id: "fixture" }]),
+      metadata: JSON.stringify(metadata),
+      created_at: now(),
+    });
   db.prepare(
     "INSERT OR IGNORE INTO harnesses VALUES('codex',?,'{}','{}','[]',0)",
   ).run(
@@ -138,16 +137,14 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
     [apiConnection, {}],
     [nativeConnection, { loopHarness: "codex" }],
   ] as const)
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
-    ).run(
-      cid,
-      owner,
-      seal("fixture", owner),
-      JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify(metadata),
-      now(),
-    );
+    seedConnection(db, {
+      id: cid,
+      owner_id: owner,
+      secret: seal("fixture", owner),
+      models: JSON.stringify([{ id: "fixture" }]),
+      metadata: JSON.stringify(metadata),
+      created_at: now(),
+    });
   db.prepare(
     "INSERT OR IGNORE INTO harnesses VALUES('codex',?,'{}','{}','[]',0)",
   ).run(
@@ -329,14 +326,15 @@ it.each([
   async (cause) => {
     const owner = "local-workspace",
       connection = id();
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Signal native','','connected',?,?,0)",
-    ).run(
-      connection,
-      owner,
-      JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify({ loopHarness: "codex" }),
-    );
+    seedConnection(db, {
+      id: connection,
+      owner_id: owner,
+      label: "Signal native",
+      secret: "",
+      models: JSON.stringify([{ id: "fixture" }]),
+      metadata: JSON.stringify({ loopHarness: "codex" }),
+      created_at: 0,
+    });
     const manager = createAgent(owner, {
       name: "signal-" + id().slice(0, 8),
       model: "fixture",

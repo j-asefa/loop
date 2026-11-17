@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { productionApp } from "./helpers/app.js";
 import { expect, it, vi } from "vitest";
@@ -46,14 +47,15 @@ it("rejects unsupported team connection edits, submissions and persisted dispatc
         },
       ],
     ] as const)
-      db.prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice',?,'Fixture','','connected',?,?,0)",
-      ).run(
-        connectionId,
-        provider,
-        JSON.stringify([{ id: "fixture", name: "Fixture" }]),
-        JSON.stringify(metadata),
-      );
+      seedConnection(db, {
+        id: connectionId,
+        owner_id: "alice",
+        provider: provider,
+        secret: "",
+        models: JSON.stringify([{ id: "fixture", name: "Fixture" }]),
+        metadata: JSON.stringify(metadata),
+        created_at: 0,
+      });
     const agent = (name: string) =>
       createAgent("alice", { name, connectionId: "api", model: "fixture" });
     const manager = agent("manager"),

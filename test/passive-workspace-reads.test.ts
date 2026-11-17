@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -50,15 +51,14 @@ for (const [id, accountOwner, metadata] of [
   [api, owner, {}],
   [foreign, "someone-else", {}],
 ] as const)
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,0)",
-  ).run(
-    id,
-    accountOwner,
-    seal("fixture", accountOwner),
-    JSON.stringify(models),
-    JSON.stringify(metadata),
-  );
+  seedConnection(db, {
+    id: id,
+    owner_id: accountOwner,
+    secret: seal("fixture", accountOwner),
+    models: JSON.stringify(models),
+    metadata: JSON.stringify(metadata),
+    created_at: 0,
+  });
 db.prepare(
   "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,connection_id,origin,created_at) VALUES(?,?,'Fixture','fixture','openai','stored-model','',?,'loop',0)",
 ).run(agent, owner, native);

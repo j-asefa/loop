@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { ProviderSchema } from "../src/shared/provider-schema";
@@ -30,14 +31,16 @@ for (const harness of ["claude", "codex"]) {
       version: "fixture",
     }),
   );
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'local-workspace',?,?,'','connected','[]',?,0)",
-  ).run(
-    `native-${harness}`,
-    harness === "claude" ? "anthropic" : "codex",
-    harness,
-    JSON.stringify({ loopHarness: harness }),
-  );
+  seedConnection(db, {
+    id: `native-${harness}`,
+    owner_id: "local-workspace",
+    provider: harness === "claude" ? "anthropic" : "codex",
+    label: harness,
+    secret: "",
+    models: "[]",
+    metadata: JSON.stringify({ loopHarness: harness }),
+    created_at: 0,
+  });
 }
 afterEach(() => {
   delete process.env.LOOP_TEST_HARNESS;

@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
@@ -29,9 +30,16 @@ db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(
     version: "fixture",
   }),
 );
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-claude',?,'anthropic','Claude','','connected','[]',?,0)",
-).run(OWNER, JSON.stringify({ loopHarness: "claude" }));
+seedConnection(db, {
+  id: "native-claude",
+  owner_id: OWNER,
+  provider: "anthropic",
+  label: "Claude",
+  secret: "",
+  models: "[]",
+  metadata: JSON.stringify({ loopHarness: "claude" }),
+  created_at: 0,
+});
 afterAll(() => {
   db.close();
 
