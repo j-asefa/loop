@@ -14,7 +14,15 @@ function withoutBusyWait<T>(db: Database.Database, run: () => T): T {
 
 const delayed = new WeakMap<Database.Database, Set<string>>();
 
-/** Only local, repeatable writes belong here; contention never replays work. */
+/**
+ * Only local, repeatable writes belong here; contention never replays work.
+ * Timer writes (liveness heartbeats in worker.ts and deployments.ts, periodic
+ * native display flushes in native/projector.ts) skip a tick while another
+ * process holds the write lock and try again on the next, so contention cannot
+ * fail their callbacks; a skipped heartbeat leaves its timestamp unchanged, so
+ * stale observations still expire. Device renewal and retirement defer to a
+ * later request or heartbeat.
+ */
 export function tryWithoutBusyWait(
   db: Database.Database,
   label: string,
