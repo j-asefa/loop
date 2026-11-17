@@ -5,6 +5,8 @@ import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 import {
   writeSync,
+  writeFileSync,
+  renameSync,
   appendFileSync,
   existsSync,
   readFileSync,
@@ -48,6 +50,13 @@ let count = 0,
   held = false,
   // Pi's queued input waiting for its next prompt, as [queue, message].
   piQueue = [];
+function publishPiQueue() {
+  const path = process.env.LOOP_TEST_PI_QUEUE_AUDIT;
+  if (!path) return;
+  writeFileSync(path + ".next", JSON.stringify(piQueue));
+  renameSync(path + ".next", path);
+}
+publishPiQueue();
 if (process.argv.includes("--version")) {
   console.log(
     process.env.LOOP_TEST_HARNESS_VERSION ??
@@ -105,7 +114,7 @@ const audit = () => {
 };
 const note = (method, params) =>
   out({ method, params: { threadId, ...params } });
-function finish(status = "completed") {
+function finish(status = "completed", failure = "Fixture native turn failed") {
   if (kind === "codex") {
     note("item/completed", {
       item: {
@@ -184,6 +193,7 @@ function finish(status = "completed") {
       message: {
         role: "assistant",
         content: [{ type: "text", text: "Fixture done" }],
+        ...(status === "failed" ? { errorMessage: failure } : {}),
       },
     });
     out({ type: "agent_end" });
@@ -192,6 +202,7 @@ function finish(status = "completed") {
   held = false;
 }
 let piModel = { provider: "openai-codex", id: "fixture" };
+let piExtensionModels;
 if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
   // Run Loop's real metadata extension against an aggregator-sized catalog
   // and a full workspace tool list; Pi's thinking-level helper is stubbed.
@@ -216,6 +227,7 @@ if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
     }),
   );
   available.push({ provider: "openai-codex", id: "fixture" });
+  piExtensionModels = available;
   const tools = Array.from({ length: 150 }, (_, i) => ({
     name: `loop_mcp_${String(i).padStart(20, "0")}`,
     description: "d".repeat(300),
@@ -311,6 +323,13 @@ if (kind !== "opencode") {
         cwd: m.params?.cwd,
         cwds: m.params?.cwds,
         threadId: m.params?.threadId,
+        input: m.params?.input?.slice(0, 4).map((part) => ({
+          type: part.type,
+          text:
+            typeof part.text === "string"
+              ? part.text.slice(0, 1024)
+              : undefined,
+        })),
       },
     });
     if (process.env.LOOP_TEST_HARNESS_REPLIES) {
@@ -372,6 +391,8 @@ if (kind !== "opencode") {
       });
     if (type === "get_available_thinking_levels")
       return result({ levels: ["off", "low", "medium", "high"] });
+    if (type === "get_available_models" && piExtensionModels)
+      return result({ models: piExtensionModels });
     if (type === "get_available_models")
       return result({
         models: [
@@ -551,12 +572,12 @@ if (kind !== "opencode") {
       const cleared = { steering: [], followUp: [] };
       for (const [queue, message] of piQueue) cleared[queue].push(message);
       piQueue = [];
+      publishPiQueue();
       return result(cleared);
     }
-    // Test-only: what Pi still holds for its next prompt.
-    if (type === "fixture_queue") return result({ queue: piQueue });
     if (type === "follow_up" && kind === "pi") {
       piQueue.push(["followUp", m.message]);
+      publishPiQueue();
       return result({});
     }
     if (type === "get_messages") return result({ messages: [] });
@@ -637,6 +658,7 @@ if (kind !== "opencode") {
         if (m.message === "late-behind" || m.message === "late-read")
           piQueue.push(["followUp", "extension follow-up"]);
         if (m.message !== "late-read") piQueue.push(["steering", m.message]);
+        publishPiQueue();
         return result({ disposition: "queued" });
       }
       result({ disposition: "queued" });
@@ -1051,7 +1073,16 @@ if (kind !== "opencode") {
             origin: { kind: "task-notification" },
           });
       } else
-        setTimeout(() => finish(text === "fail" ? "failed" : "completed"), 30);
+        setTimeout(
+          () =>
+            finish(
+              text === "fail" || text === "fail-generic"
+                ? "failed"
+                : "completed",
+              text === "fail" ? "Provider rate limit exceeded" : undefined,
+            ),
+          30,
+        );
     }
   });
 } else {

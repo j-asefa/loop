@@ -16,15 +16,24 @@ type Observation = {
   harness: Harness;
   cwd: string;
   method?: string;
-  params?: { cwd?: string; cwds?: string[]; threadId?: string };
+  params?: {
+    cwd?: string;
+    cwds?: string[];
+    threadId?: string;
+    input?: { type?: string; text?: string }[];
+  };
 };
 
 /** Explicit subprocesses and wire replies; no adapter internals are replaced. */
-export function harnessFixture(directory: string) {
+export function harnessFixture(
+  directory: string,
+  options: { observePiQueue?: boolean } = {},
+) {
   const root = join(directory, "fixture-harnesses");
   mkdirSync(root);
   const control = join(root, "replies.json");
   const audit = join(root, "audit.jsonl");
+  const piQueue = join(root, "pi-queue.json");
   let replies: Record<Harness, Record<string, Reply>>;
   let gate = 0;
   const save = () => {
@@ -50,6 +59,7 @@ export function harnessFixture(directory: string) {
     };
     save();
     rmSync(audit, { force: true });
+    rmSync(piQueue, { force: true });
   };
   for (const harness of ["codex", "pi"] as const)
     writeFileSync(
@@ -58,6 +68,7 @@ export function harnessFixture(directory: string) {
 process.env.LOOP_TEST_HARNESS = ${JSON.stringify(harness)};
 process.env.LOOP_TEST_HARNESS_REPLIES = ${JSON.stringify(control)};
 process.env.LOOP_TEST_HARNESS_AUDIT = ${JSON.stringify(audit)};
+process.env.LOOP_TEST_PI_QUEUE_AUDIT = ${JSON.stringify(harness === "pi" && options.observePiQueue ? piQueue : "")};
 import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
 `,
       { mode: 0o755 },
@@ -77,6 +88,8 @@ import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
   };
   return {
     executable: (harness: Harness) => join(root, harness),
+    piQueue: (): [string, string][] =>
+      JSON.parse(readFileSync(piQueue, "utf8")),
     reset,
     respond,
     launches: (harness: Harness) =>
