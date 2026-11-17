@@ -25,7 +25,10 @@ export type Binding = {
   state: string;
 };
 
-/** Mutable storage is private to the session owner. */
+/** Mutable storage is private to the session owner. `run` is set only while
+ * `execute` owns the turn and `cancelling` only while that turn is being
+ * interrupted; a closed live is never reused, and pending protocol requests are
+ * rejected on exit or disposal. */
 type MutableLive = {
   adapter: Adapter;
   generation: string;

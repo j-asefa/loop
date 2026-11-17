@@ -28,6 +28,11 @@ export type AnswerContent = {
 
 // All operations run within the caller's existing transaction. Scheduling,
 // native churn checks, history and external dispatch stay with their writers.
+// Managed artifact updates keep the "no version above 1" predicate; native
+// updates keep the current `version = 1` predicate. Pause or error preserves the
+// checkpoint for recovery, and a done checkpoint returns without recreating
+// records. Native recovery never replays an uncertain dispatch or rebuilds
+// harness context from these display records.
 function create(run: Run, input: Creation, content: string): AnswerIds {
   messages.insert(
     db,

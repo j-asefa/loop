@@ -50,21 +50,7 @@ row and applies the edge, checkout hook and event in one immediate transaction
 and reclaiming running/pausing work) and guarded `deferUndispatched`
 (`running → queued`); both remain lease operations in `sql/runs.ts`.
 
-Executor boundaries are classified by [run-outcome.ts](../src/server/run-outcome.ts)
-from one owner-scoped stored-state read. Managed agents, imports, manual MCP
-calls and native dispatch return typed outcomes to [the worker](../src/server/worker.ts).
-The worker applies pause edges and lease-checked completion; waiting, cancelled
-and already-moved outcomes do not add a transition. Existing boundary timing is
-preserved: the managed post-stream check handles cancellation before finalizing,
-and manual MCP finishes its in-flight call before handling a requested pause.
-Native failure/interruption remains owned by its supervisor.
-
-Partial output stays executor-owned. Two synchronous outcome callbacks preserve
-existing atomicity: import pause/cancel bookkeeping shares its transaction with
-the worker's pause operation, and delegation lease release shares its transaction
-with pause or waiting-children publication. The executor defines those writes;
-the worker supplies the transition. A refused pause still yields to a concurrent
-terminal outcome. No uncertain dispatch is replayed by outcome application.
+Executor boundaries are classified by [run-outcome.ts](../src/server/run-outcome.ts), whose header states how typed outcomes reach [the worker](../src/server/worker.ts) and which writes share its transaction. Native failure and interruption stay with the native supervisor.
 
 States: `queued`, `running`, `pausing`, `paused`, `awaiting_approval`,
 `interrupted`, **`completed`**, **`failed`**, **`cancelled`**.
@@ -109,16 +95,7 @@ Design preview seed answers start in `running` and complete through the same
 transition path. A preview approval requeues via `decide`, then atomically claims
 that sample before completing it. There is no `queued → completed` edge.
 
-Public response arms are owned by
-[`run-contract-schema.ts`](../src/shared/run-contract-schema.ts). The Done-card
-and Feed presentations derive their state and common identity fields from those
-arms in [`done-card.ts`](../src/shared/done-card.ts). Queue rank survives claim;
-the unfiltered run list also projects queue position and previews for terminal
-runs. A paused run can retain its lease and saved answer, and running or pausing
-work can save an answer before its completion transition. These fields are not
-proof that a run is currently executing. Native error events persist errors
-independently of run state, and a later completion does not clear them; every
-public arm preserves that stored error field.
+Public response arms are owned by [`run-contract-schema.ts`](../src/shared/run-contract-schema.ts), and the Done and Feed presentations derive from them in [`done-card.ts`](../src/shared/done-card.ts). Saved answer and lease fields do not prove a run is executing; the schema's header says why.
 
 
 ### `approvals.state`
@@ -243,24 +220,7 @@ States: idle, disconnected, starting, failed, running, unavailable, with a
 | running → idle / unavailable | terminal status | mem: current live |
 | all → disconnected, generation NULL | worker start or close | `recover` |
 
-Workspace preparation and validation await Git without holding a database
-transaction. Before changing a binding, the caller rechecks the live session,
-binding identity and run state captured before that await. Session preparation
-and settings requests share a counted idle-eviction hold. Eviction stays suspended
-until every overlapping operation finishes. Capacity eviction also skips held
-sessions. Startup waits for and reserves capacity before capturing its checkout
-baseline or creating an adapter. Waiting retains the worker lease, checks session
-identity and run state every 250 ms, and does not repeat Git validation or requeue
-the run. Reservations count toward capacity until the live session is installed,
-and failures release them. Existing permission overrides and model settings are
-updated only after the final guarded preparation step, so cancellation during
-capacity waiting or checkout capture does not commit those turn settings.
-Completion or failure re-arms
-eviction only for an idle, open live session. Same-process callers
-preparing the same checkout share one pending preparation. Fetch and immutable
-base-commit resolution are serialized per common Git directory within the
-process; Git locks arbitrate between processes. Git diagnostics stay in server-side error causes, while
-browser-facing errors contain controlled setup guidance.
+Workspace preparation rechecks its captured identity after awaiting Git ([`native/workspace.ts`](../src/server/native/workspace.ts)), and startup reserves capacity under idle-eviction holds (`reserveStart` in [`native/supervisor.ts`](../src/server/native/supervisor.ts)). Turn settings commit only after the final guarded preparation step. Git diagnostics stay server-side; browser errors carry controlled setup guidance.
 
 Disposal does not rewrite the row; readers go through the in-memory live
 session or the run's state.
@@ -282,12 +242,7 @@ already resolved is ignored and does not move the run to `awaiting_approval`.
 
 ### `agent_checkpoints.stage`
 
-[`answer-record.ts`](../src/server/answer-record.ts) owns answer record creation
-and the ordered writes to its message, artifact, initial version, checkpoint and
-run result. Callers keep their transactions, scheduling and native churn guard.
-Managed artifact updates retain the "no version above 1" predicate; native
-updates retain the artifact's current `version = 1` predicate. Preview completion
-creates final records and replaces its checkpoint; it does not stream a placeholder.
+[`answer-record.ts`](../src/server/answer-record.ts) owns answer record creation and its ordered writes; its header states the version predicates and recovery rules.
 
 | From → to | Trigger | Writer |
 | --------- | ------- | ------ |
@@ -300,21 +255,11 @@ creates final records and replaces its checkpoint; it does not stream a placehol
 | model/native → done | Final non-commentary reply, after native churn check | `writeNativeAnswer` |
 | absent/previous → done | Simulator completes a response | `createPreviewAnswer` |
 
-Pause/error preserves the checkpoint for recovery. Managed resumes read history,
-output and round; a done checkpoint returns without recreating records. Native
-recovery does not replay uncertain dispatch or reconstruct harness context from
-these display records. The worker uses model/tools to label failures; queued-run
-editing checks checkpoint existence, regardless of stage. Manual MCP results are
-artifact references and remain outside this answer-text lifecycle.
+Queued-run editing checks checkpoint existence regardless of stage, and manual MCP results are artifact references outside this answer-text lifecycle.
 
 ### In-memory `Live` session
 
-`NativeSessionState` in [`native/state.ts`](../src/server/native/state.ts) owns
-one worker process's session map and all `Live` field mutations. Production and
-fixtures attach sessions through `attach`; consumers receive readonly views.
-`find` and `all` expose retained identities without exposing the map. Named
-operations own turn attachment, decisions, output buffers, timers, cancellation
-and disposal. The supervisor still orders durable writes and adapter IO.
+`NativeSessionState` in [`native/state.ts`](../src/server/native/state.ts) owns one worker process's session map and every `Live` mutation; the supervisor still orders durable writes and adapter IO.
 
 | From → to | Trigger | Code |
 | --------- | ------- | ---- |
@@ -323,20 +268,9 @@ and disposal. The supervisor still orders durable writes and adapter IO.
 | turn → cancelling | `interrupt` | `state.cancel` |
 | any → closed | `dispose` (idempotent) | `state.close`, `state.disposing`, identity-guarded `state.remove` |
 
-Invariants: `run` is set only while `execute` owns the turn; `cancelling` is
-true only while that turn is being interrupted; a closed live is never reused.
-Pending protocol requests are rejected on exit or disposal.
+The `Live` invariants (turn ownership, cancellation, no reuse after close, rejected pending requests) are in that file's header.
 
-[`native/currency.ts`](../src/server/native/currency.ts) owns the named currency
-policies used by the supervisor, decisions, projector and tool bridge. Dispatch
-checks the attached turn, generation, cancellation and active run state; decision
-answers additionally check their delivery receipt. Display events can arrive
-while idle, and delayed output requires the same run object. Stored-generation
-checks remain specific to settings and usage/activity/model projections; they
-are not added to prompt or decision dispatch. Definitive non-delivery can reopen
-a decision without the dispatch cancellation predicate. These differences
-preserve the existing boundaries. The state owner supplies the guard's lookup;
-callers retain the same purpose-specific policies.
+[`native/currency.ts`](../src/server/native/currency.ts) owns the currency policies used by the supervisor, decisions, projector and tool bridge; its header states what each checks.
 
 `native_history_actions`: ∅ → unknown (written before the fork) → completed;
 an existing `unknown` row answers 409.

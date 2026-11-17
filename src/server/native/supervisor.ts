@@ -116,6 +116,11 @@ export class NativeSessions {
   get count() {
     return this.state.size;
   }
+  // Startup reserves capacity before capturing its checkout baseline or creating
+  // an adapter. Capacity eviction skips sessions under an idle hold (shared by
+  // preparation and settings requests); waiting keeps the worker lease and
+  // rechecks identity and run state. A reservation counts toward capacity until
+  // the live session is installed or its release runs on failure.
   private async reserveStart(check: () => void) {
     for (;;) {
       check();

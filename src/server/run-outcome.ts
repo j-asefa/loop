@@ -1,3 +1,12 @@
+// Classifies an executor boundary from one owner-scoped stored-state read.
+// Managed agents, imports, manual MCP calls and native dispatch return typed
+// outcomes to the worker, which applies pause edges and lease-checked
+// completion; waiting, cancelled and already-moved outcomes add no transition.
+// Partial output stays executor-owned, and the synchronous outcome callbacks
+// keep import pause/cancel bookkeeping and delegation lease release in the same
+// transaction as the worker's transition. A refused pause still yields to a
+// concurrent terminal outcome, and applying an outcome never replays an
+// uncertain dispatch.
 import type { Run } from "./queue.js";
 import type { RunState } from "../shared/run-state.js";
 import { db } from "./db.js";
