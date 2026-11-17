@@ -25,8 +25,12 @@ export type DeviceExpiryCheck = { path: string; devices: string[] };
 
 /** A clock check starts with a durable intent before reading wall time. If both
  * SQLite and later filesystem writes fail, the intent still identifies devices
- * whose expiry observation may be lost. Recovery conservatively retires them.
- * No cookie, credential hash or native context is stored here. */
+ * whose expiry observation may be lost. Recovery conservatively retires them,
+ * even if the clock has since moved backwards, so an interrupted check can
+ * require a device to pair again. Checks run on device access, at startup and
+ * on the gateway heartbeat (host.ts). The database and this directory are
+ * restored together. No cookie, credential hash or native context is stored
+ * here. */
 export class DeviceExpiryChecks {
   private readonly directory: string;
   constructor(
