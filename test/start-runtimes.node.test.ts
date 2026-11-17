@@ -1,12 +1,13 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { until } from "./helpers.js";
 import { gitProject } from "./git-project.js";
-await mkdir(".tmp", { recursive: true });
-const dir = await mkdtemp(join(resolve(".tmp"), "loop-start-runtimes-"));
+const workspace = createTestWorkspace("loop-start-runtimes-");
+const dir = workspace.directory;
 gitProject(dir);
 process.env.LOOP_DATA_DIR = dir;
 const { WorkspaceHost } = await import("../src/workspace-host.js");
@@ -213,6 +214,6 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     await host.close();
     process.env.PATH = originalPath;
     db.close();
-    await rm(dir, { recursive: true, force: true });
+    workspace.close();
   }
 });
