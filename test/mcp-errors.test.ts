@@ -1,17 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import express from "express";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-mcp-errors-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -118,7 +115,6 @@ await discover(
 afterAll(() => {
   restoreMcp();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it.each(["ask", "allow"] as const)(

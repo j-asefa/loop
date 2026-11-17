@@ -1,18 +1,18 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 // Device pairing is core: a companion pairs and authenticates phones without
 // a fleet identity, and devices paired while fleets were on stay paired.
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
+
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
 import { DevicePairing } from "../src/server/device-pairing.js";
 import { hash } from "../src/state.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-device-pairing-"));
-process.env.LOOP_DATA_DIR = root;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = testDirectory();
+
 const secrets = await import("../src/server/secrets.js");
 const { FleetAuthority } = await import("../src/server/fleet-authority.js");
 const { FleetPairing } = await import("../src/server/fleet-pairing.js");
@@ -20,7 +20,6 @@ const databases: Database.Database[] = [];
 const origin = "https://phone.example";
 afterAll(() => {
   for (const db of databases) if (db.open) db.close();
-  rmSync(root, { recursive: true, force: true });
 });
 function workspace(owner = randomUUID()) {
   const dir = join(root, randomUUID());

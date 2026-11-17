@@ -1,16 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-usage-index-"));
-process.env.LOOP_DATA_DIR = dir;
+testDirectory();
+
 const { db, id, emit } = await import("../src/server/db");
 const usageQueries = await import("../src/server/sql/runs");
 const { conversationUsage } = await import("../src/server/mobile-return");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function conversation(owner: string) {

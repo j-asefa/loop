@@ -1,13 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-agent-creation-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { core } = await import("../src/server/core-routes");
@@ -52,7 +49,6 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   restore();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 async function create(body: object, owner = "alice") {
   const response = await fetch(origin + "/agents", {

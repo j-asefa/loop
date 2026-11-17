@@ -1,14 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { ownInstructions } from "./helpers/instructions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-agent-mail-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, Problem, ownedRun } = await import("../src/server/domain");
@@ -48,7 +47,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 async function http(owner: string, path: string, body?: object) {
   const response = await fetch(

@@ -1,11 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { ActivityKey, RunId } from "../src/shared/contract-ids.js";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ActivityRecords } from "../src/client/ActivityRecords";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import Database from "better-sqlite3";
 import Ajv2020 from "ajv/dist/2020.js";
 import { codexActivities } from "../src/adapters/direct-activities";
@@ -20,8 +21,8 @@ import {
   mergeActivities,
   type ActivityItem,
 } from "../src/client/activityView";
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-integration-"));
-process.env.LOOP_DATA_DIR = dir;
+testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { applyActivity, listActivities, ingestNativeActivity } =
@@ -31,7 +32,6 @@ const { historyActivities, historyProjection } =
   await import("../src/server/native-history");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 const source = {
   transport: "native" as const,

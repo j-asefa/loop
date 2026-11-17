@@ -1,13 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { fileURLToPath } from "node:url";
 import { Acp } from "../src/adapters/acp";
 import type { Live } from "../src/server/native-sessions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-acp-errors-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -17,7 +16,6 @@ const fixture = fileURLToPath(
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("persists only fixed guidance for ACP prompt and setting failures", async () => {

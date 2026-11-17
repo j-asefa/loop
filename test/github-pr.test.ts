@@ -1,8 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -15,9 +13,8 @@ import {
   pullRequestCard,
   summarizePullRequest,
 } from "../src/shared/github";
-const dir = mkdtempSync(join(tmpdir(), "loop-github-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -353,7 +350,6 @@ afterAll(() => {
   resetMcp();
   resetProvider();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it.each(["ask", "allow", "switch-to-allow"])(

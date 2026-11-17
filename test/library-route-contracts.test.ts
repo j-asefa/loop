@@ -1,15 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { FolderId, parseId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  rmSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gitProject } from "./git-project.js";
@@ -21,9 +16,8 @@ vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "fixture-local",
   localEmbeddings: async (texts: string[]) => texts.map(() => [1, 0]),
 }));
-const directory = mkdtempSync(join(tmpdir(), "loop-library-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const directory = testDirectory();
+
 const { page: eventPage } = await import("../src/server/sql/events");
 const { db, id } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
@@ -206,7 +200,6 @@ afterAll(async () => {
   await nativeSessions.close();
   restore();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("uploadCreate retains multipart fields, stored bytes and its descriptor", async () => {
