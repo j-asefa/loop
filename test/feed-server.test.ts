@@ -1,8 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
-import express from "express";
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
@@ -11,25 +11,14 @@ const { resultsRevision, resultsUpdates } =
   await import("../src/server/results");
 const { core } = await import("../src/server/core-routes");
 const { enqueue } = await import("../src/server/queue");
-const app = express();
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use("/api", core);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
+const app = await productionApp(undefined, [core], {
+  ownerHeader: "x-owner",
+  json: false,
 });
 const get = async (path: string, owner: string) => {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    { headers: { "x-owner": owner } },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    headers: { "x-owner": owner },
+  });
   return { status: response.status, ...(await response.json()) };
 };
 const cursor = (artifact: string) =>
@@ -39,7 +28,7 @@ const cursor = (artifact: string) =>
       .get(artifact) as any
   ).cursor as number;
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

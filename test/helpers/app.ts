@@ -6,9 +6,13 @@ import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 
 export async function productionApp(
-  owner: string,
+  owner: string | undefined,
   routers?: RequestHandler[],
-  options: { ownerHeader?: string } = {},
+  options: {
+    ownerHeader?: string;
+    jsonLimit?: string | number;
+    json?: boolean;
+  } = {},
 ) {
   if (!routers) {
     const { mobile } = await import("../../src/server/mobile-routes");
@@ -18,11 +22,13 @@ export async function productionApp(
   }
   const { errorHandler } = await import("../../src/server/error-handler");
   const app = express();
-  app.use(express.json());
+  if (options.json !== false)
+    app.use(express.json({ limit: options.jsonLimit }));
   app.use((req, res, next) => {
-    res.locals.owner = options.ownerHeader
-      ? req.get(options.ownerHeader) || owner
-      : owner;
+    const headerOwner = options.ownerHeader
+      ? req.get(options.ownerHeader)
+      : undefined;
+    res.locals.owner = owner === undefined ? headerOwner : headerOwner || owner;
     next();
   });
   app.use("/api", ...routers);

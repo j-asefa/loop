@@ -1,8 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import express from "express";
 
-import type { AddressInfo } from "node:net";
 import type { RunState } from "../src/shared/run-state";
 
 testDirectory();
@@ -16,7 +15,6 @@ const { requestApproval } = await import("../src/server/approvals");
 const { core } = await import("../src/server/core-routes");
 const { mobile } = await import("../src/server/mobile-routes");
 const { workspace } = await import("../src/server/workspace-routes");
-const { errorHandler } = await import("../src/server/error-handler");
 
 const agents = new Map<string, string>();
 function make(state: RunState = "queued", owner = "alice", kind = "agent") {
@@ -66,25 +64,15 @@ const link = (parent: string, child: string, background = false) =>
     )
     .run(parent, id(), child, Number(background));
 
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-test-owner") || "alice";
-  next();
-});
-app.use("/api", mobile, core, workspace);
-app.use(errorHandler);
-let server: ReturnType<typeof app.listen>, origin: string;
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
+  app = await productionApp("alice", [mobile, core, workspace], {
+    ownerHeader: "x-test-owner",
   });
-  origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+  origin = app.url;
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 const post = (path: string, body: unknown = {}, owner = "alice") =>

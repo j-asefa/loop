@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
 
 import { FeedPage } from "../src/shared/workspace-api";
 import { reduceFeedPage } from "../src/shared/feed-projection";
@@ -23,18 +23,10 @@ const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
+const app = await productionApp(undefined, [mobile, core], {
+  ownerHeader: "x-owner",
 });
-app.use(mobile, core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const base = `${app.url}/api`;
 async function request(owner: string, path: string, body?: unknown) {
   // Runs this file completes with SQL are sealed as published history.
   if (body === undefined) sealSeededHistory(db);
@@ -122,7 +114,7 @@ async function publish(
   };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

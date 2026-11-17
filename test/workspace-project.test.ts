@@ -1,58 +1,39 @@
+import { productionApp } from "./helpers/app.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import express from "express";
-import { ZodError } from "zod";
+
 import { belongsToProject } from "../src/shared/projects";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-workspace-project-"));
 vi.stubEnv("LOOP_DATA_DIR", dir);
 vi.stubEnv("LOOP_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
 const { db, id, now } = await import("../src/server/db");
-const { Problem } = await import("../src/server/domain");
+await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { mobile } = await import("../src/server/mobile-routes");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
+const app = await productionApp(undefined, [mobile, core, workspace], {
+  ownerHeader: "x-owner",
 });
-app.use("/api", mobile, core, workspace);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res
-    .status(
-      error instanceof Problem
-        ? error.status
-        : error instanceof ZodError
-          ? 400
-          : 500,
-    )
-    .json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function api(
   owner: string,
   path: string,
   body?: unknown,
   method = body === undefined ? "GET" : "POST",
 ) {
-  const r = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const r = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: r.status, data: (await r.json()) as any };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });

@@ -1,8 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
-import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -19,8 +19,7 @@ vi.mock("../src/server/local-embeddings.js", async (importOriginal) => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { ownedArtifact, createAgent, Problem } =
-  await import("../src/server/domain");
+const { ownedArtifact, createAgent } = await import("../src/server/domain");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
 const { teams, createTeam } = await import("../src/server/teams");
@@ -35,29 +34,15 @@ const { saveArtifact } = await import("../src/server/artifacts");
 const { parseMcpConfig } = await import("../src/server/mcp/install");
 const { withTestMcp } = await import("../src/server/mcp/client");
 const { decide } = await import("../src/server/approvals");
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-test-owner") || "feedback";
-  next();
-});
-app.use(core, workspace, teams, mcp);
-app.use((error: Error, _req: any, res: any, _next: any) =>
-  res
-    .status(error instanceof Problem ? error.status : 400)
-    .json({ error: error.message }),
-);
-let server: ReturnType<typeof app.listen>, origin: string;
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((r, reject) => {
-    server.once("listening", r);
-    server.once("error", reject);
+  app = await productionApp("feedback", [core, workspace, teams, mcp], {
+    ownerHeader: "x-test-owner",
   });
-  origin = "http://127.0.0.1:" + (server.address() as any).port;
+  origin = app.url + "/api";
 });
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 async function api(

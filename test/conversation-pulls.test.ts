@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
-import express from "express";
 
 import type { Run } from "../src/server/queue";
 
@@ -9,7 +9,7 @@ testDirectory();
 const { db, id } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { seal } = await import("../src/server/secrets");
-const { errorHandler } = await import("../src/server/error-handler");
+
 const { createGithubClient, withGithubClient } =
   await import("../src/server/github-api");
 const {
@@ -19,17 +19,12 @@ const {
 const watchNativeCreatedPullRequest = (
   ...args: Parameters<typeof unscopedWatchNative>
 ) => withGithubClient(githubClient, () => unscopedWatchNative(...args));
-const app = express();
-app.use((_req, _res, next) => withGithubClient(githubClient, next));
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use(core);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const origin = `http://127.0.0.1:${(server.address() as any).port}`;
+const app = await productionApp(
+  undefined,
+  [(_req, _res, next) => withGithubClient(githubClient, next), core],
+  { ownerHeader: "x-owner", json: false },
+);
+const origin = `${app.url}/api`;
 async function read(owner: string, thread: string, refresh = false) {
   const response = await fetch(
     `${origin}/conversations/${thread}/pulls${refresh ? "?refresh=1" : ""}`,
@@ -154,7 +149,7 @@ const githubClient = createGithubClient({
   base: undefined,
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

@@ -22,6 +22,7 @@ const { conversationUsage } = await import("../src/server/mobile-return");
 // The real activity route, authenticated as the conversation owner.
 const app = await productionApp("owner", [activityRoutes], {
   ownerHeader: "x-owner",
+  json: false,
 });
 const base = app.url + "/api";
 const snapshot = async (

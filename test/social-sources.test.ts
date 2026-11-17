@@ -1,38 +1,28 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
-const { errorHandler } = await import("../src/server/error-handler");
 const { news, withNewsFixture } = await import("../src/server/news");
 const { sourceId } = await import("../src/server/feed-sources");
 const { feedUrl } = await import("../src/server/feed-fetch");
 
-const app = express();
-app.use(express.json({ limit: "12mb" }));
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [news], {
+  ownerHeader: "x-owner",
+  jsonLimit: "12mb",
 });
-app.use(news);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function call(
   path: string,
   method = "GET",
   body?: unknown,
   owner = "alice",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   const text = await response.text();
   return {
     status: response.status,
@@ -42,7 +32,7 @@ async function call(
 let restore = () => {};
 afterEach(() => restore());
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
 });
 
 const blogAtom = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">

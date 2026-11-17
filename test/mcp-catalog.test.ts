@@ -1,7 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 
-import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -14,7 +14,7 @@ vi.mock("../src/server/mcp/client.js", async (original) => ({
 }));
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { ownedMcpConnection, createAgent, Problem } =
+const { ownedMcpConnection, createAgent } =
   await import("../src/server/domain");
 const { mcp } = await import("../src/server/mcp/routes");
 const { catalog } = await import("../src/server/mcp/catalog-data");
@@ -42,30 +42,14 @@ const resetMcp = withTestMcp(async (c) => {
   await client.connect(b);
   return client;
 });
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-test-owner") || "alice";
-  next();
-});
-app.use(mcp);
-app.use((error: Error, _req: any, res: any, _next: any) =>
-  res
-    .status(error instanceof Problem ? error.status : 400)
-    .json({ error: error.message }),
-);
-let server: ReturnType<typeof app.listen>, origin: string;
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((r, reject) => {
-    server.once("listening", r);
-    server.once("error", reject);
-  });
-  origin = "http://127.0.0.1:" + (server.address() as any).port;
+  app = await productionApp("alice", [mcp], { ownerHeader: "x-test-owner" });
+  origin = app.url + "/api";
 });
 afterAll(async () => {
   resetMcp();
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 async function api(

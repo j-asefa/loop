@@ -1,14 +1,13 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-
-import express from "express";
 
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { core } = await import("../src/server/core-routes");
-const { Problem, createAgent } = await import("../src/server/domain");
+const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -24,29 +23,13 @@ const restore = withTestAdapter("openai", {
     yield { text: "Initial task completed." };
   },
 });
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-test-owner") || "alice";
-  next();
-});
-app.use(core);
-app.use((error: Error, _req: any, res: any, _next: any) =>
-  res
-    .status(error instanceof Problem ? error.status : 400)
-    .json({ error: error.message }),
-);
-let server: ReturnType<typeof app.listen>, origin: string;
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
-  });
-  origin = "http://127.0.0.1:" + (server.address() as any).port;
+  app = await productionApp("alice", [core], { ownerHeader: "x-test-owner" });
+  origin = app.url + "/api";
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   restore();
   db.close();
 });

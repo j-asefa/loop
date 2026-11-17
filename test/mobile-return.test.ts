@@ -1,9 +1,9 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 
 import { randomBytes } from "node:crypto";
-import express from "express";
-import { ZodError } from "zod";
+
 import {
   PERSONAL_DECISION_RESPONSE_LIMIT,
   PERSONAL_DECISIONS_PAGE_LIMIT,
@@ -24,7 +24,7 @@ testDirectory();
 const { db, id, now, emit } = await import("../src/server/db");
 const { sealSeededHistory } = await import("./helpers/published-history");
 const projectionQueries = await import("../src/server/sql/feed-cards");
-const { ownedRun, ownedConversation, createAgent, Problem } =
+const { ownedRun, ownedConversation, createAgent } =
   await import("../src/server/domain");
 const { recordConversationUpdate } =
   await import("../src/server/conversation-updates");
@@ -53,20 +53,11 @@ const { surfaceLater, deliverScheduledSends } =
   await import("../src/server/mobile-return");
 
 // Production routers, mounted in production order (mobile before core).
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use("/api", mobile, core, workspace, teams, sharing);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res
-    .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
-    .json({ error: e.message }),
+const app = await productionApp(
+  undefined,
+  [mobile, core, workspace, teams, sharing],
+  { ownerHeader: "x-owner" },
 );
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function api(
   owner: string,
   path: string,
@@ -74,18 +65,15 @@ async function api(
   body?: unknown,
 ) {
   if (method === "GET") sealSeededHistory(db);
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: (await response.json()) as any };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

@@ -1,7 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { assertAnswerStored } from "./fixtures/answer-record.js";
 import type { WorkspaceEmission } from "../src/shared/workspace-events";
 import { afterAll, expect, it, vi } from "vitest";
-import express from "express";
+
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,19 +39,12 @@ const { db, changes } = await import("../src/server/db");
 const { seedDesignPreview, startDesignSimulation, designPreviewBoundary } =
   await import("../src/server/design-preview");
 const { core } = await import("../src/server/core-routes");
-const app = express();
-app.use(express.json(), (_req, res, next) => {
-  res.locals.owner = "local-workspace";
-  next();
-});
-app.use(designPreviewBoundary, core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 500).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const app = await productionApp("local-workspace", [
+  designPreviewBoundary,
+  core,
+]);
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   changes.close();
   db.close();
   vi.unstubAllEnvs();
@@ -72,19 +66,16 @@ it.each([true, false])(
     const baseline = changes.subscriberCount;
     const stop = startDesignSimulation();
     try {
-      const response = await fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/runs`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            agentId: run.agent_id,
-            conversationId: run.conversation_id,
-            input: "Preview the signal",
-            idempotencyKey: randomUUID(),
-          }),
-        },
-      );
+      const response = await fetch(`${app.url}/api/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agentId: run.agent_id,
+          conversationId: run.conversation_id,
+          input: "Preview the signal",
+          idempotencyKey: randomUUID(),
+        }),
+      });
       expect(response.status).toBe(202);
       const body = await response.json();
       expect(body.steeringId).toBeTruthy();
@@ -153,14 +144,11 @@ it("completes an approved preview through claim and transition, preserving the p
     "INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,directory,source,branch,start_head,start_dirty,start_untracked,started_at,state) VALUES(?,'local-workspace',?,'agent','conversation','','','','',0,0,0,'failed')",
   ).run(randomUUID(), approval.run_id);
   try {
-    const response = await fetch(
-      `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/approvals/${approval.id}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision: "approve" }),
-      },
-    );
+    const response = await fetch(`${app.url}/api/approvals/${approval.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approve" }),
+    });
     expect(response.status).toBe(200);
     assertAnswerStored(
       db,
@@ -222,14 +210,11 @@ it("rolls back preview output and approval when completion is refused", async ()
         : current;
     });
   try {
-    const response = await fetch(
-      `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}/approvals/${approval.id}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision: "approve" }),
-      },
-    );
+    const response = await fetch(`${app.url}/api/approvals/${approval.id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ decision: "approve" }),
+    });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
       error: "This preview run can no longer complete",

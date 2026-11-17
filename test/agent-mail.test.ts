@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import express from "express";
 
 import { join } from "node:path";
 
@@ -10,7 +10,7 @@ const dir = testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { createAgent, Problem, ownedRun } = await import("../src/server/domain");
+const { createAgent, ownedRun } = await import("../src/server/domain");
 const { createTeam, deleteTeam, listTeams } =
   await import("../src/server/teams");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
@@ -28,40 +28,27 @@ const { readRunFile } = await import("../src/server/uploads");
 const { captureMemory } = await import("../src/server/memory");
 type Run = import("../src/server/queue").Run;
 
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(agentMail, core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res
-    .status(error instanceof Problem ? error.status : 400)
-    .json({ error: error.message }),
-);
-let server: ReturnType<typeof app.listen>;
+let app: Awaited<ReturnType<typeof productionApp>>;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
+  app = await productionApp("alice", [agentMail, core], {
+    ownerHeader: "x-owner",
+  });
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 async function http(owner: string, path: string, body?: object) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method: body ? "POST" : "GET",
-      // Synchronous fixture setup can outlast a pooled socket's keep-alive timeout.
-      headers: {
-        "content-type": "application/json",
-        "x-owner": owner,
-        connection: "close",
-      },
-      body: body ? JSON.stringify(body) : undefined,
+  const response = await fetch(`${app.url}/api${path}`, {
+    method: body ? "POST" : "GET",
+    // Synchronous fixture setup can outlast a pooled socket's keep-alive timeout.
+    headers: {
+      "content-type": "application/json",
+      "x-owner": owner,
+      connection: "close",
     },
-  );
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: response.status, data: await response.json() };
 }
 

@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
@@ -23,24 +23,14 @@ const {
   publishImportedConversationResults,
 } = await import("../src/server/result-publication");
 
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use(core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const app = await productionApp(undefined, [core], { ownerHeader: "x-owner" });
+const base = `${app.url}/api`;
 async function get(owner: string, path: string) {
   const response = await fetch(base + path, { headers: { "x-owner": owner } });
   return { status: response.status, body: await response.json() };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

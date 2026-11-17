@@ -1,8 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import express from "express";
 
-import type { AddressInfo } from "node:net";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
   feedCategories,
@@ -26,23 +25,16 @@ const { recordConversationUpdate } =
 const { saveArtifact } = await import("../src/server/artifacts");
 const { indexPending, searchStatus } = await import("../src/server/search");
 const { feed, setDoneCardHidden } = await import("../src/server/mobile-return");
-const app = express();
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
+const app = await productionApp(undefined, [workspace], {
+  ownerHeader: "x-owner",
+  json: false,
 });
-app.use("/api", workspace);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+const origin = `${app.url}`;
 let clock = Date.now();
 vi.spyOn(Date, "now").mockImplementation(() => clock);
 afterAll(async () => {
   vi.restoreAllMocks();
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 async function request(

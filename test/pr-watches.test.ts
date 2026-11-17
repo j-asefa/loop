@@ -1,6 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
@@ -33,36 +33,26 @@ const watchNativeCreatedPullRequest = (
   withGithubClient(githubClient, () =>
     unscopedWatchNativeCreatedPullRequest(...args),
   );
-const app = express();
-app.use((_req, _res, next) => withGithubClient(githubClient, next));
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(prWatches);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
+const app = await productionApp(
+  "alice",
+  [(_req, _res, next) => withGithubClient(githubClient, next), prWatches],
+  { ownerHeader: "x-owner" },
 );
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function api(
   path: string,
   method = "GET",
   body?: object,
   owner = "alice",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "content-type": "application/json", "x-owner": owner },
-      body: body ? JSON.stringify(body) : undefined,
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "content-type": "application/json", "x-owner": owner },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: response.status, data: await response.json() };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

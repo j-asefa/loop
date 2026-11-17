@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { mkdirSync, copyFileSync, readdirSync } from "node:fs";
@@ -5,7 +6,6 @@ import Database from "better-sqlite3";
 
 import { join } from "node:path";
 
-import express from "express";
 import { applyMigrations } from "../src/server/migrations";
 import {
   DEFINITION_EXAMPLES,
@@ -29,25 +29,17 @@ const { seal } = await import("../src/server/secrets");
 const { agentDefinitions } = await import("../src/server/agent-definitions");
 const { teams } = await import("../src/server/teams");
 const { core } = await import("../src/server/core-routes");
-const { errorHandler } = await import("../src/server/error-handler");
-const app = express();
-app.use(express.json({ limit: "1mb" }));
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-test-owner") || "alice";
-  next();
-});
-app.use(agentDefinitions, teams, core, errorHandler);
-let server: ReturnType<typeof app.listen>, origin: string;
+
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
+  app = await productionApp("alice", [agentDefinitions, teams, core], {
+    ownerHeader: "x-test-owner",
+    jsonLimit: "1mb",
   });
-  origin = `http://127.0.0.1:${(server.address() as any).port}`;
+  origin = app.url + "/api";
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 async function request(
