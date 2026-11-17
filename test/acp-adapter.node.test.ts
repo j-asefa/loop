@@ -1,3 +1,4 @@
+import { until } from "./helpers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
@@ -17,17 +18,10 @@ const fixture = fileURLToPath(
   new URL("./fixtures/fake-acp.mjs", import.meta.url),
 );
 const wait = (events: AdapterEvent[], status: string) =>
-  new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + 3000;
-    const poll = () => {
-      if (events.some((e) => e.type === "status" && e.status === status))
-        return resolve();
-      if (Date.now() > deadline)
-        return reject(new Error("Timed out waiting for " + status));
-      setTimeout(poll, 10);
-    };
-    poll();
-  });
+  until(
+    () => events.some((e) => e.type === "status" && e.status === status),
+    3000,
+  );
 
 test("ACP keeps individual conversations usable when HTTP MCP is not advertised", async () => {
   const events: AdapterEvent[] = [];
@@ -188,6 +182,22 @@ test("ACP process crash fails the active turn", async () => {
     await adapter.start();
     await adapter.prompt("hello");
     await wait(events, "failed");
+    await adapter.dispose();
+    const failures = events.filter(
+      (event): event is Extract<AdapterEvent, { type: "status" }> =>
+        event.type === "status" && event.status === "failed",
+    );
+    assert.equal(failures.length, 1);
+    assert.equal(
+      failures[0].recoverable,
+      false,
+      "A crashed ACP turn must be nonrecoverable",
+    );
+    assert(
+      !events.some(
+        (event) => event.type === "status" && event.status === "completed",
+      ),
+    );
   } finally {
     await adapter.dispose();
   }

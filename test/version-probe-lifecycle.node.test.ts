@@ -1,3 +1,4 @@
+import { until } from "./helpers.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
@@ -10,14 +11,6 @@ import { discover } from "../src/host-control.js";
 import { RuntimeHarness } from "../src/shared/execution-authority.js";
 
 const exec = promisify(execFile);
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function until(check: () => boolean) {
-  const end = Date.now() + 5000;
-  while (!check()) {
-    assert(Date.now() < end, "fixture did not finish");
-    await sleep(20);
-  }
-}
 function alive(pid: number) {
   try {
     process.kill(pid, 0);
@@ -89,7 +82,7 @@ const timer=setInterval(() => {
       const found = await discover("grok", executable);
       assert.equal(found.supported, !hangs);
       assert(existsSync(marker), "the descendant was started");
-      await until(() => !alive(Number(readFileSync(marker, "utf8"))));
+      await until(() => !alive(Number(readFileSync(marker, "utf8"))), 5000);
     },
   );
 }
