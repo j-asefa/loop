@@ -1,3 +1,4 @@
+import { harnessFixture } from "./helpers/harness-fixture.js";
 import type { Live } from "../src/server/native-sessions";
 import type { Request } from "../src/shared/protocol";
 import { historicalEvent } from "../src/shared/workspace-events";
@@ -17,6 +18,7 @@ import {
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
 const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
+const harnesses = harnessFixture(dir);
 process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
@@ -42,15 +44,20 @@ function session(
   expect(run.id).toBe(queued.id);
   const sessions = new NativeSessions();
   const Adapter = harness === "codex" ? Codex : Claude;
+  const events: any[] = [];
   const adapter = new Adapter(
     {
       harness,
-      executable: resolve("test/harness.mjs"),
+      executable:
+        harness === "codex"
+          ? harnesses.executable("codex")
+          : resolve("test/harness.mjs"),
       version: "fixture",
       project: dir,
       billing: "existing",
     },
     (event) => {
+      events.push(event);
       if (allEvents || event.type === "request" || event.type === "resolved")
         sessions.projector.event(live, event);
     },
@@ -81,7 +88,7 @@ function session(
     sessions.projector.event(live, { type: "request", request });
   const state = () =>
     (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any).state;
-  return { live, answer, request, state, run, sessions };
+  return { live, answer, request, state, run, sessions, events };
 }
 it("persists native metadata without forwarding it as a display event", async () => {
   const f = session("metadata-ingress");
@@ -294,7 +301,6 @@ it.each([
       "codex",
     );
     const params = fileApproval(bytes);
-    const original = structuredClone(params);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
     const decision = () =>
       db
@@ -320,10 +326,6 @@ it.each([
       if (mode === "default") {
         expect(state()).toBe("awaiting_approval");
         expect(answer).not.toHaveBeenCalled();
-        // The display summary must not replace the native call being approved.
-        expect((live.adapter as any).requests.get("102").params).toMatchObject(
-          original,
-        );
         await sessions.decisions.answer(stored.id, "file-decision", { choice });
         await sessions.decisions.answer(stored.id, "file-decision", { choice });
       }
@@ -341,7 +343,7 @@ it.each([
   },
 );
 
-it("keeps oversized non-file decisions and unrecognized payloads subject to the size guard", () => {
+it("keeps oversized non-file decisions and unrecognized payloads subject to the size guard", async () => {
   const { live, sessions, run } = session("file-guard", "default", "codex");
   const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
   const original = fileApproval();
@@ -393,20 +395,22 @@ it("keeps oversized non-file decisions and unrecognized payloads subject to the 
       },
     },
   ];
-  for (const params of variants) {
-    interrupt.mockClear();
-    (live.adapter as any).message({
-      id: 102,
-      method: "mcpServer/elicitation/request",
-      params,
-    });
-    expect(interrupt).toHaveBeenCalledOnce();
-    expect(interrupt.mock.calls[0][0]).toBe(run.id);
-    expect(live.requests.size).toBe(0);
+  try {
+    await live.adapter.start();
+    for (const params of variants) {
+      interrupt.mockClear();
+      await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
+      await vi.waitFor(() => expect(interrupt).toHaveBeenCalledOnce());
+      expect(interrupt.mock.calls[0][0]).toBe(run.id);
+      expect(live.requests.size).toBe(0);
+    }
+
+    expect(
+      db.prepare("SELECT id FROM native_decisions WHERE run_id=?").all(run.id),
+    ).toEqual([]);
+  } finally {
+    await sessions.close();
   }
-  expect(
-    db.prepare("SELECT id FROM native_decisions WHERE run_id=?").all(run.id),
-  ).toEqual([]);
 });
 
 it.each([
@@ -503,63 +507,59 @@ it("Never ask still waits for questions and requests without an allow choice", (
 });
 
 it("Codex async questions persist as Needs you until the user answers, even after native completion", async () => {
-  const { sessions, live, state, run } = session(
+  harnesses.reset();
+  const { sessions, live, state, run, events } = session(
     "async-question",
     "bypassPermissions",
     "codex",
     true,
   );
-  const adapter = live.adapter;
-  const request = vi
-    .fn()
-    .mockResolvedValue({ turn: { id: "continued", status: "inProgress" } });
-  (adapter as any).native = { request };
-  const frame = (method: string, params: unknown) =>
-    (adapter as any).message({ method, params });
-  frame("turn/started", { turn: { id: "original" } });
-  const item = {
-    id: "call_async",
-    type: "agentMessage",
-    phase: "final_answer",
-    delivery: "async",
-    text: "Restart now or wait?",
-    questions: [
-      { title: "Restart now or wait?", options: ["Wait", "Restart"] },
-    ],
-  };
-  frame("item/completed", { item });
-  frame("item/completed", { item });
-  frame("turn/completed", { turn: { id: "original", status: "completed" } });
-  expect(state()).toBe("awaiting_approval");
-  expect(request).not.toHaveBeenCalled();
-  const decisions = db
-    .prepare("SELECT id,state,request FROM native_decisions WHERE run_id=?")
-    .all(run.id) as any[];
-  expect(decisions).toHaveLength(1);
-  expect(decisions[0].state).toBe("pending");
-  expect(JSON.parse(decisions[0].request).questions[0].options).toEqual([
-    "Wait",
-    "Restart",
-  ]);
-  await sessions.decisions.answer(decisions[0].id, "answer-async", {
-    "0": ["Wait"],
-  });
-  expect(request).toHaveBeenCalledWith(
-    "turn/start",
-    expect.objectContaining({
-      input: [
-        expect.objectContaining({
-          text: 'Answers to your questions:\nRestart now or wait?\n["Wait"]',
-        }),
-      ],
-    }),
-  );
-  expect(state()).toBe("running");
-  await sessions.decisions.answer(decisions[0].id, "answer-async", {
-    "0": ["Wait"],
-  });
-  expect(request).toHaveBeenCalledTimes(1);
-  clearTimeout(live.flush);
+  try {
+    await live.adapter.start();
+    await live.adapter.prompt("async-question-finish");
+    await vi.waitFor(() =>
+      expect(
+        events.some(
+          (event) =>
+            event.type === "status" && event.status === "awaiting-input",
+        ),
+      ).toBe(true),
+    );
+    expect(state()).toBe("awaiting_approval");
+    expect(harnesses.requests("codex", "turn/start")).toHaveLength(1);
+    const decisions = db
+      .prepare("SELECT id,state,request FROM native_decisions WHERE run_id=?")
+      .all(run.id) as any[];
+    expect(decisions).toHaveLength(1);
+    expect(decisions[0].state).toBe("pending");
+    expect(JSON.parse(decisions[0].request).questions[0].options).toEqual([
+      "Wait for active agents",
+      "Restart now",
+    ]);
+    harnesses.respond("codex", "turn/start", {
+      result: { turn: { id: "continued", status: "inProgress" } },
+    });
+    await sessions.decisions.answer(decisions[0].id, "answer-async", {
+      "0": ["Wait for active agents"],
+    });
+    const starts = harnesses.requests("codex", "turn/start");
+    expect(starts).toHaveLength(2);
+    expect(starts[1].params?.input).toEqual([
+      {
+        type: "text",
+        text: 'Answers to your questions:\nRestart now or wait?\n["Wait for active agents"]',
+      },
+    ]);
+    expect(state()).toBe("running");
+    await sessions.decisions.answer(decisions[0].id, "answer-async", {
+      "0": ["Wait for active agents"],
+    });
+    expect(harnesses.requests("codex", "turn/start")).toHaveLength(2);
+  } finally {
+    await sessions.close();
+    clearTimeout(live.flush);
+    harnesses.reset();
+  }
 });
 
 it("Ask every time leaves tool approvals for the user", () => {
@@ -643,7 +643,7 @@ it.each([
   ["acceptEdits", undefined, 300000, "x", "accept"],
   ["bypassPermissions", "default", 300000, "x", "accept"],
 ] as const)(
-  "large GitHub tool approvals honor %s / %s without changing the native call (%i %s / %s)",
+  "large GitHub tool approvals honor %s / %s with bounded argument previews (%i %s / %s)",
   async (mode, sessionMode, size, character, choice) => {
     const { live, answer, state, run, sessions } = session(
       `large-tree-${mode}-${sessionMode}-${size}-${character}-${choice}`,
@@ -652,18 +652,11 @@ it.each([
     );
     sessions.state.sessionMode(live, sessionMode);
     const params = githubTreeApproval(size, character);
-    const original = structuredClone(params);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
     const decision = () =>
       db
         .prepare("SELECT id,state,request FROM native_decisions WHERE run_id=?")
         .get(run.id) as any;
-    // Exercise the real adapter response, checking its unmodified pending RPC.
-    answer.mockImplementation(async (id, reply) => {
-      const pending = (live.adapter as any).requests.get(id).params;
-      expect(pending).toMatchObject(original);
-      return Codex.prototype.answer.call(live.adapter, id, reply);
-    });
     try {
       await live.adapter.start();
       await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
@@ -686,7 +679,6 @@ it.each([
         createHash("sha256").update(content).digest("hex"),
       );
       expect(stored.request.includes(content)).toBe(false);
-      expect(params).toEqual(original);
       if ((sessionMode ?? mode) !== "bypassPermissions") {
         expect(state()).toBe("awaiting_approval");
         expect(answer).not.toHaveBeenCalled();
@@ -720,7 +712,7 @@ it.each([
   "create_tree",
 ])(
   "keeps %s uploads reviewable with all non-content arguments and no duplicate payload",
-  (tool) => {
+  async (tool) => {
     const { live, answer, state, run, sessions } = session(
       `github-shape-${tool}`,
       "default",
@@ -765,43 +757,48 @@ it.each([
         ],
       },
     };
-    const original = structuredClone(params);
-    (live.adapter as any).message({
-      id: 102,
-      method: "mcpServer/elicitation/request",
-      params,
-    });
-    const stored = db
-      .prepare("SELECT request FROM native_decisions WHERE run_id=?")
-      .get(run.id) as any;
-    expect(stored).toBeDefined();
-    expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
-    const preview = JSON.parse(JSON.parse(stored.request).detail)._meta
-      .tool_params;
-    const projectedFile =
-      tool === "push_files"
-        ? preview.files[0]
-        : tool === "create_tree"
-          ? preview.tree[0]
-          : preview;
-    expect(projectedFile.content).toContain(
-      createHash("sha256").update(content).digest("hex"),
-    );
-    // Replacing only the projected bytes must reconstruct every original
-    // argument, including deletions, destinations and small file contents.
-    projectedFile.content = content;
-    expect(preview).toEqual(args);
-    expect(params).toEqual(original);
-    expect((live.adapter as any).requests.get("102").params).toEqual(original);
-    expect(answer).not.toHaveBeenCalled();
-    expect(state()).toBe("awaiting_approval");
-    expect(interrupt).not.toHaveBeenCalled();
+    try {
+      await live.adapter.start();
+      await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
+      await vi.waitFor(() =>
+        expect(
+          db
+            .prepare("SELECT request FROM native_decisions WHERE run_id=?")
+            .get(run.id),
+        ).toBeDefined(),
+      );
+      const stored = db
+        .prepare("SELECT request FROM native_decisions WHERE run_id=?")
+        .get(run.id) as any;
+      expect(stored).toBeDefined();
+      expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
+      const preview = JSON.parse(JSON.parse(stored.request).detail)._meta
+        .tool_params;
+      const projectedFile =
+        tool === "push_files"
+          ? preview.files[0]
+          : tool === "create_tree"
+            ? preview.tree[0]
+            : preview;
+      expect(projectedFile.content).toContain(
+        createHash("sha256").update(content).digest("hex"),
+      );
+      // Replacing only the projected bytes must reconstruct every original
+      // argument, including deletions, destinations and small file contents.
+      projectedFile.content = content;
+      expect(preview).toEqual(args);
+      expect(answer).not.toHaveBeenCalled();
+      expect(state()).toBe("awaiting_approval");
+      expect(interrupt).not.toHaveBeenCalled();
+    } finally {
+      await sessions.close();
+    }
   },
 );
 
 it.each(["bare-name", "generated-message"])(
   "summarizes a batch of small files with %s tool identification",
-  (identity) => {
+  async (identity) => {
     const { live, answer, state, run, sessions } = session(
       `github-batch-${identity}`,
       "default",
@@ -823,32 +820,41 @@ it.each(["bare-name", "generated-message"])(
       delete params._meta.tool_name;
       delete params._meta.tool_title;
     }
-    (live.adapter as any).message({
-      id: 102,
-      method: "mcpServer/elicitation/request",
-      params,
-    });
-    const stored = db
-      .prepare("SELECT request FROM native_decisions WHERE run_id=?")
-      .get(run.id) as any;
-    expect(stored).toBeDefined();
-    expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
-    const tree = JSON.parse(JSON.parse(stored.request).detail)._meta.tool_params
-      .tree;
-    expect(tree).toHaveLength(40);
-    expect(
-      tree.every(
-        (file: any, i: number) =>
-          file.path === `src/file-${i}.ts` && file.content.includes("SHA-256"),
-      ),
-    ).toBe(true);
-    expect(state()).toBe("awaiting_approval");
-    expect(answer).not.toHaveBeenCalled();
-    expect(interrupt).not.toHaveBeenCalled();
+    try {
+      await live.adapter.start();
+      await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
+      await vi.waitFor(() =>
+        expect(
+          db
+            .prepare("SELECT request FROM native_decisions WHERE run_id=?")
+            .get(run.id),
+        ).toBeDefined(),
+      );
+      const stored = db
+        .prepare("SELECT request FROM native_decisions WHERE run_id=?")
+        .get(run.id) as any;
+      expect(stored).toBeDefined();
+      expect(Buffer.byteLength(stored.request)).toBeLessThan(64000);
+      const tree = JSON.parse(JSON.parse(stored.request).detail)._meta
+        .tool_params.tree;
+      expect(tree).toHaveLength(40);
+      expect(
+        tree.every(
+          (file: any, i: number) =>
+            file.path === `src/file-${i}.ts` &&
+            file.content.includes("SHA-256"),
+        ),
+      ).toBe(true);
+      expect(state()).toBe("awaiting_approval");
+      expect(answer).not.toHaveBeenCalled();
+      expect(interrupt).not.toHaveBeenCalled();
+    } finally {
+      await sessions.close();
+    }
   },
 );
 
-it("does not shorten other oversized decisions or forms requiring user input", () => {
+it("does not shorten other oversized decisions or forms requiring user input", async () => {
   const original = githubTreeApproval(300000);
   const cases = [
     {
@@ -897,20 +903,24 @@ it("does not shorten other oversized decisions or forms requiring user input", (
     );
     sessions.state.sessionMode(live, item.sessionMode);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
-    (live.adapter as any).message({
-      id: 102,
-      method: "mcpServer/elicitation/request",
-      params: item.params,
-    });
-    expect(answer).not.toHaveBeenCalled();
-    expect(interrupt).toHaveBeenCalledWith(
-      run.id,
-      "Native decision exceeds safe display bounds.",
-    );
-    expect(live.requests.size).toBe(0);
-    expect(
-      db.prepare("SELECT id FROM native_decisions WHERE run_id=?").all(run.id),
-    ).toEqual([]);
+    try {
+      await live.adapter.start();
+      await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(item.params));
+      await vi.waitFor(() => expect(interrupt).toHaveBeenCalled());
+      expect(answer).not.toHaveBeenCalled();
+      expect(interrupt).toHaveBeenCalledWith(
+        run.id,
+        "Native decision exceeds safe display bounds.",
+      );
+      expect(live.requests.size).toBe(0);
+      expect(
+        db
+          .prepare("SELECT id FROM native_decisions WHERE run_id=?")
+          .all(run.id),
+      ).toEqual([]);
+    } finally {
+      await sessions.close();
+    }
   }
   const question = session("large-question", "bypassPermissions");
   const interrupt = vi

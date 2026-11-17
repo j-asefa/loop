@@ -1,4 +1,5 @@
 import test from "node:test";
+import { harnessFixture } from "./helpers/harness-fixture.js";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -431,15 +432,36 @@ test("Pi starts with an aggregator-sized catalog and full workspace tools, and n
         7,
       );
       assert.equal(adapter.customizationInventory.toolsTruncated, false);
-      // Multibyte identifiers survive pipe chunk boundaries intact.
-      const efforts = (adapter as any).info.modelEfforts;
-      assert.equal(efforts.length, 5001);
-      assert.equal(
-        efforts[4999].id,
-        "openrouter/vendor-19/model-4999-" + "漢".repeat(24),
-      );
     } finally {
       await adapter.dispose();
+    }
+    const catalog = new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable,
+        billing: "existing",
+        version: "fixture",
+      },
+      () => {},
+    );
+    try {
+      await catalog.start();
+      assert.equal(catalog.models.length, 5001);
+      assert.ok(
+        catalog.models.some(
+          (model) =>
+            model.id === "openrouter/vendor-19/model-4999-" + "漢".repeat(24),
+        ),
+      );
+      // Every UTF-8 identifier must still match its metadata effort entry.
+      assert.equal(
+        catalog.models.filter((model) => model.effortLevels?.length === 7)
+          .length,
+        5001,
+      );
+    } finally {
+      await catalog.dispose();
     }
     // Three-byte identifiers: under 8 MiB in characters, over it in bytes.
     process.env.LOOP_TEST_PI_EXTENSION_MODELS = "60000";
@@ -525,6 +547,13 @@ test("Pi relays an extension question asked after it answers RPC requests", asyn
           event.type === "request" && event.request.id === "late-question",
       ),
     );
+    const question = events.find(
+      (event) =>
+        event.type === "request" && event.request.id === "late-question",
+    ).request;
+    assert.equal(question.kind, "question");
+    assert.equal(question.questions[0].title, "Pick a fixture option");
+    assert.deepEqual(question.questions[0].options, ["Yes", "No"]);
   } finally {
     await adapter.dispose();
     delete process.env.LOOP_TEST_HARNESS;
@@ -794,20 +823,22 @@ test("Pi steers only a live turn", async () => {
   }
 });
 test("Pi takes back a late steer only when it is the sole queued input", async () => {
-  process.env.LOOP_TEST_HARNESS = "pi";
+  const queueDir = mkdtempSync(join(tmpdir(), "loop-pi-queue-"));
+  const harnesses = harnessFixture(queueDir, { observePiQueue: true });
   const events: AdapterEvent[] = [];
-  const adapter = new Pi(
-    {
-      harness: "pi",
-      project: process.cwd(),
-      executable,
-      billing: "existing",
-      version: "fixture",
-    },
-    (e) => events.push(e),
-  );
-  const queue = async () =>
-    (await (adapter as any).native.request("fixture_queue", {}, false)).queue;
+  const create = () =>
+    new Pi(
+      {
+        harness: "pi",
+        project: process.cwd(),
+        executable: harnesses.executable("pi"),
+        billing: "existing",
+        version: "fixture",
+      },
+      (e) => events.push(e),
+    );
+  let adapter = create();
+  const queue = () => harnesses.piQueue();
   const notDelivered = (error: unknown) => error instanceof NotDelivered;
   const unconfirmed = (error: unknown) =>
     !(error instanceof NotDelivered) && /confirm/.test(String(error));
@@ -832,14 +863,20 @@ test("Pi takes back a late steer only when it is the sole queued input", async (
       ["followUp", "extension follow-up"],
       ["steering", "late-behind"],
     ]);
-    await (adapter as any).native.request("clear_queue", {}, false);
+    // The final independent scenario owns a fresh native queue.
+    await adapter.dispose();
+    events.length = 0;
+    adapter = create();
+    await adapter.start();
+    await adapter.prompt("wait");
+    await until(() => events.some((event) => event.type === "delta"));
     // Pi read it, but another follow-up is the one queued entry: clearing
     // removed someone else's input, so it is put back.
     await assert.rejects(() => adapter.steer("late-read"), unconfirmed);
     assert.deepEqual(await queue(), [["followUp", "extension follow-up"]]);
   } finally {
     await adapter.dispose();
-    delete process.env.LOOP_TEST_HARNESS;
+    rmSync(queueDir, { recursive: true, force: true });
   }
 });
 test("Pi preserves assistant failures until settled and resets on follow-up", async () => {
@@ -857,18 +894,12 @@ test("Pi preserves assistant failures until settled and resets on follow-up", as
   );
   try {
     await adapter.start();
-    await adapter.prompt("wait");
-    await until(() => events.some((e) => e.type === "delta"));
-    const message = (m: unknown) => (adapter as any).message(m);
-    message({
-      type: "message_end",
-      message: {
-        role: "assistant",
-        content: [],
-        errorMessage: "Provider rate limit exceeded",
-      },
-    });
-    message({ type: "agent_settled" });
+    await adapter.prompt("fail");
+    await until(() =>
+      events.some(
+        (event) => event.type === "status" && event.status === "failed",
+      ),
+    );
     assert(
       events.some(
         (e) =>
