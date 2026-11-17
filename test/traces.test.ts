@@ -1,14 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { randomBytes } from "node:crypto";
+
 import Database from "better-sqlite3";
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop-traces-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -61,7 +60,6 @@ function agent(owner = "alice") {
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("continues beyond seven rounds through pause/resume and publishes only the final answer", async () => {
