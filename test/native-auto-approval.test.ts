@@ -1,3 +1,4 @@
+import { codexApprovalDetail } from "../src/adapters/codex-approval-display.js";
 import { harnessFixture } from "./helpers/harness-fixture.js";
 import type { Live } from "../src/server/native-sessions";
 import type { Request } from "../src/shared/protocol";
@@ -286,6 +287,16 @@ function fileApproval(bytes = 100000) {
   };
 }
 
+function preservesNativeArguments(params: object) {
+  const digest = () =>
+    createHash("sha256").update(JSON.stringify(params)).digest("hex");
+  const before = digest();
+  codexApprovalDetail(params);
+  expect(digest(), "Display projection must not mutate native arguments").toBe(
+    before,
+  );
+}
+
 it.each([
   ["default", "accept", 24000],
   ["default", "accept", 100000],
@@ -308,6 +319,7 @@ it.each([
         .get(run.id) as any;
     try {
       await live.adapter.start();
+      preservesNativeArguments(params);
       await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
       await vi.waitFor(() => expect(decision()).toBeDefined());
       const stored = decision();
@@ -659,6 +671,7 @@ it.each([
         .get(run.id) as any;
     try {
       await live.adapter.start();
+      preservesNativeArguments(params);
       await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
       await vi.waitFor(() => expect(decision()).toBeDefined());
       const stored = decision();
@@ -759,6 +772,7 @@ it.each([
     };
     try {
       await live.adapter.start();
+      preservesNativeArguments(params);
       await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
       await vi.waitFor(() =>
         expect(

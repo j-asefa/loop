@@ -114,7 +114,7 @@ const audit = () => {
 };
 const note = (method, params) =>
   out({ method, params: { threadId, ...params } });
-function finish(status = "completed") {
+function finish(status = "completed", failure = "Fixture native turn failed") {
   if (kind === "codex") {
     note("item/completed", {
       item: {
@@ -193,9 +193,7 @@ function finish(status = "completed") {
       message: {
         role: "assistant",
         content: [{ type: "text", text: "Fixture done" }],
-        ...(status === "failed"
-          ? { errorMessage: "Provider rate limit exceeded" }
-          : {}),
+        ...(status === "failed" ? { errorMessage: failure } : {}),
       },
     });
     out({ type: "agent_end" });
@@ -1075,7 +1073,16 @@ if (kind !== "opencode") {
             origin: { kind: "task-notification" },
           });
       } else
-        setTimeout(() => finish(text === "fail" ? "failed" : "completed"), 30);
+        setTimeout(
+          () =>
+            finish(
+              text === "fail" || text === "fail-generic"
+                ? "failed"
+                : "completed",
+              text === "fail" ? "Provider rate limit exceeded" : undefined,
+            ),
+          30,
+        );
     }
   });
 } else {

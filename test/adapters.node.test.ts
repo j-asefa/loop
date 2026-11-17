@@ -911,6 +911,27 @@ test("Pi preserves assistant failures until settled and resets on follow-up", as
       !events.some((e) => e.type === "status" && e.status === "completed"),
     );
     events.length = 0;
+    await adapter.prompt("fail-generic");
+    await until(() =>
+      events.some(
+        (event) => event.type === "status" && event.status === "failed",
+      ),
+    );
+    assert(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.message === "Fixture native turn failed",
+      ),
+    );
+    assert(
+      !events.some(
+        (event) =>
+          event.type === "error" &&
+          event.message === "Provider rate limit exceeded",
+      ),
+    );
+    events.length = 0;
     await adapter.prompt("follow-up");
     await until(() =>
       events.some((e) => e.type === "status" && e.status === "completed"),
