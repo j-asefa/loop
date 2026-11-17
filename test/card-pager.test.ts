@@ -270,7 +270,6 @@ it("advances irrelevant batches silently and resets after an invalid revision", 
 });
 
 it("coalesces refreshes without starving slow reads or losing append intent", async () => {
-  vi.useFakeTimers();
   const pager = new CardPager();
   const pages = vi.fn(async (before: string | null) =>
     before ? page([entry("old", 1)], null) : page([entry("new", 100)], "older"),
@@ -279,34 +278,43 @@ it("coalesces refreshes without starving slow reads or losing append intent", as
   let active = 0,
     maximum = 0,
     revision = 0;
+  const pending: (() => void)[] = [];
   const changes = async () => {
     active++;
     maximum = Math.max(maximum, active);
-    await new Promise((resolve) => setTimeout(resolve, 2400));
+    await new Promise<void>((resolve) => pending.push(resolve));
     active--;
     return delta(String(++revision), [
       entry("new", 100, "revision " + revision),
     ]);
   };
+  const release = async () => {
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    pending.shift()!();
+  };
   const committed: string[] = [];
-  const timer = setInterval(() => {
-    void pager.load("key", "sent", false, pages, changes).then((result) => {
-      if (result) committed.push(result.revision);
-    });
-  }, 1800);
-  await vi.advanceTimersByTimeAsync(10800);
-  clearInterval(timer);
-  await vi.advanceTimersByTimeAsync(6000);
+  for (let round = 0; round < 3; round++) {
+    const refresh = pager.load("key", "sent", false, pages, changes);
+    const trailing = pager.load("key", "sent", false, pages, changes);
+    const coalesced = pager.load("key", "sent", false, pages, changes);
+    await release();
+    const result = await refresh;
+    if (result) committed.push(result.revision);
+    await release();
+    expect(await coalesced).toEqual(await trailing);
+  }
   expect(maximum).toBe(1);
-  expect(committed.length).toBeGreaterThanOrEqual(3);
+  expect(committed).toHaveLength(3);
   expect(pages).toHaveBeenCalledTimes(1);
   const refresh = pager.load("key", "sent", false, pages, changes);
   const append = pager.load("key", "sent", true, pages, changes);
   const coalesced = pager.load("key", "sent", false, pages, changes);
-  await vi.advanceTimersByTimeAsync(6000);
+  await release();
   await refresh;
+  await release();
   expect((await append)!.items).toHaveLength(2);
   expect(await coalesced).toEqual(await append);
+  expect(maximum).toBe(1);
 });
 
 it("drains one invalidation through every bounded changes page before publishing", async () => {

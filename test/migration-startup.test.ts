@@ -1,3 +1,4 @@
+import { until } from "./helpers.js";
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { execFileSync, spawn } from "node:child_process";
@@ -5,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-it("waits for another startup migration, then restores the normal write timeout", async () => {
+it("applies the longer migration wait before acquiring the startup lock and restores the write timeout", async () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-migration-lock-"));
   const env = {
     ...process.env,
@@ -35,7 +36,17 @@ it("waits for another startup migration, then restores the normal write timeout"
         "tsx",
         "--input-type=module",
         "-e",
-        "console.log('opening');const {db}=await import('./src/server/db.ts');console.log('timeout='+db.pragma('busy_timeout',{simple:true}));db.close();",
+        `import Database from 'better-sqlite3';
+const {startDatabase}=await import('./src/server/database-startup.ts');
+let busy=0;
+const db=new Database(process.env.LOOP_DATA_DIR+'/loop.db', {verbose(sql) {
+  const policy=/^PRAGMA busy_timeout = (\\d+)/i.exec(sql);
+  if (policy) busy=Number(policy[1]);
+  if (sql==='BEGIN IMMEDIATE') console.log('migration-timeout='+busy);
+}});
+startDatabase(db,()=>{});
+console.log('timeout='+db.pragma('busy_timeout',{simple:true}));
+db.close();`,
       ],
       { env, stdio: ["ignore", "pipe", "pipe"] },
     );
@@ -51,14 +62,15 @@ it("waits for another startup migration, then restores the normal write timeout"
       child!.once("error", reject);
       child!.once("close", resolve);
     });
-    await new Promise<void>((resolve) =>
-      child!.stdout!.once("data", () => resolve()),
-    );
-    // The previous five-second startup timeout expires before this releases.
-    await new Promise((resolve) => setTimeout(resolve, 6500));
+    // The trace marks the actual startup transaction while the parent owns
+    // its lock. Inspect its configured wait instead of holding it for 6.5 s.
+    await until(() => /migration-timeout=\d+/.test(output), 5000);
+    const migrationWait = Number(/migration-timeout=(\d+)/.exec(output)![1]);
     locked.exec("COMMIT");
     expect(await finished, errors).toBe(0);
     expect(output).toContain("timeout=5000");
+    const writeWait = Number(/^timeout=(\d+)/m.exec(output)![1]);
+    expect(migrationWait).toBeGreaterThan(writeWait);
   } finally {
     child?.kill();
     if (locked?.inTransaction) locked.exec("ROLLBACK");
