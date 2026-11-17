@@ -3,6 +3,7 @@ import type { z } from "zod";
 import {
   AgentRecord,
   ConnectionRecord,
+  ConversationRecord,
   MessageRecord,
 } from "../../src/server/sql/rows.js";
 import * as connections from "../../src/server/sql/connections.js";
@@ -100,6 +101,34 @@ export function seedAgent(db: Database.Database, input: AgentSeed) {
   });
   db.prepare(
     "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,origin,created_at,folder_id,effort,retired_at) VALUES(@id,@owner_id,@name,@normalized_name,@provider,@connection_id,@model,@instructions,@origin,@created_at,@folder_id,@effort,@retired_at)",
+  ).run(row);
+  return row;
+}
+
+type ConversationSeedRow = z.infer<typeof ConversationRecord>;
+type ConversationSeed = Pick<
+  ConversationSeedRow,
+  "id" | "owner_id" | "title" | "created_at"
+> &
+  Partial<ConversationSeedRow>;
+
+/** Runtime creation variants require an agent; fixtures also seed unassigned history. */
+export function seedConversation(
+  db: Database.Database,
+  input: ConversationSeed,
+) {
+  const row = ConversationRecord.parse({
+    agent_id: null,
+    origin: "loop",
+    external_id: null,
+    team_id: null,
+    execution_connection_id: null,
+    project_id: null,
+    feed_hidden: 0,
+    ...input,
+  });
+  db.prepare(
+    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,team_id,execution_connection_id,project_id,feed_hidden) VALUES(@id,@owner_id,@agent_id,@title,@origin,@external_id,@created_at,@team_id,@execution_connection_id,@project_id,@feed_hidden)",
   ).run(row);
   return row;
 }

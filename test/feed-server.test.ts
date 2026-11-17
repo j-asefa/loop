@@ -1,4 +1,4 @@
-import { seedAgent, seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -130,9 +130,13 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
   });
   const conversation = id(),
     message = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Chat',?)",
-  ).run(conversation, owner, agent, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent,
+    title: "Chat",
+    created_at: now(),
+  });
   seedMessage(db, {
     id: message,
     owner_id: owner,
@@ -265,9 +269,13 @@ it("includes nested project folders and excludes another owner's folder tree", a
     model: "fixture",
     created_at: now(),
   });
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Project chat',?)",
-  ).run(conversation, owner, agent, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent,
+    title: "Project chat",
+    created_at: now(),
+  });
   const prompts = [child, project, null].map((folderId) => {
     const run = enqueue(owner, "Question", id(), {
       agent,
@@ -316,9 +324,13 @@ function nativeAnswer(
     model: "fixture",
     created_at: now(),
   });
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Native conversation',?)",
-  ).run(conversation, owner, agent, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent,
+    title: "Native conversation",
+    created_at: now(),
+  });
   const run = enqueue(owner, "Native question", id(), { agent, conversation });
   seedMessage(db, {
     id: message,

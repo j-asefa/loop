@@ -1,5 +1,5 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedAgent, seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -25,9 +25,14 @@ for (const owner of ["alice", "bob"]) {
     db.prepare(
       "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project',?,1)",
     ).run(key, owner, project);
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,?,?,1)",
-    ).run(key, owner, owner, key, key);
+    seedConversation(db, {
+      id: key,
+      owner_id: owner,
+      agent_id: owner,
+      title: key,
+      project_id: key,
+      created_at: 1,
+    });
   }
 }
 function message(
