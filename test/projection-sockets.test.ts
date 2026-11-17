@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -155,11 +155,15 @@ it("replays bounded, whole append events after disconnect halfway through a larg
 it("serves atomic per-page Feed deltas with upserts, removals, filter changes and owner isolation", async () => {
   const { reduceFeedPage } = await import("../src/shared/feed-projection");
   const f = fixture;
-  f.db
-    .prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('feed-agent',?,'Agent','agent','openai','fixture',1)",
-    )
-    .run(f.owner);
+  seedAgent(f.db, {
+    id: "feed-agent",
+    owner_id: f.owner,
+    name: "Agent",
+    normalized_name: "agent",
+    provider: "openai",
+    model: "fixture",
+    created_at: 1,
+  });
   const create = (id: string, owner = f.owner) =>
     f.db
       .transaction(() => {

@@ -1,5 +1,5 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
@@ -39,9 +39,15 @@ function fixture() {
     agent = id(),
     thread = id(),
     run = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'A',?,'codex','m',0)",
-  ).run(agent, owner, agent);
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: "A",
+    normalized_name: agent,
+    provider: "codex",
+    model: "m",
+    created_at: 0,
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'T',0)",
   ).run(thread, owner, agent);
