@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -26,15 +27,13 @@ afterAll(() => {
 
 function agentFor(owner: string, name: string) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent(owner, {
     name: name + "-" + id().slice(0, 6),
     connectionId: connection,

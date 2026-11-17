@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -79,9 +80,13 @@ afterAll(async () => {
 
 function workspaceFor(owner = id()) {
   const connectionId = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture','','connected',?,'{}',?)",
-  ).run(connectionId, owner, JSON.stringify([{ id: "fixture" }]), now());
+  seedConnection(db, {
+    id: connectionId,
+    owner_id: owner,
+    secret: "",
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   const agent = (name = "m-" + randomBytes(6).toString("hex")) =>
     createAgent(owner, { name, connectionId, model: "fixture" });
   return { owner, agent };
@@ -2896,15 +2901,18 @@ it("binds a fork to a native agent's backend and carries the copied turns", asyn
   const w = workspaceFor(),
     source = w.agent();
   const nativeConnection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Native','','connected',?,?,?)",
-  ).run(
-    nativeConnection,
-    w.owner,
-    JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({ loopHarness: "codex", authMode: "subscription" }),
-    now(),
-  );
+  seedConnection(db, {
+    id: nativeConnection,
+    owner_id: w.owner,
+    label: "Native",
+    secret: "",
+    models: JSON.stringify([{ id: "fixture" }]),
+    metadata: JSON.stringify({
+      loopHarness: "codex",
+      authMode: "subscription",
+    }),
+    created_at: now(),
+  });
   const native = createAgent(w.owner, {
     name: "n-" + randomBytes(6).toString("hex"),
     connectionId: nativeConnection,

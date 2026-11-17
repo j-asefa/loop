@@ -1,3 +1,5 @@
+import type { Provider } from "../src/shared/types.js";
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -36,18 +38,16 @@ afterAll(() => {
   db.close();
 });
 
-function agentFor(owner: string, name: string, provider = "openai") {
+function agentFor(owner: string, name: string, provider: Provider = "openai") {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,?,'Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    provider,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: provider,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent(owner, {
     name: name + "-" + id().slice(0, 6),
     connectionId: connection,

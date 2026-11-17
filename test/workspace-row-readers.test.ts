@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -46,15 +47,15 @@ function fixture() {
   const owner = id(),
     connection = id(),
     folder = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture", effortLevels: [{ value: "high" }] }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([
+      { id: "fixture", effortLevels: [{ value: "high" }] },
+    ]),
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Fixture',?)",
   ).run(folder, owner, now());

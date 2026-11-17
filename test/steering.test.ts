@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers";
@@ -30,14 +31,13 @@ async function send(body: object, owner = "alice") {
 }
 function start() {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: "alice",
+    secret: seal("fixture", "alice"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   const agent = createAgent("alice", {
     name: "steer-" + id().slice(0, 8),
     connectionId: connection,
@@ -388,15 +388,14 @@ async function executeWithDeadline(
 
 it("steers a running Pi turn, which takes live input", async () => {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
-  ).run(
-    connection,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify({ loopHarness: "pi" }),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: "alice",
+    secret: seal("fixture", "alice"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    metadata: JSON.stringify({ loopHarness: "pi" }),
+    created_at: now(),
+  });
   const agent = createAgent("alice", {
     name: "pi-steer-" + id().slice(0, 8),
     connectionId: connection,
@@ -424,15 +423,14 @@ it.each(["opencode", "acp"])(
   "queues a mid-run reply to a %s turn, which cannot take live input",
   async (harness) => {
     const connection = id();
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
-    ).run(
-      connection,
-      seal("fixture", "alice"),
-      JSON.stringify([{ id: "fixture" }]),
-      JSON.stringify({ loopHarness: harness }),
-      now(),
-    );
+    seedConnection(db, {
+      id: connection,
+      owner_id: "alice",
+      secret: seal("fixture", "alice"),
+      models: JSON.stringify([{ id: "fixture" }]),
+      metadata: JSON.stringify({ loopHarness: harness }),
+      created_at: now(),
+    });
     const agent = createAgent("alice", {
       name: "queue-" + id().slice(0, 8),
       connectionId: connection,
@@ -464,15 +462,14 @@ it.each(["opencode", "acp"])(
 
 function harnessConnection(harness: string | null) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?,?)",
-  ).run(
-    connection,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    JSON.stringify(harness ? { loopHarness: harness } : {}),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: "alice",
+    secret: seal("fixture", "alice"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    metadata: JSON.stringify(harness ? { loopHarness: harness } : {}),
+    created_at: now(),
+  });
   return connection;
 }
 async function steerableRun(conversation: string) {

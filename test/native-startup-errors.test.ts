@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -29,9 +30,16 @@ const options = {
 db.prepare("INSERT INTO harnesses VALUES('pi',?,'{}','{}','[]',0)").run(
   JSON.stringify(options),
 );
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-pi','local-workspace','pi','Pi','','connected','[]',?,0)",
-).run(JSON.stringify({ loopHarness: "pi" }));
+seedConnection(db, {
+  id: "native-pi",
+  owner_id: "local-workspace",
+  provider: "pi",
+  label: "Pi",
+  secret: "",
+  models: "[]",
+  metadata: JSON.stringify({ loopHarness: "pi" }),
+  created_at: 0,
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

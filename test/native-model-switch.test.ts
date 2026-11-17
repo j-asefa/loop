@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
@@ -32,9 +33,16 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
       project: dir,
     }),
   );
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-acp','owner','acp','ACP','','connected','[]',?,0)",
-  ).run(JSON.stringify({ loopHarness: "acp" }));
+  seedConnection(db, {
+    id: "native-acp",
+    owner_id: "owner",
+    provider: "acp",
+    label: "ACP",
+    secret: "",
+    models: "[]",
+    metadata: JSON.stringify({ loopHarness: "acp" }),
+    created_at: 0,
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('switch','owner','t',0)",
   ).run();

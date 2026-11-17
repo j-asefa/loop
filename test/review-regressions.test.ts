@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -15,15 +16,14 @@ const app = await productionApp("alice", [workspace]);
 const base = `${app.url}/api`;
 function agent(provider: "openai" | "anthropic") {
   const c = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice',?,'Fixture',?,'connected',?,?)",
-  ).run(
-    c,
-    provider,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: c,
+    owner_id: "alice",
+    provider: provider,
+    secret: seal("fixture", "alice"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   return createAgent("alice", {
     name: "review-" + id().slice(0, 8),
     connectionId: c,

@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { harnessIds } from "../src/shared/harnesses.js";
@@ -282,9 +283,13 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
     const { createGithubClient, withGithubClient } =
       await import("../src/server/github-api");
     const connection = id();
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,'owner','openai','Fixture','','connected','[{\"id\":\"fixture\"}]','{}',?)",
-    ).run(connection, now());
+    seedConnection(db, {
+      id: connection,
+      owner_id: "owner",
+      secret: "",
+      models: '[{"id":"fixture"}]',
+      created_at: now(),
+    });
     const agent = createAgent("owner", {
       name: harness + "-watch",
       connectionId: connection,

@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -62,9 +63,13 @@ function fixture() {
     agent = id(),
     connection = id(),
     folder = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture','','connected','[]',?)",
-  ).run(connection, owner, now());
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    secret: "",
+    models: "[]",
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at) VALUES(?,?,?,?,'openai',?,'fixture','',?)",
   ).run(agent, owner, agent, agent, connection, now());

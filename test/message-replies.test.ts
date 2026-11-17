@@ -1,3 +1,5 @@
+import type { Provider } from "../src/shared/types.js";
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { assertAnswerStored } from "./fixtures/answer-record.js";
@@ -30,18 +32,16 @@ async function request(path: string, body?: unknown, owner = "alice") {
   });
   return { status: response.status, data: await response.json() };
 }
-function source(provider = "openai", owner = "alice") {
+function source(provider: Provider = "openai", owner = "alice") {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,?,'Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    provider,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: provider,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   const agent = createAgent(owner, {
     name: "reply-" + id().slice(0, 8),
     connectionId: connection,
