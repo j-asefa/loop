@@ -1,21 +1,22 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const script = fileURLToPath(new URL("../scripts/backup.mjs", import.meta.url));
 for (const mode of ["default", "empty", "relative", "absolute"] as const) {
   test(`standalone backup resolves the ${mode} data directory and copies committed state`, () => {
-    const root = mkdtempSync(join(tmpdir(), "loop-backup-"));
+    const workspace = createTestWorkspace("loop-backup-");
+    const root = workspace.root;
     const data = join(
       root,
       mode === "relative" || mode === "absolute" ? "custom" : "data",
     );
-    mkdirSync(data);
+    if (mode === "relative" || mode === "absolute") mkdirSync(data);
     const source = new Database(join(data, "loop.db"));
     let backup: Database.Database | undefined;
     try {
@@ -45,13 +46,14 @@ for (const mode of ["default", "empty", "relative", "absolute"] as const) {
     } finally {
       backup?.close();
       source.close();
-      rmSync(root, { recursive: true, force: true });
+      workspace.close();
     }
   });
 }
 
 test("backup refuses a missing source without creating its data directory", () => {
-  const root = mkdtempSync(join(tmpdir(), "loop-backup-missing-"));
+  const workspace = createTestWorkspace("loop-backup-missing-");
+  const root = workspace.root;
   try {
     const data = join(root, "missing");
     const target = join(root, "backup.db");
@@ -65,6 +67,6 @@ test("backup refuses a missing source without creating its data directory", () =
     assert.equal(existsSync(data), false);
     assert.equal(existsSync(target), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    workspace.close();
   }
 });
