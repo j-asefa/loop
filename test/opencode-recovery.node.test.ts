@@ -163,10 +163,15 @@ test("OpenCode disposal cancels pending final recovery retries", async (t) => {
   await f.control({ failures: { "/permission": 4 }, resetCalls: true });
   let disposed: Promise<void> | undefined;
   let beforeDispose = 0;
+  let disposalQueued = false;
   f.onEvent((event) => {
-    if (event.type !== "error") return;
-    beforeDispose = f.events.length;
-    disposed = f.dispose();
+    if (event.type !== "error" || disposalQueued) return;
+    disposalQueued = true;
+    // Let failure handling queue its retry, then dispose before timers run.
+    queueMicrotask(() => {
+      beforeDispose = f.events.length;
+      disposed = f.dispose();
+    });
   });
   await f.idle();
   await until(() => disposed !== undefined);
