@@ -1,12 +1,12 @@
 // Production routers mounted in production order (mobile before core, see
 // src/server/mobile-routes.ts) with the production error handler, so tests
 // see the same status codes and bodies as the running app.
-import express, { type Router } from "express";
+import express, { type RequestHandler } from "express";
 import type { AddressInfo } from "node:net";
 
 export async function productionApp(
   owner: string,
-  routers?: Router[],
+  routers?: RequestHandler[],
   options: { ownerHeader?: string } = {},
 ) {
   if (!routers) {
