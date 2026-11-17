@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -52,6 +52,8 @@ import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
     { mode: 0o755 },
   );
   const events: any[] = [];
+  let observer: ((event: any) => void) | undefined;
+  let finalCalls: string[] = [];
   const adapter = new OpenCode(
     {
       harness: "opencode",
@@ -60,12 +62,21 @@ import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
       version: "fixture",
       billing: "existing",
     },
-    (event) => events.push(event),
+    (event) => {
+      events.push(event);
+      observer?.(event);
+    },
   );
   let disposed: Promise<void> | undefined;
   const dispose = () =>
     (disposed ??= (async () => {
       await adapter.dispose();
+      finalCalls = JSON.parse(
+        await readFile(path + ".calls.json", "utf8").catch((error) => {
+          if (error.code === "ENOENT") return "[]";
+          throw error;
+        }),
+      );
       await rm(dir, { recursive: true, force: true });
     })());
   t.after(dispose);
@@ -114,5 +125,23 @@ import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
     );
     events.length = 0;
   };
-  return { adapter, events, control, idle, recover, dispose };
+  return {
+    adapter,
+    events,
+    control,
+    idle,
+    recover,
+    dispose,
+    onEvent: (listener: (event: any) => void) => {
+      observer = listener;
+    },
+    callsAfterDispose: async () => {
+      if (!disposed)
+        throw new Error(
+          "Dispose the native fixture before reading final counts",
+        );
+      await disposed;
+      return finalCalls;
+    },
+  };
 }

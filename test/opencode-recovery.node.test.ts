@@ -159,12 +159,18 @@ test("OpenCode disposal cancels pending final recovery retries", async (t) => {
   await f.adapter.prompt("test");
   await f.recover();
   await f.control({ failures: { "/permission": 4 }, resetCalls: true });
+  let disposed: Promise<void> | undefined;
+  let beforeDispose = 0;
+  f.onEvent((event) => {
+    if (event.type !== "error") return;
+    beforeDispose = f.events.length;
+    disposed = f.dispose();
+  });
   await f.idle();
-  await until(() => f.events.some((e) => e.type === "error"));
-  const { calls } = await f.control();
+  await until(() => disposed !== undefined);
+  await disposed;
+  const calls = await f.callsAfterDispose();
   assert.equal(calls.filter((p) => p === "/permission").length, 1);
-  const beforeDispose = f.events.length;
-  await f.dispose();
   // The next retry would be due after 200 ms; no terminal event may escape disposal.
   await new Promise((resolve) => setTimeout(resolve, 250));
   assert(!f.events.some((e) => e.type === "status"));
