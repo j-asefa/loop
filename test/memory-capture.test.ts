@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -18,9 +19,14 @@ function message(owner: string, content: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,?)",
   ).run(conversation, owner, "Saved conversation", now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'user',?,'{}',?)",
-  ).run(message, owner, conversation, content, now());
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    role: "user",
+    content: content,
+    created_at: now(),
+  });
   return message;
 }
 

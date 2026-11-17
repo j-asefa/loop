@@ -1,3 +1,5 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
+import { seedMessage } from "./helpers/seed.js";
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
@@ -127,14 +129,20 @@ function run(
 function message(
   owner: string,
   cid: string,
-  role: string,
+  role: MessageRole,
   content: string,
   runId: string | null = null,
 ) {
   const mid = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(mid, owner, cid, runId, role, content, "{}", clock++);
+  seedMessage(db, {
+    id: mid,
+    owner_id: owner,
+    conversation_id: cid,
+    run_id: runId,
+    role: role,
+    content: content,
+    created_at: clock++,
+  });
   return mid;
 }
 function subscribe(owner: string) {
@@ -2471,9 +2479,14 @@ it("keeps a highlighted excerpt with a scheduled reply", async () => {
     a = w.agent(),
     cid = conversation(w.owner, a.id);
   const answer = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant',?,'{}',?)",
-  ).run(answer, w.owner, cid, "First finding.\nSecond finding.", now());
+  seedMessage(db, {
+    id: answer,
+    owner_id: w.owner,
+    conversation_id: cid,
+    role: "assistant",
+    content: "First finding.\nSecond finding.",
+    created_at: now(),
+  });
   const body = {
     agentId: a.id,
     conversationId: cid,

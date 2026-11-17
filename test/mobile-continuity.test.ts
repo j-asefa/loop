@@ -1,3 +1,5 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
+import { seedMessage } from "./helpers/seed.js";
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
@@ -88,14 +90,20 @@ function run(
 function message(
   owner: string,
   cid: string,
-  role: string,
+  role: MessageRole,
   content: string,
   runId: string | null = null,
 ) {
   const mid = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(mid, owner, cid, runId, role, content, "{}", clock++);
+  seedMessage(db, {
+    id: mid,
+    owner_id: owner,
+    conversation_id: cid,
+    run_id: runId,
+    role: role,
+    content: content,
+    created_at: clock++,
+  });
   return mid;
 }
 
