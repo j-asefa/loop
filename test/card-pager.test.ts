@@ -293,18 +293,27 @@ it("coalesces refreshes without starving slow reads or losing append intent", as
     pending.shift()!();
   };
   const committed: string[] = [];
+  const initial = pager.load("key", "sent", false, pages, changes);
+  let trailing = pager.load("key", "sent", false, pages, changes);
+  let joined = pager.load("key", "sent", false, pages, changes);
+  await release();
+  committed.push((await initial)!.revision);
   for (let round = 0; round < 3; round++) {
-    const refresh = pager.load("key", "sent", false, pages, changes);
-    const trailing = pager.load("key", "sent", false, pages, changes);
-    const coalesced = pager.load("key", "sent", false, pages, changes);
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    // New requests arrive while the preceding trailing refresh is active.
+    const next = pager.load("key", "sent", false, pages, changes);
+    const merged = pager.load("key", "sent", false, pages, changes);
     await release();
-    const result = await refresh;
+    const result = await trailing;
     if (result) committed.push(result.revision);
-    await release();
-    expect(await coalesced).toEqual(await trailing);
+    expect(await joined).toEqual(result);
+    trailing = next;
+    joined = merged;
   }
+  await release();
+  expect(await joined).toEqual(await trailing);
   expect(maximum).toBe(1);
-  expect(committed).toHaveLength(3);
+  expect(committed).toHaveLength(4);
   expect(pages).toHaveBeenCalledTimes(1);
   const refresh = pager.load("key", "sent", false, pages, changes);
   const append = pager.load("key", "sent", true, pages, changes);
