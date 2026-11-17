@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -240,9 +240,15 @@ it("publishes from the API runtime without finishing the task and keeps replies 
     idempotencyKey: id(),
   });
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(later.id);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','A new result',?)",
-  ).run(id(), f.owner, f.run.conversation_id, later.id, now());
+  seedMessage(db, {
+    id: id(),
+    owner_id: f.owner,
+    conversation_id: f.run.conversation_id!,
+    run_id: later.id,
+    role: "assistant",
+    content: "A new result",
+    created_at: now(),
+  });
   expect(
     (await replies(f.owner)).items.map((item) => item.reply_card_key),
   ).toEqual(before.items.map((item) => item.reply_card_key));

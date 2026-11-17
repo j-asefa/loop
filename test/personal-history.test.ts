@@ -1,3 +1,5 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
+import { seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -35,25 +37,23 @@ function message(
     project?: string;
     metadata?: object;
     time?: number;
-    role?: string;
+    role?: MessageRole;
   } = {},
 ) {
   const conversation = owner + project;
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'prompt','completed',?,?,?)",
   ).run(id, owner, owner, conversation, id, time, time);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
-    id,
-    owner,
-    conversation,
-    id,
-    role,
-    "Prompt " + id,
-    JSON.stringify(metadata),
-    time,
-  );
+  seedMessage(db, {
+    id: id,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: id,
+    role: role,
+    content: "Prompt " + id,
+    metadata: JSON.stringify(metadata),
+    created_at: time,
+  });
 }
 it("returns personal prompts across projects and maps the run recipient", () => {
   message("first");

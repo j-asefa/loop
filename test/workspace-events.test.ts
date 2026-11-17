@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
@@ -149,11 +150,15 @@ it("keeps the listener available when rejected upgrade clients reset their socke
             "UPDATE runs SET state='completed',updated_at=? WHERE id='run'",
           )
           .run(Date.now());
-        f.db
-          .prepare(
-            "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES('answer',?,'thread','run','assistant','A completed answer','{}',?)",
-          )
-          .run(f.owner, Date.now());
+        seedMessage(f.db, {
+          id: "answer",
+          owner_id: f.owner,
+          conversation_id: "thread",
+          run_id: "run",
+          role: "assistant",
+          content: "A completed answer",
+          created_at: Date.now(),
+        });
       })
       .immediate();
     await expect

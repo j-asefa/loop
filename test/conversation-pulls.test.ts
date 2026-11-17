@@ -1,3 +1,5 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
+import { seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
@@ -46,12 +48,16 @@ function fixture() {
   db.prepare(
     "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'task','completed',?,0,0)",
   ).run(run, owner, agent, thread, id());
-  const message = (content: string, role = "assistant") =>
-    db
-      .prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
-      )
-      .run(id(), owner, thread, run, role, content, Date.now());
+  const message = (content: string, role: MessageRole = "assistant") =>
+    seedMessage(db, {
+      id: id(),
+      owner_id: owner,
+      conversation_id: thread,
+      run_id: run,
+      role: role,
+      content: content,
+      created_at: Date.now(),
+    });
   const connect = (secret: string = id()) => {
     db.prepare("DELETE FROM mcp_connections WHERE owner_id=?").run(owner);
     db.prepare(

@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -126,9 +127,14 @@ it("reconciles file filters and agent labels and includes prompt changes", () =>
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Chat',?)",
   ).run(conversation, owner, agent, now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Question',?)",
-  ).run(message, owner, conversation, now());
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    role: "user",
+    content: "Question",
+    created_at: now(),
+  });
   const after = resultsRevision(owner);
   db.prepare("UPDATE agents SET name='After' WHERE id=?").run(agent);
   expect(
@@ -257,9 +263,15 @@ it("includes nested project folders and excludes another owner's folder tree", a
       payload: { folderId },
     });
     const message = id();
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'user','Question',?)",
-    ).run(message, owner, conversation, run.id, now());
+    seedMessage(db, {
+      id: message,
+      owner_id: owner,
+      conversation_id: conversation,
+      run_id: run.id,
+      role: "user",
+      content: "Question",
+      created_at: now(),
+    });
     return message;
   });
   expect(
@@ -290,9 +302,15 @@ function nativeAnswer(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Native conversation',?)",
   ).run(conversation, owner, agent, now());
   const run = enqueue(owner, "Native question", id(), { agent, conversation });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant',?,?)",
-  ).run(message, owner, conversation, run.id, content, now());
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: run.id,
+    role: "assistant",
+    content: content,
+    created_at: now(),
+  });
   const artifact = saveArtifact(owner, {
     agent,
     conversation,

@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
@@ -82,18 +82,14 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
   ).run(c, "feedback", a.id, "Conversation", now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
-    m,
-    "feedback",
-    c,
-    null,
-    "assistant",
-    "Unique quasar answer",
-    "{}",
-    now(),
-  );
+  seedMessage(db, {
+    id: m,
+    owner_id: "feedback",
+    conversation_id: c,
+    role: "assistant",
+    content: "Unique quasar answer",
+    created_at: now(),
+  });
   const artifact = saveArtifact("feedback", {
     title: "Unique quasar answer",
     content: "Unique quasar answer",
@@ -142,9 +138,14 @@ it("loads an older deep-linked message and paginates before its window", async (
     for (let i = 0; i < 160; i++) {
       const m = id();
       messages.push(m);
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(m, "feedback", c, null, "assistant", "Message " + i, "{}", now());
+      seedMessage(db, {
+        id: m,
+        owner_id: "feedback",
+        conversation_id: c,
+        role: "assistant",
+        content: "Message " + i,
+        created_at: now(),
+      });
     }
   })();
   const result = (await api("/conversations/" + c + "?message=" + messages[72]))

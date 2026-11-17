@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -59,9 +59,15 @@ function completedRun(owner: string, agentId: string, text: string) {
   });
   const run = ownedRun(queued.id, owner);
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-  ).run(message, owner, run.conversation_id, run.id, text, now() + 5);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: text,
+    created_at: now() + 5,
+  });
   db.prepare(
     "UPDATE runs SET state='completed',payload=json_set(payload,'$.provider','anthropic'),updated_at=? WHERE id=?",
   ).run(now() + 10, run.id);
@@ -89,17 +95,15 @@ function insertStandalone(
   metadata: object = {},
 ) {
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,?,?,?,?)",
-  ).run(
-    message,
-    owner,
-    conversation,
-    role,
-    content,
-    JSON.stringify(metadata),
-    createdAt,
-  );
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    role: role,
+    content: content,
+    metadata: JSON.stringify(metadata),
+    created_at: createdAt,
+  });
   return message;
 }
 
@@ -214,9 +218,15 @@ it("chains an appended imported answer to the run that preceded it", () => {
     input: "Continue",
     idempotencyKey: id(),
   });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','B','{}',?)",
-  ).run(id(), owner, conversation, queued.id, 100);
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: queued.id,
+    role: "assistant",
+    content: "B",
+    created_at: 100,
+  });
   db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
     101,
     queued.id,

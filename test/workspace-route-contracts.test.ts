@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import express from "express";
@@ -421,9 +421,14 @@ it("excludes empty team conversations and keeps visible Feed keys and activity t
   }
   const message = id(),
     createdAt = now();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Only a message',?)",
-  ).run(message, owner, conversation, createdAt);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    role: "user",
+    content: "Only a message",
+    created_at: createdAt,
+  });
   expect(
     db
       .prepare(

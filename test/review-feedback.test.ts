@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
@@ -327,20 +327,16 @@ it("preserves separate files and repeated messages while deduplicating only a li
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
   ).run(conversation, owner, a.id, "Repeated content", now());
-  const messages = ["user", "assistant", "assistant"].map((role) => {
+  const messages = (["user", "assistant", "assistant"] as const).map((role) => {
     const message = id();
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-    ).run(
-      message,
-      owner,
-      conversation,
-      null,
-      role,
-      "Shared quasar answer",
-      "{}",
-      now(),
-    );
+    seedMessage(db, {
+      id: message,
+      owner_id: owner,
+      conversation_id: conversation,
+      role: role,
+      content: "Shared quasar answer",
+      created_at: now(),
+    });
     return message;
   });
   const linked = saveArtifact(owner, {

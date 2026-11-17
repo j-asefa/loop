@@ -1,3 +1,4 @@
+import { seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createFeedFixture, NOW, OWNER } from "./helpers/feed-fixture";
 import { spawnSync } from "node:child_process";
@@ -160,9 +161,15 @@ it("retains multiple results alongside active work and paginates ties identicall
         NOW - 100,
         NOW - 10,
       );
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,'c-running',?,'assistant',?,?)",
-      ).run(key, OWNER, key, "😀".repeat(1050) + key, NOW - 10);
+      seedMessage(db, {
+        id: key,
+        owner_id: OWNER,
+        conversation_id: "c-running",
+        run_id: key,
+        role: "assistant",
+        content: "😀".repeat(1050) + key,
+        created_at: NOW - 10,
+      });
     }
   }).immediate();
   await equivalent();
@@ -502,9 +509,14 @@ it("keeps an idle fallback until an answer is published, then keeps its result",
     db.prepare(
       "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('projection-idle',?,'Imported',1)",
     ).run(OWNER);
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('projection-idle',?,'projection-idle','assistant','Answer',2)",
-    ).run(OWNER);
+    seedMessage(db, {
+      id: "projection-idle",
+      owner_id: OWNER,
+      conversation_id: "projection-idle",
+      role: "assistant",
+      content: "Answer",
+      created_at: 2,
+    });
   }).immediate();
   const kinds = () =>
     db
@@ -566,15 +578,28 @@ it("bounds streamed thread display storage while preserving complete results and
       NOW + 299_000,
       NOW + 299_000,
     );
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Previous result',?)",
-    ).run(key + "-previous", OWNER, key, key + "-previous", NOW + 299_000);
+    seedMessage(db, {
+      id: key + "-previous",
+      owner_id: OWNER,
+      conversation_id: key,
+      run_id: key + "-previous",
+      role: "assistant",
+      content: "Previous result",
+      created_at: NOW + 299_000,
+    });
     db.prepare(
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,'agent-api',?,?,'running',?,'{}',?,?)",
     ).run(key, OWNER, key, input, key, NOW + 300_000, NOW + 300_000);
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,?,?)",
-    ).run(key, OWNER, key, key, content, metadata, NOW + 300_000);
+    seedMessage(db, {
+      id: key,
+      owner_id: OWNER,
+      conversation_id: key,
+      run_id: key,
+      role: "assistant",
+      content: content,
+      metadata: metadata,
+      created_at: NOW + 300_000,
+    });
   }).immediate();
   const storedBytes = () =>
     (
