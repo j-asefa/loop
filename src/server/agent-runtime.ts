@@ -877,7 +877,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
           maxTokens: snapshot.maxTokens,
           // Bindings keep naming the underlying MCP tool. Connected MCP
           // tools load on demand through the provider's tool search; Loop's
-          // own tools stay in context.
+          // own tools stay in context. Harness sessions instead receive the
+          // full catalog from the tool bridge and apply their own deferral;
+          // MCP_TOOL_BUDGET bounds the catalog on both paths.
           tools: bindings.length
             ? bindings.map((b) => ({
                 ...b,
@@ -899,6 +901,8 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             calls.push(chunk.toolCall);
           }
           if (chunk.providerContent) {
+            // Stored with the checkpoint and replayed verbatim; Loop never
+            // executes the search blocks itself. Bounded per turn.
             if (
               Buffer.byteLength(JSON.stringify(chunk.providerContent)) > 262144
             )

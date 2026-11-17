@@ -83,7 +83,9 @@ function deferredTools(input: ChatInput) {
 /**
  * OpenAI documents tool search for gpt-5.4 and later models only, and the
  * nano variant's capability table leaves it out, so nano ids (including
- * dated snapshots) keep the eager catalog.
+ * dated snapshots) keep the eager catalog. OpenAI's deferral keeps each
+ * function's name and description visible and defers only its parameter
+ * schema, so the saving is schema size, not catalog size.
  */
 export function openaiToolSearch(model: string) {
   const m = /^gpt-(\d+)(?:\.(\d+))?(-nano)?(?:-|$)/.exec(model);
