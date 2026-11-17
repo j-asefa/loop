@@ -1,12 +1,9 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import express from "express";
 import { recordedSessionControls } from "../src/client/activityView";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-paging-"));
-process.env.LOOP_DATA_DIR = dir;
+testDirectory();
 const { db } = await import("../src/server/db");
 const { activityRoutes, applyActivity, setActivityCapabilities } =
   await import("../src/server/activities");
@@ -35,7 +32,6 @@ const get = async (query: string, owner = "alice", conversation = "c") => {
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function add(

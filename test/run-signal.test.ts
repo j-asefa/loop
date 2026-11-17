@@ -1,11 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { historicalEvent } from "../src/shared/workspace-events";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-run-signal-"));
-process.env.LOOP_DATA_DIR = directory;
+testDirectory();
 const { db, changes, id, emit, workspaceClock, ensureWorkspaceOwner } =
   await import("../src/server/db");
 const { enqueue, transition } = await import("../src/server/queue");
@@ -17,7 +14,6 @@ const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
 afterAll(() => {
   changes.close();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("shares one fallback read and subscription until the last consumer releases", async () => {

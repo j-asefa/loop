@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { codexApprovalDetail } from "../src/adapters/codex-approval-display.js";
 import { harnessFixture } from "./helpers/harness-fixture.js";
 import type { Live } from "../src/server/native-sessions";
@@ -8,9 +9,7 @@ import { Claude } from "../src/adapters/claude";
 import { Codex } from "../src/adapters/codex";
 import { NotDelivered } from "../src/adapters/types";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 import {
   PERSONAL_DECISION_DETAIL_LIMIT,
@@ -18,9 +17,8 @@ import {
 } from "../src/shared/personal-decisions";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
-const dir = mkdtempSync(join(tmpdir(), "loop-auto-approval-"));
+const dir = testDirectory();
 const harnesses = harnessFixture(dir);
-process.env.LOOP_DATA_DIR = dir;
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -28,7 +26,6 @@ const { OWNER } = await import("../src/server/workspace-identity");
 const { personalDecisions } = await import("../src/server/personal-decisions");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function session(
