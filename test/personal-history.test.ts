@@ -1,5 +1,5 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -11,9 +11,15 @@ afterAll(() => {
   db.close();
 });
 for (const owner of ["alice", "bob"]) {
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,?,?,?)",
-  ).run(owner, owner, owner, owner, "openai", "test", 1);
+  seedAgent(db, {
+    id: owner,
+    owner_id: owner,
+    name: owner,
+    normalized_name: owner,
+    provider: "openai",
+    model: "test",
+    created_at: 1,
+  });
   for (const project of ["one", "two"]) {
     const key = owner + project;
     db.prepare(

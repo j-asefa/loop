@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -156,9 +156,15 @@ it("defers search and feed revisions for a message-linked answer until the messa
     conv = id(),
     run = id(),
     msg = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
-  ).run(agent, agent, agent);
+  seedAgent(db, {
+    id: agent,
+    owner_id: "alice",
+    name: agent,
+    normalized_name: agent,
+    provider: "pi",
+    model: "fixture",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
   ).run(conv, agent);
@@ -238,9 +244,15 @@ it("moves a streaming answer's search scope without indexing chunk content", () 
     db.prepare(
       "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,'alice','project',?,1)",
     ).run(folder, folder);
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
-  ).run(agent, agent, agent);
+  seedAgent(db, {
+    id: agent,
+    owner_id: "alice",
+    name: agent,
+    normalized_name: agent,
+    provider: "pi",
+    model: "fixture",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
   ).run(conv, agent);
@@ -284,9 +296,15 @@ it("reindexes an interrupted answer when the owner edits it", async () => {
     conv = id(),
     run = id(),
     msg = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,'alice',?,?,'pi','fixture',1)",
-  ).run(agent, agent, agent);
+  seedAgent(db, {
+    id: agent,
+    owner_id: "alice",
+    name: agent,
+    normalized_name: agent,
+    provider: "pi",
+    model: "fixture",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,'alice',?,'T',1)",
   ).run(conv, agent);

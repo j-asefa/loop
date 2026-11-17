@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -112,9 +112,15 @@ it("bounds batches at 200 and never skips repeated edits while a backlog is drai
 it("reconciles file filters and agent labels and includes prompt changes", () => {
   const owner = "filters",
     agent = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',?)",
-  ).run(agent, owner, "Before", agent, now());
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: "Before",
+    normalized_name: agent,
+    provider: "openai",
+    model: "fixture",
+    created_at: now(),
+  });
   const artifact = saveArtifact(owner, {
     title: "Chart",
     kind: "chart",
@@ -250,9 +256,15 @@ it("includes nested project folders and excludes another owner's folder tree", a
   expect((await get(`/results?folder=${foreign}`, owner)).status).toBe(404);
   const conversation = id(),
     agent = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',?)",
-  ).run(agent, owner, agent, agent, now());
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: agent,
+    normalized_name: agent,
+    provider: "openai",
+    model: "fixture",
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Project chat',?)",
   ).run(conversation, owner, agent, now());
@@ -295,9 +307,15 @@ function nativeAnswer(
   const agent = id(),
     conversation = id(),
     message = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'pi','fixture',?)",
-  ).run(agent, owner, agent, agent, now());
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: agent,
+    normalized_name: agent,
+    provider: "pi",
+    model: "fixture",
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Native conversation',?)",
   ).run(conversation, owner, agent, now());

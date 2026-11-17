@@ -1,6 +1,10 @@
 import type Database from "better-sqlite3";
 import type { z } from "zod";
-import { ConnectionRecord, MessageRecord } from "../../src/server/sql/rows.js";
+import {
+  AgentRecord,
+  ConnectionRecord,
+  MessageRecord,
+} from "../../src/server/sql/rows.js";
 import * as connections from "../../src/server/sql/connections.js";
 import * as messages from "../../src/server/sql/messages.js";
 
@@ -67,5 +71,35 @@ export function seedMessage(db: Database.Database, input: MessageSeed) {
     row.metadata,
     row.created_at,
   );
+  return row;
+}
+
+type AgentSeedRow = z.infer<typeof AgentRecord>;
+type AgentSeed = Pick<
+  AgentSeedRow,
+  | "id"
+  | "owner_id"
+  | "name"
+  | "normalized_name"
+  | "provider"
+  | "model"
+  | "created_at"
+> &
+  Partial<AgentSeedRow>;
+
+/** Runtime creation couples names and requires a connection; fixtures preserve both. */
+export function seedAgent(db: Database.Database, input: AgentSeed) {
+  const row = AgentRecord.parse({
+    connection_id: null,
+    instructions: "",
+    origin: "loop",
+    folder_id: null,
+    effort: null,
+    retired_at: null,
+    ...input,
+  });
+  db.prepare(
+    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,origin,created_at,folder_id,effort,retired_at) VALUES(@id,@owner_id,@name,@normalized_name,@provider,@connection_id,@model,@instructions,@origin,@created_at,@folder_id,@effort,@retired_at)",
+  ).run(row);
   return row;
 }
