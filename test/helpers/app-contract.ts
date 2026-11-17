@@ -57,6 +57,41 @@ export async function verifyAppFixture() {
     const problem = await app.fetch("/api/problem");
     assert.equal(problem.status, 409);
     assert.deepEqual(await problem.json(), { error: "Fixture conflict" });
+    const headerOnly = await productionApp(undefined, [routes], {
+      ownerHeader: "x-owner",
+      jsonLimit: "1mb",
+    });
+    try {
+      assert.deepEqual(await (await headerOnly.fetch("/api/owner")).json(), {});
+      assert.deepEqual(
+        await (
+          await headerOnly.fetch("/api/owner", { headers: { "x-owner": "" } })
+        ).json(),
+        { owner: "" },
+      );
+      assert.deepEqual(
+        await (
+          await headerOnly.fetch("/api/owner", {
+            headers: { "x-owner": "bob" },
+          })
+        ).json(),
+        { owner: "bob" },
+      );
+      const body = JSON.stringify({ fixture: "x".repeat(110 * 1024) });
+      const request = {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      };
+      const bounded = await app.fetch("/api/payload", request);
+      assert.equal(bounded.status, 413);
+      await bounded.arrayBuffer();
+      const expanded = await headerOnly.fetch("/api/payload", request);
+      assert.equal(expanded.status, 200);
+      assert.deepEqual(await expanded.json(), JSON.parse(body));
+    } finally {
+      await headerOnly.close();
+    }
     await app.close();
     closed = true;
     await assert.rejects(app.close(), { code: "ERR_SERVER_NOT_RUNNING" });

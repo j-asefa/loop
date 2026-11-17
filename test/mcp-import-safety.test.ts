@@ -1,7 +1,6 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-
-import express from "express";
 
 testDirectory();
 
@@ -16,21 +15,8 @@ const { redactCredentials } = await import("../src/server/mcp/redaction");
 const { enqueue } = await import("../src/server/queue");
 const { requestApproval } = await import("../src/server/approvals");
 const { authorizeConnectionTool } = await import("../src/server/mcp/broker");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use(mcp);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 500).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const app = await productionApp(undefined, [mcp], { ownerHeader: "x-owner" });
+const base = app.url + "/api";
 async function api(
   owner: string,
   path: string,
@@ -142,7 +128,7 @@ it("honors an MCP tool's explicit alwaysAsk restriction even in Allow", async ()
   ).toBe("pending");
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

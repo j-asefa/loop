@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { AgentId, ProjectId } from "../src/shared/contract-ids.js";
 type CardEntry = import("zod").input<
@@ -10,7 +11,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
-import express from "express";
+
 import {
   triggerPrograms,
   triggerIndexSearches,
@@ -59,22 +60,11 @@ const { personalHistory } = await import("../src/server/personal-history");
 const { ensureWorkspaceProject } =
   await import("../src/server/workspace-project");
 const { cards } = await import("../src/server/card-routes");
-const { errorHandler } = await import("../src/server/error-handler");
-const app = express();
-app.use((_req, res, next) => {
-  res.locals.owner = "http";
-  next();
-});
-app.use("/api", cards);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/v1/cards`;
+
+const app = await productionApp("http", [cards]);
+const base = `${app.url}/api/v1/cards`;
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 function setup(owner: string) {

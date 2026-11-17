@@ -1,35 +1,27 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
 import { randomBytes } from "node:crypto";
-import express from "express";
+
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
-const { createAgent, Problem } = await import("../src/server/domain");
+const { createAgent } = await import("../src/server/domain");
 const { memoryRoutes } = await import("../src/server/memory");
 const { memoryReceiptText } = await import("../src/client/Memory");
 
-const app = express();
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
+const app = await productionApp(undefined, [memoryRoutes], {
+  ownerHeader: "x-owner",
 });
-app.use("/api", memoryRoutes);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e instanceof Problem ? e.status : 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function receipt(owner: string, runId: string) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/api/runs/${runId}/memory`,
-    { headers: { "x-owner": owner } },
-  );
+  const response = await fetch(`${app.url}/api/runs/${runId}/memory`, {
+    headers: { "x-owner": owner },
+  });
   return { status: response.status, data: (await response.json()) as any };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 
@@ -120,7 +112,7 @@ it("reports conversation memory policy and isolates owners", async () => {
   const { conversation_id: conversation } = db
     .prepare("SELECT conversation_id FROM runs WHERE id=?")
     .get(rid) as { conversation_id: string };
-  const url = `http://127.0.0.1:${(server.address() as any).port}/api/conversations/${conversation}/memory`;
+  const url = `${app.url}/api/conversations/${conversation}/memory`;
   const get = (who: string) => fetch(url, { headers: { "x-owner": who } });
   expect(await (await get(owner)).json()).toEqual({ memoryIncluded: false });
   expect((await get(id())).status).toBe(404);

@@ -1,13 +1,13 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
 import { randomBytes } from "node:crypto";
-import express from "express";
-import { ZodError } from "zod";
+
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
-const { createAgent, Problem } = await import("../src/server/domain");
+const { createAgent } = await import("../src/server/domain");
 const { mobile } = await import("../src/server/mobile-routes");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -17,38 +17,24 @@ const { surfaceLater, deliverScheduledSends } =
   await import("../src/server/mobile-return");
 
 // Production routers, mounted in production order (mobile before core).
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
+const app = await productionApp(undefined, [mobile, core, workspace], {
+  ownerHeader: "x-owner",
 });
-app.use("/api", mobile, core, workspace);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res
-    .status(e instanceof Problem ? e.status : e instanceof ZodError ? 400 : 500)
-    .json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
 async function api(
   owner: string,
   path: string,
   method = "GET",
   body?: unknown,
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/api${path}`,
-    {
-      method,
-      headers: { "x-owner": owner, "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "x-owner": owner, "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   return { status: response.status, data: (await response.json()) as any };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 

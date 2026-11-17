@@ -1,8 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import express from "express";
 
-import type { AddressInfo } from "node:net";
 import { DEFINITION_EXAMPLES } from "../src/shared/agent-definitions";
 
 testDirectory();
@@ -16,24 +15,18 @@ const { teams } = await import("../src/server/teams");
 const { agentDefinitions } = await import("../src/server/agent-definitions");
 const { workspace } = await import("../src/server/workspace-routes");
 const { prWatches } = await import("../src/server/pr-watches");
-const { errorHandler } = await import("../src/server/error-handler");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner");
-  next();
-});
-app.use(teams, agentDefinitions, workspace, prWatches, errorHandler);
-let server: ReturnType<typeof app.listen>, origin: string;
+
+let app: Awaited<ReturnType<typeof productionApp>>, origin: string;
 beforeAll(async () => {
-  server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", resolve);
-    server.once("error", reject);
-  });
-  origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port;
+  app = await productionApp(
+    "alice",
+    [teams, agentDefinitions, workspace, prWatches],
+    { ownerHeader: "x-owner" },
+  );
+  origin = app.url + "/api";
 });
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 async function request(

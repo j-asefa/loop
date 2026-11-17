@@ -1,44 +1,36 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it } from "vitest";
-import express from "express";
 
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
-const { errorHandler } = await import("../src/server/error-handler");
+
 const { createGithubClient, withGithubClient } =
   await import("../src/server/github-api");
 const { githubPulls } = await import("../src/server/github-pulls");
 
-const app = express();
-app.use((_req, _res, next) => withGithubClient(githubClient, next));
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(githubPulls);
-app.use(errorHandler);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const app = await productionApp(
+  "alice",
+  [(_req, _res, next) => withGithubClient(githubClient, next), githubPulls],
+  { ownerHeader: "x-owner" },
+);
 async function api(
   path: string,
   method = "GET",
   body?: object,
   owner = "alice",
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    {
-      method,
-      headers: { "content-type": "application/json", "x-owner": owner },
-      body: body ? JSON.stringify(body) : undefined,
-    },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    method,
+    headers: { "content-type": "application/json", "x-owner": owner },
+    body: body ? JSON.stringify(body) : undefined,
+  });
   return { status: response.status, data: await response.json() };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 
@@ -1019,10 +1011,9 @@ async function raw(
   owner = "alice",
   headers: Record<string, string> = {},
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}${path}`,
-    { headers: { "x-owner": owner, ...headers } },
-  );
+  const response = await fetch(`${app.url}/api${path}`, {
+    headers: { "x-owner": owner, ...headers },
+  });
   return {
     status: response.status,
     headers: response.headers,
