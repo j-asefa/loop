@@ -300,43 +300,9 @@ Delivery is at-least-once by contract with a stable
 
 ### Local creation receipts
 
-Agent, preset-team and definition creation use
-[`withCreationReceipt`](../src/server/request-receipts.ts). An immediate
-transaction reserves the owner/key against concurrent local creators, checks
-its canonical request hash, and commits the creation and receipt together.
-A matching receipt recovers the existing result; different input returns 409.
-A failed local creation rolls back both effect and receipt, so no uncertain
-external effect is implied by an absent local receipt. Recovery still applies
-the domain's owner checks and deleted-result rules.
+Agent, preset-team and definition creation use [`withCreationReceipt`](../src/server/request-receipts.ts), and token writes use `withRequestReceipt` in the same file; their comments state the hashing, transaction and replay rules. Local effects commit with their receipts, so an absent local receipt implies no uncertain external effect.
 
-Request hashing sorts object keys and preserves array order. Token writes use
-the same encoder. Both use `withRequestReceipt` for transaction boundaries:
-local effects commit with their receipts, while external token writes commit
-a pending reservation before IO and complete in a second transaction. Refused
-replays never execute the effect; expiry markers commit before a refusal is
-returned.
-
-Agent creation, preset-team creation and review starts keep their browser
-request identities in
-[the pending-command journal](client-state-machines.md#pending-command-identities), keyed by owner,
-source, operation and form inputs. Reloading can recover an uncertain creation.
-A fresh 4xx can settle a refused request; a refusal during recovery cannot prove
-whether the earlier request committed and therefore retains its identity.
-Storage failure prevents dispatch. Completion callbacks require the same
-mounted owner/source view. Agent creation hashes its form inputs rather than
-storing prompt or instruction text. When the name is generated, that name is
-stored with the pending identity and reused on recovery; a new suggestion
-cannot select another identity. Other inputs must still match. A digest avoids
-plaintext retention but does not encrypt low-entropy input. After an uncertain
-agent creation, the form offers an explicit separate-chat action. It archives
-the uncertain identity before releasing its slot, then requests a new name;
-it does not dispatch another creation. Matching generated-name forms in two tabs
-share the pending operation rather than create two agents: neither the tab nor
-a new suggestion proves that the earlier uncertain creation should be repeated.
-Recovery updates the displayed name to the stored name. To request a distinct
-creation after uncertainty, use the explicit separate-chat action. Archive
-failures preserve the action
-for retry. The person must check for the earlier chat and submit again.
+Agent creation, preset-team creation and review starts keep their browser request identities in [the pending-command journal](client-state-machines.md#pending-command-identities). A refusal during recovery cannot prove whether the earlier request committed, so it keeps the identity. The agent form's recovery and separate-chat rules are in the header of [`CreateAgent.tsx`](../src/client/CreateAgent.tsx).
 
 ### `token_requests.state`
 

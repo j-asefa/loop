@@ -102,7 +102,10 @@ export function findRequestReceipt<Row extends { request_hash: string }>(
 }
 
 /** The immediate transaction reserves the identity against concurrent local
- * creators. No effect or receipt becomes visible unless both commit. */
+ * creators. No effect or receipt becomes visible unless both commit, so an
+ * absent local receipt implies no uncertain external effect. A matching receipt
+ * recovers the existing result and different input returns 409; recovery still
+ * applies the domain's owner checks and deleted-result rules. */
 export function withCreationReceipt<
   Row extends { request_hash: string },
   Result,

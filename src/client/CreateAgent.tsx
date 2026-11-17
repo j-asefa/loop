@@ -1,3 +1,12 @@
+// Agent creation keeps its browser request identity in the pending-command
+// journal, keyed by owner, source and form inputs. It hashes those inputs rather
+// than storing prompt or instruction text; a digest avoids plaintext retention
+// but does not encrypt low-entropy input. A generated name is stored with the
+// pending identity and reused on recovery, so a new suggestion cannot select
+// another identity, and matching forms in two tabs share the pending operation.
+// After an uncertain creation, the explicit separate-chat action archives that
+// identity before releasing its slot and requests a new name; it dispatches
+// nothing, and an archive failure keeps the action for retry.
 import { ErrorNotice } from "./ErrorNotice";
 import { useProjectionRoute } from "./SourceContext";
 import { IdempotencyKey } from "../shared/contract-ids";
