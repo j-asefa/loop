@@ -1,7 +1,7 @@
 import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
