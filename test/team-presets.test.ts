@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -36,16 +37,14 @@ const { setAgentPermissionMode } =
 
 function connection(owner = "alice", metadata = "{}") {
   const c = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?,?)",
-  ).run(
-    c,
-    owner,
-    seal("fixture", owner),
-    JSON.stringify([{ id: "fixture-model" }]),
+  seedConnection(db, {
+    id: c,
+    owner_id: owner,
+    secret: seal("fixture", owner),
+    models: JSON.stringify([{ id: "fixture-model" }]),
     metadata,
-    now(),
-  );
+    created_at: now(),
+  });
   return c;
 }
 const c = connection(),

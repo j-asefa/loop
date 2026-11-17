@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -57,15 +58,15 @@ async function request(
 }
 function connection(owner = "alice") {
   const connectionId = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connectionId,
-    owner,
-    seal("private-fixture-secret", owner),
-    JSON.stringify([{ id: "fixture", effortLevels: [{ value: "high" }] }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connectionId,
+    owner_id: owner,
+    secret: seal("private-fixture-secret", owner),
+    models: JSON.stringify([
+      { id: "fixture", effortLevels: [{ value: "high" }] },
+    ]),
+    created_at: now(),
+  });
   return connectionId;
 }
 function folder(owner = "alice") {
