@@ -1,12 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+
+import { resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-native-reply-contract-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 process.env.LOOP_TEST_HARNESS = "codex";
 gitProject(dir);
 const { db } = await import("../src/server/db");
@@ -20,7 +20,6 @@ afterAll(async () => {
   await sessions.close();
   db.close();
   delete process.env.LOOP_TEST_HARNESS;
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it.each(["wait", "async-question-finish"])(

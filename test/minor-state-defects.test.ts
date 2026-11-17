@@ -1,11 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
-const dbDir = mkdtempSync(join(tmpdir(), "minor-state-defects-"));
-process.env.LOOP_DATA_DIR = dbDir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dbDir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { webhookOutcome } = await import("../src/server/webhooks");
 const { seal } = await import("../src/server/secrets");
@@ -13,7 +12,6 @@ import * as pushSubscriptionsQueries from "../src/server/sql/push-subscriptions"
 
 afterAll(() => {
   db.close();
-  rmSync(dbDir, { recursive: true, force: true });
 });
 
 it("opens only the isolated fixture database", () => {

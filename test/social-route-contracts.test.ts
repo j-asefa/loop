@@ -1,8 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
@@ -11,9 +9,8 @@ import {
   type RouteContract,
 } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-social-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -159,7 +156,6 @@ afterAll(async () => {
   await closeExecution();
   await nativeSessions.close();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 type Case = [keyof typeof workspaceRoutes, string, unknown?, unknown?];

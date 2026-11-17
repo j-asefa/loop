@@ -1,13 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { productionApp } from "./helpers/app";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-partial-actions-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id } = await import("../src/server/db");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { moveArtifact, undoMove } = await import("../src/server/filing");
@@ -18,7 +15,6 @@ const app = await productionApp("alice");
 afterAll(async () => {
   await app.close();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 // A saved file draft. The artifact partial flag is gone (D4), so its writes
 // are indexed immediately; only message-linked streaming answers defer.

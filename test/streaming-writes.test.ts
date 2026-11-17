@@ -1,9 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 // Batches materialize display data and events together; indexes wait for completion.
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
 const trace = vi.hoisted(() => ({ executed: 0 }));
 vi.mock("better-sqlite3", async (load) => {
@@ -14,9 +11,8 @@ vi.mock("better-sqlite3", async (load) => {
     default: traceDatabase(original.default, () => trace.executed++),
   };
 });
-const dir = mkdtempSync(join(tmpdir(), "loop-streaming-writes-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, changes, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -77,7 +73,6 @@ afterAll(() => {
   vi.useRealTimers();
   restore();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("keeps the result live while deferring its indexes until completion", async () => {

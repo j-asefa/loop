@@ -1,17 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { FeedPage } from "../src/shared/workspace-api";
 import { reduceFeedPage } from "../src/shared/feed-projection";
 import { z } from "zod";
 import { ReplyState } from "../src/shared/steering-replies";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { sealSeededHistory } = await import("./helpers/published-history");
 const { createAgent, ownedRun } = await import("../src/server/domain");
@@ -127,7 +124,6 @@ async function publish(
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("delivers the durable message ID and accepts a native reply before the steering receipt closes", async () => {

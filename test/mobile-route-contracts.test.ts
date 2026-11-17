@@ -1,18 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { ConversationId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 import { callRoute, readRoute } from "../src/client/api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-mobile-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -174,7 +171,6 @@ afterAll(async () => {
   await nativeSessions.close();
   restore();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("conversationPosition saves and clears an owned message position", async () => {

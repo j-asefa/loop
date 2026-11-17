@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import {
@@ -9,11 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-result-imports-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id } = await import("../src/server/db");
 const { applyMigrations } = await import("../src/server/migrations");
 const { stageImport, executeImport } = await import("../src/server/imports");
@@ -24,7 +23,6 @@ const { resultDefects } = await import("../src/server/result-history");
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 type Node = {

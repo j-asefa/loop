@@ -1,15 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { execFileSync } from "node:child_process";
 import { afterAll, expect, it, vi } from "vitest";
 import * as reviewQueries from "../src/server/sql/code-reviews";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, mkdirSync, writeFileSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import type { ReviewSnapshot } from "../src/server/review-snapshot";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-review-access-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { readReview, reviewRecord, reviewContext, assertReviewIdentity } =
@@ -44,7 +44,6 @@ db.prepare(
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 function snapshot(
   files: Record<string, string> = { "changed.ts": "new content" },
