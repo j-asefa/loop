@@ -1,3 +1,4 @@
+import { until as waitUntil } from "./helpers.js";
 import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,14 +18,8 @@ import {
   WorkspaceMuxResponse,
 } from "../src/shared/workspace-multiplex.js";
 
-async function until(check: () => boolean) {
-  const end = Date.now() + 5000;
-  while (!check()) {
-    if (Date.now() > end)
-      throw new Error("Fixture subscription did not settle");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
+// Keep this fixture's five-second budget without changing protected fleet cases.
+const until = (check: () => boolean) => waitUntil(check, 5000);
 const reset = (epoch: string, cursor = 0) => ({
   v: 3,
   type: "reset",
