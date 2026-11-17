@@ -1,4 +1,4 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -49,11 +49,16 @@ function seed(f: Awaited<ReturnType<typeof fixture>>) {
     created_at: 1,
   });
   for (const agent of ["agent", "worker", "extra"])
-    f.db
-      .prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,?,?,'openai','connection','fixture',1)",
-      )
-      .run(agent, f.owner, agent, agent);
+    seedAgent(f.db, {
+      id: agent,
+      owner_id: f.owner,
+      name: agent,
+      normalized_name: agent,
+      provider: "openai",
+      connection_id: "connection",
+      model: "fixture",
+      created_at: 1,
+    });
   f.db
     .prepare(
       "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('thread',?,'agent','Thread',1)",
