@@ -437,6 +437,9 @@ export class HarnessUpgrades {
     }
     this.save();
   }
+  // A repeated command ID returns its existing record before anything is
+  // reserved, so a client retry after a lost start reply never reruns the
+  // installer.
   start(
     name: UpgradeHarness,
     executable: string,

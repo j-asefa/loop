@@ -1,3 +1,7 @@
+// A pending fork's receipt is an owner/source/history-entry-scoped session slot
+// holding only its command ID, never harness-owned session context. An
+// uncertain response keeps the ID across reloads and a retry reuses it; success
+// removes only that slot before opening the returned conversation.
 import { ErrorNotice } from "./ErrorNotice";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
 import { ActivityRecords } from "./ActivityRecords";

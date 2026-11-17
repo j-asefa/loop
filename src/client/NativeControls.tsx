@@ -1,3 +1,8 @@
+// Native answer receipts persist only the command ID and answer digest, never
+// the answer. The owner and view generation are checked after hashing, before
+// writing the receipt and dispatching. The same digest reuses its command ID
+// and an uncertain response keeps it; a confirmed execution refusal removes it
+// only while the captured owner and generation are current.
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent } from "./clientEvents";
 import { ExecutionCommandId } from "../shared/contract-ids.js";
