@@ -1,10 +1,9 @@
+import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 
 import { join, resolve } from "node:path";
-import { createServer } from "node:http";
-import express from "express";
 import { withPassiveWorkspaceRead } from "../src/server/workspace-read-context.js";
 import { gitProject } from "./git-project.js";
 import { Codex } from "../src/adapters/codex.js";
@@ -21,7 +20,6 @@ const { seal } = await import("../src/server/secrets.js");
 const { core } = await import("../src/server/core-routes.js");
 const { workspace } = await import("../src/server/workspace-routes.js");
 const { companion } = await import("../src/server/companion-routes.js");
-const { mountRoutes } = await import("../src/server/registrar.js");
 const {
   executionClient,
   executionRequest,
@@ -108,28 +106,21 @@ setExecutionTransport({
     return { v: 1, requestId: request.requestId, generation, ok: true, result };
   },
 });
-const app = express();
-app.use(express.json());
-app.use((_req, res, next) => {
-  res.locals.owner = owner;
-  if (passive) withPassiveWorkspaceRead(scopeOwner, () => next());
-  else next();
-});
-for (const routes of [core, workspace, companion])
-  mountRoutes(app, routes, "/api");
-app.use(((error, _req, res, _next) =>
-  res
-    .status(error.status ?? 500)
-    .json({ error: error.message })) as express.ErrorRequestHandler);
-const server = createServer(app);
+let app: Awaited<ReturnType<typeof productionApp>>;
 beforeAll(async () => {
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api`;
+  app = await productionApp(owner, [
+    (_req, _res, next) => {
+      if (passive) withPassiveWorkspaceRead(scopeOwner, () => next());
+      else next();
+    },
+    core,
+    workspace,
+    companion,
+  ]);
+  base = app.url + "/api";
 });
 afterAll(async () => {
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
+  await app.close();
   restoreProvider();
   await closeExecution();
   await nativeSessions.close();
