@@ -1,13 +1,9 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-github-pulls-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { errorHandler } = await import("../src/server/error-handler");
@@ -44,7 +40,6 @@ async function api(
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 // A scripted GitHub: one pull request, acme/api#42, and what it answers.

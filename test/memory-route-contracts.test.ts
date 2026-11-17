@@ -1,15 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-memory-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -100,7 +97,6 @@ afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeExecution();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("preserves note revisions, optimistic edits and local recall without a sidecar", async () => {

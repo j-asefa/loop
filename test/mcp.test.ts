@@ -1,16 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll, vi } from "vitest";
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { z } from "zod";
-const dir = mkdtempSync(join(tmpdir(), "loop-mcp-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -141,7 +140,6 @@ afterAll(() => {
   resetMcp();
   resetProvider();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 it("shares installed MCPs with existing and future agents, but never across owners", () => {
   // An old installation granted tools to just one agent. Existing rows no longer

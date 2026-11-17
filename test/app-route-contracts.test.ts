@@ -1,16 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-app-contracts-"));
-process.env.LOOP_DATA_DIR = directory;
+testDirectory();
+
 process.env.LOOP_URL = "http://127.0.0.1";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
 const { db, id } = await import("../src/server/db");
 const { config, setWorkspaceUrl } = await import("../src/server/config");
 const { enqueue, transition } = await import("../src/server/queue");
@@ -33,7 +31,6 @@ afterAll(async () => {
   await closeExecution();
   await nativeSessions.close();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 function request(

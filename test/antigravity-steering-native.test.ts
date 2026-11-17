@@ -1,13 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { PublicConnection } from "../src/shared/workspace-contract-schemas.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-antigravity-native-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 process.env.LOOP_TEST_AGY_LOG = join(dir, "requests");
 gitProject(dir);
 const { db } = await import("../src/server/db");
@@ -31,7 +32,6 @@ afterAll(async () => {
     "LOOP_TEST_AGY_SLOW_STOP",
   ])
     delete process.env[name];
-  rmSync(dir, { recursive: true, force: true });
 });
 const requests = () =>
   readFileSync(process.env.LOOP_TEST_AGY_LOG!, "utf8")

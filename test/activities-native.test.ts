@@ -1,19 +1,17 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import type { Live } from "../src/server/native-sessions";
 import { Codex } from "../src/adapters/codex";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { NativeSessionState } from "../src/server/native/state.js";
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-native-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { listActivities, ingestNativeActivity } =
   await import("../src/server/activities");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 function live(conversation: string, run: any, generation: string): Live {
   return new NativeSessionState().attach({

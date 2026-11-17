@@ -1,11 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop-core-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal, unseal } = await import("../src/server/secrets");
 const { ownedAgent, createAgent, renameAgent } =
@@ -43,7 +40,6 @@ function connection(owner: string) {
 afterAll(() => {
   restore();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 describe("durable agent contract", () => {
   it("reserves case-folded handles across users and keeps renamed handles reserved", () => {

@@ -1,15 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-const dir = mkdtempSync(join(tmpdir(), "loop-catalog-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const authorization = vi.hoisted(() => vi.fn());
 vi.mock("../src/server/mcp/client.js", async (original) => ({
   ...(await original<object>()),
@@ -70,7 +67,6 @@ afterAll(async () => {
   resetMcp();
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 async function api(
   path: string,

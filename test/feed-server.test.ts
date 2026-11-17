@@ -1,12 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+
 import express from "express";
-const dir = mkdtempSync(join(tmpdir(), "loop-feed-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { resultsRevision, resultsUpdates } =
@@ -43,7 +41,6 @@ const cursor = (artifact: string) =>
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("returns only changed visible cards and removal tombstones, scoped to their owner", () => {

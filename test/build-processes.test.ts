@@ -1,18 +1,17 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import { runningBuild } from "../src/shared/build";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-build-processes-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 const { db, now } = await import("../src/server/db");
 const { observeProcess, currentBuilds } =
   await import("../src/server/deployments");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("skips a locked heartbeat without blocking or crashing, expires it, and resumes next tick", () => {

@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import {
@@ -9,11 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
-const dataDir = mkdtempSync(join(tmpdir(), "loop-canonical-results-"));
-process.env.LOOP_DATA_DIR = dataDir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
 
 const { db } = await import("../src/server/db");
 const { applyMigrations } = await import("../src/server/migrations");
@@ -38,7 +36,6 @@ afterAll(() => {
   try {
     db.close();
   } catch {}
-  rmSync(dataDir, { recursive: true, force: true });
 });
 
 describe("Canonical Result publication, immutability, and migration", () => {

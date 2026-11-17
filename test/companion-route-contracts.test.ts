@@ -1,14 +1,9 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  readFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+
 import { join, resolve } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
@@ -53,7 +48,7 @@ vi.mock("../src/server/execution-client", async (importOriginal) => {
   };
 });
 
-const directory = mkdtempSync(join(tmpdir(), "loop-companion-contracts-"));
+const directory = testDirectory();
 const project = join(directory, "project"),
   bin = join(directory, "bin"),
   version = join(directory, "version"),
@@ -62,8 +57,7 @@ mkdirSync(project);
 mkdirSync(bin);
 gitProject(project);
 const originalPath = process.env.PATH;
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
 process.env.LOOP_TEST_HISTORY_PROJECT = project;
 for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
   writeFileSync(
@@ -260,7 +254,6 @@ afterAll(async () => {
   await nativeSessions.close();
   db.close();
   process.env.PATH = originalPath;
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("workspace projects registered harnesses and directories from production writers", async () => {

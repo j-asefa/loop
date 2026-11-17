@@ -1,9 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-const root = mkdtempSync(join(tmpdir(), "loop-native-recovery-"));
-process.env.LOOP_DATA_DIR = root;
+
+const root = testDirectory();
+
 const probe = vi.hoisted(() => vi.fn());
 vi.mock("../src/host-control.js", () => ({ discover: probe }));
 const { db, id, now } = await import("../src/server/db");
@@ -23,7 +22,6 @@ afterEach(() => {
 afterAll(async () => {
   await nativeSessions.close();
   db.close();
-  rmSync(root, { recursive: true, force: true });
 });
 function connection(name: string, status: string) {
   db.prepare(

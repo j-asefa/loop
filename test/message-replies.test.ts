@@ -1,17 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { assertAnswerStored } from "./fixtures/answer-record.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import type { Run } from "../src/server/queue";
 import { replyPrompt } from "../src/shared/replies";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-replies-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -98,7 +95,6 @@ function trace(
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it.each(["openai", "anthropic"] as const)(

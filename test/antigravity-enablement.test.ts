@@ -1,11 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
+
 import { delimiter, join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "loop-agy-enablement-"));
+const root = testDirectory();
 const originalPath = process.env.PATH;
-process.env.LOOP_DATA_DIR = root;
+
 process.env.PATH = root + delimiter + (originalPath ?? "");
 const { db } = await import("../src/server/db");
 const { OWNER } = await import("../src/server/workspace-identity");
@@ -23,7 +24,6 @@ afterAll(async () => {
   db.close();
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(root, { recursive: true, force: true });
 });
 
 it.each(["1.4.9", "1.5.1", "1.5.2-rc.1", "unknown"])(

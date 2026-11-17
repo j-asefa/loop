@@ -1,15 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { execFileSync } from "node:child_process";
 import { createSecureServer, type ServerHttp2Stream } from "node:http2";
 import { gzipSync } from "node:zlib";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-github-api-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 // In the server the undici package loads (the MCP network layer imports it)
 // before any request is sent, and becomes the global dispatcher.
 const { Agent, setGlobalDispatcher } = await import("undici");
@@ -19,7 +19,6 @@ const { githubRest, createGithubClient, withGithubClient } =
   await import("../src/server/github-api");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("decodes GitHub's gzipped HTTP/2 responses with the production fetch", async () => {

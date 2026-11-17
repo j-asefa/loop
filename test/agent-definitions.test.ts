@@ -1,15 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  copyFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdirSync, copyFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 import { applyMigrations } from "../src/server/migrations";
 import {
@@ -17,9 +12,8 @@ import {
   MAX_DEFINITION_BYTES,
 } from "../src/shared/agent-definitions";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-definitions-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 // Seed the historical subset through the current named migration ledger.
 const existing = new Database(join(dir, "loop.db"));
 const migrationDir = join(dir, "migrations");
@@ -55,7 +49,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 async function request(
   path: string,

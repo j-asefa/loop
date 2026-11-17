@@ -1,13 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+
 import Database from "better-sqlite3";
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-conversation-paging-"));
-process.env.LOOP_DATA_DIR = dir;
+testDirectory();
+
 const { db, id } = await import("../src/server/db");
 const { conversationMessages, transcriptPageSql } =
   await import("../src/server/conversation-messages");
@@ -20,7 +20,6 @@ const { savePosition } = await import("../src/server/mobile-return");
 const { Problem } = await import("../src/server/domain");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function thread(owner = "alice") {

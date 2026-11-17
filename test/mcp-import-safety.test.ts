@@ -1,13 +1,10 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-mcp-import-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { mcp } = await import("../src/server/mcp/routes");
@@ -147,7 +144,6 @@ it("honors an MCP tool's explicit alwaysAsk restriction even in Allow", async ()
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("persists owner-scoped approval preferences and resumes only current MCP calls on connected servers", async () => {

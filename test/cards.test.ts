@@ -1,13 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { AgentId, ProjectId } from "../src/shared/contract-ids.js";
 type CardEntry = import("zod").input<
   typeof import("../src/shared/cards.js").CardEntrySchema
 >;
 import { afterAll, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, readdirSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import Database from "better-sqlite3";
 import express from "express";
 import {
@@ -34,9 +35,8 @@ vi.mock("better-sqlite3", async (load) => {
     default: traceDatabase(original.default, (sql) => trace.observe?.(sql)),
   };
 });
-const dir = mkdtempSync(join(tmpdir(), "loop-cards-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const prepare = db.prepare.bind(db);
 const folderQueries = await import("../src/server/sql/folders");
@@ -76,7 +76,6 @@ const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/ap
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 function setup(owner: string) {
   db.prepare(
