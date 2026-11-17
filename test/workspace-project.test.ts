@@ -1,4 +1,4 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -60,9 +60,16 @@ function fixture() {
     models: '[{"id":"fixture"}]',
     created_at: now(),
   });
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,?,?,?,'openai',?,'fixture',?)",
-  ).run(agent, owner, agent, agent, connection, now());
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: agent,
+    normalized_name: agent,
+    provider: "openai",
+    connection_id: connection,
+    model: "fixture",
+    created_at: now(),
+  });
   const run = (
     folder: string | null = null,
     state = "completed",
