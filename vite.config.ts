@@ -11,5 +11,9 @@ export default defineConfig({
   // Test files spawn fixture servers and native children of their own, so the
   // worker count is not the whole footprint. Two workers fit an agent sharing
   // an 8 GiB host; `--maxWorkers` overrides this for larger machines.
-  test: { maxWorkers: 2 },
+  test: {
+    maxWorkers: 2,
+    setupFiles: ["./test/setup.ts"],
+    sequence: { hooks: "stack" },
+  },
 });

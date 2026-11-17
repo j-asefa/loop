@@ -1,11 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-decision-indexes-"));
-process.env.LOOP_DATA_DIR = dir;
+testDirectory();
 const { db, id } = await import("../src/server/db");
 const cleanupQueries = await import("../src/server/sql/native-decisions");
 const {
@@ -19,7 +16,6 @@ const { NativeSessions } = await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function fixture() {
