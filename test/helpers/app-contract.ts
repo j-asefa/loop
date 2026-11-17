@@ -1,9 +1,22 @@
 import assert from "node:assert/strict";
-import { Router } from "express";
+import express, { Router } from "express";
 import { Problem } from "../../src/shared/problem.js";
-import { productionApp } from "./app.js";
+import { listenForTest, productionApp } from "./app.js";
 
 export async function verifyAppFixture() {
+  const server = await listenForTest(express());
+  try {
+    assert.equal(server.listenerCount("error"), 0);
+    assert.throws(
+      () => server.emit("error", new Error("Late fixture failure")),
+      /Late fixture failure/,
+    );
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+
   const routes = Router();
   routes.get("/owner", (_req, res) => res.json({ owner: res.locals.owner }));
   routes.post("/payload", (req, res) => res.json(req.body));
