@@ -64,6 +64,26 @@ it("shares one fallback read and subscription until the last consumer releases",
     await vi.advanceTimersByTimeAsync(2000);
     expect(read).toHaveBeenCalledTimes(2);
     expect(second).toHaveBeenCalledTimes(2);
+
+    // A foreign run ID must not expose state, initially or through polling.
+    const other = enqueue("other", "Private", id());
+    const foreign = watchRun({ ...other, owner_id: run.owner_id });
+    try {
+      expect(foreign.state).toBeUndefined();
+      expect(foreign.signal.aborted).toBe(true);
+      expect(foreign.signal.reason.message).toBe(
+        "This run is no longer available.",
+      );
+      const fallback = vi.fn();
+      foreign.on("fallback", fallback);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fallback).toHaveBeenCalledOnce();
+      expect(foreign.state).toBeUndefined();
+    } finally {
+      foreign.release();
+    }
+    expect(changes.subscriberCount).toBe(baseline);
+    expect(vi.getTimerCount()).toBe(0);
   } finally {
     one.release();
     two.release();
