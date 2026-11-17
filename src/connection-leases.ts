@@ -17,7 +17,20 @@ const owns = (input: Input, entry?: Identity) =>
   typeof input.lease === "string" &&
   equalSecret(input.lease, entry.lease);
 
-/** Owns application lease decisions; the service owns transport and scheduling. */
+/** Owns application lease decisions; the service owns transport and scheduling.
+ *
+ * One instance owns a monotonic generation and at most one populated slot; a
+ * new lease replaces earlier authority and stops forwarding. A pending or
+ * lapsed launch proves its generation-bound secret before forwarding starts,
+ * and ownership is checked again after the asynchronous probe. Only the latest
+ * lapsed launch may recover; explicit withdrawal or a newer lease revokes that
+ * right, and pending and lapsed leases never expire themselves. Heartbeats
+ * renew only an attached backend, and relay failures from an older generation
+ * cannot detach its replacement. State changes and relay publication are
+ * synchronous, so a completed older probe cannot publish after a newer
+ * decision. The hello exposes no lease secret, and its `since` changes only on
+ * attachment or detachment. Stale requests return 409 without mutation; the
+ * registry never queues or replays a request. */
 export class ConnectionLeases {
   private generation = 0;
   private pending?: Identity;

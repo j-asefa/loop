@@ -23,7 +23,9 @@ import {
   cancelWorkspacePoll,
 } from "./workspace-poll-budget";
 
-/** One source and owner per subscription. Only reads may be retried. */
+/** One source and owner per subscription. Only reads may be retried. Frames
+ * from a replaced socket or an earlier owner generation are ignored, and
+ * replays below the cursor are refused. */
 export function watchWorkspaceEvents(options: {
   url: URL;
   source?: string;

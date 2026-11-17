@@ -11,20 +11,7 @@ registry to the relay. It owns the expiry timer, control socket, lock and tunnel
 States: `none`, `pending`, `backend`, `lapsed`. The public hello reports
 `pending` as pending, `backend` as ready, and both `none` and `lapsed` as none.
 
-Invariants:
-
-- One service instance owns a monotonic generation counter and at most one
-  populated slot. A new lease replaces earlier authority and stops forwarding.
-- A pending or lapsed launch must prove its generation-bound secret before
-  forwarding starts. Ownership is checked again after the asynchronous probe.
-- Only the latest lapsed launch may recover. Explicit withdrawal or a newer
-  lease revokes that right; pending and lapsed leases do not expire themselves.
-- Heartbeats renew only an attached backend. Relay failures from an older
-  generation cannot detach its replacement.
-- State changes and relay publication are synchronous within the operation;
-  a completed older probe cannot publish after a newer decision.
-- The hello projection exposes no lease secret. Its `since` changes only on
-  backend attachment or detachment, not pending/lapsed withdrawal.
+Its invariants (generation, secret proof, recovery, heartbeats, the hello projection, 409 on stale requests) are in the [`ConnectionLeases`](../src/connection-leases.ts) header comment.
 
 | From | To | Trigger and guard |
 | ---- | -- | ----------------- |
@@ -36,91 +23,25 @@ Invariants:
 | backend | none | `withdraw`: matching generation and secret; detach nonrecoverably; lease |
 | pending / lapsed | none | `withdraw`: matching generation and secret clears that slot; lease |
 
-Stale register, heartbeat and withdrawal requests return 409 without mutation.
-An invalid socket returns 400; a failed or superseded probe returns 409 without
-attaching. The relay continues to return unavailable responses while detached;
-no request is queued or replayed by the registry.
-
 ## Browser owner generation
 
-[`ownerSession.ts`](../src/client/ownerSession.ts) owns the current owner and
-generation together with the paired-session projection. Session reads and expiry
-publish through that store; AppController subscribes to its stable snapshot with
-`useSyncExternalStore` instead of setting global ownership during render.
-Session reads publish only while the snapshot that started the read remains
-current. A late successful response cannot replace an expired session, another
-owner, or a newer identity projection for the same owner.
-Cache resets finish before subscribers observe an owner change. A suspended or
-abandoned render does not publish a session. Re-selecting the same owner leaves
-the generation and caches alone;
-signing out or selecting another owner advances it before clearing registered
-module caches. View snapshots, read cooldowns, unread versions, failed-read
-interests, poll capacity and detail selections register their reset at module
-load. Late responses and releases still check or retain their originating
-generation/state; clearing a cache does not authorize an old callback.
-
-Drafts use this same owner for their default storage scope. Owner changes do not
-delete persisted drafts or command identities. Per-view readers keep their own
-lifetime and disposal rather than registering permanently with the module cache
-registry.
+Owner: [`ownerSession.ts`](../src/client/ownerSession.ts), whose header states its rules: generation-bound session reads, cache resets before owner changes, and drafts and command identities surviving them.
 
 ## Composer send receipt
 
-[`sendIntent.ts`](../src/client/sendIntent.ts): `{signature, key, intent,
-pending, unquoted}` per message (keyed by its signature; settled entries are pruned toward 20 per thread, uncertain entries are never evicted), stored in an owner/source/thread-scoped durable store
-([`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts), using the shared
-[`pendingCommandStorage.ts`](../src/client/pendingCommandStorage.ts) JSON adapter
-and Web Locks helper, backed by `localStorage`), so a pending send survives a killed home-screen app, a new
-tab and auth expiry (Session clears `sessionStorage`, never these receipts).
-Empty → pending (new key) → cleared on 2xx, refused (key kept) on a Loop
-response below 500, unchanged on 5xx or no response. A pending receipt for
-the same message, found in the store even if another tab or an earlier session
-sent it, is resent with the same key, intent and explicit `unquoted` reply-target decision; settlement compares the key and attempt generation before touching the
-entry with the sent key. A Web Lock covers reading, selecting and storing the
-identity and each settlement, so concurrent tabs cannot overwrite one another's
-journal changes. Persistence failure refuses a new send before dispatch;
-settlement failure retains the pending identity. The composer checks its current
-view and starts dispatch synchronously in the preparation lock callback, then
-releases the lock before awaiting network IO or settlement. Receipt formats from pre-release
-builds are not read; formats that released versions wrote must stay readable
-([AGENTS.md](../AGENTS.md)).
-Fleet sends also use
-the IndexedDB command journal in
-[`fleetCommand.ts`](../src/client/fleetCommand.ts) (reserved → dispatched →
-removed on a terminal answer), which turns a repeat into a receipt-only query.
+Owner: [`sendIntent.ts`](../src/client/sendIntent.ts) with the owner/source/thread-scoped [`sendReceiptStore.ts`](../src/client/sendReceiptStore.ts). Empty → pending (new key) → cleared on 2xx, refused (key kept) below 500, unchanged on 5xx or no response; the files' comments state the resend, locking and eviction rules. Fleet sends also use the IndexedDB journal in [`fleetCommand.ts`](../src/client/fleetCommand.ts).
 
 ## Continuation requests
 
-[`continuationCommands.ts`](../src/client/continuationCommands.ts) stores the
-exact continuation request in owner/source/thread-scoped local storage through
-the shared command adapter. Each request has its own idempotency-key slot;
-preparing another continuation does not evict an uncertain one. A per-tab
-session marker selects a saved request or explicitly selects new work. That
-marker is optional; saving the durable request must succeed before dispatch.
-Reloads validate saved requests against the current route schema. Acceptance
-removes only the matching request, and cleanup failure retains its identity
-without turning acceptance into a reported failure. The conversation UI retains
-its outcome policy: an ordinary refusal during recovery cannot settle an earlier
-uncertain request.
+Owner: [`continuationCommands.ts`](../src/client/continuationCommands.ts). An ordinary refusal during recovery cannot settle an earlier uncertain request.
 
 ## Native history fork receipts
 
-[`NativeHistory.tsx`](../src/client/NativeHistory.tsx) stores a pending fork's
-command ID in an owner/source/history-entry-scoped session slot through the
-shared command adapter. An uncertain response retains the ID across reloads;
-retrying the same slot reuses it. Success removes only that slot before opening
-the returned conversation, leaving other owners' and sources' pending forks
-intact. The receipt stores an ID, not harness-owned session context.
+Owner: [`NativeHistory.tsx`](../src/client/NativeHistory.tsx). The receipt stores a command ID, never harness-owned session context.
 
 ## Native answer receipts
 
-[`NativeControls.tsx`](../src/client/NativeControls.tsx) uses the shared command
-storage adapter for owner/source/decision-scoped session receipts. Only the
-command ID and answer digest are persisted, never the answer. The owner and view
-generation are checked after hashing, before writing the receipt and dispatching.
-The same digest reuses its command ID; an uncertain response retains it. A
-confirmed execution refusal removes it only while the captured owner and
-generation remain current. Successful answers retain the receipt.
+Owner: [`NativeControls.tsx`](../src/client/NativeControls.tsx). Only the command ID and answer digest are persisted, never the answer.
 
 ## Pending command identities
 
@@ -174,42 +95,15 @@ the authority for whether an external effect ran.
 
 ## Workspace event socket
 
-[`workspace-events.ts`](../src/client/workspace-events.ts): connecting → ready
-→ retry with backoff → stopped (close code 4003). Polling runs while not
-ready. Frames from a replaced socket or an earlier owner generation are
-ignored, and replays below the cursor are refused.
+[`workspace-events.ts`](../src/client/workspace-events.ts): connecting → ready → retry with backoff → stopped (close code 4003). Polling runs while not ready.
 
 ## Workspace lock
 
-[`process-records.ts`](../src/process-records.ts): absent → held (`link`). A held lock whose
-owner is proven dead (no such process, a zombie, or a different process
-identity, including a PID now owned by another user) is replaced only by the
-starter that links the claim named for that record's nonce
-(`host.lock.stale.<nonce>`). Holding the claim, it re-reads the lock and
-replaces it with one atomic rename, so the lock is never absent. A dead
-claimant's claim is taken over the same way, through its own claim. All
-claims use the root lock prefix and recovery traverses them iteratively, so
-repeated crashes impose no depth or growing-path limit. Thus no
-file is ever removed after a separate check and two starters cannot both
-succeed. Nonces must be UUIDs before they are used in a path. Once the lock is
-held, claims for records it no longer holds and dead starters' temp and
-rename files are removed. Release removes the lock only when the nonce still
-matches. A live owner at the root lock produces `LockBusyError`; connection
-startup carries its code over IPC and the launcher returns to service discovery.
-Recovery-claim conflicts remain errors, so they are not mistaken for an
-available service.
+[`process-records.ts`](../src/process-records.ts): absent → held (`link`). A held lock whose owner is proven dead is replaced only through the claim named for its nonce, with one atomic rename, so the lock is never absent; the `workspaceLock` comments state the claim and recovery rules.
 
 ## Workspace status and stop
 
-[Process records](../src/process-records.ts) distinguish an absent control record
-from an unreadable or malformed control/ownership record. A stale lock alone
-belongs to startup lock recovery. With valid records, [inspection](../src/host-control.ts)
-reports a responding host or the recorded process's running, exited or unknown
-identity state; a failed request rechecks the record before reporting that state.
-CLI status maps these to unresponsive, crashed and unknown. Invalid records fail
-explicitly and remain available for inspection; start, restart and stop do not
-silently treat them as an absent workspace. Stop returns stopped or absent to its
-callers, and unresolved child records still require forced-stop recovery.
+[Process records](../src/process-records.ts) distinguish an absent control record from an invalid one, and [inspection](../src/host-control.ts) reports a responding host or the recorded process's running, exited or unknown state. CLI status maps these to unresponsive, crashed and unknown. Stop returns stopped or absent, and unresolved child records still require forced-stop recovery.
 
 ## Harness upgrade
 

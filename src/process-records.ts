@@ -495,7 +495,11 @@ const WORKSPACE_LOCK = {
   owner:
     "Another Loop host is starting or running. Wait for it, then run loop again; no process was stopped.",
 };
-/** Complete records are installed atomically; a dead owner's lock is replaced through an exclusive claim. */
+/** Complete records are installed atomically; a dead owner's lock is replaced through an exclusive claim.
+ * Only the starter holding the claim named for the dead record's nonce replaces
+ * it, with one atomic rename, so the lock is never absent and two starters
+ * cannot both succeed. A live owner at the root lock raises LockBusyError,
+ * which returns the launcher to service discovery. */
 export function workspaceLock(
   dir: string,
   lock: { name: string; owner: string } = WORKSPACE_LOCK,
@@ -567,6 +571,9 @@ async function readRecord<T>(
 }
 
 type ControlRecord = { port: number; token: string };
+// An absent control record differs from an unreadable or malformed one.
+// Invalid records fail explicitly and stay for inspection; start, restart and
+// stop never treat them as an absent workspace.
 export function readControlRecord(dir: string) {
   return readRecord(
     join(dir, PROCESS_FILES.control),

@@ -25,6 +25,8 @@ import {
 // Settlement removes only the entry it sent. Receipts that released versions
 // wrote (v0.1.0 onward use this key and shape) must stay readable (AGENTS.md);
 // receipts from pre-release builds are not migrated.
+// A persistence failure refuses a new send before dispatch; a settlement
+// failure keeps the pending identity.
 
 const EMPTY: SendReceipt = { signature: "", key: "", unquoted: false };
 const MAX_RECEIPTS = 20;

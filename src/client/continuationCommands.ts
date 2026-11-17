@@ -1,3 +1,9 @@
+// Continuation requests. Each request has its own idempotency-key slot, so
+// preparing another never evicts an uncertain one. The durable save must
+// succeed before dispatch; the per-tab session marker that selects a saved
+// request is optional. Reloads validate saved requests against the current
+// route schema. Acceptance removes only the matching request, and cleanup
+// failure keeps its identity without reporting acceptance as a failure.
 import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import { withOptionalStorage } from "./browserStorage";
 import { commandStorageKey, storedCommandAt } from "./pendingCommandStorage";

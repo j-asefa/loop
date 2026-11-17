@@ -1,3 +1,12 @@
+// The current owner and generation, with the paired-session projection. A
+// session read publishes only while the snapshot that started it is current,
+// so a late response cannot replace an expired session, another owner or a
+// newer identity. Cache resets finish before subscribers observe an owner
+// change. Re-selecting the same owner keeps the generation and caches; signing
+// out or selecting another owner advances it before clearing registered
+// caches. Clearing a cache does not authorize an old callback: late responses
+// still check their originating generation. Owner changes never delete
+// persisted drafts or command identities.
 import type { RouteResponse, workspaceApi } from "../shared/workspace-api";
 
 export type BrowserSession =
