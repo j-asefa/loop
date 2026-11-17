@@ -1,13 +1,12 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-workspace-status-"));
+const workspace = createTestWorkspace("loop-workspace-status-");
+const directory = workspace.directory;
 process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+process.env.LOOP_ENCRYPTION_KEY = workspace.encryptionKey;
 const { WorkspaceHost } = await import("../src/workspace-host.js");
 const { db, changes } = await import("../src/server/db.js");
 const { OWNER } = await import("../src/server/workspace-identity.js");
@@ -82,6 +81,6 @@ test("workspace status counts only its owner and preserves executing-run and ret
     await closeExecution();
     changes.close();
     db.close();
-    rmSync(directory, { recursive: true, force: true });
+    workspace.close();
   }
 });

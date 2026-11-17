@@ -1,15 +1,16 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { gitProject } from "./git-project.js";
 import { agentModelName, runModelName } from "../src/client/modelChoices.js";
 import type { Connection } from "../src/shared/types.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-codex-schema-"));
-process.env.LOOP_DATA_DIR = join(directory, "data");
+const workspace = createTestWorkspace("loop-codex-schema-");
+const directory = workspace.root;
+process.env.LOOP_DATA_DIR = workspace.directory;
 process.env.LOOP_TEST_HARNESS = "codex";
 // Codex's generated v2 Config declares model: string | null.
 process.env.LOOP_TEST_CODEX_NULL_MODEL = "1";
@@ -34,7 +35,7 @@ test(
     t.after(async () => {
       await host.close();
       db.close();
-      rmSync(directory, { recursive: true, force: true });
+      workspace.close();
     });
     await host.start({ options: options });
     const origin = host.origin;
