@@ -63,6 +63,7 @@ function session(
         sessions.projector.event(live, event);
     },
   );
+  const nativeAnswer = adapter.answer.bind(adapter);
   const answer = vi.spyOn(adapter, "answer");
   if (harness === "claude") answer.mockResolvedValue();
   const live: Live = sessions.state.attach({
@@ -89,7 +90,7 @@ function session(
     sessions.projector.event(live, { type: "request", request });
   const state = () =>
     (db.prepare("SELECT state FROM runs WHERE id=?").get(run.id) as any).state;
-  return { live, answer, request, state, run, sessions, events };
+  return { live, answer, nativeAnswer, request, state, run, sessions, events };
 }
 it("persists native metadata without forwarding it as a display event", async () => {
   const f = session("metadata-ingress");
@@ -297,6 +298,34 @@ function preservesNativeArguments(params: object) {
   );
 }
 
+// Only the retained RPC arguments have no public observation: the native reply
+// carries choice/content, not the original request. Keep this read-only seam
+// bounded to argument preservation; setup and replies still use the real wire.
+function pendingArgumentGuard(
+  fixture: Pick<ReturnType<typeof session>, "live" | "answer" | "nativeAnswer">,
+  params: object,
+) {
+  const expected = JSON.parse(JSON.stringify(params));
+  const check = () => {
+    const pending = (
+      fixture.live.adapter as unknown as {
+        requests: Map<string, { params: unknown }>;
+      }
+    ).requests.get("102");
+    expect(pending).toBeDefined();
+    const { threadId, turnId, ...argumentsOnly } = pending!.params as Record<
+      string,
+      unknown
+    >;
+    expect(argumentsOnly).toEqual(expected);
+  };
+  fixture.answer.mockImplementation((...args) => {
+    check();
+    return fixture.nativeAnswer(...args);
+  });
+  return check;
+}
+
 it.each([
   ["default", "accept", 24000],
   ["default", "accept", 100000],
@@ -306,11 +335,8 @@ it.each([
 ] as const)(
   "large Codex file approvals preserve %s / %s decisions for %i bytes",
   async (mode, choice, bytes) => {
-    const { live, answer, state, run, sessions } = session(
-      `file-${mode}-${choice}-${bytes}`,
-      mode,
-      "codex",
-    );
+    const fixture = session(`file-${mode}-${choice}-${bytes}`, mode, "codex");
+    const { live, answer, nativeAnswer, state, run, sessions } = fixture;
     const params = fileApproval(bytes);
     const interrupt = vi.spyOn(sessions, "interrupt").mockResolvedValue();
     const decision = () =>
@@ -320,6 +346,10 @@ it.each([
     try {
       await live.adapter.start();
       preservesNativeArguments(params);
+      const checkPending = pendingArgumentGuard(
+        { live, answer, nativeAnswer },
+        params,
+      );
       await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
       await vi.waitFor(() => expect(decision()).toBeDefined());
       const stored = decision();
@@ -338,6 +368,7 @@ it.each([
       if (mode === "default") {
         expect(state()).toBe("awaiting_approval");
         expect(answer).not.toHaveBeenCalled();
+        checkPending();
         await sessions.decisions.answer(stored.id, "file-decision", { choice });
         await sessions.decisions.answer(stored.id, "file-decision", { choice });
       }
@@ -657,7 +688,7 @@ it.each([
 ] as const)(
   "large GitHub tool approvals honor %s / %s with bounded argument previews (%i %s / %s)",
   async (mode, sessionMode, size, character, choice) => {
-    const { live, answer, state, run, sessions } = session(
+    const { live, answer, nativeAnswer, state, run, sessions } = session(
       `large-tree-${mode}-${sessionMode}-${size}-${character}-${choice}`,
       mode,
       "codex",
@@ -672,6 +703,10 @@ it.each([
     try {
       await live.adapter.start();
       preservesNativeArguments(params);
+      const checkPending = pendingArgumentGuard(
+        { live, answer, nativeAnswer },
+        params,
+      );
       await live.adapter.prompt(`mcp-${choice}\n` + JSON.stringify(params));
       await vi.waitFor(() => expect(decision()).toBeDefined());
       const stored = decision();
@@ -695,6 +730,7 @@ it.each([
       if ((sessionMode ?? mode) !== "bypassPermissions") {
         expect(state()).toBe("awaiting_approval");
         expect(answer).not.toHaveBeenCalled();
+        checkPending();
         await sessions.decisions.answer(stored.id, "github-decision", {
           choice,
         });
@@ -726,7 +762,7 @@ it.each([
 ])(
   "keeps %s uploads reviewable with all non-content arguments and no duplicate payload",
   async (tool) => {
-    const { live, answer, state, run, sessions } = session(
+    const { live, answer, nativeAnswer, state, run, sessions } = session(
       `github-shape-${tool}`,
       "default",
       "codex",
@@ -773,6 +809,10 @@ it.each([
     try {
       await live.adapter.start();
       preservesNativeArguments(params);
+      const checkPending = pendingArgumentGuard(
+        { live, answer, nativeAnswer },
+        params,
+      );
       await live.adapter.prompt("mcp-cancel\n" + JSON.stringify(params));
       await vi.waitFor(() =>
         expect(
@@ -801,6 +841,7 @@ it.each([
       // argument, including deletions, destinations and small file contents.
       projectedFile.content = content;
       expect(preview).toEqual(args);
+      checkPending();
       expect(answer).not.toHaveBeenCalled();
       expect(state()).toBe("awaiting_approval");
       expect(interrupt).not.toHaveBeenCalled();
