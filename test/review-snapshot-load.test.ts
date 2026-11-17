@@ -1,25 +1,16 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-snapshot-load-"));
-process.env.LOOP_DATA_DIR = join(dir, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testRootDirectory();
 const { db } = await import("../src/server/db");
 const { captureSnapshot, snapshotFingerprint } =
   await import("../src/server/review-snapshot");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("captures repository context with bounded Git processes and preserves byte-framed blobs", () => {

@@ -1,22 +1,14 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  chmodSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync, chmodSync } from "node:fs";
 
-const root = mkdtempSync(join(tmpdir(), "loop-native-mcp-import-"));
+import { join } from "node:path";
+
+const root = testRootDirectory();
 const oldHome = process.env.HOME;
 const oldPath = process.env.PATH;
 process.env.HOME = join(root, "home");
 process.env.PATH = join(root, "bin") + ":" + (oldPath || "");
-process.env.LOOP_DATA_DIR = join(root, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 mkdirSync(process.env.HOME, { recursive: true });
 mkdirSync(join(root, "bin"));
 const codex = join(root, "bin", "codex");
@@ -45,7 +37,6 @@ afterAll(() => {
   db.close();
   process.env.HOME = oldHome;
   process.env.PATH = oldPath;
-  rmSync(root, { recursive: true, force: true });
 });
 
 it("lists harness MCP names without browser-visible credentials and imports only the selected server", async () => {

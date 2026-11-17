@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -16,7 +17,9 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 export async function verifyTestBootstrap() {
-  const directory = mkdtempSync(join(tmpdir(), "loop-bootstrap-contract-"));
+  const directory = realpathSync(
+    mkdtempSync(join(tmpdir(), "loop-bootstrap-contract-")),
+  );
   try {
     const external = join(directory, "external");
     mkdirSync(external);
@@ -66,6 +69,7 @@ export default {...base,...fixture,test:{...base.test,...fixture.test}};`,
             JSON.parse(line) as {
               label: string;
               directory: string;
+              root: string;
               keyHash: string;
             },
         );
@@ -76,7 +80,13 @@ export default {...base,...fixture,test:{...base.test,...fixture.test}};`,
       assert.equal(new Set(records.map((record) => record.directory)).size, 2);
       assert.equal(new Set(records.map((record) => record.keyHash)).size, 2);
       for (const record of records) {
-        assert.equal(dirname(record.directory), directory);
+        assert.equal(dirname(record.root), directory);
+        assert.equal(dirname(record.directory), record.root);
+        assert.equal(
+          existsSync(record.root),
+          false,
+          "Setup removes sibling resources with its root",
+        );
         assert.notEqual(record.directory, external);
         assert.notEqual(
           record.keyHash,

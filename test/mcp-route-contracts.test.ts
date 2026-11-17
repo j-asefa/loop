@@ -1,15 +1,10 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -27,7 +22,7 @@ vi.mock("../src/server/mcp/client.js", async (original) => ({
   ...(await original<object>()),
   authorize: native.authorize,
 }));
-const directory = mkdtempSync(join(tmpdir(), "loop-mcp-contracts-"));
+const directory = testRootDirectory();
 native.home = join(directory, "native");
 mkdirSync(native.home);
 const bin = join(directory, "bin");
@@ -47,9 +42,7 @@ writeFileSync(
     },
   }),
 );
-process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.LOOP_URL = "http://127.0.0.1";
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id } = await import("../src/server/db");
 const { config, setWorkspaceUrl } = await import("../src/server/config");
 const { withTestMcp, oauthProvider, readSecret } =
@@ -123,7 +116,6 @@ afterAll(async () => {
   await closeExecution();
   await nativeSessions.close();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 function request(

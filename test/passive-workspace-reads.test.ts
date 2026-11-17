@@ -1,7 +1,7 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
+
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import express from "express";
@@ -13,9 +13,7 @@ import { OpenCode } from "../src/adapters/opencode.js";
 import { DirectControls } from "../src/adapters/direct-controls.js";
 import type { Live } from "../src/server/native-sessions.js";
 
-const root = mkdtempSync(join(tmpdir(), "loop-passive-reads-"));
-process.env.LOOP_DATA_DIR = join(root, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const root = testRootDirectory();
 process.env.LOOP_TEST_HARNESS = "claude";
 gitProject(root);
 const { db } = await import("../src/server/db.js");
@@ -136,7 +134,6 @@ afterAll(async () => {
   await closeExecution();
   await nativeSessions.close();
   db.close();
-  rmSync(root, { recursive: true, force: true });
   delete process.env.LOOP_TEST_HARNESS;
 });
 async function get(path: string, headers?: Record<string, string>) {

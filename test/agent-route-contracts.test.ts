@@ -1,21 +1,16 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { readRoute } from "../src/client/api";
 import { RunId } from "../src/shared/contract-ids.js";
 import { afterAll, expect, it, vi } from "vitest";
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
 import { join, resolve } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-agent-contracts-"));
+const directory = testRootDirectory();
 const project = join(directory, "project"),
   piHome = join(directory, "pi");
 mkdirSync(join(project, ".pi", "prompts"), { recursive: true });
@@ -38,9 +33,7 @@ writeFileSync(
   join(piHome, "settings.json"),
   JSON.stringify({ packages: ["npm:fixture"] }),
 );
-process.env.LOOP_DATA_DIR = join(directory, "data");
 process.env.PI_CODING_AGENT_DIR = piHome;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { app } = await import("../src/server/index");
 const { withTestAdapter } = await import("../src/server/providers");
@@ -179,7 +172,6 @@ afterAll(async () => {
   await nativeSessions.close();
   restore();
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("connectionCreate validates inbound credentials and exposes only id/models from production creation", async () => {
