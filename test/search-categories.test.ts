@@ -1,4 +1,4 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -70,9 +70,16 @@ function fixture() {
     models: "[]",
     created_at: now(),
   });
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,instructions,created_at) VALUES(?,?,?,?,'openai',?,'fixture','',?)",
-  ).run(agent, owner, agent, agent, connection, now());
+  seedAgent(db, {
+    id: agent,
+    owner_id: owner,
+    name: agent,
+    normalized_name: agent,
+    provider: "openai",
+    connection_id: connection,
+    model: "fixture",
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Search project',?)",
   ).run(folder, owner, now());

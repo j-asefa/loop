@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
@@ -11,9 +11,15 @@ const dir = realpathSync(testDirectory());
 
 gitProject(dir);
 const { db, now } = await import("../src/server/db");
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','owner','Fixture','fixture','codex','fixture',0)",
-).run();
+seedAgent(db, {
+  id: "worktree-fixture",
+  owner_id: "owner",
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "codex",
+  model: "fixture",
+  created_at: 0,
+});
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const fixture = fileURLToPath(
