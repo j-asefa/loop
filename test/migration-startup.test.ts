@@ -54,8 +54,11 @@ it("waits for another startup migration, then restores the normal write timeout"
     await new Promise<void>((resolve) =>
       child!.stdout!.once("data", () => resolve()),
     );
-    // The previous five-second startup timeout expires before this releases.
+    // There is no public signal that the startup lock has outlasted its old
+    // five-second failure window. Releasing sooner would lose that regression:
+    // this bounded negative window must keep the real db.ts caller alive.
     await new Promise((resolve) => setTimeout(resolve, 6500));
+    expect(child.exitCode, errors).toBeNull();
     locked.exec("COMMIT");
     expect(await finished, errors).toBe(0);
     expect(output).toContain("timeout=5000");

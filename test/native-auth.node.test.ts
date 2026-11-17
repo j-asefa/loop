@@ -451,6 +451,9 @@ test("Cancelling Antigravity during its account check stops every check", async 
     // The terminal sign-in ends with it.
     await until(async () => !(await pids("login-pids")).some(alive), 5000);
     const started = (await pids()).length;
+    // No public signal confirms that delayed rechecks are gone. This negative
+    // window spans the driver's 1.5 s recheck delay and bounds a new probe
+    // after cancellation; the preceding PID checks cover only existing ones.
     await new Promise((resolve) => setTimeout(resolve, 2000));
     assert.equal((await pids()).length, started);
   } finally {
