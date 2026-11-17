@@ -1,22 +1,17 @@
+import { createTestWorkspace } from "./helpers/test-workspace.js";
 import { inProcessExecution } from "./in-process-execution.js";
 import { gitProject } from "./git-project.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  realpath,
-  rm,
-  chmod,
-} from "node:fs/promises";
-import { hostname, platform, tmpdir } from "node:os";
+import { mkdir, readFile, chmod } from "node:fs/promises";
+import { hostname, platform } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-const dir = await realpath(await mkdtemp(join(tmpdir(), "loop-workspace-")));
+const workspace = createTestWorkspace("loop-workspace-");
+const dir = workspace.directory;
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
 process.env.LOOP_TEST_AUDIT = join(dir, "audit");
@@ -661,6 +656,6 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     for (const ws of sockets) ws.terminate();
     await host.close();
     db.close();
-    await rm(dir, { recursive: true, force: true });
+    workspace.close();
   }
 });
