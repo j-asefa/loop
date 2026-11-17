@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, describe, it, expect } from "vitest";
 
@@ -26,15 +27,14 @@ const restore = withTestAdapter("openai", {
 });
 function connection(owner: string) {
   const c = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Test fixture',?,'connected',?,?)",
-  ).run(
-    c,
-    owner,
-    seal("fake-key", owner),
-    JSON.stringify([{ id: "fixture-model" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: c,
+    owner_id: owner,
+    label: "Test fixture",
+    secret: seal("fake-key", owner),
+    models: JSON.stringify([{ id: "fixture-model" }]),
+    created_at: now(),
+  });
   return c;
 }
 afterAll(() => {
