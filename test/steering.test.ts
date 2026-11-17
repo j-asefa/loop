@@ -1,7 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers";
 import { afterAll, expect, it, vi } from "vitest";
-import express from "express";
 
 import type { ChatMessage } from "../src/server/providers";
 
@@ -19,26 +19,13 @@ const { conversationMessages } =
   await import("../src/server/conversation-messages");
 const { uploadFile, readRunFile } = await import("../src/server/uploads");
 const { core } = await import("../src/server/core-routes");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
-});
-app.use(core);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 400).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
+const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
 async function send(body: object, owner = "alice") {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/runs`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-owner": owner },
-      body: JSON.stringify(body),
-    },
-  );
+  const response = await fetch(`${app.url}/api/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-owner": owner },
+    body: JSON.stringify(body),
+  });
   return { status: response.status, data: await response.json() };
 }
 function start() {
@@ -66,7 +53,7 @@ function start() {
   return { agent, run };
 }
 afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await app.close();
   db.close();
 });
 
@@ -489,10 +476,9 @@ function harnessConnection(harness: string | null) {
   return connection;
 }
 async function steerableRun(conversation: string) {
-  const response = await fetch(
-    `http://127.0.0.1:${(server.address() as any).port}/conversations/${conversation}`,
-    { headers: { "x-owner": "alice" } },
-  );
+  const response = await fetch(`${app.url}/api/conversations/${conversation}`, {
+    headers: { "x-owner": "alice" },
+  });
   return (await response.json()).steerable_run_id;
 }
 
@@ -611,10 +597,9 @@ it.each([true, false])(
       await until(() => !!signal);
       if (enabled) expect(changes.subscriberCount).toBe(subscriptions + 1);
       const started = Date.now();
-      const response = await fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/runs/${run.id}/cancel`,
-        { method: "POST" },
-      );
+      const response = await fetch(`${app.url}/api/runs/${run.id}/cancel`, {
+        method: "POST",
+      });
       expect(response.status).toBe(200);
       expect(await executeWithDeadline(work)).not.toMatchObject({
         kind: "finished",
@@ -656,10 +641,9 @@ it.each([true, false])(
     try {
       await until(() => !!signal);
       const started = Date.now();
-      const response = await fetch(
-        `http://127.0.0.1:${(server.address() as any).port}/connections/${connection}`,
-        { method: "DELETE" },
-      );
+      const response = await fetch(`${app.url}/api/connections/${connection}`, {
+        method: "DELETE",
+      });
       expect(response.status).toBe(200);
       expect(((await work) as Error).message).toContain(
         "provider connection was disconnected",

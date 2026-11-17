@@ -1,3 +1,4 @@
+import { verifyAppFixture } from "./helpers/app-contract.js";
 import { verifyTestBootstrap } from "./helpers/bootstrap-contract.js";
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -155,6 +156,7 @@ test(
       assert.equal(checked.status, 0, checked.stderr);
     }
     await verifyTestBootstrap();
+    await verifyAppFixture();
   },
 );
 

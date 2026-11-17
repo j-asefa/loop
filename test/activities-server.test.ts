@@ -1,7 +1,8 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
-import express from "express";
+
 testDirectory();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
@@ -13,24 +14,16 @@ const { nativeBindings, invokeNative, runtimeInstructions, PLAN_GUIDANCE } =
   await import("../src/server/native-tools");
 const { applyActivity, listActivities, activityRoutes } =
   await import("../src/server/activities");
-const app = express();
-app.use(express.json(), (req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "alice";
-  next();
+const app = await productionApp("alice", [activityRoutes], {
+  ownerHeader: "x-owner",
 });
-app.use(activityRoutes);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((r) => server.once("listening", r));
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const base = app.url + "/api";
 const get = async (path: string, owner = "alice") => {
   const res = await fetch(base + path, { headers: { "x-owner": owner } });
   return { status: res.status, body: await res.json() };
 };
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 function agent(owner = "alice") {

@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -12,8 +13,6 @@ import {
 import { join } from "node:path";
 
 import { execFileSync } from "node:child_process";
-
-import express from "express";
 
 const dir = testRootDirectory();
 const { db, id, now } = await import("../src/server/db");
@@ -81,24 +80,12 @@ const details = {
   idempotencyKey: "create-review-team",
 };
 let team: any;
-const app = express();
-app.use(
-  express.json(),
-  (req, res, next) => {
-    res.locals.owner = req.get("x-owner") || "bob";
-    next();
-  },
-  teams,
-  core,
-);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve) => server.once("listening", resolve));
-const url = "http://127.0.0.1:" + (server.address() as any).port;
+const app = await productionApp("bob", [teams, core], {
+  ownerHeader: "x-owner",
+});
+const url = app.url + "/api";
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 

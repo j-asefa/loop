@@ -1,3 +1,4 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { harnessIds } from "../src/shared/harnesses.js";
 import { NativeItemState } from "../src/shared/native-item-state.js";
@@ -9,7 +10,6 @@ import { DirectControls } from "../src/adapters/direct-controls";
 import { directActivityUpdate } from "../src/activity-bridge";
 import { afterAll, expect, it } from "vitest";
 
-import express from "express";
 import { normalizeItemStatus } from "../src/shared/native-item-state.js";
 const dir = testDirectory();
 
@@ -20,18 +20,10 @@ const { activityRoutes } = await import("../src/server/activities");
 const { conversationUsage } = await import("../src/server/mobile-return");
 
 // The real activity route, authenticated as the conversation owner.
-const app = express();
-app.use((req, res, next) => {
-  res.locals.owner = req.get("x-owner") || "owner";
-  next();
+const app = await productionApp("owner", [activityRoutes], {
+  ownerHeader: "x-owner",
 });
-app.use(activityRoutes);
-app.use((e: any, _req: any, res: any, _next: any) =>
-  res.status(e.status || 500).json({ error: e.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((r) => server.once("listening", r));
-const base = "http://127.0.0.1:" + (server.address() as any).port;
+const base = app.url + "/api";
 const snapshot = async (
   conversation: string,
   after?: number,
@@ -44,7 +36,7 @@ const snapshot = async (
   return { status: res.status, body: (await res.json()) as any };
 };
 afterAll(async () => {
-  await new Promise<void>((r) => server.close(() => r()));
+  await app.close();
   db.close();
 });
 

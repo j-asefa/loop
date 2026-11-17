@@ -1,7 +1,7 @@
+import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 
-import express from "express";
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");
@@ -11,21 +11,8 @@ const { submit } = await import("../src/server/agent-runtime");
 const { withTestAdapter } = await import("../src/server/providers");
 const { tick, execute } = await import("../src/server/worker");
 const { workspace } = await import("../src/server/workspace-routes");
-const app = express();
-app.use(express.json(), (_req, res, next) => {
-  res.locals.owner = "alice";
-  next();
-});
-app.use(workspace);
-app.use((error: any, _req: any, res: any, _next: any) =>
-  res.status(error.status || 500).json({ error: error.message }),
-);
-const server = app.listen(0, "127.0.0.1");
-await new Promise<void>((resolve, reject) => {
-  server.once("listening", resolve);
-  server.once("error", reject);
-});
-const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const app = await productionApp("alice", [workspace]);
+const base = `${app.url}/api`;
 function agent(provider: "openai" | "anthropic") {
   const c = id();
   db.prepare(
@@ -50,9 +37,7 @@ const record = (r: string) =>
   db.prepare("SELECT * FROM runs WHERE id=?").get(r) as any;
 afterAll(async () => {
   vi.unstubAllGlobals();
-  await new Promise<void>((resolve, reject) =>
-    server.close((e) => (e ? reject(e) : resolve())),
-  );
+  await app.close();
   db.close();
 });
 it("keeps live user edits and their versions while the generator finishes its own revision", async () => {

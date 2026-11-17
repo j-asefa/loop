@@ -1,8 +1,9 @@
 // Production routers mounted in production order (mobile before core, see
 // src/server/mobile-routes.ts) with the production error handler, so tests
 // see the same status codes and bodies as the running app.
-import express, { type RequestHandler } from "express";
+import express, { type Express, type RequestHandler } from "express";
 import type { AddressInfo } from "node:net";
+import { once } from "node:events";
 
 export async function productionApp(
   owner: string,
@@ -26,12 +27,20 @@ export async function productionApp(
   });
   app.use("/api", ...routers);
   app.use(errorHandler);
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const server = await listenForTest(app);
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
     url,
     fetch: (path: string, init?: RequestInit) => fetch(url + path, init),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
   };
+}
+
+export async function listenForTest(app: Express) {
+  const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  return server;
 }
