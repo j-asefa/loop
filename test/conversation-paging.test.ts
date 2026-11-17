@@ -1,3 +1,5 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
+import { seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
@@ -38,14 +40,21 @@ function run(conversation: string, owner = "alice") {
 function message(
   conversation: string,
   run: string | null,
-  role = "user",
+  role: MessageRole = "user",
   metadata = "{}",
   owner = "alice",
 ) {
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,10)",
-  ).run(message, owner, conversation, run, role, message, metadata);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: run,
+    role: role,
+    content: message,
+    metadata: metadata,
+    created_at: 10,
+  });
   return message;
 }
 function trace(run: string, metadata = "{}", owner = "alice") {
