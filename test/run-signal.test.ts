@@ -37,16 +37,51 @@ it("shares one fallback read and subscription until the last consumer releases",
     expect(() => watchRun({ ...run, owner_id: "other" })).toThrow(/workspace/);
     await turn();
     const read = vi.spyOn(runQueries, "signalState");
+    // Simulate a committed state change whose notification was missed. The
+    // shared fallback must recover the actual run, not merely call a helper.
+    db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
+    expect(one.state).toBe("queued");
     await vi.advanceTimersByTimeAsync(2000);
-    expect(read).toHaveBeenCalledExactlyOnceWith(db, run.id, run.owner_id);
+    expect(read).toHaveBeenCalledOnce();
+    expect(one.state).toBe("running");
+    expect(two.state).toBe("running");
+    expect(two.signal.aborted).toBe(false);
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledOnce();
     one.release();
     one.release();
+    db.prepare("UPDATE runs SET state='interrupted' WHERE id=?").run(run.id);
     await vi.advanceTimersByTimeAsync(2000);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(two.state).toBe("interrupted");
+    expect(two.signal.aborted).toBe(true);
+    expect(two.signal.reason.message).toBe("This run was interrupted.");
     expect(first).toHaveBeenCalledOnce();
     expect(second).toHaveBeenCalledTimes(2);
     two.release();
+    expect(changes.subscriberCount).toBe(baseline);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(2);
+
+    // A foreign run ID must not expose state, initially or through polling.
+    const other = enqueue("other", "Private", id());
+    const foreign = watchRun({ ...other, owner_id: run.owner_id });
+    try {
+      expect(foreign.state).toBeUndefined();
+      expect(foreign.signal.aborted).toBe(true);
+      expect(foreign.signal.reason.message).toBe(
+        "This run is no longer available.",
+      );
+      const fallback = vi.fn();
+      foreign.on("fallback", fallback);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fallback).toHaveBeenCalledOnce();
+      expect(foreign.state).toBeUndefined();
+    } finally {
+      foreign.release();
+    }
     expect(changes.subscriberCount).toBe(baseline);
     expect(vi.getTimerCount()).toBe(0);
   } finally {
