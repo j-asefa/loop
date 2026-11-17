@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -130,14 +131,13 @@ it("keeps supplied keys only in encrypted secrets and makes installed tools avai
     "secret-never-echo-this",
   );
   const provider = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-  ).run(
-    provider,
-    seal("fixture", "alice"),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: provider,
+    owner_id: "alice",
+    secret: seal("fixture", "alice"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   for (const name of ["one", "two"]) {
     const agent = createAgent("alice", {
       name,

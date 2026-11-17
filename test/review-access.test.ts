@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { execFileSync } from "node:child_process";
 import { afterAll, expect, it, vi } from "vitest";
@@ -21,9 +22,13 @@ const owner = id(),
   connection = id(),
   folder = id(),
   team = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture','','connected',?,?)",
-).run(connection, owner, JSON.stringify([{ id: "fixture" }]), now());
+seedConnection(db, {
+  id: connection,
+  owner_id: owner,
+  secret: "",
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agent = createAgent(owner, {
   name: "review-" + id().slice(0, 8),
   connectionId: connection,

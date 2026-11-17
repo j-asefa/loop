@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -71,15 +72,13 @@ function valid(
 const bad = { status: 400, data: { error: expect.any(String) } };
 function fixture(who = owner) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    who,
-    seal("fixture-only-key", who),
-    JSON.stringify([{ id: "fixture", name: "Fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: who,
+    secret: seal("fixture-only-key", who),
+    models: JSON.stringify([{ id: "fixture", name: "Fixture" }]),
+    created_at: now(),
+  });
   const agent = createAgent(who, {
     name: "memory-" + id().slice(0, 8),
     connectionId: connection,

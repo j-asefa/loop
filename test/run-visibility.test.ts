@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -17,14 +18,13 @@ const { core } = await import("../src/server/core-routes");
 const app = await productionApp("alice", [core], { ownerHeader: "x-owner" });
 const base = app.url + "/api";
 const connection = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-).run(
-  connection,
-  seal("fixture", "alice"),
-  JSON.stringify([{ id: "fixture" }]),
-  now(),
-);
+seedConnection(db, {
+  id: connection,
+  owner_id: "alice",
+  secret: seal("fixture", "alice"),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agent = createAgent("alice", {
   name: "visibility-scout",
   connectionId: connection,

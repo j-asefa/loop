@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll, vi } from "vitest";
 import Database from "better-sqlite3";
@@ -94,14 +95,13 @@ const fixtureMcp = async () => {
 };
 const resetMcp = withTestMcp(fixtureMcp);
 const account = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-).run(
-  account,
-  seal("fixture", "alice"),
-  JSON.stringify([{ id: "fixture" }]),
-  now(),
-);
+seedConnection(db, {
+  id: account,
+  owner_id: "alice",
+  secret: seal("fixture", "alice"),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agent = createAgent("alice", {
   name: "mcp-fixture-agent",
   connectionId: account,
@@ -157,14 +157,13 @@ it("shares installed MCPs with existing and future agents, but never across owne
     model: "fixture",
   });
   const bobAccount = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'bob','openai','Fixture',?,'connected',?,?)",
-  ).run(
-    bobAccount,
-    seal("fixture", "bob"),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: bobAccount,
+    owner_id: "bob",
+    secret: seal("fixture", "bob"),
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   const bob = createAgent("bob", {
     name: "other-workspace-agent",
     connectionId: bobAccount,

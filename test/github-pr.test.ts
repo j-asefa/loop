@@ -1,3 +1,4 @@
+import { seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
 
@@ -276,14 +277,13 @@ const githubFixture = async () => {
 };
 const resetMcp = withTestMcp(githubFixture);
 const account = id();
-db.prepare(
-  "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'alice','openai','Fixture',?,'connected',?,?)",
-).run(
-  account,
-  seal("fixture", "alice"),
-  JSON.stringify([{ id: "fixture" }]),
-  now(),
-);
+seedConnection(db, {
+  id: account,
+  owner_id: "alice",
+  secret: seal("fixture", "alice"),
+  models: JSON.stringify([{ id: "fixture" }]),
+  created_at: now(),
+});
 const agent = createAgent("alice", {
   name: "github-agent",
   connectionId: account,
