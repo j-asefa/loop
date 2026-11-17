@@ -25,6 +25,10 @@ export type ClaimActions = {
   ) => boolean;
   rejectInvalidRun: (run: Identity, error: InvalidRow) => void;
 };
+// beforeEvent runs inside the transition's immediate transaction, so its
+// failure rolls the transition back. afterTransition runs once that inner
+// transaction returns; a caller's outer transaction (lease completion, claim
+// cleanup) may still enclose it, so it is not an after-commit callback.
 type QueueHooks = {
   beforeClaim: (actions: ClaimActions) => void;
   ready: (run: Run) => boolean;

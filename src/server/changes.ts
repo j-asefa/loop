@@ -80,7 +80,8 @@ export function createChangeBus(
     if (closed) return;
     if (!db.open) return close();
     // Transactions are synchronous. If a caller nonetheless holds one across
-    // a macrotask, retain the wake rather than reading its uncommitted writes.
+    // a macrotask, retain the wake rather than reading its uncommitted writes;
+    // only committed rows are read, so a rolled-back savepoint never publishes.
     if (db.inTransaction) return retryLater();
     draining = true;
     dirty = false;

@@ -400,6 +400,8 @@ async function readRequest<T>(
     } catch (error) {
       if (signal.aborted || generation !== viewGeneration()) throw error;
       const status = (error as { status?: number }).status;
+      // Only reads wait and retry here; writes go through callRoute once and
+      // never retry on Retry-After or a transient failure.
       const delay =
         mode !== "once" && isRateLimited(error)
           ? retryAfter(error)
