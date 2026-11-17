@@ -1,3 +1,8 @@
+// Uses the built UI and isolated message fixtures in Chromium and WebKit to
+// check math in Feed cards, reading sheets and conversations, delayed and
+// failed asset downloads, local fonts, 320/390px equation scrolling and
+// streamed message updates. It makes no provider requests and does not replace
+// physical-phone validation.
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { tmpdir } from "node:os";

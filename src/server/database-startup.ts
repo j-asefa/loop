@@ -7,6 +7,11 @@ import { refuseRecordedEffects } from "./recorded-effects.js";
 
 let initialized: Database.Database | undefined;
 
+/** Registers SQL functions, sets WAL and timeouts, runs migrations, the initial
+ * Feed projection, the projection boundary and the local effect authority. It
+ * initializes the process connection once and refuses a different connection,
+ * so the process-wide effect guard cannot be redirected. Importing this module
+ * opens no database; db.ts calls it when opening the process connection. */
 export function startDatabase(
   db: Database.Database,
   emit: Parameters<typeof projectFeed>[1],

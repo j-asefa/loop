@@ -1,3 +1,8 @@
+// Checks the production receipt preparation and settlement functions with real
+// browser storage and Web Locks across two tabs. Its isolated HTTP fixture
+// drops accepted responses and checks identity reuse after reload, independent
+// settlement and storage refusal before dispatch. This exercises receipt
+// persistence, not a rendered composer or live provider.
 import assert from "node:assert/strict";
 import { chromium, webkit } from "@playwright/test";
 import { createServer } from "node:http";

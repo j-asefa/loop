@@ -39,12 +39,7 @@ handles them. `148-remove-workflows.sql` aborts startup if any workflow,
 workflow step, workflow run or run started by a workflow step exists; Loop
 provides no upgrade or archival path for those records.
 
-[startDatabase](../src/server/database-startup.ts) owns SQL function registration,
-WAL and timeout setup, migrations, initial Feed projection, the projection boundary
-and local effect authority. It initializes the process connection once and refuses
-a different connection so the process-wide effect guard cannot be redirected. Importing
-that module does not open or initialize a database. `db.ts` currently calls it when
-opening the process connection; importing `db.ts` still initializes that database.
+[startDatabase](../src/server/database-startup.ts) initializes the process connection, including migrations; its doc comment lists what it owns and why it refuses a second connection.
 
 The API and worker use the same immediate startup transaction. The runner records
 successful files in `schema_migrations(name,prefix,applied_at)`; new SQL must not
@@ -150,37 +145,17 @@ npm run smoke:fleet-commands
 LOOP_BROWSER=webkit npm run smoke:fleet-commands
 ```
 
-`smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. `smoke:pulls` drives the Pull requests tab against a scripted GitHub ([fake-github.mjs](../scripts/helpers/fake-github.mjs)); it does not reach GitHub. `smoke:social` seeds stories straight into the feed store, so it drives Social's reading, saving, filtering, search and watches without reaching a feed.
+`smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social` and `smoke:pulls` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. Each script's header comment says what it checks and what it does not validate:
 
-`smoke:history` opens a long transcript and verifies that older activity is fetched only when requested, historical file reviews remain available, and live updates keep their own cursor.
-
-`smoke:math` uses the built UI and isolated message fixtures in Chromium and WebKit. It checks math in Feed cards, reading sheets and conversations, delayed and failed asset downloads, local fonts, 320/390px equation scrolling and streamed message updates. Set `LOOP_BROWSER` to select one engine. It makes no provider requests and does not replace physical-phone validation.
-
-`node scripts/harness-upgrades-browser-smoke.mjs` drives the production provider cards and typed transport against an isolated HTTP fixture in a mobile viewport. It checks read-only release lookup, upgrade progress, version refresh, self-updater guidance and a restart hold across reload. It does not install or authenticate a live harness.
-
-`node scripts/heavy-command.mjs scripts/send-receipts-browser-smoke.mjs` checks
-the production receipt preparation and settlement functions with real browser
-storage and Web Locks across two tabs. Its isolated HTTP fixture drops accepted
-responses and checks identity reuse after reload, independent settlement and
-storage refusal before dispatch. Set `LOOP_BROWSER=webkit` for WebKit; Chromium
-is the default. This exercises receipt persistence, not a rendered composer or
-live provider.
-
-`smoke:fleet-controls` drives the production native-question and sharing UI with source context against an isolated HTTP fixture. It checks read-only and mismatched-machine capabilities, source-bound command IDs, storage failure before dispatch, and source changes during a pending share preview. Reading a preview does not grant permission to send it. This is browser fixture evidence, not a native provider or live tunnel run.
-
-The same smoke renders the production agent-mail sheet and thread reader with
-machine-qualified references. It checks duplicate display-name labels, navigation
-to the owning peer from another machine's mail sheet, local navigation when the
-browser opens that recipient's gateway, source-bound attachment links, unavailable
-directory state and current source-qualified responses. Its HTTP projections are
-scripted; fleet mail HTTP/native tests separately exercise owning projections and
-delivery.
-
-`smoke:fleet-commands` bundles the production typed client and receipt panel and exercises IndexedDB transactions and Web Locks across reloads and concurrent tabs. Its deterministic HTTP receipt server drops a response after acceptance and checks that the next attempt queries the original command. It reloads without the original action body and checks the persisted destination, command ID, action type and digest through the local receipt route. The panel copies a receipt between separate origins, retains an unknown outcome, and aborts a lookup when the signed-in owner changes. Importing a receipt submits no action. This fixture does not validate companion admission, live providers or tunnels; the fleet HTTP tests cover the owning gateway and destination boundaries.
-
-`smoke:fleet-traces` drives the production trace panel against isolated HTTP fixtures with identical entity IDs on two sources. It exercises source-bound artifact reads, pagination and run downloads, including owner/source changes while a response or asynchronous Blob read is pending. It runs no provider or live tunnel.
-
-`node --import tsx scripts/fleet-feed-browser-smoke.mjs` checks the production source metadata loader, combined Feed and source-bound composer drafts with isolated HTTP fixtures. Set `LOOP_BROWSER=webkit` for WebKit; Chromium is the default. The nine-source fixture holds one response while healthy sources render, then returns 503 and records request counts, bytes and partial-result timing. These measurements describe the fixture workload, not Internet latency or physical-phone performance. Native capacity and multiplex fixtures separately measure shared admission and upstream socket reuse.
+| Check                                                                | Script                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `smoke:history`                                                      | [conversation-history-smoke.mjs](../scripts/conversation-history-smoke.mjs)                                                                                                                                                                                                                                                                                                                             |
+| `smoke:math`                                                         | [math-browser-smoke.mjs](../scripts/math-browser-smoke.mjs)                                                                                                                                                                                                                                                                                                                                             |
+| `smoke:pulls`                                                        | [pull-requests-smoke.mjs](../scripts/pull-requests-smoke.mjs)                                                                                                                                                                                                                                                                                                                                           |
+| `smoke:social`                                                       | [social-browser-smoke.mjs](../scripts/social-browser-smoke.mjs)                                                                                                                                                                                                                                                                                                                                         |
+| `smoke:feed-events`                                                  | [feed-websocket-smoke.mjs](../scripts/feed-websocket-smoke.mjs)                                                                                                                                                                                                                                                                                                                                         |
+| `smoke:fleet-controls`, `smoke:fleet-commands`, `smoke:fleet-traces` | [fleet-controls-browser-smoke.mjs](../scripts/fleet-controls-browser-smoke.mjs), [fleet-command-browser-smoke.mjs](../scripts/fleet-command-browser-smoke.mjs), [fleet-traces-browser-smoke.mjs](../scripts/fleet-traces-browser-smoke.mjs)                                                                                                                                                             |
+| Harness upgrades, send receipts, fleet Feed, Feed transfer           | [harness-upgrades-browser-smoke.mjs](../scripts/harness-upgrades-browser-smoke.mjs), [send-receipts-browser-smoke.mjs](../scripts/send-receipts-browser-smoke.mjs), [fleet-feed-browser-smoke.mjs](../scripts/fleet-feed-browser-smoke.mjs), [feed-transfer-smoke.mjs](../scripts/feed-transfer-smoke.mjs) (run with `node scripts/heavy-command.mjs …`; `feed-transfer-smoke.mjs` needs a build first) |
 
 Use `npm run smoke:workspace -- --notifications-only` to check notification opt-in,
 category defaults and persistence in both browser engines without the other workspace journeys.
@@ -191,14 +166,6 @@ The companion sign-in fixture also shadows installed harness commands on PATH.
 Its Claude sign-in uses the protocol fixture; other discovered CLIs fail locally
 without starting the developer's installations. Browser checks must not launch
 real harnesses merely to populate Provider connections.
-
-After building, `node scripts/heavy-command.mjs scripts/feed-transfer-smoke.mjs`
-checks a phone-sized Feed with 100 additional avatars in Chromium and WebKit.
-It exercises deferred image loading and production cache/compression headers;
-Chromium also checks encoded transfer sizes and cache reuse on reload. No live
-providers or Internet tunnel are used. `LOOP_BROWSER` selects one engine.
-
-`smoke:feed-events` runs Chromium and WebKit against compiled companion and paired entrypoints, including two enrolled fixture companions. It blocks HTTP event polling while checking Working-to-Done transitions, retained history, updates during pending reads and reconnect catch-up, then blocks WebSockets to check HTTP fallback and connection status. A Chromium companion case checks the HTTP request budget while two Done tabs receive sustained updates. The Files journey checks retained pages and scroll, updates during Load more, multi-page catch-up, failure recovery and source/filter isolation. It does not use a real Docker daemon or a provider.
 
 ## Manual verification
 

@@ -1,3 +1,7 @@
+// Drives the production provider cards and typed transport against an isolated
+// HTTP fixture in a mobile viewport: read-only release lookup, upgrade
+// progress, version refresh, self-updater guidance and a restart hold across
+// reload. It does not install or authenticate a live harness.
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { createServer } from "node:http";

@@ -1,3 +1,7 @@
+// Drives the production trace panel against isolated HTTP fixtures with
+// identical entity IDs on two sources: source-bound artifact reads, pagination
+// and run downloads, including owner/source changes while a response or Blob
+// read is pending. It runs no provider or live tunnel.
 // Real trace controls and typed browser transport against isolated HTTP fixtures.
 // No provider, user data or fleet credential is used by this browser regression.
 import { chromium, webkit, expect } from "@playwright/test";
