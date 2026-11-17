@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import {
   assertAnswerStored,
   exerciseAnswerRecord,
@@ -7,19 +8,17 @@ import type { Item } from "../src/shared/protocol";
 import { Codex } from "../src/adapters/codex";
 import Database from "better-sqlite3";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join } from "node:path";
 import { NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
-const dir = mkdtempSync(join(tmpdir(), "loop-projection-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { openAnswer } = await import("../src/server/answer-record");
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("flushes dirty native items and completes after exceeding the display window", async () => {

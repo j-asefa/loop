@@ -1,15 +1,13 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 import { belongsToProject } from "../src/shared/projects";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-project-attention-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { core } = await import("../src/server/core-routes");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -75,7 +73,6 @@ const record = (run: string) =>
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("persists project membership without an initial prompt and atomically enforces ownership on reassignment", async () => {

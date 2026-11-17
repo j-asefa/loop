@@ -1,15 +1,12 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import type { ChatMessage } from "../src/server/providers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-steering-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now, changes } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent } = await import("../src/server/domain");
@@ -71,7 +68,6 @@ function start() {
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("steers an active API response without creating a second run and keeps the selected quote in history", async () => {

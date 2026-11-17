@@ -1,7 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
 import { randomBytes } from "node:crypto";
 import express from "express";
 import { ZodError } from "zod";
@@ -20,9 +19,8 @@ vi.mock("better-sqlite3", async (load) => {
     default: traceDatabase(original.default, (sql) => trace.observe?.(sql)),
   };
 });
-const dir = mkdtempSync(join(tmpdir(), "loop-mobile-return-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now, emit } = await import("../src/server/db");
 const { sealSeededHistory } = await import("./helpers/published-history");
 const projectionQueries = await import("../src/server/sql/feed-cards");
@@ -89,7 +87,6 @@ async function api(
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function workspaceFor(owner = id()) {

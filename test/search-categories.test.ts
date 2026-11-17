@@ -1,9 +1,7 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import express from "express";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import type { AddressInfo } from "node:net";
 import { workspaceApi } from "../src/shared/workspace-api";
 import {
@@ -15,9 +13,8 @@ vi.mock("../src/server/local-embeddings.js", () => ({
   localModel: "fixture-search",
   localEmbeddings: async (texts: string[]) => texts.map(() => [1, 0]),
 }));
-const directory = mkdtempSync(join(tmpdir(), "loop-search-categories-"));
-process.env.LOOP_DATA_DIR = directory;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { sealSeededHistory } = await import("./helpers/published-history");
 const { workspace } = await import("../src/server/workspace-routes");
@@ -47,7 +44,6 @@ afterAll(async () => {
   vi.restoreAllMocks();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 async function request(
   owner: string,

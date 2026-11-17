@@ -1,10 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import Database from "better-sqlite3";
 import * as preferenceQueries from "../src/server/sql/preferences";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 const fixture = vi.hoisted(() => ({ fail: false, stall: false, calls: 0 }));
 vi.mock("../src/server/local-embeddings.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -17,9 +15,8 @@ vi.mock("../src/server/local-embeddings.js", async (importOriginal) => ({
     return texts.map((text) => (/car|automobile/.test(text) ? [1, 0] : [0, 1]));
   },
 }));
-const dir = mkdtempSync(join(tmpdir(), "loop-search-index-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { localModel } = await import("../src/server/local-embeddings.js");
 const { db, id, now } = await import("../src/server/db");
 const { page: eventPage } = await import("../src/server/sql/events");
@@ -42,7 +39,6 @@ afterAll(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("reports initial preparation, indexes batches and title-only files, and ignores entirely blank records", async () => {

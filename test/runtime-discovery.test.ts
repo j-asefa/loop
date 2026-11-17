@@ -1,10 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-const root = mkdtempSync(join(tmpdir(), "loop-runtime-discovery-"));
-process.env.LOOP_DATA_DIR = root;
+testDirectory();
+
 const probe = vi.hoisted(() => vi.fn());
 vi.mock("../src/host-control.js", () => ({ discover: probe }));
 const { db } = await import("../src/server/db");
@@ -12,7 +10,6 @@ const { runtimeList } = await import("../src/server/execution-runtime-actions");
 afterAll(() => {
   vi.restoreAllMocks();
   db.close();
-  rmSync(root, { recursive: true, force: true });
 });
 
 it("refreshes and an expired cache share a pending probe, then cache from completion", async () => {

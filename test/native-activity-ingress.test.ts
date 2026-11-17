@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { harnessIds } from "../src/shared/harnesses.js";
 import { NativeItemState } from "../src/shared/native-item-state.js";
 import type { Live } from "../src/server/native-sessions";
@@ -7,15 +8,11 @@ import { Claude } from "../src/adapters/claude";
 import { DirectControls } from "../src/adapters/direct-controls";
 import { directActivityUpdate } from "../src/activity-bridge";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 import { normalizeItemStatus } from "../src/shared/native-item-state.js";
-const dir = mkdtempSync(join(tmpdir(), "loop-activity-ingress-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db } = await import("../src/server/db");
 const { enqueue, claim, transition } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
@@ -49,7 +46,6 @@ const snapshot = async (
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 for (const c of ["conv", "other"])

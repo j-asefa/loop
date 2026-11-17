@@ -1,11 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-const dir = mkdtempSync(join(tmpdir(), "loop-share-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { createAgent, renameAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -24,7 +21,6 @@ const a = createAgent("alice", {
 });
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 it("resolves only accessible handles and preserves old aliases without silent fallback", () => {
   expect(routeHandle("alice", "An untagged question")).toBeNull();

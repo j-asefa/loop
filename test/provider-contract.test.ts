@@ -1,9 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, vi, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-const dir = mkdtempSync(join(tmpdir(), "loop-provider-contract-"));
-process.env.LOOP_DATA_DIR = dir;
+
+testDirectory();
+
 const { adapter } = await import("../src/server/providers");
 const { db } = await import("../src/server/db");
 function sse(events: any[]) {
@@ -17,7 +16,6 @@ function sse(events: any[]) {
 afterAll(() => {
   vi.unstubAllGlobals();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 it("uses the actual OpenAI SDK to send selected model and decode text, tool calls and usage", async () => {
   let body: any;

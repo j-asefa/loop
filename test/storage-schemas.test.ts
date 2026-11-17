@@ -1,8 +1,6 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import {
   AgentRecord,
   ConnectionRecord,
@@ -19,9 +17,8 @@ import {
   artifactResponse,
 } from "../src/server/row-schemas.js";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-storage-schemas-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db.js");
 const { seal } = await import("../src/server/secrets.js");
 const {
@@ -50,7 +47,6 @@ const restore = withTestAdapter("openai", {
 afterAll(() => {
   restore();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("matches storage schemas to worker-produced rows without changing their serialized JSON", async () => {

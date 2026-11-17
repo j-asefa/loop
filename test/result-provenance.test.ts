@@ -1,3 +1,4 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import {
@@ -9,11 +10,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-result-provenance-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { applyMigrations } = await import("../src/server/migrations");
 const { createAgent, ownedRun } = await import("../src/server/domain");
@@ -35,7 +34,6 @@ const { projectFeed } = await import("../src/server/feed-projector");
 
 afterAll(() => {
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 function agentFor(owner: string, name: string, provider = "openai") {

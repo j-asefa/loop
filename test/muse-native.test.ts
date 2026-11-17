@@ -1,13 +1,14 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { PublicConnection } from "../src/shared/workspace-contract-schemas.js";
 import { afterAll, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
+
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-muse-native-"));
-process.env.LOOP_DATA_DIR = dir;
+const dir = testDirectory();
+
 process.env.LOOP_TEST_MUSE_DIR = dir;
 process.env.LOOP_TEST_MUSE_LOG = join(dir, "requests");
 writeFileSync(
@@ -28,7 +29,6 @@ afterAll(async () => {
   db.close();
   delete process.env.LOOP_TEST_MUSE_DIR;
   delete process.env.LOOP_TEST_MUSE_LOG;
-  rmSync(dir, { recursive: true, force: true });
 });
 const requests = () =>
   readFileSync(process.env.LOOP_TEST_MUSE_LOG!, "utf8")

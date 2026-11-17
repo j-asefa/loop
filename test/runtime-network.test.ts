@@ -1,9 +1,8 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-const directory = mkdtempSync(join(tmpdir(), "loop-runtime-network-"));
-process.env.LOOP_DATA_DIR = directory;
+
+testDirectory();
+
 const { remoteFetch } = vi.hoisted(() => ({ remoteFetch: vi.fn() }));
 vi.mock("undici", async (original) => ({
   ...(await original<typeof import("undici")>()),
@@ -14,7 +13,6 @@ const { safeFetch, safeRuntimeFetch } =
 afterAll(async () => {
   const { db } = await import("../src/server/db");
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 afterEach(() => {
   vi.useRealTimers();

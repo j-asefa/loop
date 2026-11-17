@@ -1,15 +1,15 @@
+import { testDirectory } from "./helpers/test-workspace.js";
 import { it, expect, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync } from "node:fs";
+
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+
 import { spawn } from "node:child_process";
 import { Worker } from "node:worker_threads";
 import { once } from "node:events";
 import { createRequire } from "node:module";
-const dir = mkdtempSync(join(tmpdir(), "loop-recovery-"));
-process.env.LOOP_DATA_DIR = dir;
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testDirectory();
+
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -55,7 +55,6 @@ const reset = withTestAdapter("openai", {
 afterAll(() => {
   reset();
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 it("honors pause at response boundary and cancellation while retaining partial output", async () => {
   const a = createAgent("alice", {
