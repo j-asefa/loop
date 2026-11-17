@@ -32,7 +32,13 @@ type Ticket = {
   server?: Server;
   transport?: StreamableHTTPServerTransport;
 };
-/** Private per-generation MCP endpoint. Never mounted behind the phone tunnel. */
+/**
+ * Private per-generation MCP endpoint. Never mounted behind the phone tunnel.
+ * Owns tool discovery, active-run checks, duplicate request handling and
+ * approval waits for every native harness. Adapters receive only an endpoint
+ * and bearer token through WorkspaceTools; new harness connectors reuse this
+ * boundary rather than implementing mail routing themselves.
+ */
 export class NativeToolBridge {
   private tickets = new Map<string, Ticket>();
   private http = createServer((req, res) => {

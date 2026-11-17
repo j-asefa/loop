@@ -16,6 +16,15 @@ export type ReviewSnapshot = {
   changed: string[];
   omitted: string[];
 };
+// Changed files and their baselines are stored inline under MAX_TOTAL; up to
+// MAX_CONTEXT_FILES unchanged files are recorded by Git blob identity only and
+// read later through review-access.ts, which verifies that identity and never
+// falls back to the current checkout. Omitted paths (hidden, credential-like,
+// generated/vendor, submodules, symlinks, binary, over MAX_REVIEW_FILE_BYTES)
+// are listed in the snapshot. These filename filters are not a content secret
+// scanner: selected source text is sent to the chosen providers. The caller
+// (code-reviews.ts) captures twice and rejects the review if the fingerprints
+// differ.
 const MAX_TOTAL = 16_000_000,
   MAX_CONTEXT_FILES = 20_000,
   MAX_OMITTED_PATHS = 2_000,

@@ -126,6 +126,9 @@ export function reviewSnapshot(owner: string, id: string) {
 }
 // Read only the recorded object; a missing repository or collected blob must
 // never fall back to the current checkout. Disable replacement objects as well.
+// A cold read is one synchronous Git process (reviewGit's timeout and
+// MAX_REVIEW_FILE_BYTES), so a slow first read can delay other requests;
+// verified content stays readable from the cache even after Git collects it.
 function readContextBlob(
   repository: string | null,
   hash: string,
