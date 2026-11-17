@@ -1,6 +1,6 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import {
-  mkdtempSync,
   readdirSync,
   mkdirSync,
   writeFileSync,
@@ -10,7 +10,7 @@ import {
   truncateSync,
   utimesSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -21,11 +21,9 @@ import {
   MAX_PUBLISHED_BYTES,
 } from "../src/server/published-file-io.js";
 
-const directory = mkdtempSync(join(tmpdir(), "loop-published-"));
+const directory = testRootDirectory();
 const workspace = join(directory, "workspace");
 mkdirSync(workspace);
-process.env.LOOP_DATA_DIR = join(directory, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const { db, id, now } = await import("../src/server/db");
 const { createAgent } = await import("../src/server/domain");
 const { seal } = await import("../src/server/secrets");
@@ -102,7 +100,6 @@ async function publish(
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(directory, { recursive: true, force: true });
 });
 
 it("publishes chunked workspace files, persists them after failure, and keeps results separate", async () => {

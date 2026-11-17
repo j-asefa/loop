@@ -1,30 +1,25 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project.js";
 import { until } from "./helpers.js";
 
-const root = realpathSync(
-  mkdtempSync(join(tmpdir(), "loop-native-workspaces-")),
-);
-const data = join(root, "data");
+const root = realpathSync(testRootDirectory());
 const chat = join(root, "chat");
 const other = join(root, "other");
-for (const directory of [data, chat, other]) mkdirSync(directory);
-process.env.LOOP_DATA_DIR = data;
+for (const directory of [chat, other]) mkdirSync(directory);
 process.env.LOOP_TEST_GROK_AUTO = "1";
 process.env.LOOP_TEST_GROK_LOG = join(root, "requests");
 const { db } = await import("../src/server/db.js");
@@ -61,7 +56,6 @@ afterAll(async () => {
     "LOOP_TEST_ACP_SESSION_ID",
   ])
     delete process.env[name];
-  rmSync(root, { recursive: true, force: true });
 });
 
 const requests = () =>

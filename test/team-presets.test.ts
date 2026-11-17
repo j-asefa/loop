@@ -1,3 +1,4 @@
+import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
@@ -9,14 +10,12 @@ import {
   symlinkSync,
 } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+
 import express from "express";
 
-const dir = mkdtempSync(join(tmpdir(), "loop-presets-"));
-process.env.LOOP_DATA_DIR = join(dir, "data");
-process.env.LOOP_ENCRYPTION_KEY = randomBytes(32).toString("hex");
+const dir = testRootDirectory();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { teams, createPresetTeam } = await import("../src/server/teams");
@@ -101,7 +100,6 @@ const url = "http://127.0.0.1:" + (server.address() as any).port;
 afterAll(async () => {
   await new Promise<void>((r) => server.close(() => r()));
   db.close();
-  rmSync(dir, { recursive: true, force: true });
 });
 
 it("creates all roles atomically, pins their configuration, and returns a durable creation receipt", () => {
