@@ -1,3 +1,6 @@
+// The Files journey of smoke:feed-events: retained pages and scroll, updates
+// during Load more, multi-page catch-up, failure recovery and source/filter
+// isolation. It uses no real Docker daemon or provider.
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
