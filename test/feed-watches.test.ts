@@ -2,7 +2,6 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, afterEach, expect, it } from "vitest";
 import express from "express";
 
-import { join } from "node:path";
 
 testDirectory();
 

@@ -1,7 +1,6 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
-import { join } from "node:path";
 
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";

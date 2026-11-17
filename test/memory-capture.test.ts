@@ -2,7 +2,6 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 
-import { join } from "node:path";
 
 testDirectory();
 
