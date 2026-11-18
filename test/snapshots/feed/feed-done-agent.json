@@ -26,28 +26,30 @@
         "run": {
           "id": "r-worker-child",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-worker-child",
+          "created_at": 1799646600000,
+          "updated_at": 1799646840000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799646600000,
-          "updated_at": 1799646840000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": null,
         "next_action": {
           "kind": "result",
-          "run_id": "r-worker-child",
-          "message_id": "m-worker-child-answer"
-        }
+          "message_id": "m-worker-child-answer",
+          "run_id": "r-worker-child"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-automation",
@@ -73,30 +75,32 @@
         "run": {
           "id": "r-automation",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-automation",
+          "created_at": 1799646180000,
+          "updated_at": 1799646420000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799646180000,
-          "updated_at": 1799646420000,
-          "automation": "pull_request",
-          "automation_from": "owner/repo#7",
           "queue_position": null,
           "can_move_up": false,
-          "can_move_down": false
+          "can_move_down": false,
+          "automation": "pull_request",
+          "automation_from": "owner/repo#7"
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": null,
         "next_action": {
           "kind": "result",
-          "run_id": "r-automation",
-          "message_id": "m-automation-answer"
-        }
+          "message_id": "m-automation-answer",
+          "run_id": "r-automation"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-project",
@@ -122,28 +126,30 @@
         "run": {
           "id": "r-project",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-project",
+          "created_at": 1799645400000,
+          "updated_at": 1799645640000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799645400000,
-          "updated_at": 1799645640000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": null,
         "next_action": {
           "kind": "result",
-          "run_id": "r-project",
-          "message_id": "m-project-answer"
-        }
+          "message_id": "m-project-answer",
+          "run_id": "r-project"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-imported",
@@ -168,12 +174,14 @@
         },
         "run": null,
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": null,
-        "next_action": null
+        "next_action": null,
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-surfaced",
@@ -199,21 +207,20 @@
         "run": {
           "id": "r-surfaced",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-surfaced",
+          "created_at": 1799644380000,
+          "updated_at": 1799644620000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799644380000,
-          "updated_at": 1799644620000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": {
           "id": "later-surfaced",
@@ -223,9 +230,12 @@
         },
         "next_action": {
           "kind": "result",
-          "run_id": "r-surfaced",
-          "message_id": "m-surfaced-answer"
-        }
+          "message_id": "m-surfaced-answer",
+          "run_id": "r-surfaced"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-snoozed",
@@ -251,21 +261,20 @@
         "run": {
           "id": "r-snoozed",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-snoozed",
+          "created_at": 1799644020000,
+          "updated_at": 1799644260000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799644020000,
-          "updated_at": 1799644260000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": null,
         "later": {
           "id": "later-snoozed",
@@ -275,9 +284,12 @@
         },
         "next_action": {
           "kind": "result",
-          "run_id": "r-snoozed",
-          "message_id": "m-snoozed-answer"
-        }
+          "message_id": "m-snoozed-answer",
+          "run_id": "r-snoozed"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-dismissed",
@@ -295,12 +307,12 @@
         "last_message": null,
         "run": null,
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
         "position_message_id": null,
         "later": null,
-        "next_action": null
+        "next_action": null,
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       },
       {
         "conversation_id": "c-done-api",
@@ -326,28 +338,30 @@
         "run": {
           "id": "r-done-api",
           "state": "completed",
-          "error": null,
           "input": "Prompt for r-done-api",
+          "created_at": 1799640720000,
+          "updated_at": 1799640960000,
+          "error": null,
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
-          "created_at": 1799640720000,
-          "updated_at": 1799640960000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
+        "read_at": null,
+        "unread_version": 0,
         "position_message_id": "m-done-api-user",
         "later": null,
         "next_action": {
           "kind": "result",
-          "run_id": "r-done-api",
-          "message_id": "m-done-api-answer"
-        }
+          "message_id": "m-done-api-answer",
+          "run_id": "r-done-api"
+        },
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0
       }
     ],
     "next": null,
@@ -355,12 +369,12 @@
       "needs": 4,
       "working": 2,
       "queued": 0,
-      "done_unread": 7,
       "later_due": 1,
+      "replies_unread": 0,
+      "done_unread": 7,
       "social_unread": 0,
       "scheduled_failed": 0,
-      "scheduled_pending": 0,
-      "replies_unread": 0
+      "scheduled_pending": 0
     }
   }
 }
