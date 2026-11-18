@@ -253,7 +253,12 @@ export const RichText = memo(function RichText({
         )
           return (
             <DisplaySpec
-              source={code.children.map((c: any) => c.value || "").join("")}
+              // Markdown leaves the closing fence's newline on the code text;
+              // it is not part of the block (64 Ki limit, D6).
+              source={code.children
+                .map((c: any) => c.value || "")
+                .join("")
+                .replace(/\n$/, "")}
               compact={compact}
               markdown={(content) => (
                 <RichText

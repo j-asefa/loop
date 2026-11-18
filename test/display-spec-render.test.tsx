@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { compactMarkdown } from "../src/client/preview";
+import { displayFixtures } from "./display-spec-fixtures";
 
 const patch = (...lines: unknown[]) =>
   lines.map((line) => JSON.stringify(line)).join("\n");
@@ -288,4 +289,17 @@ it("cuts a fallback block's source to ten lines in a compact preview", () => {
   expect(compact).not.toContain("/elements/d10&quot;");
   const full = render(source);
   expect(full).toContain("/elements/d39&quot;");
+});
+
+it("draws or falls back at the source size limit as the reader does", () => {
+  const at = displayFixtures.find((f) => f.name === "source at the size limit");
+  const over = displayFixtures.find(
+    (f) => f.name === "source over the size limit",
+  );
+  const atHtml = render(fence(at!.source));
+  expect(atHtml).toContain('class="display-spec"');
+  expect(atHtml).not.toContain("This display could not be drawn");
+  const overHtml = render(fence(over!.source));
+  expect(overHtml).not.toContain('class="display-spec"');
+  expect(overHtml).toContain("This display could not be drawn");
 });
