@@ -26,30 +26,28 @@
         "run": {
           "id": "r-project",
           "state": "completed",
-          "input": "Prompt for r-project",
-          "created_at": 1799645400000,
-          "updated_at": 1799645640000,
           "error": null,
+          "input": "Prompt for r-project",
           "connection_id": "conn-api",
           "model": "fixture-model",
           "resolved_model": null,
+          "created_at": 1799645400000,
+          "updated_at": 1799645640000,
           "queue_position": null,
           "can_move_up": false,
           "can_move_down": false
         },
         "pull": null,
-        "read_at": null,
-        "unread_version": 0,
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
         "position_message_id": null,
         "later": null,
         "next_action": {
           "kind": "result",
-          "message_id": "m-project-answer",
-          "run_id": "r-project"
-        },
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0
+          "run_id": "r-project",
+          "message_id": "m-project-answer"
+        }
       }
     ],
     "next": null,
@@ -57,12 +55,12 @@
       "needs": 0,
       "working": 0,
       "queued": 0,
-      "later_due": 1,
-      "replies_unread": 0,
       "done_unread": 1,
+      "later_due": 1,
       "social_unread": 0,
       "scheduled_failed": 0,
-      "scheduled_pending": 0
+      "scheduled_pending": 0,
+      "replies_unread": 0
     }
   }
 }

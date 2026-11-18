@@ -39,15 +39,6 @@ export const DoneReadInput = z.object({
 });
 // A stale group snapshot and its latest local unread response can each contain
 // up to 100 members. The server only acts on the group's current membership.
-// Integration tokens with `write` must name each read-state or saved-state
-// change; session callers may continue omitting the identity.
-const OptionalIdentity = requestId(IdempotencyKey).min(8).max(150).optional();
-export const DoneReadRequest = DoneReadInput.extend({
-  idempotencyKey: OptionalIdentity,
-});
-export const StateIdentityInput = z.object({
-  idempotencyKey: OptionalIdentity,
-});
 export const DoneReadVersions = z
   .record(
     Text.regex(/^d:(run|message):.+$/).max(202),
