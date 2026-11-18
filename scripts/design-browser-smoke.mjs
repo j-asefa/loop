@@ -16,6 +16,7 @@ const names = [
   "execution-environments",
   "main-composer-keyboard",
   "composer-typing",
+  "responsiveness",
   "clear-search",
   "search-categories",
   "feed-reply-keyboard",
