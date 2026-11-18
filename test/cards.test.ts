@@ -449,6 +449,55 @@ it("uses ID lookups for actual detail and change queries and skips empty candida
   }
 });
 
+it("lists saved messages from the owner's bookmarks without walking message history", () => {
+  setup("bookmarked");
+  for (let i = 0; i < 20; i++) message("bookmarked", "bookmarked-" + i);
+  setSaved("bookmarked", "bookmarked-3", true);
+  setup("bookmarked-other");
+  message("bookmarked-other", "bookmarked-other-1");
+  setSaved("bookmarked-other", "bookmarked-other-1", true);
+  const queries: string[] = [];
+  trace.observe = (sql) => {
+    if (sql.startsWith("WITH card_projects(") && sql.includes("'m:'||m.id"))
+      queries.push(sql);
+  };
+  let saved;
+  try {
+    saved = listCards("bookmarked", { view: "saved" });
+  } finally {
+    trace.observe = undefined;
+  }
+  expect(saved.items.map((item) => item.card.id)).toEqual(["m:bookmarked-3"]);
+  expect(queries).toHaveLength(1);
+  const plan = (
+    prepare("EXPLAIN QUERY PLAN " + queries[0]).all({
+      owner: "bookmarked",
+      ids: null,
+      folders: null,
+      agent: null,
+      teams: null,
+      q: null,
+      at: null,
+      key: null,
+      limit: 41,
+    }) as { detail: string }[]
+  ).map((row) => row.detail);
+  const bookmarks = plan.findIndex((line) =>
+    /^SEARCH b USING .*owner_id=\?/.test(line),
+  );
+  const messages = plan.findIndex((line) =>
+    /^SEARCH m USING .*\bid=\?/.test(line),
+  );
+  expect(bookmarks, plan.join("\n")).toBeGreaterThanOrEqual(0);
+  expect(messages, plan.join("\n")).toBeGreaterThan(bookmarks);
+  expect(
+    plan.some((line) =>
+      /^SCAN m\b|SEARCH m USING .*conversation_id/.test(line),
+    ),
+    plan.join("\n"),
+  ).toBe(false);
+});
+
 it("suppresses partial chunk revisions, then converges at terminal boundaries and across role entities", () => {
   setup("stream");
   message("stream", "stream-message", "assistant", { partial: true });

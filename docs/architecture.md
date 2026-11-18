@@ -67,7 +67,7 @@ A [Result](../src/shared/result.ts) is the immutable record of a published answe
 
 Rules that span those files and the Feed:
 
-- Done result cards and Replies enumerate sealed Results only, and Saved shows a saved answer's sealed Result. Result cards are projections rebuilt from Results with mutable overlays (reads, dismissals, Trails, saves); raw transcripts decide neither which answers are published nor what they say.
+- Done result cards and Replies enumerate sealed Results only, and the `/saved` list shows a saved answer's sealed Result. The browser's Saved page reads [cards.ts](../src/server/cards.ts) instead, which lists bookmarked artifacts and messages, not Results. Result cards are projections rebuilt from Results with mutable overlays (reads, dismissals, Trails, saves); raw transcripts decide neither which answers are published nor what they say.
 - Done is attributed to the sealed author, while folder filters and moves follow current organization: the folder the run recorded, otherwise the conversation's current folder. A card whose publication project differs from its current one shows `produced_in`. Idle-thread, Working, Queued and approval cards remain operational state.
 
 ## Workspace HTTP contracts
