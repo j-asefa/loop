@@ -3,7 +3,6 @@ import * as approvalsQueries from "./sql/approvals.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import * as runsQueries from "./sql/runs.js";
 import * as conversationsQueries from "./sql/conversations.js";
-import * as doneThreadsQueries from "./sql/done-threads.js";
 import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 import { PublicRun } from "../shared/workspace-api.js";
@@ -183,6 +182,8 @@ export const nativeAnswerTokenWrite = tokenWrite({
 });
 
 // Read and saved state are owner preferences without a separate result row.
+// Saved Done threads stay session-only: a token cannot list their members or
+// the per-member versions a truthful thread read needs.
 // The receipt keeps the original public response with its target; a replay
 // checks that the owner still has the target and never applies the change again.
 function stateWrite(
@@ -206,10 +207,6 @@ function stateWrite(
 export const doneReadTokenWrite = stateWrite(
   DoneReadResult,
   (owner, id) => conversationsQueries.owned(db, id, owner) !== undefined,
-);
-export const doneThreadReadTokenWrite = stateWrite(
-  DoneReadResult,
-  (owner, id) => doneThreadsQueries.owned(db, owner, id) !== undefined,
 );
 export const savedTokenWrite = stateWrite(
   z.object({ ok: z.literal(true), saved: z.boolean() }),

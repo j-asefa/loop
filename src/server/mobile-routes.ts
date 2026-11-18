@@ -3,7 +3,6 @@ import {
   withdrawTokenWrite,
   moveTokenWrite,
   doneReadTokenWrite,
-  doneThreadReadTokenWrite,
   savedTokenWrite,
 } from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
@@ -90,24 +89,18 @@ routes.on(workspaceApi.doneThreadMove, (req, res) =>
     moveDoneThreadCards(res.locals.owner, req.params.id, req.body.cardIds),
   ),
 );
-routes.on(
-  workspaceApi.doneThreadRead,
-  (req, res) =>
-    res.json(
-      setDoneThreadRead(
-        res.locals.owner,
-        req.params.id,
-        true,
-        req.body.unreadVersions,
-      ),
+routes.on(workspaceApi.doneThreadRead, (req, res) =>
+  res.json(
+    setDoneThreadRead(
+      res.locals.owner,
+      req.params.id,
+      true,
+      req.body.unreadVersions,
     ),
-  { tokenWrite: doneThreadReadTokenWrite },
+  ),
 );
-routes.on(
-  workspaceApi.doneThreadUnread,
-  (req, res) =>
-    res.json(setDoneThreadRead(res.locals.owner, req.params.id, false)),
-  { tokenWrite: doneThreadReadTokenWrite },
+routes.on(workspaceApi.doneThreadUnread, (req, res) =>
+  res.json(setDoneThreadRead(res.locals.owner, req.params.id, false)),
 );
 routes.on(workspaceApi.doneThreadRemove, (req, res) =>
   res.json(removeDoneThread(res.locals.owner, req.params.id)),

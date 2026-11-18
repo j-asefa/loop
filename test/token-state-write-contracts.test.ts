@@ -160,32 +160,36 @@ it("write tokens change Done read and saved state once per identity, owner-scope
     }),
     200,
   );
+  // Saved Done threads stay session-only: a token cannot see their members
+  // or versions, so it could not tell whether a thread read took effect.
   const threadPath = `/feed/threads/${thread}/read`;
-  expect((await send("PUT", threadPath, {})).status).toBe(400);
-  const threadRead = { idempotencyKey: randomUUID() };
-  const threadResult = await json(
-    await send("PUT", threadPath, threadRead),
-    200,
-  );
-  expect(threadResult).toMatchObject({ ok: true });
-  expect(await json(await send("PUT", threadPath, threadRead), 200)).toEqual(
-    threadResult,
-  );
-  const threadUnread = { idempotencyKey: randomUUID() };
-  const threadUnreadResult = await json(
-    await send("DELETE", threadPath, threadUnread),
-    200,
-  );
+  for (const method of ["PUT", "DELETE"])
+    expect(
+      (await send(method, threadPath, { idempotencyKey: randomUUID() })).status,
+    ).toBe(403);
+
+  // A read with an older version answers ok but never erases a later unread.
+  const current = await doneItem();
+  expect(current.read_at).toBeNull();
   expect(
-    await json(await send("DELETE", threadPath, threadUnread), 200),
-  ).toEqual(threadUnreadResult);
+    await json(
+      await send("PUT", readPath, {
+        cardKey,
+        unreadVersion: current.unread_version - 1,
+        idempotencyKey: randomUUID(),
+      }),
+      200,
+    ),
+  ).toEqual({ ok: true });
+  expect((await doneItem()).read_at).toBeNull();
 
   // A read-only token and another owner's records are refused, and a refused
   // write leaves no receipt that could later replay.
   for (const [method, path, body] of [
     ["PUT", readPath, { cardKey, idempotencyKey: randomUUID() }],
+    ["DELETE", readPath, { cardKey, idempotencyKey: randomUUID() }],
     ["POST", savePath, { idempotencyKey: randomUUID() }],
-    ["PUT", threadPath, { idempotencyKey: randomUUID() }],
+    ["DELETE", savePath, { idempotencyKey: randomUUID() }],
   ] as const)
     expect((await send(method, path, body, reader)).status).toBe(403);
   for (const [method, path, body] of [

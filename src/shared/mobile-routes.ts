@@ -138,26 +138,20 @@ export const mobileRoutes = {
   doneThreadRead: endpoint({
     ...base,
     operation: "doneThreadRead",
-    access: { admits: ["write"] },
-    identity: "idempotencyKey",
     method: "PUT",
     path: "/feed/threads/:id/read",
     params: z.object({ id: requestId(DoneThreadId) }),
     body: z
       .object({ unreadVersions: mobile.DoneReadVersions.optional() })
-      .extend(mobile.StateIdentityInput.shape)
       .strict(),
     response: mobile.DoneReadResult,
   }),
   doneThreadUnread: endpoint({
     ...base,
     operation: "doneThreadUnread",
-    access: { admits: ["write"] },
-    identity: "idempotencyKey",
     method: "DELETE",
     path: "/feed/threads/:id/read",
     params: z.object({ id: requestId(DoneThreadId) }),
-    body: mobile.StateIdentityInput.strict().optional(),
     response: mobile.DoneReadResult,
   }),
   doneThreadRemove: endpoint({

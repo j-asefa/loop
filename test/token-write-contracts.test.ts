@@ -540,8 +540,6 @@ it("documents the identity, bearer security and conditional Origin for every adm
   );
   expect(writes.map(([name]) => name).sort()).toEqual([
     "approval",
-    "doneThreadRead",
-    "doneThreadUnread",
     "feedRead",
     "feedUnread",
     "messageSave",

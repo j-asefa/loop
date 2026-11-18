@@ -23,7 +23,7 @@ fresh database, those migrations have no existing tokens to transform. Current
 creation retries, metadata listing and revocation remain part of this contract.
 
 Open **Settings → Integration tokens**, name the token and select its scopes.
-Read workspace is selected by default. Send and control runs is optional;
+Read workspace is selected by default. Send, control runs and keep results is optional;
 Answer approvals is unchecked and warns that the script can authorize tool
 calls and answer native decisions. Select it only when the script should make
 those decisions.
@@ -35,7 +35,7 @@ metadata and revokes tokens immediately.
 | Selectable scope   | Current admission                                                                                                                                                                                                                                |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `read`             | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent; event pages and stream |
-| `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs; mark Feed Done results and saved Done threads read or unread; save or unsave messages                                                              |
+| `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs; mark Feed Done results read or unread; save or unsave messages                                                                                     |
 | `approvals:decide` | Decide API approvals and answer companion native decisions                                                                                                                                                                                       |
 
 The `read` approval list returns pending records using the
@@ -59,7 +59,10 @@ admits the separate GET/HEAD routes.
 The session-only Cards Done collection remains unavailable to every bearer, including `read`.
 Feed `filter=done` pages, which `read` admits, carry each result's `read_at`
 (null while unread) and `unread_version`; pass that version to the read
-operation so a later unread is never erased.
+operation so a later unread is never erased. A read with a missing or older
+version still answers `{ "ok": true }` but leaves the result unread; read the
+page again to see the outcome. Saved Done threads (`/api/feed/threads`) remain
+session-only, including their read and unread operations.
 
 Tokens cover the owner's projects. Query filters narrow a selection, not
 the grant. A token belongs to one source and owner; it cannot reach linked
@@ -185,7 +188,7 @@ Every admitted write requires a body identity. Use `idempotencyKey` (8–150
 characters) for submit, cancel/dismiss, reorder, withdraw, move, Done read and
 unread, save and unsave, and API approval decisions; native answers use their
 existing UUID `commandId`. Read-state and saved-state replays return the original
-response while the owner still has the conversation, thread or message; they
+response while the owner still has the conversation or message; they
 never apply the change again. The generated
 operation names the field in `x-request-identity`. Session callers may continue
 omitting identities on routes that previously allowed it.
