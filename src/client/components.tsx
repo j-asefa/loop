@@ -254,6 +254,7 @@ export const RichText = memo(function RichText({
           return (
             <DisplaySpec
               source={code.children.map((c: any) => c.value || "").join("")}
+              compact={compact}
               markdown={(content) => (
                 <RichText
                   content={content}

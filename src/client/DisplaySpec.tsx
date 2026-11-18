@@ -16,23 +16,30 @@ type Context = {
 
 export function DisplaySpec({
   source,
+  compact = false,
   markdown,
 }: {
   source: string;
+  compact?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
   const read = useMemo(() => readDisplaySpec(source), [source]);
-  if (!read.ok)
+  if (!read.ok) {
+    const shown = source.replace(/\n$/, "");
     return (
       <>
         <p className="note">
           This display could not be drawn. Its source is below.
         </p>
         <pre>
-          <code className="language-spec">{source.replace(/\n$/, "")}</code>
+          <code className="language-spec">
+            {/* Card previews cut source to 10 lines, as for other code. */}
+            {compact ? shown.split("\n").slice(0, 10).join("\n") : shown}
+          </code>
         </pre>
       </>
     );
+  }
   return (
     <div className="display-spec">
       <DisplayNodeView node={read.root} context={{ markdown }} level={0} />

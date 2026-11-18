@@ -271,3 +271,21 @@ it("keeps a long spec block whole in a compact preview", () => {
   expect(html.match(/<hr/g)).toHaveLength(40);
   expect(typeof compactMarkdown).toBe("function");
 });
+
+it("cuts a fallback block's source to ten lines in a compact preview", () => {
+  const lines = Array.from({ length: 40 }, (_, i) => ({
+    op: "add",
+    path: `/elements/d${i}`,
+    value: { type: "Divider" },
+  }));
+  // No root, so the block falls back to its source.
+  const source = fence(patch(...lines));
+  const compact = render(source, { compact: true });
+  expect(compact).toContain(
+    "This display could not be drawn. Its source is below.",
+  );
+  expect(compact).toContain("/elements/d9&quot;");
+  expect(compact).not.toContain("/elements/d10&quot;");
+  const full = render(source);
+  expect(full).toContain("/elements/d39&quot;");
+});
