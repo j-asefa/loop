@@ -824,30 +824,32 @@ export function cards(
       AND (@q IS NULL OR ${search})
       AND (@at IS NULL OR (${at},${key})<(@at,@key))
     ORDER BY ${at} DESC,${key} DESC LIMIT @limit`;
-  // Saved starts from the owner's bookmarks; CROSS JOIN pins that order.
-  // Starting from messages walked the owner's whole message history to find
-  // a handful of saved rows on every Saved load.
-  const prepared = saved
-    ? cardsStatement(
-        `${projects}
+  // A Saved listing starts from the owner's bookmarks; CROSS JOIN pins that
+  // order. Starting from messages walked the owner's whole message history to
+  // find a handful of saved rows on every Saved load. ID lookups (details and
+  // change polls) keep the messages-first shape, which searches m by id.
+  const prepared =
+    saved && !ids
+      ? cardsStatement(
+          `${projects}
     ${columns}
     FROM message_bookmarks b
     CROSS JOIN messages m ON m.id=b.message_id AND m.owner_id=b.owner_id
     JOIN conversations c ON c.id=${source}.conversation_id AND c.owner_id=${source}.owner_id
     ${joins}
     ${filters}`,
-        db,
-      )
-    : cardsStatement(
-        `${projects}
+          db,
+        )
+      : cardsStatement(
+          `${projects}
     ${columns}
     FROM messages m
     JOIN conversations c ON c.id=${source}.conversation_id AND c.owner_id=${source}.owner_id
     ${joins}
     LEFT JOIN message_bookmarks b ON b.message_id=m.id AND b.owner_id=m.owner_id
     ${filters}`,
-        db,
-      );
+          db,
+        );
   return prepared
     .all({
       owner,

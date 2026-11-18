@@ -453,6 +453,9 @@ it("lists saved messages from the owner's bookmarks without walking message hist
   setup("bookmarked");
   for (let i = 0; i < 20; i++) message("bookmarked", "bookmarked-" + i);
   setSaved("bookmarked", "bookmarked-3", true);
+  setup("bookmarked-other");
+  message("bookmarked-other", "bookmarked-other-1");
+  setSaved("bookmarked-other", "bookmarked-other-1", true);
   const queries: string[] = [];
   trace.observe = (sql) => {
     if (sql.startsWith("WITH card_projects(") && sql.includes("'m:'||m.id"))
