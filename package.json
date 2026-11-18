@@ -25,6 +25,7 @@
     "smoke:history": "node scripts/heavy-command.mjs scripts/conversation-history-smoke.mjs",
     "smoke:design": "node scripts/design-browser-smoke.mjs && node scripts/heavy-command.mjs scripts/approval-layout-browser.mjs",
     "smoke:math": "node scripts/heavy-command.mjs scripts/math-browser-smoke.mjs",
+    "smoke:display": "node scripts/heavy-command.mjs scripts/display-browser-smoke.mjs",
     "smoke:workspace": "node scripts/heavy-command.mjs scripts/workspace-lifecycle-smoke.mjs",
     "smoke:html": "node scripts/heavy-command.mjs scripts/html-preview-smoke.mjs",
     "smoke:pulls": "node scripts/heavy-command.mjs scripts/pull-requests-smoke.mjs",

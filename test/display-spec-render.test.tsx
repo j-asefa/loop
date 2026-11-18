@@ -1,0 +1,273 @@
+import { expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { RichText } from "../src/client/components";
+import { compactMarkdown } from "../src/client/preview";
+
+const patch = (...lines: unknown[]) =>
+  lines.map((line) => JSON.stringify(line)).join("\n");
+const fence = (source: string) => "```spec\n" + source + "\n```";
+const render = (
+  content: string,
+  props: { diagrams?: boolean; compact?: boolean } = {},
+) => renderToStaticMarkup(<RichText content={content} {...props} />);
+
+const report = fence(
+  patch(
+    { op: "add", path: "/root", value: "card" },
+    {
+      op: "add",
+      path: "/elements/card",
+      value: {
+        type: "Card",
+        props: { title: "Weekly deploys", subtitle: "Nov 9 to 15" },
+        children: ["intro", "fields", "table", "actions"],
+      },
+    },
+    {
+      op: "add",
+      path: "/elements/intro",
+      value: { type: "Text", props: { content: "Deploys are **up 12%**." } },
+    },
+    {
+      op: "add",
+      path: "/elements/fields",
+      value: { type: "Fields", children: ["f1", "f2"] },
+    },
+    {
+      op: "add",
+      path: "/elements/f1",
+      value: { type: "Field", props: { label: "Deploys", value: "1,284" } },
+    },
+    {
+      op: "add",
+      path: "/elements/f2",
+      value: { type: "Field", props: { label: "Failures", value: 3 } },
+    },
+    {
+      op: "add",
+      path: "/elements/table",
+      value: {
+        type: "Table",
+        props: {
+          headers: ["Project", "Deploys"],
+          rows: [["web", "412"]],
+          align: ["left", "right"],
+          caption: "By project",
+        },
+      },
+    },
+    {
+      op: "add",
+      path: "/elements/actions",
+      value: { type: "Actions", children: ["open"] },
+    },
+    {
+      op: "add",
+      path: "/elements/open",
+      value: {
+        type: "LinkButton",
+        props: { label: "Open dashboard", url: "https://example.com/d" },
+      },
+    },
+  ),
+);
+
+it("draws a display inside prose, keeping the surrounding answer", () => {
+  const html = render(`Here is the report:\n\n${report}\n\nLet me know.`);
+  expect(html).toContain("<p>Here is the report:</p>");
+  expect(html).toContain("<p>Let me know.</p>");
+  expect(html).toContain('<h3 class="display-title">Weekly deploys</h3>');
+  expect(html).toContain("Nov 9 to 15");
+  expect(html).toContain("<strong>up 12%</strong>");
+  expect(html).toContain("<dt>Deploys</dt><dd>1,284</dd>");
+  expect(html).toContain("<dt>Failures</dt><dd>3</dd>");
+  expect(html).toContain("<caption>By project</caption>");
+  expect(html).toContain('<th scope="col" class="align-right">Deploys</th>');
+  expect(html).toContain('<td class="align-right">412</td>');
+  expect(html).toContain('role="region"');
+  expect(html).not.toContain("language-spec");
+  expect(html).not.toContain("&quot;op&quot;");
+});
+
+it("opens a LinkButton in a new tab without leaking the opener", () => {
+  const html = render(report);
+  expect(html).toContain(
+    '<a class="display-link-button" href="https://example.com/d" target="_blank" rel="noopener noreferrer">Open dashboard</a>',
+  );
+});
+
+it("refuses a javascript: link and still draws the rest", () => {
+  const html = render(
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "s" },
+        {
+          op: "add",
+          path: "/elements/s",
+          value: { type: "Section", children: ["bad", "ok"] },
+        },
+        {
+          op: "add",
+          path: "/elements/bad",
+          value: {
+            type: "LinkButton",
+            props: { label: "Go", url: "javascript:alert(1)" },
+          },
+        },
+        {
+          op: "add",
+          path: "/elements/ok",
+          value: { type: "Text", props: { content: "still here" } },
+        },
+      ),
+    ),
+  );
+  expect(html).not.toContain("javascript:");
+  expect(html).toContain("This part of the display could not be shown");
+  expect(html).toContain("still here");
+});
+
+it("draws one bad element as a placeholder and keeps its siblings", () => {
+  const html = render(
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "s" },
+        {
+          op: "add",
+          path: "/elements/s",
+          value: { type: "Section", children: ["a", "b", "c"] },
+        },
+        { op: "add", path: "/elements/a", value: { type: "Divider" } },
+        {
+          op: "add",
+          path: "/elements/b",
+          value: { type: "Button", props: { id: "x", label: "Approve" } },
+        },
+        {
+          op: "add",
+          path: "/elements/c",
+          value: { type: "Text", props: { content: "after" } },
+        },
+      ),
+    ),
+  );
+  expect(html).toContain("Button is not supported here");
+  expect(html).toContain("after");
+  expect(html).toContain("<hr");
+  expect(html).not.toContain("Approve");
+});
+
+it("shows the source when the block can't be drawn", () => {
+  const source = patch({
+    op: "add",
+    path: "/elements/a",
+    value: { type: "Divider" },
+  });
+  const html = render(`Before\n\n${fence(source)}\n\nAfter`);
+  expect(html).toContain(
+    "This display could not be drawn. Its source is below.",
+  );
+  expect(html).toContain("<pre><code");
+  expect(html).toContain("&quot;/elements/a&quot;");
+  expect(html).toContain("<p>Before</p>");
+  expect(html).toContain("<p>After</p>");
+});
+
+it("draws Text content as Markdown with displays and diagrams turned off", () => {
+  const inner = fence(
+    patch(
+      { op: "add", path: "/root", value: "x" },
+      { op: "add", path: "/elements/x", value: { type: "Divider" } },
+    ),
+  );
+  const html = render(
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "t" },
+        {
+          op: "add",
+          path: "/elements/t",
+          value: {
+            type: "Text",
+            props: { content: `${inner}\n\n[link](https://example.com)` },
+          },
+        },
+      ),
+    ),
+  );
+  expect(html).not.toContain("<hr");
+  expect(html).toContain("language-spec");
+  expect(html).toContain('href="https://example.com"');
+  expect(html.match(/class="display-spec"/g)).toHaveLength(1);
+});
+
+it("leaves a spec block as code when diagrams are off, as for GitHub content", () => {
+  const html = render(report, { diagrams: false });
+  expect(html).toContain("language-spec");
+  expect(html).not.toContain("display-spec");
+});
+
+it("renders other fenced blocks exactly as before", () => {
+  const html = render('```json\n{"a":1}\n```\n\n```text\nplain\n```');
+  expect(html).toBe(
+    '<div class="markdown"><pre><code class="language-json">{&quot;a&quot;:1}\n</code></pre>\n<pre><code class="language-text">plain\n</code></pre></div>',
+  );
+});
+
+it("escapes markup in every value instead of drawing it", () => {
+  const html = render(
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "c" },
+        {
+          op: "add",
+          path: "/elements/c",
+          value: {
+            type: "Card",
+            props: { title: "<img src=x onerror=alert(1)>" },
+            children: ["f"],
+          },
+        },
+        {
+          op: "add",
+          path: "/elements/f",
+          value: {
+            type: "Field",
+            props: { label: "<script>x</script>", value: "<b>v</b>" },
+          },
+        },
+      ),
+    ),
+  );
+  expect(html).not.toContain("<script");
+  expect(html).not.toContain("<img");
+  expect(html).not.toContain("<b>");
+  expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+});
+
+it("keeps a long spec block whole in a compact preview", () => {
+  const lines = Array.from({ length: 40 }, (_, i) => ({
+    op: "add",
+    path: `/elements/d${i}`,
+    value: { type: "Divider" },
+  }));
+  const html = render(
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "s" },
+        {
+          op: "add",
+          path: "/elements/s",
+          value: {
+            type: "Section",
+            children: Array.from({ length: 40 }, (_, i) => `d${i}`),
+          },
+        },
+        ...lines,
+      ),
+    ),
+    { compact: true },
+  );
+  expect(html.match(/<hr/g)).toHaveLength(40);
+  expect(typeof compactMarkdown).toBe("function");
+});

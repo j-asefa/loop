@@ -133,7 +133,8 @@ export function compactMarkdown() {
       if (
         node.type === "code" &&
         node.lang !== "mermaid" &&
-        node.lang !== "math"
+        node.lang !== "math" &&
+        node.lang !== "spec"
       )
         node.value = node.value.split("\n").slice(0, 10).join("\n");
     }

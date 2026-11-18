@@ -12,6 +12,7 @@ import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
+import { DisplaySpec } from "./DisplaySpec";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
@@ -243,6 +244,23 @@ export const RichText = memo(function RichText({
                 .map((c: any) => c.value || "")
                 .join("")
                 .trim()}
+            />
+          );
+        if (
+          diagrams &&
+          code?.tagName === "code" &&
+          code.properties?.className?.includes("language-spec")
+        )
+          return (
+            <DisplaySpec
+              source={code.children.map((c: any) => c.value || "").join("")}
+              markdown={(content) => (
+                <RichText
+                  content={content}
+                  diagrams={false}
+                  compact={compact}
+                />
+              )}
             />
           );
         return <pre>{children}</pre>;
