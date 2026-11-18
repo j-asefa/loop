@@ -1,4 +1,5 @@
 import {
+  seedRun,
   seedConversation,
   seedAgent,
   seedConnection,
@@ -71,11 +72,17 @@ function seed(f: Awaited<ReturnType<typeof fixture>>) {
     title: "Thread",
     created_at: 1,
   });
-  f.db
-    .prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'agent','thread','Prompt','completed','key',1,1)",
-    )
-    .run(f.owner);
+  seedRun(f.db, {
+    id: "run",
+    owner_id: f.owner,
+    agent_id: "agent",
+    conversation_id: "thread",
+    input: "Prompt",
+    state: "completed",
+    idempotency_key: "key",
+    created_at: 1,
+    updated_at: 1,
+  });
   seedMessage(f.db, {
     id: "message",
     owner_id: f.owner,
@@ -690,11 +697,15 @@ it(`companion delivers owned route mutations with explicit subjects and collecti
     "feed",
     queued.id,
   );
-  f.db
-    .prepare(
-      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('approval-run',?,'Review','awaiting_approval','approval-key',1,1)",
-    )
-    .run(f.owner);
+  seedRun(f.db, {
+    id: "approval-run",
+    owner_id: f.owner,
+    input: "Review",
+    state: "awaiting_approval",
+    idempotency_key: "approval-key",
+    created_at: 1,
+    updated_at: 1,
+  });
   f.db
     .prepare(
       "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('action-approval',?,'approval-run','action','{}','pending',1,?)",
@@ -1272,11 +1283,15 @@ it("publishes every internal reader dependency from committed worker writes with
       "INSERT INTO artifacts(id,owner_id,conversation_id,run_id,title,kind,role,content,created_at,updated_at) VALUES('artifact',?,'thread','run','Output','markdown','answer','Body',1,1)",
     )
     .run(owner);
-  f.db
-    .prepare(
-      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('child',?,'Child','queued','child-key',1,1)",
-    )
-    .run(owner);
+  seedRun(f.db, {
+    id: "child",
+    owner_id: owner,
+    input: "Child",
+    state: "queued",
+    idempotency_key: "child-key",
+    created_at: 1,
+    updated_at: 1,
+  });
   const stream = watch(f);
   await expect.poll(() => stream.frames.length).toBeGreaterThan(0);
   // These tables have no public mutation endpoint. The worker/adapter ingress

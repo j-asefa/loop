@@ -1,4 +1,6 @@
+import type { RunState } from "../src/shared/run-state.js";
 import {
+  seedRun,
   seedConversation,
   seedAgent,
   seedConnection,
@@ -77,7 +79,7 @@ function fixture() {
   });
   const run = (
     folder: string | null = null,
-    state = "completed",
+    state: RunState = "completed",
     conversation?: string,
   ) => {
     const cid = conversation ?? id(),
@@ -92,19 +94,19 @@ function fixture() {
         title: "Workspace task",
         created_at: now(),
       });
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at,worker_id) VALUES(?,?,?,?,'Review the workspace',?,?,?,?,?,'fixture')",
-    ).run(
-      run,
-      owner,
-      agent,
-      cid,
-      state,
-      run,
-      JSON.stringify({ folderId: folder }),
-      now(),
-      now(),
-    );
+    seedRun(db, {
+      id: run,
+      owner_id: owner,
+      agent_id: agent,
+      conversation_id: cid,
+      input: "Review the workspace",
+      state: state,
+      idempotency_key: run,
+      payload: JSON.stringify({ folderId: folder }),
+      created_at: now(),
+      updated_at: now(),
+      worker_id: "fixture",
+    });
     seedMessage(db, {
       id: message,
       owner_id: owner,

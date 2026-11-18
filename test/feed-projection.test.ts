@@ -1,4 +1,4 @@
-import { seedConversation, seedMessage } from "./helpers/seed.js";
+import { seedRun, seedConversation, seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createFeedFixture, NOW, OWNER } from "./helpers/feed-fixture";
 import { spawnSync } from "node:child_process";
@@ -150,17 +150,18 @@ it("retains multiple results alongside active work and paginates ties identicall
   db.transaction(() => {
     for (let i = 0; i < 46; i++) {
       const key = "history-" + String(i).padStart(2, "0");
-      db.prepare(
-        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,'agent-api','c-running',?,'completed',?, ?,?,?)",
-      ).run(
-        key,
-        OWNER,
-        key,
-        key,
-        JSON.stringify({ folderId: i % 2 ? "proj-deep" : null }),
-        NOW - 100,
-        NOW - 10,
-      );
+      seedRun(db, {
+        id: key,
+        owner_id: OWNER,
+        agent_id: "agent-api",
+        conversation_id: "c-running",
+        input: key,
+        state: "completed",
+        idempotency_key: key,
+        payload: JSON.stringify({ folderId: i % 2 ? "proj-deep" : null }),
+        created_at: NOW - 100,
+        updated_at: NOW - 10,
+      });
       seedMessage(db, {
         id: key,
         owner_id: OWNER,
@@ -473,14 +474,18 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
       title: "Peer",
       created_at: 1,
     });
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES('projection-peer',?,'agent-native','projection-peer','Peer','queued','projection-peer',?, ?,?)",
-    ).run(
-      OWNER,
-      JSON.stringify({ connectionId: "conn-native" }),
-      NOW + 100_000,
-      NOW + 100_000,
-    );
+    seedRun(db, {
+      id: "projection-peer",
+      owner_id: OWNER,
+      agent_id: "agent-native",
+      conversation_id: "projection-peer",
+      input: "Peer",
+      state: "queued",
+      idempotency_key: "projection-peer",
+      payload: JSON.stringify({ connectionId: "conn-native" }),
+      created_at: NOW + 100_000,
+      updated_at: NOW + 100_000,
+    });
   }).immediate();
   const queue = () =>
     readers
@@ -543,9 +548,17 @@ it("keeps an idle fallback until an answer is published, then keeps its result",
     done_card_key: "message:projection-idle",
     last_message: null,
   });
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,worker_id,created_at,updated_at) VALUES('projection-idle-work',?,'projection-idle','Working','running','projection-idle-work','fixture',3,3)",
-  ).run(OWNER);
+  seedRun(db, {
+    id: "projection-idle-work",
+    owner_id: OWNER,
+    conversation_id: "projection-idle",
+    input: "Working",
+    state: "running",
+    idempotency_key: "projection-idle-work",
+    worker_id: "fixture",
+    created_at: 3,
+    updated_at: 3,
+  });
   expect(kinds()).toEqual([{ kind: "thread" }]);
   db.prepare(
     "UPDATE runs SET state='cancelled' WHERE id='projection-idle-work'",
@@ -579,16 +592,17 @@ it("bounds streamed thread display storage while preserving complete results and
       title: "Long stream",
       created_at: NOW + 300_000,
     });
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'agent-api',?,'Previous task','completed',?,?,?)",
-    ).run(
-      key + "-previous",
-      OWNER,
-      key,
-      key + "-previous",
-      NOW + 299_000,
-      NOW + 299_000,
-    );
+    seedRun(db, {
+      id: key + "-previous",
+      owner_id: OWNER,
+      agent_id: "agent-api",
+      conversation_id: key,
+      input: "Previous task",
+      state: "completed",
+      idempotency_key: key + "-previous",
+      created_at: NOW + 299_000,
+      updated_at: NOW + 299_000,
+    });
     seedMessage(db, {
       id: key + "-previous",
       owner_id: OWNER,
@@ -598,9 +612,17 @@ it("bounds streamed thread display storage while preserving complete results and
       content: "Previous result",
       created_at: NOW + 299_000,
     });
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,'agent-api',?,?,'running',?,'{}',?,?)",
-    ).run(key, OWNER, key, input, key, NOW + 300_000, NOW + 300_000);
+    seedRun(db, {
+      id: key,
+      owner_id: OWNER,
+      agent_id: "agent-api",
+      conversation_id: key,
+      input: input,
+      state: "running",
+      idempotency_key: key,
+      created_at: NOW + 300_000,
+      updated_at: NOW + 300_000,
+    });
     seedMessage(db, {
       id: key,
       owner_id: OWNER,
