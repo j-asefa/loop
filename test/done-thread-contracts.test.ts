@@ -4,6 +4,7 @@ import { workspaceApi } from "../src/shared/workspace-api";
 import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
+import { seedRun } from "./helpers/seed.js";
 
 it("companion persists Done threads without changing conversations and isolates every operation by owner", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -43,19 +44,17 @@ it("companion persists Done threads without changing conversations and isolates 
       const conversation =
         index === 6 ? "private" : index < 2 ? "basil" : "willow";
       const agent = conversation;
-      db.prepare(
-        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
-      ).run(
-        "run" + index,
-        identity,
-        agent,
-        conversation,
-        "Prompt " + index,
-        index === 5 ? "running" : "completed",
-        "run" + index,
-        index + 1,
-        index + 2,
-      );
+      seedRun(db, {
+        id: "run" + index,
+        owner_id: identity,
+        agent_id: agent,
+        conversation_id: conversation,
+        input: "Prompt " + index,
+        state: index === 5 ? "running" : "completed",
+        idempotency_key: "run" + index,
+        created_at: index + 1,
+        updated_at: index + 2,
+      });
       db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
       ).run(

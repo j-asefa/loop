@@ -25,6 +25,7 @@ import {
   CardChangesSchema,
   type CardSelection,
 } from "../src/shared/cards";
+import { seedRun } from "./helpers/seed.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -85,9 +86,17 @@ function message(
   meta: object = { personal: true, attachments: [] },
   at = 10,
 ) {
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Prompt','completed',?,?,?)",
-  ).run(id, owner, owner, owner, id, at, at);
+  seedRun(db, {
+    id,
+    owner_id: owner,
+    agent_id: owner,
+    conversation_id: owner,
+    input: "Prompt",
+    state: "completed",
+    idempotency_key: id,
+    created_at: at,
+    updated_at: at,
+  });
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
   ).run(id, owner, owner, id, role, "Body " + id, JSON.stringify(meta), at);

@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedRun } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { execFileSync } from "node:child_process";
 import { afterAll, expect, it, vi } from "vitest";
@@ -72,19 +72,18 @@ function fixture(value = snapshot()) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Review',?)",
   ).run(conversation, owner, agent.id, now());
-  db.prepare(
-    `INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at)
-    VALUES(?,?,?,?,'Review','completed',?,?,?,?)`,
-  ).run(
-    rid,
-    owner,
-    agent.id,
-    conversation,
-    rid,
-    JSON.stringify({ reviewId: review }),
-    now(),
-    now(),
-  );
+  seedRun(db, {
+    id: rid,
+    owner_id: owner,
+    agent_id: agent.id,
+    conversation_id: conversation,
+    input: "Review",
+    state: "completed",
+    idempotency_key: rid,
+    payload: JSON.stringify({ reviewId: review }),
+    created_at: now(),
+    updated_at: now(),
+  });
   db.prepare(
     `INSERT INTO code_reviews(id,owner_id,team_id,folder_id,request_key,request_hash,snapshot,fingerprint,run_id,created_at)
     VALUES(?,?,?,?,?,'fixture',?,?,?,?)`,

@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
+import { seedRun } from "./helpers/seed.js";
 
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -16,9 +17,6 @@ it("companion filters Done before pagination and reconciles read transitions wit
         "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,1)",
       ).run(agent, identity, agent, agent);
     }
-    const insertRun = db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Prompt','completed',?,1,?)",
-    );
     const insertMessage = db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Answer',?)",
     );
@@ -27,7 +25,17 @@ it("companion filters Done before pagination and reconciles read transitions wit
         const identity = agent === "foreign" ? "foreign" : owner;
         for (let index = 0; index < 6; index++) {
           const id = agent + index;
-          insertRun.run(id, identity, agent, agent, id, index + 10);
+          seedRun(db, {
+            id,
+            owner_id: identity,
+            agent_id: agent,
+            conversation_id: agent,
+            input: "Prompt",
+            state: "completed",
+            idempotency_key: id,
+            created_at: 1,
+            updated_at: index + 10,
+          });
           insertMessage.run(id, identity, agent, id, index + 10);
         }
       }
