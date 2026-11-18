@@ -1,6 +1,6 @@
+import type { RunState } from "../src/shared/run-state.js";
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedMessage } from "./helpers/seed.js";
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage, seedRun } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -105,25 +105,23 @@ function run(
   owner: string,
   agentId: string,
   cid: string,
-  state = "completed",
+  state: RunState = "completed",
   extra: { input?: string; payload?: object } = {},
 ) {
   const rid = id(),
     time = clock++;
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-  ).run(
-    rid,
-    owner,
-    agentId,
-    cid,
-    extra.input || "prompt",
+  seedRun(db, {
+    id: rid,
+    owner_id: owner,
+    agent_id: agentId,
+    conversation_id: cid,
+    input: extra.input || "prompt",
     state,
-    rid,
-    JSON.stringify(extra.payload || {}),
-    time,
-    time,
-  );
+    idempotency_key: rid,
+    payload: JSON.stringify(extra.payload || {}),
+    created_at: time,
+    updated_at: time,
+  });
   return rid;
 }
 function message(
@@ -708,7 +706,7 @@ it("surfaces a native run interrupted while awaiting approval, without replay or
   expect((await page()).summary.needs).toBe(0);
 });
 
-it.each(["failed", "interrupted"])(
+it.each(["failed", "interrupted"] as const)(
   "ignores legacy pending approvals and native decisions on a %s run",
   async (state) => {
     const w = workspaceFor(),
@@ -1354,7 +1352,7 @@ it.each([
   "awaiting_approval",
   "failed",
   "interrupted",
-])(
+] as const)(
   "Done dismissal has no effect on %s work, other lists or counts",
   async (state) => {
     const w = workspaceFor(),

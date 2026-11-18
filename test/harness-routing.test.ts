@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedRun } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -678,9 +678,17 @@ it("probes the folder the next turn uses, not the agent's newer folder", async (
   const aid = agent(codexConnection),
     cid = conversation(aid, codexConnection);
   // The conversation's last run had no folder; the agent got one later.
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'earlier','completed',?,'{}',?,?)",
-  ).run(id(), OWNER, aid, cid, id(), now(), now());
+  seedRun(db, {
+    id: id(),
+    owner_id: OWNER,
+    agent_id: aid,
+    conversation_id: cid,
+    input: "earlier",
+    state: "completed",
+    idempotency_key: id(),
+    created_at: now(),
+    updated_at: now(),
+  });
   db.prepare("UPDATE agents SET folder_id=? WHERE id=?").run(folder, aid);
   nativeSessions.projects.clearProbes();
   expect((await catalog(aid, cid)).status).toBe(200);
