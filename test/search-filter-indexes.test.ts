@@ -61,19 +61,29 @@ it("looks up artifacts and memory sources by index for each candidate document",
     filter.params,
   );
   expect(artifactPlan).toMatch(
-    /SEARCH a USING (?:COVERING )?INDEX \S+ \(id=\?/,
+    /SEARCH a (?:EXISTS )?USING (?:COVERING )?INDEX \S+ \(id=\?/,
   );
   expect(artifactPlan).not.toMatch(
-    /SEARCH a USING (?:COVERING )?INDEX \S+ \(owner_id=\?\)/,
+    /SEARCH a (?:EXISTS )?USING (?:COVERING )?INDEX \S+ \(owner_id=\?\)/,
   );
   expect(artifactPlan).not.toMatch(/SCAN a\b/);
+
+  const mine = filterSql(owner, { scope: "mine" }, now());
+  const minePlan = plan(
+    `SELECT d.id FROM search_documents d WHERE ${mine.sql}`,
+    mine.params,
+  );
+  expect(minePlan).toMatch(
+    /SEARCH m (?:EXISTS )?USING (?:COVERING )?INDEX \S+ \(id=\?/,
+  );
+  expect(minePlan).not.toMatch(/SCAN m\b/);
 
   const memoryPlan = plan(
     `SELECT d.id FROM search_documents d WHERE d.owner_id=? AND ${eligibleText}`,
     [owner],
   );
   expect(memoryPlan).toMatch(
-    /SEARCH ms USING (?:COVERING )?INDEX \S+ \(owner_id=\? AND kind=\? AND source_id=\?\)/,
+    /SEARCH ms (?:EXISTS )?USING (?:COVERING )?INDEX \S+ \(owner_id=\? AND kind=\? AND source_id=\?\)/,
   );
   expect(memoryPlan).not.toMatch(/SCAN ms\b/);
 });
@@ -96,6 +106,11 @@ it("keeps excluding trace artifacts and memory-backed documents", async () => {
   const found = await search(owner, "kestrel");
   expect(found.items.map((item) => item.id).sort()).toEqual(
     ["artifact:" + answer, "message:" + plain, "message:" + remembered].sort(),
+  );
+
+  const mineFound = await search(owner, "kestrel", { scope: "mine" });
+  expect(mineFound.items.map((item) => item.id).sort()).toEqual(
+    ["message:" + plain, "message:" + remembered].sort(),
   );
 
   // Semantic indexing skips only the memory-backed message.
