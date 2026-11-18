@@ -73,14 +73,23 @@ const recordRow = z.object({
   conversation_id: z.string(),
   card_key: z.string(),
 });
-const feedPageRow = z.union([recordRow, z.object({ payload: z.null() })]).and(
-  z.object({
-    needs: z.number(),
-    working: z.number(),
-    queued: z.number(),
-    done_unread: z.number(),
-  }),
-);
+const feedPageRow = z
+  .union([
+    recordRow.extend({
+      kind: z.string().optional(),
+      read_at: z.number().nullable().optional(),
+      unread_version: z.number().optional(),
+    }),
+    z.object({ payload: z.null() }),
+  ])
+  .and(
+    z.object({
+      needs: z.number(),
+      working: z.number(),
+      queued: z.number(),
+      done_unread: z.number(),
+    }),
+  );
 const donePageRow = recordRow.extend({
   kind: z.string(),
   read_at: z.number().nullable(),
@@ -110,7 +119,13 @@ export function feedPageSql(
     outcomes: "t.completed=1 AND NOT t.snoozed",
     unfinished: `(${needs} OR t.working OR t.queued) AND NOT t.snoozed`,
   }[filter];
-  const sql = `SELECT p.payload,t.payload thread_payload,${sort} sort_at,p.conversation_id,p.card_key
+  // Done results carry the owner's read state so every admitted reader sees
+  // the same unread marker and version the read/unread writes compare against.
+  const readState = results
+    ? `,p.kind,CASE WHEN p.kind='result' AND NOT p.unread THEN (SELECT d.read_at FROM done_card_reads d WHERE d.owner_id=p.owner_id AND d.conversation_id=p.conversation_id AND d.card_key=p.card_key) END read_at,
+      COALESCE((SELECT v.version FROM done_card_unread_versions v WHERE v.owner_id=p.owner_id AND v.conversation_id=p.conversation_id AND v.card_key=p.card_key),0) unread_version`
+    : "";
+  const sql = `SELECT p.payload,t.payload thread_payload,${sort} sort_at,p.conversation_id,p.card_key${readState}
     FROM feed_cards p ${results ? "JOIN feed_cards t ON t.owner_id=p.owner_id AND t.conversation_id=p.conversation_id AND t.kind='thread'" : ""}
     WHERE ${scope("p", params)} AND ${results ? "p.kind IN ('result','idle') AND (p.kind='result' OR (p.kind='idle' AND NOT EXISTS(SELECT 1 FROM feed_cards r WHERE r.owner_id=p.owner_id AND r.conversation_id=p.conversation_id AND r.kind='result')))" : "p.kind='thread'"}
       AND (${where})
