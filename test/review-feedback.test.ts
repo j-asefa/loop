@@ -1,4 +1,8 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
@@ -256,9 +260,13 @@ it("finishes reciprocal teams despite intervening queued tasks without overlappi
     );
     const ordinary = [a, b].map((agent) => {
       const conversation = id();
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-      ).run(conversation, owner, agent.id, "Queued work", now());
+      seedConversation(db, {
+        id: conversation,
+        owner_id: owner,
+        agent_id: agent.id,
+        title: "Queued work",
+        created_at: now(),
+      });
       return submit(owner, {
         agentId: agent.id,
         conversationId: conversation,
@@ -324,9 +332,13 @@ it("preserves separate files and repeated messages while deduplicating only a li
   expect(
     new Set((await search(owner, "Invoice")).items.map((item) => item.id)),
   ).toEqual(new Set(files.map((file) => "artifact:" + file)));
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-  ).run(conversation, owner, a.id, "Repeated content", now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: a.id,
+    title: "Repeated content",
+    created_at: now(),
+  });
   const messages = (["user", "assistant", "assistant"] as const).map((role) => {
     const message = id();
     seedMessage(db, {

@@ -1,4 +1,9 @@
-import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedAgent,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -80,9 +85,13 @@ function fixture() {
       message = id(),
       artifact = id();
     if (!conversation)
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Workspace task',?)",
-      ).run(cid, owner, agent, now());
+      seedConversation(db, {
+        id: cid,
+        owner_id: owner,
+        agent_id: agent,
+        title: "Workspace task",
+        created_at: now(),
+      });
     db.prepare(
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at,worker_id) VALUES(?,?,?,?,'Review the workspace',?,?,?,?,?,'fixture')",
     ).run(

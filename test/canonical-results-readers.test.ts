@@ -1,4 +1,8 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -168,9 +172,14 @@ it("chains results chronologically across kinds and joins imported history", asy
   );
 
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Imported','openai-import',1)",
-  ).run(conversation, f.owner, f.agent.id);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: f.owner,
+    agent_id: f.agent.id,
+    title: "Imported",
+    origin: "openai-import",
+    created_at: 1,
+  });
   for (const [n, role] of [
     [1, "user"],
     [2, "assistant"],
