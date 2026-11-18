@@ -138,20 +138,26 @@ export const mobileRoutes = {
   doneThreadRead: endpoint({
     ...base,
     operation: "doneThreadRead",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "PUT",
     path: "/feed/threads/:id/read",
     params: z.object({ id: requestId(DoneThreadId) }),
     body: z
       .object({ unreadVersions: mobile.DoneReadVersions.optional() })
+      .extend(mobile.StateIdentityInput.shape)
       .strict(),
     response: mobile.DoneReadResult,
   }),
   doneThreadUnread: endpoint({
     ...base,
     operation: "doneThreadUnread",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "DELETE",
     path: "/feed/threads/:id/read",
     params: z.object({ id: requestId(DoneThreadId) }),
+    body: mobile.StateIdentityInput.strict().optional(),
     response: mobile.DoneReadResult,
   }),
   doneThreadRemove: endpoint({
@@ -175,19 +181,23 @@ export const mobileRoutes = {
   feedRead: endpoint({
     ...base,
     operation: "feedRead",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "PUT",
     path: "/feed/:id/read",
     params: z.object({ id: requestId(ConversationId) }),
-    body: mobile.DoneReadInput,
+    body: mobile.DoneReadRequest,
     response: mobile.DoneReadResult,
   }),
   feedUnread: endpoint({
     ...base,
     operation: "feedUnread",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "DELETE",
     path: "/feed/:id/read",
     params: z.object({ id: requestId(ConversationId) }),
-    body: mobile.DoneReadInput,
+    body: mobile.DoneReadRequest,
     response: mobile.DoneReadResult,
   }),
   replyState: endpoint({
@@ -211,19 +221,23 @@ export const mobileRoutes = {
   messageSave: endpoint({
     ...base,
     operation: "messageSave",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "POST",
     path: "/messages/:id/saved",
     params: z.object({ id: requestId(MessageId) }),
-    body: z.unknown(),
+    body: mobile.StateIdentityInput.optional(),
     response: Ok.extend({ saved: z.boolean() }),
   }),
   messageUnsave: endpoint({
     ...base,
     operation: "messageUnsave",
+    access: { admits: ["write"] },
+    identity: "idempotencyKey",
     method: "DELETE",
     path: "/messages/:id/saved",
     params: z.object({ id: requestId(MessageId) }),
-    body: z.unknown(),
+    body: mobile.StateIdentityInput.optional(),
     response: Ok.extend({ saved: z.boolean() }),
   }),
   savedList: endpoint({

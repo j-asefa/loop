@@ -2,9 +2,15 @@ import * as runSteeringQueries from "./sql/run-steering.js";
 import * as approvalsQueries from "./sql/approvals.js";
 import * as nativeDecisionsQueries from "./sql/native-decisions.js";
 import * as runsQueries from "./sql/runs.js";
+import * as conversationsQueries from "./sql/conversations.js";
+import * as doneThreadsQueries from "./sql/done-threads.js";
+import * as messagesQueries from "./sql/messages.js";
 import { z } from "zod";
 import { PublicRun } from "../shared/workspace-api.js";
-import { PublicWithdrawnDraft } from "../shared/mobile-contract-schemas.js";
+import {
+  DoneReadResult,
+  PublicWithdrawnDraft,
+} from "../shared/mobile-contract-schemas.js";
 import { db } from "./db.js";
 import { ownedApproval, ownedRun, ownedRunControl, Problem } from "./domain.js";
 import { runResponse } from "./row-schemas.js";
@@ -175,3 +181,37 @@ export const nativeAnswerTokenWrite = tokenWrite({
     return { state: row.state };
   },
 });
+
+// Read and saved state are owner preferences without a separate result row.
+// The receipt keeps the original public response with its target; a replay
+// checks that the owner still has the target and never applies the change again.
+function stateWrite(
+  response: z.ZodType,
+  exists: (owner: string, id: string) => boolean,
+) {
+  const Locator = z.object({ target: z.string(), result: response });
+  return tokenWrite({
+    mode: "local",
+    locate: (request, result) => ({
+      target: Target.parse(request.input.params).id,
+      result: response.parse(result),
+    }),
+    project: (owner, value) => {
+      const saved = locator(Locator, value);
+      if (!exists(owner, saved.target)) throw unavailable();
+      return saved.result;
+    },
+  });
+}
+export const doneReadTokenWrite = stateWrite(
+  DoneReadResult,
+  (owner, id) => conversationsQueries.owned(db, id, owner) !== undefined,
+);
+export const doneThreadReadTokenWrite = stateWrite(
+  DoneReadResult,
+  (owner, id) => doneThreadsQueries.owned(db, owner, id) !== undefined,
+);
+export const savedTokenWrite = stateWrite(
+  z.object({ ok: z.literal(true), saved: z.boolean() }),
+  (owner, id) => messagesQueries.owned(db, id, owner) !== undefined,
+);

@@ -5,7 +5,8 @@ Loop's Integration API admits scoped bearer credentials through the mounted
 a token may use it when at least one stored admission value matches. Session
 access keeps its existing rules. GET and HEAD share authorization; HEAD has no
 body. Token reads do not save, mark product items read, resolve decisions or
-dispatch work; the event acknowledgement confirms only that token's stream cursor. Responses omit owner-session clock headers and the JSON
+dispatch work; `write` tokens may save messages and change Done read state only
+through the operations listed below; the event acknowledgement confirms only that token's stream cursor. Responses omit owner-session clock headers and the JSON
 `projection` clock; collection cursors remain available for pagination.
 
 ## Integration tokens
@@ -34,7 +35,7 @@ metadata and revokes tokens immediately.
 | Selectable scope   | Current admission                                                                                                                                                                                                                                |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `read`             | Bootstrap; agent details, messages and traces; Feed pages; conversation and message reads; run and approval lists; companion native-decision lists; Results, artifacts and file downloads; Cards Results, Saved and Sent; event pages and stream |
-| `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs                                                                                                                                                       |
+| `write`            | Submit messages and replies; cancel or dismiss runs; reorder, withdraw or move queued runs; mark Feed Done results and saved Done threads read or unread; save or unsave messages                                                              |
 | `approvals:decide` | Decide API approvals and answer companion native decisions                                                                                                                                                                                       |
 
 The `read` approval list returns pending records using the
@@ -56,6 +57,9 @@ returns the draft content. These responses do not require `read`; that scope
 admits the separate GET/HEAD routes.
 
 The session-only Cards Done collection remains unavailable to every bearer, including `read`.
+Feed `filter=done` pages, which `read` admits, carry each result's `read_at`
+(null while unread) and `unread_version`; pass that version to the read
+operation so a later unread is never erased.
 
 Tokens cover the owner's projects. Query filters narrow a selection, not
 the grant. A token belongs to one source and owner; it cannot reach linked
@@ -178,8 +182,11 @@ including when the companion is reached through its connection-service relay.
 ## Write identities and replay
 
 Every admitted write requires a body identity. Use `idempotencyKey` (8–150
-characters) for submit, cancel/dismiss, reorder, withdraw, move and API approval
-decisions; native answers use their existing UUID `commandId`. The generated
+characters) for submit, cancel/dismiss, reorder, withdraw, move, Done read and
+unread, save and unsave, and API approval decisions; native answers use their
+existing UUID `commandId`. Read-state and saved-state replays return the original
+response while the owner still has the conversation, thread or message; they
+never apply the change again. The generated
 operation names the field in `x-request-identity`. Session callers may continue
 omitting identities on routes that previously allowed it.
 
