@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -35,8 +35,6 @@ it("upgrades run events without reusing deleted IDs and admits connection subjec
   try {
     db.pragma("foreign_keys=ON");
     db.transaction(() => {
-      const history = join(directory, "migrations");
-      mkdirSync(history);
       applyMigrationsThrough(db, 106);
     }).immediate();
     db.exec(`
