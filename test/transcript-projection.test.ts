@@ -9,7 +9,7 @@ import {
   type TranscriptEvent,
 } from "../src/shared/transcript-projection";
 import { historicalEvent } from "../src/shared/workspace-events";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 const dir = testDirectory();
 
 const { db } = await import("../src/server/db");
@@ -21,9 +21,12 @@ afterAll(() => {
   db.close();
 });
 function seed(key: string) {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Projection',1)",
-  ).run(key);
+  seedConversation(db, {
+    id: key,
+    owner_id: "owner",
+    title: "Projection",
+    created_at: 1,
+  });
   seedRun(db, {
     id: key,
     owner_id: "owner",

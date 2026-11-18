@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
+import { seedConversation } from "./helpers/seed.js";
 
 it("companion groups only explicit mail in its thread, including interrupts into shared running history", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -15,9 +16,13 @@ it("companion groups only explicit mail in its thread, including interrupts into
       db.prepare(
         "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
       ).run(agent, identity, agent, agent);
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,1)",
-      ).run(agent, identity, agent, "Unrelated conversation");
+      seedConversation(db, {
+        id: agent,
+        owner_id: identity,
+        agent_id: agent,
+        title: "Unrelated conversation",
+        created_at: 1,
+      });
       db.prepare(
         "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Unrelated task','running',?,'{}',1,1)",
       ).run(agent, identity, agent, agent, agent);

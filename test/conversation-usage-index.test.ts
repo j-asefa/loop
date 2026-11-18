@@ -1,6 +1,6 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -13,9 +13,12 @@ afterAll(() => {
 
 function conversation(owner: string) {
   const cid = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Fixture',0)",
-  ).run(cid, owner);
+  seedConversation(db, {
+    id: cid,
+    owner_id: owner,
+    title: "Fixture",
+    created_at: 0,
+  });
   return cid;
 }
 function run(owner: string, cid: string) {

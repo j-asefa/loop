@@ -4,6 +4,7 @@ import { Codex } from "../src/adapters/codex";
 import { afterAll, expect, it } from "vitest";
 
 import { NativeSessionState } from "../src/server/native/state.js";
+import { seedConversation } from "./helpers/seed.js";
 const dir = testDirectory();
 
 const { db } = await import("../src/server/db");
@@ -51,9 +52,12 @@ const source = {
 
 it("ingests adapter activities under the live turn and generation only", () => {
   for (const c of ["c1", "c2"])
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','t',0)",
-    ).run(c);
+    seedConversation(db, {
+      id: c,
+      owner_id: "owner",
+      title: "t",
+      created_at: 0,
+    });
   enqueue("owner", "t", "k1", { conversation: "c1" });
   const run = claim("w")!;
   const current = live("c1", run, "gen-2");

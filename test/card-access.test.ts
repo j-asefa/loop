@@ -8,7 +8,7 @@ import {
   integrationTokenRequest,
   type CardToken,
 } from "../src/shared/card-access";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 it("enforces scoped card credentials through the real companion entrypoint", async () => {
   const fixture = await cardsFixture();
@@ -20,9 +20,14 @@ it("enforces scoped card credentials through the real companion entrypoint", asy
     db.prepare(
       "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('project',?,'project','Project',1),('foreign-project','foreign','project','Secret project',1)",
     ).run(owner);
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES('thread',?,'agent','Thread','project',1)",
-    ).run(owner);
+    seedConversation(db, {
+      id: "thread",
+      owner_id: owner,
+      agent_id: "agent",
+      title: "Thread",
+      project_id: "project",
+      created_at: 1,
+    });
     seedRun(db, {
       id: "run",
       owner_id: owner,

@@ -6,6 +6,7 @@ import { db, id, now } from "../../src/server/db.js";
 import { enqueue, claim } from "../../src/server/queue.js";
 import { nativeSessions } from "../../src/server/native-sessions.js";
 import { OWNER } from "../../src/server/workspace-identity.js";
+import { seedConversation } from "../helpers/seed.js";
 
 // Fault injection is IPC-only and installed in the isolated fixture process.
 // The actual registrar, identity store, routes and native authority run normally.
@@ -28,9 +29,12 @@ export function failTokenCompletion() {
 export function nativeTokenDecision(fail: boolean) {
   const conversation = id(),
     generation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Native token fixture',?)",
-  ).run(conversation, OWNER, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: OWNER,
+    title: "Native token fixture",
+    created_at: now(),
+  });
   const queued = enqueue(OWNER, "Native token fixture", id(), { conversation });
   const run = claim(
     "token-native-fixture",

@@ -48,7 +48,7 @@ const { checkoutLine, unquoteGitPath, patchByFile } =
   await import("../src/shared/checkout");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 afterAll(() => {
   db.close();
@@ -73,9 +73,14 @@ function runFixture(
   state: RunState = "running",
   at = now(),
 ): Run {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Thread',?,0)",
-  ).run(conversation, owner, agent, folder);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent,
+    title: "Thread",
+    project_id: folder,
+    created_at: 0,
+  });
   const runId = id();
   seedRun(db, {
     id: runId,

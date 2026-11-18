@@ -4,7 +4,7 @@ import { workspaceApi } from "../src/shared/workspace-api";
 import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 it("companion persists Done threads without changing conversations and isolates every operation by owner", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -19,9 +19,13 @@ it("companion persists Done threads without changing conversations and isolates 
       db.prepare(
         "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?, 'openai','fixture',1)",
       ).run(name, identity, name, name);
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,1)",
-      ).run(name, identity, name, name);
+      seedConversation(db, {
+        id: name,
+        owner_id: identity,
+        agent_id: name,
+        title: name,
+        created_at: 1,
+      });
     }
     db.prepare(
       "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('project',?,'project','Project',1),('private-project','foreign','project','Private',1)",

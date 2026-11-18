@@ -1,6 +1,7 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
+import { seedConversation } from "./helpers/seed.js";
 
 testDirectory();
 const { db, id } = await import("../src/server/db");
@@ -20,9 +21,12 @@ afterAll(() => {
 
 function fixture() {
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Fixture',0)",
-  ).run(conversation, OWNER);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: OWNER,
+    title: "Fixture",
+    created_at: 0,
+  });
   const queued = enqueue(OWNER, "Fixture", id(), { conversation });
   const run = claim("fixture-worker")!;
   expect(run.id).toBe(queued.id);

@@ -17,6 +17,7 @@ import {
 } from "../src/shared/personal-decisions";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
+import { seedConversation } from "./helpers/seed.js";
 const dir = testDirectory();
 const harnesses = harnessFixture(dir);
 const { db } = await import("../src/server/db");
@@ -34,9 +35,12 @@ function session(
   harness: "claude" | "codex" = "claude",
   allEvents = false,
 ) {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'test',0)",
-  ).run(name, OWNER);
+  seedConversation(db, {
+    id: name,
+    owner_id: OWNER,
+    title: "test",
+    created_at: 0,
+  });
   const queued = enqueue(OWNER, "test", name, { conversation: name });
   const run = claim("worker")!;
   expect(run.id).toBe(queued.id);

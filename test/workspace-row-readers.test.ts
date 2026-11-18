@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -337,9 +337,13 @@ it("validates continuation messages before creating a conversation and preserves
   const f = fixture(),
     conversation = id(),
     message = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)",
-  ).run(conversation, f.owner, f.manager.id, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: f.owner,
+    agent_id: f.manager.id,
+    title: "Original",
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant','Body',?,?)",
   ).run(message, f.owner, conversation, '{"historicalLabel":"kept"}', now());
@@ -399,9 +403,13 @@ it("starts a continuation atomically, checks ownership and reconciles its origin
     source = id(),
     first = id(),
     last = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)",
-  ).run(source, f.owner, f.manager.id, now());
+  seedConversation(db, {
+    id: source,
+    owner_id: f.owner,
+    agent_id: f.manager.id,
+    title: "Original",
+    created_at: now(),
+  });
   const insert = db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,?,?,?)",
   );
@@ -434,9 +442,13 @@ it("starts a continuation atomically, checks ownership and reconciles its origin
       .status,
   ).toBe(404);
   const unrelated = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Other',?)",
-  ).run(unrelated, f.owner, f.manager.id, now());
+  seedConversation(db, {
+    id: unrelated,
+    owner_id: f.owner,
+    agent_id: f.manager.id,
+    title: "Other",
+    created_at: now(),
+  });
   expect(
     (await request(f.owner, `/conversations/${unrelated}/continue/start`, body))
       .status,
@@ -510,9 +522,13 @@ it.each(["source", "destination", "run"])(
     const f = fixture(),
       source = id(),
       message = id();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Original',?)",
-    ).run(source, f.owner, f.manager.id, now());
+    seedConversation(db, {
+      id: source,
+      owner_id: f.owner,
+      agent_id: f.manager.id,
+      title: "Original",
+      created_at: now(),
+    });
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Pick this up',?)",
     ).run(message, f.owner, source, now());

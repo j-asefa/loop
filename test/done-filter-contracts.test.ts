@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -13,9 +13,13 @@ it("companion filters Done before pagination and reconciles read transitions wit
       db.prepare(
         "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
       ).run(agent, identity, agent, agent);
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,1)",
-      ).run(agent, identity, agent, agent);
+      seedConversation(db, {
+        id: agent,
+        owner_id: identity,
+        agent_id: agent,
+        title: agent,
+        created_at: 1,
+      });
     }
     const insertMessage = db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Answer',?)",
@@ -40,9 +44,13 @@ it("companion filters Done before pagination and reconciles read transitions wit
         }
       }
     })();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('idle',?,'a','No result',1)",
-    ).run(owner);
+    seedConversation(db, {
+      id: "idle",
+      owner_id: owner,
+      agent_id: "a",
+      title: "No result",
+      created_at: 1,
+    });
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('idle',?,'idle','user','A prompt without an answer',30)",
     ).run(owner);

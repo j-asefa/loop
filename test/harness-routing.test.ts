@@ -1,4 +1,4 @@
-import { seedConnection, seedRun } from "./helpers/seed.js";
+import { seedConnection, seedConversation, seedRun } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -66,9 +66,14 @@ function agent(connectionId = piConnection) {
 }
 function conversation(aid: string, connectionId: string, owner = OWNER) {
   const cid = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,execution_connection_id,created_at) VALUES(?,?,?,'Fixture',?,?)",
-  ).run(cid, owner, aid, connectionId, now());
+  seedConversation(db, {
+    id: cid,
+    owner_id: owner,
+    agent_id: aid,
+    title: "Fixture",
+    execution_connection_id: connectionId,
+    created_at: now(),
+  });
   return cid;
 }
 function directChat(aid: string) {

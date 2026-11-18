@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
+import { seedConversation } from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -85,9 +86,13 @@ function task(key: string, text = "Explicit task") {
     model: "native-default",
     instructions: "Saved fixture instructions",
   });
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Antigravity',0)",
-  ).run(key, OWNER, agent.id);
+  seedConversation(db, {
+    id: key,
+    owner_id: OWNER,
+    agent_id: agent.id,
+    title: "Antigravity",
+    created_at: 0,
+  });
   const run = enqueue(OWNER, text, key, {
     conversation: key,
     agent: agent.id,

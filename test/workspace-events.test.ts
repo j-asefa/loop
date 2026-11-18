@@ -1,4 +1,4 @@
-import { seedMessage, seedRun } from "./helpers/seed.js";
+import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
@@ -53,11 +53,13 @@ function seed(
       "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Writer',?,'openai','fixture',1)",
     )
     .run(prefix + "agent", owner, prefix + "writer");
-  f.db
-    .prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Socket thread',1)",
-    )
-    .run(prefix + "thread", owner, prefix + "agent");
+  seedConversation(f.db, {
+    id: prefix + "thread",
+    owner_id: owner,
+    agent_id: prefix + "agent",
+    title: "Socket thread",
+    created_at: 1,
+  });
   seedRun(f.db, {
     id: prefix + "run",
     owner_id: owner,

@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 
@@ -33,9 +33,13 @@ function fixture(metadata: object = {}) {
   });
   const conversation = () => {
     const cid = id();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Queue',?)",
-    ).run(cid, owner, agent.id, now());
+    seedConversation(db, {
+      id: cid,
+      owner_id: owner,
+      agent_id: agent.id,
+      title: "Queue",
+      created_at: now(),
+    });
     return cid;
   };
   const make = (cid: string, createdAt?: number) => {

@@ -10,6 +10,7 @@ import { WebSocket } from "ws";
 import { compiledServerFixture } from "./helpers/compiled-server";
 import { WorkspaceFrameV3 } from "../src/shared/workspace-events";
 import { fleetDeviceFromLink } from "../src/shared/fleet-pairing";
+import { seedRun } from "./helpers/seed.js";
 
 it("processes overdue durable rows after a full companion restart and preserves the owner epoch", async () => {
   const compiled = await compiledServerFixture();
@@ -59,9 +60,15 @@ it("processes overdue durable rows after a full companion restart and preserves 
     const first = await start();
     db = new Database(join(dir, "loop.db"));
     db.pragma("foreign_keys=ON");
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'Prompt','awaiting_approval','key',1,1)",
-    ).run(first.owner);
+    seedRun(db, {
+      id: "run",
+      owner_id: first.owner,
+      input: "Prompt",
+      state: "awaiting_approval",
+      idempotency_key: "key",
+      created_at: 1,
+      updated_at: 1,
+    });
     const expires = Date.now() + 1200;
     db.prepare(
       "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES('approval',?,'run','digest','{}','pending',1,?)",

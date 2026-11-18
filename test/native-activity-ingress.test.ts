@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { harnessIds } from "../src/shared/harnesses.js";
@@ -43,9 +43,12 @@ afterAll(async () => {
 });
 
 for (const c of ["conv", "other"])
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','t',0)",
-  ).run(c);
+  seedConversation(db, {
+    id: c,
+    owner_id: "owner",
+    title: "t",
+    created_at: 0,
+  });
 db.prepare(
   "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent','conv','codex',?,0)",
 ).run(dir);
@@ -296,9 +299,12 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
       model: "fixture",
     });
     const conversation = id();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','PR creation',?)",
-    ).run(conversation, now());
+    seedConversation(db, {
+      id: conversation,
+      owner_id: "owner",
+      title: "PR creation",
+      created_at: now(),
+    });
     db.prepare(
       "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,?,?,?)",
     ).run(conversation, harness, dir, now());
@@ -705,9 +711,12 @@ it("does not return old adapter controls or confirm a write after the binding ch
 
 it("persists native tool items and deltas as paged activities across reloads and turns", async () => {
   const conversation = "tool-items";
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Tools',0)",
-  ).run(conversation);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: "owner",
+    title: "Tools",
+    created_at: 0,
+  });
   db.prepare(
     "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'codex',?,0)",
   ).run(conversation, dir);

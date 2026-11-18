@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -106,9 +106,12 @@ it.each([
       "INSERT OR IGNORE INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('native-codex','local-workspace','codex','Codex','','connected','[]','{\"loopHarness\":\"codex\"}',0)",
     ).run();
     const conversation = `startup-${name}`;
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Setup test',0)",
-    ).run(conversation);
+    seedConversation(db, {
+      id: conversation,
+      owner_id: "local-workspace",
+      title: "Setup test",
+      created_at: 0,
+    });
     const request = Native.prototype.request;
     vi.spyOn(Native.prototype, "request").mockImplementation(function (
       this: Native,
@@ -169,9 +172,12 @@ it.each([
 it("persists a running agent's confirmed memory failure for cards without replaying the turn", async () => {
   process.env.LOOP_TEST_HARNESS = "codex";
   const conversation = "running-memory";
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'local-workspace','Memory test',0)",
-  ).run(conversation);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: "local-workspace",
+    title: "Memory test",
+    created_at: 0,
+  });
   const request = Native.prototype.request;
   let prompts = 0;
   vi.spyOn(Native.prototype, "request").mockImplementation(function (
@@ -223,9 +229,12 @@ it("preserves safe subscription setup guidance through the real worker and trace
   process.env.LOOP_TEST_PI_AUTH = "api";
   const audit = join(dir, "prompts.log");
   process.env.LOOP_TEST_AUDIT = audit;
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('startup','local-workspace','Setup test',0)",
-  ).run();
+  seedConversation(db, {
+    id: "startup",
+    owner_id: "local-workspace",
+    title: "Setup test",
+    created_at: 0,
+  });
   const run = enqueue(
     "local-workspace",
     "What folders can you access?",

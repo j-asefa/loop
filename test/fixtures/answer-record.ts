@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 import { execFileSync } from "node:child_process";
 import type Database from "better-sqlite3";
+import { seedConversation } from "../helpers/seed.js";
 
 export function assertAnswerStored(
   db: Database.Database,
@@ -66,9 +67,12 @@ export async function exerciseAnswerRecord() {
   const created: ReturnType<typeof enqueue>[] = [];
   const createRun = () => {
     const conversation = id();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','answer fixture',0)",
-    ).run(conversation);
+    seedConversation(db, {
+      id: conversation,
+      owner_id: "owner",
+      title: "answer fixture",
+      created_at: 0,
+    });
     const queued = enqueue("owner", "Answer fixture", id(), { conversation });
     const run = claim(
       "answer-record-fixture",

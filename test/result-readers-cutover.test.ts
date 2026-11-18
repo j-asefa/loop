@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -146,9 +146,14 @@ it("does not manufacture a published card from an unsealed transcript answer", (
   const agent = agentFor(owner, "raw");
   const unpublished = finishRun(owner, agent.id, "Never sealed", false);
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Loose','loop',?)",
-  ).run(conversation, owner, agent.id, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent.id,
+    title: "Loose",
+    origin: "loop",
+    created_at: now(),
+  });
   const loose = id();
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Loose answer','{}',?)",

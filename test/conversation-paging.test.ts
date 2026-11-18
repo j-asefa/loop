@@ -1,5 +1,5 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
@@ -25,9 +25,12 @@ afterAll(() => {
 
 function thread(owner = "alice") {
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'History',1)",
-  ).run(conversation, owner);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    title: "History",
+    created_at: 1,
+  });
   return conversation;
 }
 function run(conversation: string, owner = "alice") {

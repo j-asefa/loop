@@ -11,6 +11,7 @@ import { afterAll, expect, it, vi } from "vitest";
 
 import { join } from "node:path";
 import { NATIVE_OUTPUT_BYTES } from "../src/server/native-output";
+import { seedConversation } from "./helpers/seed.js";
 const dir = testDirectory();
 
 const { db } = await import("../src/server/db");
@@ -22,9 +23,12 @@ afterAll(() => {
 });
 
 it("flushes dirty native items and completes after exceeding the display window", async () => {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('conversation','owner','test',0)",
-  ).run();
+  seedConversation(db, {
+    id: "conversation",
+    owner_id: "owner",
+    title: "test",
+    created_at: 0,
+  });
   const queued = enqueue("owner", "test", "projection-test", {
     conversation: "conversation",
     payload: {
@@ -346,9 +350,12 @@ it("flushes dirty native items and completes after exceeding the display window"
 }, 15000);
 
 it("drops item events from a superseded session generation", () => {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('superseded','owner','test',0)",
-  ).run();
+  seedConversation(db, {
+    id: "superseded",
+    owner_id: "owner",
+    title: "test",
+    created_at: 0,
+  });
   const queued = enqueue("owner", "test", "superseded-test", {
     conversation: "superseded",
     payload: {
@@ -413,9 +420,12 @@ it("drops item events from a superseded session generation", () => {
 });
 
 it("keeps an unavailable native session's binding readable", async () => {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('unavailable-conv','owner','un', 0)",
-  ).run();
+  seedConversation(db, {
+    id: "unavailable-conv",
+    owner_id: "owner",
+    title: "un",
+    created_at: 0,
+  });
   db.prepare(
     "INSERT INTO companion_sessions(conversation_id,harness,native_id,project,worktree_agent_id,state,updated_at) VALUES('unavailable-conv','codex','un', '/p','w','unavailable',0)",
   ).run();

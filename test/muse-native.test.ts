@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
+import { seedConversation } from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -79,9 +80,13 @@ it("registers Muse Code as a live-input native connection and resumes its genera
     instructions: "Fixture instructions",
   });
   expect(eligibleMailAgent(OWNER, agent.id).id).toBe(agent.id);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('muse-conversation',?,?,'Muse',0)",
-  ).run(OWNER, agent.id);
+  seedConversation(db, {
+    id: "muse-conversation",
+    owner_id: OWNER,
+    agent_id: agent.id,
+    title: "Muse",
+    created_at: 0,
+  });
   const task = enqueue(OWNER, "Fixture", "muse-run", {
     conversation: "muse-conversation",
     agent: agent.id,
@@ -128,9 +133,13 @@ it("records a model reported during startup on the native-default run and catalo
     model: "native-default",
     instructions: "",
   });
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('muse-default',?,?,'Muse',0)",
-  ).run(OWNER, agent.id);
+  seedConversation(db, {
+    id: "muse-default",
+    owner_id: OWNER,
+    agent_id: agent.id,
+    title: "Muse",
+    created_at: 0,
+  });
   const task = enqueue(OWNER, "Which model?", "muse-default-run", {
     conversation: "muse-default",
     agent: agent.id,

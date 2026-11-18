@@ -4,6 +4,7 @@ import { afterAll, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { Acp } from "../src/adapters/acp";
 import type { Live } from "../src/server/native-sessions";
+import { seedConversation } from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -19,9 +20,12 @@ afterAll(() => {
 });
 
 it("persists only fixed guidance for ACP prompt and setting failures", async () => {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('acp-errors','owner','t',0)",
-  ).run();
+  seedConversation(db, {
+    id: "acp-errors",
+    owner_id: "owner",
+    title: "t",
+    created_at: 0,
+  });
   db.prepare(
     "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,generation,updated_at) VALUES('fixture-agent','acp-errors','acp',?,'acp-generation',0)",
   ).run(dir);
