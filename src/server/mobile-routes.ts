@@ -2,8 +2,6 @@ import {
   reorderTokenWrite,
   withdrawTokenWrite,
   moveTokenWrite,
-  doneReadTokenWrite,
-  savedTokenWrite,
 } from "./token-write-policies.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -131,17 +129,11 @@ routes.on(
 routes.on(workspaceApi.feedUpdate, (req, res) =>
   res.json(setDoneCardHidden(res.locals.owner, req.params.id, req.body)),
 );
-routes.on(
-  workspaceApi.feedRead,
-  (req, res) =>
-    res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, true)),
-  { tokenWrite: doneReadTokenWrite },
+routes.on(workspaceApi.feedRead, (req, res) =>
+  res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, true)),
 );
-routes.on(
-  workspaceApi.feedUnread,
-  (req, res) =>
-    res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, false)),
-  { tokenWrite: doneReadTokenWrite },
+routes.on(workspaceApi.feedUnread, (req, res) =>
+  res.json(setDoneCardRead(res.locals.owner, req.params.id, req.body, false)),
 );
 routes.on(workspaceApi.replyState, (req, res) =>
   res.json(setReplyState(res.locals.owner, req.params.id, req.body)),
@@ -153,15 +145,11 @@ routes.on(workspaceApi.feedAway, (req, res) =>
     >,
   ),
 );
-routes.on(
-  workspaceApi.messageSave,
-  (req, res) => res.json(setSaved(res.locals.owner, req.params.id, true)),
-  { tokenWrite: savedTokenWrite },
+routes.on(workspaceApi.messageSave, (req, res) =>
+  res.json(setSaved(res.locals.owner, req.params.id, true)),
 );
-routes.on(
-  workspaceApi.messageUnsave,
-  (req, res) => res.json(setSaved(res.locals.owner, req.params.id, false)),
-  { tokenWrite: savedTokenWrite },
+routes.on(workspaceApi.messageUnsave, (req, res) =>
+  res.json(setSaved(res.locals.owner, req.params.id, false)),
 );
 routes.on(workspaceApi.savedList, (req, res) =>
   res.json(

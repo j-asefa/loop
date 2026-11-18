@@ -14,9 +14,8 @@ export const SCOPE_CATALOG = {
       "Read agents, conversations, results, files and pending decisions across your projects.",
   },
   write: {
-    label: "Send, control runs and keep results",
-    description:
-      "Send messages and replies, control admitted runs, mark Done results read or unread, and save or unsave messages.",
+    label: "Send and control runs",
+    description: "Send messages, reply and control admitted runs.",
   },
   "approvals:decide": {
     label: "Answer approvals",

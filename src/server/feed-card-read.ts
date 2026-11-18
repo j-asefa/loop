@@ -105,17 +105,9 @@ export function projectionFeed(
   const rows = feedCardsQueries.feedPage(db, params, filter, results);
   const { needs: needsCount, working, queued, done_unread } = rows[0];
   return {
-    page: rows.flatMap((row) => {
-      if (row.payload === null) return [];
-      const card = display(row, mode, params.now, false);
-      // Only results are read; an idle thread has no result to open.
-      if (mode === "done" && row.kind === "result")
-        Object.assign(card.display, {
-          read_at: row.read_at ?? null,
-          unread_version: row.unread_version,
-        });
-      return [card];
-    }),
+    page: rows.flatMap((row) =>
+      row.payload === null ? [] : [display(row, mode, params.now, false)],
+    ),
     summary: { needs: needsCount, working, queued, done_unread },
   };
 }
