@@ -16,13 +16,49 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   const imagesLoaded = async () => {
     await expect
       .poll(() =>
-        page
-          .locator(".avatar-3d img")
-          .evaluateAll(
-            (images) =>
-              images.length > 0 &&
-              images.every((image) => image.complete && image.naturalWidth > 0),
-          ),
+        page.locator(".avatar-3d img").evaluateAll((all) => {
+          // Avatars defer their src until they intersect the viewport or their
+          // horizontal strip, so images in hidden containers (the sidebar on a
+          // phone), below the fold or scrolled out of the agent strip never
+          // load. Assert on avatars visible now. Geometry comes from the
+          // avatar box, not the image: a failed image sets `hidden` and must
+          // stay in the set so it fails the check.
+          const onScreen = (image) => {
+            const box = image.closest(".avatar-3d");
+            if (box.getClientRects().length === 0) return false;
+            let { left, right, top, bottom } = box.getBoundingClientRect();
+            left = Math.max(left, 0);
+            top = Math.max(top, 0);
+            right = Math.min(right, innerWidth);
+            bottom = Math.min(bottom, innerHeight);
+            for (let el = image.parentElement; el; el = el.parentElement) {
+              const style = getComputedStyle(el);
+              if (
+                style.overflowX === "visible" &&
+                style.overflowY === "visible"
+              )
+                continue;
+              // IntersectionObserver clips by the padding box.
+              const clip = el.getBoundingClientRect();
+              left = Math.max(left, clip.left + el.clientLeft);
+              top = Math.max(top, clip.top + el.clientTop);
+              right = Math.min(
+                right,
+                clip.left + el.clientLeft + el.clientWidth,
+              );
+              bottom = Math.min(
+                bottom,
+                clip.top + el.clientTop + el.clientHeight,
+              );
+            }
+            return right > left && bottom > top;
+          };
+          const images = all.filter(onScreen);
+          return (
+            images.length > 0 &&
+            images.every((image) => image.complete && image.naturalWidth > 0)
+          );
+        }),
       )
       .toBe(true);
   };
@@ -41,7 +77,10 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       )
       .toBe(true);
     const avatar = await portrait.locator("img").getAttribute("src");
-    for (const nav of await page.locator(".nav-avatar").all()) {
+    // Hidden containers (the phone-hidden sidebar) never load deferred avatars.
+    const navs = await page.locator(".nav-avatar:visible").all();
+    assert(navs.length > 0, "A navigation avatar is on screen");
+    for (const nav of navs) {
       await expect(nav.locator("img")).toHaveAttribute("src", avatar);
       await expect(nav).toHaveAttribute(
         "style",
@@ -143,6 +182,12 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       const shortcut = page
         .locator(".agent-strip button")
         .filter({ hasText: agent.name });
+      // A strip avatar scrolled out of view has no src yet; bring it on screen.
+      await shortcut.scrollIntoViewIfNeeded();
+      await expect(shortcut.locator(".avatar img")).toHaveAttribute(
+        "src",
+        /^\/avatars\/robots\//,
+      );
       const avatarSource = await shortcut
         .locator(".avatar img")
         .getAttribute("src");
@@ -322,7 +367,8 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await page.evaluate(
     ({ owner, agentId }) =>
       localStorage.setItem(
-        `loop-last-recipient:${JSON.stringify([owner, "laptop"])}`,
+        // The local source id is "" (named sources are kind:id).
+        `loop-last-recipient:${JSON.stringify([owner, ""])}`,
         agentId,
       ),
     { owner: fixture.owner, agentId: fixture.agents[0].id },
