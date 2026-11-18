@@ -77,6 +77,17 @@ export function setComplete(
   return setCompleteStatement(db).run(complete, id);
 }
 
+const inConversationStatement = statement(
+  "SELECT 1 AS found FROM memory_sources WHERE id=? AND conversation_id=?",
+);
+export function inConversation(
+  db: Database.Database,
+  id: string,
+  conversation: string | null,
+) {
+  return inConversationStatement(db).get(id, conversation) !== undefined;
+}
+
 const summariesStatement = statement(
   "SELECT id,title,kind,project_id,revision,eligible,tombstone FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
 );

@@ -1,4 +1,5 @@
 import { openAnswer } from "../answer-record.js";
+import { recallForRun } from "../memory.js";
 import { NativeSessionState } from "./state.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
@@ -648,9 +649,13 @@ export class NativeSessions {
       const opensReview =
         snapshot.reviewId &&
         !runsQueries.hasEarlierConversationRun(db, run.conversation_id, run.id);
+      // Snapshot reviews keep their restricted context and get no recall.
       input =
         replyPrompt(run.input, snapshot.replyTo) +
-        (opensReview ? "\n\n" + reviewContext(run) : "");
+        (opensReview ? "\n\n" + reviewContext(run) : "") +
+        (snapshot.reviewId
+          ? ""
+          : await recallForRun(run, snapshot.folderId || null));
       db.transaction(() => {
         const messageId = id();
         openAnswer(run, {

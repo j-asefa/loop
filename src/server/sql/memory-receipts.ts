@@ -17,6 +17,20 @@ export function conversationRuns(
     .map((row) => parseRecord(conversationRunsRow, row, "memory_receipts"));
 }
 
+const replaceStatement = statement(
+  "INSERT OR REPLACE INTO memory_receipts VALUES(?,?,?,?,?)",
+);
+export function replace(
+  db: Database.Database,
+  run: string,
+  mode: string,
+  sources: string,
+  tokens: number,
+  created: number,
+) {
+  return replaceStatement(db).run(run, mode, sources, tokens, created);
+}
+
 const getStatement = statement("SELECT * FROM memory_receipts WHERE run_id=?");
 
 export function get(db: Database.Database, run: string) {

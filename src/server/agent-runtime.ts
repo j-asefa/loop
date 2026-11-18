@@ -1,3 +1,4 @@
+import { recallForRun } from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -509,6 +510,18 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
     }));
     if (snapshot.reviewId)
       history.push({ role: "user", content: reviewContext(run) });
+    else {
+      // The current turn is the last user message; recall is appended to it
+      // once and kept in the checkpoint, so a resumed run does not search again.
+      const turn = history.findLastIndex((m) => m.role === "user");
+      if (turn >= 0)
+        history[turn] = {
+          ...history[turn],
+          content:
+            history[turn].content +
+            (await recallForRun(run, snapshot.folderId || null)),
+        };
+    }
     // Bound total context explicitly; oversized histories require an intentional continuation.
     if (Buffer.byteLength(JSON.stringify(history)) > 500000)
       throw new Problem(
