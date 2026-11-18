@@ -26,6 +26,7 @@ import {
   type CardSelection,
 } from "../src/shared/cards";
 import { seedConversation, seedRun } from "./helpers/seed.js";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -1169,10 +1170,7 @@ it("rejects selection/owner/future cursors, unsupported filters, and arbitrary d
 it("migrates existing bookmarks/labels and preserves revision numbers and truthful timestamps", () => {
   const old = new Database(":memory:");
   old.pragma("foreign_keys=ON");
-  for (const file of readdirSync("migrations")
-    .filter((f) => f.endsWith(".sql") && Number(f.split("-")[0]) < 97)
-    .sort())
-    old.exec(readFileSync("migrations/" + file, "utf8"));
+  applyMigrationsThrough(old, 96);
   old.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('old','old','Old',1);
     INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('old-message','old','old','assistant','Old answer',1);
     INSERT INTO message_bookmarks(owner_id,message_id,created_at) VALUES('old','old-message',10);

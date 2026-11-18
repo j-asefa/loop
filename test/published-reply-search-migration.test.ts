@@ -1,32 +1,15 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 it.each(["server", "companion"])(
   "%s indexes existing and new published replies while leaving progress out of search",
   (profile) => {
-    const directory = mkdtempSync(
-      join(tmpdir(), "loop-reply-search-migration-"),
-    );
     const db = new Database(":memory:");
     try {
       db.pragma("foreign_keys=ON");
-      const old = join(directory, "migrations");
-      mkdirSync(old);
-      for (const file of readdirSync("migrations").filter(
-        (file) => file.endsWith(".sql") && Number(file.split("-")[0]) < 147,
-      ))
-        copyFileSync(join("migrations", file), join(old, file));
-      applyMigrations(db, old);
+      applyMigrationsThrough(db, 146);
       db.prepare("INSERT INTO deployment_profile VALUES(1,?)").run(profile);
       for (const owner of ["one", "two"]) {
         db.prepare(
@@ -107,7 +90,6 @@ it.each(["server", "companion"])(
       ).toBeUndefined();
     } finally {
       db.close();
-      rmSync(directory, { recursive: true, force: true });
     }
   },
 );

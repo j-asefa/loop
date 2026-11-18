@@ -1,18 +1,13 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 it("recovers evidenced personal decisions without inventing old answers or treating automatic approvals as personal", () => {
   const db = new Database(":memory:");
   try {
     db.pragma("foreign_keys = ON");
-    db.exec(
-      "CREATE TABLE schema_version(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL)",
-    );
-    for (const file of readdirSync("migrations")
-      .filter((file) => file.endsWith(".sql") && file < "116")
-      .sort())
-      db.exec(readFileSync("migrations/" + file, "utf8"));
+    applyMigrationsThrough(db, 115);
     db.exec(`INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread','owner','Original conversation',1);
       INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at)
       VALUES('run','owner','thread','Original task','completed','run','{}',1,1)`);

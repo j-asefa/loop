@@ -1,19 +1,13 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { applyMigrations } from "../src/server/migrations";
 import { sealSeededHistory } from "./helpers/published-history";
 import { installFixtureProjection } from "./helpers/projected-writer";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const exec = promisify(execFile);
 const owners = ["owner-one", "owner-two"];
@@ -23,13 +17,7 @@ it("marks existing Done results read once, including dismissed and grouped cards
   const db = new Database(join(directory, "loop.db"));
   try {
     db.pragma("foreign_keys=ON");
-    const oldMigrations = join(directory, "migrations");
-    mkdirSync(oldMigrations);
-    for (const file of readdirSync("migrations").filter(
-      (file) => file.endsWith(".sql") && Number(file.split("-")[0]) <= 136,
-    ))
-      copyFileSync(join("migrations", file), join(oldMigrations, file));
-    applyMigrations(db, oldMigrations);
+    applyMigrationsThrough(db, 136);
     db.transaction(() => {
       for (const owner of owners) {
         const conversation = owner + "-thread";

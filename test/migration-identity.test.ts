@@ -4,7 +4,6 @@ import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   readdirSync,
-  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -13,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations.js";
 import { historicalMigrationNames } from "./fixtures/historical-migration-names.js";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const resources: (() => void)[] = [];
 afterEach(() => {
@@ -132,18 +132,9 @@ it("records historical completion by name at real startup and restarts without m
   const data = directory();
   // Seed the schema shipped in v0.1.0 before running current startup. Table
   // rebuilds must retain publication pointers and watch delivery/dedup history.
-  const releasedMigrations = directory();
-  for (const file of readdirSync("migrations").filter(
-    (file) => file.endsWith(".sql") && Number(file.split("-")[0]) <= 154,
-  ))
-    write(
-      releasedMigrations,
-      file,
-      readFileSync(join("migrations", file), "utf8"),
-    );
   const released = new Database(join(data, "loop.db"));
   released.pragma("foreign_keys = ON");
-  applyMigrations(released, releasedMigrations);
+  applyMigrationsThrough(released, 154);
   released.exec(`
     INSERT INTO conversations(id,owner_id,title,created_at) VALUES('history','owner','Historical conversation',1);
     INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run','owner','history','Historical question','completed','fixture',1,1);

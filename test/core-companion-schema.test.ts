@@ -1,16 +1,8 @@
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import { applyMigrations } from "../src/server/migrations";
 import { seedConversation } from "./helpers/seed.js";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 it("creates core pairing tables and enforces agent-bound native sessions without retired storage", () => {
   const db = new Database(":memory:");
@@ -71,17 +63,10 @@ it("creates core pairing tables and enforces agent-bound native sessions without
 });
 
 it("starts a named-ledger database whose earlier binding has no agent identity", () => {
-  const dir = mkdtempSync(join(tmpdir(), "loop-core-schema-"));
-  const before = join(dir, "migrations");
-  mkdirSync(before);
-  for (const file of readdirSync("migrations").filter(
-    (file) => file.endsWith(".sql") && Number(file.split("-")[0]) < 152,
-  ))
-    copyFileSync(join("migrations", file), join(before, file));
   const db = new Database(":memory:");
   db.pragma("foreign_keys=ON");
   try {
-    applyMigrations(db, before);
+    applyMigrationsThrough(db, 151);
     const conversation = db.prepare(
       "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Session',0)",
     );
@@ -113,6 +98,5 @@ it("starts a named-ledger database whose earlier binding has no agent identity",
     expect(db.pragma("foreign_key_check")).toEqual([]);
   } finally {
     db.close();
-    rmSync(dir, { recursive: true, force: true });
   }
 });

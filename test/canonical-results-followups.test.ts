@@ -6,15 +6,10 @@ import {
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 testDirectory();
 
@@ -297,16 +292,9 @@ it("files a Done card under its conversation's current folder and shows where it
 it("backfills historical fork and continuation copies with their source author", () => {
   const upgradeDir = mkdtempSync(join(tmpdir(), "loop-result-copy-mig-"));
   try {
-    const pre164 = join(upgradeDir, "migrations");
-    mkdirSync(pre164);
-    for (const file of readdirSync("migrations").filter(
-      (f) => f.endsWith(".sql") && Number(f.split("-")[0]) <= 163,
-    )) {
-      copyFileSync(join("migrations", file), join(pre164, file));
-    }
     const upgrade = new Database(join(upgradeDir, "upgrade.db"));
     upgrade.pragma("foreign_keys=ON");
-    applyMigrations(upgrade, pre164);
+    applyMigrationsThrough(upgrade, 163);
     upgrade.exec(`
       INSERT INTO agents(id, owner_id, name, normalized_name, provider, model, instructions, origin, created_at)
       VALUES ('ag-src', 'o', 'Source Agent', 'source agent', 'anthropic', 'claude-x', '', 'loop', 1),

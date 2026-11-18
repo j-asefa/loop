@@ -1,38 +1,16 @@
 // Migration 148 drops the workflow tables only when nothing remains in them.
 // Any workflow record fails the production runner's startup transaction and
 // leaves every table in place.
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { applyMigrations } from "../src/server/migrations";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const TABLES = ["workflows", "workflow_versions", "workflow_steps"];
-const dirs: string[] = [];
-afterEach(() => {
-  for (const dir of dirs.splice(0))
-    rmSync(dir, { recursive: true, force: true });
-});
-
 function beforeRemoval() {
-  const dir = mkdtempSync(join(tmpdir(), "loop-workflow-removal-"));
-  dirs.push(dir);
-  const old = join(dir, "migrations");
-  mkdirSync(old);
-  for (const file of readdirSync("migrations").filter(
-    (file) => file.endsWith(".sql") && Number(file.split("-")[0]) < 148,
-  ))
-    copyFileSync(join("migrations", file), join(old, file));
   const db = new Database(":memory:");
   db.pragma("foreign_keys=ON");
-  applyMigrations(db, old);
+  applyMigrationsThrough(db, 147);
   return db;
 }
 const tables = (db: Database.Database) =>
