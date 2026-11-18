@@ -5,6 +5,7 @@ import {
   ConnectionRecord,
   ConversationRecord,
   MessageRecord,
+  RunRecord,
 } from "../../src/server/sql/rows.js";
 import * as connections from "../../src/server/sql/connections.js";
 import * as messages from "../../src/server/sql/messages.js";
@@ -129,6 +130,42 @@ export function seedConversation(
   });
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,origin,external_id,created_at,team_id,execution_connection_id,project_id,feed_hidden) VALUES(@id,@owner_id,@agent_id,@title,@origin,@external_id,@created_at,@team_id,@execution_connection_id,@project_id,@feed_hidden)",
+  ).run(row);
+  return row;
+}
+
+type RunSeedRow = z.infer<typeof RunRecord>;
+type RunSeed = Pick<
+  RunSeedRow,
+  | "id"
+  | "owner_id"
+  | "input"
+  | "state"
+  | "idempotency_key"
+  | "created_at"
+  | "updated_at"
+> &
+  Partial<RunSeedRow>;
+
+/** Queue/preview creation fixes state, key or times; fixtures preserve each independently. */
+export function seedRun(db: Database.Database, input: RunSeed) {
+  const row = RunRecord.parse({
+    agent_id: null,
+    conversation_id: null,
+    kind: "agent",
+    payload: "{}",
+    result: null,
+    error: null,
+    worker_id: null,
+    heartbeat: null,
+    active_ms: 0,
+    active_since: null,
+    attention_dismissed_at: null,
+    queue_rank: null,
+    ...input,
+  });
+  db.prepare(
+    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,kind,input,state,idempotency_key,payload,result,error,worker_id,heartbeat,created_at,updated_at,active_ms,active_since,attention_dismissed_at,queue_rank) VALUES(@id,@owner_id,@agent_id,@conversation_id,@kind,@input,@state,@idempotency_key,@payload,@result,@error,@worker_id,@heartbeat,@created_at,@updated_at,@active_ms,@active_since,@attention_dismissed_at,@queue_rank)",
   ).run(row);
   return row;
 }

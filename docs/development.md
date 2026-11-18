@@ -116,7 +116,9 @@ Current connection fixtures can use [seedConnection()](../test/helpers/seed.ts),
 
 `seedAgent()` validates the scalar agent row while preserving both display and normalized names and nullable connections. It owns a fixture insert because the production creation writer couples the two names and requires a connection. Its optional fields use the SQLite storage defaults, including the pre-trigger origin; existing database triggers still apply.
 
-`seedConversation()` similarly uses a fixture insert to retain nullable agents and the complete scalar row; runtime creation variants require an agent and cover different column subsets. Conversation defaults match SQLite storage, and existing origin triggers still apply. Seed functions return their validated input, not a post-trigger database read.
+`seedConversation()` similarly uses a fixture insert to retain nullable agents and the complete scalar row; runtime creation variants require an agent and cover different column subsets. Conversation defaults match SQLite storage, and existing origin triggers still apply.
+
+`seedRun()` requires state, idempotency key and both timestamps explicitly, and validates the scalar run row without changing serialized payloads. It uses a fixture insert because the queued writer fixes the state and the preview writer couples the key and timestamps. Optional values retain SQLite defaults; database triggers still apply. Seed functions return their validated input, not a post-trigger database read.
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 

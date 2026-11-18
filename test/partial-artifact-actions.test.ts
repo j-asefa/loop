@@ -1,4 +1,9 @@
-import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
+import {
+  seedRun,
+  seedConversation,
+  seedAgent,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -172,9 +177,17 @@ it("defers search and feed revisions for a message-linked answer until the messa
     title: "T",
     created_at: 1,
   });
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
-  ).run(run, agent, conv, "k-" + run);
+  seedRun(db, {
+    id: run,
+    owner_id: "alice",
+    agent_id: agent,
+    conversation_id: conv,
+    input: "I",
+    state: "running",
+    idempotency_key: "k-" + run,
+    created_at: 1,
+    updated_at: 1,
+  });
   seedMessage(db, {
     id: msg,
     owner_id: "alice",
@@ -264,9 +277,17 @@ it("moves a streaming answer's search scope without indexing chunk content", () 
     title: "T",
     created_at: 1,
   });
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','running',?,1,1)",
-  ).run(run, agent, conv, "k-" + run);
+  seedRun(db, {
+    id: run,
+    owner_id: "alice",
+    agent_id: agent,
+    conversation_id: conv,
+    input: "I",
+    state: "running",
+    idempotency_key: "k-" + run,
+    created_at: 1,
+    updated_at: 1,
+  });
   seedMessage(db, {
     id: msg,
     owner_id: "alice",
@@ -320,9 +341,17 @@ it("reindexes an interrupted answer when the owner edits it", async () => {
     title: "T",
     created_at: 1,
   });
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'alice',?,?,'I','interrupted',?,1,1)",
-  ).run(run, agent, conv, "k-" + run);
+  seedRun(db, {
+    id: run,
+    owner_id: "alice",
+    agent_id: agent,
+    conversation_id: conv,
+    input: "I",
+    state: "interrupted",
+    idempotency_key: "k-" + run,
+    created_at: 1,
+    updated_at: 1,
+  });
   seedMessage(db, {
     id: msg,
     owner_id: "alice",

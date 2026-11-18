@@ -1,5 +1,10 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
+import {
+  seedRun,
+  seedConversation,
+  seedAgent,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -52,9 +57,17 @@ function message(
   } = {},
 ) {
   const conversation = owner + project;
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'prompt','completed',?,?,?)",
-  ).run(id, owner, owner, conversation, id, time, time);
+  seedRun(db, {
+    id: id,
+    owner_id: owner,
+    agent_id: owner,
+    conversation_id: conversation,
+    input: "prompt",
+    state: "completed",
+    idempotency_key: id,
+    created_at: time,
+    updated_at: time,
+  });
   seedMessage(db, {
     id: id,
     owner_id: owner,
