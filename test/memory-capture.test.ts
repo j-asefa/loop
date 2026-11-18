@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedMessage } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -16,9 +16,12 @@ afterAll(() => {
 function message(owner: string, content: string) {
   const conversation = id(),
     message = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,?)",
-  ).run(conversation, owner, "Saved conversation", now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    title: "Saved conversation",
+    created_at: now(),
+  });
   seedMessage(db, {
     id: message,
     owner_id: owner,
