@@ -1,4 +1,8 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
@@ -79,9 +83,13 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
   const a = agent("feedback-scout"),
     c = id(),
     m = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-  ).run(c, "feedback", a.id, "Conversation", now());
+  seedConversation(db, {
+    id: c,
+    owner_id: "feedback",
+    agent_id: a.id,
+    title: "Conversation",
+    created_at: now(),
+  });
   seedMessage(db, {
     id: m,
     owner_id: "feedback",
@@ -131,9 +139,12 @@ it("archives only the feed, preserves history/search, and returns one hit for a 
 it("loads an older deep-linked message and paginates before its window", async () => {
   const c = id(),
     messages: string[] = [];
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,?)",
-  ).run(c, "feedback", "Long history", now());
+  seedConversation(db, {
+    id: c,
+    owner_id: "feedback",
+    title: "Long history",
+    created_at: now(),
+  });
   db.transaction(() => {
     for (let i = 0; i < 160; i++) {
       const m = id();

@@ -1,4 +1,4 @@
-import { seedAgent, seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -22,11 +22,12 @@ afterAll(async () => {
 });
 it("replays bounded, whole append events after disconnect halfway through a large reply against the compiled server", async () => {
   const f = fixture;
-  f.db
-    .prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread',?,'Delta',1)",
-    )
-    .run(f.owner);
+  seedConversation(f.db, {
+    id: "thread",
+    owner_id: f.owner,
+    title: "Delta",
+    created_at: 1,
+  });
   seedMessage(f.db, {
     id: "message",
     owner_id: f.owner,
@@ -167,11 +168,13 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
   const create = (id: string, owner = f.owner) =>
     f.db
       .transaction(() => {
-        f.db
-          .prepare(
-            "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,'feed-agent',?,1)",
-          )
-          .run(id, owner, id);
+        seedConversation(f.db, {
+          id: id,
+          owner_id: owner,
+          agent_id: "feed-agent",
+          title: id,
+          created_at: 1,
+        });
         f.db
           .prepare(
             "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'feed-agent',?,?,'running',?,1,1)",

@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedMessage } from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createFeedFixture, NOW, OWNER } from "./helpers/feed-fixture";
 import { spawnSync } from "node:child_process";
@@ -466,9 +466,13 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
     ),
   ).toEqual([]);
   db.transaction(() => {
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('projection-peer',?,'agent-native','Peer',1)",
-    ).run(OWNER);
+    seedConversation(db, {
+      id: "projection-peer",
+      owner_id: OWNER,
+      agent_id: "agent-native",
+      title: "Peer",
+      created_at: 1,
+    });
     db.prepare(
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES('projection-peer',?,'agent-native','projection-peer','Peer','queued','projection-peer',?, ?,?)",
     ).run(
@@ -506,9 +510,12 @@ it("bounds dirty work for unrelated folders, queued payloads and connection scop
 it("keeps an idle fallback until an answer is published, then keeps its result", async () => {
   const { db } = fixture;
   db.transaction(() => {
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('projection-idle',?,'Imported',1)",
-    ).run(OWNER);
+    seedConversation(db, {
+      id: "projection-idle",
+      owner_id: OWNER,
+      title: "Imported",
+      created_at: 1,
+    });
     seedMessage(db, {
       id: "projection-idle",
       owner_id: OWNER,
@@ -565,9 +572,13 @@ it("bounds streamed thread display storage while preserving complete results and
   let content = "🧪".repeat(16_000);
   const metadata = JSON.stringify({ fixturePadding: "m".repeat(32_000) });
   db.transaction(() => {
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,'agent-api','Long stream',?)",
-    ).run(key, OWNER, NOW + 300_000);
+    seedConversation(db, {
+      id: key,
+      owner_id: OWNER,
+      agent_id: "agent-api",
+      title: "Long stream",
+      created_at: NOW + 300_000,
+    });
     db.prepare(
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'agent-api',?,'Previous task','completed',?,?,?)",
     ).run(

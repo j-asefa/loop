@@ -1,4 +1,9 @@
-import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedAgent,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -59,11 +64,13 @@ function seed(f: Awaited<ReturnType<typeof fixture>>) {
       model: "fixture",
       created_at: 1,
     });
-  f.db
-    .prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('thread',?,'agent','Thread',1)",
-    )
-    .run(f.owner);
+  seedConversation(f.db, {
+    id: "thread",
+    owner_id: f.owner,
+    agent_id: "agent",
+    title: "Thread",
+    created_at: 1,
+  });
   f.db
     .prepare(
       "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'agent','thread','Prompt','completed','key',1,1)",

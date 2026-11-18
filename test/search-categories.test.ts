@@ -1,4 +1,9 @@
-import { seedAgent, seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedAgent,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
@@ -164,9 +169,12 @@ it("filters the production search route by Feed categories and each document's r
   const published = reply(f, working);
   const imported = id(),
     importedConversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Imported thread',?)",
-  ).run(importedConversation, f.owner, now());
+  seedConversation(db, {
+    id: importedConversation,
+    owner_id: f.owner,
+    title: "Imported thread",
+    created_at: now(),
+  });
   seedMessage(db, {
     id: imported,
     owner_id: f.owner,

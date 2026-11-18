@@ -1,4 +1,8 @@
-import { seedConnection, seedMessage } from "./helpers/seed.js";
+import {
+  seedConversation,
+  seedConnection,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -80,9 +84,14 @@ function completedRun(owner: string, agentId: string, text: string) {
 
 function importedConversation(owner: string, agentId: string) {
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Imported','openai-import',1)",
-  ).run(conversation, owner, agentId);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agentId,
+    title: "Imported",
+    origin: "openai-import",
+    created_at: 1,
+  });
   return conversation;
 }
 
