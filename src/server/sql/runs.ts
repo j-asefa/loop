@@ -453,6 +453,22 @@ export function hasEarlierConversationRun(
     : parseRecord(hasEarlierConversationRunRow, row, "runs");
 }
 
+// A conversation's turn whose earlier turns all failed, were cancelled or were
+// interrupted is still its first completed one (a retried first turn).
+const hasEarlierCompletedConversationRunStatement = statement(
+  "SELECT 1 AS found FROM runs WHERE conversation_id=? AND state='completed' AND rowid<(SELECT rowid FROM runs WHERE id=?)",
+);
+export function hasEarlierCompletedConversationRun(
+  db: Database.Database,
+  conversation: string | null,
+  id: string,
+) {
+  return (
+    hasEarlierCompletedConversationRunStatement(db).get(conversation, id) !==
+    undefined
+  );
+}
+
 const orphanedNativeStatement = statement(
   "SELECT r.id,r.owner_id FROM runs r LEFT JOIN native_dispatch d ON d.run_id=r.id LEFT JOIN connections c ON c.id=json_extract(r.payload,'$.connectionId') WHERE (d.run_id IS NOT NULL OR json_extract(c.metadata,'$.loopHarness') IS NOT NULL) AND (r.state IN ('running','pausing','awaiting_approval') OR (r.state='queued' AND d.run_id IS NOT NULL))",
 );

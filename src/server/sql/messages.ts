@@ -713,6 +713,19 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
       SELECT f.id,f.owner_id,p.project_id FROM folders f
       JOIN folder_project p ON f.parent_id=p.id AND f.owner_id=p.owner_id
     )`;
+// Whether a run's own prompt was typed by its owner (a personal send), not
+// delivered as agent mail, a watched pull request or a digest.
+const personalPromptStatement = statement(
+  "SELECT 1 AS found FROM messages m WHERE m.run_id=? AND m.owner_id=? AND m.role='user' AND json_extract(m.metadata,'$.personal')=1 LIMIT 1",
+);
+export function hasPersonalPrompt(
+  db: Database.Database,
+  run: string,
+  owner: string,
+) {
+  return personalPromptStatement(db).get(run, owner) !== undefined;
+}
+
 export const personalMessageSql = `m.role='user'
     AND r.id IS NOT NULL AND r.conversation_id=c.id
     AND (c.project_id IS NULL OR EXISTS(SELECT 1 FROM folders p WHERE p.id=c.project_id AND p.owner_id=m.owner_id))

@@ -90,7 +90,7 @@ export function inConversation(
 }
 
 const summariesStatement = statement(
-  "SELECT id,title,kind,project_id,revision,eligible,tombstone FROM memory_sources WHERE owner_id=? ORDER BY updated_at DESC LIMIT 100",
+  "SELECT id,title,kind,project_id,revision,eligible,tombstone FROM memory_sources WHERE owner_id=? ORDER BY kind='note' DESC,updated_at DESC LIMIT 100",
 );
 const summariesRow = QueryRecords.memory_sources.pick({
   id: true,

@@ -390,14 +390,21 @@ export function ownedAgentFileExists(
     : parseRecord(ownedAgentFileExistsRow, row, "artifacts");
 }
 
-// A published result or a pinned artifact is in memory unless its own
-// artifact policy excludes it.
+// A published result counts only when it is a finished answer by the feed's
+// own rule (resultOutputSql): tool output, files and traces are published too
+// but never results. Pinned or explicitly included artifacts may be any text.
+const publishedResultSql = `(EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id) AND ${resultOutputSql})`;
+
+// What decides whether an artifact is in memory by default, read again at
+// recall time: pinned or a published result, unless archived.
 const memoryDefaultStatement = statement(
-  "SELECT a.pinned,EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id) AS published FROM artifacts a WHERE a.id=? AND a.owner_id=?",
+  `SELECT a.pinned,a.archived,a.conversation_id,${publishedResultSql} AS result
+    FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+    WHERE a.id=? AND a.owner_id=?`,
 );
 const memoryDefaultRow = QueryRecords.artifacts
-  .pick({ pinned: true })
-  .extend({ published: z.number() });
+  .pick({ pinned: true, archived: true, conversation_id: true })
+  .extend({ result: z.number() });
 export function memoryDefault(
   db: Database.Database,
   id: string,
@@ -409,12 +416,13 @@ export function memoryDefault(
     : parseRecord(memoryDefaultRow, row, "artifacts");
 }
 
-// Text artifacts that are published, pinned or explicitly included, and whose
-// saved memory copy is missing or differs. A source the owner deleted from
-// memory is never recaptured.
+// Unarchived text artifacts that are published results, pinned or explicitly
+// included, and whose saved memory copy is missing or differs. A source the
+// owner deleted from memory is never recaptured.
 export const memoryCandidatesSql = `SELECT a.* FROM artifacts a
-  WHERE a.kind IN ('markdown','note','text')
-  AND (a.pinned=1 OR EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
+  LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+  WHERE a.kind IN ('markdown','note','text') AND a.archived=0
+  AND (a.pinned=1 OR ${publishedResultSql}
     OR a.id IN (SELECT substr(scope,10) FROM memory_policy WHERE owner_id=a.owner_id AND scope LIKE 'artifact:%' AND enabled=1))
   AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.kind='artifact' AND s.source_id=a.id AND s.owner_id=a.owner_id
     AND (s.tombstone=1 OR (s.content=a.content AND s.title=a.title AND s.project_id IS a.folder_id)))
