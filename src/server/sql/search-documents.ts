@@ -30,12 +30,18 @@ export type SearchFilters = {
   category?: FeedCategory;
   before?: number;
 };
-export const eligibleText =
-  "length(trim(d.title || ' ' || d.content))>0 AND NOT EXISTS(SELECT 1 FROM memory_sources ms WHERE ms.owner_id=d.owner_id AND (ms.kind||':'||ms.source_id)=d.id AND ms.eligible=1 AND ms.tombstone=0)";
+// Compare split document ids with the source columns, never a concatenation
+// of them: these filters run once per candidate row, and only bare column
+// comparisons can use the memory_sources and artifacts indexes. A unary plus
+// on an owner comparison keeps the planner on the id key rather than an
+// owner index, which would read every row the owner has.
+const memorySourceOfDocument =
+  "instr(d.id,':')>0 AND ms.kind=substr(d.id,1,instr(d.id,':')-1) AND ms.source_id=substr(d.id,instr(d.id,':')+1)";
+export const eligibleText = `length(trim(d.title || ' ' || d.content))>0 AND NOT EXISTS(SELECT 1 FROM memory_sources ms WHERE ms.owner_id=d.owner_id AND ${memorySourceOfDocument} AND ms.eligible=1 AND ms.tombstone=0)`;
 export function filterSql(owner: string, filters: SearchFilters, at: number) {
   const clauses = [
       "d.owner_id=?",
-      `NOT EXISTS(SELECT 1 FROM artifacts a WHERE 'artifact:'||a.id=d.id AND a.owner_id=d.owner_id AND COALESCE(${traceArtifactSql},0))`,
+      `NOT EXISTS(SELECT 1 FROM artifacts a WHERE substr(d.id,1,9)='artifact:' AND a.id=substr(d.id,10) AND +a.owner_id=d.owner_id AND COALESCE(${traceArtifactSql},0))`,
     ],
     params: any[] = [owner];
   for (const [key, column] of [
@@ -72,7 +78,7 @@ export function filterSql(owner: string, filters: SearchFilters, at: number) {
   }
   if (filters.scope === "mine")
     clauses.push(
-      "EXISTS(SELECT 1 FROM messages m WHERE 'message:'||m.id=d.id AND m.owner_id=d.owner_id AND m.role='user')",
+      "EXISTS(SELECT 1 FROM messages m WHERE substr(d.id,1,8)='message:' AND m.id=substr(d.id,9) AND +m.owner_id=d.owner_id AND m.role='user')",
     );
   if (filters.scope === "running")
     clauses.push(
