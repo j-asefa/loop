@@ -650,13 +650,16 @@ export class NativeSessions {
         snapshot.reviewId &&
         !runsQueries.hasEarlierConversationRun(db, run.conversation_id, run.id);
       // Snapshot reviews keep their restricted context and get no recall.
+      const recall = snapshot.reviewId
+        ? undefined
+        : await recallForRun(run, snapshot.folderId || null);
       input =
         replyPrompt(run.input, snapshot.replyTo) +
         (opensReview ? "\n\n" + reviewContext(run) : "") +
-        (snapshot.reviewId
-          ? ""
-          : await recallForRun(run, snapshot.folderId || null));
+        (recall?.text ?? "");
       db.transaction(() => {
+        // The receipt commits with the dispatch record it describes.
+        recall?.record();
         const messageId = id();
         openAnswer(run, {
           messageId,

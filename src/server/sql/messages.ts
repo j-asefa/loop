@@ -1,4 +1,8 @@
-import { cardRow, type CardQuerySelection } from "./artifacts.js";
+import {
+  cardRow,
+  personalRunSql,
+  type CardQuerySelection,
+} from "./artifacts.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -713,17 +717,16 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
       SELECT f.id,f.owner_id,p.project_id FROM folders f
       JOIN folder_project p ON f.parent_id=p.id AND f.owner_id=p.owner_id
     )`;
-// Whether a run's own prompt was typed by its owner (a personal send), not
-// delivered as agent mail, a watched pull request or a digest.
 const personalPromptStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.run_id=? AND m.owner_id=? AND m.role='user' AND json_extract(m.metadata,'$.personal')=1 LIMIT 1",
+  `SELECT 1 AS found WHERE ${personalRunSql("@run", "@owner")}`,
 );
+/** Whether a run's first prompt was typed by its owner; see personalRunSql. */
 export function hasPersonalPrompt(
   db: Database.Database,
   run: string,
   owner: string,
 ) {
-  return personalPromptStatement(db).get(run, owner) !== undefined;
+  return personalPromptStatement(db).get({ run, owner }) !== undefined;
 }
 
 export const personalMessageSql = `m.role='user'

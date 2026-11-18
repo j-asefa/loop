@@ -390,10 +390,24 @@ export function ownedAgentFileExists(
     : parseRecord(ownedAgentFileExistsRow, row, "artifacts");
 }
 
-// A published result counts only when it is a finished answer by the feed's
-// own rule (resultOutputSql): tool output, files and traces are published too
-// but never results. Pinned or explicitly included artifacts may be any text.
-const publishedResultSql = `(EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id) AND ${resultOutputSql})`;
+/**
+ * Whether a run's first prompt was typed by its owner (a personal send), not
+ * delivered as agent mail, a watched pull request or a digest. Later steering
+ * messages do not change what started the run.
+ */
+export const personalRunSql = (run: string, owner: string) =>
+  `(SELECT json_extract(m.metadata,'$.personal') FROM messages m
+    WHERE m.owner_id=${owner} AND m.run_id=${run} AND m.role='user'
+    ORDER BY m.rowid LIMIT 1)=1`;
+// A published result is in memory by default only when it is a finished
+// answer by the feed's own rule (resultOutputSql) to a prompt its owner typed:
+// tool output, files and traces are published too but are not results, and an
+// automation run's answer may restate third-party text. Pinned or explicitly
+// included artifacts may be any text.
+// The cheap clauses come before resultOutputSql's correlated checkpoint lookups.
+const personalPublishedSql = `(EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
+  AND (a.run_id IS NULL OR ${personalRunSql("a.run_id", "a.owner_id")}))`;
+const publishedResultSql = `(${personalPublishedSql} AND ${resultOutputSql})`;
 
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.
@@ -416,22 +430,26 @@ export function memoryDefault(
     : parseRecord(memoryDefaultRow, row, "artifacts");
 }
 
+export const MEMORY_CANDIDATE_BATCH = 250;
+// The cheap already-captured check comes first: once memory has caught up it
+// rejects almost every row before the result clause's correlated lookups.
 // Unarchived text artifacts that are published results, pinned or explicitly
 // included, and whose saved memory copy is missing or differs. A source the
 // owner deleted from memory is never recaptured.
 export const memoryCandidatesSql = `SELECT a.* FROM artifacts a
   LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-  WHERE a.kind IN ('markdown','note','text') AND a.archived=0
-  AND (a.pinned=1 OR ${publishedResultSql}
-    OR a.id IN (SELECT substr(scope,10) FROM memory_policy WHERE owner_id=a.owner_id AND scope LIKE 'artifact:%' AND enabled=1))
+  WHERE a.updated_at>=@since AND a.kind IN ('markdown','note','text') AND a.archived=0
   AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.kind='artifact' AND s.source_id=a.id AND s.owner_id=a.owner_id
     AND (s.tombstone=1 OR (s.content=a.content AND s.title=a.title AND s.project_id IS a.folder_id)))
-  LIMIT 250`;
+  AND (a.pinned=1 OR (${personalPublishedSql} AND ${resultOutputSql})
+    OR a.id IN (SELECT substr(scope,10) FROM memory_policy WHERE owner_id=a.owner_id AND scope LIKE 'artifact:%' AND enabled=1))
+  LIMIT ${MEMORY_CANDIDATE_BATCH}`;
 const memoryCandidatesStatement = statement(memoryCandidatesSql);
 
-export function memoryCandidates(db: Database.Database) {
+/** Candidates changed at or after `since` (0 rescans every artifact). */
+export function memoryCandidates(db: Database.Database, since: number) {
   return memoryCandidatesStatement(db)
-    .all()
+    .all({ since })
     .map((row) => parseRecord(QueryRecords.artifacts, row, "artifacts"));
 }
 

@@ -1,4 +1,4 @@
-import { recallForRun } from "./memory.js";
+import { recallForRun, type Recall } from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -508,19 +508,20 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
         ? { attachments: m.metadata.attachments }
         : {}),
     }));
+    let recall: Recall | undefined;
     if (snapshot.reviewId)
       history.push({ role: "user", content: reviewContext(run) });
     else {
       // The current turn is the last user message; recall is appended to it
       // once and kept in the checkpoint, so a resumed run does not search again.
       const turn = history.findLastIndex((m) => m.role === "user");
-      if (turn >= 0)
+      if (turn >= 0) {
+        recall = await recallForRun(run, snapshot.folderId || null);
         history[turn] = {
           ...history[turn],
-          content:
-            history[turn].content +
-            (await recallForRun(run, snapshot.folderId || null)),
+          content: history[turn].content + recall.text,
         };
+      }
     }
     // Bound total context explicitly; oversized histories require an intentional continuation.
     if (Buffer.byteLength(JSON.stringify(history)) > 500000)
@@ -530,6 +531,8 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
       );
     const messageId = id();
     db.transaction(() => {
+      // The receipt commits with the checkpoint that holds the recalled text.
+      recall?.record();
       openAnswer(run, {
         messageId,
         title: run.input.slice(0, 85),
