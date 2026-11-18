@@ -391,14 +391,19 @@ export function ownedAgentFileExists(
 }
 
 /**
- * Whether a run's first prompt was typed by its owner (a personal send), not
- * delivered as agent mail, a watched pull request or a digest. Later steering
- * messages do not change what started the run.
+ * Whether a run's first prompt was written by its owner: a personal send that
+ * does not carry shared outside text, for a run that is not a snapshot review.
+ * Agent mail, watched pull requests and digests are not personal. Later
+ * steering messages do not change what started the run. Always 0 or 1.
  */
 export const personalRunSql = (run: string, owner: string) =>
-  `(SELECT json_extract(m.metadata,'$.personal') FROM messages m
+  `COALESCE((SELECT json_extract(m.metadata,'$.personal')=1
+      AND COALESCE(json_extract(m.metadata,'$.shared'),0)=0
+    FROM messages m
     WHERE m.owner_id=${owner} AND m.run_id=${run} AND m.role='user'
-    ORDER BY m.rowid LIMIT 1)=1`;
+    ORDER BY m.rowid LIMIT 1),0)=1
+  AND NOT EXISTS(SELECT 1 FROM runs pr WHERE pr.id=${run} AND pr.owner_id=${owner}
+    AND json_extract(pr.payload,'$.reviewId') IS NOT NULL)`;
 // A published result is in memory by default only when it is a finished
 // answer by the feed's own rule (resultOutputSql) to a prompt its owner typed:
 // tool output, files and traces are published too but are not results, and an
@@ -406,8 +411,8 @@ export const personalRunSql = (run: string, owner: string) =>
 // included artifacts may be any text.
 // The cheap clauses come before resultOutputSql's correlated checkpoint lookups.
 const personalPublishedSql = `(EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
-  AND (a.run_id IS NULL OR ${personalRunSql("a.run_id", "a.owner_id")}))`;
-const publishedResultSql = `(${personalPublishedSql} AND ${resultOutputSql})`;
+  AND (a.run_id IS NULL OR (${personalRunSql("a.run_id", "a.owner_id")})))`;
+const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutputSql}),0)`;
 
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.
@@ -441,7 +446,7 @@ export const memoryCandidatesSql = `SELECT a.* FROM artifacts a
   WHERE a.updated_at>=@since AND a.kind IN ('markdown','note','text') AND a.archived=0
   AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.kind='artifact' AND s.source_id=a.id AND s.owner_id=a.owner_id
     AND (s.tombstone=1 OR (s.content=a.content AND s.title=a.title AND s.project_id IS a.folder_id)))
-  AND (a.pinned=1 OR (${personalPublishedSql} AND ${resultOutputSql})
+  AND (a.pinned=1 OR (${personalPublishedSql} AND COALESCE(${resultOutputSql},0))
     OR a.id IN (SELECT substr(scope,10) FROM memory_policy WHERE owner_id=a.owner_id AND scope LIKE 'artifact:%' AND enabled=1))
   LIMIT ${MEMORY_CANDIDATE_BATCH}`;
 const memoryCandidatesStatement = statement(memoryCandidatesSql);

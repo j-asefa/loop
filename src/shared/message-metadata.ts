@@ -8,6 +8,8 @@ export const MessageMetadata = RunPayload.extend({
   // No current message writer or audited row sets state (tool state is in traces).
   state: z.never().optional(),
   personal: z.boolean().optional(),
+  // A personal send that carries text the owner shared from elsewhere.
+  shared: z.boolean().optional(),
   preview: z.boolean().optional(),
   // native is retained for audited historical HAPI messages; current imports use import.
   origin: z.enum(["import", "native"]).optional(),

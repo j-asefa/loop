@@ -53,27 +53,29 @@ function eligible(s: any) {
       s.source_id,
       s.owner_id,
     );
-    if (
-      !artifact ||
-      artifact.archived ||
-      !enabled(
-        s.owner_id,
-        "artifact:" + s.source_id,
-        !!artifact.pinned || !!artifact.result,
-      )
-    )
-      return false;
-    // Results are captured without a conversation, so an owner who turned
-    // memory off for the conversation that produced one excludes it here.
-    if (
-      artifact.conversation_id &&
-      memoryPolicyQueries.enabled(
-        db,
-        s.owner_id,
-        "conversation:" + artifact.conversation_id,
-      )?.enabled === 0
-    )
-      return false;
+    if (!artifact || artifact.archived) return false;
+    // An explicit include/exclude or a pin is the owner's choice for this
+    // artifact. Otherwise a result is in by default, unless the owner turned
+    // memory off for the conversation that produced it (results are captured
+    // without a conversation, so that policy is checked here).
+    const explicit = memoryPolicyQueries.enabled(
+      db,
+      s.owner_id,
+      "artifact:" + s.source_id,
+    );
+    const included = explicit
+      ? explicit.enabled === 1
+      : !!artifact.pinned ||
+        (!!artifact.result &&
+          !(
+            artifact.conversation_id &&
+            memoryPolicyQueries.enabled(
+              db,
+              s.owner_id,
+              "conversation:" + artifact.conversation_id,
+            )?.enabled === 0
+          ));
+    if (!included) return false;
   }
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
@@ -125,10 +127,10 @@ function putSource(s: any) {
     );
 }
 // Artifact capture runs every few seconds inside a write transaction, so it
-// checks only artifacts changed since its last complete pass (with a minute of
-// slack for concurrent writers). A full rescan, at startup and then hourly,
-// backfills existing results and picks up results that became finished, or
-// policies that changed, without their artifact row changing.
+// checks only artifacts changed since its last committed pass (with a minute
+// of slack for concurrent writers). A full rescan, at startup, hourly and
+// after a memory policy change, backfills existing results and picks up
+// results that became finished without their artifact row changing.
 const ARTIFACT_RESCAN_MS = 60 * 60_000;
 const ARTIFACT_SLACK_MS = 60_000;
 let artifactWatermark = 0;
@@ -140,14 +142,12 @@ function artifactCaptureSince() {
   }
   return artifactWatermark;
 }
-function artifactsCaptured(count: number, started: number) {
-  // A full batch may have more behind it: keep the watermark until a pass
-  // finds less than a batch.
-  if (count < artifactsQueries.MEMORY_CANDIDATE_BATCH)
-    artifactWatermark = started - ARTIFACT_SLACK_MS;
+function rescanArtifacts() {
+  artifactWatermark = 0;
 }
 export function captureMemory() {
   const started = now();
+  let batch = 0;
   db.transaction(() => {
     // Match the owner-leading unique key: without the owner predicate this
     // correlated lookup scans every saved source for every message, blocking
@@ -183,7 +183,7 @@ export function captureMemory() {
       db,
       artifactCaptureSince(),
     );
-    artifactsCaptured(artifacts.length, started);
+    batch = artifacts.length;
     for (const a of artifacts)
       if (["markdown", "note", "text"].includes(a.kind))
         putSource({
@@ -197,6 +197,13 @@ export function captureMemory() {
           conversation_id: null,
         });
   }).immediate();
+  // Only after commit; a full batch may have more behind it, so the watermark
+  // waits until a pass finds less than a batch.
+  if (batch < artifactsQueries.MEMORY_CANDIDATE_BATCH)
+    artifactWatermark = Math.max(
+      artifactWatermark,
+      started - ARTIFACT_SLACK_MS,
+    );
 }
 function readMemory(
   owner: string,
@@ -359,12 +366,18 @@ export async function recallForRun(
   project: string | null,
 ): Promise<Recall> {
   if (
+    !run.conversation_id ||
     !messagesQueries.hasPersonalPrompt(db, run.id, run.owner_id) ||
     runsQueries.hasEarlierCompletedConversationRun(
       db,
       run.conversation_id,
       run.id,
-    )
+    ) ||
+    // An earlier first turn that was sent with recall but did not complete
+    // already put it in front of the harness.
+    memoryReceiptsQueries
+      .conversationRuns(db, run.owner_id, run.conversation_id)
+      .some((receipt) => receipt.run_id !== run.id)
   )
     return noRecall;
   let recall: Awaited<ReturnType<typeof searchMemory>>;
@@ -446,6 +459,8 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
       memorySourcesQueries.advanceRevision(db, now(), s.id);
     }
   }).immediate();
+  // An included artifact or conversation may have no saved copy yet.
+  rescanArtifacts();
   res.json({ ok: true });
 });
 routes.on(workspaceApi.memorySource, (req, res) => {

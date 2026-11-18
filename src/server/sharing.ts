@@ -69,6 +69,8 @@ routes.on(workspaceApi.shareSend, (req, res) => {
       submit(res.locals.owner, {
         agentId: agent.id,
         personal: true,
+        // The question is the owner's; the shared text is not.
+        shared: !!(d.source || d.sharedText),
         input,
         folderId: d.folderId,
         idempotencyKey: d.idempotencyKey,
