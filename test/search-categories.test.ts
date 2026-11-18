@@ -1,4 +1,6 @@
+import type { RunState } from "../src/shared/run-state.js";
 import {
+  seedRun,
   seedConversation,
   seedAgent,
   seedConnection,
@@ -92,7 +94,7 @@ function fixture() {
 }
 function task(
   f: ReturnType<typeof fixture>,
-  state: string,
+  state: RunState,
   conversation = id(),
 ) {
   const run = id(),
@@ -103,27 +105,25 @@ function task(
     db.prepare(
       "INSERT OR IGNORE INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Search category thread',?,?)",
     ).run(conversation, f.owner, f.agent, f.folder, at);
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,worker_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-    ).run(
-      run,
-      f.owner,
-      f.agent,
-      conversation,
-      `categoryneedle ${state} prompt`,
-      state,
-      run,
-      JSON.stringify({
+    seedRun(db, {
+      id: run,
+      owner_id: f.owner,
+      agent_id: f.agent,
+      conversation_id: conversation,
+      input: `categoryneedle ${state} prompt`,
+      state: state,
+      idempotency_key: run,
+      payload: JSON.stringify({
         agentId: f.agent,
         connectionId: f.connection,
         provider: "openai",
         model: "fixture",
         folderId: f.folder,
       }),
-      state === "running" ? "fixture" : null,
-      at,
-      at,
-    );
+      worker_id: state === "running" ? "fixture" : null,
+      created_at: at,
+      updated_at: at,
+    });
     seedMessage(db, {
       id: prompt,
       owner_id: f.owner,

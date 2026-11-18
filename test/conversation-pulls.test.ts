@@ -1,5 +1,10 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
+import {
+  seedRun,
+  seedConversation,
+  seedAgent,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeEach, expect, it, vi } from "vitest";
@@ -55,9 +60,17 @@ function fixture() {
     title: "T",
     created_at: 0,
   });
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'task','completed',?,0,0)",
-  ).run(run, owner, agent, thread, id());
+  seedRun(db, {
+    id: run,
+    owner_id: owner,
+    agent_id: agent,
+    conversation_id: thread,
+    input: "task",
+    state: "completed",
+    idempotency_key: id(),
+    created_at: 0,
+    updated_at: 0,
+  });
   const message = (content: string, role: MessageRole = "assistant") =>
     seedMessage(db, {
       id: id(),
