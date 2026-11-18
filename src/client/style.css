@@ -1,19 +1,26 @@
 :root[data-theme="dark"] {
-  --bg: #141414;
-  --surface: #1c1c1c;
-  --secondary: #262626;
-  --text: #f4f4f2;
-  --muted: #c4c4c0;
-  --brass-text: #dbb843;
-  --green: #91cb81;
-  --diff-removed: #ff9696;
-  --orange: #f39978;
-  --blue: #a5b9ef;
+  --bg: oklch(0.17 0.004 100);
+  --surface: oklch(0.21 0.004 100);
+  --raised: oklch(0.255 0.004 100);
+  --secondary: oklch(0.3 0.004 100);
+  --text: oklch(0.96 0.003 100);
+  --muted: oklch(0.78 0.006 100);
+  --brass-text: oklch(0.82 0.13 92);
+  --on-brass: oklch(0.22 0.005 285);
+  --green: oklch(0.8 0.13 142);
+  --green-soft: oklch(0.8 0.13 142 / 0.16);
+  --diff-removed: oklch(0.8 0.13 25);
+  --orange: oklch(0.8 0.13 40);
+  --blue: oklch(0.8 0.13 265);
   color-scheme: dark;
-  --soft: #222320;
-  --attention: #28251b;
-  --attention-line: #655426;
+  --soft: oklch(0.25396 0.00571 100);
+  --attention: oklch(0.25 0.03 92);
+  --attention-tile: oklch(0.295 0.032 92);
+  --attention-line: oklch(0.82 0.13 92 / 0.28);
   --line: #333431;
+  --brass: oklch(0.74 0.14 92);
+  --shadow: none;
+  --shadow-small: none;
 }
 * {
   box-sizing: border-box;
@@ -2575,28 +2582,33 @@ pre {
 
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #1a1a1c;
-  background: #f4f4f2;
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
-  --bg: #f4f4f2;
-  --surface: #fff;
-  --secondary: #e8e8e5;
-  --text: #1a1a1c;
-  --muted: #63646a;
-  --brass: #c9a227;
-  --brass-text: #7e6518;
-  --green: #277a20;
-  --diff-removed: #b4232d;
-  --orange: #b4421e;
-  --blue: #2e4c9b;
+  --bg: oklch(0.965 0.003 100);
+  --surface: oklch(1 0 0);
+  --raised: oklch(1 0 0);
+  --secondary: oklch(0.93 0.004 100);
+  --text: oklch(0.22 0.005 285);
+  --muted: oklch(0.5 0.01 280);
+  --brass: oklch(0.74 0.14 92);
+  --brass-text: oklch(0.5 0.1 92);
+  --on-brass: oklch(0.22 0.005 285);
+  --green: oklch(0.5 0.15 142);
+  --green-soft: oklch(0.5 0.15 142 / 0.12);
+  --diff-removed: oklch(0.5 0.15 25);
+  --orange: oklch(0.5 0.15 40);
+  --blue: oklch(0.5 0.15 265);
   color-scheme: light;
   --reading-size: 16px;
   --control-size: 14px;
   --line: #e4e4df;
-  --soft: #f7f7f4;
-  --attention: #f8f3e4;
-  --attention-line: #dfc878;
-  --shadow: 0 8px 32px #24241908;
+  --soft: oklch(0.9753 0.00396 100);
+  --attention: oklch(0.96 0.03 92);
+  --attention-tile: oklch(0.99 0.012 92);
+  --attention-line: oklch(0.6 0.12 92 / 0.4);
+  --shadow: 0 8px 28px oklch(0.22 0.005 285 / 0.1);
+  --shadow-small: 0 1px 3px oklch(0.22 0.005 285 / 0.1);
 }
 
 .attachment-list {
@@ -7272,7 +7284,7 @@ html:has(.sheet.side-panel[open]) {
   text-overflow: ellipsis;
 }
 .conversation-pulls-body {
-  max-height: 35vh;
+  max-height: 35dvh;
   overflow: auto;
   padding: 0 16px 12px;
 }
@@ -9252,7 +9264,7 @@ label.catalog-filter-chip {
 }
 .file-preview-content video {
   max-width: 100%;
-  max-height: 65vh;
+  max-height: 65dvh;
 }
 
 .checkout-note {
@@ -9271,7 +9283,7 @@ label.catalog-filter-chip {
 }
 .verification-output {
   margin: 8px 0 0;
-  max-height: 40vh;
+  max-height: 40dvh;
   overflow: auto;
   font-size: 12px;
   white-space: pre-wrap;
@@ -9318,7 +9330,7 @@ label.catalog-filter-chip {
   box-sizing: border-box;
   width: 100%;
   min-height: 44px;
-  max-height: 40vh;
+  max-height: 40dvh;
   max-height: max(64px, calc(var(--visual-viewport-height, 100dvh) * 0.3));
   resize: none;
   overflow-y: auto;

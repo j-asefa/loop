@@ -174,9 +174,17 @@ export async function workspaceControlsSmoke(
   await expect(
     composer.getByRole("button", { name: /Create an agent/ }),
   ).toHaveCount(0);
+  const brass = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.backgroundColor = "var(--brass)";
+    document.body.append(probe);
+    const color = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return color;
+  });
   await expect(page.locator(".mobile-nav .running-count")).toHaveCSS(
     "background-color",
-    "rgb(201, 162, 39)",
+    brass,
   );
   await openChatOptions(page);
   await composer
