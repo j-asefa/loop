@@ -20,6 +20,7 @@ import {
   mergeActivities,
   type ActivityItem,
 } from "../src/client/activityView";
+import { seedConversation } from "./helpers/seed.js";
 testDirectory();
 
 const { db } = await import("../src/server/db");
@@ -38,9 +39,12 @@ const source = {
   origin: "direct",
 };
 function conversation(id: string, owner = "owner") {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'t',0)",
-  ).run(id, owner);
+  seedConversation(db, {
+    id: id,
+    owner_id: owner,
+    title: "t",
+    created_at: 0,
+  });
 }
 
 // Codex App Server item shapes (fields per the App Server documentation).

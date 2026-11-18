@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedConversation } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -45,10 +46,14 @@ describe("Canonical Result publication, immutability, and migration", () => {
       `INSERT INTO agents(id, owner_id, name, normalized_name, provider, model, instructions, origin, created_at)
        VALUES ('agent-1', ?, 'Original Architect', 'original architect', 'anthropic', 'claude-3-7-sonnet', '', 'loop', 100)`,
     ).run(owner);
-    db.prepare(
-      `INSERT INTO conversations(id, owner_id, agent_id, title, origin, created_at)
-       VALUES ('conv-1', ?, 'agent-1', 'Architecture Thread', 'loop', 100)`,
-    ).run(owner);
+    seedConversation(db, {
+      id: "conv-1",
+      owner_id: owner,
+      agent_id: "agent-1",
+      title: "Architecture Thread",
+      origin: "loop",
+      created_at: 100,
+    });
 
     // Create an attachment object + artifact for the first run answer
     db.prepare(
@@ -139,10 +144,14 @@ describe("Canonical Result publication, immutability, and migration", () => {
     ).run(owner, run2.id);
     transition(claimed2!, "completed");
 
-    db.prepare(
-      `INSERT INTO conversations(id, owner_id, agent_id, title, origin, created_at)
-       VALUES ('conv-import', ?, 'agent-1', 'Imported Notes', 'import', 140)`,
-    ).run(owner);
+    seedConversation(db, {
+      id: "conv-import",
+      owner_id: owner,
+      agent_id: "agent-1",
+      title: "Imported Notes",
+      origin: "import",
+      created_at: 140,
+    });
     db.prepare(
       `INSERT INTO messages(id, owner_id, conversation_id, role, content, metadata, created_at)
        VALUES ('msg-imp-u1', ?, 'conv-import', 'user', 'What is event sourcing?', '{}', 141),
@@ -333,10 +342,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
 
   it("enforces idempotent replay and rejects conflicting content with 409 on publishResult", () => {
     const owner = "local-owner";
-    db.prepare(
-      `INSERT INTO conversations(id, owner_id, title, origin, created_at)
-       VALUES ('conv-idem', ?, 'Idempotency Thread', 'loop', 100)`,
-    ).run(owner);
+    seedConversation(db, {
+      id: "conv-idem",
+      owner_id: owner,
+      title: "Idempotency Thread",
+      origin: "loop",
+      created_at: 100,
+    });
     const input = {
       id: "run:run-idem-1" as const,
       ownerId: owner,
@@ -408,10 +420,13 @@ describe("Canonical Result publication, immutability, and migration", () => {
 
   it("resolves server-trusted supplied context snapshots and indexes result_context_edges", () => {
     const owner = "local-owner";
-    db.prepare(
-      `INSERT INTO conversations(id, owner_id, title, origin, created_at)
-       VALUES ('conv-ctx', ?, 'Context Thread', 'loop', 100)`,
-    ).run(owner);
+    seedConversation(db, {
+      id: "conv-ctx",
+      owner_id: owner,
+      title: "Context Thread",
+      origin: "loop",
+      created_at: 100,
+    });
 
     const sourceResult = publishResult(
       {

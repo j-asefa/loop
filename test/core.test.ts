@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, describe, it, expect } from "vitest";
 
@@ -148,9 +148,13 @@ it("serializes native turns per conversation while allowing the same agent's oth
   const { enqueue } = await import("../src/server/queue");
   const conversation = () => {
     const cid = id();
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'test',?)",
-    ).run(cid, "native-owner", agent.id, now());
+    seedConversation(db, {
+      id: cid,
+      owner_id: "native-owner",
+      agent_id: agent.id,
+      title: "test",
+      created_at: now(),
+    });
     return cid;
   };
   db.prepare("UPDATE connections SET metadata=? WHERE id=?").run(
@@ -193,9 +197,13 @@ it("serializes mixed legacy and per-conversation work in either order", async ()
     });
     const make = (connectionId: string) => {
       const cid = id();
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'mixed',?)",
-      ).run(cid, owner, agent.id, now());
+      seedConversation(db, {
+        id: cid,
+        owner_id: owner,
+        agent_id: agent.id,
+        title: "mixed",
+        created_at: now(),
+      });
       return enqueue(owner, "test", id(), {
         agent: agent.id,
         conversation: cid,

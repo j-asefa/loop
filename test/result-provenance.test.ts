@@ -1,5 +1,5 @@
 import type { Provider } from "../src/shared/types.js";
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -192,9 +192,14 @@ it("records an unavailable source as unknown authorship and rejects another owne
   const owner = id();
   const agent = agentFor(owner, "receiver");
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Copy','loop-fork',1)",
-  ).run(conversation, owner, agent.id);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent.id,
+    title: "Copy",
+    origin: "loop-fork",
+    created_at: 1,
+  });
 
   // A source owned by someone else reads exactly like a missing source.
   const other = id();
@@ -247,9 +252,14 @@ it("distinguishes an external import from a copied publication", () => {
   const owner = id();
   const agent = agentFor(owner, "importer");
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Imported','openai-import',1)",
-  ).run(conversation, owner, agent.id);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent.id,
+    title: "Imported",
+    origin: "openai-import",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Imported answer','{}',2)",
   ).run(id(), owner, conversation);
@@ -553,9 +563,14 @@ it("presents a recorded finding on the copy's Done card without changing the rec
   const source = completedRun(owner, author.id, "Original answer");
   // An earlier build sealed this copy as the destination agent's work.
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Fork','loop-fork',?)",
-  ).run(conversation, owner, destination.id, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: destination.id,
+    title: "Fork",
+    origin: "loop-fork",
+    created_at: now(),
+  });
   const copy = id();
   db.prepare(
     "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Original answer',?,?)",
@@ -700,9 +715,14 @@ it("keeps a version 1 copy's recorded author when the chain beyond it is gone", 
   const author = agentFor(owner, "author", "anthropic");
   const destination = agentFor(owner, "destination");
   const conversation = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,origin,created_at) VALUES(?,?,?,'Fork','loop-fork',?)",
-  ).run(conversation, owner, destination.id, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: destination.id,
+    title: "Fork",
+    origin: "loop-fork",
+    created_at: now(),
+  });
   // An earlier build sealed this copy, whose own source no longer exists.
   const earlier = id();
   db.prepare(

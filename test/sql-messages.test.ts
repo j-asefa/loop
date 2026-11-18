@@ -4,15 +4,19 @@ import * as runs from "../src/server/sql/runs";
 import * as messages from "../src/server/sql/messages";
 import { applyMigrations } from "../src/server/migrations";
 import { installProjectionBoundary } from "../src/server/projected-database";
+import { seedConversation } from "./helpers/seed.js";
 
 function fixture() {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   applyMigrations(db);
   for (const owner of ["alice", "bob"])
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,0)",
-    ).run(owner, owner, owner);
+    seedConversation(db, {
+      id: owner,
+      owner_id: owner,
+      title: owner,
+      created_at: 0,
+    });
   const insert = (id: string, owner: string, created: number, team?: string) =>
     runs.insertQueued(
       db,

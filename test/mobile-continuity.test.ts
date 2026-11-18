@@ -1,6 +1,11 @@
 import type { RunState } from "../src/shared/run-state.js";
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedConnection, seedMessage, seedRun } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+  seedRun,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -57,9 +62,13 @@ function workspaceFor(owner = id()) {
 let clock = 1_000_000;
 function conversation(owner: string, agentId: string, title = "Topic") {
   const cid = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-  ).run(cid, owner, agentId, title, clock++);
+  seedConversation(db, {
+    id: cid,
+    owner_id: owner,
+    agent_id: agentId,
+    title: title,
+    created_at: clock++,
+  });
   return cid;
 }
 function run(

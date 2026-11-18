@@ -1,4 +1,5 @@
 import type { cardsFixture } from "./cards-fixture";
+import { seedConversation, seedRun } from "./seed.js";
 export async function seedCards(
   fixture: Awaited<ReturnType<typeof cardsFixture>>,
   count = 46,
@@ -10,12 +11,25 @@ export async function seedCards(
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('project',?,'project','Card project',1),('other',?,'project','Other project',1)",
   ).run(owner, owner);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES('thread',?,'writer','Card conversation','project',1)",
-  ).run(owner);
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES('run',?,'writer','thread','Prompt','completed','seed',1,1)",
-  ).run(owner);
+  seedConversation(db, {
+    id: "thread",
+    owner_id: owner,
+    agent_id: "writer",
+    title: "Card conversation",
+    project_id: "project",
+    created_at: 1,
+  });
+  seedRun(db, {
+    id: "run",
+    owner_id: owner,
+    agent_id: "writer",
+    conversation_id: "thread",
+    input: "Prompt",
+    state: "completed",
+    idempotency_key: "seed",
+    created_at: 1,
+    updated_at: 1,
+  });
   const result = db.prepare(
     "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,folder_id,title,kind,role,content,metadata,pinned,created_at,updated_at) VALUES(?,?,'writer','thread','run','project',?,'markdown','answer',?,'{}',1,?,?)",
   );

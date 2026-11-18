@@ -4,6 +4,7 @@ import { afterAll, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
+import { seedConversation } from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -43,9 +44,13 @@ it.each(["wait", "async-question-finish"])(
       model: "native-default",
       instructions: "",
     });
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Reply contract',0)",
-    ).run(conversation, OWNER, agent.id);
+    seedConversation(db, {
+      id: conversation,
+      owner_id: OWNER,
+      agent_id: agent.id,
+      title: "Reply contract",
+      created_at: 0,
+    });
     const queued = enqueue(OWNER, prompt, conversation, {
       conversation,
       agent: agent.id,

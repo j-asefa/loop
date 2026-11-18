@@ -25,7 +25,7 @@ import {
   CardChangesSchema,
   type CardSelection,
 } from "../src/shared/cards";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
 }));
@@ -75,9 +75,14 @@ function setup(owner: string) {
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Project',1)",
   ).run(owner, owner);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Thread',?,1)",
-  ).run(owner, owner, owner, owner);
+  seedConversation(db, {
+    id: owner,
+    owner_id: owner,
+    agent_id: owner,
+    title: "Thread",
+    project_id: owner,
+    created_at: 1,
+  });
 }
 function message(
   owner: string,
@@ -750,9 +755,12 @@ it("refreshes default Workspace context on creation and advances through irrelev
 it("preserves same-owner run associations while requiring exact provenance for Sent", () => {
   setup("association");
   message("association", "association-run");
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('association-other','association','Other thread',1)",
-  ).run();
+  seedConversation(db, {
+    id: "association-other",
+    owner_id: "association",
+    title: "Other thread",
+    created_at: 1,
+  });
   db.prepare(
     "UPDATE runs SET conversation_id='association-other' WHERE id='association-run'",
   ).run();
@@ -1661,9 +1669,12 @@ it("Done reconciles tied approval expiries in bounded batches without database w
     db.transaction(() => {
       for (let i = 0; i < 250; i++) {
         const id = "expiry-" + i;
-        db.prepare(
-          "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,?,1)",
-        ).run(id, owner, id);
+        seedConversation(db, {
+          id: id,
+          owner_id: owner,
+          title: id,
+          created_at: 1,
+        });
         db.prepare(
           "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Prompt',1)",
         ).run(id, owner, id);

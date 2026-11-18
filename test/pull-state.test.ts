@@ -1,5 +1,6 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
+import { seedConversation } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -15,12 +16,20 @@ it("picks the thread's active watch first, then a recently ended one, and nothin
   db.prepare(
     "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('a',?,'A','a','codex','m',0)",
   ).run(owner);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('t1',?,'a','T',0)",
-  ).run(owner);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES('t2',?,'a','T',0)",
-  ).run(owner);
+  seedConversation(db, {
+    id: "t1",
+    owner_id: owner,
+    agent_id: "a",
+    title: "T",
+    created_at: 0,
+  });
+  seedConversation(db, {
+    id: "t2",
+    owner_id: owner,
+    agent_id: "a",
+    title: "T",
+    created_at: 0,
+  });
   const insert = db.prepare(
     "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,ended_reason,head_sha,ci_sha,ci_conclusion,created_at,updated_at,read_at) VALUES(?,?,?,'a','acme','web',?,?,?,?,?,?,?,?,?)",
   );

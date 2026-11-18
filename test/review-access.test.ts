@@ -1,4 +1,4 @@
-import { seedConnection, seedRun } from "./helpers/seed.js";
+import { seedConnection, seedConversation, seedRun } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { execFileSync } from "node:child_process";
 import { afterAll, expect, it, vi } from "vitest";
@@ -69,9 +69,13 @@ function fixture(value = snapshot()) {
   const review = id(),
     conversation = id(),
     rid = id();
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Review',?)",
-  ).run(conversation, owner, agent.id, now());
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent.id,
+    title: "Review",
+    created_at: now(),
+  });
   seedRun(db, {
     id: rid,
     owner_id: owner,

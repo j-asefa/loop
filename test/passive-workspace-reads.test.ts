@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -255,9 +255,13 @@ it.each([
       JSON.stringify({ loopHarness: harness }),
       native,
     );
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Loaded session',0)",
-    ).run(conversation, owner, agent);
+    seedConversation(db, {
+      id: conversation,
+      owner_id: owner,
+      agent_id: agent,
+      title: "Loaded session",
+      created_at: 0,
+    });
     db.prepare(
       "INSERT INTO companion_sessions(conversation_id,harness,project,worktree_source,worktree_agent_id,generation,state,updated_at) VALUES(?,?,?,?,?,?,'idle',0)",
     ).run(

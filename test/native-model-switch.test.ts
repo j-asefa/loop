@@ -1,4 +1,4 @@
-import { seedAgent, seedConnection } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
@@ -49,9 +49,12 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
     metadata: JSON.stringify({ loopHarness: "acp" }),
     created_at: 0,
   });
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('switch','owner','t',0)",
-  ).run();
+  seedConversation(db, {
+    id: "switch",
+    owner_id: "owner",
+    title: "t",
+    created_at: 0,
+  });
   const checkout = (
     await prepareAgentWorkspace(dir, dir, {
       ownerId: "owner",

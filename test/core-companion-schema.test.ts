@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { applyMigrations } from "../src/server/migrations";
+import { seedConversation } from "./helpers/seed.js";
 
 it("creates core pairing tables and enforces agent-bound native sessions without retired storage", () => {
   const db = new Database(":memory:");
@@ -48,9 +49,12 @@ it("creates core pairing tables and enforces agent-bound native sessions without
       "feed_cards_legacy",
     ])
       expect(objects.has(name), name).toBe(false);
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('conversation','owner','Current session',0)",
-    ).run();
+    seedConversation(db, {
+      id: "conversation",
+      owner_id: "owner",
+      title: "Current session",
+      created_at: 0,
+    });
     const insert = db.prepare(
       "INSERT INTO companion_sessions(conversation_id,harness,project,updated_at,worktree_agent_id) VALUES('conversation','codex','/fixture',0,?)",
     );

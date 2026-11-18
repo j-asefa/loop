@@ -13,7 +13,7 @@ const { createdPullRequest } = await import("../src/shared/pr-command");
 const { shellWords } = await import("../src/shared/shell-words");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/shared/agent-activities";
-import { seedRun } from "./helpers/seed.js";
+import { seedConversation, seedRun } from "./helpers/seed.js";
 
 afterAll(() => {
   db.close();
@@ -35,9 +35,14 @@ for (const [f, name] of [
   ).run(f, owner, name);
 
 function runFixture(conversation: string): Run {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Thread',?,0)",
-  ).run(conversation, owner, agent, folder);
+  seedConversation(db, {
+    id: conversation,
+    owner_id: owner,
+    agent_id: agent,
+    title: "Thread",
+    project_id: folder,
+    created_at: 0,
+  });
   const runId = id();
   seedRun(db, {
     id: runId,

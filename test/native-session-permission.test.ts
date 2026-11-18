@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
@@ -52,9 +52,12 @@ function run(
   name: string,
   permissionMode: RunPayload["permissionMode"] = "default",
 ) {
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,?,'Test',0)",
-  ).run(name, OWNER);
+  seedConversation(db, {
+    id: name,
+    owner_id: OWNER,
+    title: "Test",
+    created_at: 0,
+  });
   return enqueue(OWNER, "Fixture only", name, {
     conversation: name,
     agent: "worktree-fixture",

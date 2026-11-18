@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import * as watches from "../src/server/sql/pr-watches";
 import { applyMigrations } from "../src/server/migrations";
 import { installProjectionBoundary } from "../src/server/projected-database";
+import { seedConversation } from "./helpers/seed.js";
 
 it("keeps lazy query statements on their supplied connection and inside the projection transaction", () => {
   const first = new Database(":memory:");
@@ -15,9 +16,12 @@ it("keeps lazy query statements on their supplied connection and inside the proj
     ] as const) {
       db.pragma("foreign_keys = ON");
       applyMigrations(db);
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread',?,'Thread',10)",
-      ).run(owner);
+      seedConversation(db, {
+        id: "thread",
+        owner_id: owner,
+        title: "Thread",
+        created_at: 10,
+      });
     }
     first.exec(
       "ALTER TABLE pr_watches ADD COLUMN private_column TEXT DEFAULT 'private'",
@@ -114,9 +118,12 @@ it("resumes only a paused watch, so a stop committed first is kept", () => {
   try {
     db.pragma("foreign_keys = ON");
     applyMigrations(db);
-    db.prepare(
-      "INSERT INTO conversations(id,owner_id,title,created_at) VALUES('thread','alice','Thread',10)",
-    ).run();
+    seedConversation(db, {
+      id: "thread",
+      owner_id: "alice",
+      title: "Thread",
+      created_at: 10,
+    });
     watches.insert(
       db,
       "watch",
