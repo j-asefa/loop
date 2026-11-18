@@ -390,20 +390,36 @@ export function ownedAgentFileExists(
     : parseRecord(ownedAgentFileExistsRow, row, "artifacts");
 }
 
-const pinnedStatement = statement(
-  "SELECT pinned FROM artifacts WHERE id=? AND owner_id=?",
+// A published result or a pinned artifact is in memory unless its own
+// artifact policy excludes it.
+const memoryDefaultStatement = statement(
+  "SELECT a.pinned,EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id) AS published FROM artifacts a WHERE a.id=? AND a.owner_id=?",
 );
-const pinnedRow = QueryRecords.artifacts.pick({ pinned: true });
-export function pinned(db: Database.Database, id: string, owner: string) {
-  const row = pinnedStatement(db).get(id, owner);
+const memoryDefaultRow = QueryRecords.artifacts
+  .pick({ pinned: true })
+  .extend({ published: z.number() });
+export function memoryDefault(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = memoryDefaultStatement(db).get(id, owner);
   return row === undefined
     ? undefined
-    : parseRecord(pinnedRow, row, "artifacts");
+    : parseRecord(memoryDefaultRow, row, "artifacts");
 }
 
-const memoryCandidatesStatement = statement(
-  "SELECT * FROM artifacts WHERE pinned=1 OR id IN (SELECT substr(scope,10) FROM memory_policy WHERE scope LIKE 'artifact:%' AND enabled=1)",
-);
+// Text artifacts that are published, pinned or explicitly included, and whose
+// saved memory copy is missing or differs. A source the owner deleted from
+// memory is never recaptured.
+export const memoryCandidatesSql = `SELECT a.* FROM artifacts a
+  WHERE a.kind IN ('markdown','note','text')
+  AND (a.pinned=1 OR EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
+    OR a.id IN (SELECT substr(scope,10) FROM memory_policy WHERE owner_id=a.owner_id AND scope LIKE 'artifact:%' AND enabled=1))
+  AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.kind='artifact' AND s.source_id=a.id AND s.owner_id=a.owner_id
+    AND (s.tombstone=1 OR (s.content=a.content AND s.title=a.title AND s.project_id IS a.folder_id)))
+  LIMIT 250`;
+const memoryCandidatesStatement = statement(memoryCandidatesSql);
 
 export function memoryCandidates(db: Database.Database) {
   return memoryCandidatesStatement(db)
