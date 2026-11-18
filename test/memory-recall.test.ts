@@ -404,6 +404,7 @@ it("keeps an automation run's result out of memory unless it is pinned", async (
   });
   try {
     const claimed = claim("memory-recall-automation-worker")!;
+    expect(claimed.id).toBe(run.id);
     expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
     transition(claimed, "completed");
   } finally {
@@ -413,6 +414,25 @@ it("keeps an automation run's result out of memory unless it is pinned", async (
   expect(
     (await nativePrompt("lyra comment instructions")).prompt,
   ).not.toContain("Third-party lyra comment");
+  // Pinning it is the owner's explicit choice to keep it.
+  const answer = db
+    .prepare(
+      "SELECT id,title,content FROM artifacts WHERE run_id=? AND role='answer'",
+    )
+    .get(run.id) as { id: string; title: string; content: string };
+  artifactsQueries.edit(
+    db,
+    answer.title,
+    answer.content,
+    1,
+    0,
+    now(),
+    answer.id,
+  );
+  captureMemory();
+  expect((await nativePrompt("lyra comment instructions")).prompt).toContain(
+    "Third-party lyra comment",
+  );
 });
 
 it("keeps no receipt for a turn refused before it is recorded", async () => {
