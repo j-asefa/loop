@@ -10,6 +10,7 @@ import {
   parseEmission,
   type WorkspaceEmission,
 } from "../src/shared/workspace-events";
+import { seedRun } from "./helpers/seed.js";
 
 const decision = {
   decisionId: "decision",
@@ -151,9 +152,15 @@ it("round-trips every declared producer type through emit, durable v2 rows and t
   vi.stubEnv("LOOP_DATA_DIR", dir);
   const { db, changes, emit } = await import("../src/server/db");
   try {
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run','owner','fixture','running','key',1,1)",
-    ).run();
+    seedRun(db, {
+      id: "run",
+      owner_id: "owner",
+      input: "fixture",
+      state: "running",
+      idempotency_key: "key",
+      created_at: 1,
+      updated_at: 1,
+    });
     expect([...new Set(examples.map(([type]) => type))].sort()).toEqual(
       EmittedWorkspaceEvent.options
         .map((option) => option.shape.type.value)

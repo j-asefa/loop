@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createChangeBus, type CommittedEvent } from "../src/server/changes";
+import { seedRun } from "./helpers/seed.js";
 
 let directory: string;
 let local: typeof import("../src/server/db");
@@ -19,11 +20,15 @@ beforeEach(async () => {
   foreign = new Database(join(directory, "loop.db"));
   foreign.pragma("journal_mode = WAL");
   for (const owner of ["one", "two"])
-    local.db
-      .prepare(
-        "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'fixture','running',?,1,1)",
-      )
-      .run(owner, owner, owner);
+    seedRun(local.db, {
+      id: owner,
+      owner_id: owner,
+      input: "fixture",
+      state: "running",
+      idempotency_key: owner,
+      created_at: 1,
+      updated_at: 1,
+    });
   // Test bus ordering after the fixture snapshot, independent of the expiry
   // scheduler's own subscription and the newly covered run-insert events.
   local.deadlines.close();

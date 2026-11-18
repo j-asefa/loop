@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { seedRun } from "./helpers/seed.js";
 
 const directory = mkdtempSync(join(tmpdir(), "loop-event-webhooks-"));
 vi.stubEnv("LOOP_DATA_DIR", directory);
@@ -17,9 +18,15 @@ afterAll(() => {
 });
 
 it("commits a stopped event and its owned webhook together without a producer enqueue call", () => {
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,input,state,idempotency_key,created_at,updated_at) VALUES('run','owner','fixture','running','key',1,1)",
-  ).run();
+  seedRun(db, {
+    id: "run",
+    owner_id: "owner",
+    input: "fixture",
+    state: "running",
+    idempotency_key: "key",
+    created_at: 1,
+    updated_at: 1,
+  });
   for (const owner of ["owner", "other"])
     db.prepare(
       `INSERT INTO webhook_subscriptions(id,owner_id,url,secret_sealed,creation_digest,kinds,local,state,created_at)

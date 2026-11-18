@@ -9,6 +9,7 @@ import {
   type TranscriptEvent,
 } from "../src/shared/transcript-projection";
 import { historicalEvent } from "../src/shared/workspace-events";
+import { seedRun } from "./helpers/seed.js";
 const dir = testDirectory();
 
 const { db } = await import("../src/server/db");
@@ -23,9 +24,16 @@ function seed(key: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,title,created_at) VALUES(?,'owner','Projection',1)",
   ).run(key);
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,'owner',?,'Prompt','running',?,1,1)",
-  ).run(key, key, key);
+  seedRun(db, {
+    id: key,
+    owner_id: "owner",
+    conversation_id: key,
+    input: "Prompt",
+    state: "running",
+    idempotency_key: key,
+    created_at: 1,
+    updated_at: 1,
+  });
   return { id: key, owner_id: "owner" };
 }
 function events(conversation: string) {
