@@ -1,4 +1,4 @@
-import { seedMessage } from "./helpers/seed.js";
+import { seedMessage, seedRun } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
@@ -58,17 +58,17 @@ function seed(
       "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Socket thread',1)",
     )
     .run(prefix + "thread", owner, prefix + "agent");
-  f.db
-    .prepare(
-      "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,?,'Prompt','running',?,1,1)",
-    )
-    .run(
-      prefix + "run",
-      owner,
-      prefix + "agent",
-      prefix + "thread",
-      prefix + "key",
-    );
+  seedRun(f.db, {
+    id: prefix + "run",
+    owner_id: owner,
+    agent_id: prefix + "agent",
+    conversation_id: prefix + "thread",
+    input: "Prompt",
+    state: "running",
+    idempotency_key: prefix + "key",
+    created_at: 1,
+    updated_at: 1,
+  });
 }
 function emit(
   f: Awaited<ReturnType<typeof fixture>>,
