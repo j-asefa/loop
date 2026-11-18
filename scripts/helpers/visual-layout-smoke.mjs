@@ -20,10 +20,13 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
           // Avatars defer their src until they intersect the viewport or their
           // horizontal strip, so images in hidden containers (the sidebar on a
           // phone), below the fold or scrolled out of the agent strip never
-          // load. Assert on avatars visible now.
+          // load. Assert on avatars visible now. Geometry comes from the
+          // avatar box, not the image: a failed image sets `hidden` and must
+          // stay in the set so it fails the check.
           const onScreen = (image) => {
-            if (image.getClientRects().length === 0) return false;
-            let { left, right, top, bottom } = image.getBoundingClientRect();
+            const box = image.closest(".avatar-3d");
+            if (box.getClientRects().length === 0) return false;
+            let { left, right, top, bottom } = box.getBoundingClientRect();
             left = Math.max(left, 0);
             top = Math.max(top, 0);
             right = Math.min(right, innerWidth);
@@ -35,11 +38,18 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
                 style.overflowY === "visible"
               )
                 continue;
+              // IntersectionObserver clips by the padding box.
               const clip = el.getBoundingClientRect();
-              left = Math.max(left, clip.left);
-              top = Math.max(top, clip.top);
-              right = Math.min(right, clip.right);
-              bottom = Math.min(bottom, clip.bottom);
+              left = Math.max(left, clip.left + el.clientLeft);
+              top = Math.max(top, clip.top + el.clientTop);
+              right = Math.min(
+                right,
+                clip.left + el.clientLeft + el.clientWidth,
+              );
+              bottom = Math.min(
+                bottom,
+                clip.top + el.clientTop + el.clientHeight,
+              );
             }
             return right > left && bottom > top;
           };
@@ -68,7 +78,9 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       .toBe(true);
     const avatar = await portrait.locator("img").getAttribute("src");
     // Hidden containers (the phone-hidden sidebar) never load deferred avatars.
-    for (const nav of await page.locator(".nav-avatar:visible").all()) {
+    const navs = await page.locator(".nav-avatar:visible").all();
+    assert(navs.length > 0, "A navigation avatar is on screen");
+    for (const nav of navs) {
       await expect(nav.locator("img")).toHaveAttribute("src", avatar);
       await expect(nav).toHaveAttribute(
         "style",
