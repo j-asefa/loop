@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedRun } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
@@ -46,20 +46,17 @@ function runFor(owner: string) {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
   ).run(cid, owner, agent.id, "Topic", now());
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-  ).run(
-    rid,
-    owner,
-    agent.id,
-    cid,
-    "prompt",
-    "completed",
-    rid,
-    "{}",
-    now(),
-    now(),
-  );
+  seedRun(db, {
+    id: rid,
+    owner_id: owner,
+    agent_id: agent.id,
+    conversation_id: cid,
+    input: "prompt",
+    state: "completed",
+    idempotency_key: rid,
+    created_at: now(),
+    updated_at: now(),
+  });
   return rid;
 }
 

@@ -1,3 +1,4 @@
+import type { RunState } from "../src/shared/run-state.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -47,6 +48,7 @@ const { checkoutLine, unquoteGitPath, patchByFile } =
   await import("../src/shared/checkout");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
+import { seedRun } from "./helpers/seed.js";
 
 afterAll(() => {
   db.close();
@@ -66,14 +68,26 @@ db.prepare(
   "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Other',0)",
 ).run(otherFolder, owner);
 
-function runFixture(conversation: string, state = "running", at = now()): Run {
+function runFixture(
+  conversation: string,
+  state: RunState = "running",
+  at = now(),
+): Run {
   db.prepare(
     "INSERT INTO conversations(id,owner_id,agent_id,title,project_id,created_at) VALUES(?,?,?,'Thread',?,0)",
   ).run(conversation, owner, agent, folder);
   const runId = id();
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at) VALUES(?,?,?,?,'Change things',?,?,'{}',?,?)",
-  ).run(runId, owner, agent, conversation, state, runId, at, at);
+  seedRun(db, {
+    id: runId,
+    owner_id: owner,
+    agent_id: agent,
+    conversation_id: conversation,
+    input: "Change things",
+    state,
+    idempotency_key: runId,
+    created_at: at,
+    updated_at: at,
+  });
   return ownedRun(runId, owner);
 }
 function bind(conversation: string, checkout: string) {
