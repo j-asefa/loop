@@ -1,4 +1,9 @@
-import { seedConversation, seedAgent, seedMessage } from "./helpers/seed.js";
+import {
+  seedRun,
+  seedConversation,
+  seedAgent,
+  seedMessage,
+} from "./helpers/seed.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { cardsFixture } from "./helpers/cards-fixture";
@@ -175,11 +180,17 @@ it("serves atomic per-page Feed deltas with upserts, removals, filter changes an
           title: id,
           created_at: 1,
         });
-        f.db
-          .prepare(
-            "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,'feed-agent',?,?,'running',?,1,1)",
-          )
-          .run(id, owner, id, id, id);
+        seedRun(f.db, {
+          id: id,
+          owner_id: owner,
+          agent_id: "feed-agent",
+          conversation_id: id,
+          input: id,
+          state: "running",
+          idempotency_key: id,
+          created_at: 1,
+          updated_at: 1,
+        });
         f.db
           .prepare("UPDATE runs SET created_at=?,updated_at=? WHERE id=?")
           .run(Date.now(), Date.now(), id);
