@@ -113,9 +113,13 @@ it("write tokens change Done read and saved state once per identity, owner-scope
   );
   expect((await doneItem()).unread_version).toBe(advanced.unread_version);
 
-  // Saved state.
+  // Saved state. Every bearer write needs its identity, including the
+  // DELETE operations and a save sent with no body at all.
+  expect((await send("DELETE", readPath, { cardKey })).status).toBe(400);
   const savePath = `/messages/${records.reply}/saved`;
   expect((await send("POST", savePath, {})).status).toBe(400);
+  expect((await send("POST", savePath, undefined)).status).toBe(400);
+  expect((await send("DELETE", savePath, {})).status).toBe(400);
   const saveBody = { idempotencyKey: randomUUID() };
   expect(await json(await send("POST", savePath, saveBody), 200)).toEqual({
     ok: true,

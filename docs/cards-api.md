@@ -59,9 +59,10 @@ admits the separate GET/HEAD routes.
 The session-only Cards Done collection remains unavailable to every bearer, including `read`.
 Feed `filter=done` pages, which `read` admits, carry each result's `read_at`
 (null while unread) and `unread_version`; pass that version to the read
-operation so a later unread is never erased. A read with a missing or older
-version still answers `{ "ok": true }` but leaves the result unread; read the
-page again to see the outcome. Saved Done threads (`/api/feed/threads`) remain
+operation so a later unread is never erased. An omitted version counts as 0,
+the version of a result that was never marked unread. A read whose version is
+older than the current one still answers `{ "ok": true }` but leaves the result
+unread; read the page again to see the outcome. Saved Done threads (`/api/feed/threads`) remain
 session-only, including their read and unread operations.
 
 Tokens cover the owner's projects. Query filters narrow a selection, not
