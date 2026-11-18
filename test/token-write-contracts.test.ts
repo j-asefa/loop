@@ -310,6 +310,33 @@ it("companion commits and replays every local token write with owner isolation",
     expect((await post(path, { idempotencyKey: randomUUID() })).status).toBe(
       403,
     );
+  // Done read state and saved messages are session-only: no token may change
+  // them, whatever its scopes.
+  for (const credential of [writer, reader])
+    for (const [method, path, body] of [
+      [
+        "PUT",
+        `/feed/${records.conversation}/read`,
+        { cardKey: `run:${records.run}` },
+      ],
+      [
+        "DELETE",
+        `/feed/${records.conversation}/read`,
+        { cardKey: `run:${records.run}` },
+      ],
+      ["POST", `/messages/${records.reply}/saved`, {}],
+      ["DELETE", `/messages/${records.reply}/saved`, {}],
+    ] as const)
+      expect(
+        (
+          await f.request("/api" + path, {
+            method,
+            body: { ...body, idempotencyKey: randomUUID() },
+            headers: credential.headers,
+          })
+        ).status,
+        `${method} ${path}`,
+      ).toBe(403);
   expect(
     (
       await post(`/approvals/${records.approval}`, {
