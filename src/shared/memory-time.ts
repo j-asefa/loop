@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -74,6 +74,12 @@ function maskInlineLiterals(query: string) {
       nextQuote.clear();
       continue;
     }
+    if (
+      (mark === "'" || mark === "’") &&
+      /[\p{L}\p{N}]/u.test(query[quote.index - 1] ?? "") &&
+      /[\p{L}\p{N}]/u.test(query[quote.index + 1] ?? "")
+    )
+      continue;
     const closing = nextQuote.get(
       mark === "“" ? "”" : mark === "‘" ? "’" : mark,
     );
@@ -177,7 +183,6 @@ export function parseMemoryTime(
       // A bare month can also be a person's name. Leave clauses such as
       // "since May joined" searchable. A month and year is unambiguous.
       if (
-        /^['’][\p{L}]/u.test(after) ||
         /^\s+(?!(?:and|or|from|about|for|on|in|to|at)\b)[\p{L}]/iu.test(after)
       )
         continue;
