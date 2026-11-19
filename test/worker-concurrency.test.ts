@@ -8,11 +8,12 @@ const { executeAgent } = vi.hoisted(() => ({
   executeAgent: vi.fn<RunExecutor>(),
 }));
 vi.mock("../src/server/agent-runtime", () => ({ executeAgent }));
-vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
-vi.mock("../src/server/memory", async (original) => ({
-  ...(await original<any>()),
-  captureMemory: () => {},
-}));
+vi.mock("../src/server/search", async () =>
+  (await import("./helpers/worker-mocks.js")).noSearchIndexing(),
+);
+vi.mock("../src/server/memory", async (original) =>
+  (await import("./helpers/worker-mocks.js")).noMemoryCapture(original),
+);
 
 it("schedules 32 running tasks and admits the 33rd only after a slot is released", async () => {
   vi.resetModules();

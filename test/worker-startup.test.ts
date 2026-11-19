@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
-vi.mock("../src/server/memory", async (original) => ({
-  ...(await original<any>()),
-  captureMemory: () => {},
-}));
+vi.mock("../src/server/search", async () =>
+  (await import("./helpers/worker-mocks.js")).noSearchIndexing(),
+);
+vi.mock("../src/server/memory", async (original) =>
+  (await import("./helpers/worker-mocks.js")).noMemoryCapture(original),
+);
 
 it("starts a worker on a populated database without replaying history into claim attempts", async () => {
   vi.resetModules();

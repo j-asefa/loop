@@ -17,11 +17,12 @@ vi.mock("../src/server/agent-runtime", async (original) => ({
   ...(await original<any>()),
   executeAgent,
 }));
-vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
-vi.mock("../src/server/memory", async (original) => ({
-  ...(await original<any>()),
-  captureMemory: () => {},
-}));
+vi.mock("../src/server/search", async () =>
+  (await import("./helpers/worker-mocks.js")).noSearchIndexing(),
+);
+vi.mock("../src/server/memory", async (original) =>
+  (await import("./helpers/worker-mocks.js")).noMemoryCapture(original),
+);
 
 const dirs: string[] = [];
 afterEach(() => {
