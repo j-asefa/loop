@@ -16,6 +16,9 @@ export const DISPLAY_LIMITS = {
   depth: 8,
   tableRows: 200,
   tableColumns: 20,
+  // Table cells drawn across the whole display, counting every reference to
+  // a shared table; a Table past it is a placeholder.
+  tableCells: 20000,
   seriesCount: 12,
   categories: 200,
   pieSegments: 24,
@@ -244,8 +247,10 @@ function build(
     }
     case "LinkButton": {
       const p = propSchemas.LinkButton.safeParse(props);
+      // Draw the parsed URL, so the href is the one that was checked:
+      // `https:example.com` would otherwise resolve against Loop's own page.
       return p.success
-        ? { type, key, label: p.data.label, url: p.data.url }
+        ? { type, key, label: p.data.label, url: new URL(p.data.url).href }
         : problem(p.error);
     }
     default:
@@ -264,7 +269,7 @@ function draw(
   elements: Map<string, RawElement>,
   path: Set<string>,
   depth: number,
-  state: { count: number },
+  state: { count: number; cells: number },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
   if (++state.count > DISPLAY_LIMITS.elements)
@@ -311,9 +316,19 @@ function draw(
     path.delete(key);
   }
   const built = build(key, type, element.props ?? {}, kids);
-  return typeof built === "string"
-    ? placeholder(key, type, "invalid", built)
-    : built;
+  if (typeof built === "string")
+    return placeholder(key, type, "invalid", built);
+  if (built.type === "Table") {
+    state.cells += built.rows.length * built.headers.length;
+    if (state.cells > DISPLAY_LIMITS.tableCells)
+      return placeholder(
+        key,
+        type,
+        "invalid",
+        `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
+      );
+  }
+  return built;
 }
 
 // Reads the text inside a `spec` fence. The block is treated as complete.
@@ -369,7 +384,7 @@ export function readDisplaySpec(source: string): DisplayRead {
   if (root === undefined) return { ok: false, reason: "no_root", ...skips };
   if (!elements.has(root))
     return { ok: false, reason: "missing_root", ...skips };
-  const state = { count: 0 };
+  const state = { count: 0, cells: 0 };
   try {
     return {
       ok: true,

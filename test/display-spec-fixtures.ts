@@ -766,4 +766,44 @@ export const displayFixtures: DisplayFixture[] = [
     ),
     expect: { outline: ['Card title="Frame"', "  !Text invalid"] },
   },
+
+  // ---- added after review: shared tables and URL normalisation ------------
+  {
+    name: "a full table shared until the table cell limit",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, Array(6).fill("t")),
+      element("t", "Table", {
+        headers: Array.from(
+          { length: DISPLAY_LIMITS.tableColumns },
+          (_, i) => `h${i}`,
+        ),
+        rows: Array.from({ length: DISPLAY_LIMITS.tableRows }, () => ["x"]),
+      }),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(5).fill(
+          `  Table headers=${JSON.stringify(Array.from({ length: DISPLAY_LIMITS.tableColumns }, (_, i) => `h${i}`))} align=${JSON.stringify(Array(DISPLAY_LIMITS.tableColumns).fill("left"))} caption=null rows=${DISPLAY_LIMITS.tableRows} first=${JSON.stringify(["x", ...Array(DISPLAY_LIMITS.tableColumns - 1).fill("")])} last=${JSON.stringify(["x", ...Array(DISPLAY_LIMITS.tableColumns - 1).fill("")])}`,
+        ),
+        "  !Table invalid",
+      ],
+    },
+  },
+  {
+    name: "a LinkButton URL without slashes is drawn as parsed",
+    source: inCard(
+      element("x", "LinkButton", {
+        label: "Go",
+        url: "https:example.com/x",
+      }),
+    ),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  LinkButton "Go" https://example.com/x',
+      ],
+    },
+  },
 ];
