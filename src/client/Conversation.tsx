@@ -1799,7 +1799,17 @@ function ConversationView({
                       <RichText content={meta.replyTo.content} />
                     </details>
                   )}
-                  {showContent && <RichText content={m.content} />}
+                  {showContent && (
+                    <RichText
+                      content={m.content}
+                      // An answer whose run still works is being written.
+                      writing={
+                        m.role === "assistant" &&
+                        !!m.run_state &&
+                        STARTED_RUN_DISPLAY_STATES.includes(m.run_state)
+                      }
+                    />
+                  )}
                   {m.role === "user" &&
                     m.run_id &&
                     m.run_state === "queued" && (

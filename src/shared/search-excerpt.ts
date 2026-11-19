@@ -36,7 +36,8 @@ export function searchExcerpt(
   query: string,
   length = 320,
 ): z.infer<typeof SearchExcerptSchema> {
-  let text = content
+  // A display's source is JSON, never words worth showing (handoff D11).
+  let text = dropSpecBlocks(content)
     .replace(/```[^\n]*\n?/g, " ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -69,6 +70,7 @@ export function searchExcerpt(
   );
 }
 import { z } from "zod";
+import { dropSpecBlocks } from "./text.js";
 
 // Excerpts are plain text, not HTML or ranges into the original document.
 export const SearchExcerptSchema = z.string();

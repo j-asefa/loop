@@ -522,7 +522,8 @@ function FeedCard({
           {detail && <p className="field-hint feed-detail">{detail}</p>}
           {item.live_preview ? (
             <div className="preview live-preview">
-              <RichText content={item.live_preview} compact />
+              {/* live_preview is only set while the run works. */}
+              <RichText content={item.live_preview} compact writing />
             </div>
           ) : item.run &&
             WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -717,7 +718,12 @@ function FeedCard({
                     item.card ? (
                       <CardBody card={item.card} />
                     ) : (
-                      <RichText content={content} />
+                      <RichText
+                        content={content}
+                        writing={
+                          !!item.live_preview && content === item.live_preview
+                        }
+                      />
                     )
                   ) : (
                     <p className="field-hint">

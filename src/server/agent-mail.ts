@@ -1,5 +1,6 @@
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
+import { dropSpecBlocks } from "../shared/text.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as connectionsQueries from "./sql/connections.js";
@@ -1774,7 +1775,8 @@ export function publicMailMessage(mail: Mail) {
     kind: mail.kind,
     from: mail.sender_agent_id,
     to: mail.recipient_agent_id,
-    preview: mail.body.slice(0, 600),
+    // Shown as plain text: a display's JSON source is dropped (D11).
+    preview: dropSpecBlocks(mail.body).slice(0, 600),
     created_at: mail.created_at,
     status: statusOf(mail),
     error: mail.error,

@@ -279,7 +279,13 @@ function draw(
   elements: Map<string, RawElement>,
   path: Set<string>,
   depth: number,
-  state: { count: number; cells: number; text: number; drawn: number },
+  state: {
+    count: number;
+    cells: number;
+    text: number;
+    drawn: number;
+    omitMissing: boolean;
+  },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
   if (++state.count > DISPLAY_LIMITS.elements)
@@ -363,9 +369,10 @@ function draw(
   state.drawn += drawn;
   if ("children" in built) {
     path.add(key);
-    built.children = list.map((child) =>
-      draw(child, elements, path, depth + 1, state),
-    );
+    built.children = list
+      // While a block is written, children not yet written are left out.
+      .filter((child) => !state.omitMissing || elements.has(child))
+      .map((child) => draw(child, elements, path, depth + 1, state));
     path.delete(key);
   }
   return built;
@@ -403,8 +410,20 @@ function drawnLength(node: DisplayNode): number {
   }
 }
 
-// Reads the text inside a `spec` fence. The block is treated as complete.
-export function readDisplaySpec(source: string): DisplayRead {
+export type DisplayReadOptions = {
+  // The fence has not closed: a last line that is not valid JSON may be
+  // half-written, so it is ignored rather than skipped.
+  open?: boolean;
+  // The block is still being written: children whose elements have not
+  // arrived are left out instead of drawn as placeholders.
+  writing?: boolean;
+};
+
+// Reads the text inside a `spec` fence; by default the block is complete.
+export function readDisplaySpec(
+  source: string,
+  { open = false, writing = false }: DisplayReadOptions = {},
+): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
   const skip = (line: number, reason: string) => {
     skips.skippedCount++;
@@ -416,7 +435,8 @@ export function readDisplaySpec(source: string): DisplayRead {
   let root: string | undefined;
   const elements = new Map<string, RawElement>();
   let applied = 0;
-  source.split("\n").forEach((raw, index) => {
+  const all = source.split("\n");
+  all.forEach((raw, index) => {
     const line = index + 1;
     const trimmed = raw.trim();
     if (!trimmed) return;
@@ -424,6 +444,7 @@ export function readDisplaySpec(source: string): DisplayRead {
     try {
       patch = JSON.parse(trimmed);
     } catch {
+      if (open && index === all.length - 1) return;
       return skip(line, "Not valid JSON");
     }
     if (!isObject(patch)) return skip(line, "Not a JSON object");
@@ -456,7 +477,13 @@ export function readDisplaySpec(source: string): DisplayRead {
   if (root === undefined) return { ok: false, reason: "no_root", ...skips };
   if (!elements.has(root))
     return { ok: false, reason: "missing_root", ...skips };
-  const state = { count: 0, cells: 0, text: 0, drawn: 0 };
+  const state = {
+    count: 0,
+    cells: 0,
+    text: 0,
+    drawn: 0,
+    omitMissing: open && writing,
+  };
   try {
     return {
       ok: true,

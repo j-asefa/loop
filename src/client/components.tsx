@@ -12,7 +12,7 @@ import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
-import { DisplaySpec } from "./DisplaySpec";
+import { DisplaySpec, markOpenSpecFences } from "./DisplaySpec";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
@@ -210,10 +210,14 @@ export const RichText = memo(function RichText({
   content,
   diagrams = true,
   compact = false,
+  writing = false,
 }: {
   content: string;
   diagrams?: boolean;
   compact?: boolean;
+  // The content is an answer still being written (its run is working): an
+  // unclosed display grows as lines arrive instead of being final.
+  writing?: boolean;
 }) {
   const sourceId = useSourceId();
   const math = useMarkdownMath(content);
@@ -260,6 +264,8 @@ export const RichText = memo(function RichText({
                 .join("")
                 .replace(/\n$/, "")}
               compact={compact}
+              open={code.properties?.dataSpecOpen === true}
+              writing={writing}
               markdown={(content) => (
                 <RichText
                   content={content}
@@ -295,13 +301,14 @@ export const RichText = memo(function RichText({
         );
       },
     }),
-    [diagrams, compact, sourceId],
+    [diagrams, compact, writing, sourceId],
   );
   return (
     <div className="markdown">
       <Markdown
         remarkPlugins={[
           remarkGfm,
+          ...(diagrams ? [markOpenSpecFences] : []),
           ...(math?.remark || []),
           ...(compact
             ? [

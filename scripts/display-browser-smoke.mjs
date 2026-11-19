@@ -5,7 +5,12 @@
 // hiding the answer; and that a display never overflows a 320 or 390px phone
 // (wide tables scroll inside it). Charts: each type is drawn as a named SVG
 // that fits the phone, category labels do not overlap, and the numbers are in
-// a table under the chart. Set LOOP_SCREENSHOT_DIR to save light and
+// a table under the chart. While a run works, the Working card draws an open
+// block as far as it is written ("Display loading…", then part, then all),
+// never shows its JSON, keeps the conversation link when the text is cut at
+// 4,000 characters, and the finished run's Done card shows the whole display.
+// Text advances by fixture writes and reloads, not live streaming. Set
+// LOOP_SCREENSHOT_DIR to save light and
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
 import assert from "node:assert/strict";
@@ -157,6 +162,18 @@ const shots = smokeScreenshotDirectory("LOOP_DISPLAY_SCREENSHOT_DIR", {
   ciDefault: false,
 });
 const answer = `Here is the report.\n\n${display}\n\nTell me if you want more detail.`;
+// One answer at three points while it is written: the root only, half the
+// elements (the last line cut mid-way), and the whole closed block.
+const written = display.slice("```spec\n".length, -"\n```".length).split("\n");
+const intro = "Here is the report.\n\n```spec\n";
+const writingSteps = [
+  ["loading", intro + written[0] + "\n" + written[1].slice(0, 30)],
+  [
+    "partial",
+    intro + written.slice(0, 6).join("\n") + "\n" + written[6].slice(0, 25),
+  ],
+  ["complete", answer],
+];
 const broken = `Before the block.\n\n${fence(patch(add("orphan", { type: "Divider" })))}\n\nAfter the block.`;
 
 for (const engine of selectedEngines()) {
@@ -305,6 +322,112 @@ for (const engine of selectedEngines()) {
         page.locator("dialog.feed-reading-sheet[open] .display-spec"),
       ).toHaveCount(1);
 
+      // A display drawn while it is written, then finished.
+      const workingCard = () =>
+        page
+          .locator(".feed-results .feed-item-card")
+          .filter({ hasText: working.title });
+      for (const [step, text] of writingSteps) {
+        update(working, text);
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        const live = workingCard().locator(".live-preview");
+        await expect(live).toBeVisible();
+        if (step === "loading") {
+          await expect(live.locator(".display-loading")).toHaveText(
+            "Display loading…",
+          );
+          await expect(live.locator(".display-spec")).toHaveCount(0);
+        } else {
+          await expect(live.locator(".display-spec")).toHaveCount(1);
+          await expect(live.locator(".display-title")).toHaveText(
+            "Weekly deploys",
+          );
+          await expect(live.locator(".display-loading")).toHaveCount(0);
+        }
+        if (step === "partial") {
+          await expect(live.locator(".display-field")).toHaveCount(2);
+          await expect(live.locator(".display-placeholder")).toHaveCount(0);
+          await expect(live.locator(".table-scroll")).toHaveCount(0);
+        }
+        if (step === "complete")
+          await expect(live.locator(".display-link-button")).toHaveText(
+            "Open dashboard",
+          );
+        const shown = await workingCard().innerText();
+        assert(!shown.includes('{"op"'), `Working card showed JSON (${step})`);
+        assert(!shown.includes("could not be drawn"), step);
+        if (shots)
+          for (const scheme of ["light", "dark"]) {
+            await page.emulateMedia({ colorScheme: scheme });
+            await workingCard().screenshot({
+              path: join(
+                shots,
+                `${engine.name()}-working-${step}-${scheme}.png`,
+              ),
+            });
+          }
+        await page.emulateMedia({ colorScheme: "light" });
+      }
+      // The reading sheet and the conversation draw the open block the same
+      // way while the run works.
+      update(working, writingSteps[1][1]);
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      const workingSheet = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(workingSheet.locator(".display-field")).toHaveCount(2);
+      await expect(workingSheet.locator(".display-placeholder")).toHaveCount(0);
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      const workingThread = page.locator("dialog.conversation-sheet[open]");
+      await expect(
+        workingThread.locator(".message .display-field"),
+      ).toHaveCount(2);
+      await expect(
+        workingThread.locator(".message .display-placeholder"),
+      ).toHaveCount(0);
+
+      // Cut at 4,000 characters: drawn as an open block, with the link on.
+      const long =
+        "Background. ".repeat(320) +
+        "\n\n" +
+        answer.replace("Here is the report.\n\n", "");
+      update(working, long);
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      const cutSheet = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+      assert(!(await cutSheet.innerText()).includes('{"op"'));
+      assert(!(await cutSheet.innerText()).includes("could not be drawn"));
+
+      // The run finishes: its Done card shows the whole display.
+      fixture.db
+        .prepare("UPDATE runs SET state='completed' WHERE id=?")
+        .run(working.run);
+      seal(working, answer);
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      const finished = page
+        .locator(".feed-results .feed-item-card")
+        .filter({ hasText: working.title });
+      await expect(finished.locator(".display-spec")).toHaveCount(1);
+      await expect(finished.locator(".display-loading")).toHaveCount(0);
+      if (shots)
+        for (const scheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme: scheme });
+          await finished.screenshot({
+            path: join(shots, `${engine.name()}-finished-done-${scheme}.png`),
+          });
+        }
+      await page.emulateMedia({ colorScheme: "light" });
+
       // Charts: each type drawn as a named SVG that fits the phone, with its
       // numbers in a table.
       seal(done, chartAnswer);
@@ -425,7 +548,7 @@ for (const engine of selectedEngines()) {
       assert.deepEqual(errors, []);
       await context.close();
       console.log(
-        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, charts, source fallback and 320/390px overflow passed`,
+        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, displays while written, charts, source fallback and 320/390px overflow passed`,
       );
     } finally {
       await closeBrowser();

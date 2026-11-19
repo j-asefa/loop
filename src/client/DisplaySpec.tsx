@@ -17,16 +17,87 @@ type Context = {
   compact: boolean;
 };
 
+// Remark plugin: marks a `spec` fence that has not closed (an answer still
+// being written, or text cut short). Markdown parses an open fence as a code
+// block running to the end, so only the source span shows whether the
+// closing fence arrived.
+export function markOpenSpecFences() {
+  return (tree: MdNode, file: { value: unknown }) => {
+    const source = String(file.value);
+    const visit = (node: MdNode) => {
+      if (node.type === "code" && node.lang === "spec" && node.position) {
+        const raw = source.slice(
+          node.position.start.offset,
+          node.position.end.offset,
+        );
+        if (!closedFence(raw))
+          node.data = {
+            ...node.data,
+            hProperties: { ...node.data?.hProperties, dataSpecOpen: true },
+          };
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+type MdNode = {
+  type: string;
+  lang?: string | null;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  data?: { hProperties?: Record<string, unknown> };
+  children?: MdNode[];
+};
+// Whether a fenced block's source ends with its closing fence: the same
+// character as the opener, at least as long. Quote and list markers that
+// prefix each line inside a blockquote or list are ignored.
+function closedFence(raw: string) {
+  const lines = raw.split("\n");
+  if (lines.length < 2) return false;
+  const marker = /^[\s>*+-]*?(`{3,}|~{3,})/;
+  const open = marker.exec(lines[0])?.[1];
+  const close = /^[\s>]*(`{3,}|~{3,})[ \t]*$/.exec(
+    lines[lines.length - 1],
+  )?.[1];
+  return (
+    !!open && !!close && close[0] === open[0] && close.length >= open.length
+  );
+}
+
 export function DisplaySpec({
   source,
   compact = false,
+  open = false,
+  writing = false,
   markdown,
 }: {
   source: string;
   compact?: boolean;
+  // The fence has not closed.
+  open?: boolean;
+  // The answer is still being written (its run is working).
+  writing?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
-  const read = useMemo(() => readDisplaySpec(source), [source]);
+  const live = open && writing;
+  const read = useMemo(
+    () => readDisplaySpec(source, { open, writing: live }),
+    [source, open, live],
+  );
+  // While written, a block with no root element yet shows a short line, not
+  // its source; a finished answer never does.
+  if (
+    !read.ok &&
+    live &&
+    (read.reason === "empty" ||
+      read.reason === "no_root" ||
+      read.reason === "missing_root")
+  )
+    return (
+      <p className="note display-loading" role="status">
+        Display loading…
+      </p>
+    );
   if (!read.ok) {
     const shown = source.replace(/\n$/, "");
     return (
@@ -63,14 +134,22 @@ function Children({
   context: Context;
   level: number;
 }) {
-  return nodes.map((child, index) => (
-    <DisplayNodeView
-      key={`${index}:${child.key}`}
-      node={child}
-      context={context}
-      level={level + 1}
-    />
-  ));
+  // Keys come from element keys, so a display that grows while it is
+  // written keeps every drawn element in place. A key listed twice is
+  // told apart by how many times it appeared before.
+  const seen = new Map<string, number>();
+  return nodes.map((child) => {
+    const occurrence = seen.get(child.key) ?? 0;
+    seen.set(child.key, occurrence + 1);
+    return (
+      <DisplayNodeView
+        key={`${child.key}#${occurrence}`}
+        node={child}
+        context={context}
+        level={level + 1}
+      />
+    );
+  });
 }
 
 function DisplayNodeView({
