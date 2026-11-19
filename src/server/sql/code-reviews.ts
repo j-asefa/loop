@@ -134,3 +134,43 @@ export function agentReviews(
     .all({ owner, agent, review })
     .map((row) => parseRecord(agentReviewsRow, row, "code_reviews"));
 }
+
+// Earlier reviews this conversation requested of the same checkout, newest
+// first. The identity columns come from the covering index so the candidate
+// list never reads a snapshot. `unfinished` counts reviewers that did not
+// complete; a follow-up review has no reviewers.
+const earlierStatement = statement(
+  `SELECT a.id,r.state,r.result,f.previous_review_id IS NOT NULL follow_up,
+      (SELECT count(*) FROM delegations rd JOIN runs rr ON rr.id=rd.child_run_id
+        WHERE rd.parent_run_id=c.run_id AND rr.state<>'completed') unfinished
+    FROM runs p
+    JOIN delegations d ON d.parent_run_id=p.id
+    JOIN code_reviews c INDEXED BY code_reviews_run ON c.run_id=d.child_run_id
+    JOIN code_reviews a INDEXED BY code_reviews_access ON a.owner_id=p.owner_id AND a.id=c.id
+    JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+    LEFT JOIN review_follow_ups f ON f.review_id=a.id AND f.owner_id=a.owner_id
+    WHERE p.owner_id=@owner AND p.conversation_id=@conversation
+      AND a.team_id=@team AND a.folder_id=@folder AND a.source_path=@path
+    ORDER BY a.created_at DESC,a.id DESC LIMIT 8`,
+);
+const earlierRow = z.object({
+  id: z.string(),
+  state: QueryRecords.runs.shape.state,
+  result: z.string().nullable(),
+  follow_up: z.number(),
+  unfinished: z.number(),
+});
+export function earlier(
+  db: Database.Database,
+  scope: {
+    owner: string;
+    conversation: string;
+    team: string;
+    folder: string;
+    path: string;
+  },
+) {
+  return earlierStatement(db)
+    .all(scope)
+    .map((row) => parseRecord(earlierRow, row, "code_reviews"));
+}

@@ -58,6 +58,8 @@ export const PublicReview = z.object({
   id: ReviewId,
   conversationId: ConversationId,
   state: RunDisplayState,
+  depth: z.enum(["full", "follow_up"]),
+  previousReviewId: ReviewId.nullable(),
   scope: z.enum(["uncommitted", "staged", "branch"]),
   fingerprint: Text,
   createdAt: Time,

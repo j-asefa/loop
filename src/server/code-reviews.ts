@@ -21,6 +21,9 @@ import {
 import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
 import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
+import { reviewDelta } from "./review-delta.js";
+import * as followUpQueries from "./sql/review-follow-ups.js";
+import type { ReviewSnapshot } from "./review-snapshot.js";
 import { inheritEffect } from "./effect-authority.js";
 
 import type { Run } from "./queue.js";
@@ -76,6 +79,38 @@ function reviewable(owner: string, folderId: string, path: string) {
     );
   return path;
 }
+// A follow-up may add this much to what independent reviewers last examined.
+// Beyond it, or when most of the change is new, the review is full again.
+export const FOLLOW_UP_MAX_UNSEEN_LINES = 400;
+/**
+ * The earlier review a follow-up builds on, or undefined for a full review.
+ * The lead alone reviews a follow-up, so every condition here keeps the
+ * unexamined part small: this conversation's latest review of the same
+ * checkout and scope completed with a report, the last full review had every
+ * reviewer complete, and most changed lines were already in that full review.
+ */
+function followUpOf(
+  owner: string,
+  scope: { conversation: string; team: string; folder: string; path: string },
+  snapshot: ReviewSnapshot,
+) {
+  const earlier = codeReviewsQueries.earlier(db, { owner, ...scope });
+  const previous = earlier[0];
+  const full = earlier.find((review) => !review.follow_up);
+  if (!previous || !full) return;
+  for (const review of [previous, full])
+    if (review.state !== "completed" || !review.result || review.unfinished)
+      return;
+  const reviewed = reviewSnapshot(owner, full.id).snapshot;
+  if (
+    reviewed.scope !== snapshot.scope ||
+    reviewSnapshot(owner, previous.id).snapshot.scope !== snapshot.scope
+  )
+    return;
+  const { changed, unseen } = reviewDelta(snapshot.diff, reviewed.diff);
+  if (unseen > FOLLOW_UP_MAX_UNSEEN_LINES || unseen * 2 > changed) return;
+  return previous.id;
+}
 export function startCodeReview(...args: Parameters<typeof ensureCodeReview>) {
   return reviewStatus(args[0], ensureCodeReview(...args));
 }
@@ -90,6 +125,8 @@ function ensureCodeReview(
     runId: string;
     callId: string;
     continueAfterReview?: boolean;
+    /** "full" always runs every reviewer; "auto" lets history decide. */
+    depth?: "auto" | "full";
   },
 ) {
   const d = ReviewInput.parse(value);
@@ -145,6 +182,29 @@ function ensureCodeReview(
       409,
       "Files changed during capture. Retry to review one consistent snapshot.",
     );
+  const requesterConversation =
+    requester && ownedRun(requester.runId, owner).conversation_id;
+  let previousReview: string | undefined;
+  try {
+    previousReview =
+      requesterConversation && requester.depth !== "full"
+        ? followUpOf(
+            owner,
+            {
+              conversation: requesterConversation,
+              team: teamId,
+              folder: d.folderId,
+              path: realpathSync(path),
+            },
+            snapshot,
+          )
+        : undefined;
+  } catch {
+    // An earlier snapshot that can no longer be read is no basis for a
+    // follow-up; review in full.
+    previousReview = undefined;
+  }
+  const followUp = previousReview !== undefined;
   return db
     .transaction(() => {
       const previous = receipt();
@@ -168,12 +228,16 @@ function ensureCodeReview(
         teamId,
         folderId: d.folderId,
         reviewId,
-        input: `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
+        input: followUp
+          ? `Another agent requested this follow-up review before opening a pull request. Review ${previousReview} covered an earlier snapshot of the same ${d.scope} changes. Review snapshot ${reviewId} yourself: check whether each earlier finding is fixed and review the hunks changed since. No independent reviewers run this time.`
+          : `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
         idempotencyKey: `review:${reviewId}:lead`,
         personal: !requester,
       });
       if (requester) inheritEffect(owner, "run", requester.runId, manager.id);
       codeReviewsQueries.setRun(db, manager.id, reviewId);
+      if (previousReview)
+        followUpQueries.insert(db, reviewId, owner, previousReview);
       // Persist asynchronous review dependencies as background before returning.
       // Blocking requests retain a foreground dependency; both retain cancellation.
       if (requester)
@@ -185,7 +249,7 @@ function ensureCodeReview(
           "{}",
           requester.continueAfterReview ? 1 : 0,
         );
-      for (const a of assignments.slice(1)) {
+      for (const a of followUp ? [] : assignments.slice(1)) {
         const child = submit(owner, {
           agentId: a.agentId,
           teamId,
@@ -278,10 +342,14 @@ export function reviewStatus(
       freshnessError = (error as Error).message;
     }
   }
+  const previousReviewId =
+    followUpQueries.byReview(db, owner, r.id)?.previous_review_id ?? null;
   return {
     id: r.id,
     conversationId: run.conversation_id!,
     state: run.state,
+    depth: previousReviewId ? ("follow_up" as const) : ("full" as const),
+    previousReviewId,
     scope: s.scope,
     fingerprint: r.fingerprint,
     createdAt: r.created_at,
@@ -335,6 +403,7 @@ export function requestReview(
       runId: run.id,
       callId,
       continueAfterReview: !args.wait,
+      depth: args.depth,
     },
   );
   // Async reviews preserve cancellation/provenance without blocking ordinary
@@ -376,10 +445,16 @@ function agentReviewReport(
       fingerprint: status.fingerprint,
       changed: status.changed,
       omitted: status.omitted,
+      depth: status.depth,
+      previousReviewId: status.previousReviewId,
       reviewers: status.reviewers,
       report: (lead.result || "").slice(0, 16000),
       error: lead.error,
-      note: "The review covers only the captured snapshot; edits made after capture are not reviewed and no tests were run. Fix confirmed findings and request another review before opening the pull request.",
+      note:
+        (status.depth === "follow_up"
+          ? `This was a follow-up by the review lead alone: it checked the findings of review ${status.previousReviewId} and the hunks changed since, and no independent reviewers ran. Pass depth "full" to loop_request_review for independent reviewers. `
+          : "") +
+        "The review covers only the captured snapshot; edits made after capture are not reviewed and no tests were run. Fix confirmed findings and request another review before opening the pull request.",
     },
   };
 }

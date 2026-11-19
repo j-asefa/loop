@@ -586,6 +586,212 @@ it("lets a working agent request a review of its own worktree, waits for the lea
       .get(cancelled.id),
   ).toEqual({ state: "cancelled" });
 }, 30000);
+it("reviews a repeat request as a lead-only follow-up only while a completed full review covers most of the change", async () => {
+  const { reviewContext } = await import("../src/server/review-access");
+  const { ownedRun } = await import("../src/server/domain");
+  const builder = id();
+  seedAgent(db, {
+    id: builder,
+    owner_id: "alice",
+    name: "Follow-up builder",
+    normalized_name: "follow-up-builder",
+    provider: "openai",
+    connection_id: c,
+    model: "fixture-model",
+    created_at: now(),
+  });
+  const worktree = join(dir, "follow-up-worktree");
+  git("worktree", "add", "-b", "follow-up-feature", worktree, "HEAD");
+  const commit = (file: string, lines: string[]) => {
+    writeFileSync(join(worktree, file), lines.join("\n") + "\n");
+    execFileSync("git", ["add", file], { cwd: worktree });
+    execFileSync("git", ["commit", "-m", file], { cwd: worktree });
+  };
+  const body = Array.from(
+    { length: 30 },
+    (_, i) => `export const v${i} = ${i};`,
+  );
+  commit("follow.ts", body);
+  const turn = (conversationId?: string) => {
+    const run = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      conversationId,
+      input: "Get a review",
+      idempotencyKey: id(),
+    });
+    if (!conversationId)
+      db.prepare(
+        "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES(?,?,'claude',?,?)",
+      ).run(id(), run.conversation_id, worktree, now());
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+    ).run(run.id);
+    return { ...run, state: "running" } as any;
+  };
+  const request = async (run: any, extra: object = {}) => {
+    const binding = nativeBindings(run).find(
+      (b) => b.tool === "loop_request_review",
+    )!;
+    const accepted = (await invokeNative(run, binding, id(), {
+      teamId: team.id,
+      scope: "branch",
+      base: "main",
+      ...extra,
+    })) as any;
+    const reviewId = JSON.parse(accepted.result.content[0].text).reviewId;
+    const review = db
+      .prepare("SELECT id,run_id FROM code_reviews WHERE id=?")
+      .get(reviewId) as { id: string; run_id: string };
+    const followUp = db
+      .prepare("SELECT * FROM review_follow_ups WHERE review_id=?")
+      .get(reviewId) as { previous_review_id: string; owner_id: string };
+    const reviewers = (
+      db
+        .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
+        .get(review.run_id) as { n: number }
+    ).n;
+    return { ...review, followUp, reviewers };
+  };
+  // Finishing the requester's turn lets the next turn of the thread ask again.
+  const finish = (
+    run: any,
+    review: { run_id: string },
+    result = "Finding: v3 is misnamed",
+    reviewerState = "completed",
+  ) => {
+    db.prepare(
+      "UPDATE runs SET state=? WHERE id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+    ).run(reviewerState, review.run_id);
+    db.prepare("UPDATE runs SET state='completed',result=? WHERE id=?").run(
+      result,
+      review.run_id,
+    );
+    db.prepare(
+      "UPDATE runs SET state='completed',worker_id=NULL WHERE conversation_id=? AND state IN ('running','queued')",
+    ).run(run.conversation_id);
+  };
+  const first = turn();
+  const full = await request(first);
+  expect(full.followUp).toBeUndefined();
+  expect(full.reviewers).toBe(3);
+  // Reviewers finish before a full review's lead may start.
+  expect(claim("lead-waits", (run) => run.id === full.run_id)).toBeUndefined();
+  // An unfinished earlier review is no basis for a follow-up.
+  const racing = await request(first);
+  expect(racing.followUp).toBeUndefined();
+  finish(first, racing);
+  finish(first, full);
+
+  // A small fix on top of the reviewed change goes to the lead alone.
+  commit("follow.ts", body.with(3, "export const third = 3;"));
+  const second = turn(first.conversation_id);
+  const followUp = await request(second);
+  expect(followUp.followUp).toMatchObject({
+    previous_review_id: racing.id,
+    owner_id: "alice",
+  });
+  expect(followUp.reviewers).toBe(0);
+  // With no reviewers to wait for, the production claim takes the lead.
+  expect(claim("lead-starts", (run) => run.id === followUp.run_id)?.id).toBe(
+    followUp.run_id,
+  );
+  const lead = ownedRun(followUp.run_id, "alice");
+  expect(lead.input).toContain(
+    `Review ${racing.id} covered an earlier snapshot`,
+  );
+  const context = reviewContext(lead);
+  expect(context).toContain("Finding: v3 is misnamed");
+  expect(context).toContain("Hunks changed since that snapshot");
+  const delta = context.slice(context.indexOf("Hunks changed since"));
+  expect(delta).toContain("+export const third = 3;");
+  expect(delta).not.toContain("+export const v20 = 20;");
+  expect(context).not.toContain("Independent reviewer reports");
+  finish(second, followUp, "v3 is fixed");
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(second.id);
+  const status = nativeBindings(second).find(
+    (b) => b.tool === "loop_review_status",
+  )!;
+  const report = JSON.parse(
+    (
+      (await invokeNative({ ...second, state: "running" }, status, id(), {
+        reviewId: followUp.id,
+      })) as any
+    ).result.content[0].text,
+  );
+  expect(report).toMatchObject({
+    depth: "follow_up",
+    previousReviewId: racing.id,
+    reviewers: [],
+    report: "v3 is fixed",
+  });
+  expect(report.note).toContain("follow-up by the review lead alone");
+  const http = await fetch(
+    `${url}/reviews/conversation/${lead.conversation_id}`,
+    {
+      headers: { "x-owner": "alice" },
+    },
+  );
+  expect(await http.json()).toMatchObject({
+    depth: "follow_up",
+    previousReviewId: racing.id,
+  });
+  expect(
+    (
+      await fetch(`${url}/reviews/conversation/${lead.conversation_id}`, {
+        headers: { "x-owner": "bob" },
+      })
+    ).status,
+  ).toBe(404);
+
+  db.prepare("UPDATE runs SET state='completed',worker_id=NULL WHERE id=?").run(
+    second.id,
+  );
+
+  // Another small step still measures against the last full review.
+  commit(
+    "follow.ts",
+    body.with(3, "export const third = 3;").with(4, "export const fourth = 4;"),
+  );
+  const third = turn(first.conversation_id);
+  const chained = await request(third);
+  expect(chained.followUp?.previous_review_id).toBe(followUp.id);
+  expect(reviewContext(ownedRun(chained.run_id, "alice"))).toContain(
+    "v3 is fixed",
+  );
+  finish(third, chained);
+
+  // The same snapshot reviewed in full on request.
+  const fourth = turn(first.conversation_id);
+  const forced = await request(fourth, { depth: "full" });
+  expect(forced.followUp).toBeUndefined();
+  expect(forced.reviewers).toBe(3);
+  // A reviewer that failed leaves that full review without coverage.
+  finish(fourth, forced, "Partial report", "failed");
+  const fifth = turn(first.conversation_id);
+  const uncovered = await request(fifth);
+  expect(uncovered.followUp).toBeUndefined();
+  expect(uncovered.reviewers).toBe(3);
+  finish(fifth, uncovered);
+
+  // Mostly new work is a new change: every reviewer runs again.
+  commit(
+    "more.ts",
+    Array.from({ length: 80 }, (_, i) => `export const more${i} = ${i};`),
+  );
+  const sixth = turn(first.conversation_id);
+  const grown = await request(sixth);
+  expect(grown.followUp).toBeUndefined();
+  expect(grown.reviewers).toBe(3);
+  finish(sixth, grown);
+
+  // Another conversation asking about the same checkout has no history here.
+  const elsewhere = await request(turn());
+  expect(elsewhere.followUp).toBeUndefined();
+  expect(elsewhere.reviewers).toBe(3);
+});
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();
   seedConnection(db, {
