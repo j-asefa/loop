@@ -16,10 +16,11 @@ import {
   type FeedCategory,
 } from "../src/shared/feed-categories";
 
-vi.mock("../src/server/local-embeddings.js", () => ({
-  localModel: "fixture-search",
-  localEmbeddings: async (texts: string[]) => texts.map(() => [1, 0]),
-}));
+vi.mock("../src/server/local-embeddings.js", async () =>
+  (await import("./helpers/worker-mocks.js")).fixedLocalEmbeddings(
+    "fixture-search",
+  ),
+);
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db");

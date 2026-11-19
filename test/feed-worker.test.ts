@@ -8,11 +8,12 @@ import { randomBytes } from "node:crypto";
 // than by calling the jobs directly: refreshing feeds, then looking for watch
 // matches in what those reads brought in.
 
-vi.mock("../src/server/search", () => ({ indexPending: async () => {} }));
-vi.mock("../src/server/memory", async (original) => ({
-  ...(await original<any>()),
-  captureMemory: () => {},
-}));
+vi.mock("../src/server/search", async () =>
+  (await import("./helpers/worker-mocks.js")).noSearchIndexing(),
+);
+vi.mock("../src/server/memory", async (original) =>
+  (await import("./helpers/worker-mocks.js")).noMemoryCapture(original),
+);
 
 const dirs: string[] = [];
 afterEach(() => {

@@ -12,10 +12,11 @@ import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { PublicRun } from "../src/shared/workspace-contract-schemas.js";
 import { callRoute, fetchStream, readRoute } from "../src/client/api";
 
-vi.mock("../src/server/local-embeddings.js", () => ({
-  localModel: "fixture-local",
-  localEmbeddings: async (texts: string[]) => texts.map(() => [1, 0]),
-}));
+vi.mock("../src/server/local-embeddings.js", async () =>
+  (await import("./helpers/worker-mocks.js")).fixedLocalEmbeddings(
+    "fixture-local",
+  ),
+);
 const directory = testDirectory();
 
 const { page: eventPage } = await import("../src/server/sql/events");
