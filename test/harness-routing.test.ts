@@ -21,8 +21,8 @@ import {
 import { delimiter, join } from "node:path";
 
 import { Router } from "express";
-import { until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 import { harnessFixture } from "./helpers/harness-fixture.js";
 
 const dir = realpathSync(testDirectory());

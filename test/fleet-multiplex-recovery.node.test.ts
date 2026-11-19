@@ -11,7 +11,7 @@ import {
 } from "../src/shared/fleet-workspace-events.js";
 import { COMPLETE_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events.js";
 import { WorkspaceMuxResponse } from "../src/shared/workspace-multiplex.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 // Loopback transport and controlled source frames exercise the production mux.
 // Paired Host authentication has separate mounted-route coverage.

@@ -28,8 +28,8 @@ import { terminateWorkspace, alive, identity } from "../src/process-records.js";
 
 import { forceStop } from "../src/cli.js";
 
-import { killFixtureProcess, until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { killFixtureProcess, until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 
 const exec = promisify(execFile);
 const PAIR_URL = /http:\/\/127\.0\.0\.1:\d+\/#pair=[\w-]+/;

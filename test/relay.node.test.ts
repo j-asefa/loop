@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { Relay } from "../src/relay.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 /** A POST through the relay, with its outcome header. */
 function post(port: number, path = "/api/send") {

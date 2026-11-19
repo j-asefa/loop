@@ -1,7 +1,7 @@
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { until } from "./helpers";
+import { until } from "./helpers/wait.js";
 import { afterAll, expect, it, vi } from "vitest";
 
 import type { ChatMessage } from "../src/server/providers";

@@ -1,6 +1,6 @@
 import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { Native, NativeRpcError, NativeTransportError } from "../src/native";
 import { NativeMemoryError } from "../src/native-memory";

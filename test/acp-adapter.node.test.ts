@@ -1,4 +1,4 @@
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";

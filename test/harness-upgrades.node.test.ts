@@ -19,7 +19,7 @@ import {
   upgradePlan,
   type UpgradeRunner,
 } from "../src/harness-upgrades.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 function fixture(t: any) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "harness-upgrades-")));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

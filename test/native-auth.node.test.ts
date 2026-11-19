@@ -5,7 +5,7 @@ import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import type { AuthDriver } from "../src/native-auth/types.js";
 const workspace = createTestWorkspace("native-auth-test-");
 const dir = workspace.directory;

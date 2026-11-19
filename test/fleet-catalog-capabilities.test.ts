@@ -20,7 +20,7 @@ import { FleetWorkspaceEventHttpTransport } from "../src/server/fleet-workspace-
 import { FleetEventSubscription } from "../src/shared/fleet-workspace-events.js";
 import type { FleetEnrollmentProbe } from "../src/shared/fleet-enrollment.js";
 import { COMPLETE_WORKSPACE_CAPABILITIES } from "../src/shared/workspace-events.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import type { FleetOperation } from "../src/shared/fleet.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-catalog-"));

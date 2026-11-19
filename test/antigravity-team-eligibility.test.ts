@@ -4,7 +4,7 @@ import { productionApp } from "./helpers/app.js";
 import { expect, it, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { gitProject } from "./git-project";
+import { gitProject } from "./helpers/git-project.js";
 
 it("rejects unsupported team connection edits, submissions and persisted dispatches", async () => {
   vi.resetModules();

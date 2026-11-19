@@ -1,7 +1,7 @@
 import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import type { RunPayload } from "../src/shared/run-payload";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { chmodSync, realpathSync } from "node:fs";
 

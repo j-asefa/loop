@@ -4,8 +4,8 @@ import { afterAll, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { join, resolve } from "node:path";
-import { gitProject } from "./git-project";
-import { until } from "./helpers";
+import { gitProject } from "./helpers/git-project.js";
+import { until } from "./helpers/wait.js";
 import {
   seedConnection,
   seedConversation,

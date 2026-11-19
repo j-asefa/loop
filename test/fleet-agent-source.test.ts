@@ -46,7 +46,7 @@ import {
 } from "../src/shared/fleet-workspace-action-api.js";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import { fleetDeviceFromLink } from "../src/shared/fleet-pairing.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import { DoneCardsReader } from "../src/client/feed-cards.js";
 import { contractCardReader } from "../src/shared/card-client.js";
 import { routePath } from "../src/shared/route-path.js";

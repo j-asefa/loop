@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
-import { gitProject } from "./git-project";
-import { until } from "./helpers";
+import { gitProject } from "./helpers/git-project.js";
+import { until } from "./helpers/wait.js";
 import { seedRun } from "./helpers/seed.js";
 
 // Enrich an actual execution result to exercise the public HTTP projection,

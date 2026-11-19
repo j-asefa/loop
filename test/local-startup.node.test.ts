@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnReady } from "../src/local-startup.js";
-import { until, killFixtureProcess } from "./helpers.js";
+import { until, killFixtureProcess } from "./helpers/wait.js";
 import { exited, processState, type Recorded } from "../src/process-records.js";
 
 const startup = new URL("../src/local-startup.ts", import.meta.url).href;

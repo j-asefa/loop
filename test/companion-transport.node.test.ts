@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { callRoute, readRoute, clearAuthorization } from "../src/client/api.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 test("typed companion auth uses compiled sockets without leaking credentials or replaying starts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-companion-transport-"));

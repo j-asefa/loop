@@ -1,4 +1,4 @@
-import { until as waitUntil } from "./helpers.js";
+import { until as waitUntil } from "./helpers/wait.js";
 import { createHost } from "./helpers/gateway.js";
 import test from "node:test";
 import assert from "node:assert/strict";

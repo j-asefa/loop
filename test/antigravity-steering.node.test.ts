@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { Antigravity } from "../src/adapters/antigravity.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import { NotDelivered, type Options } from "../src/adapters/types.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const options: Options = {
   harness: "antigravity",

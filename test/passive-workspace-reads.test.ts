@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { join, resolve } from "node:path";
 import { withPassiveWorkspaceRead } from "../src/server/workspace-read-context.js";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { Codex } from "../src/adapters/codex.js";
 import { Pi } from "../src/adapters/pi.js";
 import { OpenCode } from "../src/adapters/opencode.js";

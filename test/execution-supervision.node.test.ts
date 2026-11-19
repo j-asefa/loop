@@ -14,8 +14,8 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
-import { until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 import { terminateWorkspace } from "../src/process-records.js";
 
 async function fixture(t: TestContext) {

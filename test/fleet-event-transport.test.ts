@@ -9,7 +9,7 @@ import { FleetWorkspaceHttpTransport } from "../src/server/fleet-workspace-http.
 import { FleetWorkspaceEventHttpTransport } from "../src/server/fleet-workspace-event-http.js";
 import { publicNetworkLookup } from "../src/server/mcp/network.js";
 import { FLEET_EVENTS_PATH } from "../src/shared/fleet-workspace-events.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 it("reserves outbound HTTP capacity while sharing bounded event sockets", async () => {
   const capacity = new FleetCapacity(() => true);

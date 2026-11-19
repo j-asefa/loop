@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpenCode } from "../src/adapters/opencode.js";
 import { recordOwnedProcesses, identity } from "../src/process-records.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import {
   opencodeFixture,
   nativeMessage as message,
