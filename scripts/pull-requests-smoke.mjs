@@ -14,9 +14,9 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 // The Pull requests tab against a scripted GitHub: connect, list, open,
 // read files and threads, review, a merge refused after new commits, the
 // merge after refreshing, and handing a pull request to an agent.
+const evidence = smokeScreenshotDirectory("LOOP_PULLS_SCREENSHOT_DIR");
 const github = await fakeGithub();
 const fixture = await designFixture({ githubApi: github.base });
-const evidence = smokeScreenshotDirectory("LOOP_PULLS_SCREENSHOT_DIR");
 const MOVED = "1".repeat(40);
 try {
   for (const engine of selectedEngines()) {

@@ -6,8 +6,8 @@ import { designFixture } from "./helpers/design-fixture.mjs";
 import { htmlPreviewSmoke } from "./helpers/html-preview-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
-const fixture = await designFixture();
 const evidence = smokeScreenshotDirectory("LOOP_HTML_SCREENSHOT_DIR");
+const fixture = await designFixture();
 try {
   for (const engine of selectedEngines()) {
     const browser = await engine.launch({

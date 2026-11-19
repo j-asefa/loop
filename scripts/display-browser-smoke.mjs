@@ -282,7 +282,7 @@ for (const engine of selectedEngines()) {
         assert(await table.evaluate((el) => el.scrollLeft > 0));
       }
       await page.screenshot({
-        path: join(tmpdir(), `loop-display-${engine.name()}.png`),
+        path: join(shots ?? tmpdir(), `loop-display-${engine.name()}.png`),
       });
 
       // Conversation: the same display beside the original answer text.
