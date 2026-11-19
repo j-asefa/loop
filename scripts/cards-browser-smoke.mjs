@@ -1,3 +1,4 @@
+import { chromiumExecutable } from "./helpers/engines.mjs";
 import assert from "node:assert/strict";
 import { chromium, expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
@@ -6,9 +7,7 @@ import { webhookSettingsReceiver } from "./helpers/webhook-settings-smoke.mjs";
 const browser = await chromium.launch({
   headless: true,
   args: ["--no-sandbox"],
-  ...(process.env.CHROMIUM_PATH
-    ? { executablePath: process.env.CHROMIUM_PATH }
-    : {}),
+  executablePath: chromiumExecutable(chromium),
 });
 try {
   {

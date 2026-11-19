@@ -9,10 +9,10 @@ import {
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { publicBuild, runningBuild } from "../dist/shared/build.js";
-import { chromium, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { seedCheckout } from "./helpers/checkout-fixture.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import {
   isWebKitNavigationFetchError,
   collectionReadRecovery,
@@ -145,10 +145,7 @@ for (const engine of selectedEngines()) {
     })();
     browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
@@ -1158,10 +1155,7 @@ async function anchoredLiveTail(engine) {
     await fixture.api(`/messages/${saved}/saved`, {});
     browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
@@ -1532,10 +1526,7 @@ async function localRequestRefusal(engine) {
     );
     browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const page = await browser.newPage({ serviceWorkers: "block" });
     await fixture.pair(page.context());
@@ -1610,10 +1601,7 @@ async function snapshotRecovery(engine) {
       .get(conversation.id);
     browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const page = await browser.newPage({ serviceWorkers: "block" });
     await fixture.pair(page.context());
@@ -1846,10 +1834,7 @@ async function httpEpochRecovery(engine) {
       .get(conversation.id);
     browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const context = await browser.newContext({ serviceWorkers: "block" });
     await fixture.pair(context);

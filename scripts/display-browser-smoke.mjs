@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { expect } from "@playwright/test";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -163,8 +163,7 @@ for (const engine of selectedEngines()) {
   try {
     const browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium ? process.env.CHROMIUM_PATH : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const closeBrowser = trackSmokeCleanup(() => browser.close());
     try {

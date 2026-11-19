@@ -5,9 +5,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
+import { browserType, engineForRun } from "./helpers/engines.mjs";
+
+const engine = browserType(await engineForRun(import.meta.url));
 
 const dir = await mkdtemp(join(tmpdir(), "loop-effect-commands-"));
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 let browser;
 let server;
 const requests = [];

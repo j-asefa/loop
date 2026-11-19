@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { temporaryPageRoute } from "./temporary-page-route.mjs";
 
 // Social, driven against stories already in the store: Loop reads a feed from
 // feed_stories, so this needs no network and no feed fixture server. It checks
@@ -113,11 +114,15 @@ export async function socialSmoke(page, fixture, shot) {
   const snapshotGate = new Promise((resolve) => {
     releaseSnapshot = resolve;
   });
-  await page.route(/\/api\/social\?/, async (route) => {
-    snapshotReads++;
-    if (snapshotReads === 1) await snapshotGate;
-    await route.continue();
-  });
+  const stopSnapshotCoalescing = await temporaryPageRoute(
+    page,
+    /\/api\/social\?/,
+    async (route) => {
+      snapshotReads++;
+      if (snapshotReads === 1) await snapshotGate;
+      await route.continue();
+    },
+  );
   await page.evaluate(() =>
     window.dispatchEvent(new CustomEvent("loop-workspace-change")),
   );
@@ -137,16 +142,20 @@ export async function socialSmoke(page, fixture, shot) {
     releaseSnapshot();
   }
   await expect.poll(() => snapshotReads).toBe(2);
-  await page.unroute(/\/api\/social\?/);
-  await page.route(/\/api\/social\?/, async (route) => {
-    if (!(await faultReleased("snapshot")))
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Snapshot unavailable" }),
-      });
-    else await route.continue();
-  });
+  await stopSnapshotCoalescing();
+  const stopSnapshotFault = await temporaryPageRoute(
+    page,
+    /\/api\/social\?/,
+    async (route) => {
+      if (!(await faultReleased("snapshot")))
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Snapshot unavailable" }),
+        });
+      else await route.continue();
+    },
+  );
   await page.evaluate(() =>
     window.dispatchEvent(new CustomEvent("loop-workspace-change")),
   );
@@ -157,7 +166,7 @@ export async function socialSmoke(page, fixture, shot) {
     "snapshot",
   );
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.unroute(/\/api\/social\?/);
+  await stopSnapshotFault();
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
   // Feed options start closed: Social is the stories alone, without the page
   // heading and agents above them.
@@ -237,23 +246,30 @@ export async function socialSmoke(page, fixture, shot) {
   const actionSnapshotGate = new Promise((resolve) => {
     releaseActionSnapshot = resolve;
   });
-  await page.route(/\/api\/social\?/, async (route) => {
-    await actionSnapshotGate;
-    await route.continue();
-  });
-  await page.route("**/api/social/read", (route) =>
-    route.fulfill({
-      status: 400,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "Mark read refused" }),
-    }),
+  const stopActionSnapshot = await temporaryPageRoute(
+    page,
+    /\/api\/social\?/,
+    async (route) => {
+      await actionSnapshotGate;
+      await route.continue();
+    },
+  );
+  const stopMarkReadFault = await temporaryPageRoute(
+    page,
+    "**/api/social/read",
+    (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Mark read refused" }),
+      }),
   );
   await cards
     .first()
     .getByRole("button", { name: /^Mark .* read$/ })
     .click();
   await expect(page.getByRole("alert")).toContainText("Mark read refused");
-  await page.unroute("**/api/social/read");
+  await stopMarkReadFault();
   try {
     await page.getByRole("button", { name: "Try again", exact: true }).click();
   } finally {
@@ -262,7 +278,7 @@ export async function socialSmoke(page, fixture, shot) {
 
   await expect(page.getByRole("alert")).toHaveCount(0);
 
-  await page.unroute(/\/api\/social\?/);
+  await stopActionSnapshot();
 
   // Marking one read drops the count and the accent.
   await cards
@@ -296,15 +312,19 @@ export async function socialSmoke(page, fixture, shot) {
 
   // Searching reaches the store, not just the page.
   const search = page.getByRole("searchbox", { name: /Search your feeds/i });
-  await page.route("**/api/social/search?**", async (route) => {
-    if (new URL(route.request().url()).searchParams.get("q") === "blocked")
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Search unavailable" }),
-      });
-    else await route.continue();
-  });
+  const stopSearchFault = await temporaryPageRoute(
+    page,
+    "**/api/social/search?**",
+    async (route) => {
+      if (new URL(route.request().url()).searchParams.get("q") === "blocked")
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Search unavailable" }),
+        });
+      else await route.continue();
+    },
+  );
   await search.fill("blocked");
   await expect(page.getByRole("alert")).toContainText("Search unavailable");
   const healthySnapshot = page.waitForResponse(
@@ -317,7 +337,7 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(page.getByRole("alert")).toContainText("Search unavailable");
   await search.fill("postgres");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/search?**");
+  await stopSearchFault();
   await page.waitForFunction(
     () => document.querySelectorAll(".news-card").length === 1,
   );
@@ -515,21 +535,25 @@ export async function socialSmoke(page, fixture, shot) {
   const oldSnapshotGate = new Promise((resolve) => {
     releaseOldSnapshot = resolve;
   });
-  await page.route(/\/api\/social\?/, async (route) => {
-    if (oldSnapshotFirst) {
-      oldSnapshotFirst = false;
-      const response = await route.fetch();
-      oldSnapshotHeld = true;
-      await oldSnapshotGate;
-      await route.fulfill({ response });
-    } else if (await faultReleased("post-change")) await route.continue();
-    else
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Post-change snapshot unavailable" }),
-      });
-  });
+  const stopOldSnapshot = await temporaryPageRoute(
+    page,
+    /\/api\/social\?/,
+    async (route) => {
+      if (oldSnapshotFirst) {
+        oldSnapshotFirst = false;
+        const response = await route.fetch();
+        oldSnapshotHeld = true;
+        await oldSnapshotGate;
+        await route.fulfill({ response });
+      } else if (await faultReleased("post-change")) await route.continue();
+      else
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Post-change snapshot unavailable" }),
+        });
+    },
+  );
   const oldFeeds = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/social/feeds",
   );
@@ -569,7 +593,7 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     catalog.getByRole("button", { name: "Remove Lobsters", exact: true }),
   ).toBeVisible();
-  await page.unroute(/\/api\/social\?/);
+  await stopOldSnapshot();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await shot("social-catalog");
   // OPML keeps its original XML in the existing JSON envelope. An empty
@@ -616,16 +640,23 @@ export async function socialSmoke(page, fixture, shot) {
 
   // Following a word previews against what is stored before creating a watch.
   let watchReadFailures = 0;
-  await page.route("**/api/social/watches", async (route) => {
-    if (route.request().method() === "GET" && !(await faultReleased("watch"))) {
-      watchReadFailures++;
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Watch read unavailable" }),
-      });
-    } else await route.continue();
-  });
+  const stopWatchFault = await temporaryPageRoute(
+    page,
+    "**/api/social/watches",
+    async (route) => {
+      if (
+        route.request().method() === "GET" &&
+        !(await faultReleased("watch"))
+      ) {
+        watchReadFailures++;
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Watch read unavailable" }),
+        });
+      } else await route.continue();
+    },
+  );
   await page.getByRole("button", { name: "Follow a word" }).click();
   const watches = page.getByRole("dialog");
   await watches.waitFor();
@@ -638,7 +669,7 @@ export async function socialSmoke(page, fixture, shot) {
     "watch",
   );
   await expect(watches.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/watches");
+  await stopWatchFault();
   await watches.getByRole("searchbox").fill("rust");
   await watches.getByRole("button", { name: "Preview" }).click();
   await watches.locator(".watch-preview li").first().waitFor();
@@ -666,15 +697,22 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(watches.locator(".digest-row")).toHaveCount(0);
   await page.getByRole("button", { name: "Close", exact: true }).click();
 
-  await page.route("**/api/social/digests", async (route) => {
-    if (route.request().method() === "GET" && !(await faultReleased("digest")))
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Digest read unavailable" }),
-      });
-    else await route.continue();
-  });
+  const stopDigestFault = await temporaryPageRoute(
+    page,
+    "**/api/social/digests",
+    async (route) => {
+      if (
+        route.request().method() === "GET" &&
+        !(await faultReleased("digest"))
+      )
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Digest read unavailable" }),
+        });
+      else await route.continue();
+    },
+  );
   await page.getByRole("button", { name: "Digest", exact: true }).click();
   const digests = page.getByRole("dialog", { name: "Digest", exact: true });
   const access = digests.getByRole("checkbox", {
@@ -689,7 +727,7 @@ export async function socialSmoke(page, fixture, shot) {
     "digest",
   );
   await expect(digests.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/digests");
+  await stopDigestFault();
   await digests
     .getByRole("combobox", { name: "Agent", exact: true })
     .selectOption({ index: 1 });
@@ -712,15 +750,22 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     digests.getByRole("button", { name: "Pause", exact: true }),
   ).toBeVisible();
-  await page.route("**/api/social/preferences", async (route) => {
-    if (route.request().method() === "GET" && !(await faultReleased("access")))
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "Access read unavailable" }),
-      });
-    else await route.continue();
-  });
+  const stopAccessFault = await temporaryPageRoute(
+    page,
+    "**/api/social/preferences",
+    async (route) => {
+      if (
+        route.request().method() === "GET" &&
+        !(await faultReleased("access"))
+      )
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Access read unavailable" }),
+        });
+      else await route.continue();
+    },
+  );
   await page.evaluate(() =>
     window.dispatchEvent(new CustomEvent("loop-workspace-change")),
   );
@@ -733,7 +778,7 @@ export async function socialSmoke(page, fixture, shot) {
     "access",
   );
   await expect(digests.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/preferences");
+  await stopAccessFault();
   await shot("social-digest");
   await digests.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(digests.locator(".digest-row")).toHaveCount(0);
@@ -779,15 +824,19 @@ export async function socialSmoke(page, fixture, shot) {
   assert.equal(await cards.first().getAttribute("data-unread"), null);
 
   let coolingReads = 0;
-  await page.route("**/api/social/watches", async (route) => {
-    coolingReads++;
-    await route.fulfill({
-      status: 429,
-      headers: { "retry-after": "2" },
-      contentType: "application/json",
-      body: JSON.stringify({ error: "Cooling" }),
-    });
-  });
+  const stopUnreadWatchFault = await temporaryPageRoute(
+    page,
+    "**/api/social/watches",
+    async (route) => {
+      coolingReads++;
+      await route.fulfill({
+        status: 429,
+        headers: { "retry-after": "2" },
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Cooling" }),
+      });
+    },
+  );
   await page
     .getByRole("button", { name: "Follow a word", exact: true })
     .click();
@@ -802,7 +851,7 @@ export async function socialSmoke(page, fixture, shot) {
     1,
     "closing watches cancels Retry-After continuation",
   );
-  await page.unroute("**/api/social/watches");
+  await stopUnreadWatchFault();
 
   // Notification links also accept catalog IDs that begin with a digit.
   fixture.db

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
-import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { expect } from "@playwright/test";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import {
   isWebKitNavigationFetchError,
@@ -18,8 +18,7 @@ if (evidence) mkdirSync(evidence, { recursive: true });
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
   const browser = await engine.launch({
-    executablePath:
-      engine === chromium ? process.env.CHROMIUM_PATH || undefined : undefined,
+    executablePath: chromiumExecutable(engine),
   });
   try {
     const context = await browser.newContext({

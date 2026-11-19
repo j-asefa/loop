@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { expect } from "@playwright/test";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { FIRST_HEAD, fakeGithub } from "./helpers/fake-github.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -30,10 +30,7 @@ try {
       .run();
     const browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     try {
       const context = await browser.newContext({
