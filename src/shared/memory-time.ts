@@ -18,9 +18,6 @@ const phrase = new RegExp(
   `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_])`,
   "giu",
 );
-const quoted =
-  /"(?:\\.|[^"\\\n])*"|(?<![\p{L}\p{N}])'(?:\\.|[^'\\\n])*'|“[^”\n]*”|‘[^’\n]*’/gu;
-
 function maskFences(query: string) {
   const markers = /^ {0,3}(`{3,}|~{3,})([^\n]*)/gm;
   const parts: string[] = [];
@@ -54,33 +51,52 @@ function maskFences(query: string) {
 }
 
 function maskInlineLiterals(query: string) {
-  const tokens = new RegExp(quoted.source + "|`+|\\u0000+", "gu");
-  const runs = [...query.matchAll(tokens)];
-  const closer = new Map<number, number>();
-  const next = new Map<number, number>();
-  for (let index = runs.length - 1; index >= 0; index--) {
-    const text = runs[index][0];
-    if (text[0] === "\u0000") {
-      next.clear();
+  const limits = new Map<number, number>();
+  const codeRuns = [...query.matchAll(/`+|\u0000+/g)];
+  const nextCode = new Map<number, number>();
+  for (const run of codeRuns.reverse()) {
+    if (run[0][0] === "\u0000") {
+      nextCode.clear();
       continue;
     }
-    if (text[0] !== "`") continue;
-    const closing = next.get(text.length);
-    if (closing !== undefined) closer.set(index, closing);
-    next.set(text.length, index);
+    const width = run[0].length;
+    const closing = nextCode.get(width);
+    if (closing !== undefined) limits.set(run.index, closing);
+    nextCode.set(width, run.index + width);
   }
+
+  const quotes = [...query.matchAll(/\\[^`\n\r\u0000]|["'“”‘’\n\r\u0000]/g)];
+  const nextQuote = new Map<string, number>();
+  for (const quote of quotes.reverse()) {
+    const [mark] = quote;
+    if (mark.length > 1) continue;
+    if (mark === "\n" || mark === "\r" || mark === "\u0000") {
+      nextQuote.clear();
+      continue;
+    }
+    const closing = nextQuote.get(
+      mark === "“" ? "”" : mark === "‘" ? "’" : mark,
+    );
+    if (
+      closing !== undefined &&
+      mark !== "”" &&
+      mark !== "’" &&
+      (mark !== "'" || !/[\p{L}\p{N}]/u.test(query[quote.index - 1] ?? ""))
+    )
+      limits.set(quote.index, closing);
+    nextQuote.set(mark, quote.index + 1);
+  }
+
+  // A protected span is owned by its first matched opener. Delimiters
+  // inside it cannot consume text beyond its closing delimiter.
   const parts: string[] = [];
   let end = 0;
-  for (let index = 0; index < runs.length; index++) {
-    const closing = closer.get(index);
-    const token = runs[index];
-    if (closing === undefined && /^[`\u0000]/.test(token[0])) continue;
-    const last = runs[closing ?? index];
-    const start = token.index;
-    const limit = last.index + last[0].length;
-    parts.push(query.slice(end, start), "\u0000".repeat(limit - start));
+  for (let index = 0; index < query.length; index++) {
+    const limit = limits.get(index);
+    if (limit === undefined) continue;
+    parts.push(query.slice(end, index), "\u0000".repeat(limit - index));
     end = limit;
-    index = closing ?? index;
+    index = limit - 1;
   }
   parts.push(query.slice(end));
   return parts.join("");

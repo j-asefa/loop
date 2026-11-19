@@ -145,3 +145,11 @@ it("keeps a backtick in a quoted label from masking a later date", () => {
     to: Date.parse("2026-11-16"),
   });
 });
+
+it("ignores quotes inside inline code when locating its closer", () => {
+  const query = 'find `today "status` and "label" from last week';
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
