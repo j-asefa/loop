@@ -298,6 +298,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     declaringScope(node.name, node)?.parameters?.has(node.name);
   const isFixture = (node: any) =>
     node?.type === "Identifier" &&
+    bindingOf(node.name, node) !== "object" &&
     (node.name === "fixture" || isParameter(node));
   const knownProperty = (source: any, key: string) => {
     const path = receiver(source);
@@ -320,6 +321,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     return "inferred";
   };
   const propertyInitializers: { scope: Scope; name: string; value: any }[] = [];
+  const typedParameters: { scope: Scope; parameter: any; annotation: any }[] =
+    [];
   const objectKey = (member: any) =>
     member.computed ? member.key.value : (member.key.name ?? member.key.value);
   const recordObject = (scope: Scope, name: string, value: any): void => {
@@ -415,7 +418,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           binding = "object";
           scope.bindings.set(`${name}.db`, "connection");
         }
-        if (key === "db") binding = destructuredDatabase(value);
+        if (key === "db") binding = "inferred";
         if (key === "" && value?.type === "ObjectExpression") {
           recordObject(scope, name, value);
           continue;
@@ -432,15 +435,20 @@ function sqlCallLines(file: string, text: string, script = false) {
       node.params ??
       (node.type === "CatchClause" && node.param ? [node.param] : []);
     for (const parameter of parameters) {
+      const pattern =
+        parameter.type === "AssignmentPattern" ? parameter.left : parameter;
+      const annotation = pattern.typeAnnotation?.typeAnnotation;
+      if (annotation) typedParameters.push({ scope, parameter, annotation });
       for (const { key, name } of bindings(parameter)) {
         const binding =
-          key === "db" && script
+          key === "db" && script && !annotation
             ? "connection"
             : key === "db" || (key === "" && name === "database")
               ? "inferred"
               : "other";
         scope.bindings.set(name, binding);
-        if (node.params) (scope.parameters ??= new Set()).add(name);
+        if (node.params && !annotation)
+          (scope.parameters ??= new Set()).add(name);
       }
     }
   }
@@ -482,9 +490,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return marked;
   };
+  const exportedReferences: any[] = [];
   if (script) {
     // Exported fixture entry points can be called from outside this file.
-    const exports = new Set<any>();
     for (const node of program.body as any[]) {
       if (
         node.type !== "ExportNamedDeclaration" &&
@@ -492,20 +500,21 @@ function sqlCallLines(file: string, text: string, script = false) {
       )
         continue;
       const declaration = node.declaration;
-      if (functionKinds.has(declaration?.type)) exports.add(declaration);
-      if (declaration?.type === "Identifier")
-        exports.add(fileScope.functions?.get(declaration.name));
+      if (
+        functionKinds.has(declaration?.type) ||
+        declaration?.type === "Identifier"
+      )
+        exportedReferences.push(declaration);
       if (declaration?.type === "VariableDeclaration") {
         for (const item of declaration.declarations) {
           const fn = unwrap(item.init);
-          if (functionKinds.has(fn?.type)) exports.add(fn);
+          if (fn) exportedReferences.push(fn);
         }
       }
       if (node.source) continue;
       for (const specifier of node.specifiers ?? [])
-        exports.add(fileScope.functions?.get(specifier.local?.name));
+        exportedReferences.push(specifier.local);
     }
-    for (const fn of exports) markExported(fn);
   }
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
@@ -600,7 +609,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (name === "db" || name.endsWith(".db")) {
       if (!script || !owner) return "connection";
       if (!binding || binding === "other")
-        return expression.object?.name === "fixture"
+        return expression.object?.name === "fixture" &&
+          isFixture(expression.object)
           ? "connection"
           : "inferred";
     }
@@ -628,18 +638,32 @@ function sqlCallLines(file: string, text: string, script = false) {
     );
   };
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
+  const isDatabaseType = (type: any, node: any) =>
+    type?.type === "TSQualifiedName"
+      ? type.right?.name === "Database" && isConstructor(type.left?.name, node)
+      : isConstructor(type?.name, node);
   for (const node of nodes) {
     const type = node.typeAnnotation?.typeAnnotation?.typeName;
-    const databaseType =
-      type?.type === "TSQualifiedName"
-        ? type.right?.name === "Database" &&
-          isConstructor(type.left?.name, node)
-        : isConstructor(type?.name, node);
-    if (node.type === "Identifier" && databaseType)
+    if (node.type === "Identifier" && isDatabaseType(type, node))
       (declarationScopes.get(node) ?? scopeOf(node)).bindings.set(
         node.name,
         "connection",
       );
+  }
+  for (const { scope, parameter, annotation } of typedParameters) {
+    if (annotation.type !== "TSTypeLiteral") continue;
+    for (const member of annotation.members) {
+      if (
+        member.type !== "TSPropertySignature" ||
+        !isDatabaseType(member.typeAnnotation?.typeAnnotation?.typeName, member)
+      )
+        continue;
+      const property = objectKey(member);
+      for (const { key, name } of bindings(parameter)) {
+        if (!key) scope.bindings.set(`${name}.${property}`, "connection");
+        else if (key === property) scope.bindings.set(name, "connection");
+      }
+    }
   }
   // Resolve aliases in their own bindings and preserve weaker inference for
   // untyped parameters as it passes through an alias.
@@ -692,6 +716,8 @@ function sqlCallLines(file: string, text: string, script = false) {
   const recordedArguments = new Set<object>();
   while (changed) {
     changed = false;
+    for (const reference of exportedReferences)
+      if (markExported(functionReference(reference))) changed = true;
     for (const { scope, name, value } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value);
     for (const node of nodes) {
@@ -1264,6 +1290,27 @@ it("covers namespace constructors, object spreads and defaulted exports", () => 
     run({ ...fixture }, query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 5, 7]);
+});
+
+it("discovers aliased exports and distinguishes fixture objects from adapters", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    function seed(db, query) { db.exec(query); }
+    const publish = seed;
+    export { publish };
+    const adapter = { exec: runCommand };
+    const fixture = { db: adapter };
+    const { db: handle } = fixture;
+    handle.exec(command);
+    fixture.db.exec(command);
+    function typedAdapter({ db }: { db: CommandAdapter }, command: string) {
+      db.exec(command);
+    }
+    function typedDatabase({ db: connection }: { db: SQLite.Database }, query: string) {
+      connection.exec(query);
+    }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([3, 15]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
