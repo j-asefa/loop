@@ -261,7 +261,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     while (
       node?.type === "AwaitExpression" ||
       node?.type === "ParenthesizedExpression" ||
-      node?.type === "ChainExpression"
+      node?.type === "ChainExpression" ||
+      node?.type === "TSAsExpression" ||
+      node?.type === "TSTypeAssertion" ||
+      node?.type === "TSNonNullExpression" ||
+      node?.type === "TSSatisfiesExpression"
     )
       node = node.type === "AwaitExpression" ? node.argument : node.expression;
     return node;
@@ -338,17 +342,6 @@ function sqlCallLines(file: string, text: string, script = false) {
     member.computed ? member.key.value : (member.key.name ?? member.key.value);
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
-  const inlineProperty = (node: any, key: string) => {
-    if (node?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(key))
-      return unwrap(node.elements[Number(key)]);
-    if (node?.type === "ObjectExpression")
-      return unwrap(
-        node.properties.find(
-          (item: any) => item.type === "Property" && objectKey(item) === key,
-        )?.value,
-      );
-    return undefined;
-  };
   const recordObject = (scope: Scope, name: string, value: any): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
@@ -453,6 +446,10 @@ function sqlCallLines(file: string, text: string, script = false) {
         ) {
           binding = "object";
           scope.bindings.set(`${name}.db`, "connection");
+        }
+        if (key === "" && importsSqlite(value)) {
+          binding = "object";
+          scope.bindings.set(`${name}.default`, "constructor");
         }
         if (key === "db") binding = "inferred";
         if (key === "" && isAggregate(value)) {
@@ -671,6 +668,30 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return binding;
   };
+  function propertySource(
+    source: any,
+    key: string,
+  ): { value?: any; binding?: Binding } {
+    const object = unwrap(source);
+    if (object?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(key)) {
+      const value = unwrap(object.elements[Number(key)]);
+      return { value, binding: connectionKind(value) };
+    }
+    if (object?.type === "ObjectExpression") {
+      for (let index = object.properties.length - 1; index >= 0; index--) {
+        const member = object.properties[index];
+        if (member.type === "Property" && objectKey(member) === key) {
+          const value = unwrap(member.value);
+          return { value, binding: connectionKind(value) };
+        }
+        if (member.type === "SpreadElement") {
+          const next = propertySource(member.argument, key);
+          if (next.value || next.binding) return next;
+        }
+      }
+    }
+    return { binding: knownProperty(object, key) };
+  }
   const methods = new Set(["prepare", "exec"]);
   if (script) methods.add("pragma");
   const sqliteMethod = (expression: any): string | undefined => {
@@ -804,15 +825,8 @@ function sqlCallLines(file: string, text: string, script = false) {
           const scope = scopeOf(fn);
           for (const { key, name } of bindings(parameter)) {
             if (key) {
-              const memberValue = inlineProperty(argument, key);
-              trackBinding(
-                scope,
-                name,
-                memberValue
-                  ? connectionKind(memberValue)
-                  : knownProperty(argument, key),
-                memberValue,
-              );
+              const member = propertySource(argument, key);
+              trackBinding(scope, name, member.binding, member.value);
               continue;
             }
             trackBinding(scope, name, connectionKind(argument), argument);
@@ -858,12 +872,10 @@ function sqlCallLines(file: string, text: string, script = false) {
       }[] = [];
       if (target?.type === "ObjectPattern" || target?.type === "ArrayPattern") {
         for (const { key, name } of bindings(target)) {
-          const inline = inlineProperty(value, key);
-          const binding = inline
-            ? connectionKind(inline)
-            : key === "db"
-              ? destructuredDatabase(value)
-              : knownProperty(value, key);
+          const { binding: property } = propertySource(value, key);
+          const binding =
+            property ??
+            (key === "db" ? destructuredDatabase(value) : undefined);
           const method =
             methods.has(key) && connectionKind(value) === "connection"
               ? key
@@ -1396,6 +1408,20 @@ it("retains SQLite handles passed to constructors or stored in arrays", () => {
     pair[1].exec(query);
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([6, 11, 13, 14]);
+});
+
+it("recognizes dynamic namespaces, assertion aliases and destructured spreads", () => {
+  const text = `
+    const SQLite = await import("better-sqlite3");
+    const handle = new SQLite.default(":memory:");
+    handle.exec(query);
+    const asserted = (handle as Database)!;
+    asserted.exec(query);
+    const fixture = { connection: asserted };
+    const { connection: unpacked } = { ...fixture };
+    unpacked.exec(query);
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 6, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
