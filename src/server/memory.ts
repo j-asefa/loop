@@ -40,14 +40,16 @@ export function enabled(
   const p = memoryPolicyQueries.enabled(db, owner, scope);
   return p ? p.enabled === 1 : fallback;
 }
-function eligible(s: any) {
+type EvidenceKind = "result" | "note" | "message";
+function eligibleKind(s: QueryRow<"memory_sources">): EvidenceKind | null {
+  let kind: EvidenceKind = s.kind === "message" ? "message" : "note";
   if (
     s.tombstone ||
     !s.eligible ||
     !enabled(s.owner_id, "workspace") ||
     (s.project_id && !enabled(s.owner_id, "project:" + s.project_id))
   )
-    return false;
+    return null;
   if (s.kind === "artifact") {
     const artifact = artifactsQueries.memoryDefault(
       db,
@@ -60,10 +62,10 @@ function eligible(s: any) {
     );
     // An edited artifact's saved copy may hold text the owner removed: leave
     // it out until the capture pass saves the new version.
-    if (!artifact || artifact.archived || !artifact.current) return false;
+    if (!artifact || artifact.archived || !artifact.current) return null;
     // A moved artifact is out of its old project at once; the capture pass
     // refreshes its saved copy for the new one.
-    if ((artifact.folder_id || null) !== (s.project_id || null)) return false;
+    if ((artifact.folder_id || null) !== (s.project_id || null)) return null;
     // An explicit include/exclude or a pin is the owner's choice for this
     // artifact. Otherwise a result is in by default, unless the owner turned
     // memory off for the conversation that produced it (results are captured
@@ -93,17 +95,18 @@ function eligible(s: any) {
                 artifact.created_at,
               ))
           ));
-    if (!included) return false;
+    if (!included) return null;
+    if (artifact.result) kind = "result";
   }
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
-      return false;
+      return null;
     if (s.message_id) {
       const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
-      if (!m || readMessageMetadata(m.metadata).superseded) return false;
+      if (!m || readMessageMetadata(m.metadata).superseded) return null;
     }
   }
-  return true;
+  return kind;
 }
 function putSource(s: any) {
   const sourceId = digest(s.owner_id + ":" + s.kind + ":" + s.source_id);
@@ -256,8 +259,9 @@ function readMemory(
   project?: string | null,
 ) {
   const s = ownedMemorySource(sourceId, owner);
+  const evidenceKind = eligibleKind(s);
   if (
-    !eligible(s) ||
+    !evidenceKind ||
     (revision !== undefined && s.revision !== revision) ||
     (project !== undefined &&
       s.project_id !== project &&
@@ -269,6 +273,7 @@ function readMemory(
     );
   return {
     ...s,
+    evidenceKind,
     content: s.content.slice(0, 12000),
     truncated: s.content.length > 12000,
     link: s.conversation_id
@@ -349,7 +354,7 @@ export async function searchMemory(
         id: s.id,
         revision: s.revision,
         role: s.role,
-        kind: sourceKind(s),
+        kind: s.evidenceKind,
         author: sourceAuthor(s),
         title: s.title,
         origin: s.origin,
@@ -365,19 +370,6 @@ export async function searchMemory(
 }
 /** Characters of one source's excerpt. */
 export const EXCERPT_CHARACTERS = 1100;
-/** What a source is, as the agent should weigh it. */
-function sourceKind(s: {
-  kind: string;
-  source_id: string;
-  owner_id: string;
-  title: string;
-  content: string;
-}): "result" | "artifact" | "note" | "message" {
-  if (s.kind === "note" || s.kind === "message") return s.kind;
-  return artifactsQueries.memoryDefault(db, s.source_id, s.owner_id, s)?.result
-    ? "result"
-    : "artifact";
-}
 /** Who wrote a source: the owner, or the agent by its current name. */
 function sourceAuthor(s: {
   kind: string;
@@ -397,69 +389,94 @@ function termPattern(term: string, flags: string) {
   );
 }
 /**
- * At most `size` characters of `content`: the window holding the most
- * distinct query terms, or the opening when it holds as many. The window
- * starts at a line or word boundary, never splits a surrogate pair, and
- * marks elided text with "…" (counted in `size`).
+ * The excerpt window holding the most distinct query terms. Keep the head
+ * when it ties and only move an edge through whole Unicode characters.
  */
 export function matchedExcerpt(content: string, terms: string[], size: number) {
   if (size <= 0) return "";
   if (content.length <= size) return content;
-  const hits: { at: number; end: number; term: number }[] = [];
-  terms.forEach((term, index) => {
-    let found = 0;
-    for (const m of content.matchAll(termPattern(term, "giu"))) {
-      hits.push({ at: m.index, end: m.index + m[0].length, term: index });
-      if (++found >= 200) break;
+  if (size <= 2) return "…";
+
+  const hits: { start: number; end: number; term: number }[] = [];
+  const words = new Map<string, number>();
+  const addHits = (
+    pattern: RegExp,
+    term: (match: string) => number | undefined,
+  ) => {
+    for (const match of content.matchAll(pattern)) {
+      const index = term(match[0]);
+      if (index !== undefined)
+        hits.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          term: index,
+        });
     }
+  };
+  terms.forEach((term, index) => {
+    if (/^[\p{L}\p{N}]+$/u.test(term)) words.set(term, index);
+    else addHits(termPattern(term, "giu"), () => index);
   });
-  hits.sort((a, b) => a.at - b.at);
-  // Leave a little lead-in before the first matched term. The window may end
-  // two characters early for the "…" marks.
-  const lead = Math.floor(size / 6);
-  const span = size - 2;
+  if (words.size) {
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${[...words.keys()].join("|")})(?![\\p{L}\\p{N}])`,
+      "giu",
+    );
+    addHits(pattern, (word) => words.get(word.toLowerCase()));
+  }
+
+  const byEnd = [...hits].sort((a, b) => a.end - b.end);
   const counts = new Map<number, number>();
-  const add = (term: number, by: number) => {
-    const next = (counts.get(term) ?? 0) + by;
+  const count = (term: number, delta: number) => {
+    const next = (counts.get(term) ?? 0) + delta;
     if (next) counts.set(term, next);
     else counts.delete(term);
   };
-  let best = 0,
-    first = 0,
-    score = new Set(hits.filter((h) => h.end <= span).map((h) => h.term)).size,
-    left = 0,
-    right = 0;
-  // Slide a window starting `lead` before each hit; both edges only advance.
-  for (const h of hits) {
-    const from = Math.max(0, h.at - lead);
-    // Hits in [left, right) are counted: they start at or after `from` and
-    // end inside the window.
-    for (; left < hits.length && hits[left].at < from; left++)
-      if (left < right) add(hits[left].term, -1);
-    right = Math.max(right, left);
-    while (right < hits.length && hits[right].end <= from + span)
-      add(hits[right++].term, 1);
-    if (counts.size > score) [best, first, score] = [from, h.at, counts.size];
+  const headEnd = excerptEnd(content, size - 1);
+  let score = new Set(
+    byEnd.filter((hit) => hit.end <= headEnd).map((hit) => hit.term),
+  ).size;
+  let bestStart = 0;
+  let bestEnd = headEnd;
+  let right = 0;
+  hits.sort((a, b) => a.start - b.start);
+  const span = size - 2;
+  for (const hit of hits) {
+    const start = hit.start;
+    while (right < byEnd.length && byEnd[right].end <= start + span) {
+      const added = byEnd[right++];
+      if (added.start >= start) count(added.term, 1);
+    }
+    if (counts.size > score) {
+      score = counts.size;
+      bestStart = start;
+      bestEnd = byEnd[right - 1].end;
+    }
+    if (hit.end <= start + span) count(hit.term, -1);
   }
-  if (best === 0) return trimEnd(content, 0, size);
-  // Start at the line holding the first matched term when it begins within
-  // the lead-in, otherwise at a word boundary.
-  let start = best;
-  const line = content.lastIndexOf("\n", first);
-  const word = content.indexOf(" ", start);
-  if (line >= start) start = line + 1;
-  else if (word >= 0 && word < first) start = word + 1;
-  if (/[\udc00-\udfff]/.test(content[start] ?? "")) start++;
-  return "…" + trimEnd(content, start, size - 1);
+
+  if (bestStart === 0) return content.slice(0, headEnd).trimEnd() + "…";
+  // Use spare space for context before the match. Prefer the current line
+  // when there is room, while keeping every matched term in the window.
+  const earliestStart = Math.max(
+    1,
+    bestStart - Math.floor(span / 6),
+    bestEnd - span,
+  );
+  const line = content.lastIndexOf("\n", bestStart);
+  const start = Math.max(earliestStart, line + 1);
+  const safeStart = /[\udc00-\udfff]/.test(content[start]) ? start + 1 : start;
+  const end = excerptEnd(content, safeStart + span);
+  return (
+    "…" +
+    content.slice(safeStart, end).trimEnd() +
+    (end < content.length ? "…" : "")
+  );
 }
-/** `content` from `start`, at most `size` characters with any "…". */
-function trimEnd(content: string, start: number, size: number) {
-  if (content.length - start <= size) return content.slice(start);
-  let end = start + size - 1;
-  const word = content.lastIndexOf(" ", end);
-  if (word > start && end - word <= 40) end = word;
-  if (/[\ud800-\udbff]/.test(content[end - 1] ?? "")) end--;
-  return content.slice(start, end).trimEnd() + "…";
+
+function excerptEnd(content: string, bound: number) {
+  const end = Math.min(content.length, bound);
+  return /[\ud800-\udbff]/.test(content[end - 1] ?? "") ? end - 1 : end;
 }
 /**
  * Whether a source contains enough distinct query terms to be worth adding:
@@ -541,7 +558,9 @@ export function evidenceBlock(sources: RecalledSource[]) {
   let body = "";
   for (const s of sources) {
     const date = new Date(s.updatedAt).toISOString().slice(0, 10);
-    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${quoted(s.author)}, ${date}, "${quoted(s.title)}", ${s.link}\n${quoted(s.excerpt)}\n`;
+    const author = quoted(s.author).replace(/[\r\n\u2028\u2029]+/g, " ");
+    const title = JSON.stringify(quoted(s.title));
+    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${author}, ${date}, ${title}, ${s.link}\n${quoted(s.excerpt)}\n`;
     if ((open + body + block + close).length > RECALL_CHARACTERS) break;
     body += block;
     included.push(s);
@@ -665,11 +684,11 @@ routes.on(workspaceApi.memorySource, (req, res) => {
       kind: s.kind,
       truncated: false,
     } as z.input<typeof workspaceApi.memorySource.response>);
-  res.json(
-    readMemory(res.locals.owner, req.params.id) as unknown as z.input<
-      typeof workspaceApi.memorySource.response
-    >,
+  const { evidenceKind: _evidenceKind, ...source } = readMemory(
+    res.locals.owner,
+    req.params.id,
   );
+  res.json(source as z.input<typeof workspaceApi.memorySource.response>);
   return undefined;
 });
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {

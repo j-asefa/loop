@@ -3,8 +3,9 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
+// Filter the indexed owner before looking up the authoritative source row.
 const searchStatement = statement(
-  "SELECT s.id,s.revision FROM memory_fts f JOIN memory_sources s ON s.id=f.id WHERE memory_fts MATCH ? AND s.owner_id=? AND (s.project_id IS ? OR (s.kind='note' AND s.project_id IS NULL)) ORDER BY rank LIMIT 100",
+  "SELECT s.id,s.revision FROM memory_fts f JOIN memory_sources s ON s.id=f.id WHERE memory_fts MATCH @match AND f.owner_id=@owner AND s.owner_id=@owner AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL)) ORDER BY rank LIMIT 100",
 );
 const searchRow = QueryRecords.memory_sources.pick({
   id: true,
@@ -17,6 +18,6 @@ export function search(
   project: string | null,
 ) {
   return searchStatement(db)
-    .all(match, owner, project)
+    .all({ owner, match, project })
     .map((row) => parseRecord(searchRow, row, "memory_fts"));
 }

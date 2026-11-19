@@ -249,6 +249,17 @@ it("appends recall to the current turn of an API-key run once", async () => {
   captureMemory();
   const later = await nativePrompt("Which runner did the comet build use?");
   expect(later.prompt).toContain("ran on the x64 runner instead of arm64");
+  expect(later.prompt).toContain(`result by ${agent.name}, `);
+  const receipt = await request(`/runs/${later.run.id}/memory`);
+  expect(JSON.parse(receipt.data.sources)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "result",
+        author: agent.name,
+        updatedAt: expect.any(Number),
+      }),
+    ]),
+  );
   const own = await searchMemory("alice", null, "comet build runner", {
     conversation: run.conversation_id,
   });
