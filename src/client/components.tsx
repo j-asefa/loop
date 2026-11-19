@@ -12,6 +12,7 @@ import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
+import { DisplaySpec } from "./DisplaySpec";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
@@ -245,6 +246,29 @@ export const RichText = memo(function RichText({
                 .trim()}
             />
           );
+        if (
+          diagrams &&
+          code?.tagName === "code" &&
+          code.properties?.className?.includes("language-spec")
+        )
+          return (
+            <DisplaySpec
+              // Markdown leaves the closing fence's newline on the code text;
+              // it is not part of the block (64 Ki limit, D6).
+              source={code.children
+                .map((c: any) => c.value || "")
+                .join("")
+                .replace(/\n$/, "")}
+              compact={compact}
+              markdown={(content) => (
+                <RichText
+                  content={content}
+                  diagrams={false}
+                  compact={compact}
+                />
+              )}
+            />
+          );
         return <pre>{children}</pre>;
       },
       a: ({ children, href }) => {
@@ -279,7 +303,14 @@ export const RichText = memo(function RichText({
         remarkPlugins={[
           remarkGfm,
           ...(math?.remark || []),
-          ...(compact ? [compactMarkdown] : []),
+          ...(compact
+            ? [
+                [compactMarkdown, { displays: diagrams }] as [
+                  typeof compactMarkdown,
+                  { displays: boolean },
+                ],
+              ]
+            : []),
         ]}
         rehypePlugins={math?.rehype}
         components={renderers}

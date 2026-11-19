@@ -124,7 +124,11 @@ export function webPreview(content: string, tool?: string) {
 }
 // Trim whole Markdown blocks after parsing. Inline links, emphasis and fences
 // retain their structure even when a preview ends before the complete answer.
-export function compactMarkdown() {
+// A `spec` fence is kept whole only where it is drawn as a display.
+export function compactMarkdown(
+  options: { displays?: boolean } | undefined = {},
+) {
+  const displays = options?.displays ?? false;
   return (tree: any) => {
     tree.children = tree.children.slice(0, 6);
     for (const node of tree.children) {
@@ -133,7 +137,8 @@ export function compactMarkdown() {
       if (
         node.type === "code" &&
         node.lang !== "mermaid" &&
-        node.lang !== "math"
+        node.lang !== "math" &&
+        !(displays && node.lang === "spec")
       )
         node.value = node.value.split("\n").slice(0, 10).join("\n");
     }

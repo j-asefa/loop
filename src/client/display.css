@@ -1,0 +1,114 @@
+.display-spec {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 12px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.display-card,
+.display-section,
+.display-actions {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.display-card .display-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.display-title {
+  margin: 0;
+  font-size: 1.05em;
+  line-height: 1.3;
+}
+.display-subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.display-text {
+  min-width: 0;
+}
+.display-text .markdown > :first-child {
+  margin-top: 0;
+}
+.display-text .markdown > :last-child {
+  margin-bottom: 0;
+}
+.display-text-bold {
+  font-weight: 600;
+}
+.display-text-muted {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.display-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.display-field {
+  min-width: 0;
+}
+.display-field dt {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.display-field dd {
+  margin: 2px 0 0;
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.display-spec .table-scroll {
+  margin: 0;
+}
+.display-spec .table-scroll caption {
+  caption-side: top;
+  padding: 0 0 8px;
+  text-align: left;
+  color: var(--muted);
+}
+.display-spec .table-scroll .align-center {
+  text-align: center;
+}
+.display-spec .table-scroll .align-right {
+  text-align: right;
+}
+.display-divider {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.display-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.display-link-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--text);
+  font-size: var(--control-size);
+  text-decoration: none;
+}
+.display-placeholder {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
