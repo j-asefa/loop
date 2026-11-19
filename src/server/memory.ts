@@ -364,8 +364,9 @@ export async function searchMemory(
   }[] = [];
   // Bound the FTS OR expansion; relevance still sees the full query.
   const searchable = withoutMemoryTime(query, window);
+  const nominationLimit = relevant ? (window ? 6 : 8) : 24;
   const match = ftsQuery(searchable, {
-    limit: relevant ? 8 : 24,
+    limit: nominationLimit,
     exclude: STOP_WORDS,
   });
   const terms = recallTerms(searchable);
