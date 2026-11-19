@@ -15,7 +15,10 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
-import { parseMemoryTime } from "../src/shared/memory-time.js";
+import {
+  hasMemoryTimeExpression,
+  parseMemoryTime,
+} from "../src/shared/memory-time.js";
 
 /** Characters of a source that the pre-passage excerpt showed. */
 export const HEAD_CHARACTERS = 1100;
@@ -153,7 +156,7 @@ export async function sampleQueries({
       const timestamp = memorySources.recallTime(db, item.id, item.owner_id);
       if (timestamp === undefined) continue;
       // Keep the supplied date phrase as the only temporal constraint.
-      if (parseMemoryTime(query, timestamp)) continue;
+      if (hasMemoryTimeExpression(query, timestamp)) continue;
       const date = new Date(timestamp);
       const day = Math.floor(timestamp / 86_400_000) * 86_400_000;
       const referenceAt = day + 7 * 86_400_000;

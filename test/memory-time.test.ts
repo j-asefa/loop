@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import {
+  hasMemoryTimeExpression,
   parseMemoryTime,
   withoutMemoryTime,
 } from "../src/shared/memory-time.js";
@@ -184,6 +185,8 @@ it.each([
   "harvest notes without yesterday",
   "harvest last month, or even on 2026-10-12",
   "harvest this week, excluding anything from today",
+  "harvest this week, excluding records from today",
+  "harvest not during October 2026",
   "harvest this week, excluding all of yesterday",
   "harvest on 2026-10-12 or (2026-10-13)",
   "compare harvest last week with last month",
@@ -191,6 +194,7 @@ it.each([
 ])("keeps unsupported date choices searchable in %s", (query) => {
   const window = parseMemoryTime(query, now);
   expect(window).toBeUndefined();
+  expect(hasMemoryTimeExpression(query, now)).toBe(true);
   expect(withoutMemoryTime(query, window)).toBe(query);
 });
 

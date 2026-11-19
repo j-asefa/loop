@@ -179,6 +179,11 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
   );
   try {
     expect(await temporal()).toEqual([]);
+    editInput.run(
+      "Why did the borealis build fail yesterday or today?",
+      answered.id,
+    );
+    expect(await temporal()).toEqual([]);
   } finally {
     editInput.run("Why did the borealis build fail?", answered.id);
   }

@@ -157,11 +157,10 @@ function relativeBoundary(text: string, today: number) {
   return { start, end: start + span };
 }
 
-/** Parse an explicit time reference from the query in UTC, with an exclusive upper bound. */
-export function parseMemoryTime(
+function classifyMemoryTime(
   query: string,
   reference = Date.now(),
-): MemoryTimeWindow | undefined {
+): MemoryTimeWindow | null | undefined {
   const today = Math.floor(reference / DAY) * DAY;
   if (!Number.isFinite(today)) return undefined;
   const searchable = maskInlineLiterals(maskFences(query));
@@ -176,9 +175,12 @@ export function parseMemoryTime(
     previousEnd = match.index + match[0].length;
     const alternative =
       matched.length > 0 && /\b(?:or|nor)(?:\s+even)?[\s([{]*$/iu.test(between);
+    const exclusionContext = /^from\s/iu.test(match[0])
+      ? between + "from"
+      : between;
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:\s+(?:all\s+of|anything|everything))?(?:\s+(?:from|for))?[\s([{]*$/iu.test(
-        between,
+      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of)|\s+(?:anything|everything))?[\s([{]*$/iu.test(
+        exclusionContext,
       );
     if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
       continue;
@@ -200,7 +202,7 @@ export function parseMemoryTime(
         continue;
     }
     // A single interval cannot express exclusions or alternative dates.
-    if (exclusion || alternative) return undefined;
+    if (exclusion || alternative) return null;
     if (modifier === "since") {
       from = Math.max(from ?? boundary.start, boundary.start);
     } else if (modifier === "before") {
@@ -210,7 +212,7 @@ export function parseMemoryTime(
         period &&
         (boundary.start < period.start || boundary.end > period.end)
       )
-        return undefined;
+        return null;
       period = boundary;
       from = Math.max(from ?? boundary.start, boundary.start);
       to = Math.min(to ?? boundary.end, boundary.end);
@@ -218,6 +220,16 @@ export function parseMemoryTime(
     matched.push({ index: match.index, text: match[0] });
   }
   return matched.length ? { from, to, matched } : undefined;
+}
+
+/** Parse a single inclusive-lower, exclusive-upper UTC window. */
+export function parseMemoryTime(query: string, reference = Date.now()) {
+  return classifyMemoryTime(query, reference) ?? undefined;
+}
+
+/** Includes date expressions that cannot be represented by a single window. */
+export function hasMemoryTimeExpression(query: string, reference: number) {
+  return classifyMemoryTime(query, reference) !== undefined;
 }
 
 export function withoutMemoryTime(query: string, window?: MemoryTimeWindow) {
