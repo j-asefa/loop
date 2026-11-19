@@ -175,12 +175,12 @@ function classifyMemoryTime(
     previousEnd = match.index + match[0].length;
     const alternative =
       matched.length > 0 &&
-      /\b(?:or|nor)(?:\s+[\p{L}]+){0,4}[\s([{]*$/iu.test(between);
+      /\b(?:or|nor)(?:[\s,([{]+[\p{L}]+){0,4}[\s,([{]*$/iu.test(between);
     const exclusionContext = /^from\s/iu.test(match[0])
       ? between + "from"
       : between;
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of)|\s+(?:anything|everything))?[\s([{]*$/iu.test(
+      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated)|\s+(?:anything|everything))?[\s([{]*$/iu.test(
         exclusionContext,
       );
     if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
