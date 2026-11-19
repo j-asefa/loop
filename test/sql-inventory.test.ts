@@ -272,15 +272,22 @@ function sqlCallLines(file: string, text: string, script = false) {
     });
   };
   const dbModule = /(?:^|\/)db(?:\.js)?$/;
-  const destructuredDatabase = (source: any): Binding =>
-    (source?.type === "ImportExpression" &&
-      dbModule.test(source.source.value)) ||
-    (script &&
-      source?.type === "Identifier" &&
-      (source.name === "fixture" ||
-        declaringScope(source.name, source)?.parameters?.has(source.name)))
-      ? "connection"
-      : "inferred";
+  const isParameter = (node: any) =>
+    node?.type === "Identifier" &&
+    declaringScope(node.name, node)?.parameters?.has(node.name);
+  const destructuredDatabase = (source: any): Binding => {
+    const path = receiver(source);
+    const owner = path && declaringScope(path.split(".")[0], source);
+    const property = owner ? owner.bindings.get(`${path}.db`) : undefined;
+    if (property === "connection" || property === "object") return property;
+    if (
+      (source?.type === "ImportExpression" &&
+        dbModule.test(source.source.value)) ||
+      (script && (source?.name === "fixture" || isParameter(source)))
+    )
+      return "connection";
+    return "inferred";
+  };
   const recordObject = (scope: Scope, name: string, value: any): void => {
     scope.bindings.set(name, "object");
     for (const member of value.properties) {
@@ -402,14 +409,11 @@ function sqlCallLines(file: string, text: string, script = false) {
       : root === "this"
         ? undefined
         : bindingOf(name, node);
-    if (
-      (name === "db" || name.endsWith(".db")) &&
-      (!script || binding !== "object")
-    )
-      return "connection";
-    return binding === "connection" || binding === "inferred"
-      ? binding
-      : undefined;
+    if (name === "db" || name.endsWith(".db")) {
+      if (!script || !owner) return "connection";
+      if (!binding || binding === "other") return "inferred";
+    }
+    return binding;
   };
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
   for (const node of nodes) {
@@ -458,15 +462,28 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (name) assigned.push({ name, binding: connectionKind(value) });
       }
       for (const { name, binding } of assigned) {
-        if (!binding) continue;
         const owner = declaration
           ? declarationScope(node)
           : name.startsWith("this.")
             ? thisScope(node)
             : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
         if (!owner) continue;
+        if (target?.type === "Identifier" && isParameter(value)) {
+          const parameters = (owner.parameters ??= new Set());
+          if (!parameters.has(name)) {
+            parameters.add(name);
+            changed = true;
+          }
+        }
+        if (!binding || binding === "other" || binding === "constructor")
+          continue;
         const previous = owner.bindings.get(name);
-        if (previous === binding || previous === "connection") continue;
+        if (
+          previous === binding ||
+          previous === "connection" ||
+          (previous === "object" && binding === "inferred")
+        )
+          continue;
         owner.bindings.set(name, binding);
         changed = true;
       }
@@ -705,6 +722,28 @@ it("follows inherited fields, field initializers and destructuring assignments",
   `;
   expect(sqlCallLines("probe.ts", text)).toEqual([12, 13, 20]);
   expect(sqlCallLines("probe.ts", text, true)).toEqual([12, 13, 20, 24]);
+});
+
+it("uses known property bindings and carries fixture and object aliases", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    function dispatch(db, command) { db.exec(command); }
+    {
+      const adapter = { exec: runCommand };
+      const db = adapter;
+      db.exec(command);
+    }
+    const holder = {};
+    holder.db = new SQLite(":memory:");
+    const { db: handle } = holder;
+    handle.exec(query);
+    function seed(context, query) {
+      const fixtureAlias = context;
+      const { db: connection } = fixtureAlias;
+      connection.exec(query);
+    }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([12, 16]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
