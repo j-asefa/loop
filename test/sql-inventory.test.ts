@@ -251,7 +251,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (node?.type === "MemberExpression") {
       const base = receiver(node.object),
         key = property(node);
-      return base && typeof key === "string" ? `${base}.${key}` : undefined;
+      return base && (typeof key === "string" || typeof key === "number")
+        ? `${base}.${key}`
+        : undefined;
     }
     return undefined;
   };
@@ -274,6 +276,15 @@ function sqlCallLines(file: string, text: string, script = false) {
   const bindings = (pattern: any): { key: string; name: string }[] => {
     if (pattern.type === "AssignmentPattern") pattern = pattern.left;
     if (pattern.type === "Identifier") return [{ name: pattern.name, key: "" }];
+    if (pattern.type === "ArrayPattern") {
+      return pattern.elements.flatMap((element: any, index: number) => {
+        const item =
+          element?.type === "AssignmentPattern" ? element.left : element;
+        return item?.type === "Identifier"
+          ? [{ name: item.name, key: String(index) }]
+          : [];
+      });
+    }
     if (pattern.type !== "ObjectPattern") return [];
     return pattern.properties.flatMap((member: any) => {
       if (member.type !== "Property") return [];
@@ -325,9 +336,36 @@ function sqlCallLines(file: string, text: string, script = false) {
     [];
   const objectKey = (member: any) =>
     member.computed ? member.key.value : (member.key.name ?? member.key.value);
+  const isAggregate = (node: any) =>
+    node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
+  const inlineProperty = (node: any, key: string) => {
+    if (node?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(key))
+      return unwrap(node.elements[Number(key)]);
+    if (node?.type === "ObjectExpression")
+      return unwrap(
+        node.properties.find(
+          (item: any) => item.type === "Property" && objectKey(item) === key,
+        )?.value,
+      );
+    return undefined;
+  };
   const recordObject = (scope: Scope, name: string, value: any): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
+    const recordField = (key: string, child: any) => {
+      const path = `${name}.${key}`;
+      if (functionKinds.has(child?.type))
+        (scope.functions ??= new Map()).set(path, child);
+      if (isAggregate(child)) recordObject(scope, path, child);
+      else propertyInitializers.push({ scope, name: path, value: child });
+    };
+    if (value.type === "ArrayExpression") {
+      for (const [index, element] of value.elements.entries()) {
+        if (element?.type === "SpreadElement") break;
+        recordField(String(index), unwrap(element));
+      }
+      return;
+    }
     for (const member of value.properties) {
       if (member.type === "SpreadElement") {
         const source = unwrap(member.argument);
@@ -340,11 +378,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const key = objectKey(member);
       const child = unwrap(member.value);
       if (typeof key !== "string") continue;
-      const path = `${name}.${key}`;
-      if (functionKinds.has(child?.type))
-        (scope.functions ??= new Map()).set(path, child);
-      if (child?.type === "ObjectExpression") recordObject(scope, path, child);
-      else propertyInitializers.push({ scope, name: path, value: child });
+      recordField(key, child);
     }
   };
   for (const node of nodes) {
@@ -410,6 +444,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         let binding: Binding = "other";
         if (key === "" && functionKinds.has(value?.type))
           (scope.functions ??= new Map()).set(name, value);
+        if (key === "" && classKinds.has(value?.type))
+          (scope.classes ??= new Map()).set(name, scopeOf(value));
         if (
           key === "" &&
           value?.type === "ImportExpression" &&
@@ -419,7 +455,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           scope.bindings.set(`${name}.db`, "connection");
         }
         if (key === "db") binding = "inferred";
-        if (key === "" && value?.type === "ObjectExpression") {
+        if (key === "" && isAggregate(value)) {
           recordObject(scope, name, value);
           continue;
         }
@@ -583,6 +619,25 @@ function sqlCallLines(file: string, text: string, script = false) {
     functionKinds.has(expression?.type)
       ? expression
       : memberReference(expression, (scope, key) => scope.functions?.get(key));
+  const classReference = (expression: any): Scope | undefined =>
+    classKinds.has(expression?.type)
+      ? scopeOf(expression)
+      : memberReference(expression, (scope, key) => scope.classes?.get(key));
+  const constructorReference = (expression: any): any => {
+    const seen = new Set<Scope>();
+    let scope = classReference(expression);
+    while (scope && !seen.has(scope)) {
+      seen.add(scope);
+      const cls = receiverClass.get(scope);
+      const constructor = cls?.body.body.find(
+        (member: any) =>
+          member.type === "MethodDefinition" && member.kind === "constructor",
+      );
+      if (constructor) return constructor.value;
+      scope = classReference(cls?.superClass);
+    }
+    return functionReference(expression);
+  };
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
     const callee =
@@ -684,6 +739,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     binding: Binding | undefined,
     value?: any,
   ) => {
+    const cls = classReference(value);
+    if (cls && !scope.classes?.has(name)) {
+      (scope.classes ??= new Map()).set(name, cls);
+      changed = true;
+    }
     const fn = functionReference(value);
     if (fn && !scope.functions?.has(name)) {
       (scope.functions ??= new Map()).set(name, fn);
@@ -713,7 +773,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     scope.bindings.set(name, binding);
     changed = true;
   };
-  const recordedArguments = new Set<object>();
+  const recordedArguments = new Map<object, Set<object>>();
   while (changed) {
     changed = false;
     for (const reference of exportedReferences)
@@ -721,8 +781,15 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const { scope, name, value } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value);
     for (const node of nodes) {
-      if (script && node.type === "CallExpression") {
-        const fn = functionReference(unwrap(node.callee));
+      if (
+        script &&
+        (node.type === "CallExpression" || node.type === "NewExpression")
+      ) {
+        const callee = unwrap(node.callee);
+        const fn =
+          node.type === "NewExpression"
+            ? constructorReference(callee)
+            : functionReference(callee);
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
           const passed = unwrap(node.arguments[index]);
           const missing =
@@ -737,18 +804,11 @@ function sqlCallLines(file: string, text: string, script = false) {
           const scope = scopeOf(fn);
           for (const { key, name } of bindings(parameter)) {
             if (key) {
-              const member =
-                argument?.type === "ObjectExpression"
-                  ? argument.properties.find(
-                      (item: any) =>
-                        item.type === "Property" && objectKey(item) === key,
-                    )
-                  : undefined;
-              const memberValue = unwrap(member?.value);
+              const memberValue = inlineProperty(argument, key);
               trackBinding(
                 scope,
                 name,
-                member
+                memberValue
                   ? connectionKind(memberValue)
                   : knownProperty(argument, key),
                 memberValue,
@@ -756,13 +816,15 @@ function sqlCallLines(file: string, text: string, script = false) {
               continue;
             }
             trackBinding(scope, name, connectionKind(argument), argument);
-            if (
-              argument?.type === "ObjectExpression" &&
-              !recordedArguments.has(argument)
-            ) {
-              recordedArguments.add(argument);
-              recordObject(scope, name, argument);
-              changed = true;
+            if (isAggregate(argument)) {
+              const destinations =
+                recordedArguments.get(argument) ?? new Set<object>();
+              if (!destinations.has(parameter)) {
+                destinations.add(parameter);
+                recordedArguments.set(argument, destinations);
+                recordObject(scope, name, argument);
+                changed = true;
+              }
             }
           }
         }
@@ -794,10 +856,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         binding: Binding | undefined;
         method?: string;
       }[] = [];
-      if (target?.type === "ObjectPattern") {
+      if (target?.type === "ObjectPattern" || target?.type === "ArrayPattern") {
         for (const { key, name } of bindings(target)) {
-          const binding =
-            key === "db"
+          const inline = inlineProperty(value, key);
+          const binding = inline
+            ? connectionKind(inline)
+            : key === "db"
               ? destructuredDatabase(value)
               : knownProperty(value, key);
           const method =
@@ -838,7 +902,9 @@ function sqlCallLines(file: string, text: string, script = false) {
           owner,
           name,
           binding,
-          target?.type === "ObjectPattern" ? undefined : value,
+          target?.type === "ObjectPattern" || target?.type === "ArrayPattern"
+            ? undefined
+            : value,
         );
       }
     }
@@ -1311,6 +1377,25 @@ it("discovers aliased exports and distinguishes fixture objects from adapters", 
     }
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([3, 15]);
+});
+
+it("retains SQLite handles passed to constructors or stored in arrays", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    class Reader {
+      constructor(handle) { this.connection = handle; }
+      read(query) { this.connection.exec(query); }
+    }
+    new Reader(db);
+    const pair = [commandAdapter, db];
+    const [, renamed] = pair;
+    renamed.exec(query);
+    const [inline] = [db];
+    inline.prepare(query);
+    pair[1].exec(query);
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([6, 11, 13, 14]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
