@@ -123,14 +123,25 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
   type Binding = "connection" | "inferred" | "constructor" | "other";
-  type Scope = { parent?: Scope; bindings: Map<string, Binding> };
+  type Boundary = "function" | "class";
+  type Scope = {
+    parent?: Scope;
+    boundary?: Boundary;
+    bindings: Map<string, Binding>;
+  };
   const nodes: any[] = [];
   const scopes = new Map<object, Scope>();
-  const scopeKinds = new Set([
-    "BlockStatement",
+  const varDeclarations = new Set<object>();
+  const functionKinds = new Set([
     "FunctionDeclaration",
     "FunctionExpression",
     "ArrowFunctionExpression",
+  ]);
+  const classKinds = new Set(["ClassDeclaration", "ClassExpression"]);
+  const scopeKinds = new Set([
+    ...functionKinds,
+    ...classKinds,
+    "BlockStatement",
     "CatchClause",
     "ForStatement",
     "ForInStatement",
@@ -144,9 +155,17 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
       node.forEach((item) => visit(item, parent));
       return;
     }
+    const boundary = functionKinds.has(node.type)
+      ? "function"
+      : classKinds.has(node.type)
+        ? "class"
+        : undefined;
     const scope: Scope = scopeKinds.has(node.type)
-      ? { parent, bindings: new Map() }
+      ? { parent, boundary, bindings: new Map() }
       : parent;
+    if (node.type === "VariableDeclaration" && node.kind === "var")
+      for (const declaration of node.declarations)
+        varDeclarations.add(declaration);
     if (node.type) {
       nodes.push(node);
       scopes.set(node, scope);
@@ -155,6 +174,19 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
   };
   visit(program, fileScope);
   const scopeOf = (node: any) => scopes.get(node) ?? fileScope;
+  const boundaryScope = (node: any, boundary: Boundary) => {
+    for (
+      let scope: Scope | undefined = scopeOf(node);
+      scope;
+      scope = scope.parent
+    )
+      if (scope.boundary === boundary) return scope;
+    return undefined;
+  };
+  const declarationScope = (node: any) =>
+    varDeclarations.has(node)
+      ? (boundaryScope(node, "function") ?? fileScope)
+      : scopeOf(node);
   const declaringScope = (name: string, node: any): Scope | undefined => {
     for (
       let scope: Scope | undefined = scopeOf(node);
@@ -214,8 +246,9 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
         : [];
     });
   };
+  const dbModule = /(?:^|\/)db(?:\.js)?$/;
   for (const node of nodes) {
-    const scope = scopeOf(node);
+    const scope = declarationScope(node);
     if (node.type === "ImportDeclaration") {
       for (const specifier of node.specifiers) {
         let binding: Binding = "other";
@@ -226,7 +259,7 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
           binding = "constructor";
         if (
           specifier.imported?.name === "db" &&
-          /(?:^|\/)db(?:\.js)?$/.test(node.source.value)
+          dbModule.test(node.source.value)
         )
           binding = "connection";
         scope.bindings.set(specifier.local.name, binding);
@@ -243,7 +276,12 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
           value.arguments[0]?.value === "better-sqlite3");
       for (const { key, name } of bindings(node.id)) {
         let binding: Binding = "other";
-        if (key === "db") binding = "connection";
+        if (key === "db")
+          binding =
+            value?.type === "ImportExpression" &&
+            dbModule.test(value.source.value)
+              ? "connection"
+              : "inferred";
         if (
           (key === "default" && importsSqlite(node.init)) ||
           (key === "" && sqliteConstructor)
@@ -258,11 +296,9 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
     for (const parameter of parameters) {
       for (const { key, name } of bindings(parameter)) {
         const binding =
-          key === "db"
-            ? "connection"
-            : key === "" && name === "database"
-              ? "inferred"
-              : "other";
+          key === "db" || (key === "" && name === "database")
+            ? "inferred"
+            : "other";
         scope.bindings.set(name, binding);
       }
     }
@@ -308,9 +344,12 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
           ? "connection"
           : undefined);
       if (!binding) continue;
+      const instance = target.startsWith("this.")
+        ? boundaryScope(node, "class")
+        : undefined;
       const owner = declaration
-        ? scopeOf(node)
-        : (declaringScope(target, node) ?? scopeOf(node));
+        ? declarationScope(node)
+        : (instance ?? declaringScope(target, node) ?? scopeOf(node));
       const previous = owner.bindings.get(target);
       if (previous === binding || previous === "connection") continue;
       owner.bindings.set(target, binding);
@@ -434,6 +473,22 @@ it("checks script pragmas and keeps SQLite alias inference in scope", () => {
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 12, 13, 19]);
   expect(sqlCallLines("probe.mjs", text)).toEqual([12]);
+});
+
+it("tracks hoisted aliases and instance fields without guessing adapter types", () => {
+  const text = `
+    function hoisted(flag) {
+      if (flag) { var handle = db; }
+      handle.exec(sql);
+    }
+    const { db: client } = adapters;
+    client.exec(command);
+    class Reader {
+      constructor() { this.connection = db; }
+      read() { this.connection.prepare(sql); }
+    }
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
