@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const triggers = (db: Database.Database) =>
   db
@@ -15,10 +16,7 @@ it.each([false, true])(
     const db = new Database(":memory:");
     try {
       db.pragma("foreign_keys = ON");
-      for (const file of readdirSync("migrations")
-        .filter((file) => file.endsWith(".sql") && file < "134")
-        .sort())
-        db.exec(readFileSync("migrations/" + file, "utf8"));
+      applyMigrationsThrough(db, 133);
       db.exec(`INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('existing','owner','gemini','Account','encrypted','connected',1);
       INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES('agent','owner','Agent','agent','gemini','existing','native-default',1);
       INSERT INTO preferences(owner_id,embedding_connection,embedding_model,embedding_enabled) VALUES('owner','existing','embedding',1);

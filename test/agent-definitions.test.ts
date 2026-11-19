@@ -2,28 +2,21 @@ import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import { mkdirSync, copyFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
 
 import { join } from "node:path";
 
-import { applyMigrations } from "../src/server/migrations";
 import {
   DEFINITION_EXAMPLES,
   MAX_DEFINITION_BYTES,
 } from "../src/shared/agent-definitions";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const dir = testDirectory();
 
 // Seed the historical subset through the current named migration ledger.
 const existing = new Database(join(dir, "loop.db"));
-const migrationDir = join(dir, "migrations");
-mkdirSync(migrationDir);
-for (const file of readdirSync("migrations")
-  .filter((file) => file.endsWith(".sql") && Number(file.split("-")[0]) <= 119)
-  .sort())
-  copyFileSync(join("migrations", file), join(migrationDir, file));
-applyMigrations(existing, migrationDir);
+applyMigrationsThrough(existing, 119);
 existing.close();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");

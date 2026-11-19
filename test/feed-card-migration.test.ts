@@ -1,17 +1,11 @@
 import { expect, it } from "vitest";
 import Database from "better-sqlite3";
-import {
-  mkdtempSync,
-  mkdirSync,
-  copyFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
-import { applyMigrations } from "../src/server/migrations";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 it.each([null, 118, 123])(
   "backfills before startup returns with concurrent database users (upgrade=%s)",
@@ -29,13 +23,7 @@ it.each([null, 118, 123])(
         old.pragma("foreign_keys=ON");
         old
           .transaction(() => {
-            const migrationDir = join(dir, "migrations");
-            mkdirSync(migrationDir);
-            for (const file of readdirSync("migrations").filter(
-              (f) => f.endsWith(".sql") && Number(f.split("-")[0]) <= upgrade,
-            ))
-              copyFileSync(join("migrations", file), join(migrationDir, file));
-            applyMigrations(old, migrationDir);
+            applyMigrationsThrough(old, upgrade);
             old
               .prepare("INSERT INTO deployment_profile VALUES(1,'server')")
               .run();

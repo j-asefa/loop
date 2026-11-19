@@ -7,6 +7,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import Database from "better-sqlite3";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 testDirectory();
 
@@ -415,10 +416,7 @@ it("deduplicates legacy answer representations by run without hiding edited file
 it("migrates old concatenated output into traces and preserves saved edits", () => {
   const legacy = new Database(":memory:");
   try {
-    for (const file of readdirSync("migrations")
-      .filter((f) => f.endsWith(".sql") && Number(f.split("-")[0]) < 18)
-      .sort())
-      legacy.exec(readFileSync(join("migrations", file), "utf8"));
+    applyMigrationsThrough(legacy, 17);
     for (const edited of [false, true]) {
       const key = String(edited);
       legacy
@@ -817,10 +815,7 @@ it("indexes traces saved before the search migration", () => {
 it("unwraps updates saved as Loop's reply envelope", () => {
   const legacy = new Database(":memory:");
   try {
-    for (const file of readdirSync("migrations")
-      .filter((f) => f.endsWith(".sql") && Number(f.split("-")[0]) < 46)
-      .sort())
-      legacy.exec(readFileSync(join("migrations", file), "utf8"));
+    applyMigrationsThrough(legacy, 45);
     // The traces only need a run id here.
     legacy.pragma("foreign_keys = OFF");
     const insert = legacy.prepare(

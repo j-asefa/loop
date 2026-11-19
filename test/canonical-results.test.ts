@@ -1,16 +1,11 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { seedConversation } from "./helpers/seed.js";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 testDirectory();
 
@@ -596,17 +591,9 @@ describe("Canonical Result publication, immutability, and migration", () => {
   it("backfills historical runs, replies, and standalone messages on upgrade from migration 163 while preserving overlays and groups", () => {
     const dir = mkdtempSync(join(tmpdir(), "loop-canonical-results-mig-"));
     try {
-      const pre164Dir = join(dir, "migrations");
-      mkdirSync(pre164Dir);
-      for (const file of readdirSync("migrations").filter(
-        (f) => f.endsWith(".sql") && Number(f.split("-")[0]) <= 163,
-      )) {
-        copyFileSync(join("migrations", file), join(pre164Dir, file));
-      }
-
       const upgradeDb = new Database(join(dir, "upgrade.db"));
       upgradeDb.pragma("foreign_keys=ON");
-      applyMigrations(upgradeDb, pre164Dir);
+      applyMigrationsThrough(upgradeDb, 163);
 
       // Seed historical pre-164 records including plain-text runs.result, corrupt legacy metadata, and steering prompt
       upgradeDb

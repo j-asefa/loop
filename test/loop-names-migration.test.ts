@@ -2,19 +2,14 @@
 // Loop. It never changes owners, credentials or uncertain work, and new rows
 // keep the origin they are inserted with.
 import Database from "better-sqlite3";
-import {
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { applyMigrations } from "../src/server/migrations";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -24,14 +19,9 @@ afterEach(() => {
 function before149() {
   const dir = mkdtempSync(join(tmpdir(), "loop-names-"));
   directories.push(dir);
-  mkdirSync(join(dir, "migrations"));
-  for (const file of readdirSync("migrations").filter(
-    (file) => file.endsWith(".sql") && Number(file.split("-")[0]) < 149,
-  ))
-    copyFileSync(join("migrations", file), join(dir, "migrations", file));
   const db = new Database(":memory:");
   db.pragma("foreign_keys=ON");
-  applyMigrations(db, join(dir, "migrations"));
+  applyMigrationsThrough(db, 148);
   return db;
 }
 

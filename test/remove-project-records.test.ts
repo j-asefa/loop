@@ -1,29 +1,17 @@
 import Database from "better-sqlite3";
-import {
-  mkdtempSync,
-  mkdirSync,
-  copyFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { expect, it } from "vitest";
-import { applyMigrations } from "../src/server/migrations";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 it("upgrades populated records, preserves source work and restarts without retired producers", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-remove-project-records-"));
   let db = new Database(join(dir, "loop.db"));
   try {
     db.pragma("foreign_keys = ON");
-    const migrationDir = join(dir, "migrations");
-    mkdirSync(migrationDir);
-    for (const file of readdirSync("migrations")
-      .filter((f) => f.endsWith(".sql") && f < "100")
-      .sort())
-      copyFileSync(join("migrations", file), join(migrationDir, file));
-    applyMigrations(db, migrationDir);
+    applyMigrationsThrough(db, 99);
     db.exec(`
       INSERT INTO deployment_profile VALUES(1,'server');
       INSERT INTO folders(id,owner_id,name,kind,created_at) VALUES('workspace','owner','Workspace','project',1),('project','owner','Named','project',1),('other','other-owner','Other','project',1);
