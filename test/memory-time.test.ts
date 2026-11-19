@@ -204,6 +204,8 @@ it.each([
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
   "harvest notes, but not notes from yesterday",
+  "harvest notes without any entries from yesterday",
+  "harvest since 2026-10-01 (or before 2026-11-01)",
   "harvest notes from this week, but not including yesterday",
   "harvest notes from this week, but leave out yesterday",
   "harvest notes, excluding specifically yesterday",
@@ -289,5 +291,14 @@ it("ignores subject alternatives between explicit bounds", () => {
   expect(parseMemoryTime(query, now)).toMatchObject({
     from: Date.parse("2026-10-01"),
     to: Date.parse("2026-11-01"),
+  });
+});
+
+it("keeps a date window after an author alternative", () => {
+  expect(
+    parseMemoryTime("Find harvest notes by May or Alex from last week", now),
+  ).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
   });
 });
