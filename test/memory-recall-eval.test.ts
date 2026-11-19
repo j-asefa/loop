@@ -1,7 +1,7 @@
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, expect, it } from "vitest";
@@ -90,6 +90,14 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
     idempotencyKey: id(),
     personal: true,
   });
+  // A follow-up turn is never searched by recall, so it is not a null query.
+  submit("alice", {
+    agentId: unanswered.agent_id!,
+    conversationId: unanswered.conversation_id!,
+    input: "And the aurora rollback plan",
+    idempotencyKey: id(),
+    personal: true,
+  });
   submit("alice", {
     agentId: agentFor("alice").id,
     input: "Mail about the aurora rollout",
@@ -111,6 +119,9 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
   expect(nulls.map((q) => q.query)).toContain("Draft the aurora rollout plan");
   expect(nulls.map((q) => q.query)).not.toContain(
     "Mail about the aurora rollout",
+  );
+  expect(nulls.map((q) => q.query)).not.toContain(
+    "And the aurora rollback plan",
   );
   expect(nulls.find((q) => q.query.includes("aurora"))?.conversation).toBe(
     unanswered.conversation_id,
@@ -224,8 +235,49 @@ it("writes only to a database it copied, in a directory it started empty", async
     await expect(main(["--copy-from", join(data, "loop.db")])).rejects.toThrow(
       "needs an empty LOOP_DATA_DIR",
     );
+    // A copy that fails leaves no marker for a later run to trust.
+    const failed = mkdtempSync(join(tmpdir(), "memory-eval-"));
+    process.env.LOOP_DATA_DIR = failed;
+    await expect(
+      main(["--copy-from", join(failed, "missing.db")]),
+    ).rejects.toThrow();
+    expect(existsSync(join(failed, "memory-eval-copy"))).toBe(false);
+    await expect(main([])).rejects.toThrow("not built by --copy-from");
+    // The copy holds the owner's work, so the directory must be private.
+    const open = mkdtempSync(join(tmpdir(), "memory-eval-"));
+    chmodSync(open, 0o755);
+    process.env.LOOP_DATA_DIR = open;
+    await expect(main([])).rejects.toThrow("must be private");
   } finally {
     if (previous === undefined) delete process.env.LOOP_DATA_DIR;
     else process.env.LOOP_DATA_DIR = previous;
   }
+});
+
+it("scores only the sources the evidence block delivers", async () => {
+  for (let index = 0; index < 5; index++)
+    await note(`Pelican ${index}`, `pelican ledger ${index} `.repeat(80));
+  const { searchMemory } = await import("../src/server/memory");
+  const found = (
+    await searchMemory("alice", null, "pelican ledger", { relevant: true })
+  ).sources;
+  expect(found).toHaveLength(5);
+  // Five full excerpts plus their headers exceed the block's budget, so the
+  // fifth source never reaches the turn: a miss, though search returned it.
+  const last = found[4].id;
+  const metrics = await evaluate(
+    [
+      {
+        set: "known",
+        owner: "alice",
+        project: null,
+        query: "pelican ledger",
+        target: last,
+        deep: false,
+        targetCoverage: 1,
+      },
+    ],
+    { warmup: 0 },
+  );
+  expect(metrics).toMatchObject({ hit5: 0, misses5: 1, abstainKnown: 0 });
 });

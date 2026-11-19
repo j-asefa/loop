@@ -188,6 +188,8 @@ const promptsWithoutSourcesStatement = statement(
   `SELECT r.id AS run_id,r.owner_id,r.conversation_id,c.project_id,r.input FROM runs r
     JOIN conversations c ON c.id=r.conversation_id AND c.owner_id=r.owner_id
     WHERE ${personalRunSql("r.id", "r.owner_id")}
+    AND NOT EXISTS(SELECT 1 FROM runs e WHERE e.owner_id=r.owner_id
+      AND e.conversation_id=r.conversation_id AND e.rowid<r.rowid)
     AND NOT EXISTS(SELECT 1 FROM artifacts a JOIN memory_sources s ON s.kind='artifact'
       AND s.source_id=a.id AND s.owner_id=a.owner_id
       WHERE a.owner_id=r.owner_id AND a.conversation_id=r.conversation_id)
@@ -200,7 +202,10 @@ const promptsWithoutSourcesRow = z.object({
   project_id: z.string().nullable(),
   input: z.string(),
 });
-/** Owner-typed prompts from conversations that saved no result to memory. */
+/**
+ * Owner-typed first prompts (the only turns recall searches for) from
+ * conversations that saved no result to memory.
+ */
 export function promptsWithoutSources(db: Database.Database) {
   return promptsWithoutSourcesStatement(db)
     .all()

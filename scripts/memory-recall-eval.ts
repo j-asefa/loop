@@ -2,16 +2,21 @@
 // excerpt quality on a copy of a workspace database. It calls production
 // searchMemory and evidenceBlock; it never reimplements them.
 //
-//   mkdir -m 700 /var/tmp/memory-eval/copy
-//   LOOP_DATA_DIR=/var/tmp/memory-eval/copy node --import tsx scripts/memory-recall-eval.ts \
-//     --copy-from <workspace loop.db> --json /var/tmp/memory-eval/head.json
+//   mkdir -m 700 /var/tmp/memory-eval/pristine /var/tmp/memory-eval/base /var/tmp/memory-eval/head
+//   LOOP_DATA_DIR=/var/tmp/memory-eval/pristine node --import tsx scripts/memory-recall-eval.ts \
+//     --copy-from <workspace loop.db> --copy-only
+//   # then, from each build's checkout, a fresh copy of the same snapshot:
+//   LOOP_DATA_DIR=/var/tmp/memory-eval/base node --import tsx scripts/memory-recall-eval.ts \
+//     --copy-from /var/tmp/memory-eval/pristine/loop.db --json /var/tmp/memory-eval/base.json
 //   node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
 //
-// It writes only to a database it built with --copy-from (rerun on the same
-// directory without it). The copy's data stays local: share aggregates only.
+// It writes only to a private directory it filled with --copy-from. Each run
+// captures memory into its copy, so give each build its own copy of one
+// pristine snapshot. The data stays local: share aggregates only.
 import {
   existsSync,
   readdirSync,
+  statSync,
   readFileSync,
   realpathSync,
   writeFileSync,
@@ -188,9 +193,12 @@ export async function evaluate(
     vocabMisses = 0;
   for (const q of queries) {
     const started = performance.now();
-    const { sources } = await search(q);
+    const found = await search(q);
     latencies.push(performance.now() - started);
-    injected.push(evidenceBlock(sources).text.length);
+    // Score what the turn would receive: the evidence block drops sources
+    // that would take it past its character budget.
+    const { text, included: sources } = evidenceBlock(found.sources);
+    injected.push(text.length);
     if (q.set === "null") {
       nulls++;
       if (!sources.length) abstainNull++;
@@ -321,29 +329,32 @@ async function copyFrom(path: string) {
   ).filter((t) => COPIED_TABLES.some((table) => t.sql.includes(table)));
   for (const t of triggers) db.exec(`DROP TRIGGER "${t.name}"`);
   const copied: Record<string, number> = {};
-  db.transaction(() => {
-    for (const table of COPIED_TABLES) {
-      const target = new Set(columns(db, table));
-      const shared = columns(source, table).filter((c) => target.has(c));
-      if (!shared.length) continue;
-      const list = shared.map((c) => `"${c}"`).join(",");
-      const insert = db.prepare(
-        `INSERT OR REPLACE INTO ${table}(${list}) VALUES(${shared.map(() => "?").join(",")})`,
-      );
-      let rows = 0;
-      for (const row of source
-        .prepare(`SELECT ${list} FROM ${table}`)
-        .raw()
-        .iterate())
-        (insert.run(row as unknown[]), rows++);
-      copied[table] = rows;
-      console.error(`copied ${table}: ${rows}`);
-    }
-  })();
-  source.exec("COMMIT");
-  for (const t of triggers) db.exec(t.sql);
-  db.pragma("foreign_keys = ON");
-  source.close();
+  try {
+    db.transaction(() => {
+      for (const table of COPIED_TABLES) {
+        const target = new Set(columns(db, table));
+        const shared = columns(source, table).filter((c) => target.has(c));
+        if (!shared.length) continue;
+        const list = shared.map((c) => `"${c}"`).join(",");
+        const insert = db.prepare(
+          `INSERT OR REPLACE INTO ${table}(${list}) VALUES(${shared.map(() => "?").join(",")})`,
+        );
+        let rows = 0;
+        for (const row of source
+          .prepare(`SELECT ${list} FROM ${table}`)
+          .raw()
+          .iterate())
+          (insert.run(row as unknown[]), rows++);
+        copied[table] = rows;
+        console.error(`copied ${table}: ${rows}`);
+      }
+    })();
+  } finally {
+    for (const t of triggers) db.exec(t.sql);
+    db.pragma("foreign_keys = ON");
+    source.exec("COMMIT");
+    source.close();
+  }
   return copied;
 }
 
@@ -386,16 +397,22 @@ export async function main(args: string[]) {
   }
   const data = process.env.LOOP_DATA_DIR;
   // Capture writes to the database it opens: only ever a copy this script
-  // built, in a directory it started empty.
+  // built, in a private directory it started empty.
   if (!data || !existsSync(data))
     throw new Error("Set LOOP_DATA_DIR to an existing, empty directory.");
+  if (statSync(data).mode & 0o077)
+    throw new Error(
+      "LOOP_DATA_DIR must be private (mkdir -m 700): the copy holds the owner's work.",
+    );
   const from = option(args, "--copy-from");
   const marker = resolve(data, COPY_MARKER);
   if (from) {
     if (readdirSync(data).length)
       throw new Error("--copy-from needs an empty LOOP_DATA_DIR.");
-    writeFileSync(marker, realpathSync(from) + "\n");
     console.log("copied rows:", await copyFrom(from));
+    // Only a finished copy is trusted by later runs.
+    writeFileSync(marker, realpathSync(from) + "\n");
+    if (args.includes("--copy-only")) return;
   } else if (!existsSync(marker))
     throw new Error(
       "LOOP_DATA_DIR was not built by --copy-from; refusing to write to it.",
