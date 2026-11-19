@@ -19,13 +19,18 @@ type Context = {
 
 // Remark plugin: marks a `spec` fence that has not closed (an answer still
 // being written, or text cut short). Markdown parses an open fence as a code
-// block running to the end, so only the source span shows whether the
-// closing fence arrived.
+// block. Only an unclosed block at the end of the answer can still grow.
 export function markOpenSpecFences() {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
+    const lastContent = source.trimEnd().length;
     const visit = (node: MdNode) => {
-      if (node.type === "code" && node.lang === "spec" && node.position) {
+      if (
+        node.type === "code" &&
+        node.lang === "spec" &&
+        node.position &&
+        (node.position.end.offset ?? 0) >= lastContent
+      ) {
         const raw = source.slice(
           node.position.start.offset,
           node.position.end.offset,

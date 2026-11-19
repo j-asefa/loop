@@ -1,3 +1,4 @@
+import { dropSpecBlocks } from "../shared/text";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -2145,7 +2146,7 @@ function ConversationView({
                     />
                     <span>
                       {m.role === "user" ? "You" : "Agent"}:{" "}
-                      {m.content.slice(0, 180)}
+                      {dropSpecBlocks(m.content).slice(0, 180)}
                     </span>
                   </label>
                 ))}

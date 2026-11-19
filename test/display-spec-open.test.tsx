@@ -301,3 +301,26 @@ it("drops a display following fence-like lines in block math", () => {
     expect(preview).not.toContain('"op"');
   }
 });
+
+it("finalizes an unclosed display when Markdown leaves its container", () => {
+  const root = '{"op":"add","path":"/root","value":"d"}';
+  for (const [opener, body, next] of [
+    ["> ", "> ", "\n\nAfter."],
+    ["- ", "  ", "\n- After."],
+  ]) {
+    const source = `${opener}${fence}${body}${root}`;
+    expect(render(source + "\n\n", true)).toContain("Display loading…");
+    const ended = render(source + next, true);
+    expect(ended).toContain("This display could not be drawn");
+    expect(ended).not.toContain("Display loading…");
+    expect(ended).toContain("After.");
+  }
+});
+
+it("keeps excerpts free of display source for display-only search matches", () => {
+  const source = `${fence}${block}\n\`\`\``;
+  expect(searchExcerpt(source, "", "Deploys")).toBe("");
+  expect(searchExcerpt(`Summary.\n\n${source}`, "", "Deploys")).toBe(
+    "Summary.",
+  );
+});
