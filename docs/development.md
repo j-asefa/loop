@@ -135,7 +135,7 @@ LOOP_DATA_DIR=/var/tmp/memory-eval/head node --import tsx scripts/memory-recall-
 node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
 ```
 
-`--copy-from` opens the source database read-only and copies, in one read snapshot, only the tables recall reads (never connections or review snapshots) into a fresh, migrated database. The script writes only to a private (`0700`), initially empty `LOOP_DATA_DIR` that a finished `--copy-from` filled. The copy holds the owner's work: keep it and the JSON local, and put only the aggregate table in a PR. Each run captures memory into its copy, so compare builds on separate copies of one pristine snapshot (`--copy-only` makes one; later copies can take its `loop.db` as `--copy-from`), with the same seed and limit (`--seed`, `--limit`, default 1 and 500).
+`--copy-from` opens the source database read-only and copies, in one read snapshot, only the tables recall reads (never connections or review snapshots) into a fresh, migrated database. The script writes only to a private (`0700`), initially empty `LOOP_DATA_DIR` that a finished `--copy-from` filled. The copy holds the owner's work: keep it and the JSON local, and put only the aggregate table in a PR. Each run captures memory into its copy, so compare builds on separate copies of one pristine snapshot (`--copy-only` makes one; later copies can take its `loop.db` as `--copy-from`), with the same seed and limit (`--seed`, `--limit`, default 1 and 500). Use a fresh output filename for each run. The comparison refuses reports whose sampled queries or target annotations differ.
 
 ## Command supervision
 

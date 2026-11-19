@@ -21,6 +21,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -112,15 +113,24 @@ export async function sampleQueries({
 }: { seed?: number; limit?: number } = {}) {
   const { db } = await import("../src/server/db.js");
   const memorySources = await import("../src/server/sql/memory-sources.js");
-  const { coversQuery, matchedTerms, recallTerms, recallable } =
+  const { coversQuery, enabled, matchedTerms, recallTerms, recallable } =
     (await import("../src/server/memory.js")) as Memory;
+  const { hasEarlierCompletedConversationRun } =
+    await import("../src/server/sql/runs.js");
+  const recallEnabled = (owner: string, project: string | null) =>
+    enabled(owner, "workspace") &&
+    (!project || enabled(owner, "project:" + project));
   let skipped = 0;
   const known: EvalQuery[] = [];
   // Only results recall may return now: a source the owner's memory policy
   // excludes is not a retrieval miss.
   const items = memorySources
     .knownItems(db)
-    .filter((item) => recallable(item.owner_id, item.id));
+    .filter(
+      (item) =>
+        recallEnabled(item.owner_id, item.project_id) &&
+        recallable(item.owner_id, item.id),
+    );
   for (const item of sample(items, limit, seed)) {
     const query = prompt(item.input);
     const terms = recallTerms(query);
@@ -136,14 +146,27 @@ export async function sampleQueries({
       target: item.id,
       deep:
         coversQuery(item.content, terms) &&
-        !coversQuery(item.content.slice(0, HEAD_CHARACTERS), terms),
+        !coversQuery(
+          item.title + "\n" + item.content.slice(0, HEAD_CHARACTERS),
+          terms,
+        ),
       targetCoverage:
         matchedTerms(item.title + "\n" + item.content, terms) / terms.length,
     });
   }
   const none: EvalQuery[] = [];
   for (const item of sample(
-    memorySources.promptsWithoutSources(db),
+    memorySources
+      .promptsWithoutSources(db)
+      .filter(
+        (item) =>
+          recallEnabled(item.owner_id, item.project_id) &&
+          !hasEarlierCompletedConversationRun(
+            db,
+            item.conversation_id,
+            item.run_id,
+          ),
+      ),
     limit,
     seed,
   )) {
@@ -381,15 +404,35 @@ function option(args: string[], name: string) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+type EvalReport = EvalMetrics & { queryFingerprint: string };
+
+export function queryFingerprint(queries: EvalQuery[]) {
+  return createHash("sha256").update(JSON.stringify(queries)).digest("hex");
+}
+
 export async function main(args: string[]) {
   const compare = option(args, "--compare");
   if (compare) {
     const files = args.slice(args.indexOf("--compare") + 1);
+    const reports = files.map(
+      (file) => JSON.parse(readFileSync(file, "utf8")) as EvalReport,
+    );
+    if (
+      reports.length < 2 ||
+      !reports[0].queryFingerprint ||
+      reports.some(
+        (report) => report.queryFingerprint !== reports[0].queryFingerprint,
+      )
+    ) {
+      throw new Error(
+        "Comparison requires reports from the same sampled queries.",
+      );
+    }
     console.log(
       table(
-        files.map((file, i) => [
-          i === 0 ? "base" : files.length === 2 ? "head" : file,
-          JSON.parse(readFileSync(file, "utf8")) as EvalMetrics,
+        reports.map((report, i) => [
+          i === 0 ? "base" : reports.length === 2 ? "head" : files[i],
+          report,
         ]),
       ),
     );
@@ -424,7 +467,16 @@ export async function main(args: string[]) {
   });
   const metrics = await evaluate(queries, { skipped });
   const out = option(args, "--json");
-  if (out) writeFileSync(out, JSON.stringify(metrics, null, 2));
+  if (out) {
+    const report: EvalReport = {
+      ...metrics,
+      queryFingerprint: queryFingerprint(queries),
+    };
+    writeFileSync(out, JSON.stringify(report, null, 2), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  }
   console.log(`capture passes: ${passes}\n`);
   console.log(table([["this build", metrics]]));
 }

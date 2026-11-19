@@ -15,8 +15,15 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { memoryRoutes, captureMemory } = await import("../src/server/memory");
-const { evaluate, main, sample, sampleQueries, table, HEAD_CHARACTERS } =
-  await import("../scripts/memory-recall-eval");
+const {
+  evaluate,
+  main,
+  queryFingerprint,
+  sample,
+  sampleQueries,
+  table,
+  HEAD_CHARACTERS,
+} = await import("../scripts/memory-recall-eval");
 const app = await productionApp("alice", [memoryRoutes], {
   ownerHeader: "x-owner",
 });
@@ -90,11 +97,33 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
     idempotencyKey: id(),
     personal: true,
   });
-  // A follow-up turn is never searched by recall, so it is not a null query.
-  submit("alice", {
+  const completedWithoutResult = claim("memory-eval-worker")!;
+  expect(completedWithoutResult.id).toBe(unanswered.id);
+  transition(completedWithoutResult, "completed");
+  // A turn after a completed run never searches recall.
+  const followUp = submit("alice", {
     agentId: unanswered.agent_id!,
     conversationId: unanswered.conversation_id!,
     input: "And the aurora rollback plan",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const claimedFollowUp = claim("memory-eval-worker")!;
+  expect(claimedFollowUp.id).toBe(followUp.id);
+  transition(claimedFollowUp, "failed");
+  const failed = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Draft an eclipse report",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const claimedFailed = claim("memory-eval-worker")!;
+  expect(claimedFailed.id).toBe(failed.id);
+  transition(claimedFailed, "failed");
+  submit("alice", {
+    agentId: failed.agent_id!,
+    conversationId: failed.conversation_id!,
+    input: "Retry the eclipse report",
     idempotencyKey: id(),
     personal: true,
   });
@@ -117,6 +146,7 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
   ]);
   const nulls = queries.filter((q) => q.set === "null");
   expect(nulls.map((q) => q.query)).toContain("Draft the aurora rollout plan");
+  expect(nulls.map((q) => q.query)).toContain("Retry the eclipse report");
   expect(nulls.map((q) => q.query)).not.toContain(
     "Mail about the aurora rollout",
   );
@@ -146,6 +176,43 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
       (q) => q.set === "known",
     ),
   ).toEqual([]);
+  const setWorkspaceMemory = (enabled: boolean) =>
+    fetch(app.url + "/api/memory/policy", {
+      method: "PUT",
+      headers: { "content-type": "application/json", "x-owner": "alice" },
+      body: JSON.stringify({ scope: "workspace", enabled }),
+    });
+  expect((await setWorkspaceMemory(false)).status).toBe(200);
+  try {
+    expect((await sampleQueries()).queries).toEqual([]);
+  } finally {
+    expect((await setWorkspaceMemory(true)).status).toBe(200);
+  }
+});
+
+it("rejects comparisons across different query sets", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "memory-eval-comparison-"));
+  const first = join(directory, "first.json");
+  const second = join(directory, "second.json");
+  const query = {
+    set: "null",
+    owner: "alice",
+    project: null,
+    query: "zircon",
+  } as const;
+  writeFileSync(
+    first,
+    JSON.stringify({ queryFingerprint: queryFingerprint([query]) }),
+  );
+  writeFileSync(
+    second,
+    JSON.stringify({
+      queryFingerprint: queryFingerprint([{ ...query, query: "pelican" }]),
+    }),
+  );
+  await expect(main(["--compare", first, second])).rejects.toThrow(
+    "same sampled queries",
+  );
 });
 
 it("computes each metric from production recall", async () => {
