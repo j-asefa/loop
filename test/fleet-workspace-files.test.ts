@@ -32,7 +32,7 @@ import {
   FLEET_FILE_CHUNK_BYTES,
 } from "../src/shared/fleet-workspace-file-api.js";
 import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-files-"));
 process.env.LOOP_DATA_DIR = root;

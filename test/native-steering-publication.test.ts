@@ -2,8 +2,8 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 
 import { resolve } from "node:path";
-import { gitProject } from "./git-project";
-import { until } from "./helpers";
+import { gitProject } from "./helpers/git-project.js";
+import { until } from "./helpers/wait.js";
 import { seedConversation } from "./helpers/seed.js";
 
 const dir = testDirectory();

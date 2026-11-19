@@ -1,6 +1,6 @@
 import { createTestWorkspace } from "./helpers/test-workspace.js";
-import { inProcessExecution } from "./in-process-execution.js";
-import { gitProject } from "./git-project.js";
+import { inProcessExecution } from "./helpers/in-process-execution.js";
+import { gitProject } from "./helpers/git-project.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, readFile, chmod } from "node:fs/promises";
@@ -20,7 +20,7 @@ const { nativeSessions } = await import("../src/server/native-sessions.js");
 const { OWNER } = await import("../src/server/workspace-identity.js");
 const { db } = await import("../src/server/db.js");
 const { control } = await import("../src/host-control.js");
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 test("workspace: one pairing, three concurrent native conversations, isolated decisions, tools, follow-up, WSS replay, recovery", async (t) => {
   const projectA = join(dir, "a"),
     projectB = join(dir, "b");

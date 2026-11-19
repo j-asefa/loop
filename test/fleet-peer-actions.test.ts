@@ -15,7 +15,7 @@ import { ExecutionRefused } from "../src/server/execution-refusal.js";
 import { fleetWorkspaceApi } from "../src/shared/fleet-workspace-api.js";
 import { fleetPeerApi } from "../src/shared/fleet-peer-api.js";
 import { fleetCredentialApi } from "../src/shared/fleet-credential-api.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import { applyMigrations } from "../src/server/migrations.js";
 import { FleetAuthority } from "../src/server/fleet-authority.js";
 import { FleetCredentials } from "../src/server/fleet-credentials.js";

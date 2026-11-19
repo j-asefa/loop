@@ -15,7 +15,7 @@ import {
 } from "../src/client/api.js";
 import { workspaceApi } from "../src/shared/workspace-api.js";
 import { MAX_UPLOAD_BYTES } from "../src/shared/uploads.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 test("typed multipart routes use the compiled app without replaying writes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "loop-library-transport-"));

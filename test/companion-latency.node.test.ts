@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 test(
   "paired conversation latency is measured outside the streaming native host",

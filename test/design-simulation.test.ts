@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers";
+import { until } from "./helpers/wait.js";
 
 const home = mkdtempSync(join(tmpdir(), "loop-design-signals-"));
 const data = join(home, "workspace"),

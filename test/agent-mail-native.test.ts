@@ -1,14 +1,14 @@
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
-import { until } from "./helpers";
+import { until } from "./helpers/wait.js";
 import { createHash } from "node:crypto";
 import { afterAll, expect, it, vi } from "vitest";
 import { realpathSync } from "node:fs";
 
 import { resolve } from "node:path";
 
-import { gitProject } from "./git-project";
+import { gitProject } from "./helpers/git-project.js";
 const dir = realpathSync(testDirectory());
 
 process.env.LOOP_TEST_HARNESS = "codex";

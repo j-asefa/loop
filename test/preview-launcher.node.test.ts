@@ -20,7 +20,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { chromium } from "@playwright/test";
 import Database from "better-sqlite3";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 
 const exec = promisify(execFile);
 const root = resolve(".");

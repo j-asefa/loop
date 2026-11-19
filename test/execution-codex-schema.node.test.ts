@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { agentModelName, runModelName } from "../src/client/modelChoices.js";
 import type { Connection } from "../src/shared/types.js";
 

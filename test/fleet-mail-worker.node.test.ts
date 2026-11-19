@@ -10,8 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-mail-worker-"));
 const project = join(root, "project");

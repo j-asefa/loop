@@ -18,8 +18,8 @@ import { randomUUID } from "node:crypto";
 import { alive, identity, pidNamespace } from "../src/process-records.js";
 
 import { ensureRunDir } from "../src/connection.js";
-import { killFixtureProcess, until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { killFixtureProcess, until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 import { fleetDeviceFromLink } from "../src/shared/fleet-pairing.js";
 
 const exec = promisify(execFile);

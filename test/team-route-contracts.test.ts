@@ -10,7 +10,7 @@ import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { ToolMailStatus } from "../src/shared/agent-mail";
 import { DEFINITION_EXAMPLES } from "../src/shared/agent-definitions";
-import { gitProject } from "./git-project";
+import { gitProject } from "./helpers/git-project.js";
 
 const directory = testDirectory();
 const project = join(directory, "project");

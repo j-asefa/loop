@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const workspace = createTestWorkspace("provider-management-");
 const dir = workspace.directory;

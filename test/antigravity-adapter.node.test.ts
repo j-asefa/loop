@@ -7,7 +7,7 @@ import { Antigravity } from "../src/adapters/antigravity.js";
 import { NativeSetupError } from "../src/adapters/setup-error.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import type { Options } from "../src/adapters/types.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const options: Options = {
   harness: "antigravity",

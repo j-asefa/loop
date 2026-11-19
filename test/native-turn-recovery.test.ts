@@ -2,9 +2,9 @@ import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { ProviderSchema } from "../src/shared/provider-schema";
-import { until } from "./helpers";
+import { until } from "./helpers/wait.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { realpathSync, readFileSync, existsSync } from "node:fs";
 

@@ -6,7 +6,7 @@ import {
 } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { afterAll, expect, it } from "vitest";
 import { realpathSync } from "node:fs";
 

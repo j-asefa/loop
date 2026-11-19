@@ -12,7 +12,7 @@ import {
 
 import { join } from "node:path";
 
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 
 const dir = realpathSync(testDirectory());
 

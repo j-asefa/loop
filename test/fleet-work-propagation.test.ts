@@ -14,7 +14,7 @@ import express from "express";
 import { FleetWorkspaceApp } from "../src/server/fleet-workspace-app.js";
 import type { Live } from "../src/server/native/state.js";
 import type { Run } from "../src/server/queue.js";
-import { gitProject } from "./git-project.js";
+import { gitProject } from "./helpers/git-project.js";
 import { fleetActor } from "./fleet-action-fixture.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-propagation-"));

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile, readFile, readdir, rm } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 const workspace = createTestWorkspace("native-auth-api-");
 const dir = workspace.directory;
 process.env.LOOP_DATA_DIR = dir;

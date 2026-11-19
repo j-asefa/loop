@@ -16,7 +16,7 @@ import type { Harness } from "../src/shared/protocol.js";
 import { EmittedWorkspaceEvent } from "../src/shared/workspace-events.js";
 const executable = resolve("test/harness.mjs");
 chmodSync(executable, 0o755);
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
 import codexReviewApproval from "./fixtures/codex-review-approval.json" with { type: "json" };
 

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 test("paired runtime upgrade HTTP boundary fixes the executable, persists status and deduplicates reconnects", async (t) => {
   const workspace = createTestWorkspace("loop-upgrade-http-");

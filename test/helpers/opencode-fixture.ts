@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createConnection } from "node:net";
 import type { TestContext } from "node:test";
 import { OpenCode } from "../../src/adapters/opencode.js";
-import { until } from "../helpers.js";
+import { until } from "./wait.js";
 
 type Control = {
   history?: unknown[];

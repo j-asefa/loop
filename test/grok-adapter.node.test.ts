@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { Grok } from "../src/adapters/grok.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import type { Options } from "../src/adapters/types.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const options: Options = {
   harness: "grok",

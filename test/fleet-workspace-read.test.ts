@@ -27,7 +27,7 @@ import {
   FleetReadResponse,
 } from "../src/shared/fleet-workspace-api.js";
 import type { FleetOperation } from "../src/shared/fleet.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 const root = mkdtempSync(join(tmpdir(), "loop-fleet-read-"));
 process.env.LOOP_DATA_DIR = join(root, "destination");

@@ -13,8 +13,8 @@ import {
 } from "node:fs";
 
 import { join, resolve } from "node:path";
-import { gitProject } from "./git-project.js";
-import { until } from "./helpers.js";
+import { gitProject } from "./helpers/git-project.js";
+import { until } from "./helpers/wait.js";
 
 const root = realpathSync(testRootDirectory());
 const chat = join(root, "chat");

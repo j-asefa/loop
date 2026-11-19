@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TunnelSupervisor } from "../src/tunnel.js";
-import { until } from "./helpers.js";
+import { until } from "./helpers/wait.js";
 
 test("the tunnel reconnects with capped backoff for as long as the workspace runs", async () => {
   const outcomes = ["a", "fail", "fail", "fail", "b", "c"];

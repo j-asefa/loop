@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
-import { gitProject } from "../git-project.js";
+import { gitProject } from "../helpers/git-project.js";
 
 const directory = process.env.LOOP_DATA_DIR!;
 const project = join(directory, "project");

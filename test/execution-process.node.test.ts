@@ -27,8 +27,8 @@ import {
   groupAlive,
 } from "../src/process-records.js";
 import Database from "better-sqlite3";
-import { until } from "./helpers.js";
-import { gitProject } from "./git-project.js";
+import { until } from "./helpers/wait.js";
+import { gitProject } from "./helpers/git-project.js";
 
 const owner = (dir: string) =>
   JSON.parse(readFileSync(join(dir, "execution/owner.json"), "utf8")) as {

@@ -1,5 +1,5 @@
 import { createTestWorkspace } from "./helpers/test-workspace.js";
-import { inProcessExecution } from "./in-process-execution.js";
+import { inProcessExecution } from "./helpers/in-process-execution.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,8 +12,8 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { gitProject } from "./git-project.js";
-import { until } from "./helpers.js";
+import { gitProject } from "./helpers/git-project.js";
+import { until } from "./helpers/wait.js";
 
 const workspace = createTestWorkspace("loop-authority-");
 const directory = workspace.root;
