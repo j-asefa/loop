@@ -83,9 +83,9 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   // Every line of the untracked file changed, and a.ts lost its ten new lines.
   expect(delta.unseen).toBe(110);
   expect(delta.hunks).toContain("+++ this snapshot: notes.ts");
-  // The dropped file is described, not diffed against a base that may be stale.
+  // The excerpt shows exactly which earlier lines were removed.
   expect(delta.hunks).toContain("no longer changes this file: the 10 changed");
-  expect(delta.hunks).not.toContain("-line 19");
+  expect(delta.hunks).toContain("-line 19");
   // A file that became omitted is said to be uncomparable, not gone.
   expect(
     snapshotDelta({ ...rewritten, omitted: ["a.ts"] }, reviewed).hunks,

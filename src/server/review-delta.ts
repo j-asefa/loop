@@ -147,23 +147,20 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
     ...new Set([...current.changed, ...previous.changed]),
   ].sort()) {
     if (!changedNow.has(path)) {
-      // The earlier edit to this file is gone. Its current text is not in
-      // this snapshot's inline files and the base may have moved, so count
-      // the dropped edit and point the reviewer at the file instead of
-      // showing a diff against a stale base.
-      const dropped = changes(
-        edits(
-          lines(fileText(previous.before, path)),
-          lines(fileText(previous.files, path)),
-        ),
+      // Follow-ups share a base commit. When this path returns to that
+      // base, the previous snapshot contains both sides of the reversal.
+      const reversal = edits(
+        lines(fileText(previous.files, path)),
+        lines(fileText(previous.before, path)),
       );
+      const dropped = changes(reversal);
       if (!dropped) continue;
       unseen += dropped;
       hunks.push(
         `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n` +
           (current.omitted.includes(path)
             ? `This snapshot omits this file (binary, oversized or excluded by name), so the ${dropped} changed lines the earlier snapshot had cannot be compared.`
-            : `This snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. Read its current text with the snapshot reader.`),
+            : `This snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. \n${excerpt(reversal)}`),
       );
       continue;
     }

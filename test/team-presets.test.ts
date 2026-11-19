@@ -781,7 +781,9 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
     reviewers: [],
     report: "v3 is fixed",
   });
-  expect(report.note).toContain("follow-up by the review lead alone");
+  expect(report.note).toContain(
+    "assigned this follow-up to the review lead alone",
+  );
   const http = await fetch(
     `${url}/reviews/conversation/${lead.conversation_id}`,
     {

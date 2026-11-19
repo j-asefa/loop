@@ -475,7 +475,7 @@ function agentReviewReport(
       error: lead.error,
       note:
         (status.depth === "follow_up"
-          ? `This was a follow-up by the review lead alone: it checked the findings of review ${status.previousReviewId} and the lines changed since, and no independent reviewers ran. Pass depth "full" to loop_request_review for independent reviewers. `
+          ? `Loop assigned this follow-up to the review lead alone to check the findings of review ${status.previousReviewId} and the lines changed since. No independent reviewers were assigned. Pass depth "full" to loop_request_review for independent reviewers. `
           : "") +
         "The review covers only the captured snapshot; edits made after capture are not reviewed and no tests were run. Fix confirmed findings and request another review before opening the pull request.",
     },
