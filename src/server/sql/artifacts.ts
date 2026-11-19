@@ -443,7 +443,7 @@ export const MEMORY_CANDIDATE_BATCH = 250;
 // owner deleted from memory is never recaptured.
 export const memoryCandidatesSql = `SELECT a.* FROM artifacts a
   LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-  WHERE a.updated_at>=@since AND a.kind IN ('markdown','note','text') AND a.archived=0
+  WHERE (a.updated_at>=@since OR r.updated_at>=@since) AND a.kind IN ('markdown','note','text') AND a.archived=0
   AND NOT EXISTS(SELECT 1 FROM memory_sources s WHERE s.kind='artifact' AND s.source_id=a.id AND s.owner_id=a.owner_id
     AND (s.tombstone=1 OR (s.content=a.content AND s.title=a.title AND s.project_id IS a.folder_id)))
   AND (a.pinned=1 OR (${personalPublishedSql} AND COALESCE(${resultOutputSql},0))

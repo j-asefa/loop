@@ -126,11 +126,12 @@ function putSource(s: any) {
       now(),
     );
 }
-// Artifact capture runs every few seconds inside a write transaction, so it
-// checks only artifacts changed since its last committed pass (with a minute
-// of slack for concurrent writers). A full rescan, at startup, hourly and
-// after a memory policy change, backfills existing results and picks up
-// results that became finished without their artifact row changing.
+// Artifact capture runs every few seconds in the worker, inside a write
+// transaction, so it checks only artifacts or runs changed since its last
+// committed pass (with a minute of slack for concurrent writers); a run's
+// completion makes its answer a result. A full rescan, at startup and hourly,
+// backfills existing results and anything else that changed without either
+// row changing. Including an artifact captures it in the route itself.
 const ARTIFACT_RESCAN_MS = 60 * 60_000;
 const ARTIFACT_SLACK_MS = 60_000;
 let artifactWatermark = 0;
@@ -142,9 +143,35 @@ function artifactCaptureSince() {
   }
   return artifactWatermark;
 }
-function rescanArtifacts() {
-  artifactWatermark = 0;
+function artifactSource(
+  a: Pick<
+    QueryRow<"artifacts">,
+    | "id"
+    | "owner_id"
+    | "agent_id"
+    | "folder_id"
+    | "title"
+    | "content"
+    | "created_at"
+  >,
+) {
+  return {
+    id: a.id,
+    owner_id: a.owner_id,
+    agent_id: a.agent_id,
+    title: a.title,
+    content: a.content,
+    created_at: a.created_at,
+    kind: "artifact",
+    source_id: a.id,
+    project_id: a.folder_id,
+    role: "note",
+    origin: "loop",
+    eligible: true,
+    conversation_id: null,
+  };
 }
+const capturedArtifactKinds = new Set(["markdown", "note", "text"]);
 export function captureMemory() {
   const started = now();
   let batch = 0;
@@ -185,17 +212,7 @@ export function captureMemory() {
     );
     batch = artifacts.length;
     for (const a of artifacts)
-      if (["markdown", "note", "text"].includes(a.kind))
-        putSource({
-          ...a,
-          kind: "artifact",
-          source_id: a.id,
-          project_id: a.folder_id,
-          role: "note",
-          origin: "loop",
-          eligible: true,
-          conversation_id: null,
-        });
+      if (capturedArtifactKinds.has(a.kind)) putSource(artifactSource(a));
   }).immediate();
   // Only after commit; a full batch may have more behind it, so the watermark
   // waits until a pass finds less than a batch.
@@ -440,9 +457,10 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
   const { scope, enabled: value } = req.body,
     owner = res.locals.owner;
   const [kind, key] = scope.split(":");
+  let artifact: ReturnType<typeof ownedArtifact> | undefined;
   if (kind === "project") ownedFolder(key, owner);
   else if (kind === "conversation") ownedConversation(key, owner);
-  else if (kind === "artifact") ownedArtifact(key, owner);
+  else if (kind === "artifact") artifact = ownedArtifact(key, owner);
   else if (scope !== "workspace")
     throw new Problem(400, "Unknown memory scope");
   db.transaction(() => {
@@ -458,9 +476,16 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
         continue;
       memorySourcesQueries.advanceRevision(db, now(), s.id);
     }
+    // An included artifact may have no saved copy yet, and the worker's
+    // incremental capture only sees changed rows: capture it here.
+    if (
+      artifact &&
+      value &&
+      !artifact.archived &&
+      capturedArtifactKinds.has(artifact.kind)
+    )
+      putSource(artifactSource(artifact));
   }).immediate();
-  // An included artifact or conversation may have no saved copy yet.
-  rescanArtifacts();
   res.json({ ok: true });
 });
 routes.on(workspaceApi.memorySource, (req, res) => {

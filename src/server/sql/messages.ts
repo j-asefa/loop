@@ -720,6 +720,17 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
 const personalPromptStatement = statement(
   `SELECT 1 AS found WHERE ${personalRunSql("@run", "@owner")}`,
 );
+const sharedPromptStatement = statement(
+  "SELECT 1 AS found FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' AND json_extract(m.metadata,'$.shared')=1 ORDER BY m.rowid LIMIT 1",
+);
+/** Whether a run's prompt carries text its owner shared from elsewhere. */
+export function hasSharedPrompt(
+  db: Database.Database,
+  run: string,
+  owner: string,
+) {
+  return sharedPromptStatement(db).get(owner, run) !== undefined;
+}
 /** Whether a run's first prompt was typed by its owner; see personalRunSql. */
 export function hasPersonalPrompt(
   db: Database.Database,
