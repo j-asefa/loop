@@ -127,15 +127,19 @@ Native async tests use bounded waits from `test/helpers.ts`. Regressions should 
 Fixture tests show recall works; they cannot show it recalls the right things. [scripts/memory-recall-eval.ts](../scripts/memory-recall-eval.ts) is a proxy measure on a copy of a real workspace. For each saved result, the prompt that produced it is a known-item query, and recall should find that result. Prompts from conversations that left nothing in memory measure how often recall adds nothing. It calls production `searchMemory` and reports hit@1/@5, MRR, abstain rates, how much of the query the excerpt shows, injected characters and search latency.
 
 ```sh
-mkdir -m 700 /var/tmp/memory-eval/pristine /var/tmp/memory-eval/head
-LOOP_DATA_DIR=/var/tmp/memory-eval/pristine node --import tsx scripts/memory-recall-eval.ts \
-  --copy-from <workspace loop.db> --copy-only
-LOOP_DATA_DIR=/var/tmp/memory-eval/head node --import tsx scripts/memory-recall-eval.ts \
-  --copy-from /var/tmp/memory-eval/pristine/loop.db --json /var/tmp/memory-eval/head.json
-node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
+eval_dir=$(mktemp -d /var/tmp/memory-eval.XXXXXXXX)
+mkdir -m 700 "$eval_dir/pristine" "$eval_dir/base" "$eval_dir/head"
+LOOP_DATA_DIR="$eval_dir/pristine" node --import tsx scripts/memory-recall-eval.ts \
+  --copy-from "/path/to/workspace/loop.db" --copy-only
+# Run from the base checkout, then from the head checkout.
+LOOP_DATA_DIR="$eval_dir/base" node --import tsx scripts/memory-recall-eval.ts \
+  --copy-from "$eval_dir/pristine/loop.db" --json "$eval_dir/base.json"
+LOOP_DATA_DIR="$eval_dir/head" node --import tsx scripts/memory-recall-eval.ts \
+  --copy-from "$eval_dir/pristine/loop.db" --json "$eval_dir/head.json"
+node --import tsx scripts/memory-recall-eval.ts --compare "$eval_dir/base.json" "$eval_dir/head.json"
 ```
 
-`--copy-from` opens the source database read-only and copies, in one read snapshot, only the tables recall reads (never connections or review snapshots) into a fresh, migrated database. The script writes only to a private (`0700`), initially empty `LOOP_DATA_DIR` that a finished `--copy-from` filled. The copy holds the owner's work: keep it and the JSON local, and put only the aggregate table in a PR. Each run captures memory into its copy, so compare builds on separate copies of one pristine snapshot (`--copy-only` makes one; later copies can take its `loop.db` as `--copy-from`), with the same seed and limit (`--seed`, `--limit`, default 1 and 500). Use a fresh output filename for each run. The comparison refuses reports whose sampled queries or target annotations differ.
+`--copy-from` opens the source database read-only and copies, in one read snapshot, only the tables recall reads (never connections or review snapshots) into a fresh, migrated database. The script writes only to a private (`0700`), initially empty `LOOP_DATA_DIR` that a finished `--copy-from` filled. The copy holds the owner's work: keep it and the JSON local, and put only the aggregate table in a PR. Each run captures memory into its copy, so compare builds on separate copies of one pristine snapshot (`--copy-only` makes one; later copies can take its `loop.db` as `--copy-from`), with the same seed and limit (`--seed`, `--limit`, default 1 and 500). Use a fresh output filename and a separate data directory for each run. The replay measures retrieval and excerpt delivery. It does not simulate native-session receipt suppression, and its table copy omits mail-delivery state used to admit previously uncaptured automation messages. The comparison refuses reports whose sampled queries or target annotations differ.
 
 ## Command supervision
 

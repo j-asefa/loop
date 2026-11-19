@@ -2,17 +2,7 @@
 // excerpt quality on a copy of a workspace database. It calls production
 // searchMemory and evidenceBlock; it never reimplements them.
 //
-//   mkdir -m 700 /var/tmp/memory-eval/pristine /var/tmp/memory-eval/base /var/tmp/memory-eval/head
-//   LOOP_DATA_DIR=/var/tmp/memory-eval/pristine node --import tsx scripts/memory-recall-eval.ts \
-//     --copy-from <workspace loop.db> --copy-only
-//   # then, from each build's checkout, a fresh copy of the same snapshot:
-//   LOOP_DATA_DIR=/var/tmp/memory-eval/base node --import tsx scripts/memory-recall-eval.ts \
-//     --copy-from /var/tmp/memory-eval/pristine/loop.db --json /var/tmp/memory-eval/base.json
-//   node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
-//
-// It writes only to a private directory it filled with --copy-from. Each run
-// captures memory into its copy, so give each build its own copy of one
-// pristine snapshot. The data stays local: share aggregates only.
+// See docs/development.md for the replay commands and data handling.
 import {
   existsSync,
   readdirSync,

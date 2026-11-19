@@ -14,6 +14,7 @@ const { createAgent } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
+const artifacts = await import("../src/server/sql/artifacts");
 const { memoryRoutes, captureMemory } = await import("../src/server/memory");
 const {
   evaluate,
@@ -89,6 +90,25 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
   } finally {
     restore();
   }
+  const traceId = id();
+  const traceTitle = "Runner diagnostic trace";
+  const traceContent = "Runner diagnostic trace records disk quota";
+  artifacts.insert(
+    db,
+    traceId,
+    "alice",
+    agent.id,
+    answered.conversation_id,
+    answered.id,
+    traceTitle,
+    "markdown",
+    "trace",
+    traceContent,
+    "{}",
+    null,
+    now(),
+  );
+  artifacts.edit(db, traceTitle, traceContent, 1, 0, now(), traceId);
   // A prompt whose conversation produced nothing, and one the owner did not
   // type (agent mail), which is neither.
   const unanswered = submit("alice", {
@@ -136,6 +156,9 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
   captureMemory();
 
   const { queries } = await sampleQueries({ seed: 1, limit: 100 });
+  expect(
+    db.prepare("SELECT 1 FROM memory_sources WHERE source_id=?").get(traceId),
+  ).toBeDefined();
   const known = queries.filter((q) => q.set === "known");
   expect(known).toEqual([
     expect.objectContaining({

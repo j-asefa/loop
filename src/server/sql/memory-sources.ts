@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { z } from "zod";
-import { personalRunSql } from "./artifacts.js";
+import { personalRunSql, resultOutputSql } from "./artifacts.js";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
@@ -162,6 +162,8 @@ const knownItemsStatement = statement(
     JOIN artifacts a ON a.id=s.source_id AND a.owner_id=s.owner_id
     JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     WHERE s.kind='artifact' AND s.tombstone=0 AND s.eligible=1
+    AND EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
+    AND ${resultOutputSql}
     AND ${personalRunSql("r.id", "r.owner_id")}
     ORDER BY s.id`,
 );
