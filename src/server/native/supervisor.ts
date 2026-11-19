@@ -1,5 +1,6 @@
 import { openAnswer } from "../answer-record.js";
 import { recallForRun } from "../memory.js";
+import * as memoryReceiptsQueries from "../sql/memory-receipts.js";
 import { NativeSessionState } from "./state.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
 import { adapterControlSnapshot } from "./control-snapshot.js";
@@ -815,6 +816,8 @@ export class NativeSessions {
         // dispatch row to a terminal state (the guarded setState) so it is
         // not treated as an unconfirmed in-flight delivery.
         db.transaction(() => {
+          // The recall it would have carried was not sent either.
+          memoryReceiptsQueries.remove(db, run.id);
           nativeDispatchQueries.setState(db, "interrupted", run.id);
           nativeDispatchQueries.setError(
             db,

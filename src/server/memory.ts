@@ -372,8 +372,9 @@ export type Recall = {
   /** The evidence block to append to the turn's input ("" for none). */
   text: string;
   /**
-   * Writes the run's receipt. Callers invoke it inside the transaction that
-   * records the turn, so a turn refused before then keeps no receipt.
+   * Writes the run's receipt (only a turn that adds memory has one).
+   * Callers invoke it inside the transaction that records the turn, so a turn
+   * refused before then keeps no receipt.
    */
   record: () => void;
 };
@@ -391,7 +392,8 @@ export async function recallForRun(
       run.id,
     ) ||
     // An earlier first turn that was sent with recall but did not complete
-    // already put it in front of the harness.
+    // already put it in front of the harness. Only a turn that added memory
+    // keeps a receipt, and an undelivered native turn loses its receipt.
     memoryReceiptsQueries
       .conversationRuns(db, run.owner_id, run.conversation_id)
       .some((receipt) => receipt.run_id !== run.id)
@@ -418,7 +420,8 @@ export async function recallForRun(
     body += block;
     included.push(s);
   }
-  const text = included.length ? open + body + close : "";
+  if (!included.length) return noRecall;
+  const text = open + body + close;
   return {
     text,
     record: () =>

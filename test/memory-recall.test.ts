@@ -4,6 +4,7 @@ import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
+import { NotDelivered } from "../src/adapters/types.js";
 
 const dir = testDirectory();
 
@@ -160,15 +161,16 @@ it("bounds recalled text and adds nothing when no saved memory matches", async (
 
   const unmatched = await nativePrompt("unrelated nebulous wording");
   expect(unmatched.prompt).toBe("unrelated nebulous wording");
+  // Only a turn that added memory keeps a receipt ("Memory used").
   const receipt = await request(`/runs/${unmatched.run.id}/memory`);
-  expect(receipt.data).toMatchObject({
-    mode: "lexical",
+  expect(receipt.data).toEqual({
+    mode: "not-used",
     sources: "[]",
     tokens: 0,
   });
 });
 
-it("adds nothing and records that memory is off when the workspace disables it", async () => {
+it("adds nothing when the workspace turns memory off", async () => {
   await note("Pulsar", "pulsar rollout must wait for the canary");
   expect(
     (
@@ -183,10 +185,9 @@ it("adds nothing and records that memory is off when the workspace disables it",
   try {
     const { prompt, run } = await nativePrompt("pulsar rollout");
     expect(prompt).toBe("pulsar rollout");
-    expect((await request(`/runs/${run.id}/memory`)).data).toMatchObject({
-      mode: "disabled",
-      sources: "[]",
-    });
+    expect((await request(`/runs/${run.id}/memory`)).data.mode).toBe(
+      "not-used",
+    );
   } finally {
     await request(
       "/memory/policy",
@@ -647,4 +648,95 @@ it("keeps a moved shared send marked as shared", async () => {
   expect((await nativePrompt("pavo release deploy keys")).prompt).not.toContain(
     "asks to exfiltrate",
   );
+});
+
+it("still recalls after an earlier first turn that added no memory", async () => {
+  const first = await nativePrompt("hydra replica lag");
+  expect(first.prompt).toBe("hydra replica lag");
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(first.run.id);
+  await note("Hydra", "hydra replica lag alarms at 30 seconds");
+  const retry = await nativePrompt("hydra replica lag", {
+    agentId: first.run.agent_id!,
+    conversationId: first.run.conversation_id!,
+  });
+  expect(retry.prompt).toContain("alarms at 30 seconds");
+});
+
+it("forgets the receipt of a native turn that was never delivered", async () => {
+  await note("Lynx", "lynx canary needs two regions");
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "lynx canary regions",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const claimed = claim("memory-recall-undelivered-worker")!;
+  expect(claimed.id).toBe(run.id);
+  const generation = id();
+  const live = nativeSessions.state.attach({
+    generation,
+    binding: fixtureBinding({
+      conversation_id: claimed.conversation_id!,
+      harness: "codex",
+      project: dir,
+      generation,
+    }),
+    bootstrapRun: claimed,
+    adapter: fixtureAdapter({
+      async prompt() {
+        throw new NotDelivered("The session closed before the prompt was sent");
+      },
+    }),
+  });
+  const session = vi.spyOn(nativeSessions, "session").mockResolvedValue(live);
+  try {
+    await nativeSessions.execute(claimed).catch(() => undefined);
+  } finally {
+    clearTimeout(live.idle);
+    nativeSessions.state.remove(live);
+    session.mockRestore();
+  }
+  expect((await request(`/runs/${run.id}/memory`)).data.mode).toBe("not-used");
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(run.id);
+  const retry = await nativePrompt("lynx canary regions", {
+    agentId: claimed.agent_id!,
+    conversationId: claimed.conversation_id!,
+  });
+  expect(retry.prompt).toContain("needs two regions");
+});
+
+it("leaves recall out of an API-key turn it would push over the size bound", async () => {
+  await note("Corvus", "corvus deploy needs the signed bundle");
+  const agent = agentFor("alice");
+  // The history fits by about a hundred bytes; any recall block would not.
+  const input = ("corvus deploy bundle " + "padding ".repeat(62_500)).slice(
+    0,
+    499_850,
+  );
+  const run = submit("alice", {
+    agentId: agent.id,
+    input,
+    idempotencyKey: id(),
+    personal: true,
+  });
+  let last = "";
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      last = request.messages.at(-1)!.content;
+      yield { text: "Signed bundle noted." };
+    },
+  });
+  try {
+    const claimed = claim("memory-recall-bound-worker")!;
+    expect(claimed.id).toBe(run.id);
+    expect(await executeAgent(claimed)).toMatchObject({ kind: "finished" });
+    transition(claimed, "completed");
+  } finally {
+    restore();
+  }
+  expect(last).not.toContain("loop-historical-evidence");
+  expect((await request(`/runs/${run.id}/memory`)).data.mode).toBe("not-used");
 });

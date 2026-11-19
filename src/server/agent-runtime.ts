@@ -526,11 +526,19 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
       // once and kept in the checkpoint, so a resumed run does not search again.
       const turn = history.findLastIndex((m) => m.role === "user");
       if (turn >= 0) {
-        recall = await recallForRun(run, snapshot.folderId || null);
-        history[turn] = {
+        const found = await recallForRun(run, snapshot.folderId || null);
+        const withRecall = {
           ...history[turn],
-          content: history[turn].content + recall.text,
+          content: history[turn].content + found.text,
         };
+        // Recall never pushes a history that fit over the bound: it is left
+        // out (and unrecorded) instead.
+        const candidate = [...history];
+        candidate[turn] = withRecall;
+        if (Buffer.byteLength(JSON.stringify(candidate)) <= 500000) {
+          history[turn] = withRecall;
+          recall = found;
+        }
       }
     }
     const messageId = id();

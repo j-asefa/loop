@@ -31,6 +31,12 @@ export function replace(
   return replaceStatement(db).run(run, mode, sources, tokens, created);
 }
 
+const removeStatement = statement("DELETE FROM memory_receipts WHERE run_id=?");
+/** Forgets the receipt of a turn whose recall was never sent. */
+export function remove(db: Database.Database, run: string) {
+  return removeStatement(db).run(run);
+}
+
 const getStatement = statement("SELECT * FROM memory_receipts WHERE run_id=?");
 
 export function get(db: Database.Database, run: string) {
