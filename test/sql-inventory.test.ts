@@ -142,7 +142,7 @@ function sqlCallLines(file: string, text: string) {
     }
     return undefined;
   };
-  const connections = new Set(["db"]);
+  const connections = new Set(["db", "database"]);
   const constructors = new Set<string>();
   for (const node of nodes) {
     if (node.type === "ImportDeclaration") {
@@ -160,10 +160,46 @@ function sqlCallLines(file: string, text: string) {
       }
     }
   }
+  for (const node of nodes) {
+    if (node.type !== "VariableDeclarator") continue;
+    const value =
+      node.init?.type === "AwaitExpression" ? node.init.argument : node.init;
+    const sqliteImport =
+      value?.type === "ImportExpression" &&
+      value.source?.value === "better-sqlite3";
+    if (node.id.type === "ObjectPattern") {
+      for (const member of node.id.properties) {
+        if (member.type !== "Property") continue;
+        const binding =
+          member.value.type === "AssignmentPattern"
+            ? member.value.left
+            : member.value;
+        if (binding.type !== "Identifier") continue;
+        const name =
+          member.key.type === "Literal"
+            ? member.key.value
+            : member.computed
+              ? undefined
+              : member.key.name;
+        if (name === "db" || name === "database") connections.add(binding.name);
+        if (name === "default" && sqliteImport) constructors.add(binding.name);
+      }
+    } else if (
+      node.id.type === "Identifier" &&
+      value?.type === "CallExpression" &&
+      value.callee.name === "require" &&
+      value.arguments[0]?.value === "better-sqlite3"
+    ) {
+      constructors.add(node.id.name);
+    }
+  }
   const isConnection = (node: any) => {
     const name = receiver(node);
     return (
-      name !== undefined && (connections.has(name) || name.endsWith(".db"))
+      name !== undefined &&
+      (connections.has(name) ||
+        name.endsWith(".db") ||
+        name.endsWith(".database"))
     );
   };
   // Typed injected connections may execute SQL without a prepare call in this
@@ -240,6 +276,34 @@ it("counts SQL calls and aliases without counting comments, strings or regular e
   `,
     ),
   ).toBe(6);
+});
+
+it("detects renamed fixture handles and JavaScript SQLite constructors", () => {
+  expect(
+    inventory(
+      "probe.mjs",
+      `
+      const { "db": fixtureConnection = fallback } = fixture;
+      const { default: OpenDatabase } = await import("better-sqlite3");
+      const source = new OpenDatabase(":memory:");
+      fixtureConnection.prepare("SELECT 1");
+      source.exec("BEGIN"); source.prepare("SELECT 2");
+      function injected(database) { database.prepare("SELECT 3"); }
+      fixture.database.exec("SELECT 4");
+      const { service: client } = fixture; client.prepare({});
+    `,
+    ),
+  ).toBe(5);
+  expect(
+    inventory(
+      "probe.cjs",
+      `
+      const Sqlite = require("better-sqlite3");
+      const scratch = new Sqlite(":memory:");
+      scratch.exec("SELECT 5");
+    `,
+    ),
+  ).toBe(1);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
