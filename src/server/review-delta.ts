@@ -83,6 +83,7 @@ function excerpt(ops: Op[]) {
     if (!near) return;
     if (index > last + 1) out.push(`@@ line ${Math.max(line, 1)} @@`);
     out.push(op.kind + op.line.replace(/\n$/, ""));
+    if (!op.line.endsWith("\n")) out.push("\\ No newline at end of file");
     last = index;
   });
   return out.join("\n");

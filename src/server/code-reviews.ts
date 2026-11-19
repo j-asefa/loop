@@ -119,11 +119,17 @@ function followUpOf(
     if (review.state !== "completed" || !review.result || review.unfinished)
       return;
   const baseline = full.snapshot();
-  if (
-    baseline.base !== snapshot.base ||
-    previous.snapshot().base !== snapshot.base
-  )
-    return;
+  const prior = previous.id === full.id ? baseline : previous.snapshot();
+  if (baseline.base !== snapshot.base || prior.base !== snapshot.base) return;
+  // Bound input before splitting files or diff headers into lines. Even one
+  // short changed hunk can sit inside a newline-dense captured file.
+  let characters = 0;
+  for (const capture of new Set([snapshot, baseline, prior])) {
+    characters += capture.diff.length;
+    for (const map of [capture.before, capture.files])
+      for (const text of Object.values(map)) characters += text.length;
+    if (characters > 64_000) return;
+  }
   const delta = snapshotDelta(snapshot, baseline);
   const { unseen } = delta;
   if (
@@ -132,9 +138,7 @@ function followUpOf(
   )
     return;
   const leadDelta =
-    previous.id === full.id
-      ? delta
-      : snapshotDelta(snapshot, previous.snapshot());
+    previous.id === full.id ? delta : snapshotDelta(snapshot, prior);
   if (Buffer.byteLength(leadDelta.hunks) > 24_000) return;
   return previous.id;
 }

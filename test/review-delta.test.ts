@@ -197,3 +197,10 @@ it("shares the exact comparison budget across all files in a snapshot", () => {
     ).unseen,
   ).toBe(3002);
 });
+
+it("marks the unterminated side of a final-newline change", () => {
+  const old = snapshot({ a: ["value"] });
+  expect(snapshotDelta({ ...old, files: { a: "value" } }, old).hunks).toContain(
+    "-value\n+value\n\\ No newline at end of file",
+  );
+});

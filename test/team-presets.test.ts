@@ -896,8 +896,16 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const long = await request(longTurn);
   expect(long.reviewers).toBe(3);
   finish(longTurn, long, "x".repeat(24_001));
-  const oversized = await request(turn(first.conversation_id));
+  const oversizedTurn = turn(first.conversation_id);
+  const oversized = await request(oversizedTurn);
   expect(oversized.reviewers).toBe(3);
+
+  finish(oversizedTurn, oversized);
+  commit("dense.ts", ["\n".repeat(70_000)]);
+  const denseTurn = turn(first.conversation_id);
+  const dense = await request(denseTurn, { depth: "full" });
+  finish(denseTurn, dense);
+  expect((await request(turn(first.conversation_id))).reviewers).toBe(3);
 
   // Another conversation asking about the same checkout has no history here.
   const elsewhere = await request(turn());
