@@ -23,7 +23,9 @@ type Context = {
 export function markOpenSpecFences({ previewFenceCut = false } = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
-    const lastContent = source.trimEnd().length;
+    let lastContent = source.length;
+    while (lastContent > 0 && " \t\r\n".includes(source[lastContent - 1]))
+      lastContent--;
     const visit = (node: MdNode) => {
       if (node.type === "code" && node.lang === "spec" && node.position) {
         const raw = source.slice(

@@ -137,9 +137,12 @@ export function runDetails(
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
     detail.live_preview = /\S/.test(preview) ? preview : null;
     if (source.length > preview.length) {
-      const fence = /(?:^|[\r\n])[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(preview);
+      const lastLine = preview.slice(
+        Math.max(preview.lastIndexOf("\n"), preview.lastIndexOf("\r")) + 1,
+      );
+      const suffix = source.slice(preview.length);
+      const fence = /^[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(lastLine);
       if (fence) {
-        const suffix = source.slice(preview.length);
         // A longer run of the same delimiter can still be a real closer.
         const sameCloser = fence[2]
           ? /^[ \t]*(?:[\r\n]|$)/
@@ -147,11 +150,17 @@ export function runDetails(
             ? /^`*[ \t]*(?:[\r\n]|$)/
             : /^~*[ \t]*(?:[\r\n]|$)/;
         detail.live_preview_fence_cut = !sameCloser.test(suffix);
-      } else if (/(?:`{3,}|~{3,})[ \t]*[^`~ \t\r\n]+$/.test(preview)) {
-        // A language token may also continue past the preview cap.
-        detail.live_preview_fence_cut = /[^ \t\r\n]/.test(
-          source[preview.length],
+      } else {
+        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*[^`~ \t]+(.*)$/.exec(
+          lastLine,
         );
+        if (opener) {
+          // The cutoff can shorten a language token or remove a backtick
+          // that makes a backtick opener's info string invalid.
+          detail.live_preview_fence_cut =
+            (!opener[2] && /^[^ \t\r\n]/.test(suffix)) ||
+            (opener[1][0] === "`" && /^[^\r\n]*`/.test(suffix));
+        }
       }
     }
   }

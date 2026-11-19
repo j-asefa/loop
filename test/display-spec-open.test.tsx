@@ -388,3 +388,16 @@ it("warns about incomplete updates when the answer leaves a display's quote", ()
   expect(html).toContain("Earlier value");
   expect(html).toContain("Some display updates could not be applied.");
 });
+
+it("finalizes a quote when Unicode paragraph content follows it", () => {
+  const source =
+    "> ```spec\n> " +
+    patch({
+      op: "add",
+      path: "/root",
+      value: "pending",
+    });
+  expect(render(source + "\n\n\u00a0", true)).toContain(
+    "This display could not be drawn.",
+  );
+});
