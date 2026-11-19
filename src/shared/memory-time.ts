@@ -19,7 +19,7 @@ const phrase = new RegExp(
   "giu",
 );
 const quoted =
-  /"(?:\\.|[^"\\\n])*"|(?<![\p{L}\p{N}])'(?:\\.|[^'\\\n])*'|“[^”\n]*”|‘[^’\n]*’|`[^`\n]*`/gu;
+  /"(?:\\.|[^"\\\n])*"|(?<![\p{L}\p{N}])'(?:\\.|[^'\\\n])*'|“[^”\n]*”|‘[^’\n]*’/gu;
 
 function maskFences(query: string) {
   const markers = /^ {0,3}(`{3,}|~{3,})([^\n]*)/gm;
@@ -50,6 +50,35 @@ function maskFences(query: string) {
       "\u0000".repeat(query.length - fence.start),
     );
   else parts.push(query.slice(end));
+  return parts.join("");
+}
+
+function maskInlineCode(query: string) {
+  const runs = [...query.matchAll(/`+|\u0000+/g)];
+  const closer = new Map<number, number>();
+  const next = new Map<number, number>();
+  for (let index = runs.length - 1; index >= 0; index--) {
+    const text = runs[index][0];
+    if (text[0] === "\u0000") {
+      next.clear();
+      continue;
+    }
+    const closing = next.get(text.length);
+    if (closing !== undefined) closer.set(index, closing);
+    next.set(text.length, index);
+  }
+  const parts: string[] = [];
+  let end = 0;
+  for (let index = 0; index < runs.length; index++) {
+    const closing = closer.get(index);
+    if (closing === undefined) continue;
+    const start = runs[index].index;
+    const limit = runs[closing].index + runs[closing][0].length;
+    parts.push(query.slice(end, start), "\u0000".repeat(limit - start));
+    end = limit;
+    index = closing;
+  }
+  parts.push(query.slice(end));
   return parts.join("");
 }
 
@@ -108,13 +137,13 @@ export function parseMemoryTime(
 ): MemoryTimeWindow | undefined {
   const today = Math.floor(reference / DAY) * DAY;
   if (!Number.isFinite(today)) return undefined;
-  const searchable = maskFences(query).replace(quoted, (text) =>
+  const searchable = maskInlineCode(maskFences(query)).replace(quoted, (text) =>
     "\u0000".repeat(text.length),
   );
   const matched: NonNullable<MemoryTimeWindow["matched"]> = [];
   let from: number | null = null;
   let to: number | null = null;
-  let hasPeriod = false;
+  let period: { start: number; end: number } | undefined;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative] = match;
     const target = bound ?? iso ?? month ?? relative;
@@ -139,8 +168,12 @@ export function parseMemoryTime(
     } else if (modifier === "before") {
       to = Math.min(to ?? boundary.start, boundary.start);
     } else {
-      if (hasPeriod) continue;
-      hasPeriod = true;
+      if (
+        period &&
+        (boundary.start < period.start || boundary.end > period.end)
+      )
+        continue;
+      period = boundary;
       from = Math.max(from ?? boundary.start, boundary.start);
       to = Math.min(to ?? boundary.end, boundary.end);
     }

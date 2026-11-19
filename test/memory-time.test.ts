@@ -56,6 +56,8 @@ it.each([
   "read today.report field",
   "read /reports/today/summary",
   "find the $today variable",
+  "find the ``today`` variable",
+  "find the ```code `today`` variable```",
   "decisions since May joined the project",
   "review before June leaves the project",
   "review this example:\n```ts\nconst today = clock();\n```",
@@ -117,4 +119,12 @@ it("ignores date examples in fenced code but preserves real constraints", () => 
     to: Date.parse("2026-11-01"),
   });
   expect(withoutMemoryTime(query, window)).toContain("before 2026-10-02");
+});
+
+it("allows a specific date to narrow an earlier period", () => {
+  const query = "harvest last month, specifically on 2026-10-12";
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-10-12"),
+    to: Date.parse("2026-10-13"),
+  });
 });
