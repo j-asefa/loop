@@ -702,10 +702,11 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   );
   const context = reviewContext(lead);
   expect(context).toContain("Finding: v3 is misnamed");
-  expect(context).toContain("Hunks changed since that snapshot");
-  const delta = context.slice(context.indexOf("Hunks changed since"));
+  expect(context).toContain("Lines added (+) and removed (-) since");
+  const delta = context.slice(context.indexOf("Lines added (+) and removed"));
+  expect(delta).toContain("-export const v3 = 3;");
   expect(delta).toContain("+export const third = 3;");
-  expect(delta).not.toContain("+export const v20 = 20;");
+  expect(delta).not.toContain("export const v20 = 20;");
   expect(context).not.toContain("Independent reviewer reports");
   finish(second, followUp, "v3 is fixed");
   db.prepare(
@@ -753,14 +754,38 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   // Another small step still measures against the last full review.
   commit(
     "follow.ts",
-    body.with(3, "export const third = 3;").with(4, "export const fourth = 4;"),
+    body
+      .with(3, "export const third = 3;")
+      .with(4, "export const fourth = 4;")
+      .toSpliced(10, 1),
   );
   const third = turn(first.conversation_id);
   const chained = await request(third);
   expect(chained.followUp?.previous_review_id).toBe(followUp.id);
-  expect(reviewContext(ownedRun(chained.run_id, "alice"))).toContain(
-    "v3 is fixed",
+  const chainedContext = reviewContext(ownedRun(chained.run_id, "alice"));
+  expect(chainedContext).toContain("v3 is fixed");
+  // A line the earlier snapshot held and this one deleted is shown as removed.
+  const chainedDelta = chainedContext.slice(
+    chainedContext.indexOf("Lines added (+) and removed"),
   );
+  expect(chainedDelta).toContain("-export const v10 = 10;");
+  expect(chainedDelta).toContain("+export const fourth = 4;");
+  // Already in the previous snapshot, so not repeated.
+  expect(chainedDelta).not.toContain("+export const third = 3;");
+  // The same request key with another depth is different work, at the tool
+  // boundary and in the review receipt behind it.
+  const { requestReview } = await import("../src/server/code-reviews");
+  const sameCall = { teamId: team.id, scope: "branch", base: "main" } as const;
+  requestReview(third, "replayed", sameCall);
+  expect(() =>
+    requestReview(third, "replayed", { ...sameCall, depth: "full" }),
+  ).toThrow(/different review/);
+  const replayed = db
+    .prepare(
+      "SELECT c.run_id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=? AND d.call_id='replayed:review'",
+    )
+    .get(third.id) as { run_id: string };
+  finish(third, replayed);
   finish(third, chained);
 
   // The same snapshot reviewed in full on request.
@@ -786,6 +811,19 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   expect(grown.followUp).toBeUndefined();
   expect(grown.reviewers).toBe(3);
   finish(sixth, grown);
+
+  // A staged review in between captured other content: it neither blocks nor
+  // supports the next branch follow-up.
+  writeFileSync(join(worktree, "staged.ts"), "export const staged = 1;\n");
+  execFileSync("git", ["add", "staged.ts"], { cwd: worktree });
+  const seventh = turn(first.conversation_id);
+  const staged = await request(seventh, { scope: "staged" });
+  expect(staged.followUp).toBeUndefined();
+  finish(seventh, staged);
+  const eighth = turn(first.conversation_id);
+  const resumed = await request(eighth);
+  expect(resumed.followUp?.previous_review_id).toBe(grown.id);
+  finish(eighth, resumed);
 
   // Another conversation asking about the same checkout has no history here.
   const elsewhere = await request(turn());
