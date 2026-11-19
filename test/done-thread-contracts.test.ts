@@ -4,7 +4,7 @@ import { workspaceApi } from "../src/shared/workspace-api";
 import { integrationTokenRequest } from "../src/shared/card-access";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
 
 it("companion persists Done threads without changing conversations and isolates every operation by owner", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -59,16 +59,16 @@ it("companion persists Done threads without changing conversations and isolates 
         created_at: index + 1,
         updated_at: index + 2,
       });
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-      ).run(
-        "answer" + index,
-        identity,
-        conversation,
-        "run" + index,
-        body + index,
-        index + 2,
-      );
+      seedMessage(db, {
+        id: "answer" + index,
+        owner_id: identity,
+        conversation_id: conversation,
+        run_id: "run" + index,
+        role: "assistant",
+        content: body + index,
+        metadata: "{}",
+        created_at: index + 2,
+      });
     }
     db.prepare(
       "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES('imported',?,'basil','assistant','Imported answer','{}',20),('prompt',?,'basil','user','Not a result','{}',21)",

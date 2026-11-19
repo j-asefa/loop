@@ -6,7 +6,11 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
-import { seedConversation } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+} from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -216,9 +220,14 @@ it("an explicit Grok-to-Antigravity switch retains the agent workspace and start
   const project = legacy.binding.project;
   expect(legacy.binding.native_id).toBe("grok-session");
   await sessions.dispose(legacy);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('legacy-message',?,?,'user','Earlier Grok task',0)",
-  ).run(OWNER, run.conversation_id);
+  seedMessage(db, {
+    id: "legacy-message",
+    owner_id: OWNER,
+    conversation_id: run.conversation_id!,
+    role: "user",
+    content: "Earlier Grok task",
+    created_at: 0,
+  });
   const switched = await sessions.session(run);
   expect(switched.binding.harness).toBe("antigravity");
   expect(switched.binding.project).toBe(project);
@@ -458,9 +467,14 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   const legacy = task("agy-upgrade-history");
   const saved = await sessions.session(legacy.run);
   const savedProject = saved.binding.project;
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('agy-released-answer',?,?,'assistant','Saved historical answer',0)",
-  ).run(OWNER, legacy.run.conversation_id);
+  seedMessage(db, {
+    id: "agy-released-answer",
+    owner_id: OWNER,
+    conversation_id: legacy.run.conversation_id!,
+    role: "assistant",
+    content: "Saved historical answer",
+    created_at: 0,
+  });
   await sessions.projects.enable({
     harness: "antigravity",
     executable: resolve("test/fixtures/fake-antigravity.mjs"),
@@ -487,9 +501,17 @@ it("injects generation-scoped workspace tools into ACP and sends mail once throu
   const { agent, run } = task("agy-acp-mail");
   expect(eligibleMailAgent(OWNER, agent.id).id).toBe(agent.id);
   expect(() => eligibleMailAgent("other-owner", agent.id)).toThrow(/not found/);
-  db.prepare(
-    `INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES('mail-api',?,'openai','Fixture','','connected','[{"id":"fixture"}]','{}',0)`,
-  ).run(OWNER);
+  seedConnection(db, {
+    id: "mail-api",
+    owner_id: OWNER,
+    provider: "openai",
+    label: "Fixture",
+    secret: "",
+    status: "connected",
+    models: '[{"id":"fixture"}]',
+    metadata: "{}",
+    created_at: 0,
+  });
   const recipient = createAgent(OWNER, {
     name: "mail-recipient",
     connectionId: "mail-api",

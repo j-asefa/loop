@@ -259,9 +259,16 @@ it("announces a query credential failure while indexed and pending documents coe
   enable(owner);
   advance();
   await indexPending();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?)",
-  ).run(connection, owner, "not-a-sealed-envelope", now());
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: "openai",
+    label: "Fixture",
+    secret: "not-a-sealed-envelope",
+    status: "connected",
+    created_at: now(),
+    models: "[]",
+  });
   db.prepare(
     "UPDATE preferences SET embedding_connection=?,embedding_model='fixture-embedding' WHERE owner_id=?",
   ).run(connection, owner);

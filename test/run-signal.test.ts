@@ -1,6 +1,7 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { historicalEvent } from "../src/shared/workspace-events";
+import { seedConnection } from "./helpers/seed.js";
 
 testDirectory();
 const { db, changes, id, emit, workspaceClock, ensureWorkspaceOwner } =
@@ -90,9 +91,16 @@ it("shares one fallback read and subscription until the last consumer releases",
 
 it("publishes only committed, owner-scoped connection status without credentials or a borrowed run", async () => {
   for (const owner of ["alice", "bob"])
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture','private credential','connected',1)",
-    ).run(owner, owner);
+    seedConnection(db, {
+      id: owner,
+      owner_id: owner,
+      provider: "openai",
+      label: "Fixture",
+      secret: "private credential",
+      status: "connected",
+      created_at: 1,
+      models: "[]",
+    });
   const run = enqueue("alice", "Wait", id(), {
     payload: { connectionId: "alice" },
   });
@@ -183,9 +191,16 @@ it("keeps connection emissions and owner watermark initialization isolated", () 
   expect(ensureWorkspaceOwner(owner)).toBe(initial.epoch);
   expect(ensureWorkspaceOwner(owner)).toBe(initial.epoch);
   expect(workspaceClock(other).cursor).toBe(0);
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES(?,?,'openai','Fixture','private credential','connected',1)",
-  ).run(connection, owner);
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: "openai",
+    label: "Fixture",
+    secret: "private credential",
+    status: "connected",
+    created_at: 1,
+    models: "[]",
+  });
   const before = workspaceClock(owner).cursor;
   expect(() =>
     emit(other, { kind: "connection", id: connection }, "connection.status", {

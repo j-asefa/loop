@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedConnection, seedMessage } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
@@ -235,9 +235,14 @@ it("pages public agent messages and links final responses by message identity in
     "UPDATE messages SET content='Complete final answer',metadata='{}' WHERE id=?",
   ).run(messageId);
   // An imported answer has no run trace, but is still part of Messages.
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'alice',?,'assistant','Imported answer',2500)",
-  ).run(id(), run.conversation_id);
+  seedMessage(db, {
+    id: id(),
+    owner_id: "alice",
+    conversation_id: run.conversation_id!,
+    role: "assistant",
+    content: "Imported answer",
+    created_at: 2500,
+  });
   const items: any[] = [];
   let next: string | null = null;
   do {
@@ -382,9 +387,15 @@ it("deduplicates legacy answer representations by run without hiding edited file
       idempotencyKey: id(),
     });
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'legacy',?,?,'assistant',?,?)",
-  ).run(message, run.conversation_id, run.id, "Quasar result\r\n", now());
+  seedMessage(db, {
+    id: message,
+    owner_id: "legacy",
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Quasar result\r\n",
+    created_at: now(),
+  });
   const artifact = saveArtifact("legacy", {
     title: "Quasar answer",
     content: "Quasar result\n",
@@ -903,12 +914,19 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
   ];
   for (let i = 0; i < 65; i++) {
     const n = {
-      role: "tool",
+      role: "tool" as const,
       content: JSON.stringify(bodies[i % bodies.length]),
     };
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,?,?,'{}',?)",
-    ).run(id(), run.conversation_id, run.id, n.role, n.content, now());
+    seedMessage(db, {
+      id: id(),
+      owner_id: "alice",
+      conversation_id: run.conversation_id!,
+      run_id: run.id,
+      role: n.role,
+      content: n.content,
+      metadata: "{}",
+      created_at: now(),
+    });
   }
   recordTrace(run, "fixture-tool", {
     kind: "tool",
@@ -918,9 +936,16 @@ it("keeps native lifecycle events and tool rows out of conversation pages while 
   recordConversationUpdate(run, "fixture-update", {
     content: "Public progress",
   });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,?,'assistant','Public answer','{}',?)",
-  ).run(id(), run.conversation_id, run.id, now());
+  seedMessage(db, {
+    id: id(),
+    owner_id: "alice",
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Public answer",
+    metadata: "{}",
+    created_at: now(),
+  });
   const page = await get(`/conversations/${run.conversation_id}`);
   expect(page.next).toBeNull();
   expect(page.messages.map((m: any) => m.content)).toEqual([
@@ -959,19 +984,27 @@ it("keeps system messages and native failure notices in conversation pages", asy
     idempotencyKey: id(),
   });
   const system = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'system','Imported instructions','{}',?)",
-  ).run(system, run.conversation_id, now());
+  seedMessage(db, {
+    id: system,
+    owner_id: "alice",
+    conversation_id: run.conversation_id!,
+    run_id: null,
+    role: "system",
+    content: "Imported instructions",
+    metadata: "{}",
+    created_at: now(),
+  });
   for (const type of ["error", "loop-delivery-unknown", "ready"])
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'alice',?,NULL,'tool',?,?,?)",
-    ).run(
-      id(),
-      run.conversation_id,
-      type + " notice",
-      JSON.stringify({ native: { type } }),
-      now(),
-    );
+    seedMessage(db, {
+      id: id(),
+      owner_id: "alice",
+      conversation_id: run.conversation_id!,
+      run_id: null,
+      role: "tool",
+      content: type + " notice",
+      metadata: JSON.stringify({ native: { type } }),
+      created_at: now(),
+    });
   const page = await get(`/conversations/${run.conversation_id}`);
   expect(page.messages.map((m: any) => m.content)).toEqual(
     expect.arrayContaining([

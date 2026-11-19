@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { seedConversation } from "./helpers/seed.js";
+import { seedConversation, seedMessage } from "./helpers/seed.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 testDirectory();
@@ -76,18 +76,30 @@ describe("Canonical Result publication, immutability, and migration", () => {
         },
       },
     );
-    db.prepare(
-      `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
-       VALUES ('msg-user-1', ?, 'conv-1', ?, 'user', 'Draft the canonical result model', '{}', 110)`,
-    ).run(owner, run1.id);
+    seedMessage(db, {
+      id: "msg-user-1",
+      owner_id: owner,
+      conversation_id: "conv-1",
+      run_id: run1.id,
+      role: "user",
+      content: "Draft the canonical result model",
+      metadata: "{}",
+      created_at: 110,
+    });
     const claimed1 = claim("worker-1");
     expect(claimed1?.id).toBe(run1.id);
 
     // While run1 is running, steer it with a question and publish a steering reply
-    db.prepare(
-      `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
-       VALUES ('msg-steer-q', ?, 'conv-1', ?, 'user', 'Should results be mutable?', '{"steeringId":"steer-1"}', 115)`,
-    ).run(owner, run1.id);
+    seedMessage(db, {
+      id: "msg-steer-q",
+      owner_id: owner,
+      conversation_id: "conv-1",
+      run_id: run1.id,
+      role: "user",
+      content: "Should results be mutable?",
+      metadata: '{"steeringId":"steer-1"}',
+      created_at: 115,
+    });
     db.prepare(
       `INSERT INTO run_steering(id, owner_id, run_id, message_id, idempotency_key, request, state, created_at)
        VALUES ('steer-1', ?, ?, 'msg-steer-q', 'idem-steer-1', '{}', 'delivered', 115)`,
@@ -99,13 +111,14 @@ describe("Canonical Result publication, immutability, and migration", () => {
     });
 
     // Write final answer for run1 (plain markdown in runs.result and resolvedModel in payload, matching production) and transition to completed
-    db.prepare(
-      `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
-       VALUES ('msg-ans-1', ?, 'conv-1', ?, 'assistant', 'Final canonical result design v1.', ?, 120)`,
-    ).run(
-      owner,
-      run1.id,
-      JSON.stringify({
+    seedMessage(db, {
+      id: "msg-ans-1",
+      owner_id: owner,
+      conversation_id: "conv-1",
+      run_id: run1.id,
+      role: "assistant",
+      content: "Final canonical result design v1.",
+      metadata: JSON.stringify({
         attachments: [
           {
             id: "art-1",
@@ -116,7 +129,8 @@ describe("Canonical Result publication, immutability, and migration", () => {
           },
         ],
       }),
-    );
+      created_at: 120,
+    });
     db.prepare(
       `UPDATE runs SET payload = json_set(payload, '$.resolvedModel', ?), result = ? WHERE id = ?`,
     ).run(
@@ -133,10 +147,16 @@ describe("Canonical Result publication, immutability, and migration", () => {
     });
     const claimed2 = claim("worker-1");
     expect(claimed2?.id).toBe(run2.id);
-    db.prepare(
-      `INSERT INTO messages(id, owner_id, conversation_id, run_id, role, content, metadata, created_at)
-       VALUES ('msg-ans-2', ?, 'conv-1', ?, 'assistant', 'Context edges index added.', '{}', 130)`,
-    ).run(owner, run2.id);
+    seedMessage(db, {
+      id: "msg-ans-2",
+      owner_id: owner,
+      conversation_id: "conv-1",
+      run_id: run2.id,
+      role: "assistant",
+      content: "Context edges index added.",
+      metadata: "{}",
+      created_at: 130,
+    });
     transition(claimed2!, "completed");
 
     seedConversation(db, {

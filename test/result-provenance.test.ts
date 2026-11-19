@@ -1,5 +1,9 @@
 import type { Provider } from "../src/shared/types.js";
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 import Database from "better-sqlite3";
@@ -69,9 +73,16 @@ function completedRun(
   });
   const run = ownedRun(queued.id, owner);
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-  ).run(message, owner, run.conversation_id, run.id, text, now() + 5);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: text,
+    metadata: "{}",
+    created_at: now() + 5,
+  });
   db.prepare(
     "UPDATE runs SET state='completed',payload=json_set(payload,'$.provider','anthropic','$.model','model-x'),updated_at=? WHERE id=?",
   ).run(now() + 10, run.id);
@@ -209,16 +220,19 @@ it("records an unavailable source as unknown authorship and rejects another owne
     ["Gone", "deleted-message"],
     ["Foreign", foreign.message],
   ]) {
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant',?,?,?)",
-    ).run(
-      id(),
-      owner,
-      conversation,
-      content,
-      JSON.stringify({ sourceConversation: "elsewhere", sourceMessage }),
-      content === "Gone" ? 2 : 3,
-    );
+    seedMessage(db, {
+      id: id(),
+      owner_id: owner,
+      conversation_id: conversation,
+      run_id: null,
+      role: "assistant",
+      content: content,
+      metadata: JSON.stringify({
+        sourceConversation: "elsewhere",
+        sourceMessage,
+      }),
+      created_at: content === "Gone" ? 2 : 3,
+    });
   }
   const [gone, foreignCopy] = publishImportedConversationResults(
     owner,
@@ -260,9 +274,16 @@ it("distinguishes an external import from a copied publication", () => {
     origin: "openai-import",
     created_at: 1,
   });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Imported answer','{}',2)",
-  ).run(id(), owner, conversation);
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: null,
+    role: "assistant",
+    content: "Imported answer",
+    metadata: "{}",
+    created_at: 2,
+  });
   const [imported] = publishImportedConversationResults(
     owner,
     conversation,
@@ -572,18 +593,19 @@ it("presents a recorded finding on the copy's Done card without changing the rec
     created_at: now(),
   });
   const copy = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Original answer',?,?)",
-  ).run(
-    copy,
-    owner,
-    conversation,
-    JSON.stringify({
+  seedMessage(db, {
+    id: copy,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: null,
+    role: "assistant",
+    content: "Original answer",
+    metadata: JSON.stringify({
       sourceConversation: source.run.conversation_id,
       sourceMessage: source.message,
     }),
-    now(),
-  );
+    created_at: now(),
+  });
   const resultId = "message:" + copy;
   db.prepare(
     `INSERT INTO results(id,owner_id,schema_version,kind,origin_completeness,sealed,created_at,conversation_id,run_id,message_id,agent_id,content_digest,stimulus,outcome,attachments,provenance,lineage)
@@ -682,9 +704,16 @@ it("does not record a placement for a copy of an answer that was never published
   });
   const run = ownedRun(queued.id, owner);
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Interrupted answer','{}',?)",
-  ).run(message, owner, run.conversation_id, run.id, now() + 1);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Interrupted answer",
+    metadata: "{}",
+    created_at: now() + 1,
+  });
   // Even a folder the run recorded says nothing about the project and team
   // its answer was published under, since it was never published.
   const folder = id();
@@ -725,15 +754,16 @@ it("keeps a version 1 copy's recorded author when the chain beyond it is gone", 
   });
   // An earlier build sealed this copy, whose own source no longer exists.
   const earlier = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Kept answer',?,?)",
-  ).run(
-    earlier,
-    owner,
-    conversation,
-    JSON.stringify({ sourceMessage: "gone-message" }),
-    now(),
-  );
+  seedMessage(db, {
+    id: earlier,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: null,
+    role: "assistant",
+    content: "Kept answer",
+    metadata: JSON.stringify({ sourceMessage: "gone-message" }),
+    created_at: now(),
+  });
   const earlierResult = "message:" + earlier;
   db.prepare(
     `INSERT INTO results(id,owner_id,schema_version,kind,origin_completeness,sealed,created_at,conversation_id,run_id,message_id,agent_id,content_digest,stimulus,outcome,attachments,provenance,lineage)
