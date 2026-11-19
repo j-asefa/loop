@@ -248,6 +248,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     });
   };
   const dbModule = /(?:^|\/)db(?:\.js)?$/;
+  const recordObject = (scope: Scope, name: string, value: any): void => {
+    scope.bindings.set(name, "object");
+    for (const member of value.properties) {
+      if (member.type !== "Property") continue;
+      const key = member.computed
+        ? member.key.value
+        : (member.key.name ?? member.key.value);
+      const child = unwrap(member.value);
+      if (typeof key === "string" && child?.type === "ObjectExpression")
+        recordObject(scope, `${name}.${key}`, child);
+    }
+  };
   for (const node of nodes) {
     const scope = declarationScope(node);
     if (node.type === "ImportDeclaration") {
@@ -285,8 +297,10 @@ function sqlCallLines(file: string, text: string, script = false) {
             (script && value?.type === "Identifier" && value.name === "fixture")
               ? "connection"
               : "inferred";
-        if (key === "" && value?.type === "ObjectExpression")
-          binding = "object";
+        if (key === "" && value?.type === "ObjectExpression") {
+          recordObject(scope, name, value);
+          continue;
+        }
         if (
           (key === "default" && importsSqlite(node.init)) ||
           (key === "" && sqliteConstructor)
@@ -301,15 +315,25 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const parameter of parameters) {
       for (const { key, name } of bindings(parameter)) {
         const binding =
-          key === "db" || (key === "" && name === "database")
-            ? "inferred"
-            : "other";
+          key === "db" && script
+            ? "connection"
+            : key === "db" || (key === "" && name === "database")
+              ? "inferred"
+              : "other";
         scope.bindings.set(name, binding);
       }
     }
   }
+  const isConstructor = (name: string, node: any) =>
+    bindingOf(name, node) === "constructor";
   const connectionKind = (node: any) => {
-    const name = receiver(node);
+    const expression = unwrap(node);
+    if (
+      expression?.type === "NewExpression" &&
+      isConstructor(expression.callee.name, expression)
+    )
+      return "connection";
+    const name = receiver(expression);
     if (!name) return undefined;
     const [root] = name.split(".");
     const owner =
@@ -326,8 +350,6 @@ function sqlCallLines(file: string, text: string, script = false) {
       ? binding
       : undefined;
   };
-  const isConstructor = (name: string, node: any) =>
-    bindingOf(name, node) === "constructor";
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
   for (const node of nodes) {
     const type = node.typeAnnotation?.typeAnnotation?.typeName;
@@ -354,12 +376,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const target = receiver(declaration ? node.id : node.left);
       const value = unwrap(declaration ? node.init : node.right);
       if (!target) continue;
-      const binding =
-        connectionKind(value) ??
-        (value?.type === "NewExpression" &&
-        isConstructor(value.callee.name, value)
-          ? "connection"
-          : undefined);
+      const binding = connectionKind(value);
       if (!binding) continue;
       const instance = target.startsWith("this.")
         ? boundaryScope(node, "class")
@@ -545,6 +562,19 @@ it("counts a fixture's dynamic exec without counting a local command adapter", (
     }
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4]);
+});
+
+it("counts renamed parameters and inline SQLite without counting nested adapters", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    function migrate({ db: handle }, statement) {
+      handle.exec(statement);
+    }
+    new SQLite(":memory:").exec("SELECT 1");
+    const services = { db: { exec: runCommand } };
+    services.db.exec(command);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 6]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
