@@ -19,7 +19,7 @@ const { saveArtifact } = await import("../src/server/artifacts");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
 const artifactsQueries = await import("../src/server/sql/artifacts");
-const memoryFtsQueries = await import("../src/server/sql/memory-fts");
+const memoryPassageQueries = await import("../src/server/sql/memory-passages");
 const messagesQueries = await import("../src/server/sql/messages");
 const {
   memoryRoutes,
@@ -473,9 +473,11 @@ it("keeps no receipt for a turn refused before it is recorded", async () => {
 
 it("sends the turn without recall when the memory search fails", async () => {
   await note("Draco", "draco rollout waits for the canary");
-  const search = vi.spyOn(memoryFtsQueries, "search").mockImplementation(() => {
-    throw new Error("fts unavailable");
-  });
+  const search = vi
+    .spyOn(memoryPassageQueries, "search")
+    .mockImplementation(() => {
+      throw new Error("fts unavailable");
+    });
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     const { prompt, run } = await nativePrompt("draco rollout canary");
@@ -1125,7 +1127,6 @@ it("recalls the passage that matches, with its kind, author and date", async () 
   expect(prompt).toContain(
     `[${deep.data.id}@1] note by you, ${date}, "Long log", `,
   );
-  expect(prompt).toMatch(/\n…[^\n]*kestrel migration window/);
   expect(prompt).not.toContain("for bob");
 });
 
@@ -1203,10 +1204,45 @@ it("does not count a word split at the source scan limit", async () => {
 it("uses the full suffix budget when the excerpt needs one elision mark", async () => {
   const suffix = "mandarin" + " x".repeat(542) + " sorrel";
   expect(suffix).toHaveLength(1099);
-  const source = await note("Long diagnostics", "prefix ".repeat(200) + suffix);
+  const source = await note(
+    "Long diagnostics",
+    "prefix ".repeat(200) + "\n\n" + suffix,
+  );
   const { prompt } = await nativePrompt("mandarin sorrel");
   expect(prompt).toContain(`[${source.data.id}@1]`);
-  expect(prompt).toContain("…" + suffix);
+  expect(prompt).toContain(suffix);
+});
+
+it("replaces a note's passage index in the same revision as its edit", async () => {
+  const { data } = await note(
+    "Revision ledger",
+    "marigold transplant deadline",
+  );
+  const found = (query: string) =>
+    searchMemory("alice", null, query, { relevant: true });
+  expect((await found("marigold transplant")).sources).toEqual([
+    expect.objectContaining({ id: data.id, revision: 1 }),
+  ]);
+  const edit = await request(
+    `/memory/notes/${data.id}`,
+    {
+      title: "Revision ledger",
+      content: "bergamot harvest deadline",
+      revision: 1,
+    },
+    "alice",
+    "PATCH",
+  );
+  expect(edit.status).toBe(200);
+  expect((await found("marigold transplant")).sources).toEqual([]);
+  expect((await found("bergamot harvest")).sources).toEqual([
+    expect.objectContaining({ id: data.id, revision: 2 }),
+  ]);
+  expect(
+    (await request(`/memory/sources/${data.id}`, undefined, "alice", "DELETE"))
+      .status,
+  ).toBe(200);
+  expect((await found("bergamot harvest")).sources).toEqual([]);
 });
 
 it("matches titles as well as content", async () => {

@@ -834,6 +834,14 @@ export const QueryRecords = {
     enabled: z.number(),
   }),
   memory_sources: MemorySourceRecord,
+  memory_passages: z.object({
+    source_id: Id,
+    revision: z.number(),
+    ordinal: z.number().int().nonnegative(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+  }),
+  memory_passage_backfill: z.object({ complete: z.literal(1) }),
   messages: MessageRecord,
   native_calls: z.object({
     run_id: z.string(),

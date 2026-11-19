@@ -58,7 +58,7 @@ it("logs maintenance failures safely, preserves delivery order and waits for fee
     return 0;
   });
   vi.spyOn(prs, "pollWatches").mockResolvedValue(0);
-  vi.spyOn(memory, "captureMemory").mockImplementation(() => {});
+  vi.spyOn(memory, "captureMemory").mockReturnValue(0);
   vi.spyOn(search, "indexPending").mockResolvedValue(undefined);
   const { startMaintenance } = await import("../src/server/worker-maintenance");
   const jobs: Promise<unknown>[] = [];
