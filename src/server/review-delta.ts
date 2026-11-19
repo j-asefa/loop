@@ -222,11 +222,21 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
   const budget = { cells: MAX_CELLS };
   let unseen = 0;
   const hunks: string[] = [];
+  const before = modes(previous.diff),
+    after = modes(current.diff);
   const changedNow = new Set(current.changed),
     changedBefore = new Set(previous.changed);
   for (const path of [
     ...new Set([...current.changed, ...previous.changed]),
   ].sort()) {
+    if (current.omitted.includes(path)) {
+      const header = `diff --git ${gitDiffPath("a/" + path)} ${gitDiffPath("b/" + path)}`;
+      before.delete(header);
+      hunks.push(
+        `${JSON.stringify(path)}: This snapshot omits this file; its contents and mode cannot be compared.`,
+      );
+      continue;
+    }
     const reverted = !changedNow.has(path);
     const oldBase = fileText(previous.before, path);
     const newBase = fileText(current.before, path);
@@ -239,10 +249,9 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
     const ops = edits(lines(then), lines(now), budget);
     // Empty files have no lines, but their presence can affect behavior.
     unseen += Math.max(1, changes(ops));
-    const evidence = current.omitted.includes(path)
-      ? "This snapshot omits this file; its current contents cannot be compared."
-      : excerpt(ops) ||
-        (now === undefined ? "Empty file removed." : "Empty file added.");
+    const evidence =
+      excerpt(ops) ||
+      (now === undefined ? "Empty file removed." : "Empty file added.");
     const label = JSON.stringify(path);
     hunks.push(
       `--- earlier snapshot: ${label}\n+++ this snapshot: ${label}\n${evidence}`,
@@ -250,8 +259,6 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
   }
   // A mode set, changed or put back since the earlier snapshot. The text may
   // be the same in both, which the content comparison cannot see.
-  const before = modes(previous.diff),
-    after = modes(current.diff);
   for (const header of new Set([...before.keys(), ...after.keys()])) {
     const earlier = before.get(header) ?? [],
       mode = after.get(header) ?? [];

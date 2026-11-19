@@ -154,6 +154,7 @@ export function captureSnapshot(
     "-c",
     "core.quotePath=true",
     "diff",
+    "--no-color",
     "--src-prefix=a/",
     "--dst-prefix=b/",
     "--no-ext-diff",

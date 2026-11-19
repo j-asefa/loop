@@ -89,6 +89,9 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   expect(
     snapshotDelta({ ...rewritten, omitted: ["a.ts"] }, reviewed).hunks,
   ).toContain("This snapshot omits this file");
+  expect(
+    snapshotDelta({ ...rewritten, omitted: ["a.ts"] }, reviewed).unseen,
+  ).toBe(100);
   expect(changedLines(rewritten)).toBe(50);
 
   // A file this snapshot changes for the first time is compared with its base.

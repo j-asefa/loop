@@ -180,6 +180,7 @@ it("compares working permissions when an executable is removed from the index", 
   const localGit = (...args: string[]) =>
     execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
   localGit("init");
+  localGit("config", "color.diff", "always");
   const script = join(checkout, "run.sh");
   writeFileSync(script, "echo ok\n", { mode: 0o755 });
   localGit("add", "run.sh");
