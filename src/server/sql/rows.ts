@@ -244,6 +244,11 @@ export const QueryRecords = {
     name: z.string(),
     applied_at: z.number(),
   }),
+  review_follow_ups: z.object({
+    review_id: z.string(),
+    owner_id: z.string(),
+    previous_review_id: z.string(),
+  }),
   review_continuations: z.object({
     review_id: z.string(),
     owner_id: z.string(),
@@ -829,6 +834,15 @@ export const QueryRecords = {
     enabled: z.number(),
   }),
   memory_sources: MemorySourceRecord,
+  memory_passages: z.object({
+    id: z.number().int(),
+    source_id: Id,
+    revision: z.number(),
+    ordinal: z.number().int().nonnegative(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+  }),
+  memory_passage_backfill: z.object({ complete: z.literal(1) }),
   messages: MessageRecord,
   native_calls: z.object({
     run_id: z.string(),

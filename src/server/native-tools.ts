@@ -241,7 +241,7 @@ export function nativeBindings(
     : [];
   if (reviewTeams.length)
     descriptions.loop_request_review =
-      "Request a read-only code review snapshot (scope: branch against base, uncommitted, or staged). Returns reviewId and queues an async follow-up; read results with loop_review_status. Completion is not approval; wait:true blocks. Review teams: " +
+      "Request a read-only code review snapshot (scope: branch, uncommitted, or staged; depth:'full' forces all reviewers instead of a lead-only follow-up). Returns reviewId and queues an async follow-up; check loop_review_status. Completion is not approval; wait:true blocks. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = teamMembersQueries.activeInstructions(

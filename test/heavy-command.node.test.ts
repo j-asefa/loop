@@ -31,6 +31,182 @@ after(() => {
   rmSync(directory, { force: true, recursive: true });
 });
 
+test("browser engine dispatch stops when cancelled as the first engine exits", () => {
+  const enginesUrl = new URL("../scripts/helpers/engines.mjs", import.meta.url)
+    .href;
+  const supervisor = `
+    export async function runSupervised(_command, _args, { env }) {
+      console.log(env.LOOP_BROWSER);
+      if (env.LOOP_BROWSER === "chromium") process.emit("SIGTERM");
+      return 0;
+    }
+  `;
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+        import { registerHooks } from "node:module";
+        const enginesUrl = ${JSON.stringify(enginesUrl)};
+        registerHooks({
+          resolve(specifier, context, next) {
+            if (context.parentURL === enginesUrl && specifier === "../heavy-command.mjs")
+              return { url: ${JSON.stringify("data:text/javascript," + encodeURIComponent(supervisor))}, shortCircuit: true };
+            return next(specifier, context);
+          },
+        });
+        const { engineForRun } = await import(enginesUrl);
+        await engineForRun(import.meta.url);
+      `,
+    ],
+    {
+      env: { ...process.env, LOOP_BROWSER: "" },
+      encoding: "utf8",
+      timeout: 15_000,
+    },
+  );
+  assert.equal(child.status, 143, child.stderr);
+  assert.equal(child.stdout.trim(), "chromium");
+});
+
+for (const [platform, mode, cleanup, stopSignal] of [
+  ["darwin", "direct", "signal", "SIGKILL"],
+  ["darwin", "wrapped", "signal", "SIGKILL"],
+  ["win32", "wrapped", "signal", "SIGKILL"],
+  ["win32", "wrapped", "exit", "SIGKILL"],
+  ["darwin", "wrapped", "exit", "SIGTERM"],
+  ["linux", "direct", "exit", "SIGKILL"],
+] as const) {
+  const title = `browser smoke cleans up via ${cleanup} when its ${mode} ${platform} supervisor receives ${stopSignal}`;
+  const skip =
+    (platform === "darwin" && process.platform === "win32") ||
+    (platform === "linux" && !linux);
+  test(title, { skip }, async () => {
+    const enginesUrl = new URL(
+      "../scripts/helpers/engines.mjs",
+      import.meta.url,
+    ).href;
+    const name = `browser-${platform}-${mode}-${cleanup}-${stopSignal}`;
+    const script = join(directory, `${name}.mjs`);
+    const started = join(directory, `${name}.started`);
+    const stopped = join(directory, `${name}.stopped`);
+    writeFileSync(
+      script,
+      `
+      import { mkdtempSync, renameSync, writeFileSync } from "node:fs";
+      import { tmpdir } from "node:os";
+      import { join } from "node:path";
+      import { engineForRun } from ${JSON.stringify(enginesUrl)};
+      const engine = await engineForRun(import.meta.url);
+      const mark = (file, value) => {
+        writeFileSync(file + ".tmp", value);
+        renameSync(file + ".tmp", file);
+      };
+      const fixture = mkdtempSync(join(tmpdir(), "loop-reader-"));
+      if (${JSON.stringify(cleanup)} === "signal") {
+        process.once("SIGTERM", () => {
+          mark(${JSON.stringify(stopped)}, engine);
+          process.exit(143);
+        });
+      } else {
+        process.once("exit", () => mark(${JSON.stringify(stopped)}, engine));
+      }
+      mark(${JSON.stringify(started)}, JSON.stringify({ pid: process.pid, fixture }));
+      setInterval(() => {}, 1000);
+    `,
+    );
+    const simulateMacOS =
+      "data:text/javascript," +
+      encodeURIComponent(
+        `if (!process.env.LOOP_BROWSER)
+          Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
+        else if (${JSON.stringify(platform)} === "win32")
+          process.kill = () => process.exit(88);`,
+      );
+    const target =
+      mode === "direct"
+        ? [script]
+        : [
+            fileURLToPath(moduleUrl),
+            "--browser-dispatch",
+            "--import",
+            simulateMacOS,
+            script,
+          ];
+    const dispatcher = spawn(
+      process.execPath,
+      ["--import", simulateMacOS, ...target],
+      {
+        env: {
+          ...process.env,
+          LOOP_BROWSER: "",
+          TMPDIR: directory,
+          TEMP: directory,
+          TMP: directory,
+        },
+        stdio: "ignore",
+      },
+    );
+    processes.push(dispatcher);
+    await waitFor(() => existsSync(started), "browser smoke did not start");
+    const { pid, fixture } = JSON.parse(readFileSync(started, "utf8"));
+    assert.ok(Number.isSafeInteger(pid) && pid > 0);
+    assert.ok(existsSync(fixture));
+    try {
+      dispatcher.kill(stopSignal);
+      await waitFor(
+        () => existsSync(stopped),
+        "browser smoke survived its supervisor",
+        5000,
+      );
+      assert.equal(readFileSync(stopped, "utf8"), "chromium");
+      await waitFor(
+        () => !existsSync(fixture),
+        "browser fixture survived its worker",
+      );
+    } finally {
+      if (!existsSync(stopped) && alive(pid)) process.kill(pid, "SIGTERM");
+    }
+  });
+}
+
+test("arbitrary commands can finish with an IPC message listener", () => {
+  const simulateMacOS =
+    "data:text/javascript," +
+    encodeURIComponent(
+      'Object.defineProperty(process, "platform", { value: "darwin" });',
+    );
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      simulateMacOS,
+      fileURLToPath(moduleUrl),
+      "-e",
+      `
+        process.on("message", () => {});
+        console.log(process.listenerCount("disconnect"), typeof process.send);
+      `,
+    ],
+    { encoding: "utf8", timeout: 15_000 },
+  );
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout.trim(), "0 undefined");
+});
+
+test("browser child refuses to start after losing its parent channel", () => {
+  const preload = new URL("../scripts/exit-with-parent.mjs", import.meta.url)
+    .href;
+  const child = spawnSync(
+    process.execPath,
+    ["--import", preload, "-e", 'console.log("started with no parent")'],
+    { encoding: "utf8", timeout: 15_000 },
+  );
+  assert.equal(child.status, 143, child.stderr);
+  assert.equal(child.stdout, "");
+});
+
 test("the design entrypoint preserves the first failure when cancelling siblings", async () => {
   const project = join(directory, "design-project");
   mkdirSync(join(project, "scripts"), { recursive: true });

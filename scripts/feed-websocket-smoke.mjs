@@ -1,3 +1,4 @@
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 // Runs Chromium and WebKit against compiled companion and paired entrypoints,
 // including two enrolled fixture companions. It blocks HTTP event polling while
 // checking Working-to-Done transitions, retained history, updates during
@@ -13,7 +14,7 @@ import {
   temporaryPageRoute,
 } from "./helpers/temporary-page-route.mjs";
 import assert from "node:assert/strict";
-import { chromium, webkit, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
@@ -92,16 +93,14 @@ function complete({ db, owner }, label) {
     ).run(owner, label + " live final answer", now);
   }).immediate();
 }
-const engines = process.env.LOOP_BROWSER
-  ? [process.env.LOOP_BROWSER]
-  : ["chromium", "webkit"];
-for (const engine of engines) {
-  const browser = await (engine === "webkit" ? webkit : chromium).launch({
+for (const browserEngine of selectedEngines()) {
+  const engine = browserEngine.name();
+  const browser = await browserEngine.launch({
     headless: true,
     ...(engine === "chromium"
       ? {
           args: ["--no-sandbox"],
-          executablePath: process.env.CHROMIUM_PATH || undefined,
+          executablePath: chromiumExecutable(browserEngine),
         }
       : {}),
   });

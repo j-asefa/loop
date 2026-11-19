@@ -1,8 +1,9 @@
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
-import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { expect } from "@playwright/test";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import codexToolApproval from "../test/fixtures/codex-tool-approval.json" with { type: "json" };
@@ -10,28 +11,17 @@ import codexReviewApproval from "../test/fixtures/codex-review-approval.json" wi
 import { nativeQuestionLayoutSmoke } from "./helpers/native-question-layout-smoke.mjs";
 
 // Fixture-only: real UI, no native provider or external tool execution.
-const screenshots =
-  process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("test-results", "screenshots") : undefined);
-if (screenshots) mkdirSync(screenshots, { recursive: true });
+const screenshots = smokeScreenshotDirectory("LOOP_DESIGN_SCREENSHOT_DIR");
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
   try {
     const browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const closeBrowser = trackSmokeCleanup(() => browser.close());
     try {
-      const page = await browser.newPage({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-        serviceWorkers: "block",
-      });
+      const page = await browser.newPage(mobileSmokeOptions);
       await fixture.pair(page.context());
       // Each full navigation starts an independent layout/decision case. The
       // suite compresses many cases into seconds; keep a fresh fixture-owned

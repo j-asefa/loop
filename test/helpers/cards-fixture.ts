@@ -8,6 +8,7 @@ import { request as httpRequest } from "node:http";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import { installFixtureProjection } from "./projected-writer.js";
+import { stopFixtureProcess } from "../../scripts/helpers/smoke-lifecycle.mjs";
 import { fleetDeviceFromLink } from "../../src/shared/fleet-pairing.js";
 
 export async function cardsFixture(
@@ -18,6 +19,7 @@ export async function cardsFixture(
     relay?: boolean;
     webhookReceiver?: string;
     resultReadRace?: boolean;
+    trackCleanup?: (cleanup: () => Promise<void>) => () => Promise<void>;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "loop-card-access-"));
@@ -64,6 +66,19 @@ export async function cardsFixture(
       },
     );
   let child = launch();
+  let closeDatabase: (() => void) | undefined;
+  let closed = false;
+  const cleanup = async () => {
+    if (closed) return;
+    closed = true;
+    try {
+      closeDatabase?.();
+    } finally {
+      await stopFixtureProcess(child);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const close = options.trackCleanup?.(cleanup) ?? cleanup;
   let errors = "";
   child.stderr?.on("data", (chunk) => {
     errors += chunk;
@@ -84,12 +99,13 @@ export async function cardsFixture(
       }),
     ]);
   } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
+    await close();
     throw error;
   } finally {
     clearTimeout(timeout);
   }
   const database = new Database(join(dir, "loop.db"));
+  closeDatabase = () => database.close();
   database.pragma("foreign_keys = ON");
   // Opt in when exercising Feed: this independent connection must commit its
   // projection with its source writes, exactly like the production worker.
@@ -172,18 +188,6 @@ export async function cardsFixture(
     host: new URL(origin).host,
     cookie,
     "x-loop-csrf": csrf,
-  };
-  let closed = false;
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    database.close();
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, "exit");
-      child.kill();
-      await exited;
-    }
-    rmSync(dir, { recursive: true, force: true });
   };
   // Each server process holds about 250 MiB, so a fixture started inside a
   // Vitest test closes when that test finishes even if the test does not call

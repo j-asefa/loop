@@ -280,8 +280,9 @@ export function CodeReviewStatus({
     <aside className="code-review-status" aria-label="Snapshot review status">
       {notice}
       <strong>
-        Snapshot review · {complete}/{review.reviewers.length} reviewers
-        completed
+        {review.depth === "follow_up"
+          ? "Follow-up review · lead only"
+          : `Snapshot review · ${complete}/${review.reviewers.length} reviewers completed`}
       </strong>
       <p>
         {review.scope} · {review.changed.length} changed files · snapshot{" "}

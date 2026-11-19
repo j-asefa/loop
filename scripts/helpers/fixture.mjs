@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { request } from "node:http";
 import { createInterface } from "node:readline";
 
 export function waitForFixtureAnnouncement(child, timeoutMs = 30_000) {
@@ -77,4 +80,64 @@ export async function pairDevice(origin, secret, name) {
   const { csrf } = await session.json();
   if (!csrf) throw new Error("Fixture session did not return a CSRF token");
   return { cookie, csrf };
+}
+
+const exec = promisify(execFile);
+
+export async function installPackedLoop(
+  tarball,
+  { prefix, env, timeout = 240_000 } = {},
+) {
+  await exec(
+    "npm",
+    [
+      "install",
+      ...(prefix ? ["--prefix", prefix] : ["-g"]),
+      "--omit=optional",
+      "--no-audit",
+      "--no-fund",
+      tarball,
+    ],
+    { env, maxBuffer: 1_000_000, timeout },
+  );
+}
+
+// Requests travel through the fixture's real relay listener while retaining
+// the public Host and Origin headers used by its paired browser.
+export function createRelayClient(relay, origin) {
+  const host = new URL(origin).host;
+  let cookie;
+  return (method, path, body) =>
+    new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = request(
+        {
+          host: relay.hostname,
+          port: Number(relay.port),
+          method,
+          path,
+          headers: {
+            host,
+            origin,
+            ...(cookie ? { cookie } : {}),
+            ...(payload === undefined
+              ? {}
+              : { "content-type": "application/json" }),
+          },
+        },
+        (res) => {
+          let text = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => (text += chunk));
+          res.on("error", reject);
+          res.on("end", () => {
+            const paired = res.headers["set-cookie"]?.[0];
+            if (paired) cookie = paired.split(";", 1)[0];
+            resolve({ status: res.statusCode, body: text });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.end(payload);
+    });
 }

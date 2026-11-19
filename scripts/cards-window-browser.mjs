@@ -2,6 +2,13 @@ import { build } from "esbuild";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { chromium, webkit, expect } from "@playwright/test";
+import {
+  chromiumExecutable,
+  browserType,
+  engineForRun,
+} from "./helpers/engines.mjs";
+
+const engine = browserType(await engineForRun(import.meta.url));
 // Uses the actual production hook, pager, source context and transport. Only
 // HTTP responses are controlled to deliver old scopes after new ones.
 const built = await build({
@@ -26,13 +33,10 @@ const server = createServer((req, res) => {
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const origin = "http://127.0.0.1:" + server.address().port;
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 const browser = await engine.launch({
   headless: true,
   ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
-  ...(engine === chromium && process.env.CHROMIUM_PATH
-    ? { executablePath: process.env.CHROMIUM_PATH }
-    : {}),
+  executablePath: chromiumExecutable(engine),
 });
 const entry = (text) => ({
   card: {

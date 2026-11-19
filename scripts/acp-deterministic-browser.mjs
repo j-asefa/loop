@@ -1,3 +1,4 @@
+import { chromiumExecutable } from "./helpers/engines.mjs";
 import { chooseAgentConnection } from "./helpers/agent-model-options.mjs";
 // Full paired UI + production WorkspaceHost, SQLite, WS and adapter subprocesses.
 // Only the external harness protocols and a server-side network cut are fixtures.
@@ -129,7 +130,7 @@ try {
   await nativeSessions.projects.enable(acp);
   browser = await chromium.launch({
     headless: true,
-    executablePath: process.env.CHROMIUM_PATH || undefined,
+    executablePath: chromiumExecutable(chromium),
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
   for (const width of [1280, 390]) {

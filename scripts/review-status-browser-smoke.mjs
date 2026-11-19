@@ -5,6 +5,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
+import { engineForRun } from "./helpers/engines.mjs";
+
+const engine = await engineForRun(import.meta.url);
 
 const dir = await mkdtemp(join(tmpdir(), "loop-review-status-"));
 let browser, server;
@@ -68,6 +71,8 @@ try {
             conversationId: id,
             state: "running",
             scope: "branch",
+            depth: "full",
+            previousReviewId: null,
             fingerprint: prefix + "-" + id,
             createdAt: 1,
             changed: ["src/example.ts"],
@@ -94,7 +99,6 @@ try {
     res.end();
   });
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
-  const engine = process.env.LOOP_BROWSER || "chromium";
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });

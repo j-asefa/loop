@@ -376,10 +376,18 @@ async function catchUp() {
   const { captureProgress } =
     await import("../src/server/sql/memory-sources.js");
   let previous = JSON.stringify(captureProgress(db));
+  let indexed = 0;
+  let backfillMs = 0;
   for (let pass = 1; pass <= 1000; pass++) {
-    captureMemory();
+    const started = performance.now();
+    const backfilled = captureMemory();
+    if (backfilled) {
+      indexed += backfilled;
+      backfillMs += performance.now() - started;
+    }
     const progress = JSON.stringify(captureProgress(db));
-    if (progress === previous) return pass;
+    if (progress === previous && !backfilled)
+      return { passes: pass, indexed, backfillMs };
     previous = progress;
   }
   throw new Error("Memory capture did not settle in 1,000 passes.");
@@ -448,7 +456,7 @@ export async function main(args: string[]) {
     throw new Error(
       "LOOP_DATA_DIR was not built by --copy-from; refusing to write to it.",
     );
-  const passes = await catchUp();
+  const { passes, indexed, backfillMs } = await catchUp();
   const { queries, skipped } = await sampleQueries({
     seed: Number(option(args, "--seed") ?? 1),
     limit: Number(option(args, "--limit") ?? 500),
@@ -466,6 +474,10 @@ export async function main(args: string[]) {
     });
   }
   console.log(`capture passes: ${passes}\n`);
+  if (indexed)
+    console.log(
+      `passage backfill: ${indexed} sources in ${Math.round(backfillMs)} ms of capture passes\n`,
+    );
   console.log(table([["this build", metrics]]));
 }
 

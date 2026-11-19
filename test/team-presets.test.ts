@@ -1,9 +1,12 @@
+import { snapshotDelta } from "../src/server/review-delta";
 import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
+  appendFileSync,
+  chmodSync,
   mkdtempSync,
   writeFileSync,
   readFileSync,
@@ -142,6 +145,11 @@ it("captures staged contents separately from working changes, includes new files
   expect(work.files["index.ts"]).toContain("= 3");
   expect(work.before["index.ts"]).toContain("= 1");
   expect(work.changed).toContain("new.ts");
+  chmodSync(join(repo, "new.ts"), 0o755);
+  const executable = captureSnapshot(repo, "uncommitted");
+  expect(snapshotDelta(executable, work).hunks).toContain(
+    "new file mode 100755",
+  );
   expect(work.context?.["caller.ts"]).toBe(
     git("rev-parse", "HEAD:caller.ts").trim(),
   );
@@ -151,7 +159,67 @@ it("captures staged contents separately from working changes, includes new files
   expect(work.omitted).toContain("linked.ts");
   expect(work.omitted).toContain(".env");
   expect(readFileSync(join(repo, ".git/index"))).toEqual(index);
+  git("add", "new.ts");
+  expect(
+    snapshotDelta(captureSnapshot(repo, "uncommitted"), executable).unseen,
+  ).toBe(0);
+  const unusual = "stage é\t\u2028\u2029file.sh";
+  writeFileSync(join(repo, unusual), "echo ok", { mode: 0o755 });
+  const untracked = captureSnapshot(repo, "uncommitted");
+  git("add", unusual);
+  expect(
+    snapshotDelta(captureSnapshot(repo, "uncommitted"), untracked).unseen,
+  ).toBe(0);
+  git("restore", "--staged", unusual);
+  rmSync(join(repo, unusual));
+  git("restore", "--staged", "new.ts");
   expect(() => captureSnapshot(repo, "branch", "--help")).toThrow(/capture/);
+});
+
+it("compares working permissions when an executable is removed from the index", () => {
+  const checkout = mkdtempSync(join(dir, "mode-"));
+  const localGit = (...args: string[]) =>
+    execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
+  localGit("init");
+  localGit("config", "color.diff", "always");
+  const script = join(checkout, "run.sh");
+  writeFileSync(script, "echo ok\n", { mode: 0o755 });
+  localGit("add", "run.sh");
+  localGit(
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "-m",
+    "executable",
+  );
+  localGit("config", "core.fileMode", "false");
+  writeFileSync(script, "echo reviewed\n");
+  const tracked = captureSnapshot(checkout, "uncommitted");
+  chmodSync(script, 0o644);
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), tracked),
+  ).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("old mode 100755\nnew mode 100644"),
+  });
+  chmodSync(script, 0o755);
+  writeFileSync(script, "echo ok\n");
+  writeFileSync(join(checkout, "feature.ts"), "export {};\n");
+  const earlier = captureSnapshot(checkout, "uncommitted");
+  localGit("rm", "--cached", "run.sh");
+  appendFileSync(join(checkout, ".git/info/exclude"), "\nrun.sh\n");
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), earlier).unseen,
+  ).toBe(0);
+  chmodSync(script, 0o644);
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), earlier),
+  ).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("old mode 100755\nnew mode 100644"),
+  });
 });
 
 it("captures branch commits without including working edits and represents deleted files", () => {
@@ -636,6 +704,332 @@ it("lets a working agent request a review of its own worktree, waits for the lea
       )
       .get(cancelled.id),
   ).toEqual({ state: "cancelled" });
+}, 30000);
+it("reviews a repeat request as a lead-only follow-up only while a completed full review covers most of the change", async () => {
+  const { reviewContext } = await import("../src/server/review-access");
+  const { ownedRun } = await import("../src/server/domain");
+  const builder = id();
+  seedAgent(db, {
+    id: builder,
+    owner_id: "alice",
+    name: "Follow-up builder",
+    normalized_name: "follow-up-builder",
+    provider: "openai",
+    connection_id: c,
+    model: "fixture-model",
+    created_at: now(),
+  });
+  const worktree = join(dir, "follow-up-worktree");
+  git("worktree", "add", "-b", "follow-up-feature", worktree, "HEAD");
+  const commit = (file: string, lines: string[]) => {
+    writeFileSync(join(worktree, file), lines.join("\n") + "\n");
+    execFileSync("git", ["add", file], { cwd: worktree });
+    execFileSync("git", ["commit", "-m", file], { cwd: worktree });
+  };
+  const body = Array.from(
+    { length: 30 },
+    (_, i) => `export const v${i} = ${i};`,
+  );
+  commit("follow.ts", body);
+  const turn = (conversationId?: string) => {
+    const run = submit("alice", {
+      agentId: builder,
+      folderId: folder,
+      conversationId,
+      input: "Get a review",
+      idempotencyKey: id(),
+    });
+    if (!conversationId)
+      db.prepare(
+        "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES(?,?,'claude',?,?)",
+      ).run(id(), run.conversation_id, worktree, now());
+    db.prepare(
+      "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+    ).run(run.id);
+    return { ...run, state: "running" } as any;
+  };
+  const request = async (run: any, extra: object = {}) => {
+    const binding = nativeBindings(run).find(
+      (b) => b.tool === "loop_request_review",
+    )!;
+    const accepted = (await invokeNative(run, binding, id(), {
+      teamId: team.id,
+      scope: "branch",
+      base: "main",
+      ...extra,
+    })) as any;
+    const reviewId = JSON.parse(accepted.result.content[0].text).reviewId;
+    const review = db
+      .prepare("SELECT id,run_id FROM code_reviews WHERE id=?")
+      .get(reviewId) as { id: string; run_id: string };
+    const followUp = db
+      .prepare("SELECT * FROM review_follow_ups WHERE review_id=?")
+      .get(reviewId) as { previous_review_id: string; owner_id: string };
+    const reviewers = (
+      db
+        .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
+        .get(review.run_id) as { n: number }
+    ).n;
+    expect(JSON.parse(accepted.result.content[0].text)).toMatchObject({
+      depth: followUp ? "follow_up" : "full",
+      previousReviewId: followUp?.previous_review_id ?? null,
+    });
+    return { ...review, followUp, reviewers };
+  };
+  // Finishing the requester's turn lets the next turn of the thread ask again.
+  const finish = (
+    run: any,
+    review: { run_id: string },
+    result = "Finding: v3 is misnamed",
+    reviewerState = "completed",
+  ) => {
+    db.prepare(
+      "UPDATE runs SET state=? WHERE id IN (SELECT child_run_id FROM delegations WHERE parent_run_id=?)",
+    ).run(reviewerState, review.run_id);
+    db.prepare("UPDATE runs SET state='completed',result=? WHERE id=?").run(
+      result,
+      review.run_id,
+    );
+    db.prepare(
+      "UPDATE runs SET state='completed',worker_id=NULL WHERE conversation_id=? AND state IN ('running','queued')",
+    ).run(run.conversation_id);
+  };
+  const first = turn();
+  const full = await request(first);
+  expect(full.followUp).toBeUndefined();
+  expect(full.reviewers).toBe(3);
+  // Reviewers finish before a full review's lead may start.
+  expect(claim("lead-waits", (run) => run.id === full.run_id)).toBeUndefined();
+  // An unfinished earlier review is no basis for a follow-up.
+  const racing = await request(first);
+  expect(racing.followUp).toBeUndefined();
+  finish(first, racing);
+  db.prepare("UPDATE code_reviews SET created_at=0 WHERE id=?").run(racing.id);
+  finish(first, full);
+
+  // A small fix on top of the reviewed change goes to the lead alone.
+  commit("follow.ts", body.with(3, "export const third = 3;"));
+  commit("constructor", ["prototype-named file"]);
+  const second = turn(first.conversation_id);
+  const followUp = await request(second);
+  expect(followUp.followUp).toMatchObject({
+    previous_review_id: racing.id,
+    owner_id: "alice",
+  });
+  expect(followUp.reviewers).toBe(0);
+  // With no reviewers to wait for, the production claim takes the lead.
+  expect(claim("lead-starts", (run) => run.id === followUp.run_id)?.id).toBe(
+    followUp.run_id,
+  );
+  const lead = ownedRun(followUp.run_id, "alice");
+  expect(lead.input).toContain(
+    `Review ${racing.id} covered an earlier snapshot`,
+  );
+  const context = reviewContext(lead);
+  expect(context).toContain("Finding: v3 is misnamed");
+  expect(context).toContain("Lines added (+) and removed (-) since");
+  const delta = context.slice(context.indexOf("Lines added (+) and removed"));
+  expect(delta).toContain("+prototype-named file");
+  expect(delta).toContain("-export const v3 = 3;");
+  expect(delta).toContain("+export const third = 3;");
+  expect(delta).not.toContain("export const v20 = 20;");
+  expect(context).not.toContain("Independent reviewer reports");
+  finish(second, followUp, "v3 is fixed");
+  db.prepare(
+    "UPDATE runs SET state='running',worker_id='fixture' WHERE id=?",
+  ).run(second.id);
+  const status = nativeBindings(second).find(
+    (b) => b.tool === "loop_review_status",
+  )!;
+  const report = JSON.parse(
+    (
+      (await invokeNative({ ...second, state: "running" }, status, id(), {
+        reviewId: followUp.id,
+      })) as any
+    ).result.content[0].text,
+  );
+  expect(report).toMatchObject({
+    depth: "follow_up",
+    previousReviewId: racing.id,
+    reviewers: [],
+    report: "v3 is fixed",
+  });
+  const listing = (await invokeNative(
+    { ...second, state: "running" },
+    status,
+    id(),
+    {},
+  )) as any;
+  expect(JSON.parse(listing.result.content[0].text).reviews).toContainEqual(
+    expect.objectContaining({
+      reviewId: followUp.id,
+      depth: "follow_up",
+      previousReviewId: racing.id,
+    }),
+  );
+  expect(report.note).toContain(
+    "assigned this follow-up to the review lead alone",
+  );
+  const http = await fetch(
+    `${url}/reviews/conversation/${lead.conversation_id}`,
+    {
+      headers: { "x-owner": "alice" },
+    },
+  );
+  expect(await http.json()).toMatchObject({
+    depth: "follow_up",
+    previousReviewId: racing.id,
+  });
+  expect(
+    (
+      await fetch(`${url}/reviews/conversation/${lead.conversation_id}`, {
+        headers: { "x-owner": "bob" },
+      })
+    ).status,
+  ).toBe(404);
+
+  db.prepare("UPDATE runs SET state='completed',worker_id=NULL WHERE id=?").run(
+    second.id,
+  );
+
+  // Another small step still measures against the last full review.
+  commit(
+    "follow.ts",
+    body
+      .with(3, "export const third = 3;")
+      .with(4, "export const fourth = 4;")
+      .toSpliced(10, 1),
+  );
+  const third = turn(first.conversation_id);
+  const chained = await request(third);
+  expect(chained.followUp?.previous_review_id).toBe(followUp.id);
+  const chainedContext = reviewContext(ownedRun(chained.run_id, "alice"));
+  expect(chainedContext).toContain("v3 is fixed");
+  // A line the earlier snapshot held and this one deleted is shown as removed.
+  const chainedDelta = chainedContext.slice(
+    chainedContext.indexOf("Lines added (+) and removed"),
+  );
+  expect(chainedDelta).toContain("-export const v10 = 10;");
+  expect(chainedDelta).toContain("+export const fourth = 4;");
+  // Already in the previous snapshot, so not repeated.
+  expect(chainedDelta).not.toContain("+export const third = 3;");
+  // The same request key with another depth is different work, at the tool
+  // boundary and in the review receipt behind it.
+  const { requestReview } = await import("../src/server/code-reviews");
+  const sameCall = { teamId: team.id, scope: "branch", base: "main" } as const;
+  requestReview(third, "replayed", sameCall);
+  expect(() =>
+    requestReview(third, "replayed", { ...sameCall, depth: "full" }),
+  ).toThrow(/different review/);
+  const replayed = db
+    .prepare(
+      "SELECT c.run_id FROM code_reviews c JOIN delegations d ON d.child_run_id=c.run_id WHERE d.parent_run_id=? AND d.call_id='replayed:review'",
+    )
+    .get(third.id) as { run_id: string };
+  finish(third, replayed);
+  finish(third, chained);
+
+  // The same snapshot reviewed in full on request.
+  const fourth = turn(first.conversation_id);
+  const forced = await request(fourth, { depth: "full" });
+  expect(forced.followUp).toBeUndefined();
+  expect(forced.reviewers).toBe(3);
+  // A reviewer that failed leaves that full review without coverage.
+  finish(fourth, forced, "Partial report", "failed");
+  const fifth = turn(first.conversation_id);
+  const uncovered = await request(fifth);
+  expect(uncovered.followUp).toBeUndefined();
+  expect(uncovered.reviewers).toBe(3);
+  finish(fifth, uncovered);
+
+  // A full review against a later base covered a smaller change. The same
+  // files against main are mostly unreviewed, though their text is identical.
+  const narrowTurn = turn(first.conversation_id);
+  const narrow = await request(narrowTurn, { base: "HEAD~1", depth: "full" });
+  expect(narrow.reviewers).toBe(3);
+  finish(narrowTurn, narrow);
+  const widerTurn = turn(first.conversation_id);
+  const wider = await request(widerTurn);
+  expect(wider.followUp).toBeUndefined();
+  expect(wider.reviewers).toBe(3);
+  finish(widerTurn, wider);
+
+  // Mostly new work is a new change: every reviewer runs again.
+  commit(
+    "more.ts",
+    Array.from({ length: 80 }, (_, i) => `export const more${i} = ${i};`),
+  );
+  const sixth = turn(first.conversation_id);
+  const grown = await request(sixth);
+  expect(grown.followUp).toBeUndefined();
+  expect(grown.reviewers).toBe(3);
+  finish(sixth, grown);
+
+  // A staged review in between captured other content: it neither blocks nor
+  // supports the next branch follow-up.
+  writeFileSync(join(worktree, "staged.ts"), "export const staged = 1;\n");
+  execFileSync("git", ["add", "staged.ts"], { cwd: worktree });
+  const seventh = turn(first.conversation_id);
+  const staged = await request(seventh, { scope: "staged" });
+  expect(staged.followUp).toBeUndefined();
+  finish(seventh, staged);
+  const eighth = turn(first.conversation_id);
+  const resumed = await request(eighth);
+  expect(resumed.followUp?.previous_review_id).toBe(grown.id);
+  finish(eighth, resumed);
+  commit("long.ts", ["é".repeat(13_000)]);
+  const longTurn = turn(first.conversation_id);
+  const long = await request(longTurn);
+  expect(long.reviewers).toBe(3);
+  finish(longTurn, long, "x".repeat(24_001));
+  const oversizedTurn = turn(first.conversation_id);
+  const oversized = await request(oversizedTurn);
+  expect(oversized.reviewers).toBe(3);
+
+  finish(oversizedTurn, oversized);
+  commit("dense.ts", ["\n".repeat(70_000)]);
+  const denseTurn = turn(first.conversation_id);
+  const dense = await request(denseTurn, { depth: "full" });
+  finish(denseTurn, dense);
+  expect((await request(turn(first.conversation_id))).reviewers).toBe(3);
+
+  const workingTurn = turn();
+  writeFileSync(join(worktree, "visible.ts"), body.join("\n"));
+  writeFileSync(
+    join(worktree, "ignored-later.ts"),
+    "export const pending = true;",
+  );
+  const original = await request(workingTurn, { scope: "uncommitted" });
+  finish(workingTurn, original);
+  const exclude = execFileSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+    { cwd: worktree, encoding: "utf8" },
+  ).trim();
+  appendFileSync(exclude, "\nignored-later.ts\n");
+  const ignored = await request(turn(workingTurn.conversation_id), {
+    scope: "uncommitted",
+  });
+  expect(ignored.reviewers).toBe(3);
+  expect(readFileSync(join(worktree, "ignored-later.ts"), "utf8")).toContain(
+    "pending",
+  );
+
+  const encodingTurn = turn();
+  const latin = join(worktree, "latin.txt");
+  writeFileSync(latin, Buffer.from([0xe9]));
+  const latinReview = await request(encodingTurn, { scope: "uncommitted" });
+  finish(encodingTurn, latinReview);
+  writeFileSync(latin, Buffer.from([0xe8]));
+  const changedByte = await request(turn(encodingTurn.conversation_id), {
+    scope: "uncommitted",
+  });
+  expect(changedByte.reviewers).toBe(3);
+
+  // Another conversation asking about the same checkout has no history here.
+  const elsewhere = await request(turn());
+  expect(elsewhere.followUp).toBeUndefined();
+  expect(elsewhere.reviewers).toBe(3);
 }, 30000);
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();

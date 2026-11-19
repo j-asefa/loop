@@ -1,8 +1,9 @@
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
-import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
+import { expect } from "@playwright/test";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import {
   isWebKitNavigationFetchError,
@@ -13,21 +14,16 @@ import { teamPresetsSmoke } from "./helpers/team-presets-smoke.mjs";
 import { markdownDefinitionsSmoke } from "./helpers/markdown-definitions-smoke.mjs";
 
 const notificationsOnly = process.argv.includes("--notifications-only");
-const evidence = process.env.LOOP_LIFECYCLE_EVIDENCE;
-if (evidence) mkdirSync(evidence, { recursive: true });
+const evidence = smokeScreenshotDirectory("LOOP_LIFECYCLE_EVIDENCE", {
+  ciDefault: false,
+});
 for (const engine of selectedEngines()) {
   const fixture = await designFixture();
   const browser = await engine.launch({
-    executablePath:
-      engine === chromium ? process.env.CHROMIUM_PATH || undefined : undefined,
+    executablePath: chromiumExecutable(engine),
   });
   try {
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      serviceWorkers: "block",
-    });
+    const context = await browser.newContext(mobileSmokeOptions);
     await fixture.pair(context);
     const page = await context.newPage();
     page.setDefaultTimeout(10000);
