@@ -3,7 +3,7 @@ import { inProcessExecution } from "./helpers/in-process-execution.js";
 import { gitProject } from "./helpers/git-project.js";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, readFile, chmod } from "node:fs/promises";
+import { mkdir, readFile, chmod, writeFile } from "node:fs/promises";
 import { hostname, platform } from "node:os";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -281,18 +281,20 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
     ws.on("message", (m) => frames.push(JSON.parse(m.toString())));
     await until(() => frames.length > 0);
     assert.equal(frames[0].type, "reset");
-    const { Codex } = await import("../src/adapters/codex.js");
-    const originalStart = Codex.prototype.start;
-    let releaseStartup!: () => void;
-    const startup = new Promise<void>((resolve) => {
-      releaseStartup = resolve;
-    });
-    let starting = 0;
-    Codex.prototype.start = async function () {
-      starting++;
-      await startup;
-      return originalStart.call(this);
+    const startupAudit = join(dir, "startup-audit.jsonl");
+    const startupReplies = join(dir, "startup-replies.json");
+    const releaseStartup = join(dir, "release-startup");
+    await writeFile(startupAudit, "");
+    await writeFile(
+      startupReplies,
+      JSON.stringify({ codex: { initialize: { waitFor: releaseStartup } } }),
+    );
+    const startupEnvironment = {
+      LOOP_TEST_HARNESS_AUDIT: process.env.LOOP_TEST_HARNESS_AUDIT,
+      LOOP_TEST_HARNESS_REPLIES: process.env.LOOP_TEST_HARNESS_REPLIES,
     };
+    process.env.LOOP_TEST_HARNESS_AUDIT = startupAudit;
+    process.env.LOOP_TEST_HARNESS_REPLIES = startupReplies;
     let prompts: any[] = [];
     const state = (id: string) =>
       (db.prepare("SELECT state FROM runs WHERE id=?").get(id) as any).state;
@@ -309,7 +311,16 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
       await t.test(
         "pause is rejected while native startup has no dispatch record",
         async () => {
-          await until(() => starting === 3);
+          await until(async () => {
+            const audit = await readFile(startupAudit, "utf8");
+            return (
+              audit
+                .split("\n")
+                .slice(0, -1)
+                .filter((line) => JSON.parse(line).method === "initialize")
+                .length === 3
+            );
+          });
           assert.equal(
             (db.prepare("SELECT count(*) n FROM native_dispatch").get() as any)
               .n,
@@ -324,8 +335,11 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         },
       );
     } finally {
-      releaseStartup();
-      Codex.prototype.start = originalStart;
+      for (const [key, value] of Object.entries(startupEnvironment)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      await writeFile(releaseStartup, "");
     }
     await until(
       () =>

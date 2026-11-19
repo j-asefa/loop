@@ -1,3 +1,4 @@
+import { select as selectRunCheckout } from "../src/server/sql/run-checkouts.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -766,9 +767,10 @@ it("keeps Git subdirectories isolated per agent and reuses a worktree across con
   expect(result(await run(nested, "git-other-agent")).state).toBe("completed");
   expect(binding("git-other-agent").project).not.toBe(checkout);
   expect(readFileSync(join(nested, "idea.txt"), "utf8")).toBe("Committed idea");
-  expect(
-    db.prepare("SELECT state FROM run_checkouts WHERE run_id=?").get(first.id),
-  ).toEqual({ state: "captured" });
+  const capture = selectRunCheckout(db, first.id);
+  expect(capture?.state, capture?.error ?? "Run checkout capture state").toBe(
+    "captured",
+  );
 });
 
 it.each(["empty", "broken", "invalid-config"])(
