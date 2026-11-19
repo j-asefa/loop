@@ -181,6 +181,9 @@ it.each([
   "harvest except for yesterday",
   "harvest last week, excluding 2026-11-12",
   "harvest not (yesterday)",
+  "harvest notes without yesterday",
+  "harvest this week, excluding all of yesterday",
+  "harvest on 2026-10-12 or (2026-10-13)",
   "compare harvest last week with last month",
   "harvest since Monday, excluding yesterday",
 ])("keeps unsupported date choices searchable in %s", (query) => {

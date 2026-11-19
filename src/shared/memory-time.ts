@@ -174,9 +174,11 @@ export function parseMemoryTime(
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const alternative =
-      matched.length > 0 && /\b(?:or|nor)\s*$/iu.test(between);
+      matched.length > 0 && /\b(?:or|nor)[\s([{]*$/iu.test(between);
     const exclusion =
-      /\b(?:not|except|excluding)(?:\s+(?:from|for))?[\s([{]*$/iu.test(between);
+      /\b(?:not|except|excluding|without)(?:\s+(?:from|for))?(?:\s+all\s+of)?[\s([{]*$/iu.test(
+        between,
+      );
     if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
       continue;
     const target = bound ?? iso ?? month ?? relative ?? bare;
