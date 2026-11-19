@@ -1,4 +1,8 @@
-import { pairDevice } from "./helpers/fixture.mjs";
+import {
+  createRelayClient,
+  installPackedLoop,
+  pairDevice,
+} from "./helpers/fixture.mjs";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -12,7 +16,6 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
-import { request } from "node:http";
 import { existsSync, readdirSync, writeFileSync, readFileSync } from "node:fs";
 import { WebSocket } from "ws";
 import { markDisposableFixture } from "./helpers/disposable-fixture.mjs";
@@ -64,19 +67,7 @@ try {
     "-m",
     "initial",
   ]);
-  await exec(
-    "npm",
-    [
-      "install",
-      "--prefix",
-      target,
-      "--omit=optional",
-      "--no-audit",
-      "--no-fund",
-      tarball,
-    ],
-    { maxBuffer: 1000000, timeout: 240000 },
-  );
+  await installPackedLoop(tarball, { prefix: target });
   // Exercise the installed JavaScript module graph without tsx: source-level
   // adapter fixtures cannot detect missing compiled runtime dependencies.
   await exec(
@@ -376,15 +367,7 @@ async function upgradeBehindConnection() {
     ).stdout,
   );
   const tarballB = join(base, packed[0].filename);
-  await exec(
-    "npm",
-    ["install", "-g", "--omit=optional", "--no-audit", "--no-fund", tarball],
-    {
-      env: upgradeEnv,
-      maxBuffer: 1000000,
-      timeout: 240000,
-    },
-  );
+  await installPackedLoop(tarball, { env: upgradeEnv });
   const loop = (...args) =>
     exec(join(prefix, "bin", "loop"), args, {
       env: upgradeEnv,
@@ -411,35 +394,7 @@ async function upgradeBehindConnection() {
     JSON.parse((await loop("status", "--json")).stdout);
   const before = await status();
   const relay = new URL(before.connection.service.relay);
-  let cookie = "";
-  const send = (method, path, body) =>
-    new Promise((resolve, reject) => {
-      const req = request(
-        {
-          host: relay.hostname,
-          port: Number(relay.port),
-          method,
-          path,
-          headers: {
-            host: new URL(before.url).host,
-            origin: before.url,
-            ...(cookie ? { cookie } : {}),
-            ...(body ? { "content-type": "application/json" } : {}),
-          },
-        },
-        (res) => {
-          let out = "";
-          res.on("data", (b) => (out += b));
-          res.on("end", () => {
-            if (res.headers["set-cookie"])
-              cookie = res.headers["set-cookie"][0].split(";")[0];
-            resolve({ status: res.statusCode, body: out });
-          });
-        },
-      );
-      req.on("error", reject);
-      req.end(body ? JSON.stringify(body) : undefined);
-    });
+  const send = createRelayClient(relay, before.url);
   assert.equal(
     (await send("POST", "/pair", { secret: code, name: "Upgrade fixture" }))
       .status,
