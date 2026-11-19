@@ -119,10 +119,10 @@ const scriptAllowance = [
   "workspace-lifecycle-smoke.mjs",
 ];
 
-function sqlCallLines(file: string, text: string, includePragmas = false) {
+function sqlCallLines(file: string, text: string, script = false) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
-  type Binding = "connection" | "inferred" | "constructor" | "other";
+  type Binding = "connection" | "inferred" | "constructor" | "object" | "other";
   type Boundary = "function" | "class";
   type Scope = {
     parent?: Scope;
@@ -280,10 +280,13 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
         let binding: Binding = "other";
         if (key === "db")
           binding =
-            value?.type === "ImportExpression" &&
-            dbModule.test(value.source.value)
+            (value?.type === "ImportExpression" &&
+              dbModule.test(value.source.value)) ||
+            (script && value?.type === "Identifier" && value.name === "fixture")
               ? "connection"
               : "inferred";
+        if (key === "" && value?.type === "ObjectExpression")
+          binding = "object";
         if (
           (key === "default" && importsSqlite(node.init)) ||
           (key === "" && sqliteConstructor)
@@ -308,13 +311,17 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
   const connectionKind = (node: any) => {
     const name = receiver(node);
     if (!name) return undefined;
-    if (name === "db" || name.endsWith(".db")) return "connection";
     const [root] = name.split(".");
     const owner =
       root === "this"
         ? boundaryScope(node, "class")
         : declaringScope(root, node);
     const binding = owner ? owner.bindings.get(name) : bindingOf(name, node);
+    if (
+      (name === "db" || name.endsWith(".db")) &&
+      (!script || binding !== "object")
+    )
+      return "connection";
     return binding === "connection" || binding === "inferred"
       ? binding
       : undefined;
@@ -369,7 +376,7 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
     }
   }
   const methods = new Set(["prepare", "exec"]);
-  if (includePragmas) methods.add("pragma");
+  if (script) methods.add("pragma");
   return nodes
     .filter((node) => {
       if (
@@ -385,11 +392,7 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
       // Script fixtures can prepare a query held in a variable. An inferred
       // exec caller still needs a recognizable SQL statement.
       const statement = node.arguments[0];
-      if (
-        includePragmas &&
-        method === "prepare" &&
-        statement?.type === "Identifier"
-      )
+      if (script && method === "prepare" && statement?.type === "Identifier")
         return true;
       const text =
         statement?.type === "TemplateLiteral"
@@ -528,6 +531,20 @@ it("tracks dynamic queries, typed hoisted handles and shared object fields", () 
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 7, 11]);
   expect(sqlCallLines("probe.ts", text)).toEqual([7, 11]);
+});
+
+it("counts a fixture's dynamic exec without counting a local command adapter", () => {
+  const text = `
+    function seed(fixture, query) {
+      const { db: sqlite } = fixture;
+      sqlite.exec(query);
+    }
+    function dispatch(command) {
+      const db = { exec: runCommand };
+      db.exec(command);
+    }
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
