@@ -182,6 +182,8 @@ it.each([
   "harvest last week, excluding 2026-11-12",
   "harvest not (yesterday)",
   "harvest notes without yesterday",
+  "harvest last month, or even on 2026-10-12",
+  "harvest this week, excluding anything from today",
   "harvest this week, excluding all of yesterday",
   "harvest on 2026-10-12 or (2026-10-13)",
   "compare harvest last week with last month",
@@ -190,4 +192,12 @@ it.each([
   const window = parseMemoryTime(query, now);
   expect(window).toBeUndefined();
   expect(withoutMemoryTime(query, window)).toBe(query);
+});
+
+it("keeps line-leading inline code from masking a later date", () => {
+  const query = "```today``` harvest notes from last week";
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
 });

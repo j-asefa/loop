@@ -26,6 +26,7 @@ function maskFences(query: string) {
   for (const match of query.matchAll(markers)) {
     const marker = match[1];
     if (!fence) {
+      if (marker[0] === "`" && match[2].includes("`")) continue;
       fence = { marker, start: match.index };
     } else if (
       marker[0] === fence.marker[0] &&
@@ -174,9 +175,9 @@ export function parseMemoryTime(
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const alternative =
-      matched.length > 0 && /\b(?:or|nor)[\s([{]*$/iu.test(between);
+      matched.length > 0 && /\b(?:or|nor)(?:\s+even)?[\s([{]*$/iu.test(between);
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:\s+(?:from|for))?(?:\s+all\s+of)?[\s([{]*$/iu.test(
+      /\b(?:not|except|excluding|without)(?:\s+(?:all\s+of|anything|everything))?(?:\s+(?:from|for))?[\s([{]*$/iu.test(
         between,
       );
     if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
