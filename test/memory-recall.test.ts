@@ -1191,6 +1191,24 @@ it("does not count a clipped word as a whole recall term", async () => {
   expect(prompt).toBe("magenta quartz");
 });
 
+it("does not count a word split at the source scan limit", async () => {
+  await note(
+    "Chartreuse",
+    "x ".repeat(5997) + "lapislazuli " + "payload ".repeat(200),
+  );
+  const { prompt } = await nativePrompt("chartreuse lapisl");
+  expect(prompt).toBe("chartreuse lapisl");
+});
+
+it("uses the full suffix budget when the excerpt needs one elision mark", async () => {
+  const suffix = "mandarin" + " x".repeat(542) + " sorrel";
+  expect(suffix).toHaveLength(1099);
+  const source = await note("Long diagnostics", "prefix ".repeat(200) + suffix);
+  const { prompt } = await nativePrompt("mandarin sorrel");
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("…" + suffix);
+});
+
 it("matches titles as well as content", async () => {
   const titled = await note(
     "Osprey runbook",

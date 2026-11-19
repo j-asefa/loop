@@ -257,6 +257,7 @@ function readMemory(
   sourceId: string,
   revision?: number,
   project?: string | null,
+  forRecall = false,
 ) {
   const s = ownedMemorySource(sourceId, owner);
   const evidenceKind = eligibleKind(s);
@@ -271,11 +272,15 @@ function readMemory(
       404,
       "Memory source is unavailable or its revision changed",
     );
+  const readLimit = 12000;
+  const truncated = s.content.length > readLimit;
+  const end =
+    forRecall && truncated ? excerptEnd(s.content, readLimit) : readLimit;
   return {
     ...s,
     evidenceKind,
-    content: s.content.slice(0, 12000),
-    truncated: s.content.length > 12000,
+    content: s.content.slice(0, end),
+    truncated,
     link: s.conversation_id
       ? workspaceLink({
           conversation: s.conversation_id,
@@ -352,7 +357,13 @@ export async function searchMemory(
         memorySourcesQueries.inConversation(db, candidate.id, conversation)
       )
         continue;
-      const s = readMemory(owner, candidate.id, candidate.revision, project);
+      const s = readMemory(
+        owner,
+        candidate.id,
+        candidate.revision,
+        project,
+        true,
+      );
       const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
       let excerpt = matchedExcerpt(s.content, terms, size);
       if (relevant && !relevantExcerpt(s.title, excerpt)) {
@@ -468,9 +479,11 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
   let right = 0;
   hits.sort((a, b) => a.start - b.start);
   const span = size - 2;
+  const tailStart = content.length - size + 1;
   for (const hit of hits) {
     const start = hit.start;
-    while (right < byEnd.length && byEnd[right].end <= start + span) {
+    const end = start >= tailStart ? content.length : start + span;
+    while (right < byEnd.length && byEnd[right].end <= end) {
       const added = byEnd[right++];
       if (added.start >= start) count(added.term, 1);
     }
@@ -479,7 +492,7 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
       bestStart = start;
       bestEnd = byEnd[right - 1].end;
     }
-    if (hit.end <= start + span) count(hit.term, -1);
+    if (hit.end <= end) count(hit.term, -1);
   }
 
   if (bestStart === 0) return content.slice(0, headEnd).trimEnd() + "…";
@@ -488,7 +501,7 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
   const earliestStart = Math.max(
     1,
     bestStart - Math.floor(span / 6),
-    bestEnd - span,
+    bestEnd - bestStart > span ? tailStart : bestEnd - span,
   );
   const line = content.lastIndexOf("\n", bestStart);
   const start = Math.max(earliestStart, line + 1);
@@ -500,7 +513,10 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
   )
     safeStart +=
       content.slice(safeStart).match(/^[\p{L}\p{N}]+/u)?.[0].length ?? 0;
-  const end = excerptEnd(content, safeStart + span);
+  const end = excerptEnd(
+    content,
+    safeStart >= tailStart ? content.length : safeStart + span,
+  );
   return (
     "…" +
     content.slice(safeStart, end).trimEnd() +
