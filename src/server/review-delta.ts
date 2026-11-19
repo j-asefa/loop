@@ -93,10 +93,15 @@ function modes(diff: string) {
   const out = new Map<string, string[]>();
   let current: string[] | undefined;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git ")) out.set(line, (current = []));
+    if (line.startsWith("diff --git ") || line.startsWith("New file: "))
+      out.set(line, (current = []));
     else if (line.startsWith("@@")) current = undefined;
-    else if (/^(old mode|new mode|new file mode|deleted file mode) /.test(line))
-      current?.push(line);
+    else if (
+      /^(old mode|new mode|new file mode|deleted file mode) /.test(line)
+    ) {
+      if (!/^(new file mode|deleted file mode) 100644$/.test(line))
+        current?.push(line);
+    }
   }
   return out;
 }
@@ -140,7 +145,12 @@ export function changedLines(snapshot: Snapshot) {
     count += !a.length && !b.length ? 1 : size;
   }
   for (const mode of modes(snapshot.diff).values())
-    if (mode.some((line) => line.startsWith("old mode "))) count++;
+    if (
+      mode.some((line) =>
+        /^(old mode|new file mode|deleted file mode) /.test(line),
+      )
+    )
+      count++;
   return count;
 }
 

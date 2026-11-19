@@ -154,12 +154,15 @@ export function captureSnapshot(
   const changed = git([...common, "--name-only", "-z", ...compare, "--"])
     .split("\0")
     .filter(Boolean);
-  if (scope === "uncommitted")
-    changed.push(
-      ...git(["ls-files", "--others", "--exclude-standard", "-z"])
-        .split("\0")
-        .filter(Boolean),
-    );
+  const untracked = new Set(
+    scope === "uncommitted"
+      ? git(["ls-files", "--others", "--exclude-standard", "-z"])
+          .split("\0")
+          .filter(Boolean)
+      : [],
+  );
+  changed.push(...untracked);
+  const untrackedModes = new Map<string, string>();
   const changes = [...new Set(changed)].sort();
   if (changes.length > 100)
     throw new Problem(413, "Review up to 100 changed files at a time");
@@ -331,17 +334,17 @@ export function captureSnapshot(
     if (scope === "uncommitted") {
       const path = join(root, e.path);
       try {
-        if (
-          !lstatSync(path).isFile() ||
-          realpathSync(path) !== resolve(root, e.path)
-        ) {
+        const stat = lstatSync(path);
+        if (!stat.isFile() || realpathSync(path) !== resolve(root, e.path)) {
           omit(e.path);
           continue;
         }
-        if (lstatSync(path).size > MAX_REVIEW_FILE_BYTES) {
+        if (stat.size > MAX_REVIEW_FILE_BYTES) {
           omit(e.path);
           continue;
         }
+        if (untracked.has(e.path))
+          untrackedModes.set(e.path, stat.mode & 0o100 ? "100755" : "100644");
         value = readFileSync(path, "utf8");
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
@@ -371,13 +374,9 @@ export function captureSnapshot(
     ? git([...common, "--unified=3", ...compare, "--", ...selected], 300000)
     : "";
   for (const path of selected) {
-    if (
-      !(path in before) &&
-      path in files &&
-      scope === "uncommitted" &&
-      !diff.includes(`b/${path}`)
-    )
-      diff += `\nNew file: ${JSON.stringify(path)} (read its full contents with loop_review_read)\n`;
+    const mode = untrackedModes.get(path);
+    if (mode && path in files)
+      diff += `\nNew file: ${JSON.stringify(path)} (read its full contents with loop_review_read)\nnew file mode ${mode}\n`;
   }
   if (!selected.length)
     throw new Problem(422, "No reviewable changes in this scope");

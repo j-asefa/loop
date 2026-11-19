@@ -457,15 +457,21 @@ function agentReviewReport(
   const record = codeReviewsQueries.runStatus(db, reviewId, run.owner_id) as
     { run_id: string; state: string } | undefined;
   if (!record) throw new Problem(404, "Review not found");
-  if (ACTIVE.includes(record.state))
+  if (ACTIVE.includes(record.state)) {
+    const previousReviewId =
+      followUpQueries.byReview(db, run.owner_id, reviewId)
+        ?.previous_review_id ?? null;
     return {
       failed: false,
       report: {
         reviewId,
         state: record.state,
+        previousReviewId,
+        depth: previousReviewId ? "follow_up" : "full",
         note: "Review is still running. Use loop_review_status with this reviewId later to retrieve the report. Do not submit another review of the same snapshot or busy-wait.",
       },
     };
+  }
   const status = reviewStatus(run.owner_id, reviewId);
   const lead = ownedRun(record.run_id, run.owner_id);
   return {

@@ -1,9 +1,11 @@
+import { snapshotDelta } from "../src/server/review-delta";
 import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
+  chmodSync,
   mkdtempSync,
   writeFileSync,
   readFileSync,
@@ -142,6 +144,11 @@ it("captures staged contents separately from working changes, includes new files
   expect(work.files["index.ts"]).toContain("= 3");
   expect(work.before["index.ts"]).toContain("= 1");
   expect(work.changed).toContain("new.ts");
+  chmodSync(join(repo, "new.ts"), 0o755);
+  const executable = captureSnapshot(repo, "uncommitted");
+  expect(snapshotDelta(executable, work).hunks).toContain(
+    "new file mode 100755",
+  );
   expect(work.context?.["caller.ts"]).toBe(
     git("rev-parse", "HEAD:caller.ts").trim(),
   );
@@ -702,6 +709,10 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
         .prepare("SELECT count(*) n FROM delegations WHERE parent_run_id=?")
         .get(review.run_id) as { n: number }
     ).n;
+    expect(JSON.parse(accepted.result.content[0].text)).toMatchObject({
+      depth: followUp ? "follow_up" : "full",
+      previousReviewId: followUp?.previous_review_id ?? null,
+    });
     return { ...review, followUp, reviewers };
   };
   // Finishing the requester's turn lets the next turn of the thread ask again.
@@ -732,6 +743,7 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const racing = await request(first);
   expect(racing.followUp).toBeUndefined();
   finish(first, racing);
+  db.prepare("UPDATE code_reviews SET created_at=0 WHERE id=?").run(racing.id);
   finish(first, full);
 
   // A small fix on top of the reviewed change goes to the lead alone.

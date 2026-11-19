@@ -151,7 +151,7 @@ const earlierStatement = statement(
     LEFT JOIN review_follow_ups f ON f.review_id=a.id AND f.owner_id=a.owner_id
     WHERE p.owner_id=@owner AND p.conversation_id=@conversation
       AND a.team_id=@team AND a.folder_id=@folder AND a.source_path=@path
-    ORDER BY a.created_at DESC,a.id DESC LIMIT 8`,
+    ORDER BY a.rowid DESC LIMIT 8`,
 );
 const earlierRow = z.object({
   id: z.string(),
