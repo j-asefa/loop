@@ -15,11 +15,11 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_.-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_]|[.-][\\p{L}\\p{N}_])`,
+  `(?<![\\p{L}\\p{N}_./+@-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_/+@]|[.-][\\p{L}\\p{N}_])`,
   "giu",
 );
 const quoted =
-  /"[^"\n]*"|(?<![\p{L}\p{N}])'[^'\n]*'|“[^”\n]*”|‘[^’\n]*’|`[^`\n]*`/gu;
+  /"(?:\\.|[^"\\\n])*"|(?<![\p{L}\p{N}])'(?:\\.|[^'\\\n])*'|“[^”\n]*”|‘[^’\n]*’|`[^`\n]*`/gu;
 
 function dateBoundary(text: string, today: number) {
   if (/^\d{4}-/.test(text)) {
@@ -91,16 +91,14 @@ export function parseMemoryTime(
     if (modifier === "since" || modifier === "before") {
       const from = modifier === "since" ? boundary.start : null;
       const to = modifier === "before" ? boundary.start : null;
-      if (!open) open = { from, to, matched };
-      else if (
-        (open.from === null && from !== null) ||
-        (open.to === null && to !== null)
-      )
-        return {
-          from: open.from ?? from,
-          to: open.to ?? to,
-          matched: [...(open.matched ?? []), ...matched],
-        };
+      open = {
+        from:
+          from === null
+            ? (open?.from ?? null)
+            : Math.max(open?.from ?? from, from),
+        to: to === null ? (open?.to ?? null) : Math.min(open?.to ?? to, to),
+        matched: [...(open?.matched ?? []), ...matched],
+      };
       continue;
     }
     if (!open) return { from: boundary.start, to: boundary.end, matched };

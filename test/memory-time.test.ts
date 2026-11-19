@@ -54,6 +54,9 @@ it.each([
   "group by week",
   "read report.today field",
   "read today.report field",
+  "read /reports/today/summary",
+  "search alerts+today@example.com",
+  String.raw`find "status \"yesterday\" field"`,
   "before `cleanup` October",
   "on 2026-02-29",
   "before 2026-11-31",
@@ -79,5 +82,12 @@ it("applies and removes both ends of an explicit range", () => {
     from: Date.parse("2026-10-01"),
     to: Date.parse("2026-11-01"),
   });
+  expect(withoutMemoryTime(query, window)).toBe("  and   harvest");
+});
+
+it("uses the tighter repeated cutoff", () => {
+  const query = "before 2026-10-20 and before 2026-10-13 harvest";
+  const window = parseMemoryTime(query, now);
+  expect(window?.to).toBe(Date.parse("2026-10-13"));
   expect(withoutMemoryTime(query, window)).toBe("  and   harvest");
 });
