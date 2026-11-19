@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|before|after)\\s+(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during)\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|before|after)\\s+(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -184,7 +184,9 @@ function classifyMemoryTime(
       ? !bareMonth && /^[\s,([{]*(?:or|nor)[\s,([{]*$/iu.test(between)
       : seenDate && /^[\s,([{]*(?:or|nor)\b/iu.test(alternativeContext);
     const sharedMonthPreposition =
-      previousExplicitMonth && bareMonth && /^\s+and\s+$/iu.test(between);
+      previousExplicitMonth &&
+      bareMonth &&
+      /^(?:\s+and\s+|\s*,\s*(?:(?:and|or)\s+)?)$/iu.test(between);
     previousBareMonth = Boolean(bareMonth);
     previousExplicitMonth = Boolean(month);
     const preposition =
@@ -194,8 +196,8 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|not(?!\s+only\b)|don['’]t\s+include|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
-        exclusionContext,
+      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|not(?!\s+only\b)|don['’]t\s+include|leav(?:e|ing)\s+out)\b/iu.test(
+        exclusionContext.split(/[.!?;]/u).at(-1) ?? "",
       ) ||
       /\bwithout(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
