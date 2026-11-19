@@ -132,17 +132,36 @@ function modes(diff: string) {
         current = undefined;
         continue;
       }
-      out.set(
-        `diff --git ${gitDiffPath("a/" + path)} ${gitDiffPath("b/" + path)}`,
-        (current = []),
-      );
+      const header = `diff --git ${gitDiffPath("a/" + path)} ${gitDiffPath("b/" + path)}`;
+      current = out.get(header) ?? [];
+      out.set(header, current);
     } else if (line.startsWith("@@")) current = undefined;
     else if (
       /^(old mode|new mode|new file mode|deleted file mode) /.test(line)
     ) {
-      if (!/^(new file mode|deleted file mode) 100644$/.test(line))
-        current?.push(line);
+      current?.push(line);
     }
+  }
+  for (const [header, records] of out) {
+    // Git reports index deletion; the untracked notice supplies the final mode.
+    const removed = records
+      .find((line) => line.startsWith("deleted file mode "))
+      ?.slice(-6);
+    const added = records
+      .find((line) => line.startsWith("new file mode "))
+      ?.slice(-6);
+    if (removed && added)
+      out.set(
+        header,
+        removed === added ? [] : [`old mode ${removed}`, `new mode ${added}`],
+      );
+    else
+      out.set(
+        header,
+        records.filter(
+          (line) => !/^(new file mode|deleted file mode) 100644$/.test(line),
+        ),
+      );
   }
   return out;
 }

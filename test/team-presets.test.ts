@@ -175,6 +175,38 @@ it("captures staged contents separately from working changes, includes new files
   expect(() => captureSnapshot(repo, "branch", "--help")).toThrow(/capture/);
 });
 
+it("compares working permissions when an executable is removed from the index", () => {
+  const checkout = mkdtempSync(join(dir, "mode-"));
+  const localGit = (...args: string[]) =>
+    execFileSync("git", args, { cwd: checkout, stdio: "pipe" });
+  localGit("init");
+  const script = join(checkout, "run.sh");
+  writeFileSync(script, "echo ok\n", { mode: 0o755 });
+  localGit("add", "run.sh");
+  localGit(
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "-m",
+    "executable",
+  );
+  writeFileSync(join(checkout, "feature.ts"), "export {};\n");
+  const earlier = captureSnapshot(checkout, "uncommitted");
+  localGit("rm", "--cached", "run.sh");
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), earlier).unseen,
+  ).toBe(0);
+  chmodSync(script, 0o644);
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), earlier),
+  ).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("old mode 100755\nnew mode 100644"),
+  });
+});
+
 it("captures branch commits without including working edits and represents deleted files", () => {
   git("commit", "-m", "change staged value");
   const branch = captureSnapshot(repo, "branch", "HEAD~1");
@@ -807,6 +839,19 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
     reviewers: [],
     report: "v3 is fixed",
   });
+  const listing = (await invokeNative(
+    { ...second, state: "running" },
+    status,
+    id(),
+    {},
+  )) as any;
+  expect(JSON.parse(listing.result.content[0].text).reviews).toContainEqual(
+    expect.objectContaining({
+      reviewId: followUp.id,
+      depth: "follow_up",
+      previousReviewId: racing.id,
+    }),
+  );
   expect(report.note).toContain(
     "assigned this follow-up to the review lead alone",
   );

@@ -116,9 +116,20 @@ export function runStatus(db: Database.Database, id: string, owner: string) {
 }
 
 const agentReviewsStatement = statement(
-  "SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt FROM code_reviews c\n    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id\n    JOIN delegations d ON d.child_run_id=c.run_id\n    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id\n    WHERE c.owner_id=@owner AND p.agent_id=@agent AND (@review IS NULL OR c.id=@review)\n    ORDER BY c.created_at DESC,c.id LIMIT 10",
+  `SELECT c.id AS reviewId,r.state,c.fingerprint,c.created_at AS createdAt,
+      f.previous_review_id AS previousReviewId,
+      CASE WHEN f.review_id IS NULL THEN 'full' ELSE 'follow_up' END AS depth
+    FROM code_reviews c
+    LEFT JOIN review_follow_ups f ON f.review_id=c.id AND f.owner_id=c.owner_id
+    JOIN runs r ON r.id=c.run_id AND r.owner_id=c.owner_id
+    JOIN delegations d ON d.child_run_id=c.run_id
+    JOIN runs p ON p.id=d.parent_run_id AND p.owner_id=c.owner_id
+    WHERE c.owner_id=@owner AND p.agent_id=@agent AND (@review IS NULL OR c.id=@review)
+    ORDER BY c.created_at DESC,c.id LIMIT 10`,
 );
 const agentReviewsRow = z.object({
+  depth: z.enum(["full", "follow_up"]),
+  previousReviewId: z.string().nullable(),
   reviewId: z.string(),
   state: QueryRecords.runs.shape.state,
   fingerprint: z.string(),
