@@ -22,7 +22,7 @@ const lines = (text: string | undefined) =>
   text?.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
 /** Line edits from `a` to `b`. Past MAX_CELLS the middle is a full rewrite. */
-function edits(a: string[], b: string[]): Op[] {
+function edits(a: string[], b: string[], budget: { cells: number }): Op[] {
   let start = 0,
     endA = a.length,
     endB = b.length;
@@ -34,11 +34,12 @@ function edits(a: string[], b: string[]): Op[] {
   const n = endA - start,
     m = endB - start;
   const middle: Op[] = [];
-  if (n * m > MAX_CELLS) {
+  if (!n || !m || n * m > budget.cells) {
     for (let i = start; i < endA; i++) middle.push({ kind: "-", line: a[i] });
     for (let j = start; j < endB; j++) middle.push({ kind: "+", line: b[j] });
   } else {
     // Longest common subsequence lengths of the suffixes a[i..], b[j..].
+    budget.cells -= n * m;
     const width = m + 1,
       table = new Uint32Array((n + 1) * width);
     for (let i = n - 1; i >= 0; i--)
@@ -124,11 +125,18 @@ const changes = (ops: Op[]) => ops.filter((op) => op.kind !== " ").length;
  */
 export function changedLines(snapshot: Snapshot) {
   let count = 0;
+  const budget = { cells: MAX_CELLS };
   for (const path of snapshot.changed) {
-    const a = lines(fileText(snapshot.before, path)),
-      b = lines(fileText(snapshot.files, path));
-    count +=
-      a.length * b.length > MAX_CELLS ? unmatched(a, b) : changes(edits(a, b));
+    const before = fileText(snapshot.before, path);
+    const after = fileText(snapshot.files, path);
+    if (before === after) continue;
+    const a = lines(before),
+      b = lines(after);
+    const size =
+      a.length * b.length > budget.cells
+        ? unmatched(a, b)
+        : changes(edits(a, b, budget));
+    count += !a.length && !b.length ? 1 : size;
   }
   for (const mode of modes(snapshot.diff).values())
     if (mode.some((line) => line.startsWith("old mode "))) count++;
@@ -140,6 +148,7 @@ export function changedLines(snapshot: Snapshot) {
  * file either snapshot changed, as a count and as excerpts for the reviewer.
  */
 export function snapshotDelta(current: Snapshot, previous: Snapshot) {
+  const budget = { cells: MAX_CELLS };
   let unseen = 0;
   const hunks: string[] = [];
   const changedNow = new Set(current.changed),
@@ -156,15 +165,16 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
         : newBase;
     const now = reverted ? oldBase : fileText(current.files, path);
     if (then === now) continue;
-    const ops = edits(lines(then), lines(now));
+    const ops = edits(lines(then), lines(now), budget);
     // Empty files have no lines, but their presence can affect behavior.
     unseen += Math.max(1, changes(ops));
     const evidence = current.omitted.includes(path)
       ? "This snapshot omits this file; its current contents cannot be compared."
       : excerpt(ops) ||
         (now === undefined ? "Empty file removed." : "Empty file added.");
+    const label = JSON.stringify(path);
     hunks.push(
-      `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n${evidence}`,
+      `--- earlier snapshot: ${label}\n+++ this snapshot: ${label}\n${evidence}`,
     );
   }
   // A mode set, changed or put back since the earlier snapshot. The text may

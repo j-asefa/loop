@@ -61,7 +61,7 @@ it("counts deleted, moved and edited lines and excerpts them with their line num
   );
   // One deletion, one move (a removal and an addition) and one edit (same).
   expect(delta.unseen).toBe(5);
-  expect(delta.hunks).toContain("--- earlier snapshot: a.ts");
+  expect(delta.hunks).toContain('--- earlier snapshot: "a.ts"');
   expect(delta.hunks).toContain("-line 5");
   expect(delta.hunks).toContain("-line 12");
   expect(delta.hunks).toContain("+line 12");
@@ -82,7 +82,7 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   const delta = snapshotDelta(rewritten, reviewed);
   // Every line of the untracked file changed, and a.ts lost its ten new lines.
   expect(delta.unseen).toBe(110);
-  expect(delta.hunks).toContain("+++ this snapshot: notes.ts");
+  expect(delta.hunks).toContain('+++ this snapshot: "notes.ts"');
   // The excerpt shows exactly which earlier lines were removed.
   expect(delta.hunks).toContain("-line 19");
   // A file that became omitted is said to be uncomparable, not gone.
@@ -168,6 +168,7 @@ it("counts one terminated line in a newly created file", () => {
 
 it("shows empty untracked file creation and removal and counts reviewed moves", () => {
   const empty = snapshot({ "__init__.py": [] });
+  expect(changedLines(empty)).toBe(1);
   expect(snapshotDelta(empty, snapshot({}))).toEqual({
     unseen: 1,
     hunks: expect.stringContaining("Empty file added."),
@@ -179,4 +180,20 @@ it("shows empty untracked file creation and removal and counts reviewed moves", 
   expect(
     changedLines(snapshot({ a: ["b", "a", "c"] }, { a: ["a", "b", "c"] })),
   ).toBe(2);
+});
+
+it("shares the exact comparison budget across all files in a snapshot", () => {
+  const original = body(1500);
+  const moved = [...original.slice(1), original[0]];
+  const current = snapshot(
+    { a: moved, b: moved },
+    { a: original, b: original },
+  );
+  expect(changedLines(current)).toBe(2);
+  expect(
+    snapshotDelta(
+      current,
+      snapshot({ a: original, b: original }, { a: original, b: original }),
+    ).unseen,
+  ).toBe(3002);
 });
