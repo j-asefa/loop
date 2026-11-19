@@ -5,6 +5,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
+import { engineForRun } from "./helpers/engines.mjs";
+
+const engine = await engineForRun(import.meta.url);
 
 const dir = await mkdtemp(join(tmpdir(), "loop-results-reader-"));
 let browser, server;
@@ -153,7 +156,6 @@ try {
     res.end();
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const engine = process.env.LOOP_BROWSER || "chromium";
   browser = await (engine === "webkit" ? webkit : chromium).launch({
     headless: true,
   });

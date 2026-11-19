@@ -6,18 +6,34 @@ import {
   drainPageRoutes,
 } from "./helpers/temporary-page-route.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
+import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import { seedCards } from "../test/helpers/seed-cards.ts";
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
-const browser = await engine.launch({
-  headless: true,
-  ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
-  ...(engine === chromium && process.env.CHROMIUM_PATH
-    ? { executablePath: process.env.CHROMIUM_PATH }
-    : {}),
-});
+import {
+  chromiumExecutable,
+  browserType,
+  engineForRun,
+} from "./helpers/engines.mjs";
+
+const engine = browserType(await engineForRun(import.meta.url));
+let browser;
+const closeBrowser = trackSmokeCleanup(async () => browser?.close());
 try {
+  browser = await engine.launch({
+    headless: true,
+    ...(engine === chromium ? { args: ["--no-sandbox"] } : {}),
+    executablePath: chromiumExecutable(engine),
+  });
   {
-    const fixture = await cardsFixture(true);
+    const fixture = await cardsFixture(true, {
+      trackCleanup: (cleanup) =>
+        trackSmokeCleanup(async () => {
+          try {
+            await closeBrowser();
+          } finally {
+            await cleanup();
+          }
+        }),
+    });
     try {
       const { file } = await seedCards(fixture);
       const imageForm = new FormData();
@@ -758,7 +774,7 @@ try {
           );
           assert.deepEqual(errors, []);
           await page.screenshot({
-            path: `/tmp/cards-content-companion-${width}.png`,
+            path: `/tmp/cards-content-companion-${engine.name()}-${width}.png`,
           });
           console.log(`Card content journey passed: companion, ${width}px`);
           if (navigationDiagnostics.length)
@@ -767,7 +783,7 @@ try {
             );
         } catch (error) {
           await page.screenshot({
-            path: `/tmp/cards-content-failure-companion-${width}.png`,
+            path: `/tmp/cards-content-failure-companion-${engine.name()}-${width}.png`,
             fullPage: true,
           });
           throw error;
@@ -782,5 +798,5 @@ try {
     }
   }
 } finally {
-  await browser.close();
+  await closeBrowser();
 }

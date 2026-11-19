@@ -157,6 +157,8 @@ The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-s
 
 ## Browser checks
 
+On Linux, install Python 3.8+ as `python3` for command supervision, including direct smoke commands that dispatch both browser engines. Install both Playwright engines for dual-engine runs.
+
 ```sh
 npx playwright install --with-deps chromium webkit
 npm run smoke:design
@@ -172,7 +174,6 @@ LOOP_BROWSER=webkit npm run smoke:companion
 npm run smoke:reconnect
 LOOP_BROWSER=webkit npm run smoke:reconnect
 node scripts/harness-upgrades-browser-smoke.mjs
-LOOP_BROWSER=webkit node scripts/harness-upgrades-browser-smoke.mjs
 npm run smoke:fleet-controls
 LOOP_BROWSER=webkit npm run smoke:fleet-controls
 npm run smoke:fleet-traces
@@ -181,7 +182,14 @@ npm run smoke:fleet-commands
 LOOP_BROWSER=webkit npm run smoke:fleet-commands
 ```
 
-`smoke:design`, `smoke:history`, `smoke:workspace`, `smoke:html`, `smoke:social`, `smoke:pulls`, `smoke:math`, `smoke:display`, `smoke:feed-events` and `feed-transfer-smoke.mjs` run both engines unless `LOOP_BROWSER` selects one; the other smokes default to Chromium. Each script in the table below states in its header comment what it checks and what it does not validate:
+Dual-engine smokes run Chromium and WebKit by default. Set `LOOP_BROWSER=chromium` or `LOOP_BROWSER=webkit` to select one engine for those scripts. The companion, reconnect and fleet commands above use explicit WebKit invocations because those scripts default to Chromium. The first stage of `smoke:cards` requires Chromium. To run the card content and window checks in WebKit:
+
+```sh
+LOOP_BROWSER=webkit node scripts/heavy-command.mjs --import tsx scripts/cards-content-browser.mjs
+LOOP_BROWSER=webkit node scripts/heavy-command.mjs scripts/cards-window-browser.mjs
+```
+
+Each script in the table below describes its coverage in the header comment.
 
 | Check                                                                | Script                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

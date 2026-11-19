@@ -1,8 +1,9 @@
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import {
   chooseAgentModel,
   openAgentModelOptions,
 } from "./helpers/agent-model-options.mjs";
-import { chromium, webkit, expect } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { mkdtemp, rm, mkdir, chmod, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join, basename } from "node:path";
@@ -17,6 +18,8 @@ import { companionContractsBrowser } from "./helpers/companion-contracts-browser
 import { nativeSettingsBrowser } from "./helpers/native-settings-browser.mjs";
 import { settingsReliabilityBrowser } from "./helpers/settings-reliability-browser.mjs";
 import { agentSourcesBrowser } from "./helpers/agent-sources-browser.mjs";
+const [browserEngine] = selectedEngines();
+const engine = browserEngine.name();
 const dir = await mkdtemp(join(tmpdir(), "loop-browser-"));
 process.env.LOOP_DATA_DIR = dir;
 process.env.LOOP_TEST_HARNESS = "codex";
@@ -53,19 +56,15 @@ try {
   await host.start({ options });
   const launch = {
     headless: true,
-    ...(process.env.CHROMIUM_PATH
-      ? { executablePath: process.env.CHROMIUM_PATH }
-      : {}),
+    executablePath: chromiumExecutable(browserEngine),
     args:
-      process.env.LOOP_BROWSER === "webkit"
+      engine === "webkit"
         ? []
         : process.env.CHROMIUM_ARGS
           ? JSON.parse(process.env.CHROMIUM_ARGS)
           : ["--no-sandbox"],
   };
-  browser = await (
-    process.env.LOOP_BROWSER === "webkit" ? webkit : chromium
-  ).launch(launch);
+  browser = await browserEngine.launch(launch);
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -78,13 +77,7 @@ try {
   page.on("pageerror", (error) => {
     // Reloading or revoking the device can interrupt an in-flight API fetch.
     // Keep the same narrow WebKit diagnostic filter as the other browser checks.
-    if (
-      !isWebKitNavigationFetchError(
-        process.env.LOOP_BROWSER,
-        error,
-        host.gateway.origin,
-      )
-    )
+    if (!isWebKitNavigationFetchError(engine, error, host.gateway.origin))
       errors.push(error.message);
   });
   // This host is started without --fleet: its fleet admin state is absent.
@@ -295,10 +288,7 @@ try {
   await control(dir, "revoke", { id: devices[0].id });
   await page.getByRole("heading", { name: "Pair this device" }).waitFor();
   assert.deepEqual(errors, []);
-  console.log(
-    "Original Loop mobile UI fixture journey passed:",
-    process.env.LOOP_BROWSER || "chromium",
-  );
+  console.log("Original Loop mobile UI fixture journey passed:", engine);
 } catch (e) {
   await mkdir("test-results", { recursive: true });
   if (browser) {

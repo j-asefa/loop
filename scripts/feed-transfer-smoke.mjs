@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -24,8 +24,7 @@ for (const engine of selectedEngines()) {
       insert.run(`transfer-${name}`, fixture.owner, name, name);
     }
     const browser = await engine.launch({
-      executablePath:
-        engine === chromium ? process.env.CHROMIUM_PATH : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     const closeBrowser = trackSmokeCleanup(() => browser.close());
     try {

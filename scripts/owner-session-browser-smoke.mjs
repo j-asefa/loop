@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 import { workspaceCapabilities } from "../src/shared/capabilities.ts";
+import { browserType, engineForRun } from "./helpers/engines.mjs";
+
+const engine = browserType(await engineForRun(import.meta.url));
 
 const dir = await mkdtemp(join(tmpdir(), "loop-owner-session-"));
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
 let browser, server;
 try {
   const entry = join(dir, "entry.mjs");

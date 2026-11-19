@@ -10,10 +10,13 @@ export async function runSupervised(command, args, options = {}) {
     cwd,
     env = process.env,
     signal,
+    exitWithParent = false,
+    ipc = false,
     log = (line) => process.stderr.write(line + "\n"),
   } = options;
   if (signal?.aborted) return 130;
   const supervised = process.platform === "linux";
+  const monitorParent = !supervised && exitWithParent;
   const config = { label, parentPid: process.pid };
   return new Promise((resolve) => {
     const child = spawn(
@@ -25,11 +28,21 @@ export async function runSupervised(command, args, options = {}) {
             command,
             ...args,
           ]
-        : args,
+        : monitorParent
+          ? [
+              "--import",
+              new URL("./exit-with-parent.mjs", import.meta.url).href,
+              ...args,
+            ]
+          : args,
       {
         cwd,
         env,
-        stdio: supervised ? [stdio, stdio, stdio, "pipe"] : stdio,
+        stdio: supervised
+          ? [stdio, stdio, stdio, "pipe"]
+          : monitorParent || ipc
+            ? [stdio, stdio, stdio, "ipc"]
+            : stdio,
       },
     );
     let lines = "";
@@ -41,11 +54,16 @@ export async function runSupervised(command, args, options = {}) {
         lines = lines.slice(end + 1);
       }
     });
+    const forward = (name) => {
+      if (monitorParent && process.platform === "win32") {
+        if (child.connected) child.disconnect();
+      } else child.kill(name);
+    };
     const handlers = ["SIGINT", "SIGTERM", "SIGHUP"].map((name) => [
       name,
-      () => child.kill(name),
+      () => forward(name),
     ]);
-    const abort = () => child.kill("SIGTERM");
+    const abort = () => forward("SIGTERM");
     for (const [name, handler] of handlers) process.on(name, handler);
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) abort();
@@ -79,5 +97,7 @@ if (
     );
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "browser smoke",
+    ipc: true,
+    env: { ...process.env, LOOP_BROWSER_SUPERVISOR_CHANNEL: "1" },
   });
 }

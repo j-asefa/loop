@@ -5,15 +5,19 @@
 import assert from "node:assert/strict";
 import { chromium, webkit, expect } from "@playwright/test";
 import { createServer } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
+import { browserType, engineForRun } from "./helpers/engines.mjs";
+import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
+
+const engine = browserType(await engineForRun(import.meta.url));
 
 // Production provider cards and typed transport; all releases/installers are
 // deterministic HTTP fixtures, with no provider, registry or device traffic.
-const dir = await mkdtemp(join(tmpdir(), "loop-harness-upgrades-browser-"));
-const engine = process.env.LOOP_BROWSER === "webkit" ? webkit : chromium;
+const dir = mkdtempSync(join(tmpdir(), "loop-harness-upgrades-browser-"));
 let browser, server;
 let upgrade = null,
   installed = "0.159.0",
@@ -30,6 +34,15 @@ let holdCheck = false,
   checkEntered = false,
   releaseCheck;
 const requests = [];
+const close = trackSmokeCleanup(async () => {
+  releaseCheck?.();
+  try {
+    await browser?.close();
+    await new Promise((done) => (server ? server.close(done) : done()));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 try {
   const entry = join(dir, "entry.mjs");
   await writeFile(
@@ -487,8 +500,5 @@ try {
     `harness-upgrades-browser (${engine.name()}): provider cards, read-only checks, progress, refresh, restart hold, reload and cancelled-check recovery passed`,
   );
 } finally {
-  releaseCheck?.();
-  await browser?.close();
-  await new Promise((done) => (server ? server.close(done) : done()));
-  await rm(dir, { recursive: true, force: true });
+  await close();
 }

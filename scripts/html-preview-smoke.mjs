@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
-import { selectedEngines } from "./helpers/engines.mjs";
+import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { htmlPreviewSmoke } from "./helpers/html-preview-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
@@ -16,10 +16,7 @@ try {
   for (const engine of selectedEngines()) {
     const browser = await engine.launch({
       headless: true,
-      executablePath:
-        engine === chromium
-          ? process.env.CHROMIUM_PATH || undefined
-          : undefined,
+      executablePath: chromiumExecutable(engine),
     });
     try {
       const context = await browser.newContext({
