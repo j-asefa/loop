@@ -119,17 +119,53 @@ const scriptAllowance = [
   "workspace-lifecycle-smoke.mjs",
 ];
 
-function sqlCallLines(file: string, text: string) {
+function sqlCallLines(file: string, text: string, includePragmas = false) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
+  type Binding = "connection" | "inferred" | "constructor" | "other";
+  type Scope = { parent?: Scope; bindings: Map<string, Binding> };
   const nodes: any[] = [];
-  const visit = (node: any): void => {
+  const scopes = new Map<object, Scope>();
+  const scopeKinds = new Set([
+    "BlockStatement",
+    "FunctionDeclaration",
+    "FunctionExpression",
+    "ArrowFunctionExpression",
+    "CatchClause",
+    "ForStatement",
+    "ForInStatement",
+    "ForOfStatement",
+    "SwitchStatement",
+  ]);
+  const fileScope: Scope = { bindings: new Map() };
+  const visit = (node: any, parent: Scope): void => {
     if (!node || typeof node !== "object") return;
-    if (Array.isArray(node)) return node.forEach(visit);
-    if (node.type) nodes.push(node);
-    for (const value of Object.values(node)) visit(value);
+    if (Array.isArray(node)) {
+      node.forEach((item) => visit(item, parent));
+      return;
+    }
+    const scope: Scope = scopeKinds.has(node.type)
+      ? { parent, bindings: new Map() }
+      : parent;
+    if (node.type) {
+      nodes.push(node);
+      scopes.set(node, scope);
+    }
+    for (const value of Object.values(node)) visit(value, scope);
   };
-  visit(program);
+  visit(program, fileScope);
+  const scopeOf = (node: any) => scopes.get(node) ?? fileScope;
+  const declaringScope = (name: string, node: any): Scope | undefined => {
+    for (
+      let scope: Scope | undefined = scopeOf(node);
+      scope;
+      scope = scope.parent
+    )
+      if (scope.bindings.has(name)) return scope;
+    return undefined;
+  };
+  const bindingOf = (name: string, node: any) =>
+    declaringScope(name, node)?.bindings.get(name);
   const property = (node: any) =>
     node?.computed ? node.property?.value : node?.property?.name;
   const receiver = (node: any): string | undefined => {
@@ -142,10 +178,6 @@ function sqlCallLines(file: string, text: string) {
     }
     return undefined;
   };
-  const connections = new Set(["db"]);
-  const constructors = new Set<string>();
-  const fixtureParameters: { name: string; start: number; end: number }[] = [];
-  const databaseParameters: { start: number; end: number }[] = [];
   const unwrap = (node: any) => {
     while (
       node?.type === "AwaitExpression" ||
@@ -163,6 +195,7 @@ function sqlCallLines(file: string, text: string) {
   };
   const bindings = (pattern: any) => {
     if (pattern.type === "AssignmentPattern") pattern = pattern.left;
+    if (pattern.type === "Identifier") return [{ name: pattern.name, key: "" }];
     if (pattern.type !== "ObjectPattern") return [];
     return pattern.properties.flatMap((member: any) => {
       if (member.type !== "Property") return [];
@@ -182,123 +215,137 @@ function sqlCallLines(file: string, text: string) {
     });
   };
   for (const node of nodes) {
+    const scope = scopeOf(node);
     if (node.type === "ImportDeclaration") {
       for (const specifier of node.specifiers) {
+        let binding: Binding = "other";
         if (
           node.source.value === "better-sqlite3" &&
           specifier.type === "ImportDefaultSpecifier"
         )
-          constructors.add(specifier.local.name);
+          binding = "constructor";
         if (
           specifier.imported?.name === "db" &&
           /(?:^|\/)db(?:\.js)?$/.test(node.source.value)
         )
-          connections.add(specifier.local.name);
+          binding = "connection";
+        scope.bindings.set(specifier.local.name, binding);
       }
     }
     if (node.type === "VariableDeclarator") {
-      for (const { key, name } of bindings(node.id)) {
-        if (key === "db") connections.add(name);
-        if (key === "default" && importsSqlite(node.init))
-          constructors.add(name);
-      }
       const value = unwrap(node.init);
-      if (
-        node.id.type === "Identifier" &&
-        ((value?.type === "MemberExpression" &&
+      const sqliteConstructor =
+        (value?.type === "MemberExpression" &&
           property(value) === "default" &&
           importsSqlite(value.object)) ||
-          (value?.type === "CallExpression" &&
-            value.callee.name === "require" &&
-            value.arguments[0]?.value === "better-sqlite3"))
-      )
-        constructors.add(node.id.name);
-    }
-    for (const parameter of node.params ?? []) {
-      const binding =
-        parameter.type === "AssignmentPattern" ? parameter.left : parameter;
-      const scope = { start: node.start, end: node.end };
-      for (const { key, name } of bindings(binding)) {
-        if (key === "db") fixtureParameters.push({ name, ...scope });
+        (value?.type === "CallExpression" &&
+          value.callee.name === "require" &&
+          value.arguments[0]?.value === "better-sqlite3");
+      for (const { key, name } of bindings(node.id)) {
+        let binding: Binding = "other";
+        if (key === "db") binding = "connection";
+        if (
+          (key === "default" && importsSqlite(node.init)) ||
+          (key === "" && sqliteConstructor)
+        )
+          binding = "constructor";
+        scope.bindings.set(name, binding);
       }
-      if (binding.type === "Identifier" && binding.name === "database")
-        databaseParameters.push(scope);
+    }
+    const parameters =
+      node.params ??
+      (node.type === "CatchClause" && node.param ? [node.param] : []);
+    for (const parameter of parameters) {
+      for (const { key, name } of bindings(parameter)) {
+        const binding =
+          key === "db"
+            ? "connection"
+            : key === "" && name === "database"
+              ? "inferred"
+              : "other";
+        scope.bindings.set(name, binding);
+      }
     }
   }
-  const inScope = (node: any, scope: { start: number; end: number }) =>
-    scope.start <= node.start && node.end <= scope.end;
-  const isConnection = (node: any) => {
+  const connectionKind = (node: any) => {
     const name = receiver(node);
-    return (
-      name !== undefined &&
-      (connections.has(name) ||
-        name.endsWith(".db") ||
-        fixtureParameters.some(
-          (parameter) => parameter.name === name && inScope(node, parameter),
-        ))
-    );
+    if (!name) return undefined;
+    if (name === "db" || name.endsWith(".db")) return "connection";
+    const binding = bindingOf(name, node);
+    return binding === "connection" || binding === "inferred"
+      ? binding
+      : undefined;
   };
-  // An untyped database parameter is only a hint. Require an SQL statement
-  // before counting it, so unrelated adapters can still use exec or prepare.
-  const isUntypedSqlParameter = (call: any) => {
-    const statement = call.arguments[0];
-    const text =
-      statement?.type === "TemplateLiteral"
-        ? statement.quasis[0]?.value.cooked
-        : statement?.value;
-    return (
-      receiver(call.callee.object) === "database" &&
-      typeof text === "string" &&
-      /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.test(
-        text,
-      ) &&
-      databaseParameters.some((scope) => inScope(call, scope))
-    );
-  };
-  // Typed injected connections may execute SQL without a prepare call in this
-  // file. Include them even when their parameter name is not "db".
+  const isConstructor = (name: string, node: any) =>
+    bindingOf(name, node) === "constructor";
+  // Explicitly typed SQLite parameters also cover dynamic SQL statements.
   for (const node of nodes) {
-    const type = node.typeAnnotation?.typeAnnotation;
-    const name = type?.typeName;
+    const type = node.typeAnnotation?.typeAnnotation?.typeName;
     const databaseType =
-      name?.type === "TSQualifiedName"
-        ? constructors.has(name.left?.name) && name.right?.name === "Database"
-        : constructors.has(name?.name);
-    if (node.type === "Identifier" && databaseType) connections.add(node.name);
+      type?.type === "TSQualifiedName"
+        ? type.right?.name === "Database" &&
+          isConstructor(type.left?.name, node)
+        : isConstructor(type?.name, node);
+    if (node.type === "Identifier" && databaseType)
+      scopeOf(node).bindings.set(node.name, "connection");
   }
-  // Track local aliases, including aliases of aliases, and separately opened
-  // SQLite connections (for example the execution-ownership lock database).
+  // Resolve aliases in their own bindings and preserve weaker inference for
+  // untyped parameters as it passes through an alias.
   let changed = true;
   while (changed) {
     changed = false;
     for (const node of nodes) {
-      const target =
-        node.type === "VariableDeclarator"
-          ? receiver(node.id)
-          : node.type === "AssignmentExpression"
-            ? receiver(node.left)
-            : undefined;
-      const value = node.type === "VariableDeclarator" ? node.init : node.right;
-      if (
-        target &&
-        !connections.has(target) &&
-        (isConnection(value) ||
-          (value?.type === "NewExpression" &&
-            constructors.has(value.callee.name)))
-      ) {
-        connections.add(target);
-        changed = true;
-      }
+      if (!["VariableDeclarator", "AssignmentExpression"].includes(node.type))
+        continue;
+      const declaration = node.type === "VariableDeclarator";
+      const target = receiver(declaration ? node.id : node.left);
+      const value = unwrap(declaration ? node.init : node.right);
+      if (!target) continue;
+      const binding =
+        connectionKind(value) ??
+        (value?.type === "NewExpression" &&
+        isConstructor(value.callee.name, value)
+          ? "connection"
+          : undefined);
+      if (!binding) continue;
+      const owner = declaration
+        ? scopeOf(node)
+        : (declaringScope(target, node) ?? scopeOf(node));
+      const previous = owner.bindings.get(target);
+      if (previous === binding || previous === "connection") continue;
+      owner.bindings.set(target, binding);
+      changed = true;
     }
   }
+  const methods = new Set(["prepare", "exec"]);
+  if (includePragmas) methods.add("pragma");
   return nodes
-    .filter(
-      (node) =>
-        node.type === "CallExpression" &&
-        node.callee.type === "MemberExpression" &&
-        ["prepare", "exec"].includes(property(node.callee)) &&
-        (isConnection(node.callee.object) || isUntypedSqlParameter(node)),
-    )
+    .filter((node) => {
+      if (
+        node.type !== "CallExpression" ||
+        node.callee.type !== "MemberExpression"
+      )
+        return false;
+      const method = property(node.callee);
+      if (!methods.has(method)) return false;
+      const binding = connectionKind(node.callee.object);
+      if (binding === "connection") return true;
+      if (binding !== "inferred") return false;
+      // A name-derived parameter needs evidence of a SQL statement so an
+      // unrelated adapter can still use exec or prepare in the same file.
+      const statement = node.arguments[0];
+      const text =
+        statement?.type === "TemplateLiteral"
+          ? statement.quasis[0]?.value.cooked
+          : statement?.value;
+      return (
+        typeof text === "string" &&
+        (method === "pragma" ||
+          /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.test(
+            text,
+          ))
+      );
+    })
     .map((node) => text.slice(0, node.start).split("\n").length);
 }
 const inventory = (file: string, text: string) =>
@@ -308,7 +355,7 @@ const inventory = (file: string, text: string) =>
 const sqlRecipe =
   "docs/architecture.md#recipe-add-or-extend-a-sql-table-module";
 const directSql = (location: string) =>
-  `${location} calls prepare or exec on a database connection. Put the query in the module under src/server/sql/ that owns its table and call that (${sqlRecipe}). If this can't be satisfied, say so in the PR; do not add the file to the allowance.`;
+  `${location} calls SQLite directly. Put the query in the module under src/server/sql/ that owns its table and call that (${sqlRecipe}). If this can't be satisfied, say so in the PR; do not add the file to the allowance.`;
 
 it("counts SQL calls and aliases without counting comments, strings or regular expressions", () => {
   expect(
@@ -364,11 +411,36 @@ it("detects renamed fixture handles and JavaScript SQLite constructors", () => {
   ).toBe(1);
 });
 
+it("checks script pragmas and keeps SQLite alias inference in scope", () => {
+  const text = `
+    function fromFixture(fixture) {
+      const { db: client } = fixture;
+      client.pragma("foreign_keys = ON");
+      {
+        const client = service;
+        client.prepare(options);
+      }
+    }
+    function fromParameter(database) {
+      const handle = database, alias = handle;
+      alias.prepare("SELECT 1");
+      handle.pragma("query_only");
+    }
+    function unrelated(client, handle) {
+      client.prepare(options);
+      handle.exec(command);
+    }
+    db.pragma("foreign_keys = OFF");
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 12, 13, 19]);
+  expect(sqlCallLines("probe.mjs", text)).toEqual([12]);
+});
+
 it("names the line and the SQL recipe for a direct call", () => {
   const text = 'import { db } from "./db.js";\n\ndb.prepare("SELECT 1");\n';
   expect(sqlCallLines("probe.ts", text)).toEqual([3]);
   expect(directSql("src/server/probe.ts:3")).toBe(
-    "src/server/probe.ts:3 calls prepare or exec on a database connection. Put the query in the module under src/server/sql/ that owns its table and call that (docs/architecture.md#recipe-add-or-extend-a-sql-table-module). If this can't be satisfied, say so in the PR; do not add the file to the allowance.",
+    "src/server/probe.ts:3 calls SQLite directly. Put the query in the module under src/server/sql/ that owns its table and call that (docs/architecture.md#recipe-add-or-extend-a-sql-table-module). If this can't be satisfied, say so in the PR; do not add the file to the allowance.",
   );
 });
 
@@ -409,7 +481,7 @@ it("keeps direct script SQL in the shrinking named file allowance", () => {
   for (const file of files(directory, (path) =>
     /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path),
   ).sort()) {
-    const [line] = sqlCallLines(file, readFileSync(file, "utf8"));
+    const [line] = sqlCallLines(file, readFileSync(file, "utf8"), true);
     if (line !== undefined)
       actual.set(relative(directory, file), `${relative(root, file)}:${line}`);
   }
