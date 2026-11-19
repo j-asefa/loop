@@ -27,6 +27,7 @@ it.each([
   ["in January 2025", "2025-01-01", "2025-02-01"],
   ["in February 2024", "2024-02-01", "2024-03-01"],
   ["on 2024-02-29", "2024-02-29", "2024-03-01"],
+  ["2026-10-12", "2026-10-12", "2026-10-13"],
   ["on 2026-10-12", "2026-10-12", "2026-10-13"],
   ["since 2026-10-12", "2026-10-12", null],
   ["since October", "2026-10-01", null],
@@ -188,6 +189,8 @@ it.each([
   "harvest notes from this week or just today",
   "harvest this week or, if needed, today",
   "harvest this week, excluding: yesterday",
+  "harvest this week, excluding the notes on 2026-11-18",
+  "harvest October or in November",
   "harvest 2026-10-12 or on 2026-10-13",
   "harvest this week, excluding notes dated yesterday",
   "harvest this week, excluding anything from today",
@@ -216,5 +219,14 @@ it("keeps contradictory bounds empty so recall abstains", () => {
   expect(parseMemoryTime("last week, since 2026-11-20", now)).toMatchObject({
     from: Date.parse("2026-11-20"),
     to: Date.parse("2026-11-16"),
+  });
+});
+
+it("uses the narrower period when it appears first", () => {
+  expect(
+    parseMemoryTime("notes from yesterday, within this week", now),
+  ).toMatchObject({
+    from: Date.parse("2026-11-18"),
+    to: Date.parse("2026-11-19"),
   });
 });

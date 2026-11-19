@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:(?:from|within)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -177,11 +177,10 @@ function classifyMemoryTime(
     const alternative =
       seenDate &&
       /\b(?:or|nor)(?:[\s,([{]+[\p{L}]+){0,4}[\s,([{]*$/iu.test(between);
-    const exclusionContext = /^from\s/iu.test(match[0])
-      ? between + "from"
-      : between;
+    const preposition = /^(?:from|on|in|within)\b/iu.exec(match[0])?.[0];
+    const exclusionContext = preposition ? between + preposition : between;
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
+      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated|on|in|within)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
         exclusionContext,
       );
     const target = bound ?? iso ?? month ?? relative ?? bare;
@@ -203,11 +202,13 @@ function classifyMemoryTime(
     }
     // A single interval cannot express exclusions or alternative dates.
     if (exclusion || alternative) return null;
-    if (bare && !/^\p{L}+\s+\d{4}$/u.test(bare)) {
-      seenDate ||= /^\d/u.test(bare);
+    seenDate = true;
+    if (
+      bare &&
+      MONTHS.some((name) => name.toLowerCase() === bare.toLowerCase())
+    ) {
       continue;
     }
-    seenDate = true;
     if (modifier === "since") {
       from = Math.max(from ?? boundary.start, boundary.start);
     } else if (modifier === "before") {
@@ -215,10 +216,14 @@ function classifyMemoryTime(
     } else {
       if (
         period &&
-        (boundary.start < period.start || boundary.end > period.end)
+        (boundary.start < period.start || boundary.end > period.end) &&
+        (period.start < boundary.start || period.end > boundary.end)
       )
         return null;
-      period = boundary;
+      period = {
+        start: Math.max(period?.start ?? boundary.start, boundary.start),
+        end: Math.min(period?.end ?? boundary.end, boundary.end),
+      };
       from = Math.max(from ?? boundary.start, boundary.start);
       to = Math.min(to ?? boundary.end, boundary.end);
     }
