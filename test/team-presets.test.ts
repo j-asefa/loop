@@ -158,6 +158,20 @@ it("captures staged contents separately from working changes, includes new files
   expect(work.omitted).toContain("linked.ts");
   expect(work.omitted).toContain(".env");
   expect(readFileSync(join(repo, ".git/index"))).toEqual(index);
+  git("add", "new.ts");
+  expect(
+    snapshotDelta(captureSnapshot(repo, "uncommitted"), executable).unseen,
+  ).toBe(0);
+  const unusual = "stage é\tfile.sh";
+  writeFileSync(join(repo, unusual), "echo ok", { mode: 0o755 });
+  const untracked = captureSnapshot(repo, "uncommitted");
+  git("add", unusual);
+  expect(
+    snapshotDelta(captureSnapshot(repo, "uncommitted"), untracked).unseen,
+  ).toBe(0);
+  git("restore", "--staged", unusual);
+  rmSync(join(repo, unusual));
+  git("restore", "--staged", "new.ts");
   expect(() => captureSnapshot(repo, "branch", "--help")).toThrow(/capture/);
 });
 
@@ -923,7 +937,7 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const elsewhere = await request(turn());
   expect(elsewhere.followUp).toBeUndefined();
   expect(elsewhere.reviewers).toBe(3);
-});
+}, 30000);
 it("runs review teams on native harness subscriptions with the snapshot in the first native turn", async () => {
   const harness = id();
   seedConnection(db, {

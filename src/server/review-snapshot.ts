@@ -150,7 +150,16 @@ export function captureSnapshot(
       : scope === "branch"
         ? [baseSha, head]
         : [head];
-  const common = ["diff", "--no-ext-diff", "--no-textconv", "--no-renames"];
+  const common = [
+    "-c",
+    "core.quotePath=true",
+    "diff",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--no-renames",
+  ];
   const changed = git([...common, "--name-only", "-z", ...compare, "--"])
     .split("\0")
     .filter(Boolean);

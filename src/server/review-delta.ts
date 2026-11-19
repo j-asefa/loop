@@ -88,14 +88,55 @@ function excerpt(ops: Op[]) {
   });
   return out.join("\n");
 }
+// Git C-quotes non-printable path bytes when core.quotePath is enabled.
+function gitDiffPath(path: string) {
+  const escapes: Record<number, string> = {
+    7: "a",
+    8: "b",
+    9: "t",
+    10: "n",
+    11: "v",
+    12: "f",
+    13: "r",
+    34: '"',
+    92: "\\",
+  };
+  let encoded = "";
+  let quoted = false;
+  for (const byte of Buffer.from(path)) {
+    if (byte in escapes || byte < 32 || byte >= 127) {
+      encoded += "\\" + (escapes[byte] ?? byte.toString(8).padStart(3, "0"));
+      quoted = true;
+    } else encoded += String.fromCharCode(byte);
+  }
+  return quoted ? `"${encoded}"` : encoded;
+}
+
 // Mode and existence lines of each file's diff header; hunks do not show them.
 function modes(diff: string) {
   const out = new Map<string, string[]>();
   let current: string[] | undefined;
   for (const line of diff.split("\n")) {
-    if (line.startsWith("diff --git ") || line.startsWith("New file: "))
-      out.set(line, (current = []));
-    else if (line.startsWith("@@")) current = undefined;
+    if (line.startsWith("diff --git ")) out.set(line, (current = []));
+    else if (line.startsWith("New file: ")) {
+      const match =
+        /^New file: (.+) \(read its full contents with loop_review_read\)$/.exec(
+          line,
+        );
+      if (!match) {
+        current = undefined;
+        continue;
+      }
+      const path: unknown = JSON.parse(match[1]);
+      if (typeof path !== "string") {
+        current = undefined;
+        continue;
+      }
+      out.set(
+        `diff --git ${gitDiffPath("a/" + path)} ${gitDiffPath("b/" + path)}`,
+        (current = []),
+      );
+    } else if (line.startsWith("@@")) current = undefined;
     else if (
       /^(old mode|new mode|new file mode|deleted file mode) /.test(line)
     ) {
