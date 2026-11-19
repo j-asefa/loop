@@ -1,4 +1,4 @@
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { gitProject } from "./git-project.js";
 import { afterAll, afterEach, expect, it, vi } from "vitest";
@@ -12,9 +12,15 @@ const dir = realpathSync(testDirectory());
 
 gitProject(dir);
 const { db } = await import("../src/server/db");
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
-).run();
+seedAgent(db, {
+  id: "worktree-fixture",
+  owner_id: "local-workspace",
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "codex",
+  model: "fixture",
+  created_at: 0,
+});
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");

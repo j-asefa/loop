@@ -1,13 +1,19 @@
 import type { cardsFixture } from "./cards-fixture";
-import { seedConversation, seedRun } from "./seed.js";
+import { seedAgent, seedConversation, seedRun } from "./seed.js";
 export async function seedCards(
   fixture: Awaited<ReturnType<typeof cardsFixture>>,
   count = 46,
 ) {
   const { db, owner, origin, browser } = fixture;
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('writer',?,'Writer','writer','openai','fixture',1)",
-  ).run(owner);
+  seedAgent(db, {
+    id: "writer",
+    owner_id: owner,
+    name: "Writer",
+    normalized_name: "writer",
+    provider: "openai",
+    model: "fixture",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('project',?,'project','Card project',1),('other',?,'project','Other project',1)",
   ).run(owner, owner);

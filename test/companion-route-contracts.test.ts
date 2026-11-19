@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net";
 import { workspaceApi, type RouteContract } from "../src/shared/workspace-api";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
+import { seedRun } from "./helpers/seed.js";
 
 // Enrich an actual execution result to exercise the public HTTP projection,
 // without replacing its producer, command identity, sign-in state or driver.
@@ -410,9 +411,17 @@ it("the published runs query selects real file activities using its documented w
   ].get.parameters.find((p: { name: string }) => p.name === "runs");
   const runs = [randomUUID(), randomUUID()];
   for (const run of runs) {
-    db.prepare(
-      "INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,'agent','Files','completed',?,1,1)",
-    ).run(run, owner, conversation, run);
+    seedRun(db, {
+      id: run,
+      owner_id: owner,
+      conversation_id: conversation,
+      kind: "agent",
+      input: "Files",
+      state: "completed",
+      idempotency_key: run,
+      created_at: 1,
+      updated_at: 1,
+    });
     expect(
       applyActivity(
         { ...scope, run },

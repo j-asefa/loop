@@ -1,5 +1,5 @@
 import type { MessageRole } from "../src/shared/message-roles.js";
-import { seedConversation, seedMessage } from "./helpers/seed.js";
+import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { TRANSCRIPT_PAGE_ITEMS } from "../src/server/pagination";
@@ -35,9 +35,17 @@ function thread(owner = "alice") {
 }
 function run(conversation: string, owner = "alice") {
   const run = id();
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,conversation_id,kind,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,'agent','prompt','completed',?,1,1)",
-  ).run(run, owner, conversation, id());
+  seedRun(db, {
+    id: run,
+    owner_id: owner,
+    conversation_id: conversation,
+    kind: "agent",
+    input: "prompt",
+    state: "completed",
+    idempotency_key: id(),
+    created_at: 1,
+    updated_at: 1,
+  });
   return run;
 }
 function message(

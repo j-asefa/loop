@@ -1,4 +1,4 @@
-import { seedConnection } from "./helpers/seed.js";
+import { seedAgent, seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -353,9 +353,16 @@ it("cancels the whole review through the production run control and survives reo
 
 it("lets a working agent request a review of its own worktree, waits for the lead's report and cancels the whole review with the requester", async () => {
   const builder = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice','Builder','builder','openai',?,'fixture-model',?)",
-  ).run(builder, c, now());
+  seedAgent(db, {
+    id: builder,
+    owner_id: "alice",
+    name: "Builder",
+    normalized_name: "builder",
+    provider: "openai",
+    connection_id: c,
+    model: "fixture-model",
+    created_at: now(),
+  });
   const worktree = join(dir, "builder-worktree");
   git("worktree", "add", "-b", "builder-feature", worktree, "HEAD");
   writeFileSync(join(worktree, "feature.ts"), "export const feature = 1;\n");
@@ -715,9 +722,16 @@ it("does not report current when ident conversions hide working edits", () => {
 
 it("durably queues one review follow-up outside teams, waits for both turns and preserves status access", async () => {
   const builder = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-  ).run(builder, builder, builder, c, now());
+  seedAgent(db, {
+    id: builder,
+    owner_id: "alice",
+    name: builder,
+    normalized_name: builder,
+    provider: "openai",
+    connection_id: c,
+    model: "fixture-model",
+    created_at: now(),
+  });
   const parent = submit("alice", {
     agentId: builder,
     folderId: folder,
@@ -884,9 +898,16 @@ it.each(["completed", "failed", "cancelled", "interrupted"])(
   "review outcome %s releases a follow-up only after its requester completes",
   async (state) => {
     const builder = id();
-    db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-    ).run(builder, builder, builder, c, now());
+    seedAgent(db, {
+      id: builder,
+      owner_id: "alice",
+      name: builder,
+      normalized_name: builder,
+      provider: "openai",
+      connection_id: c,
+      model: "fixture-model",
+      created_at: now(),
+    });
     const parent = submit("alice", {
       agentId: builder,
       folderId: folder,
@@ -926,9 +947,16 @@ it.each(["cancelled", "failed", "interrupted"])(
   "does not wake a requester that %s",
   async (state) => {
     const builder = id();
-    db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-    ).run(builder, builder, builder, c, now());
+    seedAgent(db, {
+      id: builder,
+      owner_id: "alice",
+      name: builder,
+      normalized_name: builder,
+      provider: "openai",
+      connection_id: c,
+      model: "fixture-model",
+      created_at: now(),
+    });
     const parent = submit("alice", {
       agentId: builder,
       folderId: folder,
@@ -1004,9 +1032,16 @@ it.each(["claude", "opencode"] as const)(
       JSON.stringify({ loopHarness: harness, authMode: "subscription" }),
     );
     const builder = id();
-    db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-    ).run(builder, builder, builder, selected, now());
+    seedAgent(db, {
+      id: builder,
+      owner_id: "alice",
+      name: builder,
+      normalized_name: builder,
+      provider: "openai",
+      connection_id: selected,
+      model: "fixture-model",
+      created_at: now(),
+    });
     const parent = submit("alice", {
       agentId: builder,
       folderId: folder,
@@ -1115,9 +1150,16 @@ it("retains a disconnected review continuation through the production worker cla
   ).run();
   const provider = connection();
   const builder = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-  ).run(builder, builder, builder, provider, now());
+  seedAgent(db, {
+    id: builder,
+    owner_id: "alice",
+    name: builder,
+    normalized_name: builder,
+    provider: "openai",
+    connection_id: provider,
+    model: "fixture-model",
+    created_at: now(),
+  });
   const parent = submit("alice", {
     agentId: builder,
     folderId: folder,
@@ -1209,9 +1251,16 @@ it.each(["api", "claude"])(
     );
     const makeAgent = () => {
       const agent = id();
-      db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'alice',?,?,'openai',?,'fixture-model',?)",
-      ).run(agent, agent, agent, provider, now());
+      seedAgent(db, {
+        id: agent,
+        owner_id: "alice",
+        name: agent,
+        normalized_name: agent,
+        provider: "openai",
+        connection_id: provider,
+        model: "fixture-model",
+        created_at: now(),
+      });
       return agent;
     };
     const builder = makeAgent();
