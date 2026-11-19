@@ -190,6 +190,7 @@ export const FeedItem = DoneDisplaySchema.extend({
     )
     .optional(),
   live_preview: MaybeText.optional(),
+  live_preview_fence_cut: z.boolean().optional(),
   pending_approvals: z.number(),
   next_action: z
     .object({

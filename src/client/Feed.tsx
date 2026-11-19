@@ -533,7 +533,7 @@ function FeedCard({
                 content={item.live_preview}
                 compact
                 writing
-                previewAtLimit={previewAtLimit}
+                previewFenceCut={item.live_preview_fence_cut}
               />
             </div>
           ) : item.run &&
@@ -731,7 +731,7 @@ function FeedCard({
                     ) : (
                       <RichText
                         content={content}
-                        previewAtLimit={previewAtLimit}
+                        previewFenceCut={item.live_preview_fence_cut}
                         writing={
                           !!item.live_preview && content === item.live_preview
                         }

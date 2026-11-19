@@ -369,10 +369,11 @@ function draw(
   state.drawn += drawn;
   if ("children" in built) {
     path.add(key);
-    built.children = list
-      // While a block is written, children not yet written are left out.
-      .filter((child) => !state.omitMissing || elements.has(child))
-      .map((child) => draw(child, elements, path, depth + 1, state));
+    built.children = list.flatMap((child) => {
+      // Pending references still count toward the same limits as placeholders.
+      const drawnChild = draw(child, elements, path, depth + 1, state);
+      return state.omitMissing && !elements.has(child) ? [] : [drawnChild];
+    });
     path.delete(key);
   }
   return built;

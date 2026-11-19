@@ -86,6 +86,7 @@ export function runDetails(
     pull: null,
     queued_runs: [],
     live_preview: null,
+    live_preview_fence_cut: false,
   };
   if (!runId) return detail;
   const run = runsQueries.owned(db, runId, owner);
@@ -115,10 +116,22 @@ export function runDetails(
   if (STARTED_RUN_STATES.includes(run.state)) {
     const { latest, artifact } = runPreview(db, owner, runId);
     // Leading indentation is significant in Markdown, including code fences.
-    detail.live_preview =
-      (latest ?? artifact?.content ?? "")
-        .trimEnd()
-        .slice(0, LIVE_PREVIEW_LIMIT) || null;
+    const source = (latest ?? artifact?.content ?? "").trimEnd();
+    const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
+    detail.live_preview = preview || null;
+    if (source.length > preview.length) {
+      const fence = /(?:^|[\r\n])[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(preview);
+      if (fence) {
+        const suffix = source.slice(preview.length);
+        // A longer run of the same delimiter can still be a real closer.
+        const sameCloser = fence[2]
+          ? /^[ \t]*(?:[\r\n]|$)/
+          : fence[1][0] === "`"
+            ? /^`*[ \t]*(?:[\r\n]|$)/
+            : /^~*[ \t]*(?:[\r\n]|$)/;
+        detail.live_preview_fence_cut = !sameCloser.test(suffix);
+      }
+    }
   }
 
   return detail;

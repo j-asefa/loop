@@ -20,7 +20,7 @@ type Context = {
 // Remark plugin: marks a `spec` fence that has not closed (an answer still
 // being written, or text cut short). Markdown parses an open fence as a code
 // block. Only an unclosed block at the end of the answer can still grow.
-export function markOpenSpecFences({ previewAtLimit = false } = {}) {
+export function markOpenSpecFences({ previewFenceCut = false } = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
     const lastContent = source.trimEnd().length;
@@ -35,10 +35,9 @@ export function markOpenSpecFences({ previewAtLimit = false } = {}) {
           node.position.start.offset,
           node.position.end.offset,
         );
-        // At the preview cap a bare delimiter can be the prefix of a
-        // longer content line. Only earlier closers are unambiguous.
+        // A clipped content line can look like a closing delimiter.
         if (
-          (previewAtLimit && node.position.end.offset === source.length) ||
+          (previewFenceCut && node.position.end.offset === source.length) ||
           !closedFence(raw, node.value ?? "")
         )
           node.data = {

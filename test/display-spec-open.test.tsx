@@ -343,3 +343,17 @@ it("withholds source for an over-limit display only while it is open and writing
   expect(render(source, false)).toContain("&quot;op&quot;");
   expect(render(source + "\n```", true)).toContain("&quot;op&quot;");
 });
+
+it("counts pending references against the element limit while writing", () => {
+  const source = patch(
+    { op: "add", path: "/root", value: "root" },
+    add("root", { type: "Card", children: Array(200).fill("pending") }),
+  );
+  expect(readDisplaySpec(source, { open: true, writing: true })).toMatchObject({
+    ok: false,
+    reason: "too_many_elements",
+  });
+  expect(render(fence + source, true)).toContain(
+    "This display could not be drawn yet.",
+  );
+});

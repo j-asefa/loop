@@ -443,6 +443,26 @@ for (const engine of selectedEngines()) {
       ).toBeVisible();
       await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
 
+      const genuineCloser =
+        rootOnly + " ".repeat(4000 - rootOnly.length - 4) + "\n```";
+      for (const full of [
+        genuineCloser,
+        genuineCloser + "\nAfter.",
+        genuineCloser + "`",
+      ]) {
+        update(working, full);
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        await expect(workingCard().locator(".live-preview")).toContainText(
+          "This display could not be drawn.",
+        );
+        await workingCard().locator(".feed-row").click();
+        await expect(cutSheet).toContainText(
+          "This display could not be drawn.",
+        );
+      }
+
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.
       update(

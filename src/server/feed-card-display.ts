@@ -82,6 +82,7 @@ export type FeedCardDetail = {
     can_move_down: boolean;
   }[];
   live_preview: string | null;
+  live_preview_fence_cut: boolean;
 };
 export function feedCardTitle(
   row: Pick<
@@ -203,6 +204,11 @@ export function displayFeedCard(
       run && STARTED_RUN_DISPLAY_STATES.includes(run.state)
         ? detail.live_preview
         : null,
+    ...(run &&
+    STARTED_RUN_DISPLAY_STATES.includes(run.state) &&
+    detail.live_preview_fence_cut
+      ? { live_preview_fence_cut: true }
+      : {}),
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,
     position_message_id: row.position_message_id,
     later: row.later_id
