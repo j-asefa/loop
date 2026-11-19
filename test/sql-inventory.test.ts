@@ -278,33 +278,29 @@ function sqlCallLines(file: string, text: string, script = false) {
     );
   };
   const bindings = (pattern: any): { key: string; name: string }[] => {
+    if (!pattern) return [];
     if (pattern.type === "AssignmentPattern") pattern = pattern.left;
     if (pattern.type === "Identifier") return [{ name: pattern.name, key: "" }];
+    const within = (element: any, key: string) =>
+      bindings(element).map((binding) => ({
+        name: binding.name,
+        key: binding.key ? `${key}.${binding.key}` : key,
+      }));
     if (pattern.type === "ArrayPattern") {
-      return pattern.elements.flatMap((element: any, index: number) => {
-        const item =
-          element?.type === "AssignmentPattern" ? element.left : element;
-        return item?.type === "Identifier"
-          ? [{ name: item.name, key: String(index) }]
-          : [];
-      });
+      return pattern.elements.flatMap((element: any, index: number) =>
+        within(element, String(index)),
+      );
     }
     if (pattern.type !== "ObjectPattern") return [];
     return pattern.properties.flatMap((member: any) => {
       if (member.type !== "Property") return [];
-      const binding =
-        member.value.type === "AssignmentPattern"
-          ? member.value.left
-          : member.value;
       const key =
         member.key.type === "Literal"
           ? member.key.value
           : member.computed
             ? undefined
             : member.key.name;
-      return binding.type === "Identifier" && typeof key === "string"
-        ? [{ key, name: binding.name }]
-        : [];
+      return typeof key === "string" ? within(member.value, key) : [];
     });
   };
   const dbModule = /(?:^|\/)db(?:\.[cm]?[jt]s)?$/;
@@ -616,6 +612,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     functionKinds.has(expression?.type)
       ? expression
       : memberReference(expression, (scope, key) => scope.functions?.get(key));
+  const returnsDatabase = new Set<object>();
   const classReference = (expression: any): Scope | undefined =>
     classKinds.has(expression?.type)
       ? scopeOf(expression)
@@ -637,6 +634,11 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
+    if (
+      expression?.type === "CallExpression" &&
+      returnsDatabase.has(functionReference(unwrap(expression.callee)))
+    )
+      return "connection";
     const callee =
       expression?.type === "NewExpression" && unwrap(expression.callee);
     if (
@@ -673,17 +675,23 @@ function sqlCallLines(file: string, text: string, script = false) {
     key: string,
   ): { value?: any; binding?: Binding } {
     const object = unwrap(source);
-    if (object?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(key)) {
-      const value = unwrap(object.elements[Number(key)]);
-      return { value, binding: connectionKind(value) };
+    const separator = key.indexOf(".");
+    const head = separator < 0 ? key : key.slice(0, separator);
+    const tail = separator < 0 ? undefined : key.slice(separator + 1);
+    const resolve = (node: any) => {
+      const value = unwrap(node);
+      return tail
+        ? propertySource(value, tail)
+        : { value, binding: connectionKind(value) };
+    };
+    if (object?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(head)) {
+      return resolve(object.elements[Number(head)]);
     }
     if (object?.type === "ObjectExpression") {
       for (let index = object.properties.length - 1; index >= 0; index--) {
         const member = object.properties[index];
-        if (member.type === "Property" && objectKey(member) === key) {
-          const value = unwrap(member.value);
-          return { value, binding: connectionKind(value) };
-        }
+        if (member.type === "Property" && objectKey(member) === head)
+          return resolve(member.value);
         if (member.type === "SpreadElement") {
           const next = propertySource(member.argument, key);
           if (next.value || next.binding) return next;
@@ -795,6 +803,24 @@ function sqlCallLines(file: string, text: string, script = false) {
     changed = true;
   };
   const recordedArguments = new Map<object, Set<object>>();
+  const staticArguments = (
+    items: any[],
+  ): { values: any[]; complete: boolean } => {
+    const values: any[] = [];
+    for (const item of items) {
+      if (item?.type !== "SpreadElement") {
+        values.push(item);
+        continue;
+      }
+      const source = unwrap(item.argument);
+      if (source?.type !== "ArrayExpression")
+        return { values, complete: false };
+      const expanded = staticArguments(source.elements);
+      values.push(...expanded.values);
+      if (!expanded.complete) return { values, complete: false };
+    }
+    return { values, complete: true };
+  };
   while (changed) {
     changed = false;
     for (const reference of exportedReferences)
@@ -804,6 +830,27 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const node of nodes) {
       if (
         script &&
+        node.type === "ReturnStatement" &&
+        connectionKind(node.argument) === "connection"
+      ) {
+        let fn = parents.get(node);
+        while (fn && !functionKinds.has(fn.type)) fn = parents.get(fn);
+        if (fn && !returnsDatabase.has(fn)) {
+          returnsDatabase.add(fn);
+          changed = true;
+        }
+      }
+      if (
+        script &&
+        node.type === "ArrowFunctionExpression" &&
+        !returnsDatabase.has(node) &&
+        connectionKind(node.body) === "connection"
+      ) {
+        returnsDatabase.add(node);
+        changed = true;
+      }
+      if (
+        script &&
         (node.type === "CallExpression" || node.type === "NewExpression")
       ) {
         const callee = unwrap(node.callee);
@@ -811,8 +858,14 @@ function sqlCallLines(file: string, text: string, script = false) {
           node.type === "NewExpression"
             ? constructorReference(callee)
             : functionReference(callee);
+        const argumentsList = fn ? staticArguments(node.arguments) : undefined;
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
-          const passed = unwrap(node.arguments[index]);
+          if (
+            !argumentsList ||
+            (!argumentsList.complete && index >= argumentsList.values.length)
+          )
+            break;
+          const passed = unwrap(argumentsList.values[index]);
           const missing =
             !passed ||
             (passed.type === "Identifier" &&
@@ -1422,6 +1475,23 @@ it("recognizes dynamic namespaces, assertion aliases and destructured spreads", 
     unpacked.exec(query);
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 6, 9]);
+});
+
+it("follows nested patterns, fixed spread arguments and local factory returns", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    const { storage: { connection } } = { storage: { connection: db } };
+    connection.exec(query);
+    function execute(handle, statement) { handle.exec(statement); }
+    execute(...[db, query]);
+    function open() { return new SQLite(":memory:"); }
+    const opened = open();
+    opened.exec(query);
+    const openAlias = () => open();
+    openAlias().prepare(query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6, 10, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
