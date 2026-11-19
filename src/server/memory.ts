@@ -7,6 +7,8 @@ import * as artifactsQueries from "./sql/artifacts.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
+import * as passageQueries from "./sql/memory-passages.js";
+import { memoryPassages, type MemoryPassage } from "./memory-passages.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -136,6 +138,18 @@ function putSource(s: any) {
     s.created_at,
     now(),
   );
+  passageQueries.replace(
+    db,
+    {
+      id: sourceId,
+      owner_id: s.owner_id,
+      kind: s.kind,
+      revision,
+      title: s.title,
+      content: s.content,
+    },
+    memoryPassages(s.content, s.kind),
+  );
   memorySourcesQueries.setComplete(db, s.complete === false ? 0 : 1, sourceId);
   if (s.kind === "note")
     memoryNoteVersionsQueries.insert(
@@ -196,6 +210,7 @@ const capturedArtifactKinds = new Set(["markdown", "note", "text"]);
 export function captureMemory() {
   const started = now();
   let batch = 0;
+  let backfilled = 0;
   db.transaction(() => {
     // Match the owner-leading unique key: without the owner predicate this
     // correlated lookup scans every saved source for every message, blocking
@@ -234,6 +249,18 @@ export function captureMemory() {
     batch = artifacts.length;
     for (const a of artifacts)
       if (capturedArtifactKinds.has(a.kind)) putSource(artifactSource(a));
+    if (!passageQueries.backfillComplete(db)) {
+      const pending = passageQueries.pending(db);
+      for (const source of pending)
+        passageQueries.replace(
+          db,
+          source,
+          memoryPassages(source.content, source.kind),
+        );
+      backfilled = pending.length;
+      if (backfilled < passageQueries.MEMORY_PASSAGE_BATCH)
+        passageQueries.finishBackfill(db);
+    }
   }).immediate();
   // Only after commit; a full batch may have more behind it, so the watermark
   // waits until a pass finds less than a batch.
@@ -242,6 +269,7 @@ export function captureMemory() {
       artifactWatermark,
       started - ARTIFACT_SLACK_MS,
     );
+  return backfilled;
 }
 /** Whether recall may return this source to its owner now. */
 export function recallable(owner: string, sourceId: string) {
@@ -258,6 +286,7 @@ function readMemory(
   revision?: number,
   project?: string | null,
   forRecall = false,
+  passage?: MemoryPassage,
 ) {
   const s = ownedMemorySource(sourceId, owner);
   const evidenceKind = eligibleKind(s);
@@ -275,11 +304,13 @@ function readMemory(
   const readLimit = 12000;
   const truncated = s.content.length > readLimit;
   const end =
-    forRecall && truncated ? excerptEnd(s.content, readLimit) : readLimit;
+    forRecall && truncated && !passage
+      ? excerptEnd(s.content, readLimit)
+      : readLimit;
   return {
     ...s,
     evidenceKind,
-    content: s.content.slice(0, end),
+    content: passage ? s.content : s.content.slice(0, end),
     truncated,
     link: s.conversation_id
       ? workspaceLink({
@@ -319,38 +350,58 @@ export async function searchMemory(
     (project && !enabled(owner, "project:" + project))
   )
     return { mode: "disabled", sources: [] };
-  const candidates: { id: string; revision: number }[] = [];
-  const match = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
+  const candidates: {
+    id: string;
+    revision: number;
+    passage?: MemoryPassage;
+  }[] = [];
+  // Bound the FTS OR expansion; relevance still sees the full query.
+  const match = ftsQuery(query, {
+    limit: relevant ? 8 : 24,
+    exclude: STOP_WORDS,
+  });
   const terms = recallTerms(query);
   if (match) {
-    // Titles are match keys too: a result is often named for what it settles.
-    const lexical = memoryFtsQueries.search(
+    for (const { id, revision, start, end } of passageQueries.search(
       db,
-      `{title content}:(${match})`,
+      `{title body}:(${match})`,
       owner,
       project,
-    );
-    candidates.push(...lexical);
+    )) {
+      candidates.push({ id, revision, passage: { start, end } });
+    }
+    if (!passageQueries.backfillComplete(db)) {
+      const documentMatch = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
+      if (documentMatch) {
+        candidates.push(
+          ...memoryFtsQueries.searchPending(
+            db,
+            `{title content}:(${documentMatch})`,
+            owner,
+            project,
+          ),
+        );
+      }
+    }
   }
   const coveragePatterns = relevant
     ? terms.map((term) => termPattern(term, "u"))
     : [];
   const required = requiredCoverage(terms.length);
-  function relevantExcerpt(title: string, excerpt: string) {
-    if (!required) return false;
-    const text = (title + "\n" + excerpt).toLowerCase();
+  function coverage(text: string, enough = terms.length) {
+    const lower = text.toLowerCase();
     let found = 0;
-    for (const pattern of coveragePatterns) {
-      if (pattern.test(text) && ++found >= required) return true;
-    }
-    return false;
+    for (const pattern of coveragePatterns)
+      if (pattern.test(lower) && ++found >= enough) break;
+    return found;
   }
+  const relevantExcerpt = (title: string, excerpt: string) =>
+    required > 0 && coverage(title + "\n" + excerpt, required) >= required;
   const seen = new Set(),
     sources: any[] = [];
   let characters = 0;
   for (const candidate of candidates) {
     if (seen.has(candidate.id)) continue;
-    seen.add(candidate.id);
     try {
       if (
         conversation !== undefined &&
@@ -363,9 +414,13 @@ export async function searchMemory(
         candidate.revision,
         project,
         true,
+        candidate.passage,
       );
       const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
-      let excerpt = matchedExcerpt(s.content, terms, size);
+      const body = candidate.passage
+        ? s.content.slice(candidate.passage.start, candidate.passage.end)
+        : s.content;
+      let excerpt = matchedExcerpt(body, terms, size);
       if (relevant && !relevantExcerpt(s.title, excerpt)) {
         // Look for terms that the title does not already supply.
         const title = s.title.toLowerCase();
@@ -373,12 +428,41 @@ export async function searchMemory(
           (_, index) => !coveragePatterns[index].test(title),
         );
         if (remaining.length === terms.length) continue;
-        const alternative = matchedExcerpt(s.content, remaining, size);
+        const alternative = matchedExcerpt(body, remaining, size);
         if (alternative === excerpt || !relevantExcerpt(s.title, alternative))
           continue;
         excerpt = alternative;
       }
+      let score = relevant ? coverage(excerpt) : 0;
+      if (candidate.passage && relevant) {
+        // Rank the source by its strongest BM25 passage. When it qualifies,
+        // display the passage that provides the fullest raw body evidence.
+        for (const { start, end } of passageQueries.offsets(
+          db,
+          s.id,
+          s.revision,
+        )) {
+          if (score === terms.length) break;
+          const other = s.content.slice(start, end);
+          if (coverage(other, score + 1) <= score) continue;
+          const window = matchedExcerpt(other, terms, size);
+          const hits = coverage(window);
+          if (hits > score && relevantExcerpt(s.title, window)) {
+            excerpt = window;
+            score = hits;
+          }
+        }
+      }
+      // A result title can repeat the prompt without providing body evidence.
+      if (
+        relevant &&
+        s.evidenceKind === "result" &&
+        terms.length > 4 &&
+        score < Math.ceil(terms.length / 6)
+      )
+        continue;
       if (!excerpt) break;
+      seen.add(candidate.id);
       characters += excerpt.length;
       sources.push({
         id: s.id,

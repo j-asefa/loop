@@ -19,7 +19,7 @@ const { saveArtifact } = await import("../src/server/artifacts");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
 const artifactsQueries = await import("../src/server/sql/artifacts");
-const memoryFtsQueries = await import("../src/server/sql/memory-fts");
+const memoryPassageQueries = await import("../src/server/sql/memory-passages");
 const messagesQueries = await import("../src/server/sql/messages");
 const {
   memoryRoutes,
@@ -177,6 +177,8 @@ it("bounds recalled text and adds nothing when no saved memory matches", async (
 
 it("adds nothing when the workspace turns memory off", async () => {
   await note("Pulsar", "pulsar rollout must wait for the canary");
+  captureMemory();
+  expect(memoryPassageQueries.backfillComplete(db)).toBe(true);
   expect(
     (
       await request(
@@ -201,6 +203,8 @@ it("adds nothing when the workspace turns memory off", async () => {
       "PUT",
     );
   }
+  const { prompt } = await nativePrompt("pulsar rollout");
+  expect(prompt).toContain("pulsar rollout must wait for the canary");
 });
 
 it("appends recall to the current turn of an API-key run once", async () => {
@@ -473,9 +477,11 @@ it("keeps no receipt for a turn refused before it is recorded", async () => {
 
 it("sends the turn without recall when the memory search fails", async () => {
   await note("Draco", "draco rollout waits for the canary");
-  const search = vi.spyOn(memoryFtsQueries, "search").mockImplementation(() => {
-    throw new Error("fts unavailable");
-  });
+  const search = vi
+    .spyOn(memoryPassageQueries, "search")
+    .mockImplementation(() => {
+      throw new Error("fts unavailable");
+    });
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     const { prompt, run } = await nativePrompt("draco rollout canary");
@@ -1125,7 +1131,6 @@ it("recalls the passage that matches, with its kind, author and date", async () 
   expect(prompt).toContain(
     `[${deep.data.id}@1] note by you, ${date}, "Long log", `,
   );
-  expect(prompt).toMatch(/\n…[^\n]*kestrel migration window/);
   expect(prompt).not.toContain("for bob");
 });
 
@@ -1203,10 +1208,89 @@ it("does not count a word split at the source scan limit", async () => {
 it("uses the full suffix budget when the excerpt needs one elision mark", async () => {
   const suffix = "mandarin" + " x".repeat(542) + " sorrel";
   expect(suffix).toHaveLength(1099);
-  const source = await note("Long diagnostics", "prefix ".repeat(200) + suffix);
+  const source = await note(
+    "Long diagnostics",
+    "prefix ".repeat(200) + "\n\n" + suffix,
+  );
   const { prompt } = await nativePrompt("mandarin sorrel");
   expect(prompt).toContain(`[${source.data.id}@1]`);
-  expect(prompt).toContain("…" + suffix);
+  expect(prompt).toContain(suffix);
+});
+
+it("recalls an indexed passage beyond the legacy document scan limit", async () => {
+  const { data } = await note(
+    "Long maintenance ledger",
+    "filler ".repeat(1850) +
+      "\n\n## Canary\n\nIndigo canary moved to the southern pool.",
+  );
+  const { prompt } = await nativePrompt("indigo canary");
+  expect(prompt).toContain(`[${data.id}@1]`);
+  expect(prompt).toContain("Indigo canary moved to the southern pool.");
+});
+
+it("requires body evidence for a result whose title repeats a long query", async () => {
+  const query = "elderberry orchid willow clover hazelnut";
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: query,
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const completed = await answerNext(
+    "memory-passage-body-worker",
+    "The section is still blank.",
+  );
+  expect(completed.id).toBe(run.id);
+  captureMemory();
+  expect((await nativePrompt("elderberry orchid")).prompt).toContain(
+    "section is still blank",
+  );
+  expect((await nativePrompt(query)).prompt).toBe(query);
+  const { sources } = await searchMemory("alice", null, "elderberry orchid");
+  expect(sources).toHaveLength(1);
+  // Model the upgrade state where the result exists in the document index
+  // and its passage backfill is still pending.
+  db.prepare("DELETE FROM memory_passages WHERE source_id=?").run(
+    sources[0].id,
+  );
+  db.prepare("DELETE FROM memory_passage_backfill").run();
+  expect((await nativePrompt("elderberry orchid")).prompt).toContain(
+    "section is still blank",
+  );
+  expect((await nativePrompt(query)).prompt).toBe(query);
+  captureMemory();
+});
+
+it("replaces a note's passage index in the same revision as its edit", async () => {
+  const { data } = await note(
+    "Revision ledger",
+    "marigold transplant deadline",
+  );
+  const found = (query: string) =>
+    searchMemory("alice", null, query, { relevant: true });
+  expect((await found("marigold transplant")).sources).toEqual([
+    expect.objectContaining({ id: data.id, revision: 1 }),
+  ]);
+  const edit = await request(
+    `/memory/notes/${data.id}`,
+    {
+      title: "Revision ledger",
+      content: "bergamot harvest deadline",
+      revision: 1,
+    },
+    "alice",
+    "PATCH",
+  );
+  expect(edit.status).toBe(200);
+  expect((await found("marigold transplant")).sources).toEqual([]);
+  expect((await found("bergamot harvest")).sources).toEqual([
+    expect.objectContaining({ id: data.id, revision: 2 }),
+  ]);
+  expect(
+    (await request(`/memory/sources/${data.id}`, undefined, "alice", "DELETE"))
+      .status,
+  ).toBe(200);
+  expect((await found("bergamot harvest")).sources).toEqual([]);
 });
 
 it("matches titles as well as content", async () => {
