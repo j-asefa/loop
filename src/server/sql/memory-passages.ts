@@ -7,6 +7,7 @@ import { statement } from "./statement.js";
 const sourceFields = QueryRecords.memory_sources.pick({
   id: true,
   owner_id: true,
+  kind: true,
   revision: true,
   title: true,
   content: true,
@@ -64,7 +65,7 @@ export function finishBackfill(db: Database.Database) {
 
 export const MEMORY_PASSAGE_BATCH = 100;
 const pendingStatement = statement(
-  `SELECT s.id,s.owner_id,s.revision,s.title,s.content FROM memory_sources s
+  `SELECT s.id,s.owner_id,s.kind,s.revision,s.title,s.content FROM memory_sources s
    WHERE s.tombstone=0 AND NOT EXISTS (
      SELECT 1 FROM memory_passages p WHERE p.source_id=s.id AND p.ordinal=0 AND p.revision=s.revision
    ) ORDER BY s.id LIMIT ${MEMORY_PASSAGE_BATCH}`,

@@ -1213,6 +1213,37 @@ it("uses the full suffix budget when the excerpt needs one elision mark", async 
   expect(prompt).toContain(suffix);
 });
 
+it("recalls an indexed passage beyond the legacy document scan limit", async () => {
+  const { data } = await note(
+    "Long maintenance ledger",
+    "filler ".repeat(1850) +
+      "\n\n## Canary\n\nIndigo canary moved to the southern pool.",
+  );
+  const { prompt } = await nativePrompt("indigo canary");
+  expect(prompt).toContain(`[${data.id}@1]`);
+  expect(prompt).toContain("Indigo canary moved to the southern pool.");
+});
+
+it("requires body evidence for a result whose title repeats a long query", async () => {
+  const query = "elderberry orchid willow clover hazelnut";
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: query,
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const completed = await answerNext(
+    "memory-passage-body-worker",
+    "The section is still blank.",
+  );
+  expect(completed.id).toBe(run.id);
+  captureMemory();
+  expect((await nativePrompt("elderberry orchid")).prompt).toContain(
+    "section is still blank",
+  );
+  expect((await nativePrompt(query)).prompt).toBe(query);
+});
+
 it("replaces a note's passage index in the same revision as its edit", async () => {
   const { data } = await note(
     "Revision ledger",

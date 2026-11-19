@@ -143,11 +143,12 @@ function putSource(s: any) {
     {
       id: sourceId,
       owner_id: s.owner_id,
+      kind: s.kind,
       revision,
       title: s.title,
       content: s.content,
     },
-    memoryPassages(s.content),
+    memoryPassages(s.content, s.kind === "artifact"),
   );
   memorySourcesQueries.setComplete(db, s.complete === false ? 0 : 1, sourceId);
   if (s.kind === "note")
@@ -251,7 +252,11 @@ export function captureMemory() {
     if (!passageQueries.backfillComplete(db)) {
       const pending = passageQueries.pending(db);
       for (const source of pending)
-        passageQueries.replace(db, source, memoryPassages(source.content));
+        passageQueries.replace(
+          db,
+          source,
+          memoryPassages(source.content, source.kind === "artifact"),
+        );
       backfilled = pending.length;
       if (backfilled < passageQueries.MEMORY_PASSAGE_BATCH)
         passageQueries.finishBackfill(db);
@@ -444,6 +449,14 @@ export async function searchMemory(
             score = hits;
           }
         }
+        // A result title can be a copy of the prompt. For a long query,
+        // require some matching body evidence before supplying that result.
+        if (
+          s.evidenceKind === "result" &&
+          terms.length > 4 &&
+          score < Math.ceil(terms.length / 6)
+        )
+          continue;
       }
       if (!excerpt) break;
       seen.add(candidate.id);
