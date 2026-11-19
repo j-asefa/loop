@@ -94,6 +94,7 @@ export async function collectionReadRecovery(
       // Keep the recovery request pending: cached rows must retain their warning
       // until a successful response establishes that they are current again.
       if (preserveNotice) {
+        await page.waitForTimeout(200);
         await expect(marker).toBeVisible({ timeout: 1000 });
         await expect(
           marker.getByRole("button", { name: "Retry connection", exact: true }),
