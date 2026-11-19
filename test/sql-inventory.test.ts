@@ -353,6 +353,13 @@ function sqlCallLines(file: string, text: string, script = false) {
           dbModule.test(node.source.value)
         )
           binding = "connection";
+        if (
+          specifier.type === "ImportNamespaceSpecifier" &&
+          dbModule.test(node.source.value)
+        ) {
+          binding = "object";
+          scope.bindings.set(`${specifier.local.name}.db`, "connection");
+        }
         scope.bindings.set(specifier.local.name, binding);
       }
     }
@@ -368,6 +375,16 @@ function sqlCallLines(file: string, text: string, script = false) {
           value.arguments[0]?.value === "better-sqlite3");
       for (const { key, name } of bindings(node.id)) {
         let binding: Binding = "other";
+        if (key === "" && functionKinds.has(value?.type))
+          (scope.functions ??= new Map()).set(name, value);
+        if (
+          key === "" &&
+          value?.type === "ImportExpression" &&
+          dbModule.test(value.source.value)
+        ) {
+          binding = "object";
+          scope.bindings.set(`${name}.db`, "connection");
+        }
         if (key === "db") binding = destructuredDatabase(value);
         if (key === "" && value?.type === "ObjectExpression") {
           recordObject(scope, name, value);
@@ -539,6 +556,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
           if (parameter.type !== "Identifier") continue;
           const argument = unwrap(node.arguments[index]);
+          trackBinding(
+            scopeOf(fn),
+            parameter.name,
+            connectionKind(argument),
+            argument,
+          );
           const inlineDb =
             argument?.type === "ObjectExpression"
               ? argument.properties.find(
@@ -914,6 +937,25 @@ it("uses known fixture arguments and follows constructor aliases", () => {
     standalone.exec(query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 13]);
+});
+
+it("follows namespace imports and local wrappers receiving SQLite handles", () => {
+  const text = `
+    import * as storage from "../src/server/db.js";
+    storage.db.exec(query);
+    const execute = (context, statement) => context.db.exec(statement);
+    execute({ db: storage.db }, query);
+    const prepare = function (connection, statement) {
+      connection.prepare(statement);
+    };
+    prepare(storage.db, query);
+    function run(connection, statement) { connection.exec(statement); }
+    run(storage.db, query);
+    const adapter = { exec: runCommand };
+    const dispatch = (connection, command) => connection.exec(command);
+    dispatch(adapter, command);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 4, 7, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
