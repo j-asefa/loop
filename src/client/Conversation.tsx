@@ -1821,6 +1821,8 @@ function ConversationView({
                         m.role === "assistant" &&
                         !!m.run_state &&
                         STARTED_RUN_DISPLAY_STATES.includes(m.run_state) &&
+                        // A page ending at an anchor may omit the live tail.
+                        (!anchor || latestAgent === m.id) &&
                         (!meta.progress ||
                           (!meta.final &&
                             !!m.run_id &&
