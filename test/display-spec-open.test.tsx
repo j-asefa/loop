@@ -203,7 +203,7 @@ it("drops closed and open spec blocks from other plain text", () => {
   const closed = `Summary first.\n\n${fence}${block}\n\`\`\`\n\nThen more words.`;
   const open = `Summary first.\n\n${fence}${block.slice(0, 120)}`;
   expect(dropSpecBlocks(closed)).toBe("Summary first.\n\n\nThen more words.");
-  expect(dropSpecBlocks(open)).toBe("Summary first.\n");
+  expect(dropSpecBlocks(open)).toBe("Summary first.\n\n");
   // Other fences, and a spec fence quoted inside another fence, stay.
   const nested = "````md\n```spec\n{}\n```\n````\nand ```ts\nx\n```";
   expect(dropSpecBlocks(nested)).toBe(nested);
@@ -216,4 +216,40 @@ it("drops closed and open spec blocks from other plain text", () => {
     expect(plainPreview(text)).not.toContain('"op"');
   }
   expect(collapse(closed, 200)).toBe("Summary first. Then more words.");
+});
+
+it("preserves prose after long closed fences in plain previews", () => {
+  expect(plainPreview("Before\n``````ts\nx\n``````\nAfter")).toBe(
+    "Before After",
+  );
+});
+
+it("drops nested and tilde-fenced display source from previews", () => {
+  for (const source of [
+    'Before\n\n> ```spec\n> {"op":"add"}\n> ```\n\nAfter',
+    'Before\n\n- ~~~spec\n  {"op":"add"}\n  ~~~\n\nAfter',
+    'Before\n\n> - ```spec\n>   {"op":"add"}',
+    'Before\n\n~~~spec\n{"op":"add"}',
+  ]) {
+    const expected = source.endsWith("After") ? "Before After" : "Before";
+    expect(collapse(source, 200)).toBe(expected);
+    expect(plainPreview(source)).toBe(expected);
+    expect(searchExcerpt(source, "", "")).toBe(expected);
+  }
+});
+
+it("preserves indented code that resembles a display opener", () => {
+  const source = "Before\n\n\t```spec\n\tcode\n\nAfter";
+  expect(dropSpecBlocks(source)).toBe(source);
+  expect(plainPreview(source)).toBe("Before spec code After");
+});
+
+it("keeps streaming when an indented delimiter is code content", () => {
+  const root = '{"op":"add","path":"/root","value":"d"}';
+  for (const source of [
+    `\n${fence}${root}\n    \`\`\``,
+    `> ${fence.trim()}\n> ${root}\n>     \`\`\``,
+    `- ${fence.trim()}\n  ${root}\n      \`\`\``,
+  ])
+    expect(render(source, true)).toContain("Display loading…");
 });

@@ -1,10 +1,14 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
+
+type MarkdownNode = ReturnType<typeof fromMarkdown>["children"][number];
+
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export function plainPreview(text: string, length = 140) {
-  const flat = text
-    .replace(/```[\s\S]*?```/g, " ")
-    // A fence still open at the end (an answer being written, or text cut
-    // short) is dropped with everything after it, so no source shows.
-    .replace(/```[\s\S]*$/, " ")
+  const flat = dropFencedBlocks(text, true)
+    .replace(/```+[\s\S]*?```+/g, " ")
+    // Preserve preview handling of inline triple backticks, including an
+    // unfinished inline snippet at the end of the text.
+    .replace(/^([ \t]*[^\s`][^`\r\n]*)```[\s\S]*$/m, "$1 ")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(^|\s)#{1,6}\s+/g, "$1")
@@ -18,32 +22,42 @@ export function plainPreview(text: string, length = 140) {
     : flat;
 }
 
-const fenceLine = /^[ \t]{0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$/;
 /**
- * Removes fenced `spec` blocks (displays), closed or still open, from Markdown
- * that is about to be flattened to plain text. A display's source is JSON
- * and never reads as words. Other fences are left alone; a `spec` fence
- * inside another fenced block is not a block of its own.
+ * Removes display source from previews, including open blocks and blocks
+ * nested in Markdown containers. Other code is left alone.
  */
 export function dropSpecBlocks(text: string) {
-  if (!text.includes("spec")) return text;
-  const lines = text.split("\n");
+  return dropFencedBlocks(text, false);
+}
+
+function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
+  // A language tag can also spell "spec" with character references.
+  if (!includeBacktickCode && !text.includes("spec") && !text.includes("&"))
+    return text;
+  if (!text.includes("```") && !text.includes("~~~")) return text;
   const kept: string[] = [];
-  let open: { fence: string; spec: boolean } | null = null;
-  for (const line of lines) {
-    const match = fenceLine.exec(line);
-    if (!open) {
-      if (match) open = { fence: match[1], spec: match[2] === "spec" };
-      if (!open?.spec) kept.push(line);
-      continue;
+  let end = 0;
+  const pending: MarkdownNode[] = fromMarkdown(text).children.reverse();
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.type === "code" && node.position) {
+      const { start, end: stop } = node.position;
+      if (start.offset === undefined || stop.offset === undefined) continue;
+      if (
+        node.lang === "spec" ||
+        (includeBacktickCode && text.startsWith("```", start.offset))
+      ) {
+        // Drop the opener's quote or list markers along with the block.
+        kept.push(text.slice(end, start.offset - start.column + 1));
+        end = stop.offset;
+        if (text[end] === "\r") end++;
+        if (text[end] === "\n") end++;
+      }
+    } else if ("children" in node) {
+      for (let i = node.children.length - 1; i >= 0; i--)
+        pending.push(node.children[i]);
     }
-    const closes =
-      match &&
-      !match[2] &&
-      match[1][0] === open.fence[0] &&
-      match[1].length >= open.fence.length;
-    if (!open.spec) kept.push(line);
-    if (closes) open = null;
   }
-  return kept.join("\n");
+  kept.push(text.slice(end));
+  return kept.join("");
 }

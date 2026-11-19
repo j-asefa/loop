@@ -30,7 +30,7 @@ export function markOpenSpecFences() {
           node.position.start.offset,
           node.position.end.offset,
         );
-        if (!closedFence(raw))
+        if (!closedFence(raw, node.value ?? ""))
           node.data = {
             ...node.data,
             hProperties: { ...node.data?.hProperties, dataSpecOpen: true },
@@ -44,23 +44,25 @@ export function markOpenSpecFences() {
 type MdNode = {
   type: string;
   lang?: string | null;
+  value?: string;
   position?: { start: { offset?: number }; end: { offset?: number } };
   data?: { hProperties?: Record<string, unknown> };
   children?: MdNode[];
 };
-// Whether a fenced block's source ends with its closing fence: the same
-// character as the opener, at least as long. Quote and list markers that
-// prefix each line inside a blockquote or list are ignored.
-function closedFence(raw: string) {
-  const lines = raw.split("\n");
+// The parser includes literal fence-like lines in its code value and
+// excludes the real closer. Compare line counts so indentation is interpreted
+// by Markdown, including inside list items and quotes.
+function closedFence(raw: string, value: string) {
+  const lines = raw.split(/\r\n?|\n/);
   if (lines.length < 2) return false;
-  const marker = /^[\s>*+-]*?(`{3,}|~{3,})/;
-  const open = marker.exec(lines[0])?.[1];
-  const close = /^[\s>]*(`{3,}|~{3,})[ \t]*$/.exec(
-    lines[lines.length - 1],
-  )?.[1];
+  const open = /^(`{3,}|~{3,})/.exec(raw)?.[1];
+  const close = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/.exec(lines.at(-1)!)?.[1];
   return (
-    !!open && !!close && close[0] === open[0] && close.length >= open.length
+    !!open &&
+    !!close &&
+    close[0] === open[0] &&
+    close.length >= open.length &&
+    (value === "" || value.split(/\r\n?|\n/).length < lines.length - 1)
   );
 }
 
