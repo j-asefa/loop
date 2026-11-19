@@ -317,3 +317,11 @@ it("preserves a narrower date after a choice of subjects", () => {
     to: Date.parse("2026-10-13"),
   });
 });
+
+it("keeps the date when negation modifies an action", () => {
+  const query = "Find notes about why amethyst did not ship last week";
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
