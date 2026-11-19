@@ -201,6 +201,7 @@ it.each([
   "harvest notes, exclude yesterday",
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
+  "harvest notes, but not notes from yesterday",
   "harvest notes from this week, but not including yesterday",
   "harvest notes from this week, but leave out yesterday",
   "harvest notes, excluding specifically yesterday",
