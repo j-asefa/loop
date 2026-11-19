@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "@playwright/test";
 import { runSupervised } from "../heavy-command.mjs";
+import { trackSmokeCleanup } from "./smoke-lifecycle.mjs";
 
 // One rule for every browser smoke: LOOP_BROWSER names a single engine, and
 // leaving it unset runs each engine in turn.
@@ -34,13 +35,16 @@ export async function engineForRun(scriptUrl) {
       // A monitored worker can exit before its asynchronous finally blocks run.
       // Limit this fallback to the worker's own fixture directory.
       const directory = mkdtempSync(join(tmpdir(), "loop-browser-worker-"));
-      process.once("exit", () => {
+      const removeDirectory = () => {
+        process.off("exit", removeDirectory);
         try {
           rmSync(directory, { recursive: true, force: true, maxRetries: 2 });
         } catch (error) {
           console.error("Browser fixture cleanup:", error.message);
         }
-      });
+      };
+      trackSmokeCleanup(removeDirectory);
+      process.once("exit", removeDirectory);
       process.env.TMPDIR = process.env.TEMP = process.env.TMP = directory;
     }
     return selected;

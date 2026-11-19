@@ -70,18 +70,21 @@ test("browser engine dispatch stops when cancelled as the first engine exits", (
   assert.equal(child.stdout.trim(), "chromium");
 });
 
-for (const [platform, mode, cleanup] of [
-  ["darwin", "direct", "signal"],
-  ["darwin", "wrapped", "signal"],
-  ["win32", "wrapped", "signal"],
-  ["win32", "wrapped", "exit"],
-]) {
-  test(`browser smoke cleans up via ${cleanup} when its ${mode} ${platform} supervisor is killed`, async () => {
+for (const [platform, mode, cleanup, stopSignal] of [
+  ["darwin", "direct", "signal", "SIGKILL"],
+  ["darwin", "wrapped", "signal", "SIGKILL"],
+  ["win32", "wrapped", "signal", "SIGKILL"],
+  ["win32", "wrapped", "exit", "SIGKILL"],
+  ["darwin", "wrapped", "exit", "SIGTERM"],
+] as const) {
+  const title = `browser smoke cleans up via ${cleanup} when its ${mode} ${platform} supervisor receives ${stopSignal}`;
+  const skip = platform === "darwin" && process.platform === "win32";
+  test(title, { skip }, async () => {
     const enginesUrl = new URL(
       "../scripts/helpers/engines.mjs",
       import.meta.url,
     ).href;
-    const name = `browser-${platform}-${mode}-${cleanup}`;
+    const name = `browser-${platform}-${mode}-${cleanup}-${stopSignal}`;
     const script = join(directory, `${name}.mjs`);
     const started = join(directory, `${name}.started`);
     const stopped = join(directory, `${name}.stopped`);
@@ -148,7 +151,7 @@ for (const [platform, mode, cleanup] of [
     assert.ok(Number.isSafeInteger(pid) && pid > 0);
     assert.ok(existsSync(fixture));
     try {
-      dispatcher.kill("SIGKILL");
+      dispatcher.kill(stopSignal);
       await waitFor(
         () => existsSync(stopped),
         "browser smoke survived its supervisor",
