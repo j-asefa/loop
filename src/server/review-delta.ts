@@ -3,12 +3,15 @@ import type { ReviewSnapshot } from "./review-snapshot.js";
 // What changed between two captured snapshots of one change, by file content.
 // Comparing contents, not diff lines, catches a deleted or moved line and an
 // untracked file, which a captured diff lists by name only. Files neither
-// snapshot changed are not compared, so an unrelated rebase adds nothing;
-// upstream edits to a changed file count as new, which errs towards a full
-// review. Omitted files (binary, oversized, excluded by name) are not
+// snapshot changed are not compared, so an unrelated rebase adds nothing. A
+// changed file whose base text differs between the snapshots counts in full,
+// which errs towards a full review. Omitted files (binary, oversized, excluded by name) are not
 // compared: no review depth reads them.
 
-type Snapshot = Pick<ReviewSnapshot, "diff" | "files" | "before" | "changed">;
+type Snapshot = Pick<
+  ReviewSnapshot,
+  "diff" | "files" | "before" | "changed" | "omitted"
+>;
 type Op = { kind: " " | "-" | "+"; line: string };
 
 const CONTEXT = 3;
@@ -151,14 +154,20 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
       if (!dropped) continue;
       unseen += dropped;
       hunks.push(
-        `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\nThis snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. Read its current text with the snapshot reader.`,
+        `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n` +
+          (current.omitted.includes(path)
+            ? `This snapshot omits this file (binary, oversized or excluded by name), so the ${dropped} changed lines the earlier snapshot had cannot be compared.`
+            : `This snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. Read its current text with the snapshot reader.`),
       );
       continue;
     }
-    // A file the earlier snapshot left alone was at its base content then.
-    const then = changedBefore.has(path)
-      ? previous.files[path]
-      : current.before[path];
+    // The earlier review covered this file only as an edit from the same
+    // base text. With another base (another base ref, or upstream edits under
+    // a rebase) or no earlier edit, the whole edit from this base is new.
+    const then =
+      changedBefore.has(path) && previous.before[path] === current.before[path]
+        ? previous.files[path]
+        : current.before[path];
     const now = current.files[path];
     if (then === now) continue;
     const ops = edits(lines(then), lines(now));
@@ -169,13 +178,20 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
       `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n${excerpt(ops)}`,
     );
   }
-  const before = modes(previous.diff);
-  for (const [header, mode] of modes(current.diff)) {
-    // A file the earlier diff lacked counts when its header carries a mode:
-    // its text may be unchanged, which the content comparison cannot see.
-    if ((before.get(header) ?? []).join("\n") === mode.join("\n")) continue;
+  // A mode set, changed or put back since the earlier snapshot. The text may
+  // be the same in both, which the content comparison cannot see.
+  const before = modes(previous.diff),
+    after = modes(current.diff);
+  for (const header of new Set([...before.keys(), ...after.keys()])) {
+    const earlier = before.get(header) ?? [],
+      mode = after.get(header) ?? [];
+    if (earlier.join("\n") === mode.join("\n")) continue;
     unseen++;
-    hunks.push([header, ...mode].join("\n"));
+    hunks.push(
+      mode.length
+        ? [header, ...mode].join("\n")
+        : `${header}\nThe earlier snapshot had this mode change and this one does not:\n${earlier.join("\n")}`,
+    );
   }
   return { unseen, hunks: hunks.join("\n") };
 }

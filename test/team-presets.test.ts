@@ -852,6 +852,18 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   expect(uncovered.reviewers).toBe(3);
   finish(fifth, uncovered);
 
+  // A full review against a later base covered a smaller change. The same
+  // files against main are mostly unreviewed, though their text is identical.
+  const narrowTurn = turn(first.conversation_id);
+  const narrow = await request(narrowTurn, { base: "HEAD~1", depth: "full" });
+  expect(narrow.reviewers).toBe(3);
+  finish(narrowTurn, narrow);
+  const widerTurn = turn(first.conversation_id);
+  const wider = await request(widerTurn);
+  expect(wider.followUp).toBeUndefined();
+  expect(wider.reviewers).toBe(3);
+  finish(widerTurn, wider);
+
   // Mostly new work is a new change: every reviewer runs again.
   commit(
     "more.ts",

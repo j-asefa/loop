@@ -9,6 +9,7 @@ const snapshot = (
   diff = "",
 ) => ({
   diff,
+  omitted: [] as string[],
   changed: [...new Set([...Object.keys(files), ...Object.keys(before)])].sort(),
   files: Object.fromEntries(
     Object.entries(files).map(([path, lines]) => [path, lines.join("\n")]),
@@ -18,20 +19,27 @@ const snapshot = (
   ),
 });
 
-it("finds nothing new when the changed files have the same contents, whatever their diffs say", () => {
+it("finds nothing new for the same edit of the same base text, and counts the whole edit when the base differs", () => {
   const reviewed = snapshot(
     { "a.ts": body(40) },
     { "a.ts": body(30) },
     "diff --git a/a.ts b/a.ts\nindex 111..222 100644\n@@ -28,3 +28,13 @@\n",
   );
-  // The same content after a rebase: another base, blob ids and hunk offsets.
+  // A rebase that left this file alone: other blob ids and hunk offsets only.
   const rebased = snapshot(
     { "a.ts": body(40) },
-    { "a.ts": ["upstream", ...body(30)] },
+    { "a.ts": body(30) },
     "diff --git a/a.ts b/a.ts\nindex 333..444 100644\n@@ -1,4 +1,13 @@\n",
   );
   expect(snapshotDelta(rebased, reviewed)).toEqual({ unseen: 0, hunks: "" });
   expect(changedLines(reviewed)).toBe(10);
+
+  // The same final text against an older base is a larger change than the
+  // one reviewed: all of it is new, so it cannot pass as mostly reviewed.
+  const olderBase = snapshot({ "a.ts": body(40) }, { "a.ts": body(5) });
+  const delta = snapshotDelta(olderBase, reviewed);
+  expect(delta.unseen).toBe(35);
+  expect(delta.unseen * 2 > changedLines(olderBase)).toBe(true);
 });
 
 it("counts deleted, moved and edited lines and excerpts them with their line numbers", () => {
@@ -72,6 +80,10 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   // The dropped file is described, not diffed against a base that may be stale.
   expect(delta.hunks).toContain("no longer changes this file: the 10 changed");
   expect(delta.hunks).not.toContain("-line 19");
+  // A file that became omitted is said to be uncomparable, not gone.
+  expect(
+    snapshotDelta({ ...rewritten, omitted: ["a.ts"] }, reviewed).hunks,
+  ).toContain("This snapshot omits this file");
   expect(changedLines(rewritten)).toBe(50);
 
   // A file this snapshot changes for the first time is compared with its base.
@@ -98,6 +110,11 @@ it("counts a mode change on a file whose text is unchanged, and treats a huge re
   const delta = snapshotDelta(executable, reviewed);
   expect(delta.unseen).toBe(1);
   expect(delta.hunks).toContain("new mode 100755");
+
+  // Putting the mode back counts too, though this diff no longer names it.
+  const reverted = snapshotDelta(reviewed, executable);
+  expect(reverted.unseen).toBe(1);
+  expect(reverted.hunks).toContain("this one does not:\nold mode 100644");
 
   // A mode change on a file the earlier snapshot never touched also counts.
   const untouched = snapshot({ "a.ts": body(3) }, { "a.ts": body(2) });
