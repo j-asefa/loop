@@ -25,12 +25,7 @@ export function markOpenSpecFences({ previewFenceCut = false } = {}) {
     const source = String(file.value);
     const lastContent = source.trimEnd().length;
     const visit = (node: MdNode) => {
-      if (
-        node.type === "code" &&
-        node.lang === "spec" &&
-        node.position &&
-        (node.position.end.offset ?? 0) >= lastContent
-      ) {
+      if (node.type === "code" && node.lang === "spec" && node.position) {
         const raw = source.slice(
           node.position.start.offset,
           node.position.end.offset,
@@ -42,7 +37,11 @@ export function markOpenSpecFences({ previewFenceCut = false } = {}) {
         )
           node.data = {
             ...node.data,
-            hProperties: { ...node.data?.hProperties, dataSpecOpen: true },
+            hProperties: {
+              ...node.data?.hProperties,
+              dataSpecOpen: true,
+              dataSpecCanGrow: (node.position.end.offset ?? 0) >= lastContent,
+            },
           };
       }
       node.children?.forEach(visit);
@@ -81,16 +80,18 @@ export function DisplaySpec({
   source,
   compact = false,
   open = false,
+  canGrow = false,
   markdown,
 }: {
   source: string;
   compact?: boolean;
   // The fence has not closed.
   open?: boolean;
+  canGrow?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
   const writing = useContext(DisplayWritingContext);
-  const live = open && writing;
+  const live = open && canGrow && writing;
   const read = useMemo(
     () => readDisplaySpec(source, { open, writing: live }),
     [source, open, live],
@@ -129,7 +130,7 @@ export function DisplaySpec({
   }
   return (
     <div className="display-spec">
-      {open && !writing && read.skippedCount > 0 && (
+      {open && !live && read.skippedCount > 0 && (
         <p className="note">Some display updates could not be applied.</p>
       )}
       <DisplayNodeView

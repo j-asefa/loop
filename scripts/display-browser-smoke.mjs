@@ -473,6 +473,18 @@ for (const engine of selectedEngines()) {
       await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
 
+      update(working, " ".repeat(4000) + "Visible after whitespace.");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview pre")).toContainText(
+        "Visible after whitespace.",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator("pre")).toContainText(
+        "Visible after whitespace.",
+      );
+
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.
       update(

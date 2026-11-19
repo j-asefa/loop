@@ -116,9 +116,22 @@ export function runDetails(
   if (STARTED_RUN_STATES.includes(run.state)) {
     const { latest, artifact } = runPreview(db, owner, runId);
     // Markdown uses both leading and trailing whitespace to parse fences.
-    const source = latest ?? artifact?.content ?? "";
+    let source = latest ?? artifact?.content ?? "";
+    if (!/\S/.test(source.slice(0, LIVE_PREVIEW_LIMIT))) {
+      const firstText = source.search(/[^ \t\r\n]/);
+      if (firstText >= LIVE_PREVIEW_LIMIT) {
+        const lineStart =
+          Math.max(
+            source.lastIndexOf("\n", firstText),
+            source.lastIndexOf("\r", firstText),
+          ) + 1;
+        // Drop blank leading lines and keep up to four indentation
+        // characters, which preserve Markdown's indented-code boundary.
+        source = source.slice(Math.max(lineStart, firstText - 4));
+      }
+    }
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
-    detail.live_preview = /\S/.test(source) ? preview : null;
+    detail.live_preview = /\S/.test(preview) ? preview : null;
     if (source.length > preview.length) {
       const fence = /(?:^|[\r\n])[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(preview);
       if (fence) {

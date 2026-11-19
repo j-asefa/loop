@@ -371,3 +371,20 @@ it("warns when a finished display loses an incomplete replacement", () => {
     "Some display updates could not be applied.",
   );
 });
+
+it("warns about incomplete updates when the answer leaves a display's quote", () => {
+  const source =
+    fence +
+    patch(
+      { op: "add", path: "/root", value: "card" },
+      add("card", { type: "Card", props: { title: "Earlier value" } }),
+    ) +
+    '\n{"op":"replace","path":"/elements/card"';
+  const quoted = source
+    .split("\n")
+    .map((line) => "> " + line)
+    .join("\n");
+  const html = render(quoted + "\n\nNext paragraph.", true);
+  expect(html).toContain("Earlier value");
+  expect(html).toContain("Some display updates could not be applied.");
+});
