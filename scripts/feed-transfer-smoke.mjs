@@ -2,6 +2,7 @@
 // Chromium and WebKit: deferred image loading and production cache/compression
 // headers; Chromium also checks encoded transfer sizes and cache reuse on
 // reload. No live providers or Internet tunnel are used.
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";
@@ -28,12 +29,7 @@ for (const engine of selectedEngines()) {
     });
     const closeBrowser = trackSmokeCleanup(() => browser.close());
     try {
-      const page = await browser.newPage({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-        serviceWorkers: "block",
-      });
+      const page = await browser.newPage(mobileSmokeOptions);
       await fixture.pair(page.context());
       const errors = [];
       page.on("pageerror", (error) => {

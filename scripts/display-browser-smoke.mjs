@@ -5,11 +5,11 @@
 // hiding the answer; and that a display never overflows a 320 or 390px phone
 // (wide tables scroll inside it). Charts: each type is drawn as a named SVG
 // that fits the phone, category labels do not overlap, and the numbers are in
-// a table under the chart. Set LOOP_DISPLAY_SCREENSHOT_DIR to save light and
+// a table under the chart. Set LOOP_SCREENSHOT_DIR to save light and
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect } from "@playwright/test";
@@ -153,8 +153,9 @@ const charts = fence(
   ),
 );
 const chartAnswer = `Charts for the week.\n\n${charts}`;
-const shots = process.env.LOOP_DISPLAY_SCREENSHOT_DIR;
-if (shots) mkdirSync(shots, { recursive: true });
+const shots = smokeScreenshotDirectory("LOOP_DISPLAY_SCREENSHOT_DIR", {
+  ciDefault: false,
+});
 const answer = `Here is the report.\n\n${display}\n\nTell me if you want more detail.`;
 const broken = `Before the block.\n\n${fence(patch(add("orphan", { type: "Divider" })))}\n\nAfter the block.`;
 

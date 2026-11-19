@@ -1,6 +1,20 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+export function smokeScreenshotDirectory(
+  previousVariable,
+  { ciDefault = true } = {},
+) {
+  const directory =
+    process.env.LOOP_SCREENSHOT_DIR ||
+    process.env[previousVariable] ||
+    (ciDefault && process.env.CI
+      ? join("test-results", "screenshots")
+      : undefined);
+  if (directory) mkdirSync(directory, { recursive: true });
+  return directory;
+}
+
 export async function startSmokeTrace(context, name) {
   const directory = process.env.LOOP_BROWSER_TRACE_DIR;
   if (!directory) return async () => {};

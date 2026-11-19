@@ -205,7 +205,7 @@ Each script in the table below describes its coverage in the header comment.
 Use `npm run smoke:workspace -- --notifications-only` to check notification opt-in,
 category defaults and persistence in both browser engines without the other workspace journeys.
 
-Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. In CI, smoke scripts write generated screenshots to `test-results/screenshots/` (or `LOOP_DESIGN_SCREENSHOT_DIR`); ACP browser evidence goes to `test-results/deterministic-browser/`.
+Smoke scripts create isolated fixture workspaces. `CHROMIUM_PATH` can select an existing Chromium binary. Browser system libraries are required; a dependency failure is not a passing journey. Set `LOOP_SCREENSHOT_DIR` to collect screenshots from the design, approval layout, Social, pull requests, HTML preview, display and workspace lifecycle smokes. The scripts also accept their existing per-smoke variables. In CI, design, approval layout, Social, pull requests and HTML preview default to `test-results/screenshots/`. ACP browser evidence goes to `test-results/deterministic-browser/`.
 
 The companion sign-in fixture also shadows installed harness commands on PATH.
 Its Claude sign-in uses the protocol fixture; other discovered CLIs fail locally

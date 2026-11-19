@@ -5,6 +5,7 @@ import {
   openChatOptions,
   openTab,
   closeSheets,
+  mobileSmokeOptions,
 } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -147,12 +148,7 @@ for (const engine of selectedEngines()) {
       headless: true,
       executablePath: chromiumExecutable(engine),
     });
-    const context = await browser.newContext({
-      viewport: { width: 390, height: 844 },
-      isMobile: true,
-      hasTouch: true,
-      serviceWorkers: "block",
-    });
+    const context = await browser.newContext(mobileSmokeOptions);
     await fixture.pair(context);
     // Older browsers support URLSearchParams without its later size property.
     await context.addInitScript(() => {
@@ -690,6 +686,8 @@ for (const engine of selectedEngines()) {
               conversationId: conversation.id,
               scope: "branch",
               state: "completed",
+              depth: "full",
+              previousReviewId: null,
               fingerprint: "fixture-review",
               createdAt: Date.now(),
               changed: [],

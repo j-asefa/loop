@@ -1,17 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
-import { chromium } from "@playwright/test";
 import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { htmlPreviewSmoke } from "./helpers/html-preview-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
 const fixture = await designFixture();
-const evidence =
-  process.env.LOOP_HTML_SCREENSHOT_DIR ||
-  (process.env.CI ? join("test-results", "screenshots") : undefined);
-if (evidence) mkdirSync(evidence, { recursive: true });
+const evidence = smokeScreenshotDirectory("LOOP_HTML_SCREENSHOT_DIR");
 try {
   for (const engine of selectedEngines()) {
     const browser = await engine.launch({
