@@ -56,6 +56,11 @@ it.each([
   "read today.report field",
   "read /reports/today/summary",
   "find the $today variable",
+  "decisions since May joined the project",
+  "review before June leaves the project",
+  "review this example:\n```ts\nconst today = clock();\n```",
+  "review this example:\n~~~text\nbefore 2026-10-12\n~~~",
+  "review this example:\n```ts\nconst today = clock();",
   "search alerts+today@example.com",
   String.raw`find "status \"yesterday\" field"`,
   "before `cleanup` October",
@@ -101,4 +106,15 @@ it("applies an explicit cutoff after a standalone period", () => {
     to: Date.parse("2026-11-11"),
   });
   expect(withoutMemoryTime(query, window)).toBe("harvest  ,  ");
+});
+
+it("ignores date examples in fenced code but preserves real constraints", () => {
+  const query =
+    "audit since 2026-10-01\n```text\nbefore 2026-10-02\n```\nbefore 2026-11-01";
+  const window = parseMemoryTime(query, now);
+  expect(window).toMatchObject({
+    from: Date.parse("2026-10-01"),
+    to: Date.parse("2026-11-01"),
+  });
+  expect(withoutMemoryTime(query, window)).toContain("before 2026-10-02");
 });

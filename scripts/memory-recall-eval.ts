@@ -152,6 +152,8 @@ export async function sampleQueries({
     if (temporal) {
       const timestamp = memorySources.recallTime(db, item.id, item.owner_id);
       if (timestamp === undefined) continue;
+      // Keep the supplied date phrase as the only temporal constraint.
+      if (parseMemoryTime(query, timestamp)) continue;
       const date = new Date(timestamp);
       const day = Math.floor(timestamp / 86_400_000) * 86_400_000;
       const referenceAt = day + 7 * 86_400_000;

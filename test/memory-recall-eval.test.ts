@@ -167,6 +167,21 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
       deep: false,
     }),
   ]);
+  const temporal = async () =>
+    (
+      await sampleQueries({ seed: 1, limit: 100, temporal: true })
+    ).queries.filter((query) => query.set === "temporal");
+  expect(await temporal()).toHaveLength(1);
+  const editInput = db.prepare("UPDATE runs SET input=? WHERE id=?");
+  editInput.run(
+    "Why did the borealis build fail before 2026-10-12?",
+    answered.id,
+  );
+  try {
+    expect(await temporal()).toEqual([]);
+  } finally {
+    editInput.run("Why did the borealis build fail?", answered.id);
+  }
   const nulls = queries.filter((q) => q.set === "null");
   expect(nulls.map((q) => q.query)).toContain("Draft the aurora rollout plan");
   expect(nulls.map((q) => q.query)).toContain("Retry the eclipse report");
