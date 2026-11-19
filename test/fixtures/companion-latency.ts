@@ -12,7 +12,7 @@ const options = {
   harness: "codex" as const,
   version: "fixture",
   project,
-  executable: resolve("test/harness.mjs"),
+  executable: resolve("test/fixtures/harness.mjs"),
   billing: "existing" as const,
 };
 const host = new WorkspaceHost(directory, options);

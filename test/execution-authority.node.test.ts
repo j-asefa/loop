@@ -44,7 +44,7 @@ test(
       directory,
       {
         harness: "claude",
-        executable: resolve("test/harness.mjs"),
+        executable: resolve("test/fixtures/harness.mjs"),
         project,
         version: "fixture",
         billing: "existing",
@@ -59,7 +59,7 @@ test(
     await host.start({
       options: {
         harness: "claude",
-        executable: resolve("test/harness.mjs"),
+        executable: resolve("test/fixtures/harness.mjs"),
         project,
         version: "fixture",
         billing: "existing",

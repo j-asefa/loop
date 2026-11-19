@@ -25,7 +25,7 @@ seedAgent(db, {
 const { enqueue } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
-const executable = resolve("test/harness.mjs");
+const executable = resolve("test/fixtures/harness.mjs");
 chmodSync(executable, 0o755);
 db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(
   JSON.stringify({

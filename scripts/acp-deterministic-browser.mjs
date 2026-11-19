@@ -21,12 +21,12 @@ const { nativeSessions } = await import("../dist/server/native-sessions.js");
 const { db } = await import("../dist/server/db.js");
 const evidence = "test-results/deterministic-browser";
 await mkdir(evidence, { recursive: true });
-await chmod(resolve("test/harness.mjs"), 0o755);
+await chmod(resolve("test/fixtures/harness.mjs"), 0o755);
 const options = {
   harness: "codex",
   version: "fixture",
   project: dir,
-  executable: resolve("test/harness.mjs"),
+  executable: resolve("test/fixtures/harness.mjs"),
   billing: "existing",
 };
 const host = new WorkspaceHost(dir, options);

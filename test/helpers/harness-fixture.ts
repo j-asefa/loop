@@ -69,7 +69,7 @@ process.env.LOOP_TEST_HARNESS = ${JSON.stringify(harness)};
 process.env.LOOP_TEST_HARNESS_REPLIES = ${JSON.stringify(control)};
 process.env.LOOP_TEST_HARNESS_AUDIT = ${JSON.stringify(audit)};
 process.env.LOOP_TEST_PI_QUEUE_AUDIT = ${JSON.stringify(harness === "pi" && options.observePiQueue ? piQueue : "")};
-import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
+import(${JSON.stringify(pathToFileURL(resolve("test/fixtures/harness.mjs")).href)});
 `,
       { mode: 0o755 },
     );

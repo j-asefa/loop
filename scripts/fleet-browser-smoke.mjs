@@ -163,7 +163,7 @@ function matrix(value) {
 }
 try {
   await writeFile(mapPath, "{}");
-  await chmod(resolve("test/harness.mjs"), 0o755);
+  await chmod(resolve("test/fixtures/harness.mjs"), 0o755);
   await exec("openssl", [
     "req",
     "-x509",

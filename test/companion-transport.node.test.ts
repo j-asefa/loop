@@ -32,7 +32,7 @@ test("typed companion auth uses compiled sockets without leaking credentials or 
   for (const name of ["pi", "grok"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${process.cwd()}/test/auth-harness.mjs' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${process.cwd()}/test/fixtures/auth-harness.mjs' "$@"\n`,
       { mode: 0o755 },
     );
   }

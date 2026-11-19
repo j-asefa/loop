@@ -38,7 +38,7 @@ test("runtime-neutral paired host enables and dispatches all fixture runtimes th
     }
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_CLAUDE_AUTH=oauth\nexport LOOP_TEST_HARNESS_VERSION=${versions[name]}\nexec '${process.execPath}' '${resolve("test/harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_CLAUDE_AUTH=oauth\nexport LOOP_TEST_HARNESS_VERSION=${versions[name]}\nexec '${process.execPath}' '${resolve("test/fixtures/harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   }

@@ -59,7 +59,7 @@ it("does not transfer refused mail into a newly selected native harness", async 
   ).run(
     JSON.stringify({
       harness: "codex",
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project: dir,
       billing: "existing",
       version: "fixture",
@@ -150,7 +150,7 @@ it("a solo API agent discovers and questions a solo native agent, whose bridge r
   ).run(
     JSON.stringify({
       harness: "codex",
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project: dir,
       billing: "existing",
       version: "fixture",

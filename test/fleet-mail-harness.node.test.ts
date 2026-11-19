@@ -151,7 +151,7 @@ for (const harness of [
                 executable: resolve(
                   ["muse", "grok"].includes(harness)
                     ? `test/fixtures/fake-${harness}.mjs`
-                    : "test/harness.mjs",
+                    : "test/fixtures/harness.mjs",
                 ),
               }),
           project,

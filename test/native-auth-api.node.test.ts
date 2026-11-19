@@ -18,7 +18,7 @@ test("paired provider authentication protects credentials, checks project owners
   for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
     await writeFile(
       join(bin, name),
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
   }
