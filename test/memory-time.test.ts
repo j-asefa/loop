@@ -184,6 +184,7 @@ it.each([
   "harvest not (yesterday)",
   "harvest notes without yesterday",
   "harvest last month, or even on 2026-10-12",
+  "harvest notes from this week or just today",
   "harvest this week, excluding anything from today",
   "harvest this week, excluding records from today",
   "harvest not during October 2026",

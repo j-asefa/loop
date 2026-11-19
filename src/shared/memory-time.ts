@@ -174,7 +174,8 @@ function classifyMemoryTime(
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const alternative =
-      matched.length > 0 && /\b(?:or|nor)(?:\s+even)?[\s([{]*$/iu.test(between);
+      matched.length > 0 &&
+      /\b(?:or|nor)(?:\s+[\p{L}]+){0,4}[\s([{]*$/iu.test(between);
     const exclusionContext = /^from\s/iu.test(match[0])
       ? between + "from"
       : between;
