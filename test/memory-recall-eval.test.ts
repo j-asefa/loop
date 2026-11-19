@@ -370,3 +370,35 @@ it("scores only the sources the evidence block delivers", async () => {
   );
   expect(metrics).toMatchObject({ hit5: 0, misses5: 1, abstainKnown: 0 });
 });
+
+it("scores the temporal target inside the window instead of matching decoys", async () => {
+  const target = await note(
+    "Tamarind inventory",
+    "tamarind inspection scheduled",
+  );
+  const decoy = await note(
+    "Tamarind inventory",
+    "tamarind inspection scheduled",
+  );
+  const update = db.prepare(
+    "UPDATE memory_sources SET updated_at=? WHERE id=?",
+  );
+  update.run(Date.parse("2026-10-12T12:00:00Z"), target);
+  update.run(Date.parse("2026-10-13T12:00:00Z"), decoy);
+  const metrics = await evaluate([
+    {
+      set: "temporal",
+      owner: "alice",
+      project: null,
+      query: "on 2026-10-12 tamarind inspection",
+      target,
+      referenceAt: Date.parse("2026-10-19T00:00:00Z"),
+    },
+  ]);
+  expect(metrics).toMatchObject({
+    temporal: 1,
+    temporalHit5: 1,
+    known: 0,
+    null: 0,
+  });
+});

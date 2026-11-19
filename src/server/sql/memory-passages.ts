@@ -85,7 +85,7 @@ const searchStatement = statement(
      AND s.owner_id=@owner
      AND s.eligible=1 AND s.tombstone=0
      AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL))
-   ORDER BY rank LIMIT 75`,
+   AND (@from IS NULL OR s.updated_at>=@from) AND (@to IS NULL OR s.updated_at<@to) ORDER BY rank LIMIT 75`,
 );
 const offsetsRow = QueryRecords.memory_passages.pick({
   start: true,
@@ -109,8 +109,15 @@ export function search(
   match: string,
   owner: string,
   project: string | null,
+  window?: { from: number | null; to: number | null },
 ) {
   return searchStatement(db)
-    .all({ match, owner, project })
+    .all({
+      match,
+      owner,
+      project,
+      from: window?.from ?? null,
+      to: window?.to ?? null,
+    })
     .map((row) => parseRecord(searchRow, row, "memory_passages"));
 }

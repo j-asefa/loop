@@ -1,3 +1,8 @@
+import {
+  parseMemoryTime,
+  withoutMemoryTime,
+  type MemoryTimeWindow,
+} from "../shared/memory-time.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { z } from "zod";
 import { ftsQuery, searchTerms } from "../shared/search-excerpt.js";
@@ -338,11 +343,13 @@ export async function searchMemory(
   {
     relevant = false,
     conversation,
+    window,
   }: {
     /** Keep only sources that contain enough of the query's terms. */
     relevant?: boolean;
     /** Skip sources from this conversation, including its results. */
     conversation?: string | null;
+    window?: MemoryTimeWindow;
   } = {},
 ) {
   if (
@@ -356,22 +363,27 @@ export async function searchMemory(
     passage?: MemoryPassage;
   }[] = [];
   // Bound the FTS OR expansion; relevance still sees the full query.
-  const match = ftsQuery(query, {
+  const searchable = withoutMemoryTime(query, window);
+  const match = ftsQuery(searchable, {
     limit: relevant ? 8 : 24,
     exclude: STOP_WORDS,
   });
-  const terms = recallTerms(query);
+  const terms = recallTerms(searchable);
   if (match) {
     for (const { id, revision, start, end } of passageQueries.search(
       db,
       `{title body}:(${match})`,
       owner,
       project,
+      window,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
     if (!passageQueries.backfillComplete(db)) {
-      const documentMatch = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
+      const documentMatch = ftsQuery(searchable, {
+        limit: 24,
+        exclude: STOP_WORDS,
+      });
       if (documentMatch) {
         candidates.push(
           ...memoryFtsQueries.searchPending(
@@ -379,6 +391,7 @@ export async function searchMemory(
             `{title content}:(${documentMatch})`,
             owner,
             project,
+            window,
           ),
         );
       }
@@ -749,6 +762,7 @@ export async function recallForRun(
     recall = await searchMemory(run.owner_id, project, run.input, {
       relevant: true,
       conversation: run.conversation_id,
+      window: parseMemoryTime(run.input),
     });
   } catch (error) {
     // Recall is optional context: a failed search sends the turn without it.

@@ -1332,3 +1332,28 @@ it("cuts excerpts at the best window within the size", () => {
   expect(cut).not.toMatch(/^…[\udc00-\udfff]|[\ud800-\udbff]…$/u);
   expect(matchedExcerpt(head, terms, 0)).toBe("");
 });
+
+it("supplies only the requested date window and never widens it", async () => {
+  const older = await note("Time ledger", "amethyst harvest older evidence");
+  const inside = await note(
+    "Time ledger",
+    "amethyst harvest in-window evidence",
+  );
+  const other = await note(
+    "Time ledger",
+    "amethyst harvest private evidence",
+    "bob",
+  );
+  const setDate = db.prepare(
+    "UPDATE memory_sources SET updated_at=? WHERE id=?",
+  );
+  setDate.run(Date.parse("2026-10-11T23:59:59.999Z"), older.data.id);
+  setDate.run(Date.parse("2026-10-12T00:00:00.000Z"), inside.data.id);
+  setDate.run(Date.parse("2026-10-12T12:00:00.000Z"), other.data.id);
+  const result = await nativePrompt("amethyst harvest on 2026-10-12");
+  expect(result.prompt).toContain("in-window evidence");
+  expect(result.prompt).not.toContain("older evidence");
+  expect(result.prompt).not.toContain("private evidence");
+  const absent = "amethyst harvest on 2026-10-13";
+  expect((await nativePrompt(absent)).prompt).toBe(absent);
+});

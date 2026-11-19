@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import { parseMemoryTime } from "../src/shared/memory-time.js";
 
 /** Characters of a source that the pre-passage excerpt showed. */
 export const HEAD_CHARACTERS = 1100;
@@ -22,7 +23,8 @@ const EVIDENCE_BLOCK =
   /<loop-historical-evidence[\s\S]*?<\/loop-historical-evidence>/g;
 
 export type EvalQuery = {
-  set: "known" | "null";
+  set: "known" | "null" | "temporal";
+  referenceAt?: number;
   owner: string;
   project: string | null;
   query: string;
@@ -44,6 +46,8 @@ export type EvalMetrics = {
   known: number;
   deep: number;
   null: number;
+  temporal: number;
+  temporalHit5: number;
   skipped: number;
   hit1: number;
   hit5: number;
@@ -100,7 +104,8 @@ const share = (part: number, whole: number) => (whole ? part / whole : 0);
 export async function sampleQueries({
   seed = 1,
   limit = 500,
-}: { seed?: number; limit?: number } = {}) {
+  temporal = false,
+}: { seed?: number; limit?: number; temporal?: boolean } = {}) {
   const { db } = await import("../src/server/db.js");
   const memorySources = await import("../src/server/sql/memory-sources.js");
   const { coversQuery, enabled, matchedTerms, recallTerms, recallable } =
@@ -112,6 +117,7 @@ export async function sampleQueries({
     (!project || enabled(owner, "project:" + project));
   let skipped = 0;
   const known: EvalQuery[] = [];
+  const dated: EvalQuery[] = [];
   // Only results recall may return now: a source the owner's memory policy
   // excludes is not a retrieval miss.
   const items = memorySources
@@ -141,6 +147,29 @@ export async function sampleQueries({
       targetCoverage:
         matchedTerms(item.title + "\n" + item.content, terms) / terms.length,
     });
+    if (temporal) {
+      const source = memorySources.owned(db, item.id, item.owner_id);
+      if (!source) continue;
+      const date = new Date(source.updated_at);
+      const referenceAt = source.updated_at + 7 * 86_400_000;
+      const month = date.toLocaleString("en-US", {
+        month: "long",
+        timeZone: "UTC",
+      });
+      const style = (known.length - 1) % 3;
+      const time =
+        style === 0
+          ? "last week"
+          : style === 1
+            ? `in ${month} ${date.getUTCFullYear()}`
+            : "on " + date.toISOString().slice(0, 10);
+      dated.push({
+        ...known[known.length - 1],
+        set: "temporal",
+        query: `${time} ${query}`,
+        referenceAt,
+      });
+    }
   }
   const none: EvalQuery[] = [];
   for (const item of sample(
@@ -171,7 +200,7 @@ export async function sampleQueries({
       conversation: item.conversation_id,
     });
   }
-  return { queries: [...known, ...none], skipped };
+  return { queries: [...known, ...none, ...dated], skipped };
 }
 
 /** Runs every query through production recall and aggregates the results. */
@@ -184,6 +213,7 @@ export async function evaluate(
   const search = (q: EvalQuery) =>
     searchMemory(q.owner, q.project, q.query, {
       relevant: true,
+      window: parseMemoryTime(q.query, q.referenceAt),
       ...(q.conversation === undefined ? {} : { conversation: q.conversation }),
     });
   for (const q of queries.slice(0, warmup)) await search(q);
@@ -198,6 +228,8 @@ export async function evaluate(
     coverage: [] as number[],
   };
   const deep = { n: 0, hit5: 0, coverage: [] as number[] };
+  let temporal = 0;
+  let temporalHits = 0;
   let nulls = 0,
     abstainNull = 0,
     misses = 0,
@@ -213,6 +245,11 @@ export async function evaluate(
     if (q.set === "null") {
       nulls++;
       if (!sources.length) abstainNull++;
+      continue;
+    }
+    if (q.set === "temporal") {
+      temporal++;
+      if (sources.some((source) => source.id === q.target)) temporalHits++;
       continue;
     }
     known.n++;
@@ -239,6 +276,8 @@ export async function evaluate(
     known: known.n,
     deep: deep.n,
     null: nulls,
+    temporal,
+    temporalHit5: share(temporalHits, temporal),
     skipped,
     hit1: share(known.hit1, known.n),
     hit5: share(known.hit5, known.n),
@@ -261,6 +300,8 @@ const ROWS: [keyof EvalMetrics, string, "count" | "share" | "number"][] = [
   ["known", "known-item queries", "count"],
   ["deep", "deep known-item queries", "count"],
   ["null", "null queries", "count"],
+  ["temporal", "temporal queries", "count"],
+  ["temporalHit5", "temporal hit@5", "share"],
   ["skipped", "skipped (no search terms)", "count"],
   ["hit1", "hit@1", "share"],
   ["hit5", "hit@5", "share"],
@@ -460,6 +501,7 @@ export async function main(args: string[]) {
   const { queries, skipped } = await sampleQueries({
     seed: Number(option(args, "--seed") ?? 1),
     limit: Number(option(args, "--limit") ?? 500),
+    temporal: true,
   });
   const metrics = await evaluate(queries, { skipped });
   const out = option(args, "--json");
