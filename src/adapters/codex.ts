@@ -704,6 +704,9 @@ export class Codex extends DirectAdapter implements Adapter {
         this.tokenBaseline = {
           input_tokens: Math.max(0, total.input_tokens - last.input_tokens),
           output_tokens: Math.max(0, total.output_tokens - last.output_tokens),
+          // The app-server schema always sends cachedInputTokens. If a build
+          // omits it, later turns also go without until a restart: the
+          // baseline carried between turns has no count to subtract.
           // Without both counts the cache read before this turn is unknown,
           // so this turn reports no cached share instead of a wrong one.
           ...(total.cache_read_tokens !== undefined &&

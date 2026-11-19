@@ -525,7 +525,14 @@ function usageText(usage: UsageTokens) {
           Math.round((usage.cache_read_tokens / usage.input_tokens) * 100),
         )
       : 0;
-  return `${compactNumber(usage.input_tokens)} in${cached > 0 ? ` (${cached}% cached)` : ""} · ${compactNumber(usage.output_tokens)} out tokens`;
+  // A share that rounds to zero is still shown, as under one percent.
+  const share =
+    cached > 0
+      ? `${cached}%`
+      : usage.cache_read_tokens && usage.input_tokens > 0
+        ? "<1%"
+        : "";
+  return `${compactNumber(usage.input_tokens)} in${share ? ` (${share} cached)` : ""} · ${compactNumber(usage.output_tokens)} out tokens`;
 }
 export function UsageLine({ usage }: { usage?: UsageTokens }) {
   if (!usage || usage.input_tokens + usage.output_tokens === 0) return null;
