@@ -11,6 +11,7 @@ import { storePublishedFile } from "../../src/server/published-files.js";
 import { recordTrace } from "../../src/server/traces.js";
 import Database from "better-sqlite3";
 import { installFixtureProjection } from "../helpers/projected-writer.js";
+import { seedConnection, seedMessage } from "../helpers/seed.js";
 
 /** Try a worker commit after the HTTP handler establishes its Results snapshot.
  * If the handler holds the write lock, finish that commit after the response. */
@@ -54,15 +55,16 @@ export function interleaveResultWrite(artifact: string) {
  * HTTP fixture's process, so the normal Feed projection observes the writes. */
 export function integrationRecords(owner: string) {
   const connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("integration-fixture-credential", owner),
-    JSON.stringify([{ id: "fixture", name: "Fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: "openai",
+    label: "Fixture",
+    secret: seal("integration-fixture-credential", owner),
+    status: "connected",
+    models: JSON.stringify([{ id: "fixture", name: "Fixture" }]),
+    created_at: now(),
+  });
   const agent = createAgent(owner, {
     name: "integration-" + id().slice(0, 8),
     connectionId: connection,
@@ -100,9 +102,16 @@ export function integrationRecords(owner: string) {
     content: "Public trace",
   });
   const reply = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Public fixture answer','{}',?)",
-  ).run(reply, owner, run.conversation_id, run.id, now());
+  seedMessage(db, {
+    id: reply,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Public fixture answer",
+    metadata: "{}",
+    created_at: now(),
+  });
   transition(run, "completed");
   const pending = submit(owner, {
     agentId: agent.id,

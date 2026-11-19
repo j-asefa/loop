@@ -3,6 +3,7 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 
 import type { RunState } from "../src/shared/run-state";
+import { seedConnection } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -21,15 +22,16 @@ function make(state: RunState = "queued", owner = "alice", kind = "agent") {
   let agentId = agents.get(owner);
   if (!agentId) {
     const connection = id();
-    db.prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-    ).run(
-      connection,
-      owner,
-      seal("fixture", owner),
-      JSON.stringify([{ id: "fixture", name: "Fixture" }]),
-      now(),
-    );
+    seedConnection(db, {
+      id: connection,
+      owner_id: owner,
+      provider: "openai",
+      label: "Fixture",
+      secret: seal("fixture", owner),
+      status: "connected",
+      models: JSON.stringify([{ id: "fixture", name: "Fixture" }]),
+      created_at: now(),
+    });
     agentId = createAgent(owner, {
       name: "recovery-" + owner,
       connectionId: connection,

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
 
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -51,9 +51,14 @@ it("companion filters Done before pagination and reconciles read transitions wit
       title: "No result",
       created_at: 1,
     });
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('idle',?,'idle','user','A prompt without an answer',30)",
-    ).run(owner);
+    seedMessage(db, {
+      id: "idle",
+      owner_id: owner,
+      conversation_id: "idle",
+      role: "user",
+      content: "A prompt without an answer",
+      created_at: 30,
+    });
     // The seeded answers are released history, sealed as an upgrade would.
     sealSeededHistory(db);
     const read = (id: string, conversation = id[0], unreadVersion?: number) =>

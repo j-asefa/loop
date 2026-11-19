@@ -1,4 +1,8 @@
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -344,9 +348,15 @@ it("validates continuation messages before creating a conversation and preserves
     title: "Original",
     created_at: now(),
   });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,metadata,created_at) VALUES(?,?,?,'assistant','Body',?,?)",
-  ).run(message, f.owner, conversation, '{"historicalLabel":"kept"}', now());
+  seedMessage(db, {
+    id: message,
+    owner_id: f.owner,
+    conversation_id: conversation,
+    role: "assistant",
+    content: "Body",
+    metadata: '{"historicalLabel":"kept"}',
+    created_at: now(),
+  });
   const body = {
     agentId: f.member.id,
     messageIds: [message],
@@ -529,9 +539,14 @@ it.each(["source", "destination", "run"])(
       title: "Original",
       created_at: now(),
     });
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Pick this up',?)",
-    ).run(message, f.owner, source, now());
+    seedMessage(db, {
+      id: message,
+      owner_id: f.owner,
+      conversation_id: source,
+      role: "user",
+      content: "Pick this up",
+      created_at: now(),
+    });
     const path = `/conversations/${source}/continue/start`;
     const body = {
       agentId: f.member.id,

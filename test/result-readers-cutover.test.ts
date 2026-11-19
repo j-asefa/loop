@@ -1,4 +1,8 @@
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
 
@@ -54,9 +58,16 @@ function finishRun(
   });
   const run = ownedRun(queued.id, owner);
   const message = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
-  ).run(message, owner, run.conversation_id, run.id, text, now() + 1);
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: text,
+    metadata: "{}",
+    created_at: now() + 1,
+  });
   db.prepare("UPDATE runs SET state='completed',updated_at=? WHERE id=?").run(
     now() + 2,
     run.id,
@@ -114,9 +125,16 @@ it("discovers every published output from its sealed Result, not the transcript"
   db.prepare("UPDATE messages SET content='Rewritten' WHERE id=?").run(
     answer.message,
   );
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Later reply','{}',?)",
-  ).run(id(), owner, answer.run.conversation_id, answer.run.id, now() + 50);
+  seedMessage(db, {
+    id: id(),
+    owner_id: owner,
+    conversation_id: answer.run.conversation_id!,
+    run_id: answer.run.id,
+    role: "assistant",
+    content: "Later reply",
+    metadata: "{}",
+    created_at: now() + 50,
+  });
   db.prepare(
     "UPDATE agents SET name=name||' renamed',normalized_name=normalized_name||' renamed' WHERE id=?",
   ).run(author.id);
@@ -155,9 +173,16 @@ it("does not manufacture a published card from an unsealed transcript answer", (
     created_at: now(),
   });
   const loose = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,NULL,'assistant','Loose answer','{}',?)",
-  ).run(loose, owner, conversation, now());
+  seedMessage(db, {
+    id: loose,
+    owner_id: owner,
+    conversation_id: conversation,
+    run_id: null,
+    role: "assistant",
+    content: "Loose answer",
+    metadata: "{}",
+    created_at: now(),
+  });
   for (const conv of [unpublished.run.conversation_id!, conversation])
     db.prepare(
       "INSERT OR IGNORE INTO feed_card_dirty(owner_id,conversation_id,card_key) VALUES(?,?,'*')",
@@ -220,29 +245,29 @@ it("serves Replies from sealed steering-reply Results with their read state", ()
   const run = ownedRun(queued.id, owner);
   const question = id();
   const reply = id();
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user','Which option?',?,?)",
-  ).run(
-    question,
-    owner,
-    run.conversation_id,
-    run.id,
-    JSON.stringify({ steeringId: "s-" + reply }),
-    now(),
-  );
+  seedMessage(db, {
+    id: question,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "user",
+    content: "Which option?",
+    metadata: JSON.stringify({ steeringId: "s-" + reply }),
+    created_at: now(),
+  });
   db.prepare(
     "INSERT INTO run_steering(id,owner_id,run_id,message_id,idempotency_key,request,state,created_at) VALUES(?,?,?,?,?,'{}','delivered',?)",
   ).run("s-" + reply, owner, run.id, question, id(), now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','Option B',?,?)",
-  ).run(
-    reply,
-    owner,
-    run.conversation_id,
-    run.id,
-    JSON.stringify({ reply: { to: question, published: true } }),
-    now() + 1,
-  );
+  seedMessage(db, {
+    id: reply,
+    owner_id: owner,
+    conversation_id: run.conversation_id!,
+    run_id: run.id,
+    role: "assistant",
+    content: "Option B",
+    metadata: JSON.stringify({ reply: { to: question, published: true } }),
+    created_at: now() + 1,
+  });
   db.prepare(
     "INSERT INTO steering_replies(message_id,owner_id,steering_id,created_at) VALUES(?,?,?,?)",
   ).run(reply, owner, "s-" + reply, now() + 1);

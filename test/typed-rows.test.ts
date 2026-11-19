@@ -9,6 +9,7 @@ import {
   RunPayload,
   SealedEnvelope,
 } from "../src/server/row-schemas.js";
+import { seedConnection } from "./helpers/seed.js";
 testDirectory();
 
 const { db, id, now } = await import("../src/server/db.js");
@@ -36,15 +37,17 @@ afterAll(() => {
 function fixture() {
   const owner = id(),
     connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,'{}',?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture-key", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: "openai",
+    label: "Fixture",
+    secret: seal("fixture-key", owner),
+    status: "connected",
+    models: JSON.stringify([{ id: "fixture" }]),
+    metadata: "{}",
+    created_at: now(),
+  });
   const agent = createAgent(owner, {
     name: "typed-" + id().slice(0, 8),
     connectionId: connection,

@@ -1,4 +1,9 @@
-import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
+import {
+  seedConnection,
+  seedConversation,
+  seedMessage,
+  seedRun,
+} from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createConnection } from "node:net";
@@ -589,15 +594,17 @@ it.each(["secret", "routing"] as const)(
     const socket = connect(f, "?v=3");
     await expect.poll(() => socket.frames.length).toBe(1);
     const metadata = invalid === "routing" ? '{"loopHarness":false}' : "{}";
-    f.db
-      .prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,metadata,created_at) VALUES('status-connection',?,'openai','Fixture',?,'connected',?,1)",
-      )
-      .run(
-        f.owner,
-        invalid === "secret" ? "must stay secret" : f.fixtureSecret,
-        metadata,
-      );
+    seedConnection(f.db, {
+      id: "status-connection",
+      owner_id: f.owner,
+      provider: "openai",
+      label: "Fixture",
+      secret: invalid === "secret" ? "must stay secret" : f.fixtureSecret,
+      status: "connected",
+      metadata: metadata,
+      created_at: 1,
+      models: "[]",
+    });
     const response = await f.request("/api/connections/status-connection", {
       method: "DELETE",
       headers: f.browser,

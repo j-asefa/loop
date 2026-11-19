@@ -1,9 +1,9 @@
 import {
-  seedRun,
-  seedConversation,
   seedAgent,
   seedConnection,
+  seedConversation,
   seedMessage,
+  seedRun,
 } from "./helpers/seed.js";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { WebSocket } from "ws";
@@ -1025,11 +1025,16 @@ it(`companion delivers owned route mutations with explicit subjects and collecti
 it("emits no unauthorized deletion and retains a tombstone across a run cascade and replay hole", async () => {
   const f = await fixture();
   seed(f);
-  f.db
-    .prepare(
-      "INSERT INTO connections(id,owner_id,provider,label,secret,status,created_at) VALUES('other','someone-else','openai','Private','not-used','connected',1)",
-    )
-    .run();
+  seedConnection(f.db, {
+    id: "other",
+    owner_id: "someone-else",
+    provider: "openai",
+    label: "Private",
+    secret: "not-used",
+    status: "connected",
+    created_at: 1,
+    models: "[]",
+  });
   // Raw fixture seeding bypasses the application's synchronous projector.
   // Finish setup through an owned production write before measuring whether
   // the unauthorized request emits anything.

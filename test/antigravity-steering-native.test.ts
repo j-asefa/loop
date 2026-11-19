@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { gitProject } from "./git-project";
 import { until } from "./helpers";
-import { seedConversation } from "./helpers/seed.js";
+import { seedConversation, seedMessage } from "./helpers/seed.js";
 
 const dir = testDirectory();
 
@@ -206,9 +206,14 @@ it("an explicit Grok-to-Antigravity switch retains the agent workspace and start
   const project = legacy.binding.project;
   expect(legacy.binding.native_id).toBe("grok-session");
   await sessions.dispose(legacy);
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES('legacy-message',?,?,'user','Earlier Grok task',0)",
-  ).run(OWNER, run.conversation_id);
+  seedMessage(db, {
+    id: "legacy-message",
+    owner_id: OWNER,
+    conversation_id: run.conversation_id!,
+    role: "user",
+    content: "Earlier Grok task",
+    created_at: 0,
+  });
   const switched = await sessions.session(run);
   expect(switched.binding.harness).toBe("antigravity");
   expect(switched.binding.project).toBe(project);

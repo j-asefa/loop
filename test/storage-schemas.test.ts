@@ -16,6 +16,7 @@ import {
   messageResponse,
   artifactResponse,
 } from "../src/server/row-schemas.js";
+import { seedConnection } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -52,15 +53,16 @@ afterAll(() => {
 it("matches storage schemas to worker-produced rows without changing their serialized JSON", async () => {
   const owner = id(),
     connection = id();
-  db.prepare(
-    "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,?,'openai','Fixture',?,'connected',?,?)",
-  ).run(
-    connection,
-    owner,
-    seal("fixture-key", owner),
-    JSON.stringify([{ id: "fixture" }]),
-    now(),
-  );
+  seedConnection(db, {
+    id: connection,
+    owner_id: owner,
+    provider: "openai",
+    label: "Fixture",
+    secret: seal("fixture-key", owner),
+    status: "connected",
+    models: JSON.stringify([{ id: "fixture" }]),
+    created_at: now(),
+  });
   const agent = createAgent(owner, {
     name: "storage-" + id().slice(0, 8),
     connectionId: connection,

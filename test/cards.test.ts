@@ -1,3 +1,4 @@
+import type { MessageRole } from "../src/shared/message-roles.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { AgentId, ProjectId } from "../src/shared/contract-ids.js";
@@ -25,7 +26,7 @@ import {
   CardChangesSchema,
   type CardSelection,
 } from "../src/shared/cards";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
@@ -88,7 +89,7 @@ function setup(owner: string) {
 function message(
   owner: string,
   id: string,
-  role = "user",
+  role: MessageRole = "user",
   meta: object = { personal: true, attachments: [] },
   at = 10,
 ) {
@@ -103,9 +104,16 @@ function message(
     created_at: at,
     updated_at: at,
   });
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(id, owner, owner, id, role, "Body " + id, JSON.stringify(meta), at);
+  seedMessage(db, {
+    id: id,
+    owner_id: owner,
+    conversation_id: owner,
+    run_id: id,
+    role: role,
+    content: "Body " + id,
+    metadata: JSON.stringify(meta),
+    created_at: at,
+  });
   return id;
 }
 function result(
@@ -1592,9 +1600,14 @@ it("Done imports, ties, explicit Workspace and idle fallbacks converge", () => {
   );
   const cache = all("done-imports", { view: "done" }, 1);
   for (const id of ["import-a", "import-b"])
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-imports','done-imports','assistant','Imported',10)",
-    ).run(id);
+    seedMessage(db, {
+      id: id,
+      owner_id: "done-imports",
+      conversation_id: "done-imports",
+      role: "assistant",
+      content: "Imported",
+      created_at: 10,
+    });
   expectCurrent("done-imports", { view: "done" }, cache);
   expect(cache.items.size).toBe(3);
   expect(
@@ -1673,9 +1686,14 @@ it("Done reconciles tied approval expiries in bounded batches without database w
           title: id,
           created_at: 1,
         });
-        db.prepare(
-          "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,?,?,'user','Prompt',1)",
-        ).run(id, owner, id);
+        seedMessage(db, {
+          id: id,
+          owner_id: owner,
+          conversation_id: id,
+          role: "user",
+          content: "Prompt",
+          created_at: 1,
+        });
         // Historical pending approvals can outlive their stopped run. Derive
         // attention from source rows, never write a retired Feed cache column.
         db.prepare(
@@ -1741,9 +1759,14 @@ it("Done invalidates only candidate cards for visible pull changes and skips unr
   message("done-cost", "cost-answer", "assistant", {});
   db.transaction(() => {
     for (let i = 0; i < 500; i++)
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,role,content,created_at) VALUES(?,'done-cost','done-cost','user','Old prompt',1)",
-      ).run("cost-prompt-" + i);
+      seedMessage(db, {
+        id: "cost-prompt-" + i,
+        owner_id: "done-cost",
+        conversation_id: "done-cost",
+        role: "user",
+        content: "Old prompt",
+        created_at: 1,
+      });
   })();
   db.prepare(
     "INSERT INTO pr_watches(id,owner_id,conversation_id,agent_id,repo_owner,repo_name,number,state,created_at,updated_at) VALUES('cost-watch','done-cost','done-cost','done-cost','fixture','repo',1,'watching',1,1)",

@@ -1,4 +1,9 @@
-import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
+import {
+  seedAgent,
+  seedConnection,
+  seedConversation,
+  seedMessage,
+} from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { prepareAgentWorkspace } from "../src/server/agent-worktree.js";
 import { gitProject } from "./git-project.js";
@@ -69,10 +74,17 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
   for (const [role, content] of [
     ["user", "Earlier question"],
     ["assistant", "Earlier answer"],
-  ])
-    db.prepare(
-      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,'owner','switch',NULL,?,?,'{}',?)",
-    ).run(role + "-earlier", role, content, now());
+  ] as const)
+    seedMessage(db, {
+      id: role + "-earlier",
+      owner_id: "owner",
+      conversation_id: "switch",
+      run_id: null,
+      role: role,
+      content: content,
+      metadata: "{}",
+      created_at: now(),
+    });
   enqueue("owner", "Next question", "switch-run", {
     conversation: "switch",
     agent: "worktree-fixture",
@@ -87,9 +99,16 @@ it("moves a native conversation to the agent's new harness with Loop's transcrip
     },
   });
   const run = claim("w")!;
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES('current','owner','switch',?,'user','Next question','{}',?)",
-  ).run(run.id, now());
+  seedMessage(db, {
+    id: "current",
+    owner_id: "owner",
+    conversation_id: "switch",
+    run_id: run.id,
+    role: "user",
+    content: "Next question",
+    metadata: "{}",
+    created_at: now(),
+  });
   const sessions = new NativeSessions();
   const live = await sessions.session(run);
   try {
