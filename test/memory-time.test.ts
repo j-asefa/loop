@@ -191,6 +191,7 @@ it.each([
   "harvest notes without yesterday",
   "harvest last month, or even on 2026-10-12",
   "harvest notes from this week or just today",
+  "harvest notes from this week or, if there are any recent entries, today",
   "harvest this week or, if needed, today",
   "harvest this week, excluding: yesterday",
   "harvest this week, excluding: on 2026-11-18",
@@ -261,6 +262,14 @@ it("does not treat bare month-shaped names as a date alternative", () => {
   expect(
     parseMemoryTime("Ask May or June for harvest notes from last week", now),
   ).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
+
+it("keeps a later date after excluding someone with a month-shaped name", () => {
+  const query = "Ask everyone except May for harvest notes from last week";
+  expect(parseMemoryTime(query, now)).toMatchObject({
     from: Date.parse("2026-11-09"),
     to: Date.parse("2026-11-16"),
   });

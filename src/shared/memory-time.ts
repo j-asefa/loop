@@ -180,9 +180,7 @@ function classifyMemoryTime(
       bare && MONTHS.some((name) => name.toLowerCase() === bare.toLowerCase());
     const alternative =
       (previousBareMonth ? !bareMonth : seenDate) &&
-      /\b(?:or|nor)(?:[\s,()[\]{}]+[\p{L}]+){0,4}[\s,()[\]{}]*$/iu.test(
-        between,
-      );
+      /\b(?:or|nor)\b/iu.test(between.split(/[.!?;\u0000]/u).at(-1) ?? "");
     previousBareMonth = Boolean(bareMonth);
     const preposition =
       relation ?? /^(?:from|on|in|within|during)\b/iu.exec(match[0])?.[0];
@@ -215,7 +213,7 @@ function classifyMemoryTime(
         continue;
     }
     // A single interval cannot express exclusions or alternative dates.
-    if (exclusion || alternative) return null;
+    if (alternative || (exclusion && !bareMonth)) return null;
     if (bareMonth) continue;
     seenDate = true;
     if (modifier === "since" || modifier === "after") {
