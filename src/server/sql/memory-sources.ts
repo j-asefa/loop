@@ -139,10 +139,26 @@ export function tombstone(db: Database.Database, id: string) {
   return tombstoneStatement(db).run(id);
 }
 
+const captureProgressStatement = statement(
+  "SELECT count(*) AS sources,COALESCE(sum(revision),0) AS revisions FROM memory_sources",
+);
+const captureProgressRow = z.object({
+  sources: z.number(),
+  revisions: z.number(),
+});
+/** Changes whenever a capture pass adds or revises a source. */
+export function captureProgress(db: Database.Database) {
+  return parseRecord(
+    captureProgressRow,
+    captureProgressStatement(db).get(),
+    "memory_sources",
+  );
+}
+
 // Replay evaluation (scripts/memory-recall-eval.ts) reads these on a copy of
 // a workspace database; production recall never calls them.
 const knownItemsStatement = statement(
-  `SELECT s.id,s.owner_id,s.project_id,s.title,s.content,r.input FROM memory_sources s
+  `SELECT s.id,s.owner_id,s.project_id,s.title,s.content,r.input,r.conversation_id FROM memory_sources s
     JOIN artifacts a ON a.id=s.source_id AND a.owner_id=s.owner_id
     JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     WHERE s.kind='artifact' AND s.tombstone=0 AND s.eligible=1
@@ -157,7 +173,7 @@ const knownItemsRow = QueryRecords.memory_sources
     title: true,
     content: true,
   })
-  .extend({ input: z.string() });
+  .extend({ input: z.string(), conversation_id: z.string().nullable() });
 /**
  * Saved results with the owner-typed prompt of the run that produced each: a
  * prompt whose own result recall should find (a known-item query).
@@ -184,7 +200,7 @@ const promptsWithoutSourcesRow = z.object({
   project_id: z.string().nullable(),
   input: z.string(),
 });
-/** Owner-typed prompts from conversations that left nothing in memory. */
+/** Owner-typed prompts from conversations that saved no result to memory. */
 export function promptsWithoutSources(db: Database.Database) {
   return promptsWithoutSourcesStatement(db)
     .all()

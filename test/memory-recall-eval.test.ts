@@ -1,6 +1,9 @@
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, expect, it } from "vitest";
 
 testDirectory();
@@ -12,7 +15,7 @@ const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { memoryRoutes, captureMemory } = await import("../src/server/memory");
-const { evaluate, sample, sampleQueries, table, HEAD_CHARACTERS } =
+const { evaluate, main, sample, sampleQueries, table, HEAD_CHARACTERS } =
   await import("../scripts/memory-recall-eval");
 const app = await productionApp("alice", [memoryRoutes], {
   ownerHeader: "x-owner",
@@ -115,6 +118,23 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
 
   const metrics = await evaluate(known);
   expect(metrics).toMatchObject({ known: 1, hit1: 1, hit5: 1, mrr5: 1 });
+
+  // A result the owner's memory policy now excludes is not a known item:
+  // recall could never return it, so it would count as a false miss.
+  const policy = await fetch(app.url + "/api/memory/policy", {
+    method: "PUT",
+    headers: { "content-type": "application/json", "x-owner": "alice" },
+    body: JSON.stringify({
+      scope: "conversation:" + answered.conversation_id,
+      enabled: false,
+    }),
+  });
+  expect(policy.status).toBe(200);
+  expect(
+    (await sampleQueries({ seed: 1, limit: 100 })).queries.filter(
+      (q) => q.set === "known",
+    ),
+  ).toEqual([]);
 });
 
 it("computes each metric from production recall", async () => {
@@ -188,4 +208,24 @@ it("computes each metric from production recall", async () => {
   ]);
   expect(rendered).toContain("| hit@5 | 33.3% | 33.3% |");
   expect(rendered).toContain("| vocab miss share | 50.0% | 50.0% |");
+});
+
+it("writes only to a database it copied, in a directory it started empty", async () => {
+  const previous = process.env.LOOP_DATA_DIR;
+  const data = mkdtempSync(join(tmpdir(), "memory-eval-"));
+  try {
+    delete process.env.LOOP_DATA_DIR;
+    await expect(main([])).rejects.toThrow("empty directory");
+    process.env.LOOP_DATA_DIR = data;
+    // A directory holding a database the script did not build, such as the
+    // live workspace or a link to it, is refused before anything opens it.
+    writeFileSync(join(data, "loop.db"), "");
+    await expect(main([])).rejects.toThrow("not built by --copy-from");
+    await expect(main(["--copy-from", join(data, "loop.db")])).rejects.toThrow(
+      "needs an empty LOOP_DATA_DIR",
+    );
+  } finally {
+    if (previous === undefined) delete process.env.LOOP_DATA_DIR;
+    else process.env.LOOP_DATA_DIR = previous;
+  }
 });

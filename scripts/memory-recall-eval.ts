@@ -2,13 +2,20 @@
 // excerpt quality on a copy of a workspace database. It calls production
 // searchMemory and evidenceBlock; it never reimplements them.
 //
-//   sqlite3 <live loop.db> ".backup /var/tmp/memory-eval/loop.db"
-//   LOOP_DATA_DIR=/var/tmp/memory-eval node --import tsx scripts/memory-recall-eval.ts --json /var/tmp/memory-eval/head.json
+//   mkdir -m 700 /var/tmp/memory-eval/copy
+//   LOOP_DATA_DIR=/var/tmp/memory-eval/copy node --import tsx scripts/memory-recall-eval.ts \
+//     --copy-from <workspace loop.db> --json /var/tmp/memory-eval/head.json
 //   node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
 //
-// The copy's data stays local: print and commit aggregates only.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+// It writes only to a database it built with --copy-from (rerun on the same
+// directory without it). The copy's data stays local: share aggregates only.
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -29,7 +36,11 @@ export type EvalQuery = {
   deep?: boolean;
   /** Share of the query's distinct terms the target contains. */
   targetCoverage?: number;
-  /** Conversation whose sources the search skips, as recall does. */
+  /**
+   * Conversation whose sources the search skips, as recall does. Known-item
+   * queries have none: they ask again as if from a new conversation, so the
+   * result's own conversation is not excluded.
+   */
   conversation?: string;
 };
 
@@ -96,11 +107,16 @@ export async function sampleQueries({
 }: { seed?: number; limit?: number } = {}) {
   const { db } = await import("../src/server/db.js");
   const memorySources = await import("../src/server/sql/memory-sources.js");
-  const { coversQuery, matchedTerms, recallTerms } =
+  const { coversQuery, matchedTerms, recallTerms, recallable } =
     (await import("../src/server/memory.js")) as Memory;
   let skipped = 0;
   const known: EvalQuery[] = [];
-  for (const item of sample(memorySources.knownItems(db), limit, seed)) {
+  // Only results recall may return now: a source the owner's memory policy
+  // excludes is not a retrieval miss.
+  const items = memorySources
+    .knownItems(db)
+    .filter((item) => recallable(item.owner_id, item.id));
+  for (const item of sample(items, limit, seed)) {
     const query = prompt(item.input);
     const terms = recallTerms(query);
     if (!terms.length) {
@@ -287,6 +303,8 @@ async function copyFrom(path: string) {
   const { db } = await import("../src/server/db.js");
   const { default: Database } = await import("better-sqlite3");
   const source = new Database(path, { readonly: true, fileMustExist: true });
+  // One read transaction: every table comes from the same snapshot.
+  source.exec("BEGIN");
   const columns = (database: typeof db, table: string) =>
     (database.pragma(`table_info(${table})`) as { name: string }[]).map(
       (c) => c.name,
@@ -322,36 +340,37 @@ async function copyFrom(path: string) {
       console.error(`copied ${table}: ${rows}`);
     }
   })();
+  source.exec("COMMIT");
   for (const t of triggers) db.exec(t.sql);
   db.pragma("foreign_keys = ON");
   source.close();
   return copied;
 }
 
-/** Captures memory until a pass leaves nothing new, as an upgrade would. */
+/** Captures memory until a pass changes nothing, as an upgrade would. */
 async function catchUp() {
   const { db } = await import("../src/server/db.js");
   const { captureMemory } = (await import("../src/server/memory.js")) as Memory;
-  const artifacts = await import("../src/server/sql/artifacts.js");
-  const messages = await import("../src/server/sql/messages.js");
-  let previous = Infinity;
-  for (let pass = 0; pass < 1000; pass++) {
+  const { captureProgress } =
+    await import("../src/server/sql/memory-sources.js");
+  let previous = JSON.stringify(captureProgress(db));
+  for (let pass = 1; pass <= 1000; pass++) {
     captureMemory();
-    const left =
-      artifacts.memoryCandidates(db, 0).length +
-      messages.memoryCandidates(db).length;
-    if (!left || left >= previous) return pass + 1;
-    previous = left;
+    const progress = JSON.stringify(captureProgress(db));
+    if (progress === previous) return pass;
+    previous = progress;
   }
-  return 1000;
+  throw new Error("Memory capture did not settle in 1,000 passes.");
 }
+// Written by --copy-from; a data directory without it is never written to.
+const COPY_MARKER = "memory-eval-copy";
 
 function option(args: string[], name: string) {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-async function main(args: string[]) {
+export async function main(args: string[]) {
   const compare = option(args, "--compare");
   if (compare) {
     const files = args.slice(args.indexOf("--compare") + 1);
@@ -366,17 +385,21 @@ async function main(args: string[]) {
     return;
   }
   const data = process.env.LOOP_DATA_DIR;
-  // Capture writes to the database it opens: never the live workspace.
-  if (!data || resolve(data).startsWith(resolve(homedir(), ".local/state")))
-    throw new Error(
-      "Set LOOP_DATA_DIR to a directory holding a backup copy of loop.db, not the live workspace.",
-    );
+  // Capture writes to the database it opens: only ever a copy this script
+  // built, in a directory it started empty.
+  if (!data || !existsSync(data))
+    throw new Error("Set LOOP_DATA_DIR to an existing, empty directory.");
   const from = option(args, "--copy-from");
+  const marker = resolve(data, COPY_MARKER);
   if (from) {
-    if (existsSync(resolve(data, "loop.db")))
+    if (readdirSync(data).length)
       throw new Error("--copy-from needs an empty LOOP_DATA_DIR.");
+    writeFileSync(marker, realpathSync(from) + "\n");
     console.log("copied rows:", await copyFrom(from));
-  }
+  } else if (!existsSync(marker))
+    throw new Error(
+      "LOOP_DATA_DIR was not built by --copy-from; refusing to write to it.",
+    );
   const passes = await catchUp();
   const { queries, skipped } = await sampleQueries({
     seed: Number(option(args, "--seed") ?? 1),

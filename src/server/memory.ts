@@ -239,6 +239,15 @@ export function captureMemory() {
       started - ARTIFACT_SLACK_MS,
     );
 }
+/** Whether recall may return this source to its owner now. */
+export function recallable(owner: string, sourceId: string) {
+  try {
+    readMemory(owner, sourceId);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function readMemory(
   owner: string,
   sourceId: string,
