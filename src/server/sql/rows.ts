@@ -244,6 +244,11 @@ export const QueryRecords = {
     name: z.string(),
     applied_at: z.number(),
   }),
+  review_follow_ups: z.object({
+    review_id: z.string(),
+    owner_id: z.string(),
+    previous_review_id: z.string(),
+  }),
   review_continuations: z.object({
     review_id: z.string(),
     owner_id: z.string(),
