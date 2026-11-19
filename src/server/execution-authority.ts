@@ -43,6 +43,7 @@ import {
   authOptions,
   runtimeList,
   runtimeEnable,
+  runtimeRefresh,
   upgradeStatus,
   upgradeStart,
   upgradeDismiss,
@@ -94,14 +95,7 @@ const handlers: Handlers = {
   "runtime.list": runtimeList,
   "runtime.register": ({ options }) => nativeSessions.projects.enable(options),
   "runtime.enable": runtimeEnable,
-  "runtime.refresh": ({ connectionId }) => {
-    const connection = ownedConnection(connectionId, OWNER);
-    const name = connection.metadata.loopHarness;
-    if (!name) throw new Problem(409, "Connection has no native harness");
-    return nativeSessions.projects.enable(
-      nativeSessions.projects.registration(name),
-    );
-  },
+  "runtime.refresh": runtimeRefresh,
   "auth.catalog": async (input) =>
     nativeSignIns.catalog(await authOptions(input)),
   "auth.status": ({ name }) => nativeSignIns.status(name),

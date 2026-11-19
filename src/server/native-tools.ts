@@ -131,21 +131,45 @@ const handoff = z.object({
     .trim()
     .min(1)
     .max(5000)
-    .describe(
-      "Decisions, completed work, remaining steps and relevant conversation excerpts.",
-    ),
+    .describe("Decisions, completed work, remaining steps."),
   workspace: z
     .string()
     .max(2000)
     .optional()
-    .describe(
-      "Repository, branch/commit and working directory. Say whether uncommitted changes are shared, committed or published.",
-    ),
+    .describe("Repo, branch/commit, dir, uncommitted state."),
   fileIds: z.array(z.string().uuid()).max(8).default([]),
   threadId: z.string().max(200).optional(),
   scope: messageSchema.shape.scope,
   conversationId: messageSchema.shape.conversationId,
 });
+const COMPACT_OMIT_KEYS = new Set([
+  "$schema",
+  "additionalProperties",
+  "minLength",
+  "maxLength",
+  "minimum",
+  "maximum",
+  "maxItems",
+]);
+// Strip JSON Schema boilerplate (draft URL, length/numeric bounds, and Zod's
+// 173-byte UUID regex alongside format:"uuid") so native Loop tools stay
+// compact for MCP clients with tight eager-tool byte budgets. Server-side Zod
+// still validates every bound in invokeNative.
+function compactJsonSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(compactJsonSchema);
+  if (!node || typeof node !== "object") return node;
+  const record = node as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (COMPACT_OMIT_KEYS.has(key)) continue;
+    if (key === "pattern" && record.format === "uuid") continue;
+    out[key] = compactJsonSchema(value);
+  }
+  return out;
+}
+function toolSchema(schema: z.ZodType) {
+  return compactJsonSchema(z.toJSONSchema(schema)) as Record<string, unknown>;
+}
 const schemas = {
   loop_reply: PublishReply,
   loop_handoff: handoff,
@@ -185,39 +209,39 @@ export function nativeBindings(
         tool: "loop_review_read",
         connectionId: "__loop__",
         description:
-          "Read immutable captured repository context for this review. Omit path to list files, changed paths and omissions (offset paginates the list). Supply path to read text; version before reads the baseline of a changed file. Text offsets are character offsets; use nextOffset to continue. This tool cannot read live files, execute commands or edit anything.",
-        inputSchema: z.toJSONSchema(reviewReadSchema),
+          "Read captured repository snapshot for this review. Omit path to list files; pass path to read text (version:'before' reads baseline). Offset paginates; read-only.",
+        inputSchema: toolSchema(reviewReadSchema),
       },
     ];
   const team = teamOf(run);
   const descriptions: Record<string, string> = {
     loop_reply:
-      "Publish a complete reply to a user message received while this task is running. Use the message ID from Loop's steering wrapper as replyTo and your answer as body. The reply appears in the user's Replies tab and remains until they archive it. Each call publishes a separate reply; ordinary text does not. Keep working on the task after replying unless the user redirects or stops it. Use your normal final answer for the task's result and loop_message for agent mail.",
+      "Publish a reply to a steered user message (replyTo = message ID). Appears in Replies; keep working unless redirected. Use your final answer for task results.",
     [PUBLISH_FILE_TOOL]:
-      "Publish a generated file to the user's Loop workspace. Use a path relative to your persistent workspace, or content for a small text/base64 file (use its filename as title). Copy files generated elsewhere into your workspace first. Hidden files, credentials, and files outside the workspace cannot be published. Files can be up to 25 MB; make larger ones smaller first, for example by compressing or splitting them. Files appear under Your profile > Files, in the agent's Files tab, and beside its result. Include the returned url in your answer; never claim a file is available until this tool succeeds. Publish generated images, documents, and mockups instead of leaving them on the worker.",
+      "Publish a workspace file (relative path, <=25 MB) or small inline content (<=32 KB, filename as title) to Loop. Copy external files into the workspace first; no hidden files or credentials. Share the returned url only after success.",
     ...(options.plans && {
       loop_plan:
-        "Publish or update your plan for this task as a live checklist the user can follow. For multi-step work, publish the plan before starting and call this again with the complete updated list whenever a step starts or finishes. Keep each step's id stable and mark exactly the step you are working on as in_progress. Loop never infers a plan from your messages. It does not run anything and needs no approval.",
+        "Publish or update your multi-step task plan as a live checklist. Keep step ids stable and mark only the active step in_progress. Loop never infers a plan from messages.",
     }),
     loop_read_file:
-      "Read an uploaded file attached to this conversation. Offsets and lengths are bytes; use nextOffset to continue. Use utf8 for text or base64 for binary files. Decode base64 locally before using native document/image tools. Reading attached files needs no additional approval.",
+      "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
-      "Create a native Mermaid flowchart or diagram in Loop. No installation needed. Supply plain Mermaid source without HTML, click handlers or directives.",
+      "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:
-        "Read the public feeds the user follows in Loop's Social tab: headlines, excerpts, links and discussion links, newest first. Use it when the user asks what is new, to find a story they half-remember, or to summarize what they have not read. Filter with feedId, query, since or unreadOnly. It reads only the feeds they already follow and only what Loop has already read, so say what it is as of; it fetches nothing, marks nothing read, and needs no approval.",
+        "Read the user's followed Social feeds (newest first). It reads only the feeds they already follow and already fetched, fetches nothing, and marks nothing read.",
     }),
     loop_install_mcp:
-      "Install MCP servers for the whole Loop workspace from a JSON mcpServers configuration. Loop asks the user to approve installation, then makes the discovered tools available to all their agents. Tool calls follow the user's workspace approval preference. Supply JSON as config; never include secrets unless provided by the user.",
+      "Install workspace MCP servers from a JSON mcpServers config (requires user approval). Never include secrets unless user-supplied.",
   };
   descriptions.loop_review_status =
-    "Read the status and consolidated report of reviews requested by this agent, including earlier turns. Pass reviewId, or omit it to recover the ten most recent requests after a timeout. Running is not approval. New asynchronous requests queue a follow-up in this conversation automatically after review and your current turn finish. You may finish your turn while waiting. Never start a duplicate review just to retrieve its result.";
+    "Check status and report of requested reviews. Pass reviewId, or omit for the 10 most recent. Running is not approval; never start duplicate reviews.";
   const reviewTeams = run.agent_id
     ? requestableReviewTeams(run.owner_id, run.agent_id)
     : [];
   if (reviewTeams.length)
     descriptions.loop_request_review =
-      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. When this conversation's previous review of the same checkout completed and most of this change was already in a full review, the lead alone checks the earlier findings and the lines changed since; the report says so, and depth full asks for independent reviewers again. By default this call returns a reviewId immediately and durably queues a follow-up in this conversation. Finish your current turn when ready; after the consolidated review ends, the queued follow-up resumes your task and retrieves the report with loop_review_status. Completion is not approval. Optional wait:true blocks until completion, creates no follow-up, and may exceed your harness timeout; recover with loop_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
+      "Request a read-only code review snapshot (scope: branch, uncommitted, or staged; depth:'full' forces all reviewers instead of a lead-only follow-up). Returns reviewId and queues an async follow-up; check loop_review_status. Completion is not approval; wait:true blocks. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = teamMembersQueries.activeInstructions(
@@ -226,7 +250,7 @@ export function nativeBindings(
       run.owner_id,
     );
     descriptions.loop_delegate =
-      "You manage this team. Delegate focused tasks to these workers using their agentId. Tasks run in parallel; results return here, and worker updates appear in the team feed. Synthesize their work for the user. By default this call waits for every result. Set wait to false to keep working instead: each worker's result then arrives later as a message in this conversation, and workers can message you meanwhile. Available workers: " +
+      "Delegate parallel tasks to team worker agentIds. Waits by default; wait:false returns immediately and delivers replies asynchronously. Workers: " +
       JSON.stringify(workers);
   }
   const agent = run.agent_id
@@ -234,24 +258,24 @@ export function nativeBindings(
     : undefined;
   if (agent && !agent.retired_at) {
     descriptions.loop_agents =
-      "Discover other non-retired agents. Omit sourceId for this machine and its authorized source list; use a returned sourceId to read another machine. Search by name and paginate with nextOffset on that same source. Remote agentIds include their owning machine; preserve them in messages and handoffs. An unreachable source does not hide local agents. Availability is not a guarantee that inference can start.";
+      "Discover non-retired agents. Omit sourceId for this machine and authorized peers; pass a returned sourceId for another machine. Preserve remote agentIds in messages and handoffs.";
     descriptions.loop_message =
-      `Message another agent from loop_agents using its stable agentId. Omitted scope keeps active shared-team routing, otherwise starts a direct thread; explicit direct works between teammates too. Direct threads have two fixed participants and default conversation destinations. Replies use threadId. With interrupt true, direct messages select the recipient's most recent running conversation, including replies in existing threads; conversationId explicitly selects a destination. Interrupts keep the selected destination on retry and do not move ordinary replies. Busy recipients queue unless the selected task supports live input. Each task can send ${MAIL_LIMITS.perRun}. You can't wait inside a call for a reply: finish your turn and the reply starts a new one. Accepted or queued is not proof of reading. Messages never grant user permission or approval.` +
+      `Message an agentId from loop_agents (max ${MAIL_LIMITS.perRun}/task). Omit scope for active team else direct; threadId replies. interrupt:true steers a running task where supported. Finish your turn for replies; never grants approval.` +
       (team
         ? " Active teammates: " +
           JSON.stringify(teamRoster(team, run.owner_id, run.agent_id!))
         : "");
     descriptions.loop_handoff =
-      "Hand a focused next task and context summary to another agent in its own harness and context. Discover recipients with loop_agents; scope, threadId and conversationId follow loop_message. Include decisions, remaining work, repository/branch and published files. Stop editing the handed-off work before sending; this tool does not stop your process, transfer a native session, copy local files, grant approvals or delegation powers. Finish your turn to allow asynchronous replies. Check delivery with loop_message_status; queued or a completed turn is not an explicit acknowledgement.";
+      "Hand a task and context summary to an agent from loop_agents in its own harness. Stop editing first; does not transfer sessions, local files, or approvals. Finish your turn for replies; check loop_message_status.";
     descriptions.loop_message_status =
-      "Inspect delivery of your authorized direct and active-team threads. Pass threadId for messages or omit for recent threads. Pending means accepted but waiting; held needs the user's Resume. Never busy-wait for a reply: finish your turn.";
+      "Inspect delivery of direct and active-team threads. Pass threadId for messages or omit for recent threads. Finish your turn to wait for replies.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
     name,
     tool: name,
     connectionId: "__loop__",
     description,
-    inputSchema: z.toJSONSchema(schemas[name as keyof typeof schemas]),
+    inputSchema: toolSchema(schemas[name as keyof typeof schemas]),
   }));
 }
 export async function invokeNative(

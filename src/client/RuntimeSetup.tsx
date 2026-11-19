@@ -528,8 +528,31 @@ function RuntimeSetupView({
               )}
               <p className="field-hint">
                 {discovery.computer}
-                {runtime.version ? ` · Version ${runtime.version}` : ""}
+                {runtime.version
+                  ? ` · Version ${runtime.version}${
+                      runtime.enabled &&
+                      runtime.registeredVersion &&
+                      runtime.registeredVersion !== runtime.version
+                        ? ` (registered ${runtime.registeredVersion} — refresh to update)`
+                        : ""
+                    }`
+                  : ""}
               </p>
+              {runtime.name === "antigravity" &&
+                runtime.enabled &&
+                runtime.workspaceTools === false &&
+                meetsMinimum(
+                  runtime.version || "",
+                  ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION,
+                ) && (
+                  <p className="field-hint">
+                    Antigravity {runtime.version} is installed, but Loop is
+                    still using the earlier{" "}
+                    {runtime.registeredVersion || "saved"} registration without
+                    workspace tools. Open Manage account and refresh Antigravity
+                    to enable workspace tools, Agent mail and team delegation.
+                  </p>
+                )}
               {runtime.installed && (
                 <HarnessUpgrade
                   key={scope}
@@ -625,7 +648,13 @@ function RuntimeSetupView({
                                 runtime.version || "",
                                 ANTIGRAVITY_WORKSPACE_MINIMUM_VERSION,
                               )
-                                ? "Antigravity uses its native permissions. This version supports approvals in Loop, Agent mail, workspace tools and team delegation. Refresh this connection after upgrading to enable these capabilities."
+                                ? runtime.enabled &&
+                                  runtime.workspaceTools === false
+                                  ? `Antigravity ${runtime.version} is installed, but Loop is still using the earlier ${runtime.registeredVersion || "saved"} registration without workspace tools. Refresh Antigravity to enable approvals in Loop, Agent mail, workspace tools and team delegation.`
+                                  : runtime.enabled &&
+                                      runtime.workspaceTools === true
+                                    ? "Antigravity uses its native permissions. Approvals in Loop, Agent mail, workspace tools and team delegation are enabled for this connection."
+                                    : "Antigravity uses its native permissions. This version supports approvals in Loop, Agent mail, workspace tools and team delegation. Refresh this connection after upgrading to enable these capabilities."
                                 : meetsMinimum(
                                       runtime.version || "",
                                       ANTIGRAVITY_ACP_MINIMUM_VERSION,
