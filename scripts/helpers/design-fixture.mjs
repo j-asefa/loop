@@ -1,3 +1,4 @@
+import { pairDevice, waitForFixtureAnnouncement } from "./fixture.mjs";
 import Database from "better-sqlite3";
 import { trackSmokeCleanup, stopFixtureProcess } from "./smoke-lifecycle.mjs";
 import { spawn } from "node:child_process";
@@ -42,19 +43,7 @@ export async function designFixture({ githubApi } = {}) {
       },
     },
   );
-  let logs = "",
-    startupError,
-    db,
-    heartbeat;
-  server.once("error", (error) => {
-    startupError = error;
-  });
-  server.stdout.on("data", (data) => {
-    logs += data;
-  });
-  server.stderr.on("data", (data) => {
-    logs += data;
-  });
+  let db, heartbeat;
   const close = trackSmokeCleanup(async () => {
     clearInterval(heartbeat);
     try {
@@ -68,39 +57,15 @@ export async function designFixture({ githubApi } = {}) {
     }
   });
   try {
-    let started;
-    for (let i = 0; i < 300 && !started; i++) {
-      if (
-        startupError ||
-        server.exitCode !== null ||
-        server.signalCode !== null
-      )
-        throw new Error(
-          "Fixture did not start: " + (startupError?.message || logs),
-        );
-      // Only complete lines: the announcement can arrive across chunks.
-      const line = logs
-        .split("\n")
-        .slice(0, -1)
-        .find((l) => l.startsWith('{"origin"'));
-      if (line) started = JSON.parse(line);
-      else await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    if (!started) throw new Error("Fixture did not start: " + logs);
+    const started = await waitForFixtureAnnouncement(server);
     const base = started.origin;
     const secret = new URL(started.pair).hash.replace(/^#pair=/, "");
-    const paired = await fetch(base + "/pair", {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: base },
-      body: JSON.stringify({ secret, name: "Design fixture" }),
-    });
-    if (!paired.ok)
-      throw new Error("Fixture pairing failed: " + (await paired.text()));
-    const cookieHeader = paired.headers.get("set-cookie").split(";")[0];
+    const { cookie: cookieHeader, csrf } = await pairDevice(
+      base,
+      secret,
+      "Design fixture",
+    );
     const [cookieName, cookieValue] = cookieHeader.split("=");
-    const { csrf } = await (
-      await fetch(base + "/session", { headers: { cookie: cookieHeader } })
-    ).json();
     // Paired-device headers for direct requests (uploads, malformed bodies).
     const headers = { origin: base, cookie: cookieHeader, "x-loop-csrf": csrf };
     const api = async (path, body, method) => {
