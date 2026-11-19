@@ -1,5 +1,6 @@
 import { emitClientEvent } from "./clientEvents";
 import type { ReadMode } from "./read-executor";
+import { transientReadRetryDelays } from "./read-retry-delays";
 import { ownerSession } from "./ownerSession";
 import { isFleetReadContract } from "../shared/fleet-workspace-api";
 import { routePath } from "../shared/route-path";
@@ -409,8 +410,8 @@ async function readRequest<T>(
               status &&
               status >= 500 &&
               status < 600 &&
-              failures < 2
-            ? 2000 * ++failures
+              failures < transientReadRetryDelays.length
+            ? transientReadRetryDelays[failures++]
             : undefined;
       if (delay === undefined) throw error;
       onRetry?.(error, delay);

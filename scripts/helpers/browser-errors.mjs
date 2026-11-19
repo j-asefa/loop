@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { transientReadRetryDelays } from "../../src/client/read-retry-delays.ts";
+
+const automaticReadAttempts = 1 + transientReadRetryDelays.length;
+const firstRetryWindow = transientReadRetryDelays[0] + 100;
+const fullRetryWindow =
+  transientReadRetryDelays.reduce((total, delay) => total + delay, 0) + 500;
 
 export const signalCollection = (page, collection) =>
   page.evaluate((id) => {
@@ -52,7 +58,10 @@ export async function collectionReadRecovery(
   const handler = async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     reads++;
-    const held = automaticRecovery && preserveNotice && reads === 4;
+    const held =
+      automaticRecovery &&
+      preserveNotice &&
+      reads === automaticReadAttempts + 1;
     if (held) {
       recoveryStarted = true;
       await recoveryPending;
@@ -79,7 +88,9 @@ export async function collectionReadRecovery(
     if (automaticRecovery) {
       // Exhaustion registers with the shared watcher, including when its event
       // response is empty. No wake event or manual click should be necessary.
-      await expect.poll(() => reads, { timeout: 20_000 }).toBeGreaterThan(3);
+      await expect
+        .poll(() => reads, { timeout: 20_000 })
+        .toBeGreaterThan(automaticReadAttempts);
       // Keep the recovery request pending: cached rows must retain their warning
       // until a successful response establishes that they are current again.
       if (preserveNotice) {
@@ -136,7 +147,7 @@ export async function collectionReadRecovery(
       await start();
       await expect(marker).toBeVisible({ timeout: 10_000 });
       await expect.poll(() => reads).toBe(beforeRefusal + 1);
-      await page.waitForTimeout(2100);
+      await page.waitForTimeout(firstRetryWindow);
       assert.equal(
         reads,
         beforeRefusal + 1,
@@ -145,11 +156,11 @@ export async function collectionReadRecovery(
     } else {
       // Discovery and older-page reads are explicit requests, not live views.
       await expect(marker).toBeVisible({ timeout: 15_000 });
-      await expect.poll(() => reads).toBe(3);
-      await page.waitForTimeout(2100);
+      await expect.poll(() => reads).toBe(automaticReadAttempts);
+      await page.waitForTimeout(firstRetryWindow);
       assert.equal(
         reads,
-        3,
+        automaticReadAttempts,
         "An explicit read stops after its bounded retries",
       );
     }
@@ -161,7 +172,7 @@ export async function collectionReadRecovery(
     await retry.click();
     await expect.poll(() => reads).toBe(beforeManual + 1);
     await expect(retry).toBeEnabled();
-    await page.waitForTimeout(6500);
+    await page.waitForTimeout(fullRetryWindow);
     assert.equal(
       reads,
       beforeManual + 1,
