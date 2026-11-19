@@ -1157,6 +1157,40 @@ it("finds a later passage that supplies the term missing from the title", async 
   expect(prompt).toContain("sorrel appears in the later passage.");
 });
 
+it("keeps an external message's author distinct from the owner", async () => {
+  const sent = await nativePrompt(
+    "external salmon bootstrap observation",
+    undefined,
+    false,
+  );
+  transition(sent.run, "completed");
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        { scope: "conversation:" + sent.run.conversation_id, enabled: true },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+
+  const { prompt } = await nativePrompt("salmon bootstrap observation");
+  expect(prompt).toContain("external salmon bootstrap observation");
+  expect(prompt).toContain("message by unknown sender");
+  expect(prompt).not.toContain("message by you");
+});
+
+it("does not count a clipped word as a whole recall term", async () => {
+  await note(
+    "Magenta",
+    "x ".repeat(546) + " quartzite " + "payload ".repeat(200),
+  );
+  const { prompt } = await nativePrompt("magenta quartz");
+  expect(prompt).toBe("magenta quartz");
+});
+
 it("matches titles as well as content", async () => {
   const titled = await note(
     "Osprey runbook",

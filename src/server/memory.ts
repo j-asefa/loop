@@ -395,9 +395,17 @@ function sourceAuthor(s: {
   role: string;
   owner_id: string;
   agent_id: string | null;
+  message_id: string | null;
 }) {
-  if (s.kind === "note" || s.role === "user" || !s.agent_id) return "you";
-  return agentsQueries.ownedName(db, s.owner_id, s.agent_id)?.name ?? "agent";
+  if (s.kind === "note") return "you";
+  if (s.kind === "message" && s.role === "user") {
+    const message = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
+    const metadata = readMessageMetadata(message?.metadata, "fallback");
+    return metadata.personal && !metadata.shared ? "you" : "unknown sender";
+  }
+  return s.agent_id
+    ? (agentsQueries.ownedName(db, s.owner_id, s.agent_id)?.name ?? "agent")
+    : "unknown author";
 }
 /** A term as a whole token sequence, as the index matches it. */
 function termPattern(term: string, flags: string) {
@@ -484,7 +492,14 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
   );
   const line = content.lastIndexOf("\n", bestStart);
   const start = Math.max(earliestStart, line + 1);
-  const safeStart = /[\udc00-\udfff]/.test(content[start]) ? start + 1 : start;
+  let safeStart = /[\udc00-\udfff]/.test(content[start]) ? start + 1 : start;
+  // Do not turn the tail of a clipped word into a whole-token match.
+  if (
+    safeStart > 0 &&
+    isWordAt(content, previousCharacterStart(content, safeStart))
+  )
+    safeStart +=
+      content.slice(safeStart).match(/^[\p{L}\p{N}]+/u)?.[0].length ?? 0;
   const end = excerptEnd(content, safeStart + span);
   return (
     "…" +
@@ -494,8 +509,23 @@ export function matchedExcerpt(content: string, terms: string[], size: number) {
 }
 
 function excerptEnd(content: string, bound: number) {
-  const end = Math.min(content.length, bound);
-  return /[\ud800-\udbff]/.test(content[end - 1] ?? "") ? end - 1 : end;
+  let end = Math.min(content.length, bound);
+  if (/[\ud800-\udbff]/.test(content[end - 1] ?? "")) end--;
+  // Omit a final partial word so relevance tests use the source's boundaries.
+  if (isWordAt(content, end)) {
+    while (end > 0) {
+      const previous = previousCharacterStart(content, end);
+      if (!isWordAt(content, previous)) break;
+      end = previous;
+    }
+  }
+  return end;
+}
+function previousCharacterStart(content: string, end: number) {
+  return end - (end > 1 && /[\udc00-\udfff]/.test(content[end - 1]) ? 2 : 1);
+}
+function isWordAt(content: string, start: number) {
+  return /^[\p{L}\p{N}]/u.test(content.slice(start, start + 2));
 }
 /**
  * Whether a source contains enough distinct query terms to be worth adding:
