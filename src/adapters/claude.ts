@@ -63,9 +63,11 @@ export class Claude extends DirectAdapter implements Adapter {
   private requests = new Map<string, any>();
   private session: string;
   private messageIds = new Map<string, string>();
-  // Assistant items established from child-session (Task tool) streams.
+  // Assistant item ids already emitted for child-session (Task tool) streams.
   // Keyed by the item id, because a stream's id can switch before
-  // `message_start` arrives; every distinct id needs its own commentary item.
+  // `message_start` arrives. An id already emitted must never be established
+  // again: the projector replaces an item by id, so an empty re-established
+  // item would overwrite the child's saved text.
   private childItems = new Set<string>();
   private interrupted = false;
   private active = false;
@@ -535,12 +537,12 @@ export class Claude extends DirectAdapter implements Adapter {
         // A child stream's deltas must never leave a phase-less assistant
         // item the projector could pick as the run's answer. Establish the
         // commentary item before the first delta so the projector merges the
-        // deltas into it and keeps the child's text as progress only.
-        if (m.parent_tool_use_id && !this.childItems.has(id)) {
+        // deltas into it and keeps the child's text as progress only. Only
+        // while a user turn is open: after the result the projector drops
+        // deltas, so an empty item emitted then could only clobber saved
+        // native history.
+        if (m.parent_tool_use_id && this.active && !this.childItems.has(id)) {
           this.childItems.add(id);
-          // Re-emitting a commentary item for an evicted id is idempotent.
-          if (this.childItems.size > 128)
-            this.childItems.delete(this.childItems.values().next().value!);
           this.emit({
             type: "item",
             item: { id, kind: "assistant", text: "", phase: "commentary" },
@@ -574,7 +576,10 @@ export class Claude extends DirectAdapter implements Adapter {
         .filter((b: any) => b.type === "text")
         .map((b: any) => b.text)
         .join("\n");
-      if (text)
+      if (text) {
+        // Remember the emitted id so a later delta merges into this item
+        // instead of establishing an empty one that replaces its text.
+        if (m.parent_tool_use_id) this.childItems.add(m.message.id);
         this.emit({
           type: "item",
           item: {
@@ -587,6 +592,7 @@ export class Claude extends DirectAdapter implements Adapter {
             ...(m.parent_tool_use_id ? { phase: "commentary" as const } : {}),
           },
         });
+      }
       for (const b of content)
         if (b.type === "tool_use") {
           this.activityInputs.set(b.id, { name: b.name, input: b.input });

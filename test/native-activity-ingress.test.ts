@@ -410,6 +410,59 @@ it("establishes a commentary item before a child stream's first delta", () => {
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("merges a child delta into an earlier child assistant message instead of replacing its text", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-late-delta");
+  const current = start(sessions, "claude-child-late-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-late-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-late-delta", ...m });
+  // Full child assistant message arrives first, then its stream's delta.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-3",
+    message: {
+      id: "child-late",
+      role: "assistant",
+      content: [{ type: "text", text: "Full child text" }],
+    },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-3",
+    event: { type: "message_start", message: { id: "child-late" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-3",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " and more" },
+    },
+  });
+  // The delta merged into the existing commentary item; the earlier text is
+  // not overwritten by an empty re-established item.
+  expect(current.live.items.get("child-late")).toEqual({
+    id: "child-late",
+    kind: "assistant",
+    text: "Full child text and more",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,
