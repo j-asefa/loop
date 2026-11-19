@@ -144,12 +144,10 @@ export async function sampleQueries({
       project: item.project_id,
       query,
       target: item.id,
+      // Deep known items measure where the terms co-occur in the document body.
       deep:
         coversQuery(item.content, terms) &&
-        !coversQuery(
-          item.title + "\n" + item.content.slice(0, HEAD_CHARACTERS),
-          terms,
-        ),
+        !coversQuery(item.content.slice(0, HEAD_CHARACTERS), terms),
       targetCoverage:
         matchedTerms(item.title + "\n" + item.content, terms) / terms.length,
     });
