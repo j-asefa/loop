@@ -536,6 +536,9 @@ export class NativeProjector {
         live.binding.conversation_id,
         run.id,
       );
+      // assistantHistory's SQL excludes phase "commentary" (and this in-memory
+      // pass already excluded anything still in the window), so this fallback
+      // only ever sees evicted non-commentary assistant items.
       for (const row of stored) {
         const item = JSON.parse(row.item) as Item;
         // A pending in-memory replacement may have cleared this saved reply

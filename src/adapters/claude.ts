@@ -305,6 +305,12 @@ export class Claude extends DirectAdapter implements Adapter {
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
     this.interrupted = false;
+    // A new user turn clears the previous turn's child ids so a delayed
+    // child delta re-establishes its commentary item in the fresh projector
+    // window instead of leaving a phase-less fragment. Mid-turn steering
+    // follow-ups also call prompt() while a turn is active; they must keep
+    // the ids so their deltas still merge into the open items.
+    if (!this.active) this.childItems.clear();
     this.active = true;
     await this.native.write({
       type: "user",

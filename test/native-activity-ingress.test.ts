@@ -463,6 +463,78 @@ it("merges a child delta into an earlier child assistant message instead of repl
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("keeps a delayed child stream delta commentary across turn boundaries", async () => {
+  const sessions = new NativeSessions();
+  const first = turn("conv", "claude-cross-turn-1");
+  const current = start(sessions, "claude-cross-turn-generation", first);
+  sessions.state.startTurn(current.live, first);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cross-turn",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-cross-turn", ...m });
+  // Turn 1: the child session emits an assistant message, then the turn ends.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-cross",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text one" }],
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-cross-turn",
+    is_error: false,
+  });
+  // Between turns the child emits another assistant message for the stream.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-cross",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text two" }],
+    },
+  });
+  // Turn 2 starts and the child stream's delayed delta finally arrives.
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-cross-turn-2"));
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-cross" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " late" },
+    },
+  });
+  // The fragment re-establishes a commentary item in the fresh window rather
+  // than a phase-less one that could become the new run's answer.
+  expect(current.live.items.get("child-cross")).toEqual({
+    id: "child-cross",
+    kind: "assistant",
+    text: " late",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,
