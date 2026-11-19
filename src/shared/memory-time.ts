@@ -171,15 +171,19 @@ function classifyMemoryTime(
   let period: { start: number; end: number } | undefined;
   let previousEnd = 0;
   let seenDate = false;
+  let previousBareMonth = false;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative, bare] = match;
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
+    const bareMonth =
+      bare && MONTHS.some((name) => name.toLowerCase() === bare.toLowerCase());
     const alternative =
-      seenDate &&
+      (previousBareMonth ? !bareMonth : seenDate) &&
       /\b(?:or|nor)(?:[\s,()[\]{}]+[\p{L}]+){0,4}[\s,()[\]{}]*$/iu.test(
         between,
       );
+    previousBareMonth = Boolean(bareMonth);
     const preposition =
       relation ?? /^(?:from|on|in|within|during)\b/iu.exec(match[0])?.[0];
     const exclusionContext = (between + (preposition ?? "")).replace(
@@ -187,7 +191,7 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|not\s+including|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
+      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|other\s+than|not\s+including|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       ) ||
       /\b(?:not|without)(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
@@ -212,13 +216,8 @@ function classifyMemoryTime(
     }
     // A single interval cannot express exclusions or alternative dates.
     if (exclusion || alternative) return null;
+    if (bareMonth) continue;
     seenDate = true;
-    if (
-      bare &&
-      MONTHS.some((name) => name.toLowerCase() === bare.toLowerCase())
-    ) {
-      continue;
-    }
     if (modifier === "since" || modifier === "after") {
       const start = modifier === "after" ? boundary.end : boundary.start;
       from = Math.max(from ?? start, start);
