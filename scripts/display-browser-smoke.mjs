@@ -496,6 +496,15 @@ for (const engine of selectedEngines()) {
         "Ready after unicode spaces.",
       );
 
+      update(working, "\u00a0" + " ".repeat(3999) + "```spec");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "```spec",
+      );
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+
       const prose = "Text. " + "x".repeat(3985) + "\n\n";
       update(working, prose + "```specimen\nordinary example");
       await page.goto(`${fixture.base}/?filter=working`, {

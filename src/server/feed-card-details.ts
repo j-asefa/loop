@@ -125,10 +125,13 @@ export function runDetails(
             source.lastIndexOf("\n", firstText),
             source.lastIndexOf("\r", firstText),
           ) + 1;
-        // Drop blank leading lines and keep up to four indentation
-        // characters, which preserve Markdown's indented-code boundary.
-        const indentation = /^[ \t]{0,4}/.exec(source.slice(lineStart))![0];
-        source = indentation + source.slice(firstText);
+        // Keep the first line's prefix, including Unicode whitespace
+        // that Markdown treats as literal content instead of indentation.
+        const prefix = source.slice(
+          lineStart,
+          Math.min(lineStart + 4, firstText),
+        );
+        source = prefix + source.slice(firstText);
       }
     }
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
