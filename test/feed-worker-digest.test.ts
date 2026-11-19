@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { seedAgent } from "./helpers/seed.js";
 
 // A digest must not be consumed before the pass that feeds it has settled.
 // One case per file: a mock factory's module graph outlives
@@ -92,11 +93,16 @@ it("dispatches a digest only once its feeds have been read", async () => {
         "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,created_at) VALUES(?,'owner','openai','Fixture',?,'connected','[{\"id\":\"fixture\"}]',0)",
       )
       .run(connection, w.seal("fixture-api-key", "owner"));
-    w.db
-      .prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,connection_id,model,created_at) VALUES(?,'owner','Scout','scout','openai',?,'fixture',0)",
-      )
-      .run(agent, connection);
+    seedAgent(w.db, {
+      id: agent,
+      owner_id: "owner",
+      name: "Scout",
+      normalized_name: "scout",
+      provider: "openai",
+      connection_id: connection,
+      model: "fixture",
+      created_at: 0,
+    });
     const digest = w.digests.saveDigest("owner", {
       agentId: agent,
       minuteOfDay: 0,

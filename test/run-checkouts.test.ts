@@ -48,7 +48,7 @@ const { checkoutLine, unquoteGitPath, patchByFile } =
   await import("../src/shared/checkout");
 const { transition } = await import("../src/server/queue");
 import type { Run } from "../src/server/queue";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedAgent, seedConversation, seedRun } from "./helpers/seed.js";
 
 afterAll(() => {
   db.close();
@@ -57,9 +57,15 @@ afterAll(() => {
 const owner = "owner";
 const agent = "checkout-agent";
 const folder = id();
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Fixture','fixture','codex','fixture',0)",
-).run(agent, owner);
+seedAgent(db, {
+  id: agent,
+  owner_id: owner,
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "codex",
+  model: "fixture",
+  created_at: 0,
+});
 db.prepare(
   "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Repo',0)",
 ).run(folder, owner);

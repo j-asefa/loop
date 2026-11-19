@@ -8,15 +8,21 @@ import {
   integrationTokenRequest,
   type CardToken,
 } from "../src/shared/card-access";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedAgent, seedConversation, seedRun } from "./helpers/seed.js";
 
 it("enforces scoped card credentials through the real companion entrypoint", async () => {
   const fixture = await cardsFixture();
   const { db, owner, request, browser, origin } = fixture;
   try {
-    db.prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('agent',?,'Writer','writer','openai','fixture',1)",
-    ).run(owner);
+    seedAgent(db, {
+      id: "agent",
+      owner_id: owner,
+      name: "Writer",
+      normalized_name: "writer",
+      provider: "openai",
+      model: "fixture",
+      created_at: 1,
+    });
     db.prepare(
       "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('project',?,'project','Project',1),('foreign-project','foreign','project','Secret project',1)",
     ).run(owner);

@@ -1,4 +1,5 @@
 import {
+  seedAgent,
   seedConnection,
   seedConversation,
   seedMessage,
@@ -53,11 +54,15 @@ function seed(
   owner = f.owner,
   prefix = "",
 ) {
-  f.db
-    .prepare(
-      "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Writer',?,'openai','fixture',1)",
-    )
-    .run(prefix + "agent", owner, prefix + "writer");
+  seedAgent(f.db, {
+    id: prefix + "agent",
+    owner_id: owner,
+    name: "Writer",
+    normalized_name: prefix + "writer",
+    provider: "openai",
+    model: "fixture",
+    created_at: 1,
+  });
   seedConversation(f.db, {
     id: prefix + "thread",
     owner_id: owner,

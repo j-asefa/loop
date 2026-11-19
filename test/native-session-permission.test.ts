@@ -1,4 +1,4 @@
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import type { RunPayload } from "../src/shared/run-payload";
 import { gitProject } from "./git-project.js";
@@ -15,9 +15,15 @@ gitProject(dir);
 process.env.LOOP_TEST_HARNESS = "claude";
 process.env.LOOP_TEST_ARGV = join(dir, "argv.jsonl");
 const { db } = await import("../src/server/db");
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('worktree-fixture','local-workspace','Fixture','fixture','codex','fixture',0)",
-).run();
+seedAgent(db, {
+  id: "worktree-fixture",
+  owner_id: "local-workspace",
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "codex",
+  model: "fixture",
+  created_at: 0,
+});
 const { enqueue } = await import("../src/server/queue");
 const { NativeSessions } = await import("../src/server/native-sessions");
 const { OWNER } = await import("../src/server/workspace-identity");
@@ -345,9 +351,15 @@ it("isolates agents while reusing their dirty worktrees across conversations and
   } finally {
     await sessions.dispose(next);
   }
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('other-agent',?,'Other','other','codex','fixture',0)",
-  ).run(OWNER);
+  seedAgent(db, {
+    id: "other-agent",
+    owner_id: OWNER,
+    name: "Other",
+    normalized_name: "other",
+    provider: "codex",
+    model: "fixture",
+    created_at: 0,
+  });
   const otherTask = run("worktree-other");
   otherTask.agent_id = "other-agent";
   db.prepare("UPDATE runs SET agent_id=? WHERE id=?").run(

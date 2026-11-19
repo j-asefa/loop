@@ -1,6 +1,6 @@
 import { testDirectory } from "./helpers/test-workspace.js";
 import { afterAll, expect, it } from "vitest";
-import { seedConversation } from "./helpers/seed.js";
+import { seedAgent, seedConversation } from "./helpers/seed.js";
 
 testDirectory();
 
@@ -13,9 +13,15 @@ afterAll(() => {
 
 it("picks the thread's active watch first, then a recently ended one, and nothing older", () => {
   const owner = "owner";
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('a',?,'A','a','codex','m',0)",
-  ).run(owner);
+  seedAgent(db, {
+    id: "a",
+    owner_id: owner,
+    name: "A",
+    normalized_name: "a",
+    provider: "codex",
+    model: "m",
+    created_at: 0,
+  });
   seedConversation(db, {
     id: "t1",
     owner_id: owner,

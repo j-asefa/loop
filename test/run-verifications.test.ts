@@ -13,7 +13,7 @@ const { createdPullRequest } = await import("../src/shared/pr-command");
 const { shellWords } = await import("../src/shared/shell-words");
 import type { Run } from "../src/server/queue";
 import type { OutputData } from "../src/shared/agent-activities";
-import { seedConversation, seedRun } from "./helpers/seed.js";
+import { seedAgent, seedConversation, seedRun } from "./helpers/seed.js";
 
 afterAll(() => {
   db.close();
@@ -23,9 +23,15 @@ const owner = "owner";
 const agent = "verifying-agent";
 const folder = id();
 const otherFolder = id();
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,'Fixture','fixture','codex','fixture',0)",
-).run(agent, owner);
+seedAgent(db, {
+  id: agent,
+  owner_id: owner,
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "codex",
+  model: "fixture",
+  created_at: 0,
+});
 for (const [f, name] of [
   [folder, "Repo"],
   [otherFolder, "Other"],

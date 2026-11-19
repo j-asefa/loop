@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { seedConversation, seedMessage } from "./helpers/seed.js";
+import { seedAgent, seedConversation, seedMessage } from "./helpers/seed.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
 
 testDirectory();
@@ -37,10 +37,17 @@ afterAll(() => {
 describe("Canonical Result publication, immutability, and migration", () => {
   it("seals run:<runId>, reply:<messageId>, and message:<messageId> at publication and preserves them across transcript and agent mutations", () => {
     const owner = "local-owner";
-    db.prepare(
-      `INSERT INTO agents(id, owner_id, name, normalized_name, provider, model, instructions, origin, created_at)
-       VALUES ('agent-1', ?, 'Original Architect', 'original architect', 'anthropic', 'claude-3-7-sonnet', '', 'loop', 100)`,
-    ).run(owner);
+    seedAgent(db, {
+      id: "agent-1",
+      owner_id: owner,
+      name: "Original Architect",
+      normalized_name: "original architect",
+      provider: "anthropic",
+      model: "claude-3-7-sonnet",
+      instructions: "",
+      origin: "loop",
+      created_at: 100,
+    });
     seedConversation(db, {
       id: "conv-1",
       owner_id: owner,

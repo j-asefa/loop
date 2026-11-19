@@ -2,7 +2,12 @@ import { expect, it } from "vitest";
 import { workspaceApi } from "../src/shared/workspace-api";
 import { cardsFixture } from "./helpers/cards-fixture";
 import { sealSeededHistory } from "./helpers/published-history";
-import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
+import {
+  seedAgent,
+  seedConversation,
+  seedMessage,
+  seedRun,
+} from "./helpers/seed.js";
 
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
@@ -10,9 +15,15 @@ it("companion filters Done before pagination and reconciles read transitions wit
   try {
     for (const agent of ["a", "b", "foreign"]) {
       const identity = agent === "foreign" ? "foreign" : owner;
-      db.prepare(
-        "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
-      ).run(agent, identity, agent, agent);
+      seedAgent(db, {
+        id: agent,
+        owner_id: identity,
+        name: agent,
+        normalized_name: agent,
+        provider: "openai",
+        model: "fixture",
+        created_at: 1,
+      });
       seedConversation(db, {
         id: agent,
         owner_id: identity,

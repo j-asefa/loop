@@ -26,7 +26,12 @@ import {
   CardChangesSchema,
   type CardSelection,
 } from "../src/shared/cards";
-import { seedConversation, seedMessage, seedRun } from "./helpers/seed.js";
+import {
+  seedAgent,
+  seedConversation,
+  seedMessage,
+  seedRun,
+} from "./helpers/seed.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
 const trace = vi.hoisted(() => ({
   observe: undefined as ((sql: string) => void) | undefined,
@@ -71,9 +76,15 @@ afterAll(async () => {
   db.close();
 });
 function setup(owner: string) {
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
-  ).run(owner, owner, owner, owner);
+  seedAgent(db, {
+    id: owner,
+    owner_id: owner,
+    name: owner,
+    normalized_name: owner,
+    provider: "openai",
+    model: "fixture",
+    created_at: 1,
+  });
   db.prepare(
     "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES(?,?,'project','Project',1)",
   ).run(owner, owner);
@@ -1696,9 +1707,16 @@ it("Done reconciles tied approval expiries in bounded batches without database w
         });
         // Historical pending approvals can outlive their stopped run. Derive
         // attention from source rows, never write a retired Feed cache column.
-        db.prepare(
-          "INSERT INTO runs(id,owner_id,conversation_id,input,state,idempotency_key,created_at,updated_at) VALUES(?,?,?,'Prompt','cancelled',?,1,1)",
-        ).run(id, owner, id, id);
+        seedRun(db, {
+          id: id,
+          owner_id: owner,
+          conversation_id: id,
+          input: "Prompt",
+          state: "cancelled",
+          idempotency_key: id,
+          created_at: 1,
+          updated_at: 1,
+        });
         db.prepare(
           "INSERT INTO approvals(id,owner_id,run_id,digest,request,state,created_at,expires_at) VALUES(?,?,?,?,'{}','pending',1,200)",
         ).run(id, owner, id, id);
@@ -1911,9 +1929,15 @@ it("Done reconciles Workspace renames for ordinary folders outside its parent su
 it("Done publishes answers whose stream was never marked final and attributes them to their sealed author", async () => {
   const owner = "done-partial-agent";
   setup(owner);
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES('historical-agent',?,'Historical','historical','openai','fixture',1)",
-  ).run(owner);
+  seedAgent(db, {
+    id: "historical-agent",
+    owner_id: owner,
+    name: "Historical",
+    normalized_name: "historical",
+    provider: "openai",
+    model: "fixture",
+    created_at: 1,
+  });
   message(owner, "partial-run", "assistant", { partial: true });
   message(owner, "partial-import", "assistant", { partial: true });
   db.prepare("UPDATE messages SET run_id=NULL WHERE id='partial-import'").run();

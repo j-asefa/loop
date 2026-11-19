@@ -1,4 +1,9 @@
-import { seedConnection, seedConversation, seedRun } from "./helpers/seed.js";
+import {
+  seedAgent,
+  seedConnection,
+  seedConversation,
+  seedRun,
+} from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
@@ -59,9 +64,16 @@ const codexConnection = connection({ loopHarness: "codex" });
 const piConnection = connection({ loopHarness: "pi" });
 function agent(connectionId = piConnection) {
   const aid = id();
-  db.prepare(
-    "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,connection_id,created_at) VALUES(?,?,?,?, 'pi','fixture',?,?)",
-  ).run(aid, OWNER, "agent-" + aid, "agent-" + aid, connectionId, now());
+  seedAgent(db, {
+    id: aid,
+    owner_id: OWNER,
+    name: "agent-" + aid,
+    normalized_name: "agent-" + aid,
+    provider: "pi",
+    model: "fixture",
+    connection_id: connectionId,
+    created_at: now(),
+  });
   return aid;
 }
 function conversation(aid: string, connectionId: string, owner = OWNER) {

@@ -1,4 +1,4 @@
-import { seedConnection, seedConversation } from "./helpers/seed.js";
+import { seedAgent, seedConnection, seedConversation } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
 import { testRootDirectory } from "./helpers/test-workspace.js";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -59,9 +59,18 @@ for (const [id, accountOwner, metadata] of [
     metadata: JSON.stringify(metadata),
     created_at: 0,
   });
-db.prepare(
-  "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,instructions,connection_id,origin,created_at) VALUES(?,?,'Fixture','fixture','openai','stored-model','',?,'loop',0)",
-).run(agent, owner, native);
+seedAgent(db, {
+  id: agent,
+  owner_id: owner,
+  name: "Fixture",
+  normalized_name: "fixture",
+  provider: "openai",
+  model: "stored-model",
+  instructions: "",
+  connection_id: native,
+  origin: "loop",
+  created_at: 0,
+});
 db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','{}','[]',0)").run(
   JSON.stringify({
     harness: "claude",
