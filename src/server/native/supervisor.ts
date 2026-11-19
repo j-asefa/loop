@@ -653,7 +653,7 @@ export class NativeSessions {
       // Snapshot reviews keep their restricted context and get no recall.
       const recall = snapshot.reviewId
         ? undefined
-        : await recallForRun(run, snapshot.folderId || null);
+        : await recallForRun(run, snapshot.folderId || null, true);
       input =
         replyPrompt(run.input, snapshot.replyTo) +
         (opensReview ? "\n\n" + reviewContext(run) : "") +

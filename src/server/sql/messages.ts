@@ -725,19 +725,23 @@ const promptFlagsStatement = statement(
 );
 const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
 const unwrittenMessageStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
+  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND m.created_at<=? AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
 );
 /**
- * Whether any user message in a conversation was not written by its owner in
- * Loop: agent mail, a watched pull request, a digest, shared outside text or
- * an integration token's send.
+ * Whether any user message in a conversation, up to `before`, was not written
+ * by its owner in Loop: agent mail, a watched pull request, a digest, shared
+ * outside text or an integration token's send. Later messages could not have
+ * shaped a result produced before them.
  */
 export function hasUnwrittenMessage(
   db: Database.Database,
   conversation: string,
   owner: string,
+  before: number,
 ) {
-  return unwrittenMessageStatement(db).get(conversation, owner) !== undefined;
+  return (
+    unwrittenMessageStatement(db).get(conversation, owner, before) !== undefined
+  );
 }
 /** How a run's first prompt was sent: personal, and whether it was shared. */
 export function promptFlags(db: Database.Database, run: string, owner: string) {

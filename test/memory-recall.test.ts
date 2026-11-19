@@ -28,6 +28,7 @@ const {
   coversQuery,
   searchMemory,
   withoutRecall,
+  recallForRun,
 } = await import("../src/server/memory");
 const { sharing } = await import("../src/server/sharing");
 const { core } = await import("../src/server/core-routes");
@@ -1014,4 +1015,52 @@ it("recalls again on an API-key retry after a first turn that failed", async () 
     restore();
   }
   expect(last).toContain("read-only window");
+});
+
+it("applies the earlier-recall guard only to a native session", async () => {
+  await note("Volans", "volans rollback needs the frozen tag");
+  const first = await nativePrompt("volans rollback tag");
+  expect(first.prompt).toContain("frozen tag");
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(first.run.id);
+  submit("alice", {
+    agentId: first.run.agent_id!,
+    conversationId: first.run.conversation_id!,
+    input: "volans rollback tag",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const retry = claim("memory-recall-path-switch-worker")!;
+  // A native session already holds the earlier recall; an API-key history
+  // rebuilt from messages does not.
+  expect((await recallForRun(retry, null, true)).text).toBe("");
+  expect((await recallForRun(retry, null, false)).text).toContain("frozen tag");
+  transition(retry, "cancelled");
+});
+
+it("keeps a personal result in memory when mail arrives in its thread later", async () => {
+  settleLeftovers();
+  const agent = agentFor("alice");
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "pyxis alert thresholds",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext(
+    "memory-recall-later-mail-worker",
+    "The pyxis alert fires at 85 percent.",
+  );
+  const later = submit("alice", {
+    agentId: agent.id,
+    conversationId: run.conversation_id!,
+    input: "Teammate mail arriving afterwards",
+    idempotencyKey: id(),
+    personal: false,
+  });
+  // The mail message stays in the thread; its queued run is not needed.
+  transition(ownedRun(later.id, "alice"), "cancelled");
+  captureMemory();
+  expect((await nativePrompt("pyxis alert thresholds")).prompt).toContain(
+    "fires at 85 percent",
+  );
 });

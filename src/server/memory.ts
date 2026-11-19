@@ -83,6 +83,7 @@ function eligible(s: any) {
                 db,
                 artifact.conversation_id,
                 s.owner_id,
+                artifact.created_at,
               ))
           ));
     if (!included) return false;
@@ -399,6 +400,8 @@ const noRecall: Recall = { text: "", record: () => {} };
 export async function recallForRun(
   run: Run,
   project: string | null,
+  /** A native session, which keeps recall an earlier turn sent into it. */
+  session = false,
 ): Promise<Recall> {
   if (
     !run.conversation_id ||
@@ -412,12 +415,13 @@ export async function recallForRun(
     // session (which keeps it) but did not complete already put it in front
     // of the harness. An API-key retry rebuilds history from messages without
     // the earlier recall, so it recalls again.
-    memoryReceiptsQueries.recalledIntoSession(
-      db,
-      run.owner_id,
-      run.conversation_id,
-      run.id,
-    )
+    (session &&
+      memoryReceiptsQueries.recalledIntoSession(
+        db,
+        run.owner_id,
+        run.conversation_id,
+        run.id,
+      ))
   )
     return noRecall;
   let recall: Awaited<ReturnType<typeof searchMemory>>;

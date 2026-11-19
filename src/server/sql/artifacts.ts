@@ -419,7 +419,7 @@ const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutput
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.
 const memoryDefaultStatement = statement(
-  `SELECT a.pinned,a.archived,a.conversation_id,a.folder_id,${publishedResultSql} AS result
+  `SELECT a.pinned,a.archived,a.conversation_id,a.folder_id,a.created_at,${publishedResultSql} AS result
     FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     WHERE a.id=? AND a.owner_id=?`,
 );
@@ -429,6 +429,7 @@ const memoryDefaultRow = QueryRecords.artifacts
     archived: true,
     conversation_id: true,
     folder_id: true,
+    created_at: true,
   })
   .extend({ result: z.number() });
 export function memoryDefault(
