@@ -18,3 +18,17 @@ export function pairDevice(
   secret: string,
   name: string,
 ): Promise<{ cookie: string; csrf: string }>;
+
+export function installPackedLoop(
+  tarball: string,
+  options?: { prefix?: string; env?: NodeJS.ProcessEnv; timeout?: number },
+): Promise<void>;
+
+export function createRelayClient(
+  relay: URL,
+  origin: string,
+): (
+  method: string,
+  path: string,
+  body?: unknown,
+) => Promise<{ status: number; body: string }>;

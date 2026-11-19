@@ -3,9 +3,9 @@
 // connection unit, its cloudflared and the address stay; loop stop stays
 // stopped. Needs a user systemd manager and installs
 // into a private npm prefix and LOOP_HOME. Uses the fixture harness.
+import { createRelayClient, installPackedLoop } from "./helpers/fixture.mjs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { request } from "node:http";
 import { chmod, copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -44,18 +44,10 @@ try {
     ["pack", "--ignore-scripts", "--json", "--pack-destination", base],
     { maxBuffer: 1e6 },
   );
-  await exec(
-    "npm",
-    [
-      "install",
-      "-g",
-      "--omit=optional",
-      "--no-audit",
-      "--no-fund",
-      join(base, JSON.parse(stdout)[0].filename),
-    ],
-    { env, maxBuffer: 1e6, timeout: 600000 },
-  );
+  await installPackedLoop(join(base, JSON.parse(stdout)[0].filename), {
+    env,
+    timeout: 600_000,
+  });
   loop = (...args) =>
     exec(join(prefix, "bin", "loop"), args, { env, timeout: 300000 });
   const status = async () =>
@@ -111,39 +103,13 @@ try {
   )[0];
   const code = fleetDeviceFromLink(pairUrl, new URL(pairUrl).origin).secret;
   const relay = new URL(service.relay);
-  let cookie = "";
-  const send = (method, path, body) =>
-    new Promise((resolve, reject) => {
-      const req = request(
-        {
-          host: relay.hostname,
-          port: Number(relay.port),
-          method,
-          path,
-          headers: {
-            host: new URL(before.url).host,
-            origin: before.url,
-            ...(cookie ? { cookie } : {}),
-            ...(body ? { "content-type": "application/json" } : {}),
-          },
-        },
-        (res) => {
-          res.resume();
-          res.on("end", () => {
-            if (res.headers["set-cookie"])
-              cookie = res.headers["set-cookie"][0].split(";")[0];
-            resolve(res.statusCode);
-          });
-        },
-      );
-      req.on("error", reject);
-      req.end(body ? JSON.stringify(body) : undefined);
-    });
+  const send = createRelayClient(relay, before.url);
   assert.equal(
-    await send("POST", "/pair", { secret: code, name: "Service fixture" }),
+    (await send("POST", "/pair", { secret: code, name: "Service fixture" }))
+      .status,
     200,
   );
-  assert.equal(await send("GET", "/api/bootstrap"), 200);
+  assert.equal((await send("GET", "/api/bootstrap")).status, 200);
 
   let previous = before.pid;
   for (const restart of [
@@ -159,7 +125,7 @@ try {
     assert.equal(after.connection.service.tunnel.pid, service.tunnel.pid);
     assert.equal(await mainPid("loop-connection.service"), service.pid);
     assert.equal(
-      await send("GET", "/api/bootstrap"),
+      (await send("GET", "/api/bootstrap")).status,
       200,
       "the paired cookie still works",
     );
