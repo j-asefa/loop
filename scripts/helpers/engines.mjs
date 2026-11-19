@@ -31,22 +31,20 @@ export function selectedEngines() {
 export async function engineForRun(scriptUrl) {
   const selected = selectedName();
   if (selected) {
-    if (process.connected) {
-      // A monitored worker can exit before its asynchronous finally blocks run.
-      // Limit this fallback to the worker's own fixture directory.
-      const directory = mkdtempSync(join(tmpdir(), "loop-browser-worker-"));
-      const removeDirectory = () => {
+    // OS signals can exit a worker before its asynchronous finally blocks run.
+    // Limit fallback cleanup to the worker's own fixture directory.
+    const directory = mkdtempSync(join(tmpdir(), "loop-browser-worker-"));
+    const removeDirectory = () => {
+      try {
+        rmSync(directory, { recursive: true, force: true, maxRetries: 2 });
         process.off("exit", removeDirectory);
-        try {
-          rmSync(directory, { recursive: true, force: true, maxRetries: 2 });
-        } catch (error) {
-          console.error("Browser fixture cleanup:", error.message);
-        }
-      };
-      trackSmokeCleanup(removeDirectory);
-      process.once("exit", removeDirectory);
-      process.env.TMPDIR = process.env.TEMP = process.env.TMP = directory;
-    }
+      } catch (error) {
+        console.error("Browser fixture cleanup:", error.message);
+      }
+    };
+    trackSmokeCleanup(removeDirectory);
+    process.once("exit", removeDirectory);
+    process.env.TMPDIR = process.env.TEMP = process.env.TMP = directory;
     return selected;
   }
   // The supervisor forwards signals to its child. Remember them here too,

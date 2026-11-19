@@ -76,9 +76,12 @@ for (const [platform, mode, cleanup, stopSignal] of [
   ["win32", "wrapped", "signal", "SIGKILL"],
   ["win32", "wrapped", "exit", "SIGKILL"],
   ["darwin", "wrapped", "exit", "SIGTERM"],
+  ["linux", "direct", "exit", "SIGKILL"],
 ] as const) {
   const title = `browser smoke cleans up via ${cleanup} when its ${mode} ${platform} supervisor receives ${stopSignal}`;
-  const skip = platform === "darwin" && process.platform === "win32";
+  const skip =
+    (platform === "darwin" && process.platform === "win32") ||
+    (platform === "linux" && !linux);
   test(title, { skip }, async () => {
     const enginesUrl = new URL(
       "../scripts/helpers/engines.mjs",
