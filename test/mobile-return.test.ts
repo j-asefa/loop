@@ -3109,9 +3109,10 @@ it("groups thread usage by what started each turn, with the cached share", async
     }),
     unused = send("no usage recorded");
   // Records earlier releases could write: a kind this build does not name, a
-  // review team run and a delegated task.
+  // person's turn that inherited its thread's review binding and a delegated
+  // task.
   const scheduled = run(w.owner, a.id, cid),
-    reviewer = run(w.owner, a.id, cid, "completed", {
+    inherited = run(w.owner, a.id, cid, "completed", {
       payload: { reviewId: "review" },
     }),
     delegated = run(w.owner, a.id, cid);
@@ -3141,7 +3142,7 @@ it("groups thread usage by what started each turn, with the cached share", async
   usage(followUp, 1000, 900);
   usage(secondFollowUp, 3000, 2100);
   usage(scheduled, 10);
-  usage(reviewer, 20);
+  usage(inherited, 20);
   usage(delegated, 30);
   const result = await api(w.owner, `/conversations/${cid}/usage`);
   expect(result.data.runs[unused]).toBeUndefined();
@@ -3151,7 +3152,7 @@ it("groups thread usage by what started each turn, with the cached share", async
     cache_read_tokens: 3050,
   });
   expect(result.data.origins).toEqual({
-    person: { turns: 1, input_tokens: 100, output_tokens: 1 },
+    person: { turns: 2, input_tokens: 120, output_tokens: 2 },
     github_watch: {
       turns: 1,
       input_tokens: 200,
@@ -3165,7 +3166,6 @@ it("groups thread usage by what started each turn, with the cached share", async
       cache_read_tokens: 3000,
     },
     automation: { turns: 1, input_tokens: 10, output_tokens: 1 },
-    review_team: { turns: 1, input_tokens: 20, output_tokens: 1 },
     delegation: { turns: 1, input_tokens: 30, output_tokens: 1 },
   });
 });

@@ -46,9 +46,8 @@ function codexTokens(value: any): Tokens | undefined {
   return {
     input_tokens: input,
     output_tokens: output,
-    ...(cached !== undefined && cached > 0
-      ? { cache_read_tokens: cached }
-      : {}),
+    // Kept when zero: a missing count is unknown, not an empty cache.
+    ...(cached !== undefined ? { cache_read_tokens: cached } : {}),
   };
 }
 
@@ -705,10 +704,17 @@ export class Codex extends DirectAdapter implements Adapter {
         this.tokenBaseline = {
           input_tokens: Math.max(0, total.input_tokens - last.input_tokens),
           output_tokens: Math.max(0, total.output_tokens - last.output_tokens),
-          cache_read_tokens: Math.max(
-            0,
-            (total.cache_read_tokens ?? 0) - (last.cache_read_tokens ?? 0),
-          ),
+          // Without both counts the cache read before this turn is unknown,
+          // so this turn reports no cached share instead of a wrong one.
+          ...(total.cache_read_tokens !== undefined &&
+          last.cache_read_tokens !== undefined
+            ? {
+                cache_read_tokens: Math.max(
+                  0,
+                  total.cache_read_tokens - last.cache_read_tokens,
+                ),
+              }
+            : {}),
         };
       }
       if (
@@ -718,11 +724,14 @@ export class Codex extends DirectAdapter implements Adapter {
       )
         return;
       this.tokenTotal = total;
-      const cacheRead = Math.max(
-        0,
-        (total.cache_read_tokens ?? 0) -
-          (this.tokenBaseline.cache_read_tokens ?? 0),
-      );
+      const cacheRead =
+        total.cache_read_tokens !== undefined &&
+        this.tokenBaseline.cache_read_tokens !== undefined
+          ? Math.max(
+              0,
+              total.cache_read_tokens - this.tokenBaseline.cache_read_tokens,
+            )
+          : 0;
       this.emit({
         type: "usage",
         usage: {

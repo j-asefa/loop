@@ -312,6 +312,57 @@ it("queues three fresh read-only reviewers before the lead, preserves retries, a
   }
 });
 
+it("counts a review's lead and reviewers as review team usage, and a person's later turn in that thread as theirs", async () => {
+  const { conversationUsage } = await import("../src/server/mobile-return");
+  const { emit } = await import("../src/server/db");
+  const review = startCodeReview("alice", team.id, {
+    folderId: folder,
+    scope: "uncommitted",
+    idempotencyKey: "first-code-review",
+  });
+  const lead = db
+    .prepare("SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid")
+    .get(review.conversationId) as any;
+  const reviewer = db
+    .prepare(
+      "SELECT r.* FROM delegations d JOIN runs r ON r.id=d.child_run_id WHERE d.parent_run_id=?",
+    )
+    .get(lead.id) as any;
+  // submit() carries the thread's review binding into this turn's payload.
+  const question = submit("alice", {
+    agentId: lead.agent_id,
+    conversationId: review.conversationId,
+    input: "Why is the second finding a P1?",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    JSON.parse(
+      (
+        db.prepare("SELECT payload FROM runs WHERE id=?").get(question.id) as {
+          payload: string;
+        }
+      ).payload,
+    ).reviewId,
+  ).toBe(review.id);
+  for (const [run, input] of [
+    [lead.id, 500],
+    [reviewer.id, 300],
+    [question.id, 40],
+  ] as const)
+    emit("alice", run, "native.usage", {
+      usage: { input_tokens: input, output_tokens: 1 },
+    });
+  expect(conversationUsage("alice", review.conversationId).origins).toEqual({
+    review_team: { turns: 1, input_tokens: 500, output_tokens: 1 },
+    person: { turns: 1, input_tokens: 40, output_tokens: 1 },
+  });
+  expect(conversationUsage("alice", reviewer.conversation_id).origins).toEqual({
+    review_team: { turns: 1, input_tokens: 300, output_tokens: 1 },
+  });
+  // Leave nothing queued for the tests that follow.
+  db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(question.id);
+});
 it("cancels the whole review through the production run control and survives reopening the database", async () => {
   const review = startCodeReview("alice", team.id, {
     folderId: folder,

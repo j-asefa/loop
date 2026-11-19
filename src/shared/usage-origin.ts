@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 // What started a turn. Loop already stores this on the turn's first message
-// (metadata.automation.kind), on the run (payload.reviewId) and in
-// delegations; usage groups by it instead of guessing from the prompt text.
+// (metadata.automation.kind), in code_reviews and in delegations; usage
+// groups by it instead of guessing from the prompt text.
 export const USAGE_ORIGINS = [
   "person",
   "review_continuation",

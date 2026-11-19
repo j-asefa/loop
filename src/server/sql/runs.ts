@@ -1004,8 +1004,13 @@ export function conversationUsageEvents(
 
 // The turn's trigger is its latest non-steering user message, the same row
 // result publication reads. One row per run in the conversation.
+// A review team run is a review's lead or one of that lead's reviewers. A
+// later turn in the review thread inherits payload.reviewId without being one.
 const conversationTurnOriginsStatement = statement(
-  `SELECT r.id run_id,json_extract(r.payload,'$.reviewId') IS NOT NULL review,
+  `SELECT r.id run_id,
+      (EXISTS(SELECT 1 FROM code_reviews c WHERE c.run_id=r.id AND c.owner_id=r.owner_id)
+        OR EXISTS(SELECT 1 FROM delegations d JOIN code_reviews c ON c.run_id=d.parent_run_id AND c.owner_id=r.owner_id
+          WHERE d.child_run_id=r.id)) review,
       EXISTS(SELECT 1 FROM delegations d WHERE d.child_run_id=r.id) delegated,
       (SELECT json_extract(m.metadata,'$.automation.kind') FROM messages m
         WHERE m.owner_id=r.owner_id AND m.conversation_id=r.conversation_id AND m.run_id=r.id
