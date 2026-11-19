@@ -26,6 +26,7 @@ const {
   RECALL_CHARACTERS,
   captureMemory,
   coversQuery,
+  matchedExcerpt,
   searchMemory,
   withoutRecall,
   recallForRun,
@@ -1097,4 +1098,62 @@ it("does not recall text an owner just edited out of an artifact", async () => {
   const after = await recalled();
   expect(after).toContain("on-call lead");
   expect(after).not.toContain("hunter2");
+});
+
+it("recalls the passage that matches, with its kind, author and date", async () => {
+  const deep = await note(
+    "Long log",
+    "lorem ipsum ".repeat(400) +
+      "the kestrel migration window is sunday night. " +
+      "dolor ".repeat(400),
+  );
+  await note("Bob's kestrel", "kestrel migration window for bob", "bob");
+  const { prompt } = await nativePrompt("kestrel migration window");
+  expect(prompt).toContain("the kestrel migration window is sunday night");
+  const date = new Date().toISOString().slice(0, 10);
+  expect(prompt).toContain(
+    `[${deep.data.id}@1] note by you, ${date}, "Long log", `,
+  );
+  expect(prompt).toMatch(/\n…[^\n]*kestrel migration window/);
+  expect(prompt).not.toContain("for bob");
+});
+
+it("matches titles as well as content", async () => {
+  const titled = await note(
+    "Osprey runbook",
+    "Restart the queue workers, then check the dashboard.",
+  );
+  await note("Osprey runbook", "bob's private restart steps", "bob");
+  const { prompt } = await nativePrompt("osprey runbook");
+  expect(prompt).toContain(`[${titled.data.id}@1]`);
+  expect(prompt).toContain("Restart the queue workers");
+  expect(prompt).not.toContain("bob's private");
+});
+
+it("cuts excerpts at the best window within the size", () => {
+  const terms = ["kestrel", "window"];
+  expect(matchedExcerpt("short kestrel window", terms, 100)).toBe(
+    "short kestrel window",
+  );
+  const head = "kestrel window " + "x ".repeat(2000);
+  const fromHead = matchedExcerpt(head, terms, 200);
+  expect(fromHead.startsWith("kestrel window")).toBe(true);
+  expect(fromHead.endsWith("…")).toBe(true);
+  expect(fromHead.length).toBeLessThanOrEqual(200);
+  // One term in the opening, both together later: the later window wins.
+  const later =
+    "kestrel " +
+    "y ".repeat(1000) +
+    "\nthe kestrel window opens " +
+    "z ".repeat(1000);
+  const fromLater = matchedExcerpt(later, terms, 200);
+  expect(fromLater).toMatch(/^…the kestrel window opens/);
+  expect(fromLater.length).toBeLessThanOrEqual(200);
+  // Never split a surrogate pair at either edge.
+  const emoji = "😀".repeat(300) + " kestrel window " + "😀".repeat(300);
+  const cut = matchedExcerpt(emoji, terms, 101);
+  expect(cut).toContain("kestrel window");
+  expect(cut.length).toBeLessThanOrEqual(101);
+  expect(cut).not.toMatch(/^…[\udc00-\udfff]|[\ud800-\udbff]…$/u);
+  expect(matchedExcerpt(head, terms, 0)).toBe("");
 });

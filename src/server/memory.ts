@@ -9,6 +9,7 @@ import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
+import * as agentsQueries from "./sql/agents.js";
 import * as runsQueries from "./sql/runs.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -312,9 +313,10 @@ export async function searchMemory(
   const match = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
   const terms = recallTerms(query);
   if (match) {
+    // Titles are match keys too: a result is often named for what it settles.
     const lexical = memoryFtsQueries.search(
       db,
-      `content:(${match})`,
+      `{title content}:(${match})`,
       owner,
       project,
     );
@@ -333,7 +335,12 @@ export async function searchMemory(
       )
         continue;
       const s = readMemory(owner, candidate.id, candidate.revision, project);
-      const excerpt = s.content.slice(0, Math.min(1100, 5500 - characters));
+      // The passage that matches best, not the source's opening.
+      const excerpt = matchedExcerpt(
+        s.content,
+        terms,
+        Math.min(EXCERPT_CHARACTERS, 5500 - characters),
+      );
       // Judge relevance on the text the agent will actually see.
       if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) continue;
       if (!excerpt) break;
@@ -342,6 +349,8 @@ export async function searchMemory(
         id: s.id,
         revision: s.revision,
         role: s.role,
+        kind: sourceKind(s),
+        author: sourceAuthor(s),
         title: s.title,
         origin: s.origin,
         updatedAt: s.updated_at,
@@ -353,6 +362,104 @@ export async function searchMemory(
     if (sources.length >= 5) break;
   }
   return { mode: "lexical", sources };
+}
+/** Characters of one source's excerpt. */
+export const EXCERPT_CHARACTERS = 1100;
+/** What a source is, as the agent should weigh it. */
+function sourceKind(s: {
+  kind: string;
+  source_id: string;
+  owner_id: string;
+  title: string;
+  content: string;
+}): "result" | "artifact" | "note" | "message" {
+  if (s.kind === "note" || s.kind === "message") return s.kind;
+  return artifactsQueries.memoryDefault(db, s.source_id, s.owner_id, s)?.result
+    ? "result"
+    : "artifact";
+}
+/** Who wrote a source: the owner, or the agent by its current name. */
+function sourceAuthor(s: {
+  kind: string;
+  role: string;
+  owner_id: string;
+  agent_id: string | null;
+}) {
+  if (s.kind === "note" || s.role === "user" || !s.agent_id) return "you";
+  return agentsQueries.ownedName(db, s.owner_id, s.agent_id)?.name ?? "agent";
+}
+/** A term as a whole token sequence, as the index matches it. */
+function termPattern(term: string, flags: string) {
+  const parts = term.match(/[\p{L}\p{N}]+/gu) || [];
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${parts.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])`,
+    flags,
+  );
+}
+/**
+ * At most `size` characters of `content`: the window holding the most
+ * distinct query terms, or the opening when it holds as many. The window
+ * starts at a line or word boundary, never splits a surrogate pair, and
+ * marks elided text with "…" (counted in `size`).
+ */
+export function matchedExcerpt(content: string, terms: string[], size: number) {
+  if (size <= 0) return "";
+  if (content.length <= size) return content;
+  const hits: { at: number; end: number; term: number }[] = [];
+  terms.forEach((term, index) => {
+    let found = 0;
+    for (const m of content.matchAll(termPattern(term, "giu"))) {
+      hits.push({ at: m.index, end: m.index + m[0].length, term: index });
+      if (++found >= 200) break;
+    }
+  });
+  hits.sort((a, b) => a.at - b.at);
+  // Leave a little lead-in before the first matched term. The window may end
+  // two characters early for the "…" marks.
+  const lead = Math.floor(size / 6);
+  const span = size - 2;
+  const counts = new Map<number, number>();
+  const add = (term: number, by: number) => {
+    const next = (counts.get(term) ?? 0) + by;
+    if (next) counts.set(term, next);
+    else counts.delete(term);
+  };
+  let best = 0,
+    first = 0,
+    score = new Set(hits.filter((h) => h.end <= span).map((h) => h.term)).size,
+    left = 0,
+    right = 0;
+  // Slide a window starting `lead` before each hit; both edges only advance.
+  for (const h of hits) {
+    const from = Math.max(0, h.at - lead);
+    // Hits in [left, right) are counted: they start at or after `from` and
+    // end inside the window.
+    for (; left < hits.length && hits[left].at < from; left++)
+      if (left < right) add(hits[left].term, -1);
+    right = Math.max(right, left);
+    while (right < hits.length && hits[right].end <= from + span)
+      add(hits[right++].term, 1);
+    if (counts.size > score) [best, first, score] = [from, h.at, counts.size];
+  }
+  if (best === 0) return trimEnd(content, 0, size);
+  // Start at the line holding the first matched term when it begins within
+  // the lead-in, otherwise at a word boundary.
+  let start = best;
+  const line = content.lastIndexOf("\n", first);
+  const word = content.indexOf(" ", start);
+  if (line >= start) start = line + 1;
+  else if (word >= 0 && word < first) start = word + 1;
+  if (/[\udc00-\udfff]/.test(content[start] ?? "")) start++;
+  return "…" + trimEnd(content, start, size - 1);
+}
+/** `content` from `start`, at most `size` characters with any "…". */
+function trimEnd(content: string, start: number, size: number) {
+  if (content.length - start <= size) return content.slice(start);
+  let end = start + size - 1;
+  const word = content.lastIndexOf(" ", end);
+  if (word > start && end - word <= 40) end = word;
+  if (/[\ud800-\udbff]/.test(content[end - 1] ?? "")) end--;
+  return content.slice(start, end).trimEnd() + "…";
 }
 /**
  * Whether a source contains enough distinct query terms to be worth adding:
@@ -378,14 +485,8 @@ export function matchedTerms(
 ) {
   const text = content.toLowerCase();
   let found = 0;
-  for (const term of terms) {
-    const parts = term.match(/[\p{L}\p{N}]+/gu) || [];
-    const pattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${parts.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])`,
-      "u",
-    );
-    if (pattern.test(text) && ++found >= enough) break;
-  }
+  for (const term of terms)
+    if (termPattern(term, "u").test(text) && ++found >= enough) break;
   return found;
 }
 /** Upper bound on recalled text added to one turn (about 1,500 tokens). */
@@ -439,7 +540,8 @@ export function evidenceBlock(sources: RecalledSource[]) {
   const included: RecalledSource[] = [];
   let body = "";
   for (const s of sources) {
-    const block = `\n[${s.id}@${s.revision}] ${s.role}, ${quoted(s.title)}, ${s.link}\n${quoted(s.excerpt)}\n`;
+    const date = new Date(s.updatedAt).toISOString().slice(0, 10);
+    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${quoted(s.author)}, ${date}, "${quoted(s.title)}", ${s.link}\n${quoted(s.excerpt)}\n`;
     if ((open + body + block + close).length > RECALL_CHARACTERS) break;
     body += block;
     included.push(s);

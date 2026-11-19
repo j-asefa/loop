@@ -281,25 +281,24 @@ it("computes each metric from production recall", async () => {
     { skipped: 2, warmup: 0 },
   );
   expect(HEAD_CHARACTERS).toBe(1100);
-  // Recall judges relevance on the excerpt it shows, the first 1,100
-  // characters, so the deep note's matching sentence is never seen: a miss
-  // that is not a vocabulary miss (the note holds every query term).
+  // The excerpt is the passage that matches, so the deep note's sentence,
+  // past the first 1,100 characters, is shown in full.
   expect(metrics).toMatchObject({
     known: 3,
     deep: 1,
     null: 1,
     skipped: 2,
-    hit1: 1 / 3,
-    hit5: 1 / 3,
-    mrr5: 1 / 3,
-    abstainKnown: 2 / 3,
+    hit1: 2 / 3,
+    hit5: 2 / 3,
+    mrr5: 2 / 3,
+    abstainKnown: 1 / 3,
     abstainNull: 1,
-    misses5: 2,
+    misses5: 1,
     vocabMisses5: 1,
-    vocabMissShare: 1 / 2,
-    deepHit5: 0,
+    vocabMissShare: 1,
+    deepHit5: 1,
     excerptCoverage: 1,
-    deepCoverage: 0,
+    deepCoverage: 1,
   });
   expect(metrics.injectedMean).toBeGreaterThan(0);
   expect(metrics.latencyP95Ms).toBeGreaterThanOrEqual(0);
@@ -307,8 +306,8 @@ it("computes each metric from production recall", async () => {
     ["base", metrics],
     ["head", metrics],
   ]);
-  expect(rendered).toContain("| hit@5 | 33.3% | 33.3% |");
-  expect(rendered).toContain("| vocab miss share | 50.0% | 50.0% |");
+  expect(rendered).toContain("| hit@5 | 66.7% | 66.7% |");
+  expect(rendered).toContain("| vocab miss share | 100.0% | 100.0% |");
 });
 
 it("writes only to a database it copied, in a directory it started empty", async () => {
