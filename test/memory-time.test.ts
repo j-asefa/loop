@@ -171,3 +171,13 @@ it("ignores a date inside a multiline quotation", () => {
     to: Date.parse("2026-11-16"),
   });
 });
+
+it.each([
+  "recall harvest notes, but not on 2026-10-12",
+  "harvest yesterday or today",
+  "harvest since Monday, excluding yesterday",
+])("keeps unsupported date choices searchable in %s", (query) => {
+  const window = parseMemoryTime(query, now);
+  expect(window).toBeUndefined();
+  expect(withoutMemoryTime(query, window)).toBe(query);
+});

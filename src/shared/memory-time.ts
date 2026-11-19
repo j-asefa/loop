@@ -168,6 +168,7 @@ export function parseMemoryTime(
   let from: number | null = null;
   let to: number | null = null;
   let period: { start: number; end: number } | undefined;
+  let previousEnd = 0;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative] = match;
     const target = bound ?? iso ?? month ?? relative;
@@ -187,6 +188,12 @@ export function parseMemoryTime(
       )
         continue;
     }
+    const between = searchable.slice(previousEnd, match.index);
+    // A single interval cannot express exclusions or alternative dates.
+    if (/\b(?:not|except|excluding)(?:\s+from)?\s*$/iu.test(between))
+      return undefined;
+    if (matched.length && /\b(?:or|nor)\s*$/iu.test(between)) return undefined;
+    previousEnd = match.index + match[0].length;
     if (modifier === "since") {
       from = Math.max(from ?? boundary.start, boundary.start);
     } else if (modifier === "before") {
