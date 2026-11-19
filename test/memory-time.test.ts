@@ -175,6 +175,9 @@ it("ignores a date inside a multiline quotation", () => {
 it.each([
   "recall harvest notes, but not on 2026-10-12",
   "harvest yesterday or today",
+  "harvest on 2026-10-12 or 2026-10-13",
+  "harvest in October or November",
+  "harvest except for yesterday",
   "harvest since Monday, excluding yesterday",
 ])("keeps unsupported date choices searchable in %s", (query) => {
   const window = parseMemoryTime(query, now);
