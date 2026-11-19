@@ -182,9 +182,12 @@ function classifyMemoryTime(
       );
     const preposition =
       relation ?? /^(?:from|on|in|within)\b/iu.exec(match[0])?.[0];
-    const exclusionContext = preposition ? between + preposition : between;
+    const exclusionContext = (between + (preposition ?? "")).replace(
+      /\u0000+/g,
+      " literal ",
+    );
     const exclusion =
-      /\b(?:not|except|excluding|without|skip)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated|on|in|within|before|after|since)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
+      /\b(?:not|except|excluding|without|skip)(?:(?:[\s,:()[\]{}]+[\p{L}]+){0,4}[\s,:()[\]{}]+(?:from|for|during|of|dated|on|in|within|before|after|since)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
         exclusionContext,
       );
     const target = bound ?? iso ?? month ?? relative ?? bare;
