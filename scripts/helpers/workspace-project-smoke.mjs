@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { tsImport } from "tsx/esm/api";
+
+const { folder: setAgentFolder } = await tsImport(
+  "../../src/server/sql/agents.ts",
+  import.meta.url,
+);
+const { seedConversation, seedMessage, seedRun } = await tsImport(
+  "../../test/helpers/seed.ts",
+  import.meta.url,
+);
 
 export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   const { db, owner, api, agents } = fixture;
@@ -10,16 +20,36 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   const thread = randomUUID(),
     run = randomUUID(),
     message = randomUUID();
-  db.prepare("UPDATE agents SET folder_id=NULL WHERE id=?").run(agents[0].id);
-  db.prepare(
-    "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,'Organize workspace notes',?)",
-  ).run(thread, owner, agents[0].id, Date.now());
-  db.prepare(
-    "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,created_at,updated_at,worker_id) VALUES(?,?,?,?,'Organize workspace notes','completed',?,'{}',?,?,'fixture')",
-  ).run(run, owner, agents[0].id, thread, run, Date.now(), Date.now());
-  db.prepare(
-    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,'assistant','Workspace notes are ready.',?)",
-  ).run(message, owner, thread, run, Date.now());
+  const title = "Organize workspace notes";
+  setAgentFolder(db, null, agents[0].id, owner);
+  seedConversation(db, {
+    id: thread,
+    owner_id: owner,
+    agent_id: agents[0].id,
+    title,
+    created_at: Date.now(),
+  });
+  seedRun(db, {
+    id: run,
+    owner_id: owner,
+    agent_id: agents[0].id,
+    conversation_id: thread,
+    input: title,
+    state: "completed",
+    idempotency_key: run,
+    created_at: Date.now(),
+    updated_at: Date.now(),
+    worker_id: "fixture",
+  });
+  seedMessage(db, {
+    id: message,
+    owner_id: owner,
+    conversation_id: thread,
+    run_id: run,
+    role: "assistant",
+    content: "Workspace notes are ready.",
+    created_at: Date.now(),
+  });
   const removedReads = [];
   page.on("request", (request) => {
     if (
@@ -36,8 +66,8 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     "Done",
     `Working${summary.working || ""}`,
     `Queued${summary.queued || ""}`,
-    "Threads",
     `Replies${summary.replies_unread || ""}`,
+    "Threads",
   ]);
   await expect(
     filters.getByRole("tab", { name: "Done", exact: true }),

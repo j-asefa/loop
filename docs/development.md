@@ -120,6 +120,8 @@ Current connection fixtures can use [seedConnection()](../test/helpers/seed.ts),
 
 `seedRun()` requires state, idempotency key and both timestamps explicitly, and validates the scalar run row without changing serialized payloads. It uses a fixture insert because the queued writer fixes the state and the preview writer couples the key and timestamps. Optional values retain SQLite defaults; database triggers still apply. Seed functions return their validated input, not a post-trigger database read.
 
+Browser and package scripts seed valid records through existing SQL writers or typed fixture helpers. The [script SQL inventory](../test/sql-inventory.test.ts) tracks existing direct SQLite callers by file. Remove a file from the allowance when its last direct call moves.
+
 Native async tests use bounded waits from `test/helpers/wait.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
 ### Memory recall replay evaluation

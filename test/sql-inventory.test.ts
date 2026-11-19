@@ -4,12 +4,15 @@ import { join, relative, resolve } from "node:path";
 import { parseSync } from "rolldown/utils";
 
 const root = resolve(import.meta.dirname, "..");
-const files = (directory: string): string[] =>
+const files = (
+  directory: string,
+  accepts: (path: string) => boolean = (path) => path.endsWith(".ts"),
+): string[] =>
   readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     return entry.isDirectory()
-      ? files(path)
-      : path.endsWith(".ts")
+      ? files(path, accepts)
+      : accepts(path)
         ? [path]
         : [];
   });
@@ -45,6 +48,76 @@ const exemptions = new Map([
 // call moves into sql/. Existing files can evolve without call-count churn;
 // new files must use query modules and fully migrated files cannot regress.
 const allowance: string[] = [];
+
+// Existing smoke and diagnostic callers of SQLite. Remove an entry once its
+// last direct call moves to an existing writer or query module.
+const scriptAllowance = [
+  "acp-deterministic-browser.mjs",
+  "approval-layout-browser.mjs",
+  "cards-browser-smoke.mjs",
+  "cards-content-browser.mjs",
+  "companion-browser-smoke.mjs",
+  "conversation-history-smoke.mjs",
+  "design-scenario.mjs",
+  "display-browser-smoke.mjs",
+  "feed-transfer-smoke.mjs",
+  "feed-websocket-smoke.mjs",
+  "fleet-acceptance.mjs",
+  "helpers/agent-mail-smoke.mjs",
+  "helpers/agent-thread-feed-smoke.mjs",
+  "helpers/artifact-read-abort-smoke.mjs",
+  "helpers/beginner-chat-smoke.mjs",
+  "helpers/card-reminders-smoke.mjs",
+  "helpers/checkout-fixture.mjs",
+  "helpers/companion-contracts-browser.mjs",
+  "helpers/composer-typing-smoke.mjs",
+  "helpers/continuation-smoke.mjs",
+  "helpers/continuity-smoke.mjs",
+  "helpers/conversation-live-smoke.mjs",
+  "helpers/create-agent-layout-smoke.mjs",
+  "helpers/create-agent-models-smoke.mjs",
+  "helpers/design-fixture.mjs",
+  "helpers/done-card-actions-smoke.mjs",
+  "helpers/done-card-dismissal-smoke.mjs",
+  "helpers/done-feed-filters-smoke.mjs",
+  "helpers/execution-environments-smoke.mjs",
+  "helpers/feed-flows-smoke.mjs",
+  "helpers/feed-loading-smoke.mjs",
+  "helpers/feed-reading-smoke.mjs",
+  "helpers/feed-threads-smoke.mjs",
+  "helpers/fleet-browser-host.mjs",
+  "helpers/html-preview-smoke.mjs",
+  "helpers/markdown-definitions-smoke.mjs",
+  "helpers/model-labels-smoke.mjs",
+  "helpers/native-auth-browser.mjs",
+  "helpers/native-settings-browser.mjs",
+  "helpers/needs-stack-smoke.mjs",
+  "helpers/personal-decisions-smoke.mjs",
+  "helpers/profile-navigation-smoke.mjs",
+  "helpers/profile-work-smoke.mjs",
+  "helpers/quoted-reply-fixture.mjs",
+  "helpers/reply-keyboard-smoke.mjs",
+  "helpers/result-files-smoke.mjs",
+  "helpers/search-categories-smoke.mjs",
+  "helpers/social-smoke.mjs",
+  "helpers/steering-replies-smoke.mjs",
+  "helpers/swipe-back-smoke.mjs",
+  "helpers/team-directory-smoke.mjs",
+  "helpers/team-feed-visibility-smoke.mjs",
+  "helpers/team-presets-smoke.mjs",
+  "helpers/thread-layout-smoke.mjs",
+  "helpers/visual-layout-smoke.mjs",
+  "helpers/webhook-settings-smoke.mjs",
+  "helpers/withdraw-draft-smoke.mjs",
+  "helpers/workspace-controls-smoke.mjs",
+  "math-browser-smoke.mjs",
+  "memory-recall-eval.ts",
+  "native-decision-recovery-browser.mjs",
+  "personal-files-events-smoke.mjs",
+  "pull-requests-smoke.mjs",
+  "readme-screenshots.mjs",
+  "workspace-lifecycle-smoke.mjs",
+];
 
 function sqlCallLines(file: string, text: string) {
   const { program, errors } = parseSync(file, text);
@@ -205,5 +278,36 @@ it("keeps direct SQL in the shrinking named file allowance", () => {
           `src/server/${path} has no direct SQL left; remove it from the allowance in test/sql-inventory.test.ts.`,
       ),
     "Remove files from the allowance when their last direct call moves",
+  ).toEqual([]);
+});
+
+it("keeps direct script SQL in the shrinking named file allowance", () => {
+  const directory = join(root, "scripts");
+  const actual = new Map<string, string>();
+  for (const file of files(directory, (path) =>
+    /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path),
+  ).sort()) {
+    const [line] = sqlCallLines(file, readFileSync(file, "utf8"));
+    if (line !== undefined)
+      actual.set(relative(directory, file), `${relative(root, file)}:${line}`);
+  }
+  const allowed = new Set(scriptAllowance);
+  expect(allowed.size, "Duplicate script allowance entries").toBe(
+    scriptAllowance.length,
+  );
+  expect(
+    [...actual]
+      .filter(([path]) => !allowed.has(path))
+      .map(([, location]) => directSql(location)),
+    "Script fixtures must use existing writers or query modules for new SQL callers",
+  ).toEqual([]);
+  expect(
+    scriptAllowance
+      .filter((path) => !actual.has(path))
+      .map(
+        (path) =>
+          `scripts/${path} has no direct SQL left; remove it from the script allowance.`,
+      ),
+    "Remove script files from the allowance when their last direct call moves",
   ).toEqual([]);
 });

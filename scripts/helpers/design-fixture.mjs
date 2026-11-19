@@ -14,6 +14,9 @@ const { installFixtureProjection } = await tsImport(
   import.meta.url,
 );
 
+const { seedConnection, seedConversation, seedMessage, seedRun } =
+  await tsImport("../../test/helpers/seed.ts", import.meta.url);
+
 // No .env file, real accounts, provider calls, worker execution, or persisted browser auth.
 // `githubApi` points server-side GitHub reads at a fake; by default they fail fast.
 export async function designFixture({ githubApi } = {}) {
@@ -97,22 +100,21 @@ export async function designFixture({ githubApi } = {}) {
     // when a harness is enabled. The fixture runs no execution process.
     const native = (harness, label, models) => {
       const id = "native-" + harness;
-      db.prepare(
-        "INSERT INTO connections(id,owner_id,provider,label,secret,status,models,metadata,created_at) VALUES(?,?,?,?,'','connected',?,?,?)",
-      ).run(
+      seedConnection(db, {
         id,
-        owner,
-        harness === "claude" ? "anthropic" : harness,
+        owner_id: owner,
+        provider: harness === "claude" ? "anthropic" : harness,
         label,
-        JSON.stringify(models),
-        JSON.stringify({
+        secret: "",
+        models: JSON.stringify(models),
+        metadata: JSON.stringify({
           loopHarness: harness,
           authMode: "native-existing",
           runtimeKind: "loop-local",
           location: "laptop",
         }),
-        Date.now(),
-      );
+        created_at: Date.now(),
+      });
       return { id };
     };
     const codex = native("codex", "Personal ChatGPT", [
@@ -188,54 +190,62 @@ export async function designFixture({ githubApi } = {}) {
         message = randomUUID(),
         artifact = randomUUID();
       const t = now - index * 3600000;
-      db.prepare(
-        "INSERT INTO conversations(id,owner_id,agent_id,title,created_at) VALUES(?,?,?,?,?)",
-      ).run(conv, owner, agent.id, title, t);
-      db.prepare(
-        "INSERT INTO runs(id,owner_id,agent_id,conversation_id,input,state,idempotency_key,payload,result,error,worker_id,heartbeat,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      ).run(
-        run,
-        owner,
-        agent.id,
-        conv,
+      seedConversation(db, {
+        id: conv,
+        owner_id: owner,
+        agent_id: agent.id,
         title,
+        created_at: t,
+      });
+      seedRun(db, {
+        id: run,
+        owner_id: owner,
+        agent_id: agent.id,
+        conversation_id: conv,
+        input: title,
         state,
-        run,
-        JSON.stringify({
+        idempotency_key: run,
+        payload: JSON.stringify({
           agentId: agent.id,
           connectionId: agent.connection_id,
           model: agent.model,
           provider: agent.provider,
           folderId: agent.folder_id,
         }),
-        state === "completed" ? answer : null,
-        state === "failed"
-          ? "The tool could not complete the request. Reconnect GitHub and try again."
-          : null,
-        state === "running" ? "audit-fixture" : null,
-        state === "running" ? now + 99999999 : null,
-        t,
-        t,
-      );
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,?,?,?,?,?,?)",
-      ).run(randomUUID(), owner, conv, run, "user", title, t);
-      db.prepare(
-        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
-        message,
-        owner,
-        conv,
-        run,
-        "assistant",
-        state === "completed"
-          ? answer
-          : state === "running"
-            ? "I am checking the changes and comparing the test results."
-            : "",
-        JSON.stringify({ partial: state !== "completed" }),
-        t + 1,
-      );
+        result: state === "completed" ? answer : null,
+        error:
+          state === "failed"
+            ? "The tool could not complete the request. Reconnect GitHub and try again."
+            : null,
+        worker_id: state === "running" ? "audit-fixture" : null,
+        heartbeat: state === "running" ? now + 99999999 : null,
+        created_at: t,
+        updated_at: t,
+      });
+      seedMessage(db, {
+        id: randomUUID(),
+        owner_id: owner,
+        conversation_id: conv,
+        run_id: run,
+        role: "user",
+        content: title,
+        created_at: t,
+      });
+      seedMessage(db, {
+        id: message,
+        owner_id: owner,
+        conversation_id: conv,
+        run_id: run,
+        role: "assistant",
+        content:
+          state === "completed"
+            ? answer
+            : state === "running"
+              ? "I am checking the changes and comparing the test results."
+              : "",
+        metadata: JSON.stringify({ partial: state !== "completed" }),
+        created_at: t + 1,
+      });
       if (["completed", "running"].includes(state)) {
         db.prepare(
           "INSERT INTO artifacts(id,owner_id,agent_id,conversation_id,run_id,title,kind,role,content,metadata,folder_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
