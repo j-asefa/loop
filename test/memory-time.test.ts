@@ -204,6 +204,8 @@ it.each([
   "harvest notes, exclude yesterday",
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
+  "Find amethyst harvest notes. Do not include notes from yesterday",
+  "harvest notes from this week and/or today",
   "find harvest notes in October and November",
   "find harvest notes in October, November, or December",
   "find harvest notes this week, excluding any and all notes that were written yesterday",
