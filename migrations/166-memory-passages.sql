@@ -18,3 +18,11 @@ WHEN NEW.tombstone = 1 BEGIN
   DELETE FROM memory_passages WHERE source_id = NEW.id;
 END;
 CREATE TABLE memory_passage_backfill (complete INTEGER PRIMARY KEY CHECK (complete = 1));
+
+-- Policy edits change revision without changing the indexed text or offsets.
+CREATE TRIGGER memory_passage_policy_revision AFTER UPDATE OF revision ON memory_sources
+WHEN NEW.tombstone = 0 AND NEW.revision <> OLD.revision
+  AND NEW.title = OLD.title AND NEW.content = OLD.content BEGIN
+  UPDATE memory_passages SET revision = NEW.revision
+    WHERE source_id = NEW.id AND revision = OLD.revision;
+END;

@@ -177,6 +177,8 @@ it("bounds recalled text and adds nothing when no saved memory matches", async (
 
 it("adds nothing when the workspace turns memory off", async () => {
   await note("Pulsar", "pulsar rollout must wait for the canary");
+  captureMemory();
+  expect(memoryPassageQueries.backfillComplete(db)).toBe(true);
   expect(
     (
       await request(
@@ -201,6 +203,8 @@ it("adds nothing when the workspace turns memory off", async () => {
       "PUT",
     );
   }
+  const { prompt } = await nativePrompt("pulsar rollout");
+  expect(prompt).toContain("pulsar rollout must wait for the canary");
 });
 
 it("appends recall to the current turn of an API-key run once", async () => {
