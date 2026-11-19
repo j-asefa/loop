@@ -340,14 +340,14 @@ export async function searchMemory(
       )
         continue;
       const s = readMemory(owner, candidate.id, candidate.revision, project);
-      // The passage that matches best, not the source's opening.
-      const excerpt = matchedExcerpt(
-        s.content,
-        terms,
-        Math.min(EXCERPT_CHARACTERS, 5500 - characters),
-      );
-      // Judge relevance on the text the agent will actually see.
-      if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) continue;
+      const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
+      let excerpt = matchedExcerpt(s.content, terms, size);
+      if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) {
+        // The best body window can repeat terms the title already supplies.
+        // Keep the opening when it contributes the terms needed to qualify.
+        excerpt = matchedExcerpt(s.content, [], size);
+        if (!coversQuery(s.title + "\n" + excerpt, terms)) continue;
+      }
       if (!excerpt) break;
       characters += excerpt.length;
       sources.push({

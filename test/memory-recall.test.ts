@@ -1129,6 +1129,21 @@ it("recalls the passage that matches, with its kind, author and date", async () 
   expect(prompt).not.toContain("for bob");
 });
 
+it("keeps the head when a deeper match repeats title terms and fails relevance", async () => {
+  const source = await note(
+    "Peregrine Glacier",
+    "saffron belongs in the opening. " +
+      "filler ".repeat(500) +
+      "peregrine glacier appears later. " +
+      "filler ".repeat(500),
+  );
+  const { prompt } = await nativePrompt(
+    "peregrine glacier saffron junction pergola comet polaris mountain prairie",
+  );
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("saffron belongs in the opening.");
+});
+
 it("matches titles as well as content", async () => {
   const titled = await note(
     "Osprey runbook",
