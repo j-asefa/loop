@@ -419,9 +419,10 @@ const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutput
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.
 const memoryDefaultStatement = statement(
-  `SELECT a.pinned,a.archived,a.conversation_id,a.folder_id,a.created_at,${publishedResultSql} AS result
+  `SELECT a.pinned,a.archived,a.conversation_id,a.folder_id,a.created_at,${publishedResultSql} AS result,
+      (a.title=@title AND a.content=@content) AS current
     FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
-    WHERE a.id=? AND a.owner_id=?`,
+    WHERE a.id=@id AND a.owner_id=@owner`,
 );
 const memoryDefaultRow = QueryRecords.artifacts
   .pick({
@@ -431,13 +432,18 @@ const memoryDefaultRow = QueryRecords.artifacts
     folder_id: true,
     created_at: true,
   })
-  .extend({ result: z.number() });
+  .extend({ result: z.number(), current: z.number() });
+/**
+ * An artifact's live memory state. `current` says whether its saved memory
+ * copy (`saved`) still matches its title and content.
+ */
 export function memoryDefault(
   db: Database.Database,
   id: string,
   owner: string,
+  saved: { title: string; content: string },
 ) {
-  const row = memoryDefaultStatement(db).get(id, owner);
+  const row = memoryDefaultStatement(db).get({ id, owner, ...saved });
   return row === undefined
     ? undefined
     : parseRecord(memoryDefaultRow, row, "artifacts");

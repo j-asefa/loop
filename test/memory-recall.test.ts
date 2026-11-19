@@ -1064,3 +1064,37 @@ it("keeps a personal result in memory when mail arrives in its thread later", as
     "fires at 85 percent",
   );
 });
+
+it("does not recall text an owner just edited out of an artifact", async () => {
+  const artifact = saveArtifact("alice", {
+    title: "Musca runbook",
+    content: "musca runbook: the admin password is hunter2",
+    role: "trace",
+  });
+  await request(
+    "/memory/policy",
+    { scope: "artifact:" + artifact, enabled: true },
+    "alice",
+    "PUT",
+  );
+  const recalled = async () =>
+    (await searchMemory("alice", null, "musca runbook")).sources
+      .map((s) => s.excerpt)
+      .join();
+  expect(await recalled()).toContain("hunter2");
+  artifactsQueries.edit(
+    db,
+    "Musca runbook",
+    "musca runbook: ask the on-call lead for access",
+    0,
+    0,
+    now(),
+    artifact,
+  );
+  // Before the capture pass saves the edit, the stale copy is not served.
+  expect(await recalled()).not.toContain("hunter2");
+  captureMemory();
+  const after = await recalled();
+  expect(after).toContain("on-call lead");
+  expect(after).not.toContain("hunter2");
+});

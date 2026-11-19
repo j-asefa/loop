@@ -52,8 +52,14 @@ function eligible(s: any) {
       db,
       s.source_id,
       s.owner_id,
+      {
+        title: s.title,
+        content: s.content,
+      },
     );
-    if (!artifact || artifact.archived) return false;
+    // An edited artifact's saved copy may hold text the owner removed: leave
+    // it out until the capture pass saves the new version.
+    if (!artifact || artifact.archived || !artifact.current) return false;
     // A moved artifact is out of its old project at once; the capture pass
     // refreshes its saved copy for the new one.
     if ((artifact.folder_id || null) !== (s.project_id || null)) return false;
