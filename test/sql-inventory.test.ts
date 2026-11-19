@@ -290,13 +290,13 @@ function sqlCallLines(file: string, text: string, script = false) {
   const isFixture = (node: any) =>
     node?.type === "Identifier" &&
     (node.name === "fixture" || isParameter(node));
-  const knownDatabaseProperty = (source: any) => {
+  const knownProperty = (source: any, key: string) => {
     const path = receiver(source);
     const owner = path && declaringScope(path.split(".")[0], source);
-    return owner ? receiverBinding(owner, `${path}.db`) : undefined;
+    return owner ? receiverBinding(owner, `${path}.${key}`) : undefined;
   };
   const destructuredDatabase = (source: any): Binding => {
-    const binding = knownDatabaseProperty(source);
+    const binding = knownProperty(source, "db");
     if (binding === "connection" || binding === "object") return binding;
     if (
       (source?.type === "ImportExpression" &&
@@ -432,6 +432,40 @@ function sqlCallLines(file: string, text: string, script = false) {
     const receivers = boundReceivers.get(fn) ?? [];
     receivers.push(node.arguments[0]);
     boundReceivers.set(fn, receivers);
+  }
+  if (script) {
+    // Exported fixture entry points can be called from outside this file.
+    const exports = new Set<any>();
+    for (const node of program.body as any[]) {
+      if (
+        node.type !== "ExportNamedDeclaration" &&
+        node.type !== "ExportDefaultDeclaration"
+      )
+        continue;
+      const declaration = node.declaration;
+      if (functionKinds.has(declaration?.type)) exports.add(declaration);
+      if (declaration?.type === "Identifier")
+        exports.add(fileScope.functions?.get(declaration.name));
+      if (declaration?.type === "VariableDeclaration") {
+        for (const item of declaration.declarations) {
+          const fn = unwrap(item.init);
+          if (functionKinds.has(fn?.type)) exports.add(fn);
+        }
+      }
+      if (node.source) continue;
+      for (const specifier of node.specifiers ?? [])
+        exports.add(fileScope.functions?.get(specifier.local?.name));
+    }
+    for (const fn of exports) {
+      for (const parameter of fn?.params ?? []) {
+        if (
+          parameter.type === "Identifier" &&
+          parameter.name === "db" &&
+          !parameter.typeAnnotation
+        )
+          scopeOf(fn).bindings.set("db", "connection");
+      }
+    }
   }
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
@@ -573,7 +607,7 @@ function sqlCallLines(file: string, text: string, script = false) {
               : undefined;
           const binding = inlineDb
             ? connectionKind(inlineDb.value)
-            : knownDatabaseProperty(argument);
+            : knownProperty(argument, "db");
           if (binding === "connection" || binding === "object")
             trackBinding(scopeOf(fn), `${parameter.name}.db`, binding);
         }
@@ -588,9 +622,13 @@ function sqlCallLines(file: string, text: string, script = false) {
       );
       const assigned: { name: string; binding: Binding | undefined }[] = [];
       if (target?.type === "ObjectPattern") {
-        for (const { key, name } of bindings(target))
-          if (key === "db")
-            assigned.push({ name, binding: destructuredDatabase(value) });
+        for (const { key, name } of bindings(target)) {
+          const binding =
+            key === "db"
+              ? destructuredDatabase(value)
+              : knownProperty(value, key);
+          if (binding) assigned.push({ name, binding });
+        }
       } else if (field) {
         const key = node.computed
           ? node.key.value
@@ -956,6 +994,22 @@ it("follows namespace imports and local wrappers receiving SQLite handles", () =
     dispatch(adapter, command);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 4, 7, 10]);
+});
+
+it("follows renamed object fields and database parameters at fixture exports", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const state = { connection: new SQLite(":memory:") };
+    const { connection: handle } = state;
+    handle.exec(query);
+    export function read(db, statement) { db.exec(statement); }
+    export const write = (db, statement) => db.exec(statement);
+    const publish = (db, statement) => db.exec(statement);
+    export { publish };
+    function dispatch(db, command) { db.exec(command); }
+    export function run(db: CommandAdapter, command: string) { db.exec(command); }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 6, 7, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
