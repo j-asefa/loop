@@ -12,10 +12,16 @@ const snapshot = (
   omitted: [] as string[],
   changed: [...new Set([...Object.keys(files), ...Object.keys(before)])].sort(),
   files: Object.fromEntries(
-    Object.entries(files).map(([path, lines]) => [path, lines.join("\n")]),
+    Object.entries(files).map(([path, lines]) => [
+      path,
+      lines.map((line) => line + "\n").join(""),
+    ]),
   ),
   before: Object.fromEntries(
-    Object.entries(before).map(([path, lines]) => [path, lines.join("\n")]),
+    Object.entries(before).map(([path, lines]) => [
+      path,
+      lines.map((line) => line + "\n").join(""),
+    ]),
   ),
 });
 
@@ -147,4 +153,16 @@ it("counts a mode change on a file whose text is unchanged, and treats a huge re
   const added = snapshotDelta(grown, reviewedLarge).unseen;
   expect(added).toBe(100);
   expect(added * 2 > changedLines(grown)).toBe(true);
+});
+
+it("counts one terminated line in a newly created file", () => {
+  expect(
+    changedLines(
+      snapshot(
+        { one: ["first"] },
+        {},
+        "diff --git a/one b/one\nnew file mode 100644\n",
+      ),
+    ),
+  ).toBe(1);
 });

@@ -19,7 +19,7 @@ const MAX_CELLS = 4_000_000;
 const fileText = (files: Record<string, string>, path: string) =>
   Object.hasOwn(files, path) ? files[path] : undefined;
 const lines = (text: string | undefined) =>
-  text === undefined ? [] : text.split("\n");
+  text?.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 
 /** Line edits from `a` to `b`. Past MAX_CELLS the middle is a full rewrite. */
 function edits(a: string[], b: string[]): Op[] {
@@ -81,7 +81,7 @@ function excerpt(ops: Op[]) {
       near = ops[k] !== undefined && ops[k].kind !== " ";
     if (!near) return;
     if (index > last + 1) out.push(`@@ line ${Math.max(line, 1)} @@`);
-    out.push(op.kind + op.line);
+    out.push(op.kind + op.line.replace(/\n$/, ""));
     last = index;
   });
   return out.join("\n");
@@ -129,7 +129,8 @@ export function changedLines(snapshot: Snapshot) {
       b = lines(fileText(snapshot.files, path));
     count += Math.min(changes(edits(a, b)), unmatched(a, b));
   }
-  for (const mode of modes(snapshot.diff).values()) if (mode.length) count++;
+  for (const mode of modes(snapshot.diff).values())
+    if (mode.some((line) => line.startsWith("old mode "))) count++;
   return count;
 }
 

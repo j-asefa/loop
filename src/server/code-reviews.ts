@@ -20,7 +20,11 @@ import {
 } from "./domain.js";
 import { submit } from "./agent-runtime.js";
 import { captureSnapshot, snapshotFingerprint } from "./review-snapshot.js";
-import { reviewSnapshot, type requestReviewSchema } from "./review-access.js";
+import {
+  MAX_REVIEW_REPORT_CHARS,
+  reviewSnapshot,
+  type requestReviewSchema,
+} from "./review-access.js";
 import { changedLines, snapshotDelta } from "./review-delta.js";
 import * as followUpQueries from "./sql/review-follow-ups.js";
 import type { ReviewSnapshot } from "./review-snapshot.js";
@@ -105,7 +109,8 @@ function followUpOf(
   const sameScope = (review: (typeof earlier)[number]) =>
     review.snapshot().scope === snapshot.scope;
   const previous = earlier.find(sameScope);
-  if (!previous) return;
+  if (!previous?.result || previous.result.length > MAX_REVIEW_REPORT_CHARS)
+    return;
   const full = previous.follow_up
     ? earlier.find((review) => !review.follow_up && sameScope(review))
     : previous;
@@ -113,7 +118,13 @@ function followUpOf(
   for (const review of [previous, full])
     if (review.state !== "completed" || !review.result || review.unfinished)
       return;
-  const { unseen } = snapshotDelta(snapshot, full.snapshot());
+  const baseline = full.snapshot();
+  if (
+    baseline.base !== snapshot.base ||
+    previous.snapshot().base !== snapshot.base
+  )
+    return;
+  const { unseen } = snapshotDelta(snapshot, baseline);
   if (
     unseen > FOLLOW_UP_MAX_UNSEEN_LINES ||
     unseen * 2 > changedLines(snapshot)

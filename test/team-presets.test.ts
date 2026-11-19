@@ -888,7 +888,9 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const eighth = turn(first.conversation_id);
   const resumed = await request(eighth);
   expect(resumed.followUp?.previous_review_id).toBe(grown.id);
-  finish(eighth, resumed);
+  finish(eighth, resumed, "x".repeat(24_001));
+  const oversized = await request(turn(first.conversation_id));
+  expect(oversized.reviewers).toBe(3);
 
   // Another conversation asking about the same checkout has no history here.
   const elsewhere = await request(turn());
