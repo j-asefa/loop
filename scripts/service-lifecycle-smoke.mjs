@@ -19,7 +19,7 @@ const prefix = join(base, "prefix");
 const project = join(base, "project");
 await mkdir(project);
 const fixture = join(base, "codex");
-await copyFile("test/harness.mjs", fixture);
+await copyFile("test/fixtures/harness.mjs", fixture);
 await chmod(fixture, 0o755);
 const env = {
   ...process.env,

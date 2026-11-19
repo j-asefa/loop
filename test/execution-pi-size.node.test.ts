@@ -30,7 +30,7 @@ test(
     gitProject(project);
     const options = {
       harness: "claude" as const,
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project,
       version: "fixture",
       billing: "existing" as const,

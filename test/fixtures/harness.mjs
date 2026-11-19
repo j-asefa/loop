@@ -216,7 +216,7 @@ if (kind === "pi" && process.env.LOOP_TEST_PI_EXTENSION_MODELS) {
           }
         : next(specifier, context),
   });
-  const { default: extension } = await import("../src/pi-extension.mjs");
+  const { default: extension } = await import("../../src/pi-extension.mjs");
   const available = Array.from(
     { length: Number(process.env.LOOP_TEST_PI_EXTENSION_MODELS) },
     (_, i) => ({
@@ -1124,13 +1124,8 @@ if (kind !== "opencode") {
     event("session.status", { sessionID: "ses_1", status: { type: "idle" } });
   };
   const control = process.env.LOOP_TEST_OPENCODE_SOCKET
-    ? await import("./fixtures/opencode-control.mjs").then(
-        ({ opencodeControl }) =>
-          opencodeControl(
-            process.env.LOOP_TEST_OPENCODE_SOCKET,
-            event,
-            streams,
-          ),
+    ? await import("./opencode-control.mjs").then(({ opencodeControl }) =>
+        opencodeControl(process.env.LOOP_TEST_OPENCODE_SOCKET, event, streams),
       )
     : undefined;
   const server = createServer(async (req, res) => {

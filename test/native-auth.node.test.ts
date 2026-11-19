@@ -210,7 +210,7 @@ for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
     const executable = join(project, name);
     await writeFile(
       executable,
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);
@@ -288,7 +288,7 @@ test("Pi rejects invalid prompts and lets the next sign-in start", async () => {
   const executable = join(project, "pi");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
@@ -316,7 +316,7 @@ test("Antigravity signs in through agy's terminal sign-in and confirms with agy 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(async (options) =>
@@ -390,7 +390,7 @@ test("Antigravity completes when agy exits after saving its credential", async (
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_EXIT_AFTER_SIGN_IN=1\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(createAuthDriver);
@@ -421,7 +421,7 @@ test("Cancelling Antigravity during its account check stops every check", async 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_SLOW_MODELS=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_SLOW_MODELS=1\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const pids = async (file = "models-pids") =>
@@ -468,7 +468,7 @@ test("Antigravity ends a sign-in whose terminal never shows its link", async () 
   const executable = join(project, "agy");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=antigravity\nexport LOOP_TEST_AGY_STALL=1\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const auth = new NativeSignIns(async (options) =>
@@ -510,7 +510,7 @@ test("Muse stores an API key through its own account API and signs out", async (
   const executable = join(project, "muse");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=muse\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=muse\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   // Real Muse 1.4.12 also notifies completion; the account state alone must
@@ -558,7 +558,7 @@ test("Pi restarts an auth process that exited while idle", async () => {
   const executable = join(project, "pi");
   await writeFile(
     executable,
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=pi\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   const drivers: AuthDriver[] = [];
@@ -594,7 +594,7 @@ for (const method of ["1", "2"]) {
     const executable = join(project, "opencode");
     await writeFile(
       executable,
-      `#!/bin/sh\nexport LOOP_TEST_HARNESS=opencode\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+      `#!/bin/sh\nexport LOOP_TEST_HARNESS=opencode\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
       { mode: 0o755 },
     );
     const auth = new NativeSignIns(createAuthDriver);

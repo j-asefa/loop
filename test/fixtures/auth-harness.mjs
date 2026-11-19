@@ -211,7 +211,7 @@ if (process.argv.includes("--version")) {
   // Muse's account surface is the MSP fixture; credentials stay in `path`.
   audit("login");
   process.env.LOOP_TEST_MUSE_DIR = path;
-  await import("./fixtures/fake-muse.mjs");
+  await import("./fake-muse.mjs");
 } else if (kind === "opencode" && process.argv[2] === "serve") {
   const expected =
     "Basic " +

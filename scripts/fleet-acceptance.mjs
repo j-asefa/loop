@@ -1163,7 +1163,7 @@ try {
         "-m",
         "Test-owned project",
       ]);
-      await copyFile(join(root, "test/harness.mjs"), fixture);
+      await copyFile(join(root, "test/fixtures/harness.mjs"), fixture);
       await chmod(fixture, 0o755);
       const audit = join(directory, "native-audit.jsonl");
       const machine = {

@@ -23,12 +23,12 @@ process.env.LOOP_TEST_HARNESS = "codex";
 const { WorkspaceHost } = await import("../dist/workspace-host.js");
 const { db } = await import("../dist/server/db.js");
 const { control } = await import("../dist/host-control.js");
-await chmod(resolve("test/harness.mjs"), 0o755);
+await chmod(resolve("test/fixtures/harness.mjs"), 0o755);
 const options = {
   harness: "codex",
   version: "fixture",
   project: process.cwd(),
-  executable: resolve("test/harness.mjs"),
+  executable: resolve("test/fixtures/harness.mjs"),
   billing: "existing",
 };
 const host = new WorkspaceHost(dir, options);

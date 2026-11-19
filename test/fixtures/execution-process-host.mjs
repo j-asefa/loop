@@ -5,7 +5,7 @@ const dir = process.env.LOOP_DATA_DIR;
 recordOwnedProcesses(join(dir, "children.json"));
 const options = {
   harness: "codex",
-  executable: resolve("test/harness.mjs"),
+  executable: resolve("test/fixtures/harness.mjs"),
   project: join(dir, "project"),
   version: "fixture",
   billing: "existing",

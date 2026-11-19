@@ -102,7 +102,7 @@ test(
     await executionRequest("runtime.register", {
       options: {
         harness: "codex",
-        executable: resolve("test/harness.mjs"),
+        executable: resolve("test/fixtures/harness.mjs"),
         project,
         billing: "existing",
         version: "fixture",
