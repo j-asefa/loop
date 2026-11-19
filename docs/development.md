@@ -145,7 +145,7 @@ To establish the initial baseline before the evaluator exists on the base branch
 
 When the base predates the temporal cohort, copy the head’s `scripts/memory-recall-eval.ts`, `src/shared/memory-time.ts`, and `src/server/sql/memory-sources.ts` into the disposable base checkout before running the commands. Leave the base production search in place so it ignores the new window parameter.
 
-The temporal cohort replays the same known-item prompts with a date phrase derived from each target’s update timestamp. Relative phrases use a fixed UTC reference for each query. The table reports retrieval and the share of queries that received any out-of-window evidence. The owner copy supplies historical candidates across dates, and the temporal fixture places otherwise identical decoys outside the requested window.
+The known-item and null cohorts measure undated search. The temporal cohort replays the same known-item prompts with a date phrase derived from each target’s update timestamp. Relative phrases use a fixed UTC reference for each query. The table reports retrieval and the share of queries that received any out-of-window evidence. The owner copy supplies historical candidates across dates, and the temporal fixture places otherwise identical decoys outside the requested window.
 
 Capture stops when a pass leaves the memory index unchanged. A production message-capture batch filled with blank or oversized messages can prevent later messages from reaching the index, since those rejected rows remain candidates. The proxy captures with that same production limit.
 

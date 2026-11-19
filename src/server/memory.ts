@@ -378,7 +378,6 @@ export async function searchMemory(
       `{title body}:(${match})`,
       owner,
       project,
-      window,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
@@ -394,7 +393,6 @@ export async function searchMemory(
             `{title content}:(${documentMatch})`,
             owner,
             project,
-            window,
           ),
         );
       }
@@ -424,6 +422,18 @@ export async function searchMemory(
         memorySourcesQueries.inConversation(db, candidate.id, conversation)
       )
         continue;
+      const updatedAt = window
+        ? memorySourcesQueries.recallTime(db, candidate.id, owner)
+        : undefined;
+      if (
+        window &&
+        (updatedAt === undefined ||
+          (window.from !== null && updatedAt < window.from) ||
+          (window.to !== null && updatedAt >= window.to))
+      ) {
+        seen.add(candidate.id);
+        continue;
+      }
       const s = readMemory(
         owner,
         candidate.id,
@@ -489,10 +499,11 @@ export async function searchMemory(
         title: s.title,
         origin: s.origin,
         updatedAt:
-          s.kind === "note"
+          updatedAt ??
+          (s.kind === "note"
             ? s.updated_at
             : (memorySourcesQueries.recallTime(db, s.id, owner) ??
-              s.updated_at),
+              s.updated_at)),
         complete: !!s.complete,
         excerpt,
         link: s.link,

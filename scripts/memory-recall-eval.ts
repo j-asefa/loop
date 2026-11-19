@@ -217,7 +217,10 @@ export async function evaluate(
   const search = (q: EvalQuery) =>
     searchMemory(q.owner, q.project, q.query, {
       relevant: true,
-      window: parseMemoryTime(q.query, q.referenceAt),
+      window:
+        q.set === "temporal"
+          ? parseMemoryTime(q.query, q.referenceAt)
+          : undefined,
       ...(q.conversation === undefined ? {} : { conversation: q.conversation }),
     });
   for (const q of queries.slice(0, warmup)) await search(q);

@@ -2,7 +2,6 @@ import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
-import { recallTimeSql } from "./memory-sources.js";
 import { statement } from "./statement.js";
 
 const sourceFields = QueryRecords.memory_sources.pick({
@@ -86,7 +85,7 @@ const searchStatement = statement(
      AND s.owner_id=@owner
      AND s.eligible=1 AND s.tombstone=0
      AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL))
-   AND (@from IS NULL AND @to IS NULL OR (${recallTimeSql}) BETWEEN COALESCE(@from,-9223372036854775808) AND COALESCE(@to-1,9223372036854775807)) ORDER BY rank LIMIT 75`,
+   ORDER BY rank LIMIT 75`,
 );
 const offsetsRow = QueryRecords.memory_passages.pick({
   start: true,
@@ -110,15 +109,8 @@ export function search(
   match: string,
   owner: string,
   project: string | null,
-  window?: { from: number | null; to: number | null },
 ) {
   return searchStatement(db)
-    .all({
-      match,
-      owner,
-      project,
-      from: window?.from ?? null,
-      to: window?.to ?? null,
-    })
+    .all({ match, owner, project })
     .map((row) => parseRecord(searchRow, row, "memory_passages"));
 }
