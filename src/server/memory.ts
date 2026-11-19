@@ -77,8 +77,9 @@ function eligible(s: any) {
               s.owner_id,
               "conversation:" + artifact.conversation_id,
             )?.enabled === 0 ||
-              // A later answer can restate text shared earlier in its thread.
-              messagesQueries.hasSharedMessage(
+              // A later answer can restate text in its thread that the
+              // owner did not write.
+              messagesQueries.hasUnwrittenMessage(
                 db,
                 artifact.conversation_id,
                 s.owner_id,
@@ -407,12 +408,16 @@ export async function recallForRun(
       run.conversation_id,
       run.id,
     ) ||
-    // An earlier first turn that was sent with recall but did not complete
-    // already put it in front of the harness. Only a turn that added memory
-    // keeps a receipt, and an undelivered native turn loses its receipt.
-    memoryReceiptsQueries
-      .conversationRuns(db, run.owner_id, run.conversation_id)
-      .some((receipt) => receipt.run_id !== run.id)
+    // An earlier first turn that was dispatched with recall into a native
+    // session (which keeps it) but did not complete already put it in front
+    // of the harness. An API-key retry rebuilds history from messages without
+    // the earlier recall, so it recalls again.
+    memoryReceiptsQueries.recalledIntoSession(
+      db,
+      run.owner_id,
+      run.conversation_id,
+      run.id,
+    )
   )
     return noRecall;
   let recall: Awaited<ReturnType<typeof searchMemory>>;

@@ -396,7 +396,7 @@ export function ownedAgentFileExists(
  * without shared outside text or an integration token, and the run is not a
  * snapshot review. Agent mail, watched pull requests and digests are not
  * personal. Always 0 or 1. Shared text earlier in the conversation is checked
- * at recall time (hasSharedMessage), not in the capture scan, where it cost
+ * at recall time (hasUnwrittenMessage), not in the capture scan, where it cost
  * about 0.8 s per full pass on a live workspace.
  */
 export const personalRunSql = (run: string, owner: string) =>

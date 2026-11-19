@@ -31,6 +31,24 @@ export function replace(
   return replaceStatement(db).run(run, mode, sources, tokens, created);
 }
 
+const recalledIntoSessionStatement = statement(
+  `SELECT 1 AS found FROM memory_receipts m
+    JOIN runs r ON r.id=m.run_id AND r.owner_id=?
+    JOIN native_dispatch d ON d.run_id=m.run_id
+    WHERE r.conversation_id=? AND m.run_id<>? LIMIT 1`,
+);
+/** Whether another run of the conversation sent recall into its native session. */
+export function recalledIntoSession(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+  run: string,
+) {
+  return (
+    recalledIntoSessionStatement(db).get(owner, conversation, run) !== undefined
+  );
+}
+
 const removeStatement = statement("DELETE FROM memory_receipts WHERE run_id=?");
 /** Forgets the receipt of a turn whose recall was never sent. */
 export function remove(db: Database.Database, run: string) {

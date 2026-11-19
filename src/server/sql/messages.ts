@@ -724,16 +724,20 @@ const promptFlagsStatement = statement(
   "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
 );
 const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
-const sharedMessageStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND json_extract(m.metadata,'$.shared')=1 LIMIT 1",
+const unwrittenMessageStatement = statement(
+  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
 );
-/** Whether any user message in a conversation carries shared outside text. */
-export function hasSharedMessage(
+/**
+ * Whether any user message in a conversation was not written by its owner in
+ * Loop: agent mail, a watched pull request, a digest, shared outside text or
+ * an integration token's send.
+ */
+export function hasUnwrittenMessage(
   db: Database.Database,
   conversation: string,
   owner: string,
 ) {
-  return sharedMessageStatement(db).get(conversation, owner) !== undefined;
+  return unwrittenMessageStatement(db).get(conversation, owner) !== undefined;
 }
 /** How a run's first prompt was sent: personal, and whether it was shared. */
 export function promptFlags(db: Database.Database, run: string, owner: string) {
