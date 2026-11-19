@@ -356,7 +356,10 @@ export async function searchMemory(
     passage?: MemoryPassage;
   }[] = [];
   // Bound the FTS OR expansion; relevance still sees the full query.
-  const match = ftsQuery(query, { limit: 8, exclude: STOP_WORDS });
+  const match = ftsQuery(query, {
+    limit: relevant ? 8 : 24,
+    exclude: STOP_WORDS,
+  });
   const terms = recallTerms(query);
   if (match) {
     for (const { id, revision, start, end } of passageQueries.search(
