@@ -153,6 +153,8 @@ export function captureSnapshot(
   const common = [
     "-c",
     "core.quotePath=true",
+    "-c",
+    "core.fileMode=true",
     "diff",
     "--no-color",
     "--src-prefix=a/",

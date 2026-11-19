@@ -194,6 +194,18 @@ it("compares working permissions when an executable is removed from the index", 
     "-m",
     "executable",
   );
+  localGit("config", "core.fileMode", "false");
+  writeFileSync(script, "echo reviewed\n");
+  const tracked = captureSnapshot(checkout, "uncommitted");
+  chmodSync(script, 0o644);
+  expect(
+    snapshotDelta(captureSnapshot(checkout, "uncommitted"), tracked),
+  ).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("old mode 100755\nnew mode 100644"),
+  });
+  chmodSync(script, 0o755);
+  writeFileSync(script, "echo ok\n");
   writeFileSync(join(checkout, "feature.ts"), "export {};\n");
   const earlier = captureSnapshot(checkout, "uncommitted");
   localGit("rm", "--cached", "run.sh");
