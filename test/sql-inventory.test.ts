@@ -131,6 +131,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     parameters?: Set<string>;
     classes?: Map<string, Scope>;
     functions?: Map<string, object>;
+    sqliteMethods?: Map<string, string>;
     objectAliases?: Map<string, { scope: Scope; name: string }>;
   };
   const nodes: any[] = [];
@@ -440,6 +441,23 @@ function sqlCallLines(file: string, text: string, script = false) {
     receivers.push(node.arguments[0]);
     boundReceivers.set(fn, receivers);
   }
+  const markExported = (fn: any) => {
+    let marked = false;
+    for (const parameter of fn?.params ?? []) {
+      if (
+        parameter.type !== "Identifier" ||
+        parameter.name !== "db" ||
+        parameter.typeAnnotation
+      )
+        continue;
+      const scope = scopeOf(fn);
+      if (scope.bindings.get("db") !== "connection") {
+        scope.bindings.set("db", "connection");
+        marked = true;
+      }
+    }
+    return marked;
+  };
   if (script) {
     // Exported fixture entry points can be called from outside this file.
     const exports = new Set<any>();
@@ -463,16 +481,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       for (const specifier of node.specifiers ?? [])
         exports.add(fileScope.functions?.get(specifier.local?.name));
     }
-    for (const fn of exports) {
-      for (const parameter of fn?.params ?? []) {
-        if (
-          parameter.type === "Identifier" &&
-          parameter.name === "db" &&
-          !parameter.typeAnnotation
-        )
-          scopeOf(fn).bindings.set("db", "connection");
-      }
-    }
+    for (const fn of exports) markExported(fn);
   }
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
@@ -513,17 +522,21 @@ function sqlCallLines(file: string, text: string, script = false) {
       owner.bindings.get(key),
     );
   }
-  const functionReference = (expression: any): any => {
-    if (functionKinds.has(expression?.type)) return expression;
+  const memberReference = <T>(
+    expression: any,
+    select: (scope: Scope, name: string) => T | undefined,
+  ) => {
     const name = receiver(expression);
     if (!name) return undefined;
     const owner = name.startsWith("this.")
       ? thisScope(expression)
       : declaringScope(name.split(".")[0], expression);
-    return owner
-      ? receiverProperty(owner, name, (scope, key) => scope.functions?.get(key))
-      : undefined;
+    return owner ? receiverProperty(owner, name, select) : undefined;
   };
+  const functionReference = (expression: any): any =>
+    functionKinds.has(expression?.type)
+      ? expression
+      : memberReference(expression, (scope, key) => scope.functions?.get(key));
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
     if (
@@ -552,6 +565,27 @@ function sqlCallLines(file: string, text: string, script = false) {
           : "inferred";
     }
     return binding;
+  };
+  const methods = new Set(["prepare", "exec"]);
+  if (script) methods.add("pragma");
+  const sqliteMethod = (expression: any): string | undefined => {
+    if (expression?.type === "MemberExpression") {
+      const method = property(expression);
+      if (
+        methods.has(method) &&
+        connectionKind(expression.object) === "connection"
+      )
+        return method;
+    }
+    if (
+      expression?.type === "CallExpression" &&
+      expression.callee.type === "MemberExpression" &&
+      property(expression.callee) === "bind"
+    )
+      return sqliteMethod(unwrap(expression.callee.object));
+    return memberReference(expression, (scope, key) =>
+      scope.sqliteMethods?.get(key),
+    );
   };
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
   for (const node of nodes) {
@@ -583,6 +617,16 @@ function sqlCallLines(file: string, text: string, script = false) {
     binding: Binding | undefined,
     value?: any,
   ) => {
+    const fn = functionReference(value);
+    if (fn && !scope.functions?.has(name)) {
+      (scope.functions ??= new Map()).set(name, fn);
+      changed = true;
+    }
+    const method = sqliteMethod(value);
+    if (method && !scope.sqliteMethods?.has(name)) {
+      (scope.sqliteMethods ??= new Map()).set(name, method);
+      changed = true;
+    }
     if (!binding) return;
     if (binding === "object" && !scope.objectAliases?.has(name)) {
       const path = receiver(value);
@@ -662,6 +706,20 @@ function sqlCallLines(file: string, text: string, script = false) {
       const value = unwrap(
         declaration ? node.init : field ? node.value : node.right,
       );
+      if (script && node.type === "AssignmentExpression") {
+        const path = receiver(target);
+        if (
+          path &&
+          /^(?:module\.exports(?:\.|$)|exports\.)/.test(path) &&
+          !declaringScope(path.split(".")[0], target)
+        ) {
+          if (markExported(functionReference(value))) changed = true;
+          if (value?.type === "ObjectExpression")
+            for (const member of value.properties)
+              if (markExported(functionReference(unwrap(member.value))))
+                changed = true;
+        }
+      }
       const assigned: { name: string; binding: Binding | undefined }[] = [];
       if (target?.type === "ObjectPattern") {
         for (const { key, name } of bindings(target)) {
@@ -707,16 +765,17 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
   }
-  const methods = new Set(["prepare", "exec"]);
-  if (script) methods.add("pragma");
   return nodes
     .filter((node) => {
-      if (
-        node.type !== "CallExpression" ||
-        node.callee.type !== "MemberExpression"
-      )
-        return false;
+      if (node.type !== "CallExpression") return false;
+      if (sqliteMethod(unwrap(node.callee))) return true;
+      if (node.callee.type !== "MemberExpression") return false;
       const method = property(node.callee);
+      if (
+        ["call", "apply"].includes(method) &&
+        sqliteMethod(unwrap(node.callee.object))
+      )
+        return true;
       if (!methods.has(method)) return false;
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
@@ -1100,6 +1159,25 @@ it("follows destructured and default parameters and infers opaque SQL text", () 
     }
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 6, 12, 16]);
+});
+
+it("follows aliased wrappers, CommonJS exports and extracted SQLite methods", () => {
+  const text = `
+    const SQLite = require("better-sqlite3");
+    const db = new SQLite(":memory:");
+    function execute(handle, query) { handle.exec(query); }
+    const invoke = execute;
+    invoke(db, query);
+    module.exports = function seed(db, query) { db.exec(query); };
+    const bound = db.exec.bind(db);
+    const indirect = bound;
+    indirect(query);
+    db.prepare.bind(db)("SELECT 1");
+    function configure(module) {
+      module.exports = function dispatch(db, command) { db.exec(command); };
+    }
+  `;
+  expect(sqlCallLines("probe.cjs", text, true)).toEqual([4, 7, 10, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
