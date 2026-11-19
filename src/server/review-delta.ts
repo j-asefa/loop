@@ -16,6 +16,8 @@ type Op = { kind: " " | "-" | "+"; line: string };
 
 const CONTEXT = 3;
 const MAX_CELLS = 4_000_000;
+const fileText = (files: Record<string, string>, path: string) =>
+  Object.hasOwn(files, path) ? files[path] : undefined;
 const lines = (text: string | undefined) =>
   text === undefined ? [] : text.split("\n");
 
@@ -123,8 +125,8 @@ const changes = (ops: Op[]) => ops.filter((op) => op.kind !== " ").length;
 export function changedLines(snapshot: Snapshot) {
   let count = 0;
   for (const path of snapshot.changed) {
-    const a = lines(snapshot.before[path]),
-      b = lines(snapshot.files[path]);
+    const a = lines(fileText(snapshot.before, path)),
+      b = lines(fileText(snapshot.files, path));
     count += Math.min(changes(edits(a, b)), unmatched(a, b));
   }
   for (const mode of modes(snapshot.diff).values()) if (mode.length) count++;
@@ -149,7 +151,10 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
       // the dropped edit and point the reviewer at the file instead of
       // showing a diff against a stale base.
       const dropped = changes(
-        edits(lines(previous.before[path]), lines(previous.files[path])),
+        edits(
+          lines(fileText(previous.before, path)),
+          lines(fileText(previous.files, path)),
+        ),
       );
       if (!dropped) continue;
       unseen += dropped;
@@ -165,10 +170,11 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
     // base text. With another base (another base ref, or upstream edits under
     // a rebase) or no earlier edit, the whole edit from this base is new.
     const then =
-      changedBefore.has(path) && previous.before[path] === current.before[path]
-        ? previous.files[path]
-        : current.before[path];
-    const now = current.files[path];
+      changedBefore.has(path) &&
+      fileText(previous.before, path) === fileText(current.before, path)
+        ? fileText(previous.files, path)
+        : fileText(current.before, path);
+    const now = fileText(current.files, path);
     if (then === now) continue;
     const ops = edits(lines(then), lines(now));
     const count = changes(ops);

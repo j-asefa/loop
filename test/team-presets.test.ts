@@ -736,6 +736,7 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
 
   // A small fix on top of the reviewed change goes to the lead alone.
   commit("follow.ts", body.with(3, "export const third = 3;"));
+  commit("constructor", ["prototype-named file"]);
   const second = turn(first.conversation_id);
   const followUp = await request(second);
   expect(followUp.followUp).toMatchObject({
@@ -755,6 +756,7 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   expect(context).toContain("Finding: v3 is misnamed");
   expect(context).toContain("Lines added (+) and removed (-) since");
   const delta = context.slice(context.indexOf("Lines added (+) and removed"));
+  expect(delta).toContain("+prototype-named file");
   expect(delta).toContain("-export const v3 = 3;");
   expect(delta).toContain("+export const third = 3;");
   expect(delta).not.toContain("export const v20 = 20;");
