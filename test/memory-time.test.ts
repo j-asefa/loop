@@ -58,6 +58,7 @@ it.each([
   "it's called 'Last Week Tonight'",
   "summarize “Last Week Tonight”",
   "update the `today` field",
+  "find the implementation of `today",
   "group by week",
   "read report.today field",
   "read today.report field",
@@ -272,5 +273,21 @@ it("keeps a later date after excluding someone with a month-shaped name", () => 
   expect(parseMemoryTime(query, now)).toMatchObject({
     from: Date.parse("2026-11-09"),
     to: Date.parse("2026-11-16"),
+  });
+});
+
+it("keeps an explicit cutoff before a parenthesized date", () => {
+  expect(parseMemoryTime("harvest before (2026-10-12)", now)).toMatchObject({
+    from: null,
+    to: Date.parse("2026-10-12"),
+  });
+});
+
+it("ignores subject alternatives between explicit bounds", () => {
+  const query =
+    "Since 2026-10-01, find amethyst or garnet notes before 2026-11-01";
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-10-01"),
+    to: Date.parse("2026-11-01"),
   });
 });
