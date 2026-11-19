@@ -1,3 +1,4 @@
+import { pairDevice } from "./helpers/fixture.mjs";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -177,19 +178,11 @@ try {
   ])
     assert.equal((await fetch(url.origin + path)).status, 200, path);
   const pair = async () => {
-    const r = await fetch(url.origin + "/pair", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Origin: url.origin },
-      body: JSON.stringify({
-        secret: new URLSearchParams(url.hash.slice(1)).get("pair"),
-        name: "Package fixture",
-      }),
-    });
-    assert.equal(r.status, 200);
-    const cookie = r.headers.get("set-cookie").split(";")[0],
-      { csrf } = await fetch(url.origin + "/session", {
-        headers: { Cookie: cookie },
-      }).then((r) => r.json());
+    const { cookie, csrf } = await pairDevice(
+      url.origin,
+      new URLSearchParams(url.hash.slice(1)).get("pair"),
+      "Package fixture",
+    );
     return {
       cookie,
       api: async (path, body) => {
