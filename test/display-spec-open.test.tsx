@@ -324,3 +324,22 @@ it("keeps excerpts free of display source for display-only search matches", () =
     "Summary.",
   );
 });
+
+it("withholds source for an over-limit display only while it is open and writing", () => {
+  const source =
+    fence +
+    patch(
+      { op: "add", path: "/root", value: "d0" },
+      ...Array.from({ length: 10 }, (_, i) =>
+        add(`d${i}`, {
+          type: "Section",
+          children: i < 9 ? [`d${i + 1}`] : [],
+        }),
+      ),
+    );
+  const live = render(source, true, true);
+  expect(live).toContain("This display could not be drawn yet.");
+  expect(live).not.toContain("&quot;op&quot;");
+  expect(render(source, false)).toContain("&quot;op&quot;");
+  expect(render(source + "\n```", true)).toContain("&quot;op&quot;");
+});

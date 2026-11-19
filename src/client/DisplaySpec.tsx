@@ -105,6 +105,8 @@ export function DisplaySpec({
         Display loading…
       </p>
     );
+  if (!read.ok && live)
+    return <p className="note">This display could not be drawn yet.</p>;
   if (!read.ok) {
     const shown = source.replace(/\n$/, "");
     return (

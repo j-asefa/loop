@@ -113,8 +113,9 @@ export function runDetails(
   }
   if (STARTED_RUN_STATES.includes(run.state)) {
     const { latest, artifact } = runPreview(db, owner, runId);
+    // Leading indentation is significant in Markdown, including code fences.
     detail.live_preview =
-      (latest ?? artifact?.content ?? "").trim().slice(0, 4000) || null;
+      (latest ?? artifact?.content ?? "").trimEnd().slice(0, 4000) || null;
   }
 
   return detail;

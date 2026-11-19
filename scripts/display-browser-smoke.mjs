@@ -371,6 +371,15 @@ for (const engine of selectedEngines()) {
           }
         await page.emulateMedia({ colorScheme: "light" });
       }
+      update(working, "    ```spec\n    An indented code example");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview pre")).toContainText(
+        "An indented code example",
+      );
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+
       // The reading sheet and the conversation draw the open block the same
       // way while the run works.
       update(working, writingSteps[1][1]);
