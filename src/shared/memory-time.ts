@@ -269,6 +269,7 @@ function classifyMemoryTime(
       return null;
     if (bareMonth) continue;
     seenDate = true;
+    if (bare) continue;
     if (
       modifier === "since" ||
       modifier === "no earlier than" ||
@@ -295,7 +296,8 @@ function classifyMemoryTime(
     }
     matched.push({ index: match.index, text: match[0] });
   }
-  return matched.length ? { from, to, matched } : undefined;
+  if (matched.length) return { from, to, matched };
+  return seenDate ? null : undefined;
 }
 
 /** Parse a single inclusive-lower, exclusive-upper UTC window. */
