@@ -11,19 +11,19 @@ export async function closeSheets(page) {
   // Include mounted dialogs so the click waits for that effect instead of
   // incorrectly treating the page as already closed on slower WebKit runners.
   const dialogs = page.locator("dialog");
-  let count = await dialogs.count();
-  while (count > 0) {
-    await dialogs
-      .last()
-      .locator(":scope > .sheet-inner > .sheet-head")
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await page.waitForFunction(
-      (previousCount) =>
-        document.querySelectorAll("dialog").length < previousCount,
-      count,
-    );
-    count = await dialogs.count();
+  while (await dialogs.count()) {
+    const dialog = dialogs.last();
+    const closing = await dialog.elementHandle();
+    try {
+      await dialog
+        .locator(":scope > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      // A child can be replaced by its parent without changing the count.
+      await page.waitForFunction((node) => !node.isConnected, closing);
+    } finally {
+      await closing.dispose();
+    }
   }
   // Closing the last sheet pops its history entry asynchronously. Let that
   // Back settle so a following reload or navigation cannot receive it late.
