@@ -29,11 +29,11 @@ it("preserves offsets and packs paragraphs around a short fenced block", () => {
   ).toBe(true);
 });
 
-it.each([true, false])(
-  "bridges a boundary before a final single-word paragraph (artifact=%s)",
-  (artifact) => {
+it.each(["artifact", "note"])(
+  "bridges a boundary before a final single-word paragraph (kind=%s)",
+  (kind) => {
     const raw = "filler ".repeat(227) + "tamarind\n\nsorrel";
-    const passages = memoryPassages(raw, artifact).map(({ start, end }) =>
+    const passages = memoryPassages(raw, kind).map(({ start, end }) =>
       raw.slice(start, end),
     );
     expect(

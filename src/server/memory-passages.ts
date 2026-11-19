@@ -33,7 +33,7 @@ function splitBlock(
 /** Pack Markdown blocks using raw offsets; overlap splits inside longer blocks. */
 export function memoryPassages(
   content: string,
-  result = false,
+  kind = "note",
 ): MemoryPassage[] {
   const blocks: MemoryPassage[] = [];
   let start = 0;
@@ -47,7 +47,12 @@ export function memoryPassages(
       fencedBlocks.push(block);
     } else
       blocks.push(
-        ...splitBlock(content, start, end, result ? 850 : PASSAGE_OVERLAP),
+        ...splitBlock(
+          content,
+          start,
+          end,
+          kind === "artifact" ? 850 : PASSAGE_OVERLAP,
+        ),
       );
     start = end;
   };
@@ -84,7 +89,7 @@ export function memoryPassages(
   }
   // Adjacent paragraphs can contain parts of the same evidence.
   // Add an overlapping raw span at each eligible boundary.
-  if (passages.length > 1) {
+  if (kind !== "message" && passages.length > 1) {
     const bridges: MemoryPassage[] = [];
     for (let index = 1; index < passages.length; index++) {
       const previous = passages[index - 1];

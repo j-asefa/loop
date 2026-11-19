@@ -148,7 +148,7 @@ function putSource(s: any) {
       title: s.title,
       content: s.content,
     },
-    memoryPassages(s.content, s.kind === "artifact"),
+    memoryPassages(s.content, s.kind),
   );
   memorySourcesQueries.setComplete(db, s.complete === false ? 0 : 1, sourceId);
   if (s.kind === "note")
@@ -255,7 +255,7 @@ export function captureMemory() {
         passageQueries.replace(
           db,
           source,
-          memoryPassages(source.content, source.kind === "artifact"),
+          memoryPassages(source.content, source.kind),
         );
       backfilled = pending.length;
       if (backfilled < passageQueries.MEMORY_PASSAGE_BATCH)
