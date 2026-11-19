@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|\\()`,
   "giu",
 );
 function maskFences(query: string) {
@@ -69,8 +69,8 @@ function maskInlineLiterals(query: string) {
   const nextQuote = new Map<string, number>();
   for (const quote of quotes.reverse()) {
     const [mark] = quote;
-    if (mark.length > 1) continue;
-    if (mark === "\n" || mark === "\r" || mark === "\u0000") {
+    if (mark.length > 1 || mark === "\n" || mark === "\r") continue;
+    if (mark === "\u0000") {
       nextQuote.clear();
       continue;
     }

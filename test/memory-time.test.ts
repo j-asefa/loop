@@ -157,3 +157,17 @@ it("ignores quotes inside inline code when locating its closer", () => {
     to: Date.parse("2026-11-16"),
   });
 });
+
+it("keeps unquoted function calls searchable", () => {
+  expect(
+    parseMemoryTime("find the implementation of today()", now),
+  ).toBeUndefined();
+});
+
+it("ignores a date inside a multiline quotation", () => {
+  const query = 'find "notes from last month\nabout harvest" from last week';
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
