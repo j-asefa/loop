@@ -327,6 +327,19 @@ export async function searchMemory(
     );
     candidates.push(...lexical);
   }
+  const coveragePatterns = relevant
+    ? terms.map((term) => termPattern(term, "u"))
+    : [];
+  const required = requiredCoverage(terms.length);
+  function relevantExcerpt(title: string, excerpt: string) {
+    if (!required) return false;
+    const text = (title + "\n" + excerpt).toLowerCase();
+    let found = 0;
+    for (const pattern of coveragePatterns) {
+      if (pattern.test(text) && ++found >= required) return true;
+    }
+    return false;
+  }
   const seen = new Set(),
     sources: any[] = [];
   let characters = 0;
@@ -342,11 +355,12 @@ export async function searchMemory(
       const s = readMemory(owner, candidate.id, candidate.revision, project);
       const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
       let excerpt = matchedExcerpt(s.content, terms, size);
-      if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) {
+      if (relevant && !relevantExcerpt(s.title, excerpt)) {
         // The best body window can repeat terms the title already supplies.
         // Keep the opening when it contributes the terms needed to qualify.
-        excerpt = matchedExcerpt(s.content, [], size);
-        if (!coversQuery(s.title + "\n" + excerpt, terms)) continue;
+        const opening = matchedExcerpt(s.content, [], size);
+        if (opening === excerpt || !relevantExcerpt(s.title, opening)) continue;
+        excerpt = opening;
       }
       if (!excerpt) break;
       characters += excerpt.length;
@@ -485,12 +499,13 @@ function excerptEnd(content: string, bound: number) {
  */
 export function coversQuery(content: string, terms: string[]) {
   if (!terms.length) return false;
-  const required = Math.min(
-    terms.length,
-    Math.max(2, Math.ceil(terms.length / 4)),
-  );
+  const required = requiredCoverage(terms.length);
   return matchedTerms(content, terms, required) >= required;
 }
+function requiredCoverage(terms: number) {
+  return Math.min(terms, Math.max(2, Math.ceil(terms / 4)));
+}
+
 /**
  * How many of `terms` occur in `content` as whole token sequences, as in the
  * index, counting no further than `enough`.
