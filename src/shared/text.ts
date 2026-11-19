@@ -1,14 +1,14 @@
-import { fromMarkdown } from "mdast-util-from-markdown";
+import remarkGfm from "remark-gfm";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 
-type MarkdownNode = ReturnType<typeof fromMarkdown>["children"][number];
+const markdown = unified().use(remarkParse).use(remarkGfm).freeze();
+type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
 
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export function plainPreview(text: string, length = 140) {
   const flat = dropFencedBlocks(text, true)
     .replace(/```+[\s\S]*?```+/g, " ")
-    // Preserve preview handling of inline triple backticks, including an
-    // unfinished inline snippet at the end of the text.
-    .replace(/^([ \t]*[^\s`][^`\r\n]*)```[\s\S]*$/m, "$1 ")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(^|\s)#{1,6}\s+/g, "$1")
@@ -37,7 +37,7 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
   if (!text.includes("```") && !text.includes("~~~")) return text;
   const kept: string[] = [];
   let end = 0;
-  const pending: MarkdownNode[] = fromMarkdown(text).children.reverse();
+  const pending: MarkdownNode[] = markdown.parse(text).children.reverse();
   while (pending.length) {
     const node = pending.pop()!;
     if (node.type === "code" && node.position) {

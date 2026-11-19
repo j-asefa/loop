@@ -166,9 +166,12 @@ it("drops an open fence and what follows it from plain previews", () => {
     plainPreview('Here it is.\n\n```spec\n{"op":"add","path":"/root"'),
   ).toBe("Here it is.");
   expect(plainPreview("Run this:\n```sh\nnpm test")).toBe("Run this:");
-  expect(plainPreview('Closed ```a``` and open ```spec\n{"op"', 140)).toBe(
-    "Closed and open",
-  );
+});
+
+it("keeps prose after an unmatched literal inline delimiter", () => {
+  expect(
+    plainPreview("A literal \\``` marker.\n\nThe build failed."),
+  ).toContain("The build failed.");
 });
 
 it("keeps plain previews identical for text with no open fence", () => {
@@ -252,4 +255,26 @@ it("keeps streaming when an indented delimiter is code content", () => {
     `- ${fence.trim()}\n  ${root}\n      \`\`\``,
   ])
     expect(render(source, true)).toContain("Display loading…");
+});
+
+it("drops displays inside GFM footnotes", () => {
+  const source = [
+    "Before [^display].",
+    "",
+    "[^display]: Summary",
+    "",
+    "    ~~~spec",
+    ...block.split("\n").map((line) => "    " + line),
+    "    ~~~",
+    "",
+    "After.",
+  ].join("\n");
+  for (const preview of [
+    collapse(source, 200),
+    plainPreview(source),
+    searchExcerpt(source, "", ""),
+  ]) {
+    expect(preview).not.toContain('"op"');
+    expect(preview).toContain("After.");
+  }
 });
