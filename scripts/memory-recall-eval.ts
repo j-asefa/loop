@@ -48,6 +48,7 @@ export type EvalMetrics = {
   null: number;
   temporal: number;
   temporalHit5: number;
+  temporalOutside: number;
   skipped: number;
   hit1: number;
   hit5: number;
@@ -148,10 +149,11 @@ export async function sampleQueries({
         matchedTerms(item.title + "\n" + item.content, terms) / terms.length,
     });
     if (temporal) {
-      const source = memorySources.owned(db, item.id, item.owner_id);
-      if (!source) continue;
-      const date = new Date(source.updated_at);
-      const referenceAt = source.updated_at + 7 * 86_400_000;
+      const timestamp = memorySources.recallTime(db, item.id, item.owner_id);
+      if (timestamp === undefined) continue;
+      const date = new Date(timestamp);
+      const referenceAt =
+        Math.floor(timestamp / 86_400_000) * 86_400_000 + 7 * 86_400_000;
       const month = date.toLocaleString("en-US", {
         month: "long",
         timeZone: "UTC",
@@ -210,6 +212,8 @@ export async function evaluate(
 ): Promise<EvalMetrics> {
   const { searchMemory, evidenceBlock, matchedTerms, recallTerms } =
     (await import("../src/server/memory.js")) as Memory;
+  const { db } = await import("../src/server/db.js");
+  const { recallTime } = await import("../src/server/sql/memory-sources.js");
   const search = (q: EvalQuery) =>
     searchMemory(q.owner, q.project, q.query, {
       relevant: true,
@@ -230,6 +234,7 @@ export async function evaluate(
   const deep = { n: 0, hit5: 0, coverage: [] as number[] };
   let temporal = 0;
   let temporalHits = 0;
+  let temporalOutside = 0;
   let nulls = 0,
     abstainNull = 0,
     misses = 0,
@@ -250,6 +255,18 @@ export async function evaluate(
     if (q.set === "temporal") {
       temporal++;
       if (sources.some((source) => source.id === q.target)) temporalHits++;
+      const window = parseMemoryTime(q.query, q.referenceAt);
+      if (
+        window &&
+        sources.some((source) => {
+          const time = recallTime(db, source.id, q.owner) ?? source.updatedAt;
+          return (
+            (window.from !== null && time < window.from) ||
+            (window.to !== null && time >= window.to)
+          );
+        })
+      )
+        temporalOutside++;
       continue;
     }
     known.n++;
@@ -278,6 +295,7 @@ export async function evaluate(
     null: nulls,
     temporal,
     temporalHit5: share(temporalHits, temporal),
+    temporalOutside: share(temporalOutside, temporal),
     skipped,
     hit1: share(known.hit1, known.n),
     hit5: share(known.hit5, known.n),
@@ -302,6 +320,7 @@ const ROWS: [keyof EvalMetrics, string, "count" | "share" | "number"][] = [
   ["null", "null queries", "count"],
   ["temporal", "temporal queries", "count"],
   ["temporalHit5", "temporal hit@5", "share"],
+  ["temporalOutside", "temporal queries with out-of-window evidence", "share"],
   ["skipped", "skipped (no search terms)", "count"],
   ["hit1", "hit@1", "share"],
   ["hit5", "hit@5", "share"],

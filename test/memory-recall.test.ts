@@ -1383,3 +1383,39 @@ it("supplies only the requested date window and never widens it", async () => {
   const absent = "amethyst harvest on 2026-10-13";
   expect((await nativePrompt(absent)).prompt).toBe(absent);
 });
+
+it("uses the original update date for an artifact first captured later", async () => {
+  const artifact = saveArtifact("alice", {
+    title: "Historical lab notebook",
+    content: "alexandrite inspection passed",
+    role: "trace",
+  });
+  const updated = Date.parse("2026-10-02T11:00:00Z");
+  db.prepare("UPDATE artifacts SET updated_at=? WHERE id=?").run(
+    updated,
+    artifact,
+  );
+  const inclusion = await request(
+    "/memory/policy",
+    { scope: "artifact:" + artifact, enabled: true },
+    "alice",
+    "PUT",
+  );
+  expect(inclusion.status).toBe(200);
+  const lookup = db.prepare(
+    "SELECT id,updated_at FROM memory_sources WHERE source_id=?",
+  );
+  expect(lookup.get(artifact)).toMatchObject({ updated_at: updated });
+  const source = lookup.get(artifact) as { id: string };
+
+  // A legacy saved copy used indexing time in the stored update field.
+  db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+    Date.parse("2026-11-02T11:00:00Z"),
+    source.id,
+  );
+  const october = await nativePrompt("alexandrite inspection in October 2026");
+  expect(october.prompt).toContain("alexandrite inspection passed");
+  expect(october.prompt).toContain("2026-10-02");
+  const november = "alexandrite inspection in November 2026";
+  expect((await nativePrompt(november)).prompt).toBe(november);
+});

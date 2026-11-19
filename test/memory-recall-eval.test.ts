@@ -398,6 +398,7 @@ it("scores the temporal target inside the window instead of matching decoys", as
   expect(metrics).toMatchObject({
     temporal: 1,
     temporalHit5: 1,
+    temporalOutside: 0,
     known: 0,
     null: 0,
   });

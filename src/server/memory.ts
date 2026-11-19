@@ -141,7 +141,7 @@ function putSource(s: any) {
     s.title,
     s.eligible ? 1 : 0,
     s.created_at,
-    now(),
+    s.kind === "note" ? now() : (s.updated_at ?? s.created_at),
   );
   passageQueries.replace(
     db,
@@ -193,6 +193,7 @@ function artifactSource(
     | "title"
     | "content"
     | "created_at"
+    | "updated_at"
   >,
 ) {
   return {
@@ -202,6 +203,7 @@ function artifactSource(
     title: a.title,
     content: a.content,
     created_at: a.created_at,
+    updated_at: a.updated_at,
     kind: "artifact",
     source_id: a.id,
     project_id: a.folder_id,
@@ -486,7 +488,11 @@ export async function searchMemory(
         author: sourceAuthor(s),
         title: s.title,
         origin: s.origin,
-        updatedAt: s.updated_at,
+        updatedAt:
+          s.kind === "note"
+            ? s.updated_at
+            : (memorySourcesQueries.recallTime(db, s.id, owner) ??
+              s.updated_at),
         complete: !!s.complete,
         excerpt,
         link: s.link,

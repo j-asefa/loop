@@ -11,16 +11,18 @@ const MONTHS =
   );
 const MONTH = MONTHS.join("|");
 const ISO = "\\d{4}-\\d{2}-\\d{2}";
-const NAMED_MONTH = `(?:${MONTH})(?:[ \\t]+\\d{4})?`;
+const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
+const RELATIVE =
+  "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_.-])(?:(since|before)[ \\t]+(${ISO}|${NAMED_MONTH})|on[ \\t]+(${ISO})|in[ \\t]+(${NAMED_MONTH})|(today|yesterday)|((?:this|last)[ \\t]+(?:week|month))|(\\d+)[ \\t]+(days?|weeks?)[ \\t]+ago)(?![\\p{L}\\p{N}_]|[.-][\\p{L}\\p{N}_])`,
+  `(?<![\\p{L}\\p{N}_.-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_]|[.-][\\p{L}\\p{N}_])`,
   "giu",
 );
 const quoted =
   /"[^"\n]*"|(?<![\p{L}\p{N}])'[^'\n]*'|“[^”\n]*”|‘[^’\n]*’|`[^`\n]*`/gu;
 
 function dateBoundary(text: string, today: number) {
-  if (/^\d/.test(text)) {
+  if (/^\d{4}-/.test(text)) {
     const date = Date.parse(text + "T00:00:00Z");
     return Number.isFinite(date) &&
       new Date(date).toISOString().slice(0, 10) === text
@@ -39,6 +41,34 @@ function dateBoundary(text: string, today: number) {
   };
 }
 
+function relativeBoundary(text: string, today: number) {
+  const date = new Date(today);
+  const monday = today - ((date.getUTCDay() + 6) % 7) * DAY;
+  const [first, second] = text.toLowerCase().split(/\s+/);
+  if (first === "today" || first === "yesterday") {
+    const start = today - (first === "yesterday" ? DAY : 0);
+    return { start, end: start + DAY };
+  }
+  if (first === "this" || first === "last") {
+    const offset = first === "last" ? 1 : 0;
+    if (second === "week") {
+      const start = monday - offset * 7 * DAY;
+      return { start, end: start + 7 * DAY };
+    }
+    const month = date.getUTCMonth() - offset;
+    return {
+      start: Date.UTC(date.getUTCFullYear(), month, 1),
+      end: Date.UTC(date.getUTCFullYear(), month + 1, 1),
+    };
+  }
+  const ago = Number(first);
+  if (!Number.isSafeInteger(ago) || ago > 100_000) return null;
+  const weeks = second.startsWith("week");
+  const span = weeks ? 7 * DAY : DAY;
+  const start = (weeks ? monday : today) - ago * span;
+  return { start, end: start + span };
+}
+
 /** Parse an explicit time reference from the query in UTC, with an exclusive upper bound. */
 export function parseMemoryTime(
   query: string,
@@ -46,60 +76,34 @@ export function parseMemoryTime(
 ): MemoryTimeWindow | undefined {
   const today = Math.floor(reference / DAY) * DAY;
   if (!Number.isFinite(today)) return undefined;
-  const date = new Date(today);
-  const monday = today - ((date.getUTCDay() + 6) % 7) * DAY;
   const searchable = query.replace(quoted, (text) =>
     "\u0000".repeat(text.length),
   );
   let open: MemoryTimeWindow | undefined;
   for (const match of searchable.matchAll(phrase)) {
-    const [, relation, target, iso, named, day, period, count, unit] = match;
+    const [, relation, bound, iso, month, relative] = match;
+    const target = bound ?? iso ?? month ?? relative;
+    const boundary =
+      dateBoundary(target, today) ?? relativeBoundary(target, today);
+    if (!boundary) continue;
     const matched = [{ index: match.index, text: match[0] }];
-    if (target || iso || named) {
-      const boundary = dateBoundary(target ?? iso ?? named, today);
-      if (!boundary) continue;
-      const modifier = relation?.toLowerCase();
-      if (modifier === "since" || modifier === "before") {
-        const from = modifier === "since" ? boundary.start : null;
-        const to = modifier === "before" ? boundary.start : null;
-        if (!open) open = { from, to, matched };
-        else if (
-          (open.from === null && from !== null) ||
-          (open.to === null && to !== null)
-        )
-          return {
-            from: open.from ?? from,
-            to: open.to ?? to,
-            matched: [...(open.matched ?? []), ...matched],
-          };
-        continue;
-      }
-      if (!open) return { from: boundary.start, to: boundary.end, matched };
+    const modifier = relation?.toLowerCase();
+    if (modifier === "since" || modifier === "before") {
+      const from = modifier === "since" ? boundary.start : null;
+      const to = modifier === "before" ? boundary.start : null;
+      if (!open) open = { from, to, matched };
+      else if (
+        (open.from === null && from !== null) ||
+        (open.to === null && to !== null)
+      )
+        return {
+          from: open.from ?? from,
+          to: open.to ?? to,
+          matched: [...(open.matched ?? []), ...matched],
+        };
+      continue;
     }
-    if (open) continue;
-    if (day) {
-      const from = today - (day.toLowerCase() === "yesterday" ? DAY : 0);
-      return { from, to: from + DAY, matched };
-    }
-    if (period) {
-      const last = period.toLowerCase().startsWith("last");
-      if (period.toLowerCase().endsWith("week")) {
-        const from = monday - (last ? 7 * DAY : 0);
-        return { from, to: from + 7 * DAY, matched };
-      }
-      const month = date.getUTCMonth() - (last ? 1 : 0);
-      return {
-        from: Date.UTC(date.getUTCFullYear(), month, 1),
-        to: Date.UTC(date.getUTCFullYear(), month + 1, 1),
-        matched,
-      };
-    }
-    const ago = Number(count);
-    if (!Number.isSafeInteger(ago) || ago > 100_000) continue;
-    const weeks = unit.toLowerCase().startsWith("week");
-    const span = weeks ? 7 * DAY : DAY;
-    const from = (weeks ? monday : today) - ago * span;
-    return { from, to: from + span, matched };
+    if (!open) return { from: boundary.start, to: boundary.end, matched };
   }
   return open;
 }

@@ -30,6 +30,9 @@ it.each([
   ["since October", "2026-10-01", null],
   ["before 2026-10-12", null, "2026-10-12"],
   ["before October 2025", null, "2025-10-01"],
+  ["before yesterday", null, "2026-11-18"],
+  ["since 2 weeks ago", "2026-11-02", null],
+  ["before\n2026-10-13", null, "2026-10-13"],
   ["last\tweek", "2026-11-09", "2026-11-16"],
 ])("parses %s in UTC", (text, from, to) => {
   const query = `recall ${text} from the ledger`;
