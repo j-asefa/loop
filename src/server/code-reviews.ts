@@ -130,6 +130,18 @@ function followUpOf(
       for (const text of Object.values(map)) characters += text.length;
     if (characters > 64_000) return;
   }
+  // For a working-tree addition, disappearance can mean deletion or a new
+  // ignore rule. The capture cannot establish which happened.
+  if (snapshot.scope === "uncommitted") {
+    const known = new Set([...snapshot.changed, ...snapshot.omitted]);
+    for (const capture of new Set([baseline, prior]))
+      if (
+        capture.changed.some(
+          (path) => !known.has(path) && !Object.hasOwn(capture.before, path),
+        )
+      )
+        return;
+  }
   const delta = snapshotDelta(snapshot, baseline);
   const { unseen } = delta;
   if (

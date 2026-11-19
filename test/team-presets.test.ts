@@ -5,6 +5,7 @@ import { testRootDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import {
+  appendFileSync,
   chmodSync,
   mkdtempSync,
   writeFileSync,
@@ -978,6 +979,28 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const dense = await request(denseTurn, { depth: "full" });
   finish(denseTurn, dense);
   expect((await request(turn(first.conversation_id))).reviewers).toBe(3);
+
+  const workingTurn = turn();
+  writeFileSync(join(worktree, "visible.ts"), body.join("\n"));
+  writeFileSync(
+    join(worktree, "ignored-later.ts"),
+    "export const pending = true;",
+  );
+  const original = await request(workingTurn, { scope: "uncommitted" });
+  finish(workingTurn, original);
+  const exclude = execFileSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+    { cwd: worktree, encoding: "utf8" },
+  ).trim();
+  appendFileSync(exclude, "\nignored-later.ts\n");
+  const ignored = await request(turn(workingTurn.conversation_id), {
+    scope: "uncommitted",
+  });
+  expect(ignored.reviewers).toBe(3);
+  expect(readFileSync(join(worktree, "ignored-later.ts"), "utf8")).toContain(
+    "pending",
+  );
 
   // Another conversation asking about the same checkout has no history here.
   const elsewhere = await request(turn());
