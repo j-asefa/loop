@@ -1,4 +1,6 @@
-import { constants } from "node:os";
+import { mkdtempSync, rmSync } from "node:fs";
+import { constants, tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "@playwright/test";
 import { runSupervised } from "../heavy-command.mjs";
@@ -27,7 +29,22 @@ export function selectedEngines() {
  */
 export async function engineForRun(scriptUrl) {
   const selected = selectedName();
-  if (selected) return selected;
+  if (selected) {
+    if (process.connected) {
+      // A monitored worker can exit before its asynchronous finally blocks run.
+      // Limit this fallback to the worker's own fixture directory.
+      const directory = mkdtempSync(join(tmpdir(), "loop-browser-worker-"));
+      process.once("exit", () => {
+        try {
+          rmSync(directory, { recursive: true, force: true, maxRetries: 2 });
+        } catch (error) {
+          console.error("Browser fixture cleanup:", error.message);
+        }
+      });
+      process.env.TMPDIR = process.env.TEMP = process.env.TMP = directory;
+    }
+    return selected;
+  }
   // The supervisor forwards signals to its child. Remember them here too,
   // in case the child has already exited successfully when a signal arrives.
   let interrupted = 0;

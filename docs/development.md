@@ -151,7 +151,7 @@ Tests, builds, typechecks and browser checks start immediately; independent invo
 
 TypeScript 7 runs with `--singleThreaded` to avoid duplicating large checker graphs. The full project is still checked. `GOMEMLIMIT` defaults to `1536MiB` for the compiler only; it is a soft Go heap target, not a process memory ceiling. Node's heap limit does not control this native compiler.
 
-[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) supervises commands. On Linux, Python 3.8+ adopts orphaned descendants and gives cleanup five seconds before escalating to SIGKILL. It also cleans up if the caller dies; killing the supervisor itself with SIGKILL requires the enclosing cgroup to clean up. On other platforms, commands launch directly and forward signals. Pass `--browser-dispatch` before Node options when wrapping a browser script that dispatches its engines into child processes. The flag lets the dispatcher detect when the wrapper exits. Browser scripts close their own detached helpers.
+[scripts/heavy-command.mjs](../scripts/heavy-command.mjs) supervises commands. On Linux, Python 3.8+ adopts orphaned descendants and gives cleanup five seconds before escalating to SIGKILL. It also cleans up if the caller dies; killing the supervisor itself with SIGKILL requires the enclosing cgroup to clean up. On other platforms, commands launch directly and forward signals. Pass `--browser-dispatch` before Node options when wrapping a browser script that dispatches its engines into child processes. The flag lets the dispatcher detect when the wrapper exits. Monitored browser workers isolate their temporary fixtures and remove that directory when they exit. Browser scripts close their own detached helpers.
 
 The [agent resource budget](server.md#keep-agent-workloads-from-exhausting-the-server) still limits aggregate agent memory and CPU. Container builds need separate limits because Docker work runs outside the caller's process tree and cgroup.
 
@@ -185,8 +185,8 @@ LOOP_BROWSER=webkit npm run smoke:fleet-commands
 Dual-engine smokes run Chromium and WebKit by default. Set `LOOP_BROWSER=chromium` or `LOOP_BROWSER=webkit` to select one engine for those scripts. The companion, reconnect and fleet commands above use explicit WebKit invocations because those scripts default to Chromium. The first stage of `smoke:cards` requires Chromium. To run the card content and window checks in WebKit:
 
 ```sh
-LOOP_BROWSER=webkit node scripts/heavy-command.mjs --import tsx scripts/cards-content-browser.mjs
-LOOP_BROWSER=webkit node scripts/heavy-command.mjs scripts/cards-window-browser.mjs
+LOOP_BROWSER=webkit node scripts/heavy-command.mjs --browser-dispatch --import tsx scripts/cards-content-browser.mjs
+LOOP_BROWSER=webkit node scripts/heavy-command.mjs --browser-dispatch scripts/cards-window-browser.mjs
 ```
 
 Each script in the table below describes its coverage in the header comment.

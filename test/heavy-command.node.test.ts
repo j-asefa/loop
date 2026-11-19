@@ -70,34 +70,43 @@ test("browser engine dispatch stops when cancelled as the first engine exits", (
   assert.equal(child.stdout.trim(), "chromium");
 });
 
-for (const [platform, mode] of [
-  ["darwin", "direct"],
-  ["darwin", "wrapped"],
-  ["win32", "wrapped"],
+for (const [platform, mode, cleanup] of [
+  ["darwin", "direct", "signal"],
+  ["darwin", "wrapped", "signal"],
+  ["win32", "wrapped", "signal"],
+  ["win32", "wrapped", "exit"],
 ]) {
-  test(`browser smoke exits when its ${mode} ${platform} supervisor is killed`, async () => {
+  test(`browser smoke cleans up via ${cleanup} when its ${mode} ${platform} supervisor is killed`, async () => {
     const enginesUrl = new URL(
       "../scripts/helpers/engines.mjs",
       import.meta.url,
     ).href;
-    const script = join(directory, `browser-${platform}-${mode}.mjs`);
-    const started = join(directory, `browser-${platform}-${mode}.pid`);
-    const stopped = join(directory, `browser-${platform}-${mode}.stopped`);
+    const name = `browser-${platform}-${mode}-${cleanup}`;
+    const script = join(directory, `${name}.mjs`);
+    const started = join(directory, `${name}.started`);
+    const stopped = join(directory, `${name}.stopped`);
     writeFileSync(
       script,
       `
-      import { renameSync, writeFileSync } from "node:fs";
+      import { mkdtempSync, renameSync, writeFileSync } from "node:fs";
+      import { tmpdir } from "node:os";
+      import { join } from "node:path";
       import { engineForRun } from ${JSON.stringify(enginesUrl)};
       const engine = await engineForRun(import.meta.url);
       const mark = (file, value) => {
         writeFileSync(file + ".tmp", value);
         renameSync(file + ".tmp", file);
       };
-      process.once("SIGTERM", () => {
-        mark(${JSON.stringify(stopped)}, engine);
-        process.exit(143);
-      });
-      mark(${JSON.stringify(started)}, String(process.pid));
+      const fixture = mkdtempSync(join(tmpdir(), "loop-reader-"));
+      if (${JSON.stringify(cleanup)} === "signal") {
+        process.once("SIGTERM", () => {
+          mark(${JSON.stringify(stopped)}, engine);
+          process.exit(143);
+        });
+      } else {
+        process.once("exit", () => mark(${JSON.stringify(stopped)}, engine));
+      }
+      mark(${JSON.stringify(started)}, JSON.stringify({ pid: process.pid, fixture }));
       setInterval(() => {}, 1000);
     `,
     );
@@ -123,14 +132,21 @@ for (const [platform, mode] of [
       process.execPath,
       ["--import", simulateMacOS, ...target],
       {
-        env: { ...process.env, LOOP_BROWSER: "" },
+        env: {
+          ...process.env,
+          LOOP_BROWSER: "",
+          TMPDIR: directory,
+          TEMP: directory,
+          TMP: directory,
+        },
         stdio: "ignore",
       },
     );
     processes.push(dispatcher);
     await waitFor(() => existsSync(started), "browser smoke did not start");
-    const pid = Number(readFileSync(started, "utf8"));
+    const { pid, fixture } = JSON.parse(readFileSync(started, "utf8"));
     assert.ok(Number.isSafeInteger(pid) && pid > 0);
+    assert.ok(existsSync(fixture));
     try {
       dispatcher.kill("SIGKILL");
       await waitFor(
@@ -139,6 +155,10 @@ for (const [platform, mode] of [
         5000,
       );
       assert.equal(readFileSync(stopped, "utf8"), "chromium");
+      await waitFor(
+        () => !existsSync(fixture),
+        "browser fixture survived its worker",
+      );
     } finally {
       if (!existsSync(stopped) && alive(pid)) process.kill(pid, "SIGTERM");
     }
