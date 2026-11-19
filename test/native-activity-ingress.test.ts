@@ -524,12 +524,77 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
       delta: { type: "text_delta", text: " late" },
     },
   });
-  // The fragment re-establishes a commentary item in the fresh window rather
-  // than a phase-less one that could become the new run's answer.
+  // The fragment re-establishes a commentary item in the fresh window (the
+  // between-turns text is carried over, not dropped) rather than a phase-less
+  // one that could become the new run's answer.
   expect(current.live.items.get("child-cross")).toEqual({
     id: "child-cross",
     kind: "assistant",
-    text: " late",
+    text: "Child text two late",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
+it("does not overwrite a recall-window child message with a later delta's empty item", async () => {
+  const sessions = new NativeSessions();
+  const first = turn("conv", "claude-recall-1");
+  const current = start(sessions, "claude-recall-generation", first);
+  sessions.state.startTurn(current.live, first);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-recall",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-recall", ...m });
+  // Turn 1 ends.
+  adapter.message({
+    type: "result",
+    session_id: "claude-recall",
+    is_error: false,
+  });
+  // The next run attaches; a delayed full child message arrives during the
+  // recall window, before the next prompt is dispatched.
+  sessions.state.startTurn(current.live, turn("conv", "claude-recall-2"));
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-recall",
+      role: "assistant",
+      content: [{ type: "text", text: "Full recall text" }],
+    },
+  });
+  await adapter.prompt("next");
+  // The child stream's delta arrives after the new prompt.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-recall" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " and more" },
+    },
+  });
+  // The re-established item carried the known text, so the delta appended
+  // instead of replacing the recall message's text with the empty fragment.
+  expect(current.live.items.get("child-recall")).toEqual({
+    id: "child-recall",
+    kind: "assistant",
+    text: "Full recall text and more",
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();

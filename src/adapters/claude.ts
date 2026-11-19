@@ -67,8 +67,15 @@ export class Claude extends DirectAdapter implements Adapter {
   // Keyed by the item id, because a stream's id can switch before
   // `message_start` arrives. An id already emitted must never be established
   // again: the projector replaces an item by id, so an empty re-established
-  // item would overwrite the child's saved text.
+  // item would overwrite the child's saved text. Cleared at the result and
+  // again at the next new user turn, so a delayed delta re-establishes its
+  // commentary item in the fresh projector window.
   private childItems = new Set<string>();
+  // Last-known full text per child item id, from the child assistant message.
+  // Kept across prompt() (unlike childItems) so a re-established item in the
+  // fresh window carries the known text instead of replacing it with empty;
+  // cleared with childItems at the result, so it stays bounded per turn.
+  private childText = new Map<string, string>();
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
@@ -551,7 +558,15 @@ export class Claude extends DirectAdapter implements Adapter {
           this.childItems.add(id);
           this.emit({
             type: "item",
-            item: { id, kind: "assistant", text: "", phase: "commentary" },
+            item: {
+              id,
+              kind: "assistant",
+              // Seed with any text already known for this id (a full child
+              // assistant message seen earlier, possibly before prompt());
+              // the projector replaces by id, so an empty item would drop it.
+              text: this.childText.get(id) ?? "",
+              phase: "commentary",
+            },
           });
         }
         this.emit({ type: "delta", id, text: e.delta.text });
@@ -583,9 +598,12 @@ export class Claude extends DirectAdapter implements Adapter {
         .map((b: any) => b.text)
         .join("\n");
       if (text) {
-        // Remember the emitted id so a later delta merges into this item
-        // instead of establishing an empty one that replaces its text.
-        if (m.parent_tool_use_id) this.childItems.add(m.message.id);
+        // Remember the emitted id and its text so a later delta merges into
+        // this item instead of establishing an empty one that replaces it.
+        if (m.parent_tool_use_id) {
+          this.childItems.add(m.message.id);
+          this.childText.set(m.message.id, text);
+        }
         this.emit({
           type: "item",
           item: {
@@ -642,6 +660,7 @@ export class Claude extends DirectAdapter implements Adapter {
       this.active = false;
       this.messageIds.clear();
       this.childItems.clear();
+      this.childText.clear();
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();
