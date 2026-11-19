@@ -258,7 +258,8 @@ function sqlCallLines(file: string, text: string, script = false) {
   const unwrap = (node: any) => {
     while (
       node?.type === "AwaitExpression" ||
-      node?.type === "ParenthesizedExpression"
+      node?.type === "ParenthesizedExpression" ||
+      node?.type === "ChainExpression"
     )
       node = node.type === "AwaitExpression" ? node.argument : node.expression;
     return node;
@@ -325,6 +326,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
     for (const member of value.properties) {
+      if (member.type === "SpreadElement") {
+        const source = unwrap(member.argument);
+        if (source?.type === "ObjectExpression")
+          recordObject(scope, name, source);
+        else propertyInitializers.push({ scope, name, value: source });
+        continue;
+      }
       if (member.type !== "Property") continue;
       const key = objectKey(member);
       const child = unwrap(member.value);
@@ -363,6 +371,13 @@ function sqlCallLines(file: string, text: string, script = false) {
           specifier.type === "ImportDefaultSpecifier"
         )
           binding = "constructor";
+        if (
+          node.source.value === "better-sqlite3" &&
+          specifier.type === "ImportNamespaceSpecifier"
+        ) {
+          binding = "object";
+          scope.bindings.set(`${specifier.local.name}.default`, "constructor");
+        }
         if (
           specifier.imported?.name === "db" &&
           dbModule.test(node.source.value)
@@ -450,7 +465,9 @@ function sqlCallLines(file: string, text: string, script = false) {
   }
   const markExported = (fn: any) => {
     let marked = false;
-    for (const parameter of fn?.params ?? []) {
+    for (const pattern of fn?.params ?? []) {
+      const parameter =
+        pattern.type === "AssignmentPattern" ? pattern.left : pattern;
       if (
         parameter.type !== "Identifier" ||
         parameter.name !== "db" ||
@@ -559,12 +576,15 @@ function sqlCallLines(file: string, text: string, script = false) {
       : memberReference(expression, (scope, key) => scope.functions?.get(key));
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
+    const callee =
+      expression?.type === "NewExpression" && unwrap(expression.callee);
     if (
-      expression?.type === "NewExpression" &&
-      (isConstructor(expression.callee.name, expression) ||
-        (expression.callee.type === "MemberExpression" &&
-          property(expression.callee) === "default" &&
-          importsSqlite(expression.callee.object)))
+      callee &&
+      (memberReference(callee, (scope, key) => scope.bindings.get(key)) ===
+        "constructor" ||
+        (callee.type === "MemberExpression" &&
+          property(callee) === "default" &&
+          importsSqlite(callee.object)))
     )
       return "connection";
     const name = receiver(expression);
@@ -1231,6 +1251,19 @@ it("retains SQLite evidence across call orders and destructured method aliases",
     "run(source, query);\n    run(adapter, command);",
   );
   expect(sqlCallLines("probe.ts", reversed, true)).toEqual([6, 11]);
+});
+
+it("covers namespace constructors, object spreads and defaulted exports", () => {
+  const text = `
+    import * as SQLite from "better-sqlite3";
+    const db = new SQLite.default(":memory:");
+    db?.exec(query);
+    export function seed(db = openFixtureDb(), query) { db.exec(query); }
+    const fixture = { connection: db };
+    function run(context, query) { context?.connection?.exec(query); }
+    run({ ...fixture }, query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 5, 7]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
