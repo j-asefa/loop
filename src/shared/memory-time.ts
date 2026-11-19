@@ -172,17 +172,21 @@ function classifyMemoryTime(
   let previousEnd = 0;
   let seenDate = false;
   let previousBareMonth = false;
+  let previousExplicitMonth = false;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative, bare] = match;
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const bareMonth =
       bare && MONTHS.some((name) => name.toLowerCase() === bare.toLowerCase());
-    const alternativeContext = between.split(/[.!?;\u0000]/u).at(-1) ?? "";
+    const alternativeContext = between.split(/[.!?;]/u).at(-1) ?? "";
     const alternative = previousBareMonth
       ? !bareMonth && /^[\s,([{]*(?:or|nor)[\s,([{]*$/iu.test(between)
       : seenDate && /^[\s,([{]*(?:or|nor)\b/iu.test(alternativeContext);
+    const sharedMonthPreposition =
+      previousExplicitMonth && bareMonth && /^\s+and\s+$/iu.test(between);
     previousBareMonth = Boolean(bareMonth);
+    previousExplicitMonth = Boolean(month);
     const preposition =
       relation ?? /^(?:from|on|in|within|during)\b/iu.exec(match[0])?.[0];
     const exclusionContext = (between + (preposition ?? "")).replace(
@@ -190,7 +194,7 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|not(?!\s+only\b)|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
+      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|not(?!\s+only\b)|don['’]t\s+include|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       ) ||
       /\bwithout(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
@@ -214,7 +218,8 @@ function classifyMemoryTime(
         continue;
     }
     // A single interval cannot express exclusions or alternative dates.
-    if (alternative || (exclusion && !bareMonth)) return null;
+    if (alternative || sharedMonthPreposition || (exclusion && !bareMonth))
+      return null;
     if (bareMonth) continue;
     seenDate = true;
     if (modifier === "since" || modifier === "after") {
