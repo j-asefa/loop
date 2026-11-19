@@ -18,7 +18,7 @@ const log = (value) => {
 log({ args, pid: process.pid });
 const mode = process.env.LOOP_TEST_AGY_MODE;
 if (args[0] === "--version") {
-  console.log("1.5.9");
+  console.log(process.env.LOOP_TEST_AGY_VERSION || "1.5.9");
   process.exit(0);
 }
 if (args[0] === "models") {

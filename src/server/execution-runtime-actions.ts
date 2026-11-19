@@ -13,7 +13,7 @@ import { discover } from "../host-control.js";
 import { upgradeLauncher } from "../harness-upgrades.js";
 import { hostEnvironmentName } from "./execution-location.js";
 import { db } from "./db.js";
-import { Problem, ownedFolder } from "./domain.js";
+import { Problem, ownedConnection, ownedFolder } from "./domain.js";
 import { nativeSessions } from "./native-sessions.js";
 import { OWNER } from "./workspace-identity.js";
 import { harnessHolds } from "./harness-holds.js";
@@ -96,6 +96,11 @@ export async function runtimeList({
         installed: probe.installed,
         available: !!(probe.installed && probe.supported),
         version: probe.installed ? probe.version : undefined,
+        registeredVersion: saved?.version,
+        workspaceTools:
+          typeof enabled?.capabilities?.workspaceTools === "boolean"
+            ? enabled.capabilities.workspaceTools
+            : undefined,
         help: probe.help,
         enabled:
           !!enabled &&
@@ -237,13 +242,15 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       "Install or repair " + name + " on this computer. " + probe.help,
     );
   try {
-    return await nativeSessions.projects.enable({
+    const enabled = await nativeSessions.projects.enable({
       harness: name,
       executable: probe.executable!,
       version: probe.version,
       project: project.path,
       billing: input.billing,
     });
+    probes.clear();
+    return enabled;
   } catch (error) {
     if (error instanceof Problem) throw error;
     throw new Problem(
@@ -251,4 +258,31 @@ export async function runtimeEnable(input: ExecutionInput<"runtime.enable">) {
       `Could not enable ${name} on this computer. Check its CLI sign-in and configuration, and verify the selected billing policy. Subscription mode requires a supported native subscription; no billing fallback was attempted. Run loop doctor for installation checks, then retry.`,
     );
   }
+}
+export async function runtimeRefresh({
+  connectionId,
+}: ExecutionInput<"runtime.refresh">) {
+  const connection = ownedConnection(connectionId, OWNER);
+  const name = connection.metadata.loopHarness;
+  if (!name) throw new Problem(409, "Connection has no native harness");
+  const saved = nativeSessions.projects.registration(name);
+  if (name === "acp") return nativeSessions.projects.enable(saved);
+  const probe = await discover(name, saved.executable);
+  if (!probe.installed)
+    throw new ExecutionRefused(
+      409,
+      "Install or repair " + name + " on this computer. " + probe.help,
+    );
+  if (probe.version && !probe.supported && probe.version !== saved.version)
+    throw new ExecutionRefused(
+      409,
+      "Install or repair " + name + " on this computer. " + probe.help,
+    );
+  const refreshed = await nativeSessions.projects.enable(
+    probe.executable && probe.version
+      ? { ...saved, executable: probe.executable, version: probe.version }
+      : saved,
+  );
+  probes.clear();
+  return refreshed;
 }

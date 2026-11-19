@@ -236,6 +236,8 @@ export const executionOperations = {
           installed: z.boolean(),
           available: z.boolean(),
           version: z.string().optional(),
+          registeredVersion: z.string().optional(),
+          workspaceTools: z.boolean().optional(),
           help: z.string(),
           enabled: z.boolean(),
           authentication: z.enum(["previously_verified", "unknown"]),

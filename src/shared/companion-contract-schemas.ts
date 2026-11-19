@@ -144,6 +144,8 @@ export const PublicRuntimes = z.object({
       installed: z.boolean(),
       available: z.boolean(),
       version: Text.optional(),
+      registeredVersion: Text.optional(),
+      workspaceTools: z.boolean().optional(),
       help: Text,
       enabled: z.boolean(),
       authentication: Text,
