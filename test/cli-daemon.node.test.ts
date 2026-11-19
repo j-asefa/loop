@@ -42,7 +42,7 @@ async function workspace(extraEnv: Record<string, string> = {}) {
   await mkdir(project);
   gitProject(project);
   const fixture = join(base, "codex");
-  await copyFile(resolve("test/harness.mjs"), fixture);
+  await copyFile(resolve("test/fixtures/harness.mjs"), fixture);
   await chmod(fixture, 0o755);
   // Neutral starts discover PATH. Keep them independent of harnesses installed
   // and signed in on the developer's machine; explicit fixtures still run.

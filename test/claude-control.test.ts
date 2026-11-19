@@ -26,7 +26,7 @@ it.each(["timeout", "dispose"] as const)(
     const adapter = new Claude(
       {
         harness: "claude",
-        executable: resolve("test/harness.mjs"),
+        executable: resolve("test/fixtures/harness.mjs"),
         project: directory,
         billing: "existing",
         permissionMode: "default",

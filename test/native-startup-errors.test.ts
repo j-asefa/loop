@@ -24,7 +24,7 @@ seedAgent(db, {
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
-const executable = resolve("test/harness.mjs");
+const executable = resolve("test/fixtures/harness.mjs");
 chmodSync(executable, 0o755);
 const options = {
   harness: "pi",

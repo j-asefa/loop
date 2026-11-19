@@ -64,7 +64,7 @@ await exec("git", [
   "Initial fixture",
 ]);
 const fixture = join(base, "codex");
-await copyFile("test/harness.mjs", fixture);
+await copyFile("test/fixtures/harness.mjs", fixture);
 await chmod(fixture, 0o755);
 await chmod("test/fixtures/fake-cloudflared.mjs", 0o755);
 const env = {

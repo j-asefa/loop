@@ -122,7 +122,7 @@ try {
     LOOP_TEST_HARNESS: "codex",
   };
   const fixture = join(base, "fixture-harness");
-  await copyFile("test/harness.mjs", fixture);
+  await copyFile("test/fixtures/harness.mjs", fixture);
   await chmod(fixture, 0o755);
   assert.equal(
     (await exec(bin, ["--version"], { env })).stdout.trim(),

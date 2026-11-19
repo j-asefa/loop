@@ -31,7 +31,7 @@ for (const harness of ["claude", "codex"]) {
     harness,
     JSON.stringify({
       harness,
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project: dir,
       billing: "existing",
       version: "fixture",

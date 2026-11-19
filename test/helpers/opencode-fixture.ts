@@ -47,7 +47,7 @@ export async function opencodeFixture(t: TestContext, history: unknown[] = []) {
 process.env.LOOP_TEST_HARNESS = "opencode";
 process.env.LOOP_TEST_OPENCODE_SOCKET = ${JSON.stringify(path)};
 process.env.LOOP_TEST_OPENCODE_HISTORY = ${JSON.stringify(JSON.stringify(history))};
-import(${JSON.stringify(pathToFileURL(resolve("test/harness.mjs")).href)});
+import(${JSON.stringify(pathToFileURL(resolve("test/fixtures/harness.mjs")).href)});
 `,
     { mode: 0o755 },
   );

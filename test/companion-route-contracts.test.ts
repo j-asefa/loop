@@ -63,7 +63,7 @@ process.env.LOOP_TEST_HISTORY_PROJECT = project;
 for (const name of ["codex", "claude", "pi", "opencode", "muse", "grok"]) {
   writeFileSync(
     join(bin, name),
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=${name}\nexport LOOP_TEST_AUTH_DIR='${directory}'\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
 }
