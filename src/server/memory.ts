@@ -356,11 +356,16 @@ export async function searchMemory(
       const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
       let excerpt = matchedExcerpt(s.content, terms, size);
       if (relevant && !relevantExcerpt(s.title, excerpt)) {
-        // The best body window can repeat terms the title already supplies.
-        // Keep the opening when it contributes the terms needed to qualify.
-        const opening = matchedExcerpt(s.content, [], size);
-        if (opening === excerpt || !relevantExcerpt(s.title, opening)) continue;
-        excerpt = opening;
+        // Look for terms that the title does not already supply.
+        const title = s.title.toLowerCase();
+        const remaining = terms.filter(
+          (_, index) => !coveragePatterns[index].test(title),
+        );
+        if (remaining.length === terms.length) continue;
+        const alternative = matchedExcerpt(s.content, remaining, size);
+        if (alternative === excerpt || !relevantExcerpt(s.title, alternative))
+          continue;
+        excerpt = alternative;
       }
       if (!excerpt) break;
       characters += excerpt.length;

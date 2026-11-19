@@ -1144,6 +1144,19 @@ it("keeps the head when a deeper match repeats title terms and fails relevance",
   expect(prompt).toContain("saffron belongs in the opening.");
 });
 
+it("finds a later passage that supplies the term missing from the title", async () => {
+  const source = await note(
+    "Tamarind",
+    "filler ".repeat(300) +
+      "tamarind appears in the earlier passage. " +
+      "filler ".repeat(300) +
+      "sorrel appears in the later passage.",
+  );
+  const { prompt } = await nativePrompt("tamarind sorrel");
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("sorrel appears in the later passage.");
+});
+
 it("matches titles as well as content", async () => {
   const titled = await note(
     "Osprey runbook",
