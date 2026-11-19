@@ -28,13 +28,6 @@ export function selectedEngines() {
 export async function engineForRun(scriptUrl) {
   const selected = selectedName();
   if (selected) return selected;
-  // The CLI supplies a channel on the direct-spawn path. Only the browser
-  // dispatcher opts in to stopping when that outer wrapper exits.
-  if (
-    process.env.LOOP_BROWSER_SUPERVISOR_CHANNEL === "1" &&
-    process.connected !== undefined
-  )
-    await import("../exit-with-parent.mjs");
   // The supervisor forwards signals to its child. Remember them here too,
   // in case the child has already exited successfully when a signal arrives.
   let interrupted = 0;

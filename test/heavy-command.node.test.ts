@@ -112,7 +112,13 @@ for (const [platform, mode] of [
     const target =
       mode === "direct"
         ? [script]
-        : [fileURLToPath(moduleUrl), "--import", simulateMacOS, script];
+        : [
+            fileURLToPath(moduleUrl),
+            "--browser-dispatch",
+            "--import",
+            simulateMacOS,
+            script,
+          ];
     const dispatcher = spawn(
       process.execPath,
       ["--import", simulateMacOS, ...target],
@@ -139,7 +145,7 @@ for (const [platform, mode] of [
   });
 }
 
-test("arbitrary commands do not adopt browser parent monitoring", () => {
+test("arbitrary commands can finish with an IPC message listener", () => {
   const simulateMacOS =
     "data:text/javascript," +
     encodeURIComponent(
@@ -152,12 +158,15 @@ test("arbitrary commands do not adopt browser parent monitoring", () => {
       simulateMacOS,
       fileURLToPath(moduleUrl),
       "-e",
-      'console.log(process.listenerCount("disconnect"))',
+      `
+        process.on("message", () => {});
+        console.log(process.listenerCount("disconnect"), typeof process.send);
+      `,
     ],
     { encoding: "utf8", timeout: 15_000 },
   );
   assert.equal(child.status, 0, child.stderr);
-  assert.equal(child.stdout.trim(), "0");
+  assert.equal(child.stdout.trim(), "0 undefined");
 });
 
 test("browser child refuses to start after losing its parent channel", () => {

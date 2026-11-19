@@ -11,7 +11,6 @@ export async function runSupervised(command, args, options = {}) {
     env = process.env,
     signal,
     exitWithParent = false,
-    ipc = false,
     log = (line) => process.stderr.write(line + "\n"),
   } = options;
   if (signal?.aborted) return 130;
@@ -40,7 +39,7 @@ export async function runSupervised(command, args, options = {}) {
         env,
         stdio: supervised
           ? [stdio, stdio, stdio, "pipe"]
-          : monitorParent || ipc
+          : monitorParent
             ? [stdio, stdio, stdio, "ipc"]
             : stdio,
       },
@@ -91,13 +90,14 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   const args = process.argv.slice(2);
+  const browserDispatch = args[0] === "--browser-dispatch";
+  if (browserDispatch) args.shift();
   if (!args.length)
     throw new Error(
-      "Usage: node scripts/heavy-command.mjs [node options] script [arguments]",
+      "Usage: node scripts/heavy-command.mjs [--browser-dispatch] [node options] script [arguments]",
     );
   process.exitCode = await runSupervised(process.execPath, args, {
     label: "browser smoke",
-    ipc: true,
-    env: { ...process.env, LOOP_BROWSER_SUPERVISOR_CHANNEL: "1" },
+    exitWithParent: browserDispatch,
   });
 }
