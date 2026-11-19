@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before|after)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from)\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:(?:from|within)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before|after)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during)\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -181,13 +181,16 @@ function classifyMemoryTime(
         between,
       );
     const preposition =
-      relation ?? /^(?:from|on|in|within)\b/iu.exec(match[0])?.[0];
+      relation ?? /^(?:from|on|in|within|during)\b/iu.exec(match[0])?.[0];
     const exclusionContext = (between + (preposition ?? "")).replace(
       /\u0000+/g,
       " literal ",
     );
     const exclusion =
-      /\b(?:not|except|excluding|without|skip)(?:(?:[\s,:()[\]{}]+[\p{L}]+){0,4}[\s,:()[\]{}]+(?:from|for|during|of|dated|on|in|within|before|after|since)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
+      /\b(?:exclude|excluding|except|without|skip)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
+        exclusionContext,
+      ) ||
+      /\bnot(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       );
     const target = bound ?? iso ?? month ?? relative ?? bare;
