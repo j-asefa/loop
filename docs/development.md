@@ -122,6 +122,19 @@ Current connection fixtures can use [seedConnection()](../test/helpers/seed.ts),
 
 Native async tests use bounded waits from `test/helpers.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
+### Memory recall replay evaluation
+
+Fixture tests show recall works; they cannot show it recalls the right things. [scripts/memory-recall-eval.ts](../scripts/memory-recall-eval.ts) is a proxy measure on a copy of a real workspace. For each saved result, the prompt that produced it is a known-item query, and recall should find that result. Prompts from conversations that left nothing in memory measure how often recall adds nothing. It calls production `searchMemory` and reports hit@1/@5, MRR, abstain rates, how much of the query the excerpt shows, injected characters and search latency.
+
+```sh
+mkdir -m 700 /var/tmp/memory-eval/head
+LOOP_DATA_DIR=/var/tmp/memory-eval/head node --import tsx scripts/memory-recall-eval.ts \
+  --copy-from <workspace loop.db> --json /var/tmp/memory-eval/head.json
+node --import tsx scripts/memory-recall-eval.ts --compare base.json head.json
+```
+
+`--copy-from` opens the workspace database read-only and copies only the tables recall reads (never connections or review snapshots) into a fresh, migrated database. The script refuses to run against a data directory under `~/.local/state`. The copy holds the owner's work: keep it and the JSON local, and put only the aggregate table in a PR. Compare base and head on the same copy, seed and limit (`--seed`, `--limit`, default 1 and 500).
+
 ## Command supervision
 
 Tests, builds, typechecks and browser checks start immediately; independent invocations never wait for a shared host slot. Each suite keeps its own worker settings and command supervision; model turns and ordinary file or Git operations also remain concurrent.
