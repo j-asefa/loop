@@ -199,6 +199,8 @@ it.each([
   "harvest October or in November",
   "harvest yesterday or tomorrow",
   "harvest notes, exclude yesterday",
+  "harvest notes from this week, but not including yesterday",
+  "harvest notes from this week, but leave out yesterday",
   "harvest notes, excluding specifically yesterday",
   "amethyst this week or (preferably) today",
   "harvest notes from this week, but skip yesterday",
@@ -240,5 +242,14 @@ it("uses the narrower period when it appears first", () => {
   ).toMatchObject({
     from: Date.parse("2026-11-18"),
     to: Date.parse("2026-11-19"),
+  });
+});
+
+it("keeps a date when without modifies the subject", () => {
+  expect(
+    parseMemoryTime("harvest notes without irrigation from last week", now),
+  ).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
   });
 });

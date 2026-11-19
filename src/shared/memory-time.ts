@@ -187,10 +187,10 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|without|skip)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
+      /\b(?:exclude|excluding|except|skip|not\s+including|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       ) ||
-      /\bnot(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
+      /\b(?:not|without)(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       );
     const target = bound ?? iso ?? month ?? relative ?? bare;
