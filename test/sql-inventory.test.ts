@@ -142,8 +142,45 @@ function sqlCallLines(file: string, text: string) {
     }
     return undefined;
   };
-  const connections = new Set(["db", "database"]);
+  const connections = new Set(["db"]);
   const constructors = new Set<string>();
+  const fixtureParameters: { name: string; start: number; end: number }[] = [];
+  const databaseParameters: { start: number; end: number }[] = [];
+  const unwrap = (node: any) => {
+    while (
+      node?.type === "AwaitExpression" ||
+      node?.type === "ParenthesizedExpression"
+    )
+      node = node.type === "AwaitExpression" ? node.argument : node.expression;
+    return node;
+  };
+  const importsSqlite = (node: any) => {
+    const expression = unwrap(node);
+    return (
+      expression?.type === "ImportExpression" &&
+      expression.source.value === "better-sqlite3"
+    );
+  };
+  const bindings = (pattern: any) => {
+    if (pattern.type === "AssignmentPattern") pattern = pattern.left;
+    if (pattern.type !== "ObjectPattern") return [];
+    return pattern.properties.flatMap((member: any) => {
+      if (member.type !== "Property") return [];
+      const binding =
+        member.value.type === "AssignmentPattern"
+          ? member.value.left
+          : member.value;
+      const key =
+        member.key.type === "Literal"
+          ? member.key.value
+          : member.computed
+            ? undefined
+            : member.key.name;
+      return binding.type === "Identifier" && typeof key === "string"
+        ? [{ key, name: binding.name }]
+        : [];
+    });
+  };
   for (const node of nodes) {
     if (node.type === "ImportDeclaration") {
       for (const specifier of node.specifiers) {
@@ -159,47 +196,63 @@ function sqlCallLines(file: string, text: string) {
           connections.add(specifier.local.name);
       }
     }
-  }
-  for (const node of nodes) {
-    if (node.type !== "VariableDeclarator") continue;
-    const value =
-      node.init?.type === "AwaitExpression" ? node.init.argument : node.init;
-    const sqliteImport =
-      value?.type === "ImportExpression" &&
-      value.source?.value === "better-sqlite3";
-    if (node.id.type === "ObjectPattern") {
-      for (const member of node.id.properties) {
-        if (member.type !== "Property") continue;
-        const binding =
-          member.value.type === "AssignmentPattern"
-            ? member.value.left
-            : member.value;
-        if (binding.type !== "Identifier") continue;
-        const name =
-          member.key.type === "Literal"
-            ? member.key.value
-            : member.computed
-              ? undefined
-              : member.key.name;
-        if (name === "db" || name === "database") connections.add(binding.name);
-        if (name === "default" && sqliteImport) constructors.add(binding.name);
+    if (node.type === "VariableDeclarator") {
+      for (const { key, name } of bindings(node.id)) {
+        if (key === "db") connections.add(name);
+        if (key === "default" && importsSqlite(node.init))
+          constructors.add(name);
       }
-    } else if (
-      node.id.type === "Identifier" &&
-      value?.type === "CallExpression" &&
-      value.callee.name === "require" &&
-      value.arguments[0]?.value === "better-sqlite3"
-    ) {
-      constructors.add(node.id.name);
+      const value = unwrap(node.init);
+      if (
+        node.id.type === "Identifier" &&
+        ((value?.type === "MemberExpression" &&
+          property(value) === "default" &&
+          importsSqlite(value.object)) ||
+          (value?.type === "CallExpression" &&
+            value.callee.name === "require" &&
+            value.arguments[0]?.value === "better-sqlite3"))
+      )
+        constructors.add(node.id.name);
+    }
+    for (const parameter of node.params ?? []) {
+      const binding =
+        parameter.type === "AssignmentPattern" ? parameter.left : parameter;
+      const scope = { start: node.start, end: node.end };
+      for (const { key, name } of bindings(binding)) {
+        if (key === "db") fixtureParameters.push({ name, ...scope });
+      }
+      if (binding.type === "Identifier" && binding.name === "database")
+        databaseParameters.push(scope);
     }
   }
+  const inScope = (node: any, scope: { start: number; end: number }) =>
+    scope.start <= node.start && node.end <= scope.end;
   const isConnection = (node: any) => {
     const name = receiver(node);
     return (
       name !== undefined &&
       (connections.has(name) ||
         name.endsWith(".db") ||
-        name.endsWith(".database"))
+        fixtureParameters.some(
+          (parameter) => parameter.name === name && inScope(node, parameter),
+        ))
+    );
+  };
+  // An untyped database parameter is only a hint. Require an SQL statement
+  // before counting it, so unrelated adapters can still use exec or prepare.
+  const isUntypedSqlParameter = (call: any) => {
+    const statement = call.arguments[0];
+    const text =
+      statement?.type === "TemplateLiteral"
+        ? statement.quasis[0]?.value.cooked
+        : statement?.value;
+    return (
+      receiver(call.callee.object) === "database" &&
+      typeof text === "string" &&
+      /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.test(
+        text,
+      ) &&
+      databaseParameters.some((scope) => inScope(call, scope))
     );
   };
   // Typed injected connections may execute SQL without a prepare call in this
@@ -244,7 +297,7 @@ function sqlCallLines(file: string, text: string) {
         node.type === "CallExpression" &&
         node.callee.type === "MemberExpression" &&
         ["prepare", "exec"].includes(property(node.callee)) &&
-        isConnection(node.callee.object),
+        (isConnection(node.callee.object) || isUntypedSqlParameter(node)),
     )
     .map((node) => text.slice(0, node.start).split("\n").length);
 }
@@ -280,7 +333,7 @@ it("counts SQL calls and aliases without counting comments, strings or regular e
 
 it("detects renamed fixture handles and JavaScript SQLite constructors", () => {
   expect(
-    inventory(
+    sqlCallLines(
       "probe.mjs",
       `
       const { "db": fixtureConnection = fallback } = fixture;
@@ -289,11 +342,16 @@ it("detects renamed fixture handles and JavaScript SQLite constructors", () => {
       fixtureConnection.prepare("SELECT 1");
       source.exec("BEGIN"); source.prepare("SELECT 2");
       function injected(database) { database.prepare("SELECT 3"); }
-      fixture.database.exec("SELECT 4");
+      function withFixture({ db: handle }) { handle.exec("SELECT 4"); }
+      const Sqlite = (await import("better-sqlite3")).default;
+      const scratch = new Sqlite(":memory:");
+      scratch.exec("SELECT 5");
+      const database = service.adapter; database.exec(command);
+      function unrelated(database) { database.exec(command); }
       const { service: client } = fixture; client.prepare({});
     `,
     ),
-  ).toBe(5);
+  ).toEqual([5, 6, 6, 7, 8, 11]);
   expect(
     inventory(
       "probe.cjs",
