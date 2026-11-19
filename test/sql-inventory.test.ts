@@ -131,6 +131,7 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
   };
   const nodes: any[] = [];
   const scopes = new Map<object, Scope>();
+  const declarationScopes = new Map<object, Scope>();
   const varDeclarations = new Set<object>();
   const functionKinds = new Set([
     "FunctionDeclaration",
@@ -266,6 +267,7 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
       }
     }
     if (node.type === "VariableDeclarator") {
+      declarationScopes.set(node.id, scope);
       const value = unwrap(node.init);
       const sqliteConstructor =
         (value?.type === "MemberExpression" &&
@@ -307,7 +309,12 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
     const name = receiver(node);
     if (!name) return undefined;
     if (name === "db" || name.endsWith(".db")) return "connection";
-    const binding = bindingOf(name, node);
+    const [root] = name.split(".");
+    const owner =
+      root === "this"
+        ? boundaryScope(node, "class")
+        : declaringScope(root, node);
+    const binding = owner ? owner.bindings.get(name) : bindingOf(name, node);
     return binding === "connection" || binding === "inferred"
       ? binding
       : undefined;
@@ -323,7 +330,10 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
           isConstructor(type.left?.name, node)
         : isConstructor(type?.name, node);
     if (node.type === "Identifier" && databaseType)
-      scopeOf(node).bindings.set(node.name, "connection");
+      (declarationScopes.get(node) ?? scopeOf(node)).bindings.set(
+        node.name,
+        "connection",
+      );
   }
   // Resolve aliases in their own bindings and preserve weaker inference for
   // untyped parameters as it passes through an alias.
@@ -349,7 +359,9 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
         : undefined;
       const owner = declaration
         ? declarationScope(node)
-        : (instance ?? declaringScope(target, node) ?? scopeOf(node));
+        : (instance ??
+          declaringScope(target.split(".")[0], node) ??
+          scopeOf(node));
       const previous = owner.bindings.get(target);
       if (previous === binding || previous === "connection") continue;
       owner.bindings.set(target, binding);
@@ -370,9 +382,15 @@ function sqlCallLines(file: string, text: string, includePragmas = false) {
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
       if (binding !== "inferred") return false;
-      // A name-derived parameter needs evidence of a SQL statement so an
-      // unrelated adapter can still use exec or prepare in the same file.
+      // Script fixtures can prepare a query held in a variable. An inferred
+      // exec caller still needs a recognizable SQL statement.
       const statement = node.arguments[0];
+      if (
+        includePragmas &&
+        method === "prepare" &&
+        statement?.type === "Identifier"
+      )
+        return true;
       const text =
         statement?.type === "TemplateLiteral"
           ? statement.quasis[0]?.value.cooked
@@ -489,6 +507,27 @@ it("tracks hoisted aliases and instance fields without guessing adapter types", 
     }
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 10]);
+});
+
+it("tracks dynamic queries, typed hoisted handles and shared object fields", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const { db: handle } = fixture;
+    handle.prepare(query);
+    function typed(flag) {
+      if (flag) { var sql: SQLite.Database; }
+      sql.exec(query);
+    }
+    const state = {};
+    function bind() { state.connection = db; }
+    function read() { state.connection.prepare(query); }
+    function unrelated() {
+      const state = { connection: adapter };
+      state.connection.prepare(query);
+    }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 7, 11]);
+  expect(sqlCallLines("probe.ts", text)).toEqual([7, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
