@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|(?:on\\s+or\\s+)?(?:before|after))\\s+(?:the\\s+)?(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|no\\s+(?:earlier|later)\\s+than|(?:on\\s+or\\s+)?(?:before|after))\\s+(?:the\\s+)?(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -257,11 +257,15 @@ function classifyMemoryTime(
       return null;
     if (bareMonth) continue;
     seenDate = true;
-    if (modifier === "since" || modifier?.endsWith("after")) {
+    if (
+      modifier === "since" ||
+      modifier === "no earlier than" ||
+      modifier?.endsWith("after")
+    ) {
       const start = modifier === "after" ? boundary.end : boundary.start;
       from = Math.max(from ?? start, start);
-    } else if (modifier?.endsWith("before")) {
-      const end = modifier === "on or before" ? boundary.end : boundary.start;
+    } else if (modifier === "no later than" || modifier?.endsWith("before")) {
+      const end = modifier === "before" ? boundary.start : boundary.end;
       to = Math.min(to ?? end, end);
     } else {
       if (
