@@ -129,6 +129,9 @@ export function DisplaySpec({
   }
   return (
     <div className="display-spec">
+      {open && !writing && read.skippedCount > 0 && (
+        <p className="note">Some display updates could not be applied.</p>
+      )}
       <DisplayNodeView
         node={read.root}
         context={{ markdown, compact }}

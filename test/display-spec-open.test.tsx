@@ -357,3 +357,17 @@ it("counts pending references against the element limit while writing", () => {
     "This display could not be drawn yet.",
   );
 });
+
+it("warns when a finished display loses an incomplete replacement", () => {
+  const source =
+    patch(
+      { op: "add", path: "/root", value: "card" },
+      add("card", { type: "Card", props: { title: "Before the update" } }),
+    ) + '\n{"op":"replace","path":"/elements/card","value":{"type":"Card"';
+  const html = render(fence + source, false);
+  expect(html).toContain("Before the update");
+  expect(html).toContain("Some display updates could not be applied.");
+  expect(render(fence + source, true)).not.toContain(
+    "Some display updates could not be applied.",
+  );
+});

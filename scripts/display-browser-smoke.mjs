@@ -463,6 +463,16 @@ for (const engine of selectedEngines()) {
         );
       }
 
+      // A nonbreaking space keeps a delimiter-like line inside the fence.
+      update(working, rootOnly + "```\u00a0");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
+
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.
       update(

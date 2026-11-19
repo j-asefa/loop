@@ -412,8 +412,7 @@ function drawnLength(node: DisplayNode): number {
 }
 
 export type DisplayReadOptions = {
-  // The fence has not closed: a last line that is not valid JSON may be
-  // half-written, so it is ignored rather than skipped.
+  // The fence has not closed. While writing, its final line may be incomplete.
   open?: boolean;
   // The block is still being written: children whose elements have not
   // arrived are left out instead of drawn as placeholders.
@@ -445,7 +444,7 @@ export function readDisplaySpec(
     try {
       patch = JSON.parse(trimmed);
     } catch {
-      if (open && index === all.length - 1) return;
+      if (open && writing && index === all.length - 1) return;
       return skip(line, "Not valid JSON");
     }
     if (!isObject(patch)) return skip(line, "Not a JSON object");

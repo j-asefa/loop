@@ -115,10 +115,10 @@ export function runDetails(
   }
   if (STARTED_RUN_STATES.includes(run.state)) {
     const { latest, artifact } = runPreview(db, owner, runId);
-    // Leading indentation is significant in Markdown, including code fences.
-    const source = (latest ?? artifact?.content ?? "").trimEnd();
+    // Markdown uses both leading and trailing whitespace to parse fences.
+    const source = latest ?? artifact?.content ?? "";
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
-    detail.live_preview = preview || null;
+    detail.live_preview = /\S/.test(source) ? preview : null;
     if (source.length > preview.length) {
       const fence = /(?:^|[\r\n])[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(preview);
       if (fence) {

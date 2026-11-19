@@ -1103,6 +1103,7 @@ export const displayFixtures: DisplayFixture[] = [
         element("a", "Field", { label: "Deploys", value: 12 }),
       ) + '\n{"op":"add","path":"/elements/b","value":{"type":"Fi',
     open: "final",
+    skipped: 1,
     expect: {
       outline: [
         'Card title="Weekly"',
