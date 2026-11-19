@@ -184,7 +184,12 @@ function classifyMemoryTime(
       ? !bareMonth &&
         /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)[\s,()[\]{}]*$/iu.test(between)
       : seenDate &&
-        /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)\b/iu.test(alternativeContext);
+        /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)\b/iu.test(
+          alternativeContext.replace(
+            /^\s+if\s+(?:available|needed|possible)\s*,/iu,
+            "",
+          ),
+        );
     const sharedMonthPreposition =
       previousExplicitMonth &&
       bareMonth &&
@@ -198,8 +203,11 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|ignor(?:e|ing)|omit(?:ting)?|never|other\s+than|apart\s+from|but\s+not(?!\s+only\b)|not\s+including|(?:don['’]t|do\s+not)\s+(?:include|use|recall)|leav(?:e|ing)\s+out)\b/iu.test(
-        exclusionContext.split(/[.!?;]/u).at(-1) ?? "",
+      /\b(?:exclude|excluding|except|skip|ignor(?:e|ing)|omit(?:ting)?|never|other\s+than|apart\s+from|but\s+not(?!\s+only\b)|not\s+including|(?:don['’]t|do\s+not)\s+(?:include|use|recall|retrieve)|leav(?:e|ing)\s+out)\b/iu.test(
+        (exclusionContext.split(/[.!?;]/u).at(-1) ?? "").replace(
+          /\bhow\s+to\s+\p{L}+/giu,
+          " ",
+        ),
       ) ||
       /\b(?:not|without)(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
         exclusionContext,

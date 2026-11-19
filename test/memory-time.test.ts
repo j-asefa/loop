@@ -208,6 +208,8 @@ it.each([
   "harvest notes, exclude yesterday",
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
+  "harvest notes from this week, but do not retrieve notes from yesterday",
+  "notes from this week if available, or yesterday",
   "find harvest notes from this week, but ignore yesterday",
   "find harvest notes from any day apart from yesterday",
   "Find amethyst harvest notes. Do not include notes from yesterday",
@@ -331,6 +333,18 @@ it("preserves a narrower date after a choice of subjects", () => {
 it("keeps the date when negation modifies an action", () => {
   const query = "Find notes about why amethyst did not ship last week";
   expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
+
+it("preserves the date when an exclusion verb describes the topic", () => {
+  expect(
+    parseMemoryTime(
+      "find notes on how to exclude duplicate rows from last week",
+      now,
+    ),
+  ).toMatchObject({
     from: Date.parse("2026-11-09"),
     to: Date.parse("2026-11-16"),
   });
