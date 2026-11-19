@@ -137,7 +137,9 @@ export async function socialSmoke(page, fixture, shot) {
     releaseSnapshot();
   }
   await expect.poll(() => snapshotReads).toBe(2);
-  await page.unroute(/\/api\/social\?/);
+  // Let in-flight handlers finish before removing interception. Otherwise
+  // Playwright can continue a request while its handler is still awaiting.
+  await page.unrouteAll({ behavior: "wait" });
   await page.route(/\/api\/social\?/, async (route) => {
     if (!(await faultReleased("snapshot")))
       await route.fulfill({
@@ -157,7 +159,7 @@ export async function socialSmoke(page, fixture, shot) {
     "snapshot",
   );
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.unroute(/\/api\/social\?/);
+  await page.unrouteAll({ behavior: "wait" });
   const agents = page.getByRole("region", { name: "Your agents", exact: true });
   // Feed options start closed: Social is the stories alone, without the page
   // heading and agents above them.
@@ -262,7 +264,7 @@ export async function socialSmoke(page, fixture, shot) {
 
   await expect(page.getByRole("alert")).toHaveCount(0);
 
-  await page.unroute(/\/api\/social\?/);
+  await page.unrouteAll({ behavior: "wait" });
 
   // Marking one read drops the count and the accent.
   await cards
@@ -317,7 +319,7 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(page.getByRole("alert")).toContainText("Search unavailable");
   await search.fill("postgres");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/search?**");
+  await page.unrouteAll({ behavior: "wait" });
   await page.waitForFunction(
     () => document.querySelectorAll(".news-card").length === 1,
   );
@@ -569,7 +571,7 @@ export async function socialSmoke(page, fixture, shot) {
   await expect(
     catalog.getByRole("button", { name: "Remove Lobsters", exact: true }),
   ).toBeVisible();
-  await page.unroute(/\/api\/social\?/);
+  await page.unrouteAll({ behavior: "wait" });
   await expect(page.getByRole("alert")).toHaveCount(0);
   await shot("social-catalog");
   // OPML keeps its original XML in the existing JSON envelope. An empty
@@ -638,7 +640,7 @@ export async function socialSmoke(page, fixture, shot) {
     "watch",
   );
   await expect(watches.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/watches");
+  await page.unrouteAll({ behavior: "wait" });
   await watches.getByRole("searchbox").fill("rust");
   await watches.getByRole("button", { name: "Preview" }).click();
   await watches.locator(".watch-preview li").first().waitFor();
@@ -689,7 +691,7 @@ export async function socialSmoke(page, fixture, shot) {
     "digest",
   );
   await expect(digests.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/digests");
+  await page.unrouteAll({ behavior: "wait" });
   await digests
     .getByRole("combobox", { name: "Agent", exact: true })
     .selectOption({ index: 1 });
@@ -733,7 +735,7 @@ export async function socialSmoke(page, fixture, shot) {
     "access",
   );
   await expect(digests.getByRole("alert")).toHaveCount(0);
-  await page.unroute("**/api/social/preferences");
+  await page.unrouteAll({ behavior: "wait" });
   await shot("social-digest");
   await digests.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(digests.locator(".digest-row")).toHaveCount(0);
@@ -802,7 +804,7 @@ export async function socialSmoke(page, fixture, shot) {
     1,
     "closing watches cancels Retry-After continuation",
   );
-  await page.unroute("**/api/social/watches");
+  await page.unrouteAll({ behavior: "wait" });
 
   // Notification links also accept catalog IDs that begin with a digit.
   fixture.db
