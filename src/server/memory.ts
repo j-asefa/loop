@@ -433,10 +433,10 @@ export async function searchMemory(
           continue;
         excerpt = alternative;
       }
+      let score = relevant ? coverage(excerpt) : 0;
       if (candidate.passage && relevant) {
         // Rank the source by its strongest BM25 passage. When it qualifies,
         // display the passage that provides the fullest raw body evidence.
-        let score = coverage(excerpt);
         for (const { start, end } of passageQueries.offsets(
           db,
           s.id,
@@ -452,15 +452,15 @@ export async function searchMemory(
             score = hits;
           }
         }
-        // A result title can be a copy of the prompt. For a long query,
-        // require some matching body evidence before supplying that result.
-        if (
-          s.evidenceKind === "result" &&
-          terms.length > 4 &&
-          score < Math.ceil(terms.length / 6)
-        )
-          continue;
       }
+      // A result title can repeat the prompt without providing body evidence.
+      if (
+        relevant &&
+        s.evidenceKind === "result" &&
+        terms.length > 4 &&
+        score < Math.ceil(terms.length / 6)
+      )
+        continue;
       if (!excerpt) break;
       seen.add(candidate.id);
       characters += excerpt.length;

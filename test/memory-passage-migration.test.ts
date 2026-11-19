@@ -29,6 +29,16 @@ it("preserves offsets and packs paragraphs around a short fenced block", () => {
   ).toBe(true);
 });
 
+it("bridges an artifact boundary before a final single-word paragraph", () => {
+  const raw = "filler ".repeat(227) + "tamarind\n\nsorrel";
+  const passages = memoryPassages(raw, true).map(({ start, end }) =>
+    raw.slice(start, end),
+  );
+  expect(
+    passages.some((passage) => passage.includes("tamarind\n\nsorrel")),
+  ).toBe(true);
+});
+
 it("upgrades captured notes and resumes a bounded backfill without interrupting search", () => {
   const workspace = createTestWorkspace();
   try {

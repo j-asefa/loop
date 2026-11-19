@@ -94,15 +94,11 @@ export function memoryPassages(
       const left = Math.max(previous.start, boundary - 800);
       const right = Math.min(next.end, boundary + 800);
       const leftSpace = content.indexOf(" ", left);
-      const rightSpace = content.lastIndexOf(" ", right - 1);
-      if (
-        leftSpace < left ||
-        leftSpace >= boundary ||
-        rightSpace <= previous.end
-      )
+      const end =
+        right === next.end ? right : content.lastIndexOf(" ", right - 1) + 1;
+      if (leftSpace < left || leftSpace >= boundary || end <= previous.end)
         continue;
       const start = leftSpace + 1;
-      const end = rightSpace + 1;
       if (
         fencedBlocks.some(
           (block) =>

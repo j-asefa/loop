@@ -1246,6 +1246,19 @@ it("requires body evidence for a result whose title repeats a long query", async
     "section is still blank",
   );
   expect((await nativePrompt(query)).prompt).toBe(query);
+  const { sources } = await searchMemory("alice", null, "elderberry orchid");
+  expect(sources).toHaveLength(1);
+  // Model the upgrade state where the result exists in the document index
+  // and its passage backfill is still pending.
+  db.prepare("DELETE FROM memory_passages WHERE source_id=?").run(
+    sources[0].id,
+  );
+  db.prepare("DELETE FROM memory_passage_backfill").run();
+  expect((await nativePrompt("elderberry orchid")).prompt).toContain(
+    "section is still blank",
+  );
+  expect((await nativePrompt(query)).prompt).toBe(query);
+  captureMemory();
 });
 
 it("replaces a note's passage index in the same revision as its edit", async () => {
