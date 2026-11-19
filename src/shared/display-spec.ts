@@ -23,6 +23,11 @@ export const DISPLAY_LIMITS = {
   // reference to a shared Text; equal to the block limit, so only shared
   // references can reach it. A Text past it is a placeholder.
   textCharacters: 65536,
+  // Characters of every string drawn across the display (titles, labels,
+  // values, cells, Text), counting every reference to a shared element. Twice
+  // the block limit, so only shared references can reach it. An element past
+  // it is a placeholder.
+  drawnCharacters: 131072,
   seriesCount: 12,
   categories: 200,
   pieSegments: 24,
@@ -273,7 +278,7 @@ function draw(
   elements: Map<string, RawElement>,
   path: Set<string>,
   depth: number,
-  state: { count: number; cells: number; text: number },
+  state: { count: number; cells: number; text: number; drawn: number },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
   if (++state.count > DISPLAY_LIMITS.elements)
@@ -340,6 +345,15 @@ function draw(
       );
     state.text += built.content.length;
   }
+  const drawn = drawnLength(built);
+  if (state.drawn + drawn > DISPLAY_LIMITS.drawnCharacters)
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      `The display has more than ${DISPLAY_LIMITS.drawnCharacters} characters`,
+    );
+  state.drawn += drawn;
   if ("children" in built) {
     path.add(key);
     built.children = list.map((child) =>
@@ -348,6 +362,38 @@ function draw(
     path.delete(key);
   }
   return built;
+}
+
+// Characters an element draws itself, not counting its children.
+function drawnLength(node: DisplayNode): number {
+  const sum = (values: (string | null)[]) =>
+    values.reduce((total, value) => total + (value?.length ?? 0), 0);
+  switch (node.type) {
+    case "Card":
+      return sum([node.title, node.subtitle]);
+    case "Text":
+      return node.content.length;
+    case "Field":
+      return sum([node.label, node.value]);
+    case "Table":
+      return sum([node.caption, ...node.headers, ...node.rows.flat()]);
+    case "Chart":
+      return (
+        node.title.length +
+        (node.chart.type === "pie"
+          ? sum(node.chart.segments.map((segment) => segment.label))
+          : sum([
+              ...node.chart.categories,
+              ...node.chart.series.map((series) => series.name),
+              node.chart.xLabel ?? null,
+              node.chart.yLabel ?? null,
+            ]))
+      );
+    case "LinkButton":
+      return sum([node.label, node.url]);
+    default:
+      return 0;
+  }
 }
 
 // Reads the text inside a `spec` fence. The block is treated as complete.
@@ -403,7 +449,7 @@ export function readDisplaySpec(source: string): DisplayRead {
   if (root === undefined) return { ok: false, reason: "no_root", ...skips };
   if (!elements.has(root))
     return { ok: false, reason: "missing_root", ...skips };
-  const state = { count: 0, cells: 0, text: 0 };
+  const state = { count: 0, cells: 0, text: 0, drawn: 0 };
   try {
     return {
       ok: true,

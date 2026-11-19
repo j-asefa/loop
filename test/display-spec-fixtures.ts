@@ -859,6 +859,28 @@ export const displayFixtures: DisplayFixture[] = [
       ],
     },
   },
+  {
+    name: "a table of long cells shared until the drawn character limit",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, Array(3).fill("t")),
+      element("t", "Table", {
+        headers: ["h"],
+        rows: Array.from({ length: 15 }, () => [
+          "x".repeat(DISPLAY_LIMITS.text),
+        ]),
+      }),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(2).fill(
+          `  Table headers=["h"] align=["left"] caption=null rows=15 first=${JSON.stringify(["x".repeat(DISPLAY_LIMITS.text)])} last=${JSON.stringify(["x".repeat(DISPLAY_LIMITS.text)])}`,
+        ),
+        "  !Table invalid",
+      ],
+    },
+  },
 ];
 
 // A table with the column limit and `rows` rows, one cell filled per row.
