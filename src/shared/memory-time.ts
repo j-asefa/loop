@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|before|after)\\s+(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|(?:on\\s+or\\s+)?(?:before|after))\\s+(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -198,7 +198,7 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|but\s+not(?!\s+only\b)|not\s+including|(?:don['’]t|do\s+not)\s+(?:include|use|recall)|leav(?:e|ing)\s+out)\b/iu.test(
+      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|apart\s+from|but\s+not(?!\s+only\b)|not\s+including|(?:don['’]t|do\s+not)\s+(?:include|use|recall)|leav(?:e|ing)\s+out)\b/iu.test(
         exclusionContext.split(/[.!?;]/u).at(-1) ?? "",
       ) ||
       /\b(?:not|without)(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
@@ -208,7 +208,7 @@ function classifyMemoryTime(
     const boundary =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
     if (!boundary) continue;
-    const modifier = relation?.toLowerCase();
+    const modifier = relation?.toLowerCase().replace(/\s+/g, " ");
     if (
       relation &&
       MONTHS.some((name) => name.toLowerCase() === target.toLowerCase())
@@ -226,11 +226,12 @@ function classifyMemoryTime(
       return null;
     if (bareMonth) continue;
     seenDate = true;
-    if (modifier === "since" || modifier === "after") {
+    if (modifier === "since" || modifier?.endsWith("after")) {
       const start = modifier === "after" ? boundary.end : boundary.start;
       from = Math.max(from ?? start, start);
-    } else if (modifier === "before") {
-      to = Math.min(to ?? boundary.start, boundary.start);
+    } else if (modifier?.endsWith("before")) {
+      const end = modifier === "on or before" ? boundary.end : boundary.start;
+      to = Math.min(to ?? end, end);
     } else {
       if (
         period &&
