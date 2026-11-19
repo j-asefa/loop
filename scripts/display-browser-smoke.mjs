@@ -418,6 +418,31 @@ for (const engine of selectedEngines()) {
       assert(!(await cutSheet.innerText()).includes('{"op"'));
       assert(!(await cutSheet.innerText()).includes("could not be drawn"));
 
+      // A cap that cuts off the suffix of a fence-like content line
+      // must not turn it into an apparent closing fence.
+      const rootOnly =
+        "```spec\n" +
+        patch({
+          op: "add",
+          path: "/root",
+          value: "pending",
+        }) +
+        "\n";
+      update(
+        working,
+        rootOnly + " ".repeat(4000 - rootOnly.length - 4) + "\n```draft",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+      await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
+
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.
       update(

@@ -63,7 +63,12 @@ import {
   type CardDragSession,
 } from "./useDoneCardGestures";
 import type { CardWindow } from "./card-pager";
-import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
+import {
+  LIVE_PREVIEW_LIMIT,
+  compareCardOrder,
+  type Card,
+  type CardEntry,
+} from "../shared/cards";
 import { CardBody } from "./ContentCard";
 import {
   SourceProvider,
@@ -357,6 +362,7 @@ function FeedCard({
       : message?.id === messageId
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
+  const previewAtLimit = (item.live_preview?.length ?? 0) >= LIVE_PREVIEW_LIMIT;
   const openReading = () => {
     if (onSelect) {
       onSelect();
@@ -523,7 +529,12 @@ function FeedCard({
           {item.live_preview ? (
             <div className="preview live-preview">
               {/* live_preview is only set while the run works. */}
-              <RichText content={item.live_preview} compact writing />
+              <RichText
+                content={item.live_preview}
+                compact
+                writing
+                previewAtLimit={previewAtLimit}
+              />
             </div>
           ) : item.run &&
             WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -720,6 +731,7 @@ function FeedCard({
                     ) : (
                       <RichText
                         content={content}
+                        previewAtLimit={previewAtLimit}
                         writing={
                           !!item.live_preview && content === item.live_preview
                         }
@@ -744,7 +756,7 @@ function FeedCard({
                     </button>
                   </ErrorNotice>
                 )}
-                {item.live_preview && item.live_preview.length >= 4000 && (
+                {previewAtLimit && (
                   <button
                     className="text-button"
                     onClick={() => leaveReading(onOpen)}

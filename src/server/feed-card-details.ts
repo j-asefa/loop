@@ -1,3 +1,4 @@
+import { LIVE_PREVIEW_LIMIT } from "../shared/cards.js";
 import { STARTED_RUN_STATES } from "../shared/run-state.js";
 import { canSwapQueuedRuns, editableQueuedRun } from "./queued-run-policy.js";
 import { runPreview } from "./run-preview.js";
@@ -115,7 +116,9 @@ export function runDetails(
     const { latest, artifact } = runPreview(db, owner, runId);
     // Leading indentation is significant in Markdown, including code fences.
     detail.live_preview =
-      (latest ?? artifact?.content ?? "").trimEnd().slice(0, 4000) || null;
+      (latest ?? artifact?.content ?? "")
+        .trimEnd()
+        .slice(0, LIVE_PREVIEW_LIMIT) || null;
   }
 
   return detail;

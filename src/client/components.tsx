@@ -215,6 +215,7 @@ export const RichText = memo(function RichText({
   diagrams = true,
   compact = false,
   writing = false,
+  previewAtLimit = false,
 }: {
   content: string;
   diagrams?: boolean;
@@ -222,6 +223,7 @@ export const RichText = memo(function RichText({
   // The content is an answer still being written (its run is working): an
   // unclosed display grows as lines arrive instead of being final.
   writing?: boolean;
+  previewAtLimit?: boolean;
 }) {
   const sourceId = useSourceId();
   const math = useMarkdownMath(content);
@@ -312,7 +314,14 @@ export const RichText = memo(function RichText({
         <Markdown
           remarkPlugins={[
             remarkGfm,
-            ...(diagrams ? [markOpenSpecFences] : []),
+            ...(diagrams
+              ? [
+                  [markOpenSpecFences, { previewAtLimit }] as [
+                    typeof markOpenSpecFences,
+                    { previewAtLimit: boolean },
+                  ],
+                ]
+              : []),
             ...(math?.remark || []),
             ...(compact
               ? [
