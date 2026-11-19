@@ -290,11 +290,14 @@ function sqlCallLines(file: string, text: string, script = false) {
   const isFixture = (node: any) =>
     node?.type === "Identifier" &&
     (node.name === "fixture" || isParameter(node));
-  const destructuredDatabase = (source: any): Binding => {
+  const knownDatabaseProperty = (source: any) => {
     const path = receiver(source);
     const owner = path && declaringScope(path.split(".")[0], source);
-    const property = owner ? receiverBinding(owner, `${path}.db`) : undefined;
-    if (property === "connection" || property === "object") return property;
+    return owner ? receiverBinding(owner, `${path}.db`) : undefined;
+  };
+  const destructuredDatabase = (source: any): Binding => {
+    const binding = knownDatabaseProperty(source);
+    if (binding === "connection" || binding === "object") return binding;
     if (
       (source?.type === "ImportExpression" &&
         dbModule.test(source.source.value)) ||
@@ -488,13 +491,20 @@ function sqlCallLines(file: string, text: string, script = false) {
   // Resolve aliases in their own bindings and preserve weaker inference for
   // untyped parameters as it passes through an alias.
   let changed = true;
+  const bindingRank: Record<Binding, number> = {
+    other: 0,
+    inferred: 1,
+    object: 2,
+    constructor: 3,
+    connection: 4,
+  };
   const trackBinding = (
     scope: Scope,
     name: string,
     binding: Binding | undefined,
     value?: any,
   ) => {
-    if (!binding || binding === "other" || binding === "constructor") return;
+    if (!binding) return;
     if (binding === "object" && !scope.objectAliases?.has(name)) {
       const path = receiver(value);
       const origin = path?.startsWith("this.")
@@ -509,12 +519,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
     const previous = scope.bindings.get(name);
-    if (
-      previous === binding ||
-      previous === "connection" ||
-      (previous === "object" && binding === "inferred")
-    )
-      return;
+    if (bindingRank[binding] <= bindingRank[previous ?? "other"]) return;
     scope.bindings.set(name, binding);
     changed = true;
   };
@@ -523,6 +528,33 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const { scope, name, value } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value);
     for (const node of nodes) {
+      if (
+        script &&
+        node.type === "CallExpression" &&
+        node.callee.type === "Identifier"
+      ) {
+        const fn: any = declaringScope(node.callee.name, node)?.functions?.get(
+          node.callee.name,
+        );
+        for (const [index, parameter] of (fn?.params ?? []).entries()) {
+          if (parameter.type !== "Identifier") continue;
+          const argument = unwrap(node.arguments[index]);
+          const inlineDb =
+            argument?.type === "ObjectExpression"
+              ? argument.properties.find(
+                  (member: any) =>
+                    member.type === "Property" &&
+                    !member.computed &&
+                    (member.key.name ?? member.key.value) === "db",
+                )
+              : undefined;
+          const binding = inlineDb
+            ? connectionKind(inlineDb.value)
+            : knownDatabaseProperty(argument);
+          if (binding === "connection" || binding === "object")
+            trackBinding(scopeOf(fn), `${parameter.name}.db`, binding);
+        }
+      }
       const declaration = node.type === "VariableDeclarator";
       const field = node.type === "PropertyDefinition" && !node.static;
       if (!declaration && !field && node.type !== "AssignmentExpression")
@@ -864,6 +896,24 @@ it("resolves object aliases and explicit callback receivers", () => {
   `;
   expect(sqlCallLines("probe.ts", text)).toEqual([5, 12, 14, 17]);
   expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 12, 14]);
+});
+
+it("uses known fixture arguments and follows constructor aliases", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const OpenDatabase = SQLite;
+    const source = { db: new OpenDatabase(":memory:") };
+    function execute(context, statement) {
+      context.db.exec(statement);
+    }
+    execute(source, query);
+    const adapter = { db: { exec: runCommand } };
+    function dispatch(context, command) { context.db.exec(command); }
+    dispatch(adapter, command);
+    const standalone = new OpenDatabase(":memory:");
+    standalone.exec(query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 13]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
