@@ -15,6 +15,7 @@
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -522,6 +523,44 @@ for (const engine of selectedEngines()) {
         await expect(cutSheet.locator("code.language-text")).toHaveCount(1);
         await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
       }
+
+      // Earlier progress messages are final while the latest is still growing.
+      const progress = fixture.db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) SELECT ?,owner_id,conversation_id,run_id,'assistant',?,?,created_at+? FROM messages WHERE run_id=? AND role='assistant' ORDER BY created_at LIMIT 1",
+      );
+      const earlierUpdate = randomUUID();
+      const currentUpdate = randomUUID();
+      progress.run(
+        earlierUpdate,
+        "Earlier update.\n\n" + rootOnly,
+        '{"progress":true}',
+        1,
+        working.run,
+      );
+      progress.run(
+        currentUpdate,
+        "Current update.\n\n" + rootOnly,
+        '{"progress":true}',
+        2,
+        working.run,
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      const updates = workingThread.locator(".agent-progress");
+      await expect(
+        updates.filter({ hasText: "Earlier update." }),
+      ).toContainText("This display could not be drawn.");
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      fixture.db
+        .prepare("DELETE FROM messages WHERE id IN (?, ?)")
+        .run(earlierUpdate, currentUpdate);
 
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.

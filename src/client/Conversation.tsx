@@ -71,6 +71,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useMemo,
   type ReactNode,
 } from "react";
 import {
@@ -1067,6 +1068,18 @@ function ConversationView({
       setError((e as Error).message);
     }
   }
+  const latestProgressByRun = useMemo(() => {
+    const byRun = new Map<string, string>();
+    for (const message of data?.messages ?? []) {
+      if (
+        message.role === "assistant" &&
+        message.run_id &&
+        readMessageMetadata(message.metadata, "fallback").progress
+      )
+        byRun.set(message.run_id, message.id);
+    }
+    return byRun;
+  }, [data?.messages]);
   const latestRun = [...(data?.messages || [])]
     .reverse()
     .find((m) => m.run_id && m.run_state);
@@ -1803,11 +1816,15 @@ function ConversationView({
                   {showContent && (
                     <RichText
                       content={m.content}
-                      // An answer whose run still works is being written.
+                      // Only the current progress update can still grow.
                       writing={
                         m.role === "assistant" &&
                         !!m.run_state &&
-                        STARTED_RUN_DISPLAY_STATES.includes(m.run_state)
+                        STARTED_RUN_DISPLAY_STATES.includes(m.run_state) &&
+                        (!meta.progress ||
+                          (!meta.final &&
+                            !!m.run_id &&
+                            latestProgressByRun.get(m.run_id) === m.id))
                       }
                     />
                   )}
