@@ -55,6 +55,7 @@ it.each([
   "read report.today field",
   "read today.report field",
   "read /reports/today/summary",
+  "find the $today variable",
   "search alerts+today@example.com",
   String.raw`find "status \"yesterday\" field"`,
   "before `cleanup` October",
@@ -90,4 +91,14 @@ it("uses the tighter repeated cutoff", () => {
   const window = parseMemoryTime(query, now);
   expect(window?.to).toBe(Date.parse("2026-10-13"));
   expect(withoutMemoryTime(query, window)).toBe("  and   harvest");
+});
+
+it("applies an explicit cutoff after a standalone period", () => {
+  const query = "harvest last week, before 2026-11-11";
+  const window = parseMemoryTime(query, now);
+  expect(window).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-11"),
+  });
+  expect(withoutMemoryTime(query, window)).toBe("harvest  ,  ");
 });

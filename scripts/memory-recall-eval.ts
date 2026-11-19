@@ -25,6 +25,7 @@ const EVIDENCE_BLOCK =
 export type EvalQuery = {
   set: "known" | "null" | "temporal";
   referenceAt?: number;
+  expectedWindow?: { from: number; to: number };
   owner: string;
   project: string | null;
   query: string;
@@ -152,8 +153,8 @@ export async function sampleQueries({
       const timestamp = memorySources.recallTime(db, item.id, item.owner_id);
       if (timestamp === undefined) continue;
       const date = new Date(timestamp);
-      const referenceAt =
-        Math.floor(timestamp / 86_400_000) * 86_400_000 + 7 * 86_400_000;
+      const day = Math.floor(timestamp / 86_400_000) * 86_400_000;
+      const referenceAt = day + 7 * 86_400_000;
       const month = date.toLocaleString("en-US", {
         month: "long",
         timeZone: "UTC",
@@ -165,11 +166,23 @@ export async function sampleQueries({
           : style === 1
             ? `in ${month} ${date.getUTCFullYear()}`
             : "on " + date.toISOString().slice(0, 10);
+      // Compute the expected window independently of the production parser.
+      const weekStart = day - ((date.getUTCDay() + 6) % 7) * 86_400_000;
+      const expectedWindow =
+        style === 0
+          ? { from: weekStart, to: weekStart + 7 * 86_400_000 }
+          : style === 1
+            ? {
+                from: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
+                to: Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1),
+              }
+            : { from: day, to: day + 86_400_000 };
       dated.push({
         ...known[known.length - 1],
         set: "temporal",
         query: `${time} ${query}`,
         referenceAt,
+        expectedWindow,
       });
     }
   }
@@ -258,15 +271,13 @@ export async function evaluate(
     if (q.set === "temporal") {
       temporal++;
       if (sources.some((source) => source.id === q.target)) temporalHits++;
-      const window = parseMemoryTime(q.query, q.referenceAt);
+      const window = q.expectedWindow;
+      if (!window)
+        throw new Error("Temporal replay query has no expected window");
       if (
-        window &&
         sources.some((source) => {
           const time = recallTime(db, source.id, q.owner) ?? source.updatedAt;
-          return (
-            (window.from !== null && time < window.from) ||
-            (window.to !== null && time >= window.to)
-          );
+          return time < window.from || time >= window.to;
         })
       )
         temporalOutside++;

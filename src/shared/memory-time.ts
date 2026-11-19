@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_/+@]|[.-][\\p{L}\\p{N}_])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_])`,
   "giu",
 );
 const quoted =
@@ -79,39 +79,40 @@ export function parseMemoryTime(
   const searchable = query.replace(quoted, (text) =>
     "\u0000".repeat(text.length),
   );
-  let open: MemoryTimeWindow | undefined;
+  const matched: NonNullable<MemoryTimeWindow["matched"]> = [];
+  let from: number | null = null;
+  let to: number | null = null;
+  let hasPeriod = false;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative] = match;
     const target = bound ?? iso ?? month ?? relative;
     const boundary =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
     if (!boundary) continue;
-    const matched = [{ index: match.index, text: match[0] }];
     const modifier = relation?.toLowerCase();
-    if (modifier === "since" || modifier === "before") {
-      const from = modifier === "since" ? boundary.start : null;
-      const to = modifier === "before" ? boundary.start : null;
-      open = {
-        from:
-          from === null
-            ? (open?.from ?? null)
-            : Math.max(open?.from ?? from, from),
-        to: to === null ? (open?.to ?? null) : Math.min(open?.to ?? to, to),
-        matched: [...(open?.matched ?? []), ...matched],
-      };
-      continue;
+    if (modifier === "since") {
+      from = Math.max(from ?? boundary.start, boundary.start);
+    } else if (modifier === "before") {
+      to = Math.min(to ?? boundary.start, boundary.start);
+    } else {
+      if (hasPeriod) continue;
+      hasPeriod = true;
+      from = Math.max(from ?? boundary.start, boundary.start);
+      to = Math.min(to ?? boundary.end, boundary.end);
     }
-    if (!open) return { from: boundary.start, to: boundary.end, matched };
+    matched.push({ index: match.index, text: match[0] });
   }
-  return open;
+  return matched.length ? { from, to, matched } : undefined;
 }
 
 export function withoutMemoryTime(query: string, window?: MemoryTimeWindow) {
-  return (window?.matched ?? []).reduceRight(
-    (text, match) =>
-      text.slice(0, match.index) +
-      " " +
-      text.slice(match.index + match.text.length),
-    query,
-  );
+  if (!window?.matched?.length) return query;
+  const parts: string[] = [];
+  let end = 0;
+  for (const match of window.matched) {
+    parts.push(query.slice(end, match.index), " ");
+    end = match.index + match.text.length;
+  }
+  parts.push(query.slice(end));
+  return parts.join("");
 }

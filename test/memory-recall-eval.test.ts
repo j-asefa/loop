@@ -385,16 +385,21 @@ it("scores the temporal target inside the window instead of matching decoys", as
   );
   update.run(Date.parse("2026-10-12T12:00:00Z"), target);
   update.run(Date.parse("2026-10-13T12:00:00Z"), decoy);
-  const metrics = await evaluate([
+  const queries = [
     {
-      set: "temporal",
+      set: "temporal" as const,
       owner: "alice",
       project: null,
       query: "on 2026-10-12 tamarind inspection",
       target,
       referenceAt: Date.parse("2026-10-19T00:00:00Z"),
+      expectedWindow: {
+        from: Date.parse("2026-10-12"),
+        to: Date.parse("2026-10-13"),
+      },
     },
-  ]);
+  ];
+  const metrics = await evaluate(queries);
   expect(metrics).toMatchObject({
     temporal: 1,
     temporalHit5: 1,
@@ -402,4 +407,8 @@ it("scores the temporal target inside the window instead of matching decoys", as
     known: 0,
     null: 0,
   });
+  const unparsed = await evaluate([
+    { ...queries[0], query: "tamarind inspection" },
+  ]);
+  expect(unparsed.temporalOutside).toBe(1);
 });
