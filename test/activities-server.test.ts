@@ -119,10 +119,11 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   // The tool description says how to call loop_plan; the run instructions
   // say when. This agent has no instructions of its own, so every provider
   // round receives exactly Loop's plan guidance.
-  expect(planDescription).toMatch(/complete updated list/);
+  expect(planDescription).toMatch(/keep step ids stable/i);
   expect(instructions).toHaveLength(5);
   expect(new Set(instructions)).toEqual(new Set([PLAN_GUIDANCE]));
   expect(PLAN_GUIDANCE).toMatch(/loop_plan/);
+  expect(PLAN_GUIDANCE).toMatch(/complete updated list/);
   const { status, body } = await get(
     `/conversations/${run.conversation_id}/activities`,
   );
