@@ -203,6 +203,7 @@ it.each([
   "harvest notes, exclude yesterday",
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
+  "harvest notes from last week, but never on 2026-11-12",
   "harvest notes, but not notes from yesterday",
   "harvest notes without any entries from yesterday",
   "harvest since 2026-10-01 (or before 2026-11-01)",
@@ -300,5 +301,13 @@ it("keeps a date window after an author alternative", () => {
   ).toMatchObject({
     from: Date.parse("2026-11-09"),
     to: Date.parse("2026-11-16"),
+  });
+});
+
+it("preserves a narrower date after a choice of subjects", () => {
+  const query = "Last month, find amethyst or garnet notes on 2026-10-12";
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-10-12"),
+    to: Date.parse("2026-10-13"),
   });
 });

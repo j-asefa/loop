@@ -181,10 +181,7 @@ function classifyMemoryTime(
     const alternativeContext = between.split(/[.!?;\u0000]/u).at(-1) ?? "";
     const alternative = previousBareMonth
       ? !bareMonth && /^[\s,([{]*(?:or|nor)[\s,([{]*$/iu.test(between)
-      : seenDate &&
-        (relation
-          ? /^[\s,([{]*(?:or|nor)\b/iu.test(between)
-          : /\b(?:or|nor)\b/iu.test(alternativeContext));
+      : seenDate && /^[\s,([{]*(?:or|nor)\b/iu.test(alternativeContext);
     previousBareMonth = Boolean(bareMonth);
     const preposition =
       relation ?? /^(?:from|on|in|within|during)\b/iu.exec(match[0])?.[0];
@@ -193,7 +190,7 @@ function classifyMemoryTime(
       " literal ",
     );
     const exclusion =
-      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|other\s+than|not(?!\s+only\b)|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
+      /\b(?:exclude|excluding|except|skip|omit(?:ting)?|never|other\s+than|not(?!\s+only\b)|leav(?:e|ing)\s+out)(?:[\s,:()[\]{}]+[\p{L}]+){0,6}[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       ) ||
       /\bwithout(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
