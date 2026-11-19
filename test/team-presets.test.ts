@@ -197,6 +197,7 @@ it("compares working permissions when an executable is removed from the index", 
   writeFileSync(join(checkout, "feature.ts"), "export {};\n");
   const earlier = captureSnapshot(checkout, "uncommitted");
   localGit("rm", "--cached", "run.sh");
+  appendFileSync(join(checkout, ".git/info/exclude"), "\nrun.sh\n");
   expect(
     snapshotDelta(captureSnapshot(checkout, "uncommitted"), earlier).unseen,
   ).toBe(0);

@@ -172,6 +172,21 @@ export function captureSnapshot(
       : [],
   );
   changed.push(...untracked);
+  // A path deleted from the index can still exist on disk. Git reports the
+  // deletion against HEAD even when ignore rules hide its replacement.
+  const outsideIndex = new Set(untracked);
+  if (scope === "uncommitted") {
+    const deleted = git([
+      ...common,
+      "--cached",
+      "--diff-filter=D",
+      "--name-only",
+      "-z",
+      head,
+      "--",
+    ]);
+    for (const path of deleted.split("\0")) if (path) outsideIndex.add(path);
+  }
   const untrackedModes = new Map<string, string>();
   const changes = [...new Set(changed)].sort();
   if (changes.length > 100)
@@ -353,7 +368,7 @@ export function captureSnapshot(
           omit(e.path);
           continue;
         }
-        if (untracked.has(e.path))
+        if (outsideIndex.has(e.path))
           untrackedModes.set(e.path, stat.mode & 0o100 ? "100755" : "100644");
         value = readFileSync(path, "utf8");
       } catch (error) {
