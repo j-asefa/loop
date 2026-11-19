@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:(since|no\\s+(?:earlier|later)\\s+than|(?:on\\s+or\\s+)?(?:before|after))\\s+(?:the\\s+)?(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$\u0060-])(?:from\\s+(${ISO})\\s+to\\s+(${ISO})|(since|no\\s+(?:earlier|later)\\s+than|(?:on\\s+or\\s+)?(?:before|after))\\s+(?:the\\s+)?(?:\\(\\s*)?(${ISO}|${NAMED_MONTH}|${RELATIVE})|(?:on|from|during)\\s+(${ISO})|(?:in|during|from(?=\\s+(?:${MONTH})\\s+\\d{4}\\b))\\s+(${NAMED_MONTH})|(?:(?:from|within|during)\\s+(?:the\\s+)?)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -174,7 +174,17 @@ function classifyMemoryTime(
   let previousBareMonth = false;
   let previousExplicitMonth = false;
   for (const match of searchable.matchAll(phrase)) {
-    const [, relation, bound, iso, month, relative, bare] = match;
+    const [
+      ,
+      rangeStart,
+      rangeEnd,
+      relation,
+      bound,
+      iso,
+      month,
+      relative,
+      bare,
+    ] = match;
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const bareMonth =
@@ -185,7 +195,7 @@ function classifyMemoryTime(
         /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)[\s,()[\]{}]*$/iu.test(between)
       : seenDate &&
         /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)\b/iu.test(
-          alternativeContext.replace(/^\s+if\s+[^,]*,/iu, ""),
+          alternativeContext.replace(/^\s+if\s+.*?(?=\bor\b)/iu, ""),
         );
     const sharedMonthPreposition =
       previousExplicitMonth &&
@@ -209,10 +219,12 @@ function classifyMemoryTime(
       /\b(?:not|without)(?:\s+(?:any|all|the))?(?:\s+(?:entries|notes|records|evidence))?(?:[\s,:()[\]{}]+(?:from|for|during|on|in|within|before|after|since))?[\s,:()[\]{}]*$/iu.test(
         exclusionContext,
       );
-    const target = bound ?? iso ?? month ?? relative ?? bare;
-    const boundary =
+    const target = rangeStart ?? bound ?? iso ?? month ?? relative ?? bare;
+    const start =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
-    if (!boundary) continue;
+    const end = rangeEnd ? dateBoundary(rangeEnd, today) : start;
+    if (!start || !end) continue;
+    const boundary = { start: start.start, end: end.end };
     const after = searchable.slice(previousEnd);
     if (
       (month || relation || bare) &&
