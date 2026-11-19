@@ -120,7 +120,7 @@ function modes(diff: string) {
     if (line.startsWith("diff --git ")) out.set(line, (current = []));
     else if (line.startsWith("New file: ")) {
       const match =
-        /^New file: (.+) \(read its full contents with loop_review_read\)$/.exec(
+        /^New file: (.+) \(read its full contents with loop_review_read\)$/s.exec(
           line,
         );
       if (!match) {

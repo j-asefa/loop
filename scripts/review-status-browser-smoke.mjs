@@ -68,6 +68,8 @@ try {
             conversationId: id,
             state: "running",
             scope: "branch",
+            depth: "full",
+            previousReviewId: null,
             fingerprint: prefix + "-" + id,
             createdAt: 1,
             changed: ["src/example.ts"],

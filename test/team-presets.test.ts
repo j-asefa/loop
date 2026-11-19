@@ -163,7 +163,7 @@ it("captures staged contents separately from working changes, includes new files
   expect(
     snapshotDelta(captureSnapshot(repo, "uncommitted"), executable).unseen,
   ).toBe(0);
-  const unusual = "stage é\tfile.sh";
+  const unusual = "stage é\t\u2028\u2029file.sh";
   writeFileSync(join(repo, unusual), "echo ok", { mode: 0o755 });
   const untracked = captureSnapshot(repo, "uncommitted");
   git("add", unusual);
