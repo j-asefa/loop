@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import { tsImport } from "tsx/esm/api";
 
+const { publishCompletedRunResult } = await tsImport(
+  "../../src/server/result-publication.ts",
+  import.meta.url,
+);
 const { folder: setAgentFolder } = await tsImport(
   "../../src/server/sql/agents.ts",
   import.meta.url,
@@ -50,6 +54,10 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
     content: "Workspace notes are ready.",
     created_at: Date.now(),
   });
+  assert(
+    publishCompletedRunResult(run, owner, db),
+    "Workspace result published",
+  );
   const removedReads = [];
   page.on("request", (request) => {
     if (
@@ -63,18 +71,24 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await page.goto(fixture.base + "/?filter=status");
   const filters = page.getByRole("tablist", { name: "Show", exact: true });
   await expect(filters.getByRole("tab")).toHaveText([
-    "Done",
+    `Done${summary.done_unread || ""}`,
     `Working${summary.working || ""}`,
     `Queued${summary.queued || ""}`,
     `Replies${summary.replies_unread || ""}`,
     "Threads",
   ]);
-  await expect(
-    filters.getByRole("tab", { name: "Done", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator(".feed-results .feed-list")).toContainText(
-    "Workspace notes are ready.",
+  await expect(filters.getByRole("tab", { name: /^Done/ })).toHaveAttribute(
+    "aria-selected",
+    "true",
   );
+  await page
+    .locator(".feed-results .feed-list")
+    .getByRole("button", { name: title })
+    .click();
+  const reading = page.locator("dialog.feed-reading-sheet[open]");
+  await expect(reading).toContainText("Workspace notes are ready.");
+  await reading.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(reading).toHaveCount(0);
   await page.evaluate((project) => {
     sessionStorage.setItem("loop-project-tab", "brief");
     sessionStorage.setItem("loop-project-tab:" + project, "brief");
