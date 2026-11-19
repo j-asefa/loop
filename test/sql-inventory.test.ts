@@ -123,6 +123,13 @@ function sqlCallLines(file: string, text: string, script = false) {
   const { program, errors } = parseSync(file, text);
   if (errors.length) throw new Error(`${file}: ${errors[0].message}`);
   type Binding = "connection" | "inferred" | "constructor" | "object" | "other";
+  const bindingRank: Record<Binding, number> = {
+    other: 0,
+    inferred: 1,
+    object: 2,
+    constructor: 3,
+    connection: 4,
+  };
   type Boundary = "function" | "receiver";
   type Scope = {
     parent?: Scope;
@@ -132,7 +139,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     classes?: Map<string, Scope>;
     functions?: Map<string, object>;
     sqliteMethods?: Map<string, string>;
-    objectAliases?: Map<string, { scope: Scope; name: string }>;
+    objectAliases?: Map<string, { scope: Scope; name: string }[]>;
   };
   const nodes: any[] = [];
   const scopes = new Map<object, Scope>();
@@ -489,25 +496,32 @@ function sqlCallLines(file: string, text: string, script = false) {
     scope: Scope,
     name: string,
     select: (scope: Scope, name: string) => T | undefined,
+    combine: (first: T | undefined, second: T | undefined) => T | undefined = (
+      first,
+      second,
+    ) => first ?? second,
     aliases = new Set<object>(),
   ): T | undefined {
     const seen = new Set<Scope>();
     let current: Scope | undefined = scope;
     while (current && !seen.has(current)) {
       seen.add(current);
-      const binding = select(current, name);
-      if (binding) return binding;
-      for (const [path, alias] of current.objectAliases ?? []) {
-        if (!name.startsWith(path + ".") || aliases.has(alias)) continue;
-        aliases.add(alias);
-        const property = receiverProperty(
-          alias.scope,
-          alias.name + name.slice(path.length),
-          select,
-          aliases,
-        );
-        if (property) return property;
+      let binding = select(current, name);
+      for (const [path, sources] of current.objectAliases ?? []) {
+        if (!name.startsWith(path + ".")) continue;
+        for (const alias of sources) {
+          if (aliases.has(alias)) continue;
+          const property = receiverProperty(
+            alias.scope,
+            alias.name + name.slice(path.length),
+            select,
+            combine,
+            new Set(aliases).add(alias),
+          );
+          binding = combine(binding, property);
+        }
       }
+      if (binding) return binding;
       const parent: { type: string; name?: string } | undefined =
         receiverClass.get(current)?.superClass;
       current =
@@ -518,8 +532,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     return undefined;
   }
   function receiverBinding(scope: Scope, name: string) {
-    return receiverProperty(scope, name, (owner, key) =>
-      owner.bindings.get(key),
+    return receiverProperty(
+      scope,
+      name,
+      (owner, key) => owner.bindings.get(key),
+      (first, second) =>
+        second && (!first || bindingRank[second] > bindingRank[first])
+          ? second
+          : first,
     );
   }
   const memberReference = <T>(
@@ -604,12 +624,15 @@ function sqlCallLines(file: string, text: string, script = false) {
   // Resolve aliases in their own bindings and preserve weaker inference for
   // untyped parameters as it passes through an alias.
   let changed = true;
-  const bindingRank: Record<Binding, number> = {
-    other: 0,
-    inferred: 1,
-    object: 2,
-    constructor: 3,
-    connection: 4,
+  const trackMethod = (
+    scope: Scope,
+    name: string,
+    method: string | undefined,
+  ) => {
+    if (method && !scope.sqliteMethods?.has(name)) {
+      (scope.sqliteMethods ??= new Map()).set(name, method);
+      changed = true;
+    }
   };
   const trackBinding = (
     scope: Scope,
@@ -622,22 +645,22 @@ function sqlCallLines(file: string, text: string, script = false) {
       (scope.functions ??= new Map()).set(name, fn);
       changed = true;
     }
-    const method = sqliteMethod(value);
-    if (method && !scope.sqliteMethods?.has(name)) {
-      (scope.sqliteMethods ??= new Map()).set(name, method);
-      changed = true;
-    }
+    trackMethod(scope, name, sqliteMethod(value));
     if (!binding) return;
-    if (binding === "object" && !scope.objectAliases?.has(name)) {
+    if (binding === "object") {
       const path = receiver(value);
       const origin = path?.startsWith("this.")
         ? thisScope(value)
         : path && declaringScope(path.split(".")[0], value);
-      if (origin && path && (origin !== scope || name !== path)) {
-        (scope.objectAliases ??= new Map()).set(name, {
-          scope: origin,
-          name: path,
-        });
+      const sources = scope.objectAliases?.get(name) ?? [];
+      if (
+        origin &&
+        path &&
+        (origin !== scope || name !== path) &&
+        !sources.some((entry) => entry.scope === origin && entry.name === path)
+      ) {
+        sources.push({ scope: origin, name: path });
+        (scope.objectAliases ??= new Map()).set(name, sources);
         changed = true;
       }
     }
@@ -720,14 +743,22 @@ function sqlCallLines(file: string, text: string, script = false) {
                 changed = true;
         }
       }
-      const assigned: { name: string; binding: Binding | undefined }[] = [];
+      const assigned: {
+        name: string;
+        binding: Binding | undefined;
+        method?: string;
+      }[] = [];
       if (target?.type === "ObjectPattern") {
         for (const { key, name } of bindings(target)) {
           const binding =
             key === "db"
               ? destructuredDatabase(value)
               : knownProperty(value, key);
-          if (binding) assigned.push({ name, binding });
+          const method =
+            methods.has(key) && connectionKind(value) === "connection"
+              ? key
+              : undefined;
+          if (binding || method) assigned.push({ name, binding, method });
         }
       } else if (field) {
         const key = node.computed
@@ -742,13 +773,14 @@ function sqlCallLines(file: string, text: string, script = false) {
         const name = receiver(target);
         if (name) assigned.push({ name, binding: connectionKind(value) });
       }
-      for (const { name, binding } of assigned) {
+      for (const { name, binding, method } of assigned) {
         const owner = declaration
           ? declarationScope(node)
           : name.startsWith("this.")
             ? thisScope(node)
             : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
         if (!owner) continue;
+        trackMethod(owner, name, method);
         if (target?.type === "Identifier" && isParameter(value)) {
           const parameters = (owner.parameters ??= new Set());
           if (!parameters.has(name)) {
@@ -1178,6 +1210,27 @@ it("follows aliased wrappers, CommonJS exports and extracted SQLite methods", ()
     }
   `;
   expect(sqlCallLines("probe.cjs", text, true)).toEqual([4, 7, 10, 11]);
+});
+
+it("retains SQLite evidence across call orders and destructured method aliases", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    const adapter = { connection: { exec: runCommand } };
+    const source = { connection: db };
+    function run(context, query) { context.connection.exec(query); }
+    run(adapter, command);
+    run(source, query);
+    const { exec: execute } = db;
+    const bound = execute.bind(db);
+    bound(query);
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([6, 11]);
+  const reversed = text.replace(
+    "run(adapter, command);\n    run(source, query);",
+    "run(source, query);\n    run(adapter, command);",
+  );
+  expect(sqlCallLines("probe.ts", reversed, true)).toEqual([6, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
