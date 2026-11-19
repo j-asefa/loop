@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import type { DisplayChart as ChartData } from "../shared/display-spec";
 
 // The Chart component of a display (a fenced `spec` block). Hand-written SVG;
@@ -21,11 +21,31 @@ const COLOURS = [
   "var(--brass-text)",
 ];
 const DASHES = [undefined, "6 3", "2 3"];
+// Fill styles: 0 solid, then five patterns, so the 24 segments a pie may have
+// are all distinct. Lines (12 series at most) use the first three as dashes.
+const FILL_STYLES = 6;
 const cue = (index: number) => ({
   colour: COLOURS[index % COLOURS.length],
-  // 0: solid, 1: hatched or dashed, 2: dotted or cross-hatched.
-  style: Math.floor(index / COLOURS.length) % DASHES.length,
+  style: Math.floor(index / COLOURS.length) % FILL_STYLES,
 });
+// Pattern marks drawn over a pale wash of the colour, by style.
+const PATTERNS: Record<
+  number,
+  { rotate?: number; mark: (colour: string) => ReactNode }
+> = {
+  1: { rotate: 45, mark: (c) => <rect width="3" height="6" fill={c} /> },
+  2: { mark: (c) => <circle cx="3" cy="3" r="1.6" fill={c} /> },
+  3: { rotate: -45, mark: (c) => <rect width="1.5" height="6" fill={c} /> },
+  4: {
+    mark: (c) => (
+      <>
+        <rect width="6" height="1.5" fill={c} />
+        <rect width="1.5" height="6" fill={c} />
+      </>
+    ),
+  },
+  5: { mark: (c) => <rect width="6" height="3" fill={c} /> },
+};
 
 export function DisplayChart({
   title,
@@ -82,21 +102,17 @@ function Patterns({ id }: { id: string }) {
   return (
     <defs>
       {COLOURS.map((colour, c) =>
-        [1, 2].map((style) => (
+        Object.entries(PATTERNS).map(([style, { rotate, mark }]) => (
           <pattern
             key={`${c}-${style}`}
             id={`${id}-p${c}-${style}`}
             width="6"
             height="6"
             patternUnits="userSpaceOnUse"
-            patternTransform={style === 1 ? "rotate(45)" : undefined}
+            patternTransform={rotate ? `rotate(${rotate})` : undefined}
           >
             <rect width="6" height="6" fill={colour} fillOpacity="0.25" />
-            {style === 1 ? (
-              <rect width="3" height="6" fill={colour} />
-            ) : (
-              <circle cx="3" cy="3" r="1.6" fill={colour} />
-            )}
+            {mark(colour)}
           </pattern>
         )),
       )}
@@ -260,11 +276,18 @@ function niceTicks(min: number, max: number): number[] {
   return ticks.length >= 2 ? ticks : [min, max];
 }
 
-// Tick labels with as few significant digits as keep them distinct.
+// Tick labels with as few significant digits as keep them distinct. Compact
+// notation ("12K", "3.4B") stops at trillions, so huge and tiny scales use
+// scientific notation and labels stay short enough for the axis.
 export function tickLabels(ticks: number[]): string[] {
+  const largest = Math.max(...ticks.map(Math.abs));
+  const notation =
+    largest >= 1e15 || (largest > 0 && largest < 1e-3)
+      ? "scientific"
+      : "compact";
   for (let digits = 3; digits <= 21; digits++) {
     const format = new Intl.NumberFormat("en", {
-      notation: "compact",
+      notation,
       maximumSignificantDigits: digits,
     });
     const labels = ticks.map((tick) => format.format(tick));
@@ -329,7 +352,7 @@ function Series({
                     // No minimum width: dense groups get thin bars rather
                     // than bars painted over their neighbours.
                     width={num(width - (width > 3 ? 1 : 0))}
-                    height={num(Math.max(Math.abs(zero - y), 0.5))}
+                    height={num(Math.abs(zero - y))}
                   />
                 );
               })}

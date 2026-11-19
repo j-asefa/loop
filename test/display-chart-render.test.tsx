@@ -262,3 +262,49 @@ it("does not point a compact chart at a table it leaves out", () => {
     "The numbers are in the table below.",
   );
 });
+
+it("gives each of a pie's 24 segments a distinct fill", () => {
+  const html = render(
+    chart("Many slices", {
+      type: "pie",
+      segments: Array.from({ length: 24 }, (_, i) => ({
+        label: `p${i}`,
+        value: i + 1,
+      })),
+    }),
+  );
+  const fills = [...html.matchAll(/<path d="M[^"]*" fill="([^"]+)"/g)].map(
+    (match) => match[1],
+  );
+  expect(fills).toHaveLength(24);
+  expect(new Set(fills).size).toBe(24);
+  // Every pattern a fill refers to is defined.
+  for (const fill of fills) {
+    const id = /^url\(#(.+)\)$/.exec(fill)?.[1];
+    if (id) expect(html).toContain(`<pattern id="${id}"`);
+  }
+});
+
+it("keeps tick labels short for huge and tiny scales", () => {
+  for (const values of [
+    [0, 1e100],
+    [-1.7e308, 1.7e308],
+    [1e-30, 3e-30],
+    [5e-324, 1e-323],
+  ]) {
+    const labels = tickLabels(valueScale(values, false).ticks);
+    for (const label of labels)
+      expect(label.length, `${values}: ${label}`).toBeLessThanOrEqual(9);
+  }
+});
+
+it("draws a zero bar with no height", () => {
+  const html = render(
+    chart("Zero", {
+      type: "bar",
+      categories: ["a", "b"],
+      series: [{ name: "s", values: [0, 1000] }],
+    }),
+  );
+  expect(html).toMatch(/<rect x="[\d.]+" y="[\d.]+" width="[\d.]+" height="0"/);
+});
