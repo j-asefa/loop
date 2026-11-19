@@ -51,7 +51,7 @@ export function DisplayChart({
         className="display-chart-svg"
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`${title}. ${kind}. The numbers are in the table below.`}
+        aria-label={`${title}. ${kind}.${compact ? "" : " The numbers are in the table below."}`}
       >
         <Patterns id={id} />
         {chart.type === "pie" ? (
@@ -222,7 +222,11 @@ export function valueScale(values: number[], fromZero: boolean): Scale {
   if (!values.length) [lo, hi] = [0, 1];
   if (!(hi / 2 - lo / 2 > 0)) {
     const pad = Math.abs(lo) / 2 || 0.5;
-    [lo, hi] = fromZero && lo === 0 ? [0, 1] : [lo - pad, hi + pad];
+    // Padding equal values near the float limit must stay finite.
+    const finite = (value: number) =>
+      Math.max(-Number.MAX_VALUE, Math.min(Number.MAX_VALUE, value));
+    [lo, hi] =
+      fromZero && lo === 0 ? [0, 1] : [finite(lo - pad), finite(hi + pad)];
     if (!(hi / 2 - lo / 2 > 0)) [lo, hi] = [lo - 0.5, lo + 0.5];
   }
   const ticks = niceTicks(lo, hi);
@@ -322,7 +326,9 @@ function Series({
                     key={i}
                     x={num(x)}
                     y={num(Math.min(y, zero))}
-                    width={num(Math.max(width - (width > 3 ? 1 : 0), 0.5))}
+                    // No minimum width: dense groups get thin bars rather
+                    // than bars painted over their neighbours.
+                    width={num(width - (width > 3 ? 1 : 0))}
                     height={num(Math.max(Math.abs(zero - y), 0.5))}
                   />
                 );

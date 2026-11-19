@@ -191,6 +191,9 @@ it("gives equal, zero, huge and tiny values a span with distinct tick labels", (
     [[7, 7, 7], true],
     [[-2, -2], false],
     [[-1.7e308, 1.7e308], false],
+    [[1.7e308, 1.7e308], false],
+    [[-1.7e308, -1.7e308], false],
+    [[Number.MAX_VALUE, Number.MAX_VALUE], false],
     [[5e-324, 1e-323], false],
     [[1e9, 1e9 + 1], false],
     [[0.1, 0.2, 0.30000000000000004], false],
@@ -208,4 +211,54 @@ it("gives equal, zero, huge and tiny values a span with distinct tick labels", (
       expect(y).toBeLessThanOrEqual(186.01);
     }
   }
+});
+
+it("keeps equal values near the float limit finite", () => {
+  for (const value of [1.7e308, -1.7e308, Number.MAX_VALUE]) {
+    const html = render(
+      chart("Flat", {
+        type: "line",
+        categories: ["a", "b"],
+        series: [{ name: "s", values: [value, value] }],
+      }),
+    );
+    expect(html).not.toMatch(/NaN|Infinity/);
+  }
+});
+
+it("never paints a dense bar over its neighbour", () => {
+  const html = render(
+    chart("Dense", {
+      type: "bar",
+      categories: Array.from({ length: 200 }, (_, i) => `c${i}`),
+      series: Array.from({ length: 12 }, (_, s) => ({
+        name: `s${s}`,
+        values: Array(200).fill(s + 1),
+      })),
+    }),
+  );
+  const bars = [
+    ...html.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"/g),
+  ]
+    .map((match) => [Number(match[1]), Number(match[2])])
+    .sort((a, b) => a[0] - b[0]);
+  expect(bars).toHaveLength(2400);
+  for (let i = 1; i < bars.length; i++)
+    expect(bars[i - 1][0] + bars[i - 1][1]).toBeLessThanOrEqual(
+      bars[i][0] + 0.011,
+    );
+});
+
+it("does not point a compact chart at a table it leaves out", () => {
+  const data = {
+    type: "line",
+    categories: ["a", "b"],
+    series: [{ name: "s", values: [1, 2] }],
+  };
+  expect(render(chart("Small", data), true)).toContain(
+    'aria-label="Small. Line chart, 1 series, 2 categories."',
+  );
+  expect(render(chart("Small", data))).toContain(
+    "The numbers are in the table below.",
+  );
 });

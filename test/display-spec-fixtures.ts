@@ -1008,6 +1008,39 @@ export const displayFixtures: DisplayFixture[] = [
     },
   },
   {
+    name: "a full chart shared until the table cell limit",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, Array(9).fill("c")),
+      element("c", "Chart", {
+        title: "Full",
+        chart: {
+          type: "bar",
+          categories: Array.from(
+            { length: DISPLAY_LIMITS.categories },
+            (_, i) => `c${i}`,
+          ),
+          series: Array.from(
+            { length: DISPLAY_LIMITS.seriesCount },
+            (_, s) => ({
+              name: `s${s}`,
+              values: Array(DISPLAY_LIMITS.categories).fill(s),
+            }),
+          ),
+        },
+      }),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(8).fill(
+          `  Chart "Full" bar series=${DISPLAY_LIMITS.seriesCount} categories=${DISPLAY_LIMITS.categories}`,
+        ),
+        "  !Chart invalid",
+      ],
+    },
+  },
+  {
     name: "a table rejected by the character limit charges no cells",
     source: lines(
       root("s"),

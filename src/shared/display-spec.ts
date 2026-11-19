@@ -16,8 +16,9 @@ export const DISPLAY_LIMITS = {
   depth: 8,
   tableRows: 200,
   tableColumns: 20,
-  // Table cells drawn across the whole display, counting every reference to
-  // a shared table; a Table past it is a placeholder.
+  // Table cells and chart values drawn across the whole display, counting
+  // every reference to a shared element; a Table or Chart past it is a
+  // placeholder.
   tableCells: 20000,
   // Characters of Text Markdown drawn across the display, counting every
   // reference to a shared Text; equal to the block limit, so only shared
@@ -324,14 +325,22 @@ function draw(
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
   // An element drawn as a placeholder charges none of the budgets.
+  // Tables charge their cells; charts charge the marks they draw (and the
+  // matching rows of their table of numbers).
   const cells =
-    built.type === "Table" ? built.rows.length * built.headers.length : 0;
+    built.type === "Table"
+      ? built.rows.length * built.headers.length
+      : built.type === "Chart"
+        ? built.chart.type === "pie"
+          ? built.chart.segments.length
+          : built.chart.series.length * built.chart.categories.length
+        : 0;
   if (state.cells + cells > DISPLAY_LIMITS.tableCells)
     return placeholder(
       key,
       type,
       "invalid",
-      `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
+      `The display has more than ${DISPLAY_LIMITS.tableCells} table cells and chart values`,
     );
   const text = built.type === "Text" ? built.content.length : 0;
   if (state.text + text > DISPLAY_LIMITS.textCharacters)
