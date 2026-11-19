@@ -19,7 +19,7 @@ export async function prepareNativeAuthBrowser(dir) {
     });
   await writeFile(
     join(bin, "claude"),
-    `#!/bin/sh\nexport LOOP_TEST_HARNESS=claude\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/auth-harness.mjs")}' "$@"\n`,
+    `#!/bin/sh\nexport LOOP_TEST_HARNESS=claude\nexport LOOP_TEST_AUTH_DIR='${dir}'\nexec '${process.execPath}' '${resolve("test/fixtures/auth-harness.mjs")}' "$@"\n`,
     { mode: 0o755 },
   );
   process.env.PATH = bin + ":" + originalPath;

@@ -25,7 +25,7 @@ test("native provider settings save independent keys, preserve billing, refresh 
   process.env.PATH = bin + ":" + originalPath;
   const options = {
     harness: "codex" as const,
-    executable: resolve("test/harness.mjs"),
+    executable: resolve("test/fixtures/harness.mjs"),
     project: dir,
     version: "workspace",
     billing: "existing" as const,

@@ -18,7 +18,7 @@ await withGithubClient(
       harness: "codex" as const,
       version: "fixture",
       project: join(dir, "fixture"),
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       billing: "existing" as const,
     };
     mkdirSync(options.project, { recursive: true });

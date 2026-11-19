@@ -53,7 +53,7 @@ function session(
       executable:
         harness === "codex"
           ? harnesses.executable("codex")
-          : resolve("test/harness.mjs"),
+          : resolve("test/fixtures/harness.mjs"),
       version: "fixture",
       project: dir,
       billing: "existing",

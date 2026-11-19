@@ -177,7 +177,9 @@ it
     const scopes = interceptScopes();
     vi.stubEnv("LOOP_TEST_HARNESS", harness);
     const executable =
-      harness === "acp" ? process.execPath : resolve("test/harness.mjs");
+      harness === "acp"
+        ? process.execPath
+        : resolve("test/fixtures/harness.mjs");
     if (harness !== "acp") chmodSync(executable, 0o755);
     const events: AdapterEvent[] = [];
     const Adapter = {

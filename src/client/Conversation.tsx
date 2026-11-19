@@ -111,6 +111,7 @@ import {
   ForkSheet,
   OutlineSheet,
   QuotePartSheet,
+  ThreadUsage,
   UsageLine,
   messageActions,
 } from "./ThreadTools";
@@ -1211,6 +1212,7 @@ function ConversationView({
             {agentModelName(agent, connections)}
             {project ? ` · ${project.name}` : ""}
           </small>
+          <ThreadUsage usage={usage} />
         </p>
       )}
       {options && (

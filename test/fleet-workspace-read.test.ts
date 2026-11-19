@@ -232,7 +232,7 @@ it("a read credential returns native models without refreshing registrations or 
   db.prepare("INSERT INTO harnesses VALUES('claude',?,'{}','[]','{}',0)").run(
     JSON.stringify({
       harness: "claude",
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project: root,
       version: "fixture",
       billing: "existing",

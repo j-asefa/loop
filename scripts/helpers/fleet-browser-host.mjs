@@ -11,7 +11,7 @@ const options = {
   harness: "codex",
   version: "fixture",
   project: process.env.FLEET_FIXTURE_PROJECT,
-  executable: resolve("test/harness.mjs"),
+  executable: resolve("test/fixtures/harness.mjs"),
   billing: "existing",
   fleet: true,
 };

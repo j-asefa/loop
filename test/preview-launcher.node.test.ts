@@ -152,7 +152,7 @@ await writeFile('dist/web/experiment.txt',String(Date.now()));\n`,
   await chmod(fake, 0o755);
   const bin = join(base, "bin");
   await mkdir(bin);
-  await cp(join(root, "test", "harness.mjs"), join(bin, "codex"));
+  await cp(join(root, "test", "fixtures", "harness.mjs"), join(bin, "codex"));
   await chmod(join(bin, "codex"), 0o755);
   // Fixture installs are offline; builds still use npm's actual script runner.
   await writeFile(

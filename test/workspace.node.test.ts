@@ -29,7 +29,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
   gitProject(projectA);
   gitProject(projectB);
   process.env.LOOP_TEST_HISTORY_PROJECT = projectB;
-  const executable = resolve("test/harness.mjs");
+  const executable = resolve("test/fixtures/harness.mjs");
   await chmod(executable, 0o755);
   const options = {
     harness: "codex" as const,
@@ -426,7 +426,7 @@ test("workspace: one pairing, three concurrent native conversations, isolated de
         mcpServers: {
           fixture: {
             command: process.execPath,
-            args: [resolve("test/mcp-fixture.mjs")],
+            args: [resolve("test/fixtures/mcp-fixture.mjs")],
             env: {},
           },
         },

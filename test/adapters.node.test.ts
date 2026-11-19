@@ -14,7 +14,7 @@ import { conflict } from "../src/adapters/types.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import type { Harness } from "../src/shared/protocol.js";
 import { EmittedWorkspaceEvent } from "../src/shared/workspace-events.js";
-const executable = resolve("test/harness.mjs");
+const executable = resolve("test/fixtures/harness.mjs");
 chmodSync(executable, 0o755);
 import { until } from "./helpers/wait.js";
 import codexToolApproval from "./fixtures/codex-tool-approval.json" with { type: "json" };
@@ -675,7 +675,11 @@ for (const [name, Klass] of Object.entries({
       if (name === "codex" || name === "claude") {
         assert.deepEqual(events.filter((e) => e.type === "usage").at(-1), {
           type: "usage",
-          usage: { input_tokens: 120, output_tokens: 30 },
+          usage: {
+            input_tokens: 120,
+            output_tokens: 30,
+            ...(name === "claude" ? { cache_read_tokens: 30 } : {}),
+          },
         });
       }
       assert(

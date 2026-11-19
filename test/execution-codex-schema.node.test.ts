@@ -26,7 +26,7 @@ test(
     gitProject(project);
     const options = {
       harness: "codex" as const,
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       project,
       version: "fixture",
       billing: "subscription" as const,

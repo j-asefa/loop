@@ -29,7 +29,7 @@ it.each(["wait", "async-question-finish"])(
     const conversation = "codex-reply-" + prompt;
     await sessions.projects.enable({
       harness: "codex",
-      executable: resolve("test/harness.mjs"),
+      executable: resolve("test/fixtures/harness.mjs"),
       version: "0.157.0",
       project: dir,
       billing: "existing",

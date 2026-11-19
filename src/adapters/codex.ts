@@ -42,7 +42,13 @@ function codexTokens(value: any): Tokens | undefined {
   const output = tokenCount(value?.outputTokens);
   // Cached input and reasoning output are already included in these totals.
   if (input === undefined || output === undefined) return;
-  return { input_tokens: input, output_tokens: output };
+  const cached = tokenCount(value?.cachedInputTokens);
+  return {
+    input_tokens: input,
+    output_tokens: output,
+    // Kept when zero: a missing count is unknown, not an empty cache.
+    ...(cached !== undefined ? { cache_read_tokens: cached } : {}),
+  };
 }
 
 export class Codex extends DirectAdapter implements Adapter {
@@ -698,6 +704,20 @@ export class Codex extends DirectAdapter implements Adapter {
         this.tokenBaseline = {
           input_tokens: Math.max(0, total.input_tokens - last.input_tokens),
           output_tokens: Math.max(0, total.output_tokens - last.output_tokens),
+          // The app-server schema always sends cachedInputTokens. If a build
+          // omits it, later turns also go without until a restart: the
+          // baseline carried between turns has no count to subtract.
+          // Without both counts the cache read before this turn is unknown,
+          // so this turn reports no cached share instead of a wrong one.
+          ...(total.cache_read_tokens !== undefined &&
+          last.cache_read_tokens !== undefined
+            ? {
+                cache_read_tokens: Math.max(
+                  0,
+                  total.cache_read_tokens - last.cache_read_tokens,
+                ),
+              }
+            : {}),
         };
       }
       if (
@@ -707,6 +727,14 @@ export class Codex extends DirectAdapter implements Adapter {
       )
         return;
       this.tokenTotal = total;
+      const cacheRead =
+        total.cache_read_tokens !== undefined &&
+        this.tokenBaseline.cache_read_tokens !== undefined
+          ? Math.max(
+              0,
+              total.cache_read_tokens - this.tokenBaseline.cache_read_tokens,
+            )
+          : 0;
       this.emit({
         type: "usage",
         usage: {
@@ -718,6 +746,7 @@ export class Codex extends DirectAdapter implements Adapter {
             0,
             total.output_tokens - this.tokenBaseline.output_tokens,
           ),
+          ...(cacheRead > 0 ? { cache_read_tokens: cacheRead } : {}),
         },
       });
     }

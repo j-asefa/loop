@@ -3076,11 +3076,98 @@ it("sums provider receipts per run without double counting cumulative deltas", a
       [chat]: { input_tokens: 7, output_tokens: 3 },
     },
     total: { input_tokens: 307, output_tokens: 93 },
+    origins: { person: { turns: 3, input_tokens: 307, output_tokens: 93 } },
     memory: [chat],
   });
   expect((await api("intruder", `/conversations/${cid}/usage`)).status).toBe(
     404,
   );
+});
+
+it("groups thread usage by what started each turn, with the cached share", async () => {
+  const { submit } = await import("../src/server/agent-runtime");
+  const w = workspaceFor(),
+    a = w.agent(),
+    cid = conversation(w.owner, a.id);
+  const send = (key: string, extra: object = {}) =>
+    submit(w.owner, {
+      agentId: a.id,
+      conversationId: cid,
+      input: key,
+      idempotencyKey: "origin-" + key + "-" + id(),
+      ...extra,
+    }).id;
+  const typed = send("typed", { personal: true }),
+    watched = send("watched", {
+      automation: { kind: "github_watch", watchId: "watch" },
+    }),
+    followUp = send("follow-up", {
+      automation: { kind: "review_continuation", reviewId: "review" },
+    }),
+    secondFollowUp = send("second follow-up", {
+      automation: { kind: "review_continuation", reviewId: "review-2" },
+    }),
+    unused = send("no usage recorded");
+  // Records earlier releases could write: a kind this build does not name, a
+  // person's turn that inherited its thread's review binding and a delegated
+  // task.
+  const scheduled = run(w.owner, a.id, cid),
+    inherited = run(w.owner, a.id, cid, "completed", {
+      payload: { reviewId: "review" },
+    }),
+    delegated = run(w.owner, a.id, cid);
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'user','scheduled',?,?)",
+  ).run(
+    id(),
+    w.owner,
+    cid,
+    scheduled,
+    JSON.stringify({ automation: { kind: "schedule" } }),
+    now(),
+  );
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments) VALUES(?,?,?,'{}')",
+  ).run(typed, "call", delegated);
+  const usage = (rid: string, input: number, cached?: number) =>
+    emit(w.owner, rid, "native.usage", {
+      usage: {
+        input_tokens: input,
+        output_tokens: 1,
+        ...(cached ? { cache_read_tokens: cached } : {}),
+      },
+    });
+  usage(typed, 100);
+  usage(watched, 200, 50);
+  usage(followUp, 1000, 900);
+  usage(secondFollowUp, 3000, 2100);
+  usage(scheduled, 10);
+  usage(inherited, 20);
+  usage(delegated, 30);
+  const result = await api(w.owner, `/conversations/${cid}/usage`);
+  expect(result.data.runs[unused]).toBeUndefined();
+  expect(result.data.total).toEqual({
+    input_tokens: 4360,
+    output_tokens: 7,
+    cache_read_tokens: 3050,
+  });
+  expect(result.data.origins).toEqual({
+    person: { turns: 2, input_tokens: 120, output_tokens: 2 },
+    github_watch: {
+      turns: 1,
+      input_tokens: 200,
+      output_tokens: 1,
+      cache_read_tokens: 50,
+    },
+    review_continuation: {
+      turns: 2,
+      input_tokens: 4000,
+      output_tokens: 2,
+      cache_read_tokens: 3000,
+    },
+    automation: { turns: 1, input_tokens: 10, output_tokens: 1 },
+    delegation: { turns: 1, input_tokens: 30, output_tokens: 1 },
+  });
 });
 
 it("pushes approval requests without their arguments and delivers app messages", async () => {

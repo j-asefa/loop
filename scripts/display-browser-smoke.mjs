@@ -3,9 +3,13 @@
 // card, its reading sheet, a Working card and the conversation; that a bad
 // element, a block that cannot be drawn and a javascript: link degrade without
 // hiding the answer; and that a display never overflows a 320 or 390px phone
-// (wide tables scroll inside it). It makes no provider requests and does not
-// replace physical-phone validation.
+// (wide tables scroll inside it). Charts: each type is drawn as a named SVG
+// that fits the phone, category labels do not overlap, and the numbers are in
+// a table under the chart. Set LOOP_DISPLAY_SCREENSHOT_DIR to save light and
+// dark screenshots. It makes no provider requests and does not replace
+// physical-phone validation.
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium, expect } from "@playwright/test";
@@ -69,6 +73,88 @@ const display = fence(
     }),
   ),
 );
+const months = [
+  "January 2026",
+  "February 2026",
+  "March 2026",
+  "April 2026",
+  "May 2026",
+  "June 2026",
+  "July 2026",
+  "August 2026",
+  "September 2026",
+  "October 2026",
+  "November 2026",
+  "December 2026",
+];
+const charts = fence(
+  patch(
+    { op: "add", path: "/root", value: "card" },
+    add("card", {
+      type: "Card",
+      props: { title: "Deploy charts" },
+      children: ["bar", "line", "area", "pie"],
+    }),
+    add("bar", {
+      type: "Chart",
+      props: {
+        title: "Deploys by month",
+        chart: {
+          type: "bar",
+          categories: months,
+          series: ["web", "api", "jobs", "docs", "cli"].map((name, s) => ({
+            name,
+            values: months.map((_, i) => ((i * 7 + s * 13) % 40) + 5),
+          })),
+          xLabel: "Month",
+          yLabel: "Deploys",
+        },
+      },
+    }),
+    add("line", {
+      type: "Chart",
+      props: {
+        title: "Median build minutes",
+        chart: {
+          type: "line",
+          categories: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+          series: [
+            { name: "main", values: [12.5, 11, 13.25, 9, 10] },
+            { name: "release", values: [-2, 4, 6, 3, 8] },
+          ],
+        },
+      },
+    }),
+    add("area", {
+      type: "Chart",
+      props: {
+        title: "Queue depth",
+        chart: {
+          type: "area",
+          categories: ["1", "2", "3", "4", "5", "6"],
+          series: [{ name: "jobs", values: [0, 4, 9, 6, 2, 0] }],
+        },
+      },
+    }),
+    add("pie", {
+      type: "Chart",
+      props: {
+        title: "Deploys by project",
+        chart: {
+          type: "pie",
+          segments: [
+            { label: "web", value: 412 },
+            { label: "api", value: 288 },
+            { label: "jobs", value: 97 },
+          ],
+        },
+      },
+    }),
+  ),
+);
+const chartAnswer = `Charts for the week.\n\n${charts}`;
+const shots = process.env.LOOP_DISPLAY_SCREENSHOT_DIR;
+if (shots) mkdirSync(shots, { recursive: true });
 const answer = `Here is the report.\n\n${display}\n\nTell me if you want more detail.`;
 const broken = `Before the block.\n\n${fence(patch(add("orphan", { type: "Divider" })))}\n\nAfter the block.`;
 
@@ -219,6 +305,104 @@ for (const engine of selectedEngines()) {
         page.locator("dialog.feed-reading-sheet[open] .display-spec"),
       ).toHaveCount(1);
 
+      // Charts: each type drawn as a named SVG that fits the phone, with its
+      // numbers in a table.
+      seal(done, chartAnswer);
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      const chartCard = page
+        .locator(".feed-results .feed-item-card")
+        .filter({ hasText: done.title });
+      await expect(
+        chartCard.locator(".display-chart-svg").first(),
+      ).toBeVisible();
+      if (shots)
+        for (const scheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme: scheme });
+          await chartCard.screenshot({
+            path: join(shots, `${engine.name()}-chart-card-${scheme}.png`),
+          });
+        }
+      await chartCard.locator(".feed-row").click();
+      const chartSheet = page.locator("dialog.feed-reading-sheet[open]");
+      const figures = chartSheet.locator(".display-chart");
+      await expect(figures).toHaveCount(4);
+      for (const [name, kind] of [
+        ["Deploys by month", "Bar chart, 5 series, 12 categories"],
+        ["Median build minutes", "Line chart, 2 series, 5 categories"],
+        ["Queue depth", "Area chart, 1 series, 6 categories"],
+        ["Deploys by project", "Pie chart, 3 segments"],
+      ])
+        await expect(
+          chartSheet.getByRole("img", {
+            name: `${name}. ${kind}.`,
+            exact: false,
+          }),
+        ).toBeVisible();
+      await expect(
+        figures.first().locator(".display-chart-legend li"),
+      ).toHaveCount(5);
+      await expect(chartSheet.getByText("web 52%")).toBeVisible();
+      if (shots)
+        for (const scheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme: scheme });
+          for (const [index, name] of [
+            "bar",
+            "line",
+            "area",
+            "pie",
+          ].entries()) {
+            await figures.nth(index).scrollIntoViewIfNeeded();
+            await figures.nth(index).screenshot({
+              path: join(shots, `${engine.name()}-chart-${name}-${scheme}.png`),
+            });
+          }
+        }
+      await page.emulateMedia({ colorScheme: "light" });
+      // Open the table first: it must scroll inside the display, not widen it.
+      const numbers = figures.first().locator("details");
+      await numbers.locator("summary").click();
+      for (const width of [320, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+          "Page overflows with charts at phone width",
+        );
+        for (const svg of await chartSheet
+          .locator(".display-chart-svg")
+          .all()) {
+          const fits = await svg.evaluate((el) => {
+            const box = el.getBoundingClientRect();
+            const parent = el.closest(".display-spec").getBoundingClientRect();
+            return (
+              box.left >= parent.left - 0.5 && box.right <= parent.right + 0.5
+            );
+          });
+          assert(fits, "A chart is wider than its display");
+        }
+        const overlap = await chartSheet
+          .locator(".display-chart-categories")
+          .first()
+          .evaluate((group) => {
+            const boxes = [...group.querySelectorAll("text")].map((t) =>
+              t.getBoundingClientRect(),
+            );
+            return boxes.some(
+              (box, i) => i > 0 && box.left < boxes[i - 1].right - 0.5,
+            );
+          });
+        assert(!overlap, `Category labels overlap at ${width}px`);
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(
+        numbers
+          .locator("tr")
+          .filter({ hasText: "September 2026" })
+          .locator("td"),
+      ).toHaveText(["21", "34", "7", "20", "33"]);
+
       // A block that cannot be drawn keeps the answer and shows its source.
       seal(done, broken);
       await page.goto(fixture.base);
@@ -241,7 +425,7 @@ for (const engine of selectedEngines()) {
       assert.deepEqual(errors, []);
       await context.close();
       console.log(
-        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, source fallback and 320/390px overflow passed`,
+        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, charts, source fallback and 320/390px overflow passed`,
       );
     } finally {
       await closeBrowser();
