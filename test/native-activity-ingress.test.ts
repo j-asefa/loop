@@ -306,6 +306,110 @@ it("records Claude result usage including cached inputs, excluding foreign resul
     cache_read_tokens: 50,
   });
 });
+
+// The projector picks the last non-commentary assistant item with text as a
+// completed run's answer (projectOutput), so child-session output must carry
+// phase "commentary" at ingress to stay out of that selection.
+const retainedAnswer = (live: Live) =>
+  [...live.items.values()].findLast(
+    (i) => i.kind === "assistant" && i.phase !== "commentary" && i.text.trim(),
+  );
+
+it("marks Claude child-session assistant messages as commentary so they cannot become the run's answer", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-commentary");
+  const current = start(sessions, "claude-child-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-commentary",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-commentary", ...m });
+  send({
+    type: "assistant",
+    parent_tool_use_id: null,
+    message: {
+      id: "parent-msg",
+      role: "assistant",
+      content: [{ type: "text", text: "Parent final" }],
+    },
+  });
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-msg",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text" }],
+    },
+  });
+  // Parent-session items keep their exact shape; the child is commentary.
+  expect(current.live.items.get("parent-msg")).toEqual({
+    id: "parent-msg",
+    kind: "assistant",
+    text: "Parent final",
+  });
+  expect(current.live.items.get("child-msg")).toEqual({
+    id: "child-msg",
+    kind: "assistant",
+    text: "Child text",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)?.id).toBe("parent-msg");
+});
+
+it("establishes a commentary item before a child stream's first delta", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-delta");
+  const current = start(sessions, "claude-child-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-delta", ...m });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-2",
+    event: { type: "message_start", message: { id: "child-stream" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-2",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "Child stream text" },
+    },
+  });
+  // The delta merged into the commentary item the adapter established first;
+  // a turn ending here (no parent text) must not select the child stream.
+  expect(current.live.items.get("child-stream")).toEqual({
+    id: "child-stream",
+    kind: "assistant",
+    text: "Child stream text",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,

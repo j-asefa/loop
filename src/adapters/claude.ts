@@ -63,6 +63,10 @@ export class Claude extends DirectAdapter implements Adapter {
   private requests = new Map<string, any>();
   private session: string;
   private messageIds = new Map<string, string>();
+  // Assistant items established from child-session (Task tool) streams.
+  // Keyed by the item id, because a stream's id can switch before
+  // `message_start` arrives; every distinct id needs its own commentary item.
+  private childItems = new Set<string>();
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
@@ -526,12 +530,24 @@ export class Claude extends DirectAdapter implements Adapter {
         if (this.messageIds.size > 128)
           this.messageIds.delete(this.messageIds.keys().next().value!);
       }
-      if (e.type === "content_block_delta" && e.delta.type === "text_delta")
-        this.emit({
-          type: "delta",
-          id: this.messageIds.get(stream) ?? m.uuid,
-          text: e.delta.text,
-        });
+      if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
+        const id = this.messageIds.get(stream) ?? m.uuid;
+        // A child stream's deltas must never leave a phase-less assistant
+        // item the projector could pick as the run's answer. Establish the
+        // commentary item before the first delta so the projector merges the
+        // deltas into it and keeps the child's text as progress only.
+        if (m.parent_tool_use_id && !this.childItems.has(id)) {
+          this.childItems.add(id);
+          // Re-emitting a commentary item for an evicted id is idempotent.
+          if (this.childItems.size > 128)
+            this.childItems.delete(this.childItems.values().next().value!);
+          this.emit({
+            type: "item",
+            item: { id, kind: "assistant", text: "", phase: "commentary" },
+          });
+        }
+        this.emit({ type: "delta", id, text: e.delta.text });
+      }
       if (
         e.type === "content_block_start" &&
         e.content_block.type === "tool_use"
@@ -561,7 +577,15 @@ export class Claude extends DirectAdapter implements Adapter {
       if (text)
         this.emit({
           type: "item",
-          item: { id: m.message.id, kind: "assistant", text },
+          item: {
+            id: m.message.id,
+            kind: "assistant",
+            text,
+            // A Task tool (subagent) session's assistant message must not
+            // become the parent run's answer; commentary keeps it visible
+            // as progress while the projector excludes it from selection.
+            ...(m.parent_tool_use_id ? { phase: "commentary" as const } : {}),
+          },
         });
       for (const b of content)
         if (b.type === "tool_use") {
@@ -605,6 +629,7 @@ export class Claude extends DirectAdapter implements Adapter {
       if (this.steering.result()) return;
       this.active = false;
       this.messageIds.clear();
+      this.childItems.clear();
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();

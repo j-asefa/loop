@@ -26,6 +26,8 @@ seedAgent(db, {
 const { enqueue } = await import("../src/server/queue");
 const { tick, execute } = await import("../src/server/worker");
 const { nativeSessions } = await import("../src/server/native-sessions");
+const { publishCompletedRunResult } =
+  await import("../src/server/result-publication");
 for (const harness of ["claude", "codex"]) {
   db.prepare("INSERT INTO harnesses VALUES(?,?,'{}','{}','[]',0)").run(
     harness,
@@ -51,6 +53,9 @@ for (const harness of ["claude", "codex"]) {
 afterEach(() => {
   delete process.env.LOOP_TEST_HARNESS;
   delete process.env.LOOP_TEST_CLAUDE_INJECTED_RESULTS;
+  delete process.env.LOOP_TEST_CLAUDE_CHILD_TEXT;
+  delete process.env.LOOP_TEST_CLAUDE_CHILD_DELTA_ONLY;
+  delete process.env.LOOP_TEST_CLAUDE_PARENT_BLANK;
   delete process.env.LOOP_TEST_CODEX_WRITER_BUSY;
   delete process.env.LOOP_TEST_AUDIT;
 });
@@ -128,6 +133,81 @@ it("keeps the user run open across injected Claude results and saves its actual 
       .get("claude-recovery"),
   ).toEqual({ n: 0 });
   expect(readFileSync(audit, "utf8")).toBe("prompt\n");
+});
+
+// Child-session (Task tool) assistant output arrives between the parent's
+// final assistant message and the parent `result`. It must stay visible as
+// progress but never become the run's answer or the sealed Result body.
+function sealedBody(runId: string) {
+  return publishCompletedRunResult(runId, "local-workspace", db)!.outcome.body;
+}
+function progressContent(runId: string, key: string) {
+  return (
+    db
+      .prepare("SELECT content FROM messages WHERE run_id=? AND update_key=?")
+      .get(runId, key) as { content: string } | undefined
+  )?.content;
+}
+
+it("seals the parent's text as the answer when a child assistant message follows it", async () => {
+  process.env.LOOP_TEST_HARNESS = "claude";
+  process.env.LOOP_TEST_CLAUDE_CHILD_TEXT = "Subagent result text";
+  const run = submit("claude-child-answer", "claude", "claude-child-answer");
+  expect(await tick(execute)).toBe(true);
+  expect(
+    db.prepare("SELECT state,result,error FROM runs WHERE id=?").get(run.id),
+  ).toEqual({ state: "completed", result: "Fixture done", error: null });
+  expect(sealedBody(run.id)).toBe("Fixture done");
+  // The child's text is still recorded as a progress update on the run.
+  expect(progressContent(run.id, "native-message:child-1")).toBe(
+    "Subagent result text",
+  );
+});
+
+it("does not seal child stream deltas when the child assistant message never arrives", async () => {
+  process.env.LOOP_TEST_HARNESS = "claude";
+  process.env.LOOP_TEST_CLAUDE_CHILD_DELTA_ONLY = "Subagent stream text";
+  const run = submit(
+    "claude-child-delta-only",
+    "claude",
+    "claude-child-delta-only",
+  );
+  expect(await tick(execute)).toBe(true);
+  expect(
+    db.prepare("SELECT state,result,error FROM runs WHERE id=?").get(run.id),
+  ).toEqual({ state: "completed", result: "Fixture done", error: null });
+  expect(sealedBody(run.id)).toBe("Fixture done");
+  // The child stream's deltas still surface as progress on the run.
+  expect(progressContent(run.id, "native-message:child-1")).toBe(
+    "Subagent stream text",
+  );
+});
+
+it("seals no result when the parent's final message has no text and only a child message does", async () => {
+  process.env.LOOP_TEST_HARNESS = "claude";
+  process.env.LOOP_TEST_CLAUDE_PARENT_BLANK = "1";
+  process.env.LOOP_TEST_CLAUDE_CHILD_TEXT = "Only the subagent speaks";
+  const run = submit("claude-child-blank", "claude", "claude-child-blank");
+  expect(await tick(execute)).toBe(true);
+  // No parent text is eligible, so the run's answer is empty and nothing is
+  // sealed from the child's text.
+  expect(
+    db.prepare("SELECT state,result FROM runs WHERE id=?").get(run.id),
+  ).toEqual({
+    state: "completed",
+    result: "",
+  });
+  expect(publishCompletedRunResult(run.id, "local-workspace", db)).toBeNull();
+});
+
+it("keeps the same answer for a Claude turn without child sessions", async () => {
+  process.env.LOOP_TEST_HARNESS = "claude";
+  const run = submit("claude-plain", "claude", "claude-plain");
+  expect(await tick(execute)).toBe(true);
+  expect(
+    db.prepare("SELECT state,result,error FROM runs WHERE id=?").get(run.id),
+  ).toEqual({ state: "completed", result: "Fixture done", error: null });
+  expect(sealedBody(run.id)).toBe("Fixture done");
 });
 
 it("reports a Codex writer conflict without dispatch, takeover or raw native error disclosure", async () => {
