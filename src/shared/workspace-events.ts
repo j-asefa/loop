@@ -315,7 +315,11 @@ const Payloads = {
   "queue.reordered": z.strictObject({ direction: z.enum(["up", "down"]) }),
   "queue.edited": Empty,
   "native.usage": z.strictObject({
-    usage: z.strictObject({ input_tokens: Count, output_tokens: Count }),
+    usage: z.strictObject({
+      input_tokens: Count,
+      output_tokens: Count,
+      cache_read_tokens: Count.optional(),
+    }),
   }),
   "native.event": z.strictObject({
     conversationId: Id,

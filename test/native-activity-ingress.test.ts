@@ -151,8 +151,16 @@ it("records native turn tokens through adapter ingress without replay or cross-t
     send("thread/tokenUsage/updated", {
       turnId,
       tokenUsage: {
-        total: { inputTokens: input, outputTokens: output },
-        last: { inputTokens: lastInput, outputTokens: lastOutput },
+        total: {
+          inputTokens: input,
+          outputTokens: output,
+          cachedInputTokens: input / 2,
+        },
+        last: {
+          inputTokens: lastInput,
+          outputTokens: lastOutput,
+          cachedInputTokens: lastInput / 2,
+        },
       },
     });
   // Historical usage is not assigned to the next run.
@@ -171,6 +179,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 300,
     output_tokens: 60,
+    cache_read_tokens: 150,
   });
 
   const next = turn("conv", "usage-second");
@@ -180,7 +189,49 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({
     input_tokens: 50,
     output_tokens: 10,
+    cache_read_tokens: 25,
   });
+  // A cached count in only one of total and last leaves this turn's cached
+  // share unknown; the next turn has a full baseline again.
+  const reported: any[] = [];
+  const partial = new Codex(
+    {
+      harness: "codex",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+    },
+    (event: any) => reported.push(event),
+  ) as any;
+  partial.thread = "thread-partial";
+  const note = (method: string, params: any) =>
+    partial.message({
+      method,
+      params: { threadId: "thread-partial", ...params },
+    });
+  note("turn/started", { turn: { id: "partial-1" } });
+  note("thread/tokenUsage/updated", {
+    turnId: "partial-1",
+    tokenUsage: {
+      total: { inputTokens: 900, outputTokens: 90, cachedInputTokens: 800 },
+      last: { inputTokens: 100, outputTokens: 10 },
+    },
+  });
+  note("turn/started", { turn: { id: "partial-2" } });
+  note("thread/tokenUsage/updated", {
+    turnId: "partial-2",
+    tokenUsage: {
+      total: { inputTokens: 1000, outputTokens: 100, cachedInputTokens: 860 },
+      last: { inputTokens: 100, outputTokens: 10, cachedInputTokens: 60 },
+    },
+  });
+  expect(
+    reported.filter((e) => e.type === "usage").map((e) => e.usage),
+  ).toEqual([
+    { input_tokens: 100, output_tokens: 10 },
+    { input_tokens: 100, output_tokens: 10, cache_read_tokens: 60 },
+  ]);
   const before = events().length;
   current.emit({
     type: "usage",
@@ -246,11 +297,13 @@ it("records Claude result usage including cached inputs, excluding foreign resul
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
   adapter.message(result);
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
 });
 const option = (id: string, confirmed: string) => ({

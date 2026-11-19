@@ -91,12 +91,19 @@ export class NativeProjector {
         usage.output_tokens < 0
       )
         return;
+      const cacheRead =
+        usage.cache_read_tokens !== undefined &&
+        Number.isSafeInteger(usage.cache_read_tokens) &&
+        usage.cache_read_tokens > 0
+          ? usage.cache_read_tokens
+          : undefined;
       // Cumulative for this Loop turn, separate from API message receipts.
       // Never persist arbitrary adapter fields in the public event stream.
       emit(run.owner_id, run.id, "native.usage", {
         usage: {
           input_tokens: usage.input_tokens,
           output_tokens: usage.output_tokens,
+          ...(cacheRead !== undefined ? { cache_read_tokens: cacheRead } : {}),
         },
       });
       return;

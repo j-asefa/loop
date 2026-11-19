@@ -46,6 +46,7 @@ import { unreadCount } from "./news.js";
 import type { FeedPage } from "../shared/workspace-api.js";
 import { FEED_FILTERS } from "../shared/feed-categories.js";
 import { projectFor, contains } from "./mobile-return/shared.js";
+import { usageOrigin, type UsageOrigin } from "../shared/usage-origin.js";
 
 export {
   conversationReturnState,
@@ -448,9 +449,20 @@ export function setSavedLabel(owner: string, body: unknown) {
     .immediate();
 }
 
-type Tokens = { input_tokens: number; output_tokens: number };
+type Tokens = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+};
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+function addTokens(target: Tokens, addition: Tokens) {
+  target.input_tokens += addition.input_tokens;
+  target.output_tokens += addition.output_tokens;
+  if (addition.cache_read_tokens)
+    target.cache_read_tokens =
+      (target.cache_read_tokens || 0) + addition.cache_read_tokens;
+}
 export function conversationUsage(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
   const events = runsQueries.conversationUsageEvents(db, owner, conversation);
@@ -463,8 +475,7 @@ export function conversationUsage(owner: string, conversation: string) {
   const flush = () => {
     if (!segment) return;
     const total = (runs[segment.run] ||= { input_tokens: 0, output_tokens: 0 });
-    total.input_tokens += segment.tokens.input_tokens;
-    total.output_tokens += segment.tokens.output_tokens;
+    addTokens(total, segment.tokens);
     segment = undefined;
   };
   for (const event of events) {
@@ -489,6 +500,14 @@ export function conversationUsage(owner: string, conversation: string) {
         total.output_tokens,
         count(usage.output_tokens),
       );
+      // Only harness usage reports cached input, and there it is part of
+      // input_tokens. Provider receipts disagree on that, so they carry none.
+      const cached = count(usage.cache_read_tokens);
+      if (cached > 0)
+        total.cache_read_tokens = Math.max(
+          total.cache_read_tokens || 0,
+          cached,
+        );
       continue;
     }
     if (payload.externalId || !segment || segment.run !== event.run_id) {
@@ -511,11 +530,11 @@ export function conversationUsage(owner: string, conversation: string) {
   Object.assign(runs, native);
   for (const [run, tokens] of Object.entries(runs))
     if (!tokens.input_tokens && !tokens.output_tokens) delete runs[run];
-  const total = Object.values(runs).reduce(
-    (sum, tokens) => ({
-      input_tokens: sum.input_tokens + tokens.input_tokens,
-      output_tokens: sum.output_tokens + tokens.output_tokens,
-    }),
+  const total = Object.values(runs).reduce<Tokens>(
+    (sum, tokens) => {
+      addTokens(sum, tokens);
+      return sum;
+    },
     { input_tokens: 0, output_tokens: 0 },
   );
   // Only runtimes that recall memory record a receipt, so the thread offers
@@ -523,7 +542,26 @@ export function conversationUsage(owner: string, conversation: string) {
   const memory = memoryReceiptsQueries
     .conversationRuns(db, owner, conversation)
     .map((row) => row.run_id);
-  return { runs, total, memory };
+  // Group the same per-run totals by what started each turn.
+  const origins: Partial<Record<UsageOrigin, Tokens & { turns: number }>> = {};
+  for (const turn of runsQueries.conversationTurnOrigins(
+    db,
+    owner,
+    conversation,
+  )) {
+    const tokens = runs[turn.run_id];
+    if (!tokens) continue;
+    const group = (origins[
+      usageOrigin({
+        automation: turn.automation,
+        review: turn.review === 1,
+        delegated: turn.delegated === 1,
+      })
+    ] ||= { turns: 0, input_tokens: 0, output_tokens: 0 });
+    group.turns++;
+    addTokens(group, tokens);
+  }
+  return { runs, total, origins, memory };
 }
 
 export function listSnippets(owner: string) {

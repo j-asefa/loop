@@ -675,7 +675,11 @@ for (const [name, Klass] of Object.entries({
       if (name === "codex" || name === "claude") {
         assert.deepEqual(events.filter((e) => e.type === "usage").at(-1), {
           type: "usage",
-          usage: { input_tokens: 120, output_tokens: 30 },
+          usage: {
+            input_tokens: 120,
+            output_tokens: 30,
+            ...(name === "claude" ? { cache_read_tokens: 30 } : {}),
+          },
         });
       }
       assert(
