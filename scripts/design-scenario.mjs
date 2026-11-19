@@ -1,3 +1,4 @@
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import { artifactReadAbortSmoke } from "./helpers/artifact-read-abort-smoke.mjs";
 import { personalProfileReaderSmoke } from "./helpers/personal-profile-reader-smoke.mjs";
 import { projectNavigationSmoke } from "./helpers/project-navigation-smoke.mjs";
@@ -20,7 +21,6 @@ import { feedLoadingSmoke } from "./helpers/feed-loading-smoke.mjs";
 import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
 import { composerTypingSmoke } from "./helpers/composer-typing-smoke.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
@@ -29,6 +29,7 @@ import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import {
   startSmokeTrace,
   reportSmokePressure,
+  smokeScreenshotDirectory,
 } from "./helpers/smoke-diagnostics.mjs";
 import { runReceipt } from "./helpers/run-receipt.mjs";
 import { seedNewerReplyMessage } from "./helpers/quoted-reply-fixture.mjs";
@@ -192,10 +193,7 @@ const scenarios = {
   "thread-layout": (p, f, e, c) => threadLayoutSmoke(p, c),
 };
 
-const screenshots =
-  process.env.LOOP_DESIGN_SCREENSHOT_DIR ||
-  (process.env.CI ? join("test-results", "screenshots") : undefined);
-if (screenshots) mkdirSync(screenshots, { recursive: true });
+const screenshots = smokeScreenshotDirectory("LOOP_DESIGN_SCREENSHOT_DIR");
 const scenario = process.argv[2] || "core";
 if (scenario !== "core" && !Object.hasOwn(scenarios, scenario))
   throw new Error(`Unknown design scenario: ${scenario}`);
@@ -212,12 +210,7 @@ for (const engine of selectedEngines()) {
     let finishTrace = async (_failed) => {};
     let failed = false;
     try {
-      const context = await browser.newContext({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-        serviceWorkers: "block",
-      });
+      const context = await browser.newContext(mobileSmokeOptions);
       await fixture.pair(context);
       finishTrace = await startSmokeTrace(
         context,

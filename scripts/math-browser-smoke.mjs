@@ -3,6 +3,7 @@
 // failed asset downloads, local fonts, 320/390px equation scrolling and
 // streamed message updates. It makes no provider requests and does not replace
 // physical-phone validation.
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -57,12 +58,7 @@ for (const engine of selectedEngines()) {
           .prepare("UPDATE artifacts SET content=? WHERE run_id=?")
           .run(text, item.run);
       };
-      const context = await browser.newContext({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-        serviceWorkers: "block",
-      });
+      const context = await browser.newContext(mobileSmokeOptions);
       await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(10000);

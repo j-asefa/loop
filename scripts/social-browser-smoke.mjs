@@ -1,18 +1,15 @@
 // Seeds stories straight into the feed store, so it drives Social's reading,
 // saving, filtering, search and watches without reaching a feed.
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
-import { chromium } from "@playwright/test";
 import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 import { designFixture } from "./helpers/design-fixture.mjs";
 import { socialSmoke } from "./helpers/social-smoke.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 
-const evidence =
-  process.env.LOOP_SOCIAL_SCREENSHOT_DIR ||
-  (process.env.CI ? join("test-results", "screenshots") : undefined);
-if (evidence) mkdirSync(evidence, { recursive: true });
+const evidence = smokeScreenshotDirectory("LOOP_SOCIAL_SCREENSHOT_DIR");
 for (const engine of selectedEngines()) {
   // Each engine gets its own workspace. The journey marks a story read, saves
   // a reminder and creates a watch; reseeding feeds would leave all of that
@@ -24,12 +21,7 @@ for (const engine of selectedEngines()) {
       executablePath: chromiumExecutable(engine),
     });
     try {
-      const context = await browser.newContext({
-        serviceWorkers: "block",
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-      });
+      const context = await browser.newContext(mobileSmokeOptions);
       await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(8000);

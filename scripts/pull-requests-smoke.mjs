@@ -1,7 +1,8 @@
 // Drives the Pull requests tab against a scripted GitHub (helpers/fake-
 // github.mjs); it does not reach GitHub.
+import { mobileSmokeOptions } from "./helpers/browser-ui.mjs";
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
@@ -13,12 +14,9 @@ import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 // The Pull requests tab against a scripted GitHub: connect, list, open,
 // read files and threads, review, a merge refused after new commits, the
 // merge after refreshing, and handing a pull request to an agent.
+const evidence = smokeScreenshotDirectory("LOOP_PULLS_SCREENSHOT_DIR");
 const github = await fakeGithub();
 const fixture = await designFixture({ githubApi: github.base });
-const evidence =
-  process.env.LOOP_PULLS_SCREENSHOT_DIR ||
-  (process.env.CI ? join("test-results", "screenshots") : undefined);
-if (evidence) mkdirSync(evidence, { recursive: true });
 const MOVED = "1".repeat(40);
 try {
   for (const engine of selectedEngines()) {
@@ -33,12 +31,7 @@ try {
       executablePath: chromiumExecutable(engine),
     });
     try {
-      const context = await browser.newContext({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-        serviceWorkers: "block",
-      });
+      const context = await browser.newContext(mobileSmokeOptions);
       await fixture.pair(context);
       const page = await context.newPage();
       page.setDefaultTimeout(8000);

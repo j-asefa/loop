@@ -1,16 +1,29 @@
+export const mobileSmokeOptions = Object.freeze({
+  viewport: Object.freeze({ width: 390, height: 844 }),
+  isMobile: true,
+  hasTouch: true,
+  serviceWorkers: "block",
+});
+
 // Close the whole modal stack when a journey returns to the workspace.
 export async function closeSheets(page) {
   // React can mount a dialog's controls before its effect calls showModal().
   // Include mounted dialogs so the click waits for that effect instead of
   // incorrectly treating the page as already closed on slower WebKit runners.
-  while (await page.locator("dialog").count()) {
-    await page
-      .locator("dialog")
-      .last()
-      .locator(":scope > .sheet-inner > .sheet-head")
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await page.waitForTimeout(100);
+  const dialogs = page.locator("dialog");
+  while (await dialogs.count()) {
+    const dialog = dialogs.last();
+    const closing = await dialog.elementHandle();
+    try {
+      await dialog
+        .locator(":scope > .sheet-inner > .sheet-head")
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      // A child can be replaced by its parent without changing the count.
+      await page.waitForFunction((node) => !node.isConnected, closing);
+    } finally {
+      await closing.dispose();
+    }
   }
   // Closing the last sheet pops its history entry asynchronously. Let that
   // Back settle so a following reload or navigation cannot receive it late.
