@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|\\()`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -169,22 +169,21 @@ function classifyMemoryTime(
   let to: number | null = null;
   let period: { start: number; end: number } | undefined;
   let previousEnd = 0;
+  let seenDate = false;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, bound, iso, month, relative, bare] = match;
     const between = searchable.slice(previousEnd, match.index);
     previousEnd = match.index + match[0].length;
     const alternative =
-      matched.length > 0 &&
+      seenDate &&
       /\b(?:or|nor)(?:[\s,([{]+[\p{L}]+){0,4}[\s,([{]*$/iu.test(between);
     const exclusionContext = /^from\s/iu.test(match[0])
       ? between + "from"
       : between;
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated)|\s+(?:anything|everything))?[\s([{]*$/iu.test(
+      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
         exclusionContext,
       );
-    if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
-      continue;
     const target = bound ?? iso ?? month ?? relative ?? bare;
     const boundary =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
@@ -204,6 +203,11 @@ function classifyMemoryTime(
     }
     // A single interval cannot express exclusions or alternative dates.
     if (exclusion || alternative) return null;
+    if (bare && !/^\p{L}+\s+\d{4}$/u.test(bare)) {
+      seenDate ||= /^\d/u.test(bare);
+      continue;
+    }
+    seenDate = true;
     if (modifier === "since") {
       from = Math.max(from ?? boundary.start, boundary.start);
     } else if (modifier === "before") {
