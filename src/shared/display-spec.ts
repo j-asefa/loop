@@ -19,6 +19,10 @@ export const DISPLAY_LIMITS = {
   // Table cells drawn across the whole display, counting every reference to
   // a shared table; a Table past it is a placeholder.
   tableCells: 20000,
+  // Characters of Text Markdown drawn across the display, counting every
+  // reference to a shared Text; equal to the block limit, so only shared
+  // references can reach it. A Text past it is a placeholder.
+  textCharacters: 65536,
   seriesCount: 12,
   categories: 200,
   pieSegments: 24,
@@ -269,7 +273,7 @@ function draw(
   elements: Map<string, RawElement>,
   path: Set<string>,
   depth: number,
-  state: { count: number; cells: number },
+  state: { count: number; cells: number; text: number },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
   if (++state.count > DISPLAY_LIMITS.elements)
@@ -301,32 +305,47 @@ function draw(
       "unsupported",
       "visible and repeat are not supported",
     );
-  let kids: DisplayNode[] = [];
-  if (takesChildren.has(type) && element.children !== undefined) {
-    const list = element.children;
-    if (!Array.isArray(list) || !list.every((k) => typeof k === "string"))
-      return placeholder(
-        key,
-        type,
-        "invalid",
-        "children must be a list of element keys",
-      );
-    path.add(key);
-    kids = list.map((child) => draw(child, elements, path, depth + 1, state));
-    path.delete(key);
-  }
-  const built = build(key, type, element.props ?? {}, kids);
+  const list = takesChildren.has(type) ? (element.children ?? []) : [];
+  if (!Array.isArray(list) || !list.every((k) => typeof k === "string"))
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      "children must be a list of element keys",
+    );
+  // Props are checked before children are visited, so an invalid container
+  // is one placeholder and its children count toward no limit.
+  const built = build(key, type, element.props ?? {}, []);
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
   if (built.type === "Table") {
-    state.cells += built.rows.length * built.headers.length;
-    if (state.cells > DISPLAY_LIMITS.tableCells)
+    const cells = built.rows.length * built.headers.length;
+    // A table drawn as a placeholder uses none of the budget.
+    if (state.cells + cells > DISPLAY_LIMITS.tableCells)
       return placeholder(
         key,
         type,
         "invalid",
         `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
       );
+    state.cells += cells;
+  }
+  if (built.type === "Text") {
+    if (state.text + built.content.length > DISPLAY_LIMITS.textCharacters)
+      return placeholder(
+        key,
+        type,
+        "invalid",
+        `The display has more than ${DISPLAY_LIMITS.textCharacters} characters of Text`,
+      );
+    state.text += built.content.length;
+  }
+  if ("children" in built) {
+    path.add(key);
+    built.children = list.map((child) =>
+      draw(child, elements, path, depth + 1, state),
+    );
+    path.delete(key);
   }
   return built;
 }
@@ -384,7 +403,7 @@ export function readDisplaySpec(source: string): DisplayRead {
   if (root === undefined) return { ok: false, reason: "no_root", ...skips };
   if (!elements.has(root))
     return { ok: false, reason: "missing_root", ...skips };
-  const state = { count: 0, cells: 0 };
+  const state = { count: 0, cells: 0, text: 0 };
   try {
     return {
       ok: true,

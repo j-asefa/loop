@@ -806,4 +806,73 @@ export const displayFixtures: DisplayFixture[] = [
       ],
     },
   },
+
+  {
+    name: "a table rejected by the cell limit uses none of it",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, ["a", "a", "a", "a", "b", "c", "d"]),
+      wideTable("a", DISPLAY_LIMITS.tableRows),
+      wideTable("b", 150),
+      wideTable("c", DISPLAY_LIMITS.tableRows),
+      wideTable("d", 5),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(4).fill("  " + wideTableLine(DISPLAY_LIMITS.tableRows)),
+        "  " + wideTableLine(150),
+        "  !Table invalid",
+        "  " + wideTableLine(5),
+      ],
+    },
+  },
+  {
+    name: "an invalid container's children count toward no limit",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, ["bad", "ok"]),
+      element(
+        "bad",
+        "Card",
+        { title: 7 },
+        Array(DISPLAY_LIMITS.elements).fill("ok"),
+      ),
+      element("ok", "Divider"),
+    ),
+    expect: { outline: ["Section", "  !Card invalid", "  Divider"] },
+  },
+  {
+    name: "a full Text shared until the text character limit",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, Array(17).fill("t")),
+      element("t", "Text", { content: "x".repeat(DISPLAY_LIMITS.text) }),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(16).fill(
+          `  Text style=plain "${"x".repeat(60)}" len=${DISPLAY_LIMITS.text}`,
+        ),
+        "  !Text invalid",
+      ],
+    },
+  },
 ];
+
+// A table with the column limit and `rows` rows, one cell filled per row.
+function wideTable(key: string, rows: number) {
+  return element(key, "Table", {
+    headers: Array.from(
+      { length: DISPLAY_LIMITS.tableColumns },
+      (_, i) => `h${i}`,
+    ),
+    rows: Array.from({ length: rows }, () => ["x"]),
+  });
+}
+function wideTableLine(rows: number) {
+  const width = DISPLAY_LIMITS.tableColumns;
+  const row = JSON.stringify(["x", ...Array(width - 1).fill("")]);
+  return `Table headers=${JSON.stringify(Array.from({ length: width }, (_, i) => `h${i}`))} align=${JSON.stringify(Array(width).fill("left"))} caption=null rows=${rows} first=${row} last=${row}`;
+}

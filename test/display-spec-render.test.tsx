@@ -303,3 +303,18 @@ it("draws or falls back at the source size limit as the reader does", () => {
   expect(overHtml).not.toContain('class="display-spec"');
   expect(overHtml).toContain("This display could not be drawn");
 });
+
+it("cuts a spec fence to ten lines in a compact preview with displays off", () => {
+  const lines = Array.from({ length: 40 }, (_, i) => ({
+    op: "add",
+    path: `/elements/d${i}`,
+    value: { type: "Divider" },
+  }));
+  const html = render(
+    fence(patch({ op: "add", path: "/root", value: "d0" }, ...lines)),
+    { compact: true, diagrams: false },
+  );
+  expect(html).not.toContain('class="display-spec"');
+  expect(html).toContain("/elements/d8&quot;");
+  expect(html).not.toContain("/elements/d9&quot;");
+});

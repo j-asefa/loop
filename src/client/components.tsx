@@ -303,7 +303,14 @@ export const RichText = memo(function RichText({
         remarkPlugins={[
           remarkGfm,
           ...(math?.remark || []),
-          ...(compact ? [compactMarkdown] : []),
+          ...(compact
+            ? [
+                [compactMarkdown, { displays: diagrams }] as [
+                  typeof compactMarkdown,
+                  { displays: boolean },
+                ],
+              ]
+            : []),
         ]}
         rehypePlugins={math?.rehype}
         components={renderers}
