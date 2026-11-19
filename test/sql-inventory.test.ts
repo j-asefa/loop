@@ -292,7 +292,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     (node.name === "fixture" || isParameter(node));
   const knownProperty = (source: any, key: string) => {
     const path = receiver(source);
-    const owner = path && declaringScope(path.split(".")[0], source);
+    const root = path?.split(".")[0];
+    const owner =
+      root === "this"
+        ? thisScope(source)
+        : root && declaringScope(root, source);
     return owner ? receiverBinding(owner, `${path}.${key}`) : undefined;
   };
   const destructuredDatabase = (source: any): Binding => {
@@ -307,14 +311,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     return "inferred";
   };
   const propertyInitializers: { scope: Scope; name: string; value: any }[] = [];
+  const objectKey = (member: any) =>
+    member.computed ? member.key.value : (member.key.name ?? member.key.value);
   const recordObject = (scope: Scope, name: string, value: any): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
     for (const member of value.properties) {
       if (member.type !== "Property") continue;
-      const key = member.computed
-        ? member.key.value
-        : (member.key.name ?? member.key.value);
+      const key = objectKey(member);
       const child = unwrap(member.value);
       if (typeof key !== "string") continue;
       const path = `${name}.${key}`;
@@ -607,21 +611,46 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (script && node.type === "CallExpression") {
         const fn = functionReference(unwrap(node.callee));
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
-          if (parameter.type !== "Identifier") continue;
-          const argument = unwrap(node.arguments[index]);
-          trackBinding(
-            scopeOf(fn),
-            parameter.name,
-            connectionKind(argument),
-            argument,
-          );
-          if (
-            argument?.type === "ObjectExpression" &&
-            !recordedArguments.has(argument)
-          ) {
-            recordedArguments.add(argument);
-            recordObject(scopeOf(fn), parameter.name, argument);
-            changed = true;
+          const passed = unwrap(node.arguments[index]);
+          const missing =
+            !passed ||
+            (passed.type === "Identifier" &&
+              passed.name === "undefined" &&
+              !bindingOf(passed.name, passed));
+          const argument =
+            missing && parameter.type === "AssignmentPattern"
+              ? unwrap(parameter.right)
+              : passed;
+          const scope = scopeOf(fn);
+          for (const { key, name } of bindings(parameter)) {
+            if (key) {
+              const member =
+                argument?.type === "ObjectExpression"
+                  ? argument.properties.find(
+                      (item: any) =>
+                        item.type === "Property" && objectKey(item) === key,
+                    )
+                  : undefined;
+              const memberValue = unwrap(member?.value);
+              trackBinding(
+                scope,
+                name,
+                member
+                  ? connectionKind(memberValue)
+                  : knownProperty(argument, key),
+                memberValue,
+              );
+              continue;
+            }
+            trackBinding(scope, name, connectionKind(argument), argument);
+            if (
+              argument?.type === "ObjectExpression" &&
+              !recordedArguments.has(argument)
+            ) {
+              recordedArguments.add(argument);
+              recordObject(scope, name, argument);
+              changed = true;
+            }
           }
         }
       }
@@ -691,11 +720,20 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (!methods.has(method)) return false;
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
-      if (binding !== "inferred") return false;
+      const opaqueMember =
+        script &&
+        (!binding || binding === "other") &&
+        node.callee.object.type === "MemberExpression";
+      if (binding !== "inferred" && !opaqueMember) return false;
       // Script fixtures can prepare a query held in a variable. An inferred
       // exec caller still needs a recognizable SQL statement.
       const statement = node.arguments[0];
-      if (script && method === "prepare" && statement?.type === "Identifier")
+      if (
+        script &&
+        binding === "inferred" &&
+        method === "prepare" &&
+        statement?.type === "Identifier"
+      )
         return true;
       const text =
         statement?.type === "TemplateLiteral"
@@ -1039,6 +1077,29 @@ it("finds database module extensions and passes complete object shapes to method
     new (await import("better-sqlite3")).default(":memory:").exec(query);
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([3, 5, 6, 11]);
+});
+
+it("follows destructured and default parameters and infers opaque SQL text", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const database = new SQLite(":memory:");
+    function fromObject({ connection }, query) { connection.exec(query); }
+    fromObject({ connection: database }, query);
+    function defaulted(handle = database, query) { handle.exec(query); }
+    defaulted(undefined, query);
+    class Reader {
+      connection = database;
+      read() {
+        const { connection } = this;
+        connection.exec(query);
+      }
+    }
+    function opaque(context, command) {
+      context.connection.exec("SELECT 1");
+      context.adapter.exec(command);
+    }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 6, 12, 16]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
