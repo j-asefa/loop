@@ -216,12 +216,24 @@ function classifyMemoryTime(
     const boundary =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
     if (!boundary) continue;
+    const after = searchable.slice(previousEnd);
+    if (
+      (month || relation || bare) &&
+      MONTHS.some((name) => name.toLowerCase() === target.toLowerCase()) &&
+      /^\s+\d{1,2}(?!\d)/u.test(after)
+    )
+      return null;
+    if (
+      /^[\s,()[\]{}]*or\s+(?:earlier|later|before|after)\b(?!\s+\d)/iu.test(
+        after,
+      )
+    )
+      return null;
     const modifier = relation?.toLowerCase().replace(/\s+/g, " ");
     if (
       relation &&
       MONTHS.some((name) => name.toLowerCase() === target.toLowerCase())
     ) {
-      const after = searchable.slice(match.index + match[0].length);
       // A bare month can also be a person's name. Leave clauses such as
       // "since May joined" searchable. A month and year is unambiguous.
       if (

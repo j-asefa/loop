@@ -208,6 +208,8 @@ it.each([
   "harvest notes, exclude yesterday",
   "harvest notes from this week other than yesterday",
   "omit notes from yesterday",
+  "harvest notes in October 12, 2026",
+  "harvest notes from today or earlier",
   "harvest notes from this week, but do not retrieve notes from yesterday",
   "notes from this week if available, or yesterday",
   "find harvest notes from this week, but ignore yesterday",
