@@ -94,15 +94,37 @@ function modes(diff: string) {
   return out;
 }
 
-/** Added and removed lines of a snapshot against its own base. */
+// Lines of one side with no equal line left on the other: never more than the
+// true number of edits, and needs no table.
+function unmatched(a: string[], b: string[]) {
+  const left = new Map<string, number>();
+  for (const line of b) left.set(line, (left.get(line) || 0) + 1);
+  let count = b.length;
+  for (const line of a) {
+    const n = left.get(line) || 0;
+    if (n) {
+      left.set(line, n - 1);
+      count--;
+    } else count++;
+  }
+  return count;
+}
+const changes = (ops: Op[]) => ops.filter((op) => op.kind !== " ").length;
+
+/**
+ * Added and removed lines of a snapshot against its own base, plus one per
+ * mode change. This is the size a follow-up is measured against, so it must
+ * not overstate: where `edits` would fall back to a full rewrite it counts
+ * only lines that cannot be matched at all.
+ */
 export function changedLines(snapshot: Snapshot) {
   let count = 0;
-  for (const path of snapshot.changed)
-    for (const op of edits(
-      lines(snapshot.before[path]),
-      lines(snapshot.files[path]),
-    ))
-      if (op.kind !== " ") count++;
+  for (const path of snapshot.changed) {
+    const a = lines(snapshot.before[path]),
+      b = lines(snapshot.files[path]);
+    count += Math.min(changes(edits(a, b)), unmatched(a, b));
+  }
+  for (const mode of modes(snapshot.diff).values()) if (mode.length) count++;
   return count;
 }
 
@@ -118,16 +140,29 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
   for (const path of [
     ...new Set([...current.changed, ...previous.changed]),
   ].sort()) {
-    // A file only one snapshot changed was at its base content in the other.
+    if (!changedNow.has(path)) {
+      // The earlier edit to this file is gone. Its current text is not in
+      // this snapshot's inline files and the base may have moved, so count
+      // the dropped edit and point the reviewer at the file instead of
+      // showing a diff against a stale base.
+      const dropped = changes(
+        edits(lines(previous.before[path]), lines(previous.files[path])),
+      );
+      if (!dropped) continue;
+      unseen += dropped;
+      hunks.push(
+        `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\nThis snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. Read its current text with the snapshot reader.`,
+      );
+      continue;
+    }
+    // A file the earlier snapshot left alone was at its base content then.
     const then = changedBefore.has(path)
       ? previous.files[path]
       : current.before[path];
-    const now = changedNow.has(path)
-      ? current.files[path]
-      : previous.before[path];
+    const now = current.files[path];
     if (then === now) continue;
     const ops = edits(lines(then), lines(now));
-    const count = ops.filter((op) => op.kind !== " ").length;
+    const count = changes(ops);
     if (!count) continue;
     unseen += count;
     hunks.push(
@@ -136,9 +171,9 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
   }
   const before = modes(previous.diff);
   for (const [header, mode] of modes(current.diff)) {
-    const earlier = before.get(header);
-    // A file the earlier diff lacked is counted by its content above.
-    if (!earlier || earlier.join("\n") === mode.join("\n")) continue;
+    // A file the earlier diff lacked counts when its header carries a mode:
+    // its text may be unchanged, which the content comparison cannot see.
+    if ((before.get(header) ?? []).join("\n") === mode.join("\n")) continue;
     unseen++;
     hunks.push([header, ...mode].join("\n"));
   }

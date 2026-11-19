@@ -69,7 +69,9 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   // Every line of the untracked file changed, and a.ts lost its ten new lines.
   expect(delta.unseen).toBe(110);
   expect(delta.hunks).toContain("+++ this snapshot: notes.ts");
-  expect(delta.hunks).toContain("-line 19");
+  // The dropped file is described, not diffed against a base that may be stale.
+  expect(delta.hunks).toContain("no longer changes this file: the 10 changed");
+  expect(delta.hunks).not.toContain("-line 19");
   expect(changedLines(rewritten)).toBe(50);
 
   // A file this snapshot changes for the first time is compared with its base.
@@ -97,9 +99,35 @@ it("counts a mode change on a file whose text is unchanged, and treats a huge re
   expect(delta.unseen).toBe(1);
   expect(delta.hunks).toContain("new mode 100755");
 
+  // A mode change on a file the earlier snapshot never touched also counts.
+  const untouched = snapshot({ "a.ts": body(3) }, { "a.ts": body(2) });
+  const chmod = {
+    ...snapshot({ "a.ts": body(3) }, { "a.ts": body(2) }),
+    diff: header + "old mode 100644\nnew mode 100755\n",
+    changed: ["a.ts", "run.sh"],
+  };
+  expect(snapshotDelta(chmod, untouched).unseen).toBe(1);
+  expect(changedLines(chmod)).toBe(2);
+
   const big = snapshotDelta(
     snapshot({ "big.ts": body(2500, "new") }),
     snapshot({ "big.ts": body(2500, "old") }),
   );
   expect(big.unseen).toBe(5000);
+
+  // Past the table limit the size of a change is a lower bound, so edits at
+  // both ends of a large file cannot make the rest look already reviewed.
+  const large = body(2500);
+  const edited = large.with(0, "first").with(2499, "last");
+  expect(
+    changedLines(snapshot({ "big.ts": edited }, { "big.ts": large })),
+  ).toBe(4);
+  const reviewedLarge = snapshot({ "big.ts": edited }, { "big.ts": large });
+  const grown = snapshot(
+    { "big.ts": edited, "new.ts": body(100, "new") },
+    { "big.ts": large },
+  );
+  const added = snapshotDelta(grown, reviewedLarge).unseen;
+  expect(added).toBe(100);
+  expect(added * 2 > changedLines(grown)).toBe(true);
 });
