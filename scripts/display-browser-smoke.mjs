@@ -485,6 +485,30 @@ for (const engine of selectedEngines()) {
         "Visible after whitespace.",
       );
 
+      update(
+        working,
+        "\u00a0" + " ".repeat(3999) + "Ready after unicode spaces.",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "Ready after unicode spaces.",
+      );
+
+      const prose = "Text. " + "x".repeat(3985) + "\n\n";
+      update(working, prose + "```specimen\nordinary example");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(
+        workingCard().locator(".live-preview code.language-text"),
+      ).toHaveCount(1);
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator("code.language-text")).toHaveCount(1);
+      await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
+
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.
       update(

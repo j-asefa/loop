@@ -30,11 +30,15 @@ export function markOpenSpecFences({ previewFenceCut = false } = {}) {
           node.position.start.offset,
           node.position.end.offset,
         );
+        const cut =
+          previewFenceCut && node.position.end.offset === source.length;
+        if (cut && !/[\r\n]/.test(raw)) {
+          // The prefix of an ordinary language tag can look like "spec".
+          node.lang = "text";
+          return;
+        }
         // A clipped content line can look like a closing delimiter.
-        if (
-          (previewFenceCut && node.position.end.offset === source.length) ||
-          !closedFence(raw, node.value ?? "")
-        )
+        if (cut || !closedFence(raw, node.value ?? ""))
           node.data = {
             ...node.data,
             hProperties: {

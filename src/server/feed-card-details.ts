@@ -118,7 +118,7 @@ export function runDetails(
     // Markdown uses both leading and trailing whitespace to parse fences.
     let source = latest ?? artifact?.content ?? "";
     if (!/\S/.test(source.slice(0, LIVE_PREVIEW_LIMIT))) {
-      const firstText = source.search(/[^ \t\r\n]/);
+      const firstText = source.search(/\S/);
       if (firstText >= LIVE_PREVIEW_LIMIT) {
         const lineStart =
           Math.max(
@@ -127,7 +127,8 @@ export function runDetails(
           ) + 1;
         // Drop blank leading lines and keep up to four indentation
         // characters, which preserve Markdown's indented-code boundary.
-        source = source.slice(Math.max(lineStart, firstText - 4));
+        const indentation = /^[ \t]{0,4}/.exec(source.slice(lineStart))![0];
+        source = indentation + source.slice(firstText);
       }
     }
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
@@ -143,6 +144,11 @@ export function runDetails(
             ? /^`*[ \t]*(?:[\r\n]|$)/
             : /^~*[ \t]*(?:[\r\n]|$)/;
         detail.live_preview_fence_cut = !sameCloser.test(suffix);
+      } else if (/(?:`{3,}|~{3,})[ \t]*[^`~ \t\r\n]+$/.test(preview)) {
+        // A language token may also continue past the preview cap.
+        detail.live_preview_fence_cut = /[^ \t\r\n]/.test(
+          source[preview.length],
+        );
       }
     }
   }
