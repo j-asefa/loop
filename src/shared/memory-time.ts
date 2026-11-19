@@ -15,7 +15,7 @@ const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
   "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:from\\s+)?(${RELATIVE}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_])`,
   "giu",
 );
 const quoted =
@@ -53,8 +53,9 @@ function maskFences(query: string) {
   return parts.join("");
 }
 
-function maskInlineCode(query: string) {
-  const runs = [...query.matchAll(/`+|\u0000+/g)];
+function maskInlineLiterals(query: string) {
+  const tokens = new RegExp(quoted.source + "|`+|\\u0000+", "gu");
+  const runs = [...query.matchAll(tokens)];
   const closer = new Map<number, number>();
   const next = new Map<number, number>();
   for (let index = runs.length - 1; index >= 0; index--) {
@@ -63,6 +64,7 @@ function maskInlineCode(query: string) {
       next.clear();
       continue;
     }
+    if (text[0] !== "`") continue;
     const closing = next.get(text.length);
     if (closing !== undefined) closer.set(index, closing);
     next.set(text.length, index);
@@ -71,12 +73,14 @@ function maskInlineCode(query: string) {
   let end = 0;
   for (let index = 0; index < runs.length; index++) {
     const closing = closer.get(index);
-    if (closing === undefined) continue;
-    const start = runs[index].index;
-    const limit = runs[closing].index + runs[closing][0].length;
+    const token = runs[index];
+    if (closing === undefined && /^[`\u0000]/.test(token[0])) continue;
+    const last = runs[closing ?? index];
+    const start = token.index;
+    const limit = last.index + last[0].length;
     parts.push(query.slice(end, start), "\u0000".repeat(limit - start));
     end = limit;
-    index = closing;
+    index = closing ?? index;
   }
   parts.push(query.slice(end));
   return parts.join("");
@@ -137,9 +141,7 @@ export function parseMemoryTime(
 ): MemoryTimeWindow | undefined {
   const today = Math.floor(reference / DAY) * DAY;
   if (!Number.isFinite(today)) return undefined;
-  const searchable = maskInlineCode(maskFences(query)).replace(quoted, (text) =>
-    "\u0000".repeat(text.length),
-  );
+  const searchable = maskInlineLiterals(maskFences(query));
   const matched: NonNullable<MemoryTimeWindow["matched"]> = [];
   let from: number | null = null;
   let to: number | null = null;
@@ -159,6 +161,7 @@ export function parseMemoryTime(
       // A bare month can also be a person's name. Leave clauses such as
       // "since May joined" searchable. A month and year is unambiguous.
       if (
+        /^['’][\p{L}]/u.test(after) ||
         /^\s+(?!(?:and|or|from|about|for|on|in|to|at)\b)[\p{L}]/iu.test(after)
       )
         continue;

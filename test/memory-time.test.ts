@@ -58,6 +58,8 @@ it.each([
   "find the $today variable",
   "find the ``today`` variable",
   "find the ```code `today`` variable```",
+  "decisions since May's launch",
+  "decisions before June’s launch",
   "decisions since May joined the project",
   "review before June leaves the project",
   "review this example:\n```ts\nconst today = clock();\n```",
@@ -79,7 +81,7 @@ it.each([
 it("keeps the quoted occurrence of a phrase", () => {
   const query = 'find "last week" entries from last week';
   expect(withoutMemoryTime(query, parseMemoryTime(query, now))).toBe(
-    'find "last week" entries from  ',
+    'find "last week" entries  ',
   );
 });
 
@@ -126,5 +128,20 @@ it("allows a specific date to narrow an earlier period", () => {
   expect(parseMemoryTime(query, now)).toMatchObject({
     from: Date.parse("2026-10-12"),
     to: Date.parse("2026-10-13"),
+  });
+});
+
+it("removes the connective introducing a relative period", () => {
+  const query = "tamarind from last week";
+  expect(withoutMemoryTime(query, parseMemoryTime(query, now)).trim()).toBe(
+    "tamarind",
+  );
+});
+
+it("keeps a backtick in a quoted label from masking a later date", () => {
+  const query = 'find "migration `" entries from last week for the `owner`';
+  expect(parseMemoryTime(query, now)).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
   });
 });
