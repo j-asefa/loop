@@ -151,8 +151,16 @@ it("records native turn tokens through adapter ingress without replay or cross-t
     send("thread/tokenUsage/updated", {
       turnId,
       tokenUsage: {
-        total: { inputTokens: input, outputTokens: output },
-        last: { inputTokens: lastInput, outputTokens: lastOutput },
+        total: {
+          inputTokens: input,
+          outputTokens: output,
+          cachedInputTokens: input / 2,
+        },
+        last: {
+          inputTokens: lastInput,
+          outputTokens: lastOutput,
+          cachedInputTokens: lastInput / 2,
+        },
       },
     });
   // Historical usage is not assigned to the next run.
@@ -171,6 +179,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 300,
     output_tokens: 60,
+    cache_read_tokens: 150,
   });
 
   const next = turn("conv", "usage-second");
@@ -180,6 +189,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(conversationUsage("owner", "conv").runs[next.id]).toEqual({
     input_tokens: 50,
     output_tokens: 10,
+    cache_read_tokens: 25,
   });
   const before = events().length;
   current.emit({
@@ -246,11 +256,13 @@ it("records Claude result usage including cached inputs, excluding foreign resul
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
   adapter.message(result);
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
 });
 const option = (id: string, confirmed: string) => ({

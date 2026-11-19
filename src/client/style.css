@@ -5429,6 +5429,9 @@ select {
   color: var(--muted);
   margin-top: 4px;
 }
+.thread-usage-origin {
+  display: block;
+}
 .message-slot {
   display: contents;
 }

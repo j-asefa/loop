@@ -93,6 +93,7 @@ it("uses the usage-only index while preserving receipt totals and conversation o
         [native]: { input_tokens: 250, output_tokens: 40 },
       },
       total: { input_tokens: 400, output_tokens: 74 },
+      origins: { person: { turns: 2, input_tokens: 400, output_tokens: 74 } },
       memory: [],
     });
     expect(spy).toHaveBeenCalledTimes(1);
@@ -113,6 +114,7 @@ it("uses the usage-only index while preserving receipt totals and conversation o
     expect(conversationUsage(owner, conversation(owner))).toEqual({
       runs: {},
       total: { input_tokens: 0, output_tokens: 0 },
+      origins: {},
       memory: [],
     });
   } finally {

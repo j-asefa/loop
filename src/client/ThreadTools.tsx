@@ -33,6 +33,7 @@ import { workspaceApi, type RouteResponse } from "../shared/workspace-api";
 
 import { Sheet, type Action } from "./components";
 import type { Agent } from "../shared/types";
+import { USAGE_ORIGINS, usageOriginLabel } from "../shared/usage-origin";
 import { compactNumber, dayLabel, preview, timeLabel } from "./threadView";
 
 /**
@@ -510,16 +511,52 @@ export function ForkSheet({
   );
 }
 
-export function UsageLine({
-  usage,
-}: {
-  usage?: { input_tokens: number; output_tokens: number };
-}) {
+type UsageTokens = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+};
+// Harnesses count cached input inside input_tokens, so this is a share of it.
+function usageText(usage: UsageTokens) {
+  const cached =
+    usage.cache_read_tokens && usage.input_tokens > 0
+      ? Math.min(
+          100,
+          Math.round((usage.cache_read_tokens / usage.input_tokens) * 100),
+        )
+      : 0;
+  return `${compactNumber(usage.input_tokens)} in${cached > 0 ? ` (${cached}% cached)` : ""} · ${compactNumber(usage.output_tokens)} out tokens`;
+}
+export function UsageLine({ usage }: { usage?: UsageTokens }) {
   if (!usage || usage.input_tokens + usage.output_tokens === 0) return null;
   return (
     <p className="usage-line" title="Recorded token usage for this response">
-      {compactNumber(usage.input_tokens)} in ·{" "}
-      {compactNumber(usage.output_tokens)} out tokens
+      {usageText(usage)}
     </p>
+  );
+}
+
+/** Recorded tokens for the whole thread, grouped by what started each turn. */
+export function ThreadUsage({
+  usage,
+}: {
+  usage?: RouteResponse<typeof workspaceApi.conversationUsage>;
+}) {
+  if (!usage || usage.total.input_tokens + usage.total.output_tokens === 0)
+    return null;
+  const origins = USAGE_ORIGINS.flatMap((origin) => {
+    const group = usage.origins[origin];
+    return group ? [{ origin, group }] : [];
+  }).sort((a, b) => b.group.input_tokens - a.group.input_tokens);
+  return (
+    <small aria-label="Thread usage">
+      {usageText(usage.total)}
+      {origins.map(({ origin, group }) => (
+        <span key={origin} className="thread-usage-origin">
+          {usageOriginLabel(origin)} · {group.turns}{" "}
+          {group.turns === 1 ? "turn" : "turns"} · {usageText(group)}
+        </span>
+      ))}
+    </small>
   );
 }

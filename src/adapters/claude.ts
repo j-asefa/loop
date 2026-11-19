@@ -41,12 +41,15 @@ function claudeTokens(value: any): Tokens | undefined {
   const input = tokenCount(value?.input_tokens);
   const output = tokenCount(value?.output_tokens);
   if (input === undefined || output === undefined) return;
+  const cached = tokenCount(value.cache_read_input_tokens) ?? 0;
   const total =
-    input +
-    (tokenCount(value.cache_read_input_tokens) ?? 0) +
-    (tokenCount(value.cache_creation_input_tokens) ?? 0);
+    input + cached + (tokenCount(value.cache_creation_input_tokens) ?? 0);
   if (!Number.isSafeInteger(total)) return;
-  return { input_tokens: total, output_tokens: output };
+  return {
+    input_tokens: total,
+    output_tokens: output,
+    ...(cached > 0 ? { cache_read_tokens: cached } : {}),
+  };
 }
 
 export class Claude extends DirectAdapter implements Adapter {

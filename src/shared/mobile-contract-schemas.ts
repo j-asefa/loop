@@ -20,6 +20,7 @@ import { MessageRole } from "./message-roles.js";
 import { ScheduledSendState } from "./scheduled-send-state.js";
 import { AttachmentIds, MAX_MESSAGE_FILES } from "./uploads.js";
 import { REPLY_EXCERPT_LIMIT } from "./replies.js";
+import { UsageOrigin } from "./usage-origin.js";
 
 const Text = z.string(),
   MaybeText = Text.nullable(),
@@ -237,11 +238,12 @@ export const PublicWithdrawnDraft = z.object({
 const Tokens = z.object({
   input_tokens: z.number(),
   output_tokens: z.number(),
+  cache_read_tokens: z.number().optional(),
 });
 export const PublicUsage = z.object({
   runs: z.record(RunId, Tokens),
   total: Tokens,
-
+  origins: z.partialRecord(UsageOrigin, Tokens.extend({ turns: z.number() })),
   memory: z.array(RunId),
 });
 export const PublicSnippets = z.object({
