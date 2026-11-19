@@ -394,7 +394,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         let binding: Binding = "other";
         if (
           node.source.value === "better-sqlite3" &&
-          specifier.type === "ImportDefaultSpecifier"
+          (specifier.type === "ImportDefaultSpecifier" ||
+            (specifier.imported?.name ?? specifier.imported?.value) ===
+              "default")
         )
           binding = "constructor";
         if (
@@ -632,11 +634,28 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return functionReference(expression);
   };
+  const invocation = (node: any): { fn?: any; items?: any[] } => {
+    const callee = unwrap(node.callee);
+    if (node.type === "NewExpression")
+      return { fn: constructorReference(callee), items: node.arguments };
+    const direct = functionReference(callee);
+    if (direct) return { fn: direct, items: node.arguments };
+    if (callee?.type !== "MemberExpression") return {};
+    const method = property(callee);
+    if (method !== "call" && method !== "apply") return {};
+    const fn = functionReference(unwrap(callee.object));
+    if (method === "call") return { fn, items: node.arguments.slice(1) };
+    const array = unwrap(node.arguments[1]);
+    return {
+      fn,
+      items: array?.type === "ArrayExpression" ? array.elements : undefined,
+    };
+  };
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
     if (
       expression?.type === "CallExpression" &&
-      returnsDatabase.has(functionReference(unwrap(expression.callee)))
+      returnsDatabase.has(invocation(expression).fn)
     )
       return "connection";
     const callee =
@@ -853,12 +872,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         script &&
         (node.type === "CallExpression" || node.type === "NewExpression")
       ) {
-        const callee = unwrap(node.callee);
-        const fn =
-          node.type === "NewExpression"
-            ? constructorReference(callee)
-            : functionReference(callee);
-        const argumentsList = fn ? staticArguments(node.arguments) : undefined;
+        const { fn, items } = invocation(node);
+        const argumentsList = fn && items ? staticArguments(items) : undefined;
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
           if (
             !argumentsList ||
@@ -1492,6 +1507,19 @@ it("follows nested patterns, fixed spread arguments and local factory returns", 
     openAlias().prepare(query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6, 10, 12]);
+});
+
+it("recognizes named default imports and wrappers invoked through call and apply", () => {
+  const text = `
+    import { default as SQLite } from "better-sqlite3";
+    const handle = new SQLite(":memory:");
+    handle.exec(query);
+    function write(connection, statement) { connection.exec(statement); }
+    write.call(null, handle, query);
+    const read = (connection, statement) => connection.prepare(statement);
+    read.apply(null, [handle, query]);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 5, 7]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
