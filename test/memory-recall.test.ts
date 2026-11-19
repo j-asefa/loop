@@ -26,6 +26,7 @@ const {
   RECALL_CHARACTERS,
   captureMemory,
   coversQuery,
+  matchedExcerpt,
   searchMemory,
   withoutRecall,
   recallForRun,
@@ -248,6 +249,17 @@ it("appends recall to the current turn of an API-key run once", async () => {
   captureMemory();
   const later = await nativePrompt("Which runner did the comet build use?");
   expect(later.prompt).toContain("ran on the x64 runner instead of arm64");
+  expect(later.prompt).toContain(`result by ${agent.name}, `);
+  const receipt = await request(`/runs/${later.run.id}/memory`);
+  expect(JSON.parse(receipt.data.sources)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "result",
+        author: agent.name,
+        updatedAt: expect.any(Number),
+      }),
+    ]),
+  );
   const own = await searchMemory("alice", null, "comet build runner", {
     conversation: run.conversation_id,
   });
@@ -1097,4 +1109,142 @@ it("does not recall text an owner just edited out of an artifact", async () => {
   const after = await recalled();
   expect(after).toContain("on-call lead");
   expect(after).not.toContain("hunter2");
+});
+
+it("recalls the passage that matches, with its kind, author and date", async () => {
+  const deep = await note(
+    "Long log",
+    "lorem ipsum ".repeat(400) +
+      "the kestrel migration window is sunday night. " +
+      "dolor ".repeat(400),
+  );
+  await note("Bob's kestrel", "kestrel migration window for bob", "bob");
+  const { prompt } = await nativePrompt("kestrel migration window");
+  expect(prompt).toContain("the kestrel migration window is sunday night");
+  const date = new Date().toISOString().slice(0, 10);
+  expect(prompt).toContain(
+    `[${deep.data.id}@1] note by you, ${date}, "Long log", `,
+  );
+  expect(prompt).toMatch(/\n…[^\n]*kestrel migration window/);
+  expect(prompt).not.toContain("for bob");
+});
+
+it("keeps the head when a deeper match repeats title terms and fails relevance", async () => {
+  const source = await note(
+    "Peregrine Glacier",
+    "saffron belongs in the opening. " +
+      "filler ".repeat(500) +
+      "peregrine glacier appears later. " +
+      "filler ".repeat(500),
+  );
+  const { prompt } = await nativePrompt(
+    "peregrine glacier saffron junction pergola comet polaris mountain prairie",
+  );
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("saffron belongs in the opening.");
+});
+
+it("finds a later passage that supplies the term missing from the title", async () => {
+  const source = await note(
+    "Tamarind",
+    "filler ".repeat(300) +
+      "tamarind appears in the earlier passage. " +
+      "filler ".repeat(300) +
+      "sorrel appears in the later passage.",
+  );
+  const { prompt } = await nativePrompt("tamarind sorrel");
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("sorrel appears in the later passage.");
+});
+
+it("keeps an external message's author distinct from the owner", async () => {
+  const sent = await nativePrompt(
+    "external salmon bootstrap observation",
+    undefined,
+    false,
+  );
+  transition(sent.run, "completed");
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        { scope: "conversation:" + sent.run.conversation_id, enabled: true },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+
+  const { prompt } = await nativePrompt("salmon bootstrap observation");
+  expect(prompt).toContain("external salmon bootstrap observation");
+  expect(prompt).toContain("message by unknown sender");
+  expect(prompt).not.toContain("message by you");
+});
+
+it("does not count a clipped word as a whole recall term", async () => {
+  await note(
+    "Magenta",
+    "x ".repeat(546) + " quartzite " + "payload ".repeat(200),
+  );
+  const { prompt } = await nativePrompt("magenta quartz");
+  expect(prompt).toBe("magenta quartz");
+});
+
+it("does not count a word split at the source scan limit", async () => {
+  await note(
+    "Chartreuse",
+    "x ".repeat(5997) + "lapislazuli " + "payload ".repeat(200),
+  );
+  const { prompt } = await nativePrompt("chartreuse lapisl");
+  expect(prompt).toBe("chartreuse lapisl");
+});
+
+it("uses the full suffix budget when the excerpt needs one elision mark", async () => {
+  const suffix = "mandarin" + " x".repeat(542) + " sorrel";
+  expect(suffix).toHaveLength(1099);
+  const source = await note("Long diagnostics", "prefix ".repeat(200) + suffix);
+  const { prompt } = await nativePrompt("mandarin sorrel");
+  expect(prompt).toContain(`[${source.data.id}@1]`);
+  expect(prompt).toContain("…" + suffix);
+});
+
+it("matches titles as well as content", async () => {
+  const titled = await note(
+    "Osprey runbook",
+    "Restart the queue workers, then check the dashboard.",
+  );
+  await note("Osprey runbook", "bob's private restart steps", "bob");
+  const { prompt } = await nativePrompt("osprey runbook");
+  expect(prompt).toContain(`[${titled.data.id}@1]`);
+  expect(prompt).toContain("Restart the queue workers");
+  expect(prompt).not.toContain("bob's private");
+});
+
+it("cuts excerpts at the best window within the size", () => {
+  const terms = ["kestrel", "window"];
+  expect(matchedExcerpt("short kestrel window", terms, 100)).toBe(
+    "short kestrel window",
+  );
+  const head = "kestrel window " + "x ".repeat(2000);
+  const fromHead = matchedExcerpt(head, terms, 200);
+  expect(fromHead.startsWith("kestrel window")).toBe(true);
+  expect(fromHead.endsWith("…")).toBe(true);
+  expect(fromHead.length).toBeLessThanOrEqual(200);
+  // One term in the opening, both together later: the later window wins.
+  const later =
+    "kestrel " +
+    "y ".repeat(1000) +
+    "\nthe kestrel window opens " +
+    "z ".repeat(1000);
+  const fromLater = matchedExcerpt(later, terms, 200);
+  expect(fromLater).toMatch(/^…the kestrel window opens/);
+  expect(fromLater.length).toBeLessThanOrEqual(200);
+  // Never split a surrogate pair at either edge.
+  const emoji = "😀".repeat(300) + " kestrel window " + "😀".repeat(300);
+  const cut = matchedExcerpt(emoji, terms, 101);
+  expect(cut).toContain("kestrel window");
+  expect(cut.length).toBeLessThanOrEqual(101);
+  expect(cut).not.toMatch(/^…[\udc00-\udfff]|[\ud800-\udbff]…$/u);
+  expect(matchedExcerpt(head, terms, 0)).toBe("");
 });

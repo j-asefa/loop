@@ -9,6 +9,7 @@ import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
+import * as agentsQueries from "./sql/agents.js";
 import * as runsQueries from "./sql/runs.js";
 import { registrar } from "./registrar.js";
 import { workspaceApi } from "../shared/workspace-api.js";
@@ -39,14 +40,16 @@ export function enabled(
   const p = memoryPolicyQueries.enabled(db, owner, scope);
   return p ? p.enabled === 1 : fallback;
 }
-function eligible(s: any) {
+type EvidenceKind = "result" | "note" | "message";
+function eligibleKind(s: QueryRow<"memory_sources">): EvidenceKind | null {
+  let kind: EvidenceKind = s.kind === "message" ? "message" : "note";
   if (
     s.tombstone ||
     !s.eligible ||
     !enabled(s.owner_id, "workspace") ||
     (s.project_id && !enabled(s.owner_id, "project:" + s.project_id))
   )
-    return false;
+    return null;
   if (s.kind === "artifact") {
     const artifact = artifactsQueries.memoryDefault(
       db,
@@ -59,10 +62,10 @@ function eligible(s: any) {
     );
     // An edited artifact's saved copy may hold text the owner removed: leave
     // it out until the capture pass saves the new version.
-    if (!artifact || artifact.archived || !artifact.current) return false;
+    if (!artifact || artifact.archived || !artifact.current) return null;
     // A moved artifact is out of its old project at once; the capture pass
     // refreshes its saved copy for the new one.
-    if ((artifact.folder_id || null) !== (s.project_id || null)) return false;
+    if ((artifact.folder_id || null) !== (s.project_id || null)) return null;
     // An explicit include/exclude or a pin is the owner's choice for this
     // artifact. Otherwise a result is in by default, unless the owner turned
     // memory off for the conversation that produced it (results are captured
@@ -92,17 +95,18 @@ function eligible(s: any) {
                 artifact.created_at,
               ))
           ));
-    if (!included) return false;
+    if (!included) return null;
+    if (artifact.result) kind = "result";
   }
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
-      return false;
+      return null;
     if (s.message_id) {
       const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
-      if (!m || readMessageMetadata(m.metadata).superseded) return false;
+      if (!m || readMessageMetadata(m.metadata).superseded) return null;
     }
   }
-  return true;
+  return kind;
 }
 function putSource(s: any) {
   const sourceId = digest(s.owner_id + ":" + s.kind + ":" + s.source_id);
@@ -253,10 +257,12 @@ function readMemory(
   sourceId: string,
   revision?: number,
   project?: string | null,
+  forRecall = false,
 ) {
   const s = ownedMemorySource(sourceId, owner);
+  const evidenceKind = eligibleKind(s);
   if (
-    !eligible(s) ||
+    !evidenceKind ||
     (revision !== undefined && s.revision !== revision) ||
     (project !== undefined &&
       s.project_id !== project &&
@@ -266,10 +272,15 @@ function readMemory(
       404,
       "Memory source is unavailable or its revision changed",
     );
+  const readLimit = 12000;
+  const truncated = s.content.length > readLimit;
+  const end =
+    forRecall && truncated ? excerptEnd(s.content, readLimit) : readLimit;
   return {
     ...s,
-    content: s.content.slice(0, 12000),
-    truncated: s.content.length > 12000,
+    evidenceKind,
+    content: s.content.slice(0, end),
+    truncated,
     link: s.conversation_id
       ? workspaceLink({
           conversation: s.conversation_id,
@@ -312,13 +323,27 @@ export async function searchMemory(
   const match = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
   const terms = recallTerms(query);
   if (match) {
+    // Titles are match keys too: a result is often named for what it settles.
     const lexical = memoryFtsQueries.search(
       db,
-      `content:(${match})`,
+      `{title content}:(${match})`,
       owner,
       project,
     );
     candidates.push(...lexical);
+  }
+  const coveragePatterns = relevant
+    ? terms.map((term) => termPattern(term, "u"))
+    : [];
+  const required = requiredCoverage(terms.length);
+  function relevantExcerpt(title: string, excerpt: string) {
+    if (!required) return false;
+    const text = (title + "\n" + excerpt).toLowerCase();
+    let found = 0;
+    for (const pattern of coveragePatterns) {
+      if (pattern.test(text) && ++found >= required) return true;
+    }
+    return false;
   }
   const seen = new Set(),
     sources: any[] = [];
@@ -332,16 +357,35 @@ export async function searchMemory(
         memorySourcesQueries.inConversation(db, candidate.id, conversation)
       )
         continue;
-      const s = readMemory(owner, candidate.id, candidate.revision, project);
-      const excerpt = s.content.slice(0, Math.min(1100, 5500 - characters));
-      // Judge relevance on the text the agent will actually see.
-      if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) continue;
+      const s = readMemory(
+        owner,
+        candidate.id,
+        candidate.revision,
+        project,
+        true,
+      );
+      const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
+      let excerpt = matchedExcerpt(s.content, terms, size);
+      if (relevant && !relevantExcerpt(s.title, excerpt)) {
+        // Look for terms that the title does not already supply.
+        const title = s.title.toLowerCase();
+        const remaining = terms.filter(
+          (_, index) => !coveragePatterns[index].test(title),
+        );
+        if (remaining.length === terms.length) continue;
+        const alternative = matchedExcerpt(s.content, remaining, size);
+        if (alternative === excerpt || !relevantExcerpt(s.title, alternative))
+          continue;
+        excerpt = alternative;
+      }
       if (!excerpt) break;
       characters += excerpt.length;
       sources.push({
         id: s.id,
         revision: s.revision,
         role: s.role,
+        kind: s.evidenceKind,
+        author: sourceAuthor(s),
         title: s.title,
         origin: s.origin,
         updatedAt: s.updated_at,
@@ -354,6 +398,151 @@ export async function searchMemory(
   }
   return { mode: "lexical", sources };
 }
+/** Characters of one source's excerpt. */
+export const EXCERPT_CHARACTERS = 1100;
+/** Who wrote a source: the owner, or the agent by its current name. */
+function sourceAuthor(s: {
+  kind: string;
+  role: string;
+  owner_id: string;
+  agent_id: string | null;
+  message_id: string | null;
+}) {
+  if (s.kind === "note") return "you";
+  if (s.kind === "message" && s.role === "user") {
+    const message = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
+    const metadata = readMessageMetadata(message?.metadata, "fallback");
+    return metadata.personal && !metadata.shared ? "you" : "unknown sender";
+  }
+  return s.agent_id
+    ? (agentsQueries.ownedName(db, s.owner_id, s.agent_id)?.name ?? "agent")
+    : "unknown author";
+}
+/** A term as a whole token sequence, as the index matches it. */
+function termPattern(term: string, flags: string) {
+  const parts = term.match(/[\p{L}\p{N}]+/gu) || [];
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${parts.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])`,
+    flags,
+  );
+}
+/**
+ * The excerpt window holding the most distinct query terms. Keep the head
+ * when it ties and only move an edge through whole Unicode characters.
+ */
+export function matchedExcerpt(content: string, terms: string[], size: number) {
+  if (size <= 0) return "";
+  if (content.length <= size) return content;
+  if (size <= 2) return "…";
+
+  const hits: { start: number; end: number; term: number }[] = [];
+  const words = new Map<string, number>();
+  const addHits = (
+    pattern: RegExp,
+    term: (match: string) => number | undefined,
+  ) => {
+    for (const match of content.matchAll(pattern)) {
+      const index = term(match[0]);
+      if (index !== undefined)
+        hits.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          term: index,
+        });
+    }
+  };
+  terms.forEach((term, index) => {
+    if (/^[\p{L}\p{N}]+$/u.test(term)) words.set(term, index);
+    else addHits(termPattern(term, "giu"), () => index);
+  });
+  if (words.size) {
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}])(?:${[...words.keys()].join("|")})(?![\\p{L}\\p{N}])`,
+      "giu",
+    );
+    addHits(pattern, (word) => words.get(word.toLowerCase()));
+  }
+
+  const byEnd = [...hits].sort((a, b) => a.end - b.end);
+  const counts = new Map<number, number>();
+  const count = (term: number, delta: number) => {
+    const next = (counts.get(term) ?? 0) + delta;
+    if (next) counts.set(term, next);
+    else counts.delete(term);
+  };
+  const headEnd = excerptEnd(content, size - 1);
+  let score = new Set(
+    byEnd.filter((hit) => hit.end <= headEnd).map((hit) => hit.term),
+  ).size;
+  let bestStart = 0;
+  let bestEnd = headEnd;
+  let right = 0;
+  hits.sort((a, b) => a.start - b.start);
+  const span = size - 2;
+  const tailStart = content.length - size + 1;
+  for (const hit of hits) {
+    const start = hit.start;
+    const end = start >= tailStart ? content.length : start + span;
+    while (right < byEnd.length && byEnd[right].end <= end) {
+      const added = byEnd[right++];
+      if (added.start >= start) count(added.term, 1);
+    }
+    if (counts.size > score) {
+      score = counts.size;
+      bestStart = start;
+      bestEnd = byEnd[right - 1].end;
+    }
+    if (hit.end <= end) count(hit.term, -1);
+  }
+
+  if (bestStart === 0) return content.slice(0, headEnd).trimEnd() + "…";
+  // Use spare space for context before the match. Prefer the current line
+  // when there is room, while keeping every matched term in the window.
+  const earliestStart = Math.max(
+    1,
+    bestStart - Math.floor(span / 6),
+    bestEnd - bestStart > span ? tailStart : bestEnd - span,
+  );
+  const line = content.lastIndexOf("\n", bestStart);
+  const start = Math.max(earliestStart, line + 1);
+  let safeStart = /[\udc00-\udfff]/.test(content[start]) ? start + 1 : start;
+  // Do not turn the tail of a clipped word into a whole-token match.
+  if (
+    safeStart > 0 &&
+    isWordAt(content, previousCharacterStart(content, safeStart))
+  )
+    safeStart +=
+      content.slice(safeStart).match(/^[\p{L}\p{N}]+/u)?.[0].length ?? 0;
+  const end = excerptEnd(
+    content,
+    safeStart >= tailStart ? content.length : safeStart + span,
+  );
+  return (
+    "…" +
+    content.slice(safeStart, end).trimEnd() +
+    (end < content.length ? "…" : "")
+  );
+}
+
+function excerptEnd(content: string, bound: number) {
+  let end = Math.min(content.length, bound);
+  if (/[\ud800-\udbff]/.test(content[end - 1] ?? "")) end--;
+  // Omit a final partial word so relevance tests use the source's boundaries.
+  if (isWordAt(content, end)) {
+    while (end > 0) {
+      const previous = previousCharacterStart(content, end);
+      if (!isWordAt(content, previous)) break;
+      end = previous;
+    }
+  }
+  return end;
+}
+function previousCharacterStart(content: string, end: number) {
+  return end - (end > 1 && /[\udc00-\udfff]/.test(content[end - 1]) ? 2 : 1);
+}
+function isWordAt(content: string, start: number) {
+  return /^[\p{L}\p{N}]/u.test(content.slice(start, start + 2));
+}
 /**
  * Whether a source contains enough distinct query terms to be worth adding:
  * every term for one- or two-term queries, otherwise at least two terms and a
@@ -361,12 +550,13 @@ export async function searchMemory(
  */
 export function coversQuery(content: string, terms: string[]) {
   if (!terms.length) return false;
-  const required = Math.min(
-    terms.length,
-    Math.max(2, Math.ceil(terms.length / 4)),
-  );
+  const required = requiredCoverage(terms.length);
   return matchedTerms(content, terms, required) >= required;
 }
+function requiredCoverage(terms: number) {
+  return Math.min(terms, Math.max(2, Math.ceil(terms / 4)));
+}
+
 /**
  * How many of `terms` occur in `content` as whole token sequences, as in the
  * index, counting no further than `enough`.
@@ -378,14 +568,8 @@ export function matchedTerms(
 ) {
   const text = content.toLowerCase();
   let found = 0;
-  for (const term of terms) {
-    const parts = term.match(/[\p{L}\p{N}]+/gu) || [];
-    const pattern = new RegExp(
-      `(?<![\\p{L}\\p{N}])${parts.join("[^\\p{L}\\p{N}]+")}(?![\\p{L}\\p{N}])`,
-      "u",
-    );
-    if (pattern.test(text) && ++found >= enough) break;
-  }
+  for (const term of terms)
+    if (termPattern(term, "u").test(text) && ++found >= enough) break;
   return found;
 }
 /** Upper bound on recalled text added to one turn (about 1,500 tokens). */
@@ -439,7 +623,10 @@ export function evidenceBlock(sources: RecalledSource[]) {
   const included: RecalledSource[] = [];
   let body = "";
   for (const s of sources) {
-    const block = `\n[${s.id}@${s.revision}] ${s.role}, ${quoted(s.title)}, ${s.link}\n${quoted(s.excerpt)}\n`;
+    const date = new Date(s.updatedAt).toISOString().slice(0, 10);
+    const author = quoted(s.author).replace(/[\r\n\u2028\u2029]+/g, " ");
+    const title = JSON.stringify(quoted(s.title));
+    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${author}, ${date}, ${title}, ${s.link}\n${quoted(s.excerpt)}\n`;
     if ((open + body + block + close).length > RECALL_CHARACTERS) break;
     body += block;
     included.push(s);
@@ -563,11 +750,11 @@ routes.on(workspaceApi.memorySource, (req, res) => {
       kind: s.kind,
       truncated: false,
     } as z.input<typeof workspaceApi.memorySource.response>);
-  res.json(
-    readMemory(res.locals.owner, req.params.id) as unknown as z.input<
-      typeof workspaceApi.memorySource.response
-    >,
+  const { evidenceKind: _evidenceKind, ...source } = readMemory(
+    res.locals.owner,
+    req.params.id,
   );
+  res.json(source as z.input<typeof workspaceApi.memorySource.response>);
   return undefined;
 });
 routes.on(workspaceApi.memorySourceDelete, (req, res) => {
