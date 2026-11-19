@@ -16,8 +16,9 @@ export const DISPLAY_LIMITS = {
   depth: 8,
   tableRows: 200,
   tableColumns: 20,
-  // Table cells drawn across the whole display, counting every reference to
-  // a shared table; a Table past it is a placeholder.
+  // Table cells and chart values drawn across the whole display, counting
+  // every reference to a shared element; a Table or Chart past it is a
+  // placeholder.
   tableCells: 20000,
   // Characters of Text Markdown drawn across the display, counting every
   // reference to a shared Text; equal to the block limit, so only shared
@@ -323,28 +324,32 @@ function draw(
   const built = build(key, type, element.props ?? {}, []);
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
-  if (built.type === "Table") {
-    const cells = built.rows.length * built.headers.length;
-    // A table drawn as a placeholder uses none of the budget.
-    if (state.cells + cells > DISPLAY_LIMITS.tableCells)
-      return placeholder(
-        key,
-        type,
-        "invalid",
-        `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
-      );
-    state.cells += cells;
-  }
-  if (built.type === "Text") {
-    if (state.text + built.content.length > DISPLAY_LIMITS.textCharacters)
-      return placeholder(
-        key,
-        type,
-        "invalid",
-        `The display has more than ${DISPLAY_LIMITS.textCharacters} characters of Text`,
-      );
-    state.text += built.content.length;
-  }
+  // An element drawn as a placeholder charges none of the budgets.
+  // Tables charge their cells; charts charge the marks they draw (and the
+  // matching rows of their table of numbers).
+  const cells =
+    built.type === "Table"
+      ? built.rows.length * built.headers.length
+      : built.type === "Chart"
+        ? built.chart.type === "pie"
+          ? built.chart.segments.length
+          : built.chart.series.length * built.chart.categories.length
+        : 0;
+  if (state.cells + cells > DISPLAY_LIMITS.tableCells)
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      `The display has more than ${DISPLAY_LIMITS.tableCells} table cells and chart values`,
+    );
+  const text = built.type === "Text" ? built.content.length : 0;
+  if (state.text + text > DISPLAY_LIMITS.textCharacters)
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      `The display has more than ${DISPLAY_LIMITS.textCharacters} characters of Text`,
+    );
   const drawn = drawnLength(built);
   if (state.drawn + drawn > DISPLAY_LIMITS.drawnCharacters)
     return placeholder(
@@ -353,6 +358,8 @@ function draw(
       "invalid",
       `The display has more than ${DISPLAY_LIMITS.drawnCharacters} characters`,
     );
+  state.cells += cells;
+  state.text += text;
   state.drawn += drawn;
   if ("children" in built) {
     path.add(key);

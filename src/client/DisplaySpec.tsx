@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { readDisplaySpec, type DisplayNode } from "../shared/display-spec";
+import { DisplayChart } from "./DisplayChart";
 import "./display.css";
 
 // A fenced `spec` block in an answer, drawn as structured UI. The reader in
@@ -12,6 +13,8 @@ type Context = {
   markdown: (content: string) => ReactNode;
   // Whether a Field sits in a Fields grid, which supplies its <dl>.
   inFields?: boolean;
+  // A card preview: charts leave out their table of numbers.
+  compact: boolean;
 };
 
 export function DisplaySpec({
@@ -42,7 +45,11 @@ export function DisplaySpec({
   }
   return (
     <div className="display-spec">
-      <DisplayNodeView node={read.root} context={{ markdown }} level={0} />
+      <DisplayNodeView
+        node={read.root}
+        context={{ markdown, compact }}
+        level={0}
+      />
     </div>
   );
 }
@@ -164,8 +171,13 @@ function DisplayNodeView({
         </div>
       );
     case "Chart":
-      // Drawn from the next change on; the reader already validates it.
-      return <Placeholder name="Chart" reason="unsupported" />;
+      return (
+        <DisplayChart
+          title={node.title}
+          chart={node.chart}
+          compact={context.compact}
+        />
+      );
     case "Divider":
       return <hr className="display-divider" />;
     case "Actions":
