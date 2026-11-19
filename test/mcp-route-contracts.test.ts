@@ -310,20 +310,51 @@ it("projects real connection rows, drops sealed credentials and preserves the cr
 });
 
 it("keeps preference strictness, catalog branch shapes and pasted setup values private", async () => {
-  valid(workspaceApi.mcpPreferences, await request("/mcp/preferences"));
+  const initialPrefs = valid(
+    workspaceApi.mcpPreferences,
+    await request("/mcp/preferences"),
+  );
+  expect(initialPrefs).toMatchObject({
+    autoWatchPrs: false,
+    maxConcurrentPerHarness: null,
+  });
   await invalid("/mcp/preferences", {}, "GET");
-  valid(
+  const updatedPrefs = valid(
     workspaceApi.mcpPreferencesUpdate,
     await request(
       "/mcp/preferences",
-      { approvalMode: "ask", agentPermissionMode: "default" },
+      {
+        approvalMode: "ask",
+        agentPermissionMode: "default",
+        autoWatchPrs: true,
+        maxConcurrentPerHarness: 2,
+      },
       "PUT",
     ),
   );
+  expect(updatedPrefs).toMatchObject({
+    autoWatchPrs: true,
+    maxConcurrentPerHarness: 2,
+  });
+  const resetPrefs = valid(
+    workspaceApi.mcpPreferencesUpdate,
+    await request(
+      "/mcp/preferences",
+      { autoWatchPrs: false, maxConcurrentPerHarness: null },
+      "PUT",
+    ),
+  );
+  expect(resetPrefs).toMatchObject({
+    autoWatchPrs: false,
+    maxConcurrentPerHarness: null,
+  });
   for (const body of [
     {},
     { approvalMode: "invented" },
     { approvalMode: "ask", extra: true },
+    { maxConcurrentPerHarness: 0 },
+    { maxConcurrentPerHarness: 33 },
+    { maxConcurrentPerHarness: 1.5 },
   ])
     await invalid("/mcp/preferences", body, "PUT");
   const catalog = valid(workspaceApi.mcpCatalog, await request("/mcp/catalog"));

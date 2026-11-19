@@ -7,7 +7,14 @@ import type { Status, Billing, Item, Request } from "../shared/protocol.js";
 export type AdapterEvent =
   // NativeSessions owns adapter ingress and persists the display projection.
   | ActivityEvent
-  | { type: "usage"; usage: { input_tokens: number; output_tokens: number } }
+  | {
+      type: "usage";
+      usage: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_tokens?: number;
+      };
+    }
   | { type: "activity_capabilities"; capabilities: ActivityCapabilities }
   | { type: "status"; status: Status; detail?: string; recoverable?: boolean }
   | { type: "metadata"; nativeSession: string; billing?: Billing }

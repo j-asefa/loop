@@ -448,9 +448,30 @@ export function setSavedLabel(owner: string, body: unknown) {
     .immediate();
 }
 
-type Tokens = { input_tokens: number; output_tokens: number };
+type Tokens = {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number;
+};
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+function cachedCount(usage: Record<string, unknown>) {
+  const details =
+    (usage.input_tokens_details as Record<string, unknown> | undefined) ??
+    (usage.prompt_tokens_details as Record<string, unknown> | undefined);
+  return (
+    count(usage.cache_read_tokens) ||
+    count(usage.cache_read_input_tokens) ||
+    count(details?.cached_tokens)
+  );
+}
+function addTokens(target: Tokens, addition: Tokens) {
+  target.input_tokens += addition.input_tokens;
+  target.output_tokens += addition.output_tokens;
+  if (addition.cache_read_tokens)
+    target.cache_read_tokens =
+      (target.cache_read_tokens || 0) + addition.cache_read_tokens;
+}
 export function conversationUsage(owner: string, conversation: string) {
   ownedConversation(conversation, owner);
   const events = runsQueries.conversationUsageEvents(db, owner, conversation);
@@ -463,8 +484,7 @@ export function conversationUsage(owner: string, conversation: string) {
   const flush = () => {
     if (!segment) return;
     const total = (runs[segment.run] ||= { input_tokens: 0, output_tokens: 0 });
-    total.input_tokens += segment.tokens.input_tokens;
-    total.output_tokens += segment.tokens.output_tokens;
+    addTokens(total, segment.tokens);
     segment = undefined;
   };
   for (const event of events) {
@@ -489,6 +509,12 @@ export function conversationUsage(owner: string, conversation: string) {
         total.output_tokens,
         count(usage.output_tokens),
       );
+      const cached = cachedCount(usage);
+      if (cached > 0)
+        total.cache_read_tokens = Math.max(
+          total.cache_read_tokens || 0,
+          cached,
+        );
       continue;
     }
     if (payload.externalId || !segment || segment.run !== event.run_id) {
@@ -501,21 +527,27 @@ export function conversationUsage(owner: string, conversation: string) {
     if (!usage || typeof usage !== "object") continue;
     const input = count(usage.input_tokens) || count(usage.prompt_tokens);
     const output = count(usage.output_tokens) || count(usage.completion_tokens);
+    const cached = cachedCount(usage);
     segment.tokens.input_tokens = Math.max(segment.tokens.input_tokens, input);
     segment.tokens.output_tokens = Math.max(
       segment.tokens.output_tokens,
       output,
     );
+    if (cached > 0)
+      segment.tokens.cache_read_tokens = Math.max(
+        segment.tokens.cache_read_tokens || 0,
+        cached,
+      );
   }
   flush();
   Object.assign(runs, native);
   for (const [run, tokens] of Object.entries(runs))
     if (!tokens.input_tokens && !tokens.output_tokens) delete runs[run];
-  const total = Object.values(runs).reduce(
-    (sum, tokens) => ({
-      input_tokens: sum.input_tokens + tokens.input_tokens,
-      output_tokens: sum.output_tokens + tokens.output_tokens,
-    }),
+  const total = Object.values(runs).reduce<Tokens>(
+    (sum, tokens) => {
+      addTokens(sum, tokens);
+      return sum;
+    },
     { input_tokens: 0, output_tokens: 0 },
   );
   // Only runtimes that recall memory record a receipt, so the thread offers

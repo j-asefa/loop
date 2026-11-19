@@ -42,6 +42,22 @@ export function Tools({
   const connectionsReady = !!connectionsQuery.data;
   const approvalMode = preferencesQuery.data?.approvalMode ?? null;
   const agentMode = preferencesQuery.data?.agentPermissionMode ?? null;
+  const autoWatchPrs = preferencesQuery.data?.autoWatchPrs ?? null;
+  const maxConcurrentPerHarness =
+    preferencesQuery.data?.maxConcurrentPerHarness;
+  const preferencesReady = !!preferencesQuery.data;
+  const replacePreferences = (result: {
+    approvalMode: "ask" | "allow";
+    agentPermissionMode: PermissionMode;
+    autoWatchPrs: boolean;
+    maxConcurrentPerHarness: number | null;
+  }) =>
+    preferencesQuery.replace({
+      approvalMode: result.approvalMode,
+      agentPermissionMode: result.agentPermissionMode,
+      autoWatchPrs: result.autoWatchPrs,
+      maxConcurrentPerHarness: result.maxConcurrentPerHarness,
+    });
   const nativeCandidates = candidatesQuery.data ?? [];
   const readErrors = {
     tools: connectionsQuery.error,
@@ -180,10 +196,7 @@ export function Tools({
                   const result = await call(workspaceApi.mcpPreferencesUpdate, {
                     body: { agentPermissionMode: mode },
                   });
-                  preferencesQuery.replace({
-                    approvalMode: result.approvalMode,
-                    agentPermissionMode: result.agentPermissionMode,
-                  });
+                  replacePreferences(result);
                   setNotice(
                     "Agents use this from their next turn. Requests already waiting still need a decision.",
                   );
@@ -217,10 +230,7 @@ export function Tools({
                   const result = await call(workspaceApi.mcpPreferencesUpdate, {
                     body: { approvalMode: mode },
                   });
-                  preferencesQuery.replace({
-                    approvalMode: result.approvalMode,
-                    agentPermissionMode: result.agentPermissionMode,
-                  });
+                  replacePreferences(result);
                   setNotice(
                     mode === "allow"
                       ? `Connected tools can run automatically.${result.resumed ? ` ${result.resumed} waiting ${result.resumed === 1 ? "task has" : "tasks have"} resumed.` : ""}`
@@ -237,6 +247,72 @@ export function Tools({
             {approvalMode === "allow"
               ? "Connected tools can run automatically. Connected GitHub tools still ask before merging. Calls stay in conversation history."
               : "Ask before each connected tool call. Allowing tools also resumes waiting MCP requests."}
+          </p>
+          <label>
+            Auto-watch agent-created PRs
+            <select
+              aria-label="Auto-watch agent-created PRs"
+              value={autoWatchPrs ? "auto" : "off"}
+              disabled={busy || !preferencesReady}
+              onChange={(e) => {
+                const enabled = e.target.value === "auto";
+                void action(async () => {
+                  const result = await call(workspaceApi.mcpPreferencesUpdate, {
+                    body: { autoWatchPrs: enabled },
+                  });
+                  replacePreferences(result);
+                  setNotice(
+                    enabled
+                      ? "New agent-created PRs will automatically watch CI failures and review comments."
+                      : "New agent-created PRs are linked without automatic wakeups. You can still start a watch on any PR card.",
+                  );
+                });
+              }}
+            >
+              <option value="off">Off (link only)</option>
+              <option value="auto">Watch automatically</option>
+            </select>
+          </label>
+          <p className="field-hint">
+            Agent-created pull requests are always linked in the conversation
+            and Pull requests tab. Turn this on only if you want Loop to
+            automatically wake agents on CI failures and review comments.
+          </p>
+          <label>
+            Max active tasks per harness
+            <select
+              aria-label="Max active tasks per harness"
+              value={
+                maxConcurrentPerHarness ? String(maxConcurrentPerHarness) : ""
+              }
+              disabled={busy || !preferencesReady}
+              onChange={(e) => {
+                const limit = e.target.value ? Number(e.target.value) : null;
+                void action(async () => {
+                  const result = await call(workspaceApi.mcpPreferencesUpdate, {
+                    body: { maxConcurrentPerHarness: limit },
+                  });
+                  replacePreferences(result);
+                  setNotice(
+                    limit
+                      ? `At most ${limit} active ${limit === 1 ? "task" : "tasks"} will run per harness at a time. Extra tasks stay queued until a slot opens.`
+                      : "Per-harness concurrency cap removed.",
+                  );
+                });
+              }}
+            >
+              <option value="">No per-harness cap (up to 32)</option>
+              <option value="1">1 active task per harness</option>
+              <option value="2">2 active tasks per harness</option>
+              <option value="3">3 active tasks per harness</option>
+              <option value="4">4 active tasks per harness</option>
+              <option value="8">8 active tasks per harness</option>
+            </select>
+          </label>
+          <p className="field-hint">
+            Caps parallel runs on the same harness (such as Claude Code or
+            Codex) so multitasking and team fan-out queue instead of burning
+            quota simultaneously.
           </p>
           <SettingsNote
             icon={TriangleAlert}

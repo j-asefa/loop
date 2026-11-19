@@ -51,6 +51,7 @@ export const ReviewInput = z.object({
   folderId: requestId(FolderId).min(1),
   scope: z.enum(["uncommitted", "staged", "branch"]),
   base: Text.trim().min(1).max(200).default("main"),
+  mode: z.enum(["full", "quick"]).default("full"),
   idempotencyKey: requestId(IdempotencyKey).min(8).max(150),
 });
 // HTTP uses id; the agent tool exposes the same identity as reviewId.

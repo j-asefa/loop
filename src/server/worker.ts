@@ -35,6 +35,7 @@ import {
 import { RunDeferred } from "./run-deferred.js";
 import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
 import { harnessHolds } from "./harness-holds.js";
+import { maxConcurrentPerHarness } from "./mcp/approval-policy.js";
 import { nativeSessions } from "./native-sessions.js";
 import { observeProcess } from "./deployments.js";
 import { tryWithoutBusyWait } from "./busy-wait.js";
@@ -81,7 +82,17 @@ export async function tick(
         p.connectionId || "",
         "metadata",
       ).loopHarness || "";
-    return !harnessHolds.first(harness);
+    if (harnessHolds.first(harness)) return false;
+    if (harness) {
+      const limit = maxConcurrentPerHarness(candidate.owner_id);
+      if (
+        limit !== null &&
+        runsQueries.activeHarnessCount(db, candidate.owner_id, harness).n >=
+          limit
+      )
+        return false;
+    }
+    return true;
   });
   if (!run) return false;
   const heartbeat = setInterval(

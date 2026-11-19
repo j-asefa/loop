@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { db, id, now } from "./db.js";
 import { ownedArtifact, Problem } from "./domain.js";
 import { submit } from "./agent-runtime.js";
+import { autoWatchPrs } from "./mcp/approval-policy.js";
 import type { Run } from "./queue.js";
 import type { OutputData } from "../shared/agent-activities.js";
 import {
@@ -101,6 +102,10 @@ export function watchCreatedPullRequest(
       // Automatic creation detection must also retain an explicit Stop watching.
       // A person can start a new watch from the card when they want to resume.
       if (existing) return existing;
+      // Automatic polling watches are opt-in per owner so background CI and
+      // comment wakeups do not silently burn tokens across parallel PR threads.
+      // The PR is still linked above so its status appears in the UI.
+      if (!autoWatchPrs(run.owner_id)) return undefined;
       const time = now();
       const watchId = id();
       watchQueries.insert(
@@ -154,7 +159,8 @@ export async function watchNativeCreatedPullRequest(
   const ref = createdPullRequest(command, output);
   if (ref && current()) {
     linkCreatedPullRequest(run, ref);
-    await verifyCreatedPullRequest(run, ref, current);
+    if (autoWatchPrs(run.owner_id))
+      await verifyCreatedPullRequest(run, ref, current);
   }
 }
 
@@ -439,12 +445,10 @@ async function read(watch: PrWatch, token: string) {
     const conclusion = failed.length ? "failure" : "success";
     ciState = { sha: head, conclusion };
     const known = watch.ci_sha === head && watch.ci_conclusion === conclusion;
-    // A failure is always news. Green is news only after red: it tells the
-    // agent its fix worked; otherwise it is recorded without a turn.
-    if (
-      !known &&
-      (conclusion === "failure" || watch.ci_conclusion === "failure")
-    )
+    // Failures wake the agent so it can diagnose and fix them. Passing CI is
+    // recorded on ci_sha / ci_conclusion for the PR status badge without
+    // spending a full agent turn just to announce green checks.
+    if (!known && conclusion === "failure")
       ci = {
         sha: head,
         conclusion,

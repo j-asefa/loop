@@ -44,7 +44,8 @@ export function StartCodeReview({
     initialFolder || choices.find((t) => t.id === teamId)?.folder_id || "",
   );
   const [scope, setScope] = useState<Status["scope"]>("uncommitted"),
-    [base, setBase] = useState("main");
+    [base, setBase] = useState("main"),
+    [mode, setMode] = useState<"quick" | "full">("quick");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const owner = viewOwner(),
@@ -65,9 +66,9 @@ export function StartCodeReview({
   return (
     <Sheet title="Review local changes" onClose={onClose}>
       <p>
-        Three reviewers inspect the same captured code independently. The review
-        lead verifies findings and returns one report. You can keep coding while
-        they work.
+        {mode === "quick"
+          ? "The review lead inspects the captured snapshot directly in a single session to conserve tokens. Switch to Thorough for three independent reviewers plus a lead."
+          : "Three reviewers inspect the same captured code independently. The review lead verifies findings and returns one report. You can keep coding while they work."}
       </p>
       <p className="muted">
         Uncommitted changes include non-ignored new files. Hidden files,
@@ -80,7 +81,12 @@ export function StartCodeReview({
           if (busy) return;
           setBusy(true);
           setError("");
-          const body = { folderId: parseId(FolderId, folderId), scope, base },
+          const body = {
+              folderId: parseId(FolderId, folderId),
+              scope,
+              base,
+              mode,
+            },
             encoded = JSON.stringify({ teamId, ...body });
           try {
             const r = await performStoredEffect(
@@ -152,6 +158,17 @@ export function StartCodeReview({
                   {f.name}
                 </option>
               ))}
+          </select>
+        </label>
+        <label>
+          Review depth
+          <select
+            aria-label="Review depth"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as "quick" | "full")}
+          >
+            <option value="quick">Quick (1 agent · lower token usage)</option>
+            <option value="full">Thorough (3 reviewers + lead)</option>
           </select>
         </label>
         <label>

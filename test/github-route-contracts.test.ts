@@ -29,6 +29,7 @@ const { seal } = await import("../src/server/secrets");
 const { createGithubClient, withGithubClient } =
   await import("../src/server/github-api");
 const { watchCreatedPullRequest } = await import("../src/server/pr-watches");
+const { setAutoWatchPrs } = await import("../src/server/mcp/approval-policy");
 const { fakeGithub, FIRST_HEAD } = await import(
   resolve("scripts/helpers/fake-github.mjs")
 );
@@ -164,6 +165,7 @@ const run = submit(owner, {
 });
 connectGithub(owner);
 connectGithub("other-owner");
+setAutoWatchPrs("other-owner", true);
 const otherRun = submit("other-owner", {
   agentId: otherAgent.id,
   input: "Other owner",

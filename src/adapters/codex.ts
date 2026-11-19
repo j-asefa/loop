@@ -42,7 +42,16 @@ function codexTokens(value: any): Tokens | undefined {
   const output = tokenCount(value?.outputTokens);
   // Cached input and reasoning output are already included in these totals.
   if (input === undefined || output === undefined) return;
-  return { input_tokens: input, output_tokens: output };
+  const cached =
+    tokenCount(value?.cachedInputTokens) ??
+    tokenCount(value?.cached_input_tokens);
+  return {
+    input_tokens: input,
+    output_tokens: output,
+    ...(cached !== undefined && cached > 0
+      ? { cache_read_tokens: cached }
+      : {}),
+  };
 }
 
 export class Codex extends DirectAdapter implements Adapter {
@@ -698,6 +707,10 @@ export class Codex extends DirectAdapter implements Adapter {
         this.tokenBaseline = {
           input_tokens: Math.max(0, total.input_tokens - last.input_tokens),
           output_tokens: Math.max(0, total.output_tokens - last.output_tokens),
+          cache_read_tokens: Math.max(
+            0,
+            (total.cache_read_tokens ?? 0) - (last.cache_read_tokens ?? 0),
+          ),
         };
       }
       if (
@@ -707,6 +720,11 @@ export class Codex extends DirectAdapter implements Adapter {
       )
         return;
       this.tokenTotal = total;
+      const cacheRead = Math.max(
+        0,
+        (total.cache_read_tokens ?? 0) -
+          (this.tokenBaseline.cache_read_tokens ?? 0),
+      );
       this.emit({
         type: "usage",
         usage: {
@@ -718,6 +736,7 @@ export class Codex extends DirectAdapter implements Adapter {
             0,
             total.output_tokens - this.tokenBaseline.output_tokens,
           ),
+          ...(cacheRead > 0 ? { cache_read_tokens: cacheRead } : {}),
         },
       });
     }

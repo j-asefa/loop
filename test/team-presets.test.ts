@@ -1278,3 +1278,35 @@ it.each(["api", "claude"])(
   },
   30000,
 );
+
+it("supports quick single-agent reviews without spawning three parallel reviewers", () => {
+  writeFileSync(join(repo, "index.ts"), "export const answer = 99;\n");
+  const key = "quick-review-" + id();
+  const quick = startCodeReview("alice", team.id, {
+    folderId: folder,
+    scope: "uncommitted",
+    base: "main",
+    mode: "quick",
+    idempotencyKey: key,
+  });
+  expect(quick.reviewers).toEqual([]);
+  const leadRun = db
+    .prepare("SELECT * FROM runs WHERE conversation_id=?")
+    .get(quick.conversationId) as any;
+  expect(leadRun.input).toContain("single-agent quick mode");
+  const ctx = reviewContext({
+    ...leadRun,
+    payload: JSON.parse(leadRun.payload),
+  });
+  expect(ctx).not.toContain("Independent reviewer reports");
+  // Retrying the same key with mode=full is rejected as a different review.
+  expect(() =>
+    startCodeReview("alice", team.id, {
+      folderId: folder,
+      scope: "uncommitted",
+      base: "main",
+      mode: "full",
+      idempotencyKey: key,
+    }),
+  ).toThrow(/different review/);
+});

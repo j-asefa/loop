@@ -1204,6 +1204,8 @@ export const QueryRecords = {
     owner_id: z.string(),
     approval_mode: z.enum(["ask", "allow"]),
     agent_permission_mode: z.string().nullable(),
+    auto_watch_prs: z.number(),
+    max_concurrent_per_harness: z.number().nullable(),
   }),
   token_event_cursors: z.object({
     token_id: z.string(),

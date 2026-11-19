@@ -93,6 +93,7 @@ function ensureCodeReview(
   },
 ) {
   const d = ReviewInput.parse(value);
+  const quick = d.mode === "quick";
   const hash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -100,6 +101,7 @@ function ensureCodeReview(
         folderId: d.folderId,
         scope: d.scope,
         base: d.base,
+        ...(quick && { mode: d.mode }),
         ...(requester && { requester: requester.runId }),
       }),
     )
@@ -126,11 +128,11 @@ function ensureCodeReview(
   if (assignments.length !== 4 || assignments[0].agentId !== team.manager_id)
     throw new Problem(409, "Review team configuration is incomplete");
   const requesterAgent = requester && ownedRun(requester.runId, owner).agent_id;
-  for (const a of assignments) {
+  for (const [index, a] of assignments.entries()) {
     if (a.agentId === requesterAgent)
       throw new Problem(409, "A reviewer cannot request its own team's review");
     const agent = ownedAgent(a.agentId, owner);
-    if (agent.retired_at)
+    if ((!quick || index === 0) && agent.retired_at)
       throw new Problem(409, "Restore all reviewers before starting a review");
   }
   const path = requester
@@ -168,7 +170,9 @@ function ensureCodeReview(
         teamId,
         folderId: d.folderId,
         reviewId,
-        input: `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
+        input: quick
+          ? `${requester ? "Another agent requested this quick review before opening a pull request. " : ""}Review ${d.scope} changes in snapshot ${reviewId} directly in single-agent quick mode. Check correctness, security and regressions using loop_review_read and report evidence-backed findings.`
+          : `${requester ? "Another agent requested this review before opening a pull request. " : ""}Review ${d.scope} changes. Consolidate the independent reviews of snapshot ${reviewId}.`,
         idempotencyKey: `review:${reviewId}:lead`,
         personal: !requester,
       });
@@ -185,25 +189,26 @@ function ensureCodeReview(
           "{}",
           requester.continueAfterReview ? 1 : 0,
         );
-      for (const a of assignments.slice(1)) {
-        const child = submit(owner, {
-          agentId: a.agentId,
-          teamId,
-          folderId: d.folderId,
-          reviewId,
-          input: `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
-          idempotencyKey: `review:${reviewId}:${a.role}`,
-        });
-        inheritEffect(owner, "run", manager.id, child.id);
-        // Existing queue dependency and cancellation machinery owns this fan-out.
-        delegationsQueries.insertForeground(
-          db,
-          manager.id,
-          `review:${a.role}`,
-          child.id,
-          "{}",
-        );
-      }
+      if (!quick)
+        for (const a of assignments.slice(1)) {
+          const child = submit(owner, {
+            agentId: a.agentId,
+            teamId,
+            folderId: d.folderId,
+            reviewId,
+            input: `Independently review snapshot ${reviewId} as the ${a.role} reviewer. Read the captured files as needed and report evidence-backed findings.`,
+            idempotencyKey: `review:${reviewId}:${a.role}`,
+          });
+          inheritEffect(owner, "run", manager.id, child.id);
+          // Existing queue dependency and cancellation machinery owns this fan-out.
+          delegationsQueries.insertForeground(
+            db,
+            manager.id,
+            `review:${a.role}`,
+            child.id,
+            "{}",
+          );
+        }
       if (requester?.continueAfterReview) {
         const parent = ownedRun(requester.runId, owner);
         if (!parent.agent_id || !parent.conversation_id)
@@ -308,7 +313,7 @@ export function requestableReviewTeams(owner: string, agentId: string) {
 export function requestReview(
   run: Run,
   callId: string,
-  args: z.infer<typeof requestReviewSchema>,
+  args: z.input<typeof requestReviewSchema>,
 ): { pending: string } | { report: object; failed: boolean } {
   const payload = run.payload;
   const team = ownedTeam(args.teamId, run.owner_id);
@@ -322,8 +327,9 @@ export function requestReview(
     team.id,
     {
       folderId,
-      scope: args.scope,
-      base: args.base,
+      scope: args.scope ?? "branch",
+      base: args.base ?? "main",
+      mode: args.mode ?? "full",
       idempotencyKey:
         "agent:" +
         createHash("sha256")

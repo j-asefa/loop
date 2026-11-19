@@ -338,3 +338,26 @@ it("reports and caches binary context omissions and ignores replacement refs", (
     reason: "binary",
   });
 });
+
+it("bounds large inline diffs in reviewContext and serves the full diff in chunks via loop_review_read", () => {
+  const bigDiff = "+line\n".repeat(4000);
+  const f = fixture({ ...snapshot(), diff: bigDiff });
+  const context = reviewContext(f.run);
+  expect(context.length).toBeLessThan(bigDiff.length);
+  expect(context).toContain("Diff truncated at 12000 of");
+  expect(context).toContain("diff: true");
+  const chunk1 = readReview(f.run, { diff: true, offset: 0 }) as {
+    diff: boolean;
+    content: string;
+    nextOffset: number | null;
+  };
+  expect(chunk1.diff).toBe(true);
+  expect(chunk1.content).toBe(bigDiff.slice(0, 12000));
+  expect(chunk1.nextOffset).toBe(12000);
+  const chunk2 = readReview(f.run, { diff: true, offset: 12000 }) as {
+    content: string;
+    nextOffset: number | null;
+  };
+  expect(chunk2.content).toBe(bigDiff.slice(12000, 24000));
+  expect(chunk2.nextOffset).toBeNull();
+});

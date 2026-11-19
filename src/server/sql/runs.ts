@@ -1003,6 +1003,21 @@ export function hasActiveProvider(
     : parseRecord(hasActiveProviderRow, row, "runs");
 }
 
+const activeHarnessCountStatement =
+  statement(`SELECT count(*) n FROM runs r JOIN connections c
+          ON c.id=json_extract(r.payload,'$.connectionId') AND c.owner_id=r.owner_id
+          WHERE r.owner_id=? AND r.state IN ('running','pausing','awaiting_approval')
+          AND json_extract(c.metadata,'$.loopHarness')=?`);
+const activeHarnessCountRow = z.object({ n: z.number() });
+export function activeHarnessCount(
+  db: Database.Database,
+  owner: string,
+  name: string,
+) {
+  const row = activeHarnessCountStatement(db).get(owner, name);
+  return parseRecord(activeHarnessCountRow, row, "runs");
+}
+
 const activeSteeringStatement = statement(
   `SELECT r.*,${RUN_LIVE_INPUT_SQL("r")} live_input FROM runs r WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND (@agent IS NULL OR r.agent_id=@agent) AND r.kind='agent' AND r.state IN ('running','awaiting_approval') AND NOT EXISTS(SELECT 1 FROM agent_checkpoints c WHERE c.run_id=r.id AND c.stage='done') ORDER BY r.created_at DESC LIMIT 1`,
 );

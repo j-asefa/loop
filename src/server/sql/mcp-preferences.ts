@@ -50,3 +50,51 @@ export function setApprovalMode(
 ) {
   return setApprovalModeStatement(db).run(owner, mode);
 }
+
+const autoWatchPrsStatement = statement(
+  "SELECT auto_watch_prs FROM mcp_preferences WHERE owner_id=?",
+);
+const autoWatchPrsRow = QueryRecords.mcp_preferences.pick({
+  auto_watch_prs: true,
+});
+export function autoWatchPrs(db: Database.Database, owner: string) {
+  const row = autoWatchPrsStatement(db).get(owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(autoWatchPrsRow, row, "mcp_preferences");
+}
+
+const setAutoWatchPrsStatement = statement(
+  "INSERT INTO mcp_preferences(owner_id,approval_mode,auto_watch_prs) VALUES(?,'ask',?) ON CONFLICT(owner_id) DO UPDATE SET auto_watch_prs=excluded.auto_watch_prs",
+);
+export function setAutoWatchPrs(
+  db: Database.Database,
+  owner: string,
+  enabled: number,
+) {
+  return setAutoWatchPrsStatement(db).run(owner, enabled);
+}
+
+const maxConcurrentPerHarnessStatement = statement(
+  "SELECT max_concurrent_per_harness FROM mcp_preferences WHERE owner_id=?",
+);
+const maxConcurrentPerHarnessRow = QueryRecords.mcp_preferences.pick({
+  max_concurrent_per_harness: true,
+});
+export function maxConcurrentPerHarness(db: Database.Database, owner: string) {
+  const row = maxConcurrentPerHarnessStatement(db).get(owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(maxConcurrentPerHarnessRow, row, "mcp_preferences");
+}
+
+const setMaxConcurrentPerHarnessStatement = statement(
+  "INSERT INTO mcp_preferences(owner_id,approval_mode,max_concurrent_per_harness) VALUES(?,'ask',?) ON CONFLICT(owner_id) DO UPDATE SET max_concurrent_per_harness=excluded.max_concurrent_per_harness",
+);
+export function setMaxConcurrentPerHarness(
+  db: Database.Database,
+  owner: string,
+  limit: number | null,
+) {
+  return setMaxConcurrentPerHarnessStatement(db).run(owner, limit);
+}

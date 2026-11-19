@@ -43,8 +43,12 @@ import { publicCatalog, reviewedAt } from "./catalog-data.js";
 import { installCatalog } from "./catalog.js";
 import {
   agentPermissionMode,
+  autoWatchPrs,
+  maxConcurrentPerHarness,
   mcpApprovalMode,
   setAgentPermissionMode,
+  setAutoWatchPrs,
+  setMaxConcurrentPerHarness,
   setMcpApprovalMode,
 } from "./approval-policy.js";
 import { toolErrorMessage } from "./results.js";
@@ -58,6 +62,8 @@ routes.on(workspaceApi.mcpPreferences, (_req, res) =>
   res.json({
     approvalMode: mcpApprovalMode(res.locals.owner),
     agentPermissionMode: agentPermissionMode(res.locals.owner),
+    autoWatchPrs: autoWatchPrs(res.locals.owner),
+    maxConcurrentPerHarness: maxConcurrentPerHarness(res.locals.owner),
   }),
 );
 routes.on(workspaceApi.mcpPreferencesUpdate, (req, res) => {
@@ -68,7 +74,20 @@ routes.on(workspaceApi.mcpPreferencesUpdate, (req, res) => {
   const tools = data.approvalMode
     ? setMcpApprovalMode(res.locals.owner, data.approvalMode)
     : { approvalMode: mcpApprovalMode(res.locals.owner), resumed: 0 };
-  res.json({ ...tools, ...agent });
+  const prWatch =
+    data.autoWatchPrs !== undefined
+      ? setAutoWatchPrs(res.locals.owner, data.autoWatchPrs)
+      : { autoWatchPrs: autoWatchPrs(res.locals.owner) };
+  const concurrency =
+    data.maxConcurrentPerHarness !== undefined
+      ? setMaxConcurrentPerHarness(
+          res.locals.owner,
+          data.maxConcurrentPerHarness,
+        )
+      : {
+          maxConcurrentPerHarness: maxConcurrentPerHarness(res.locals.owner),
+        };
+  res.json({ ...tools, ...agent, ...prWatch, ...concurrency });
 });
 routes.on(workspaceApi.mcpCatalog, (_req, res) => {
   res.json({

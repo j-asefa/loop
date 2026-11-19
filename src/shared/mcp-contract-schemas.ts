@@ -11,11 +11,18 @@ import {
 import { McpConnectionStatus } from "./mcp-status.js";
 import { z } from "zod";
 import { toolInvocationSchema } from "./artifact-refresh.js";
+import { MAX_CONCURRENT_RUNS } from "./concurrency.js";
 import { PERMISSION_MODES } from "./permission-modes.js";
 
 const Text = z.string(),
   Count = z.number();
 const Permission = z.enum(PERMISSION_MODES.map((mode) => mode.value));
+const HarnessConcurrencyLimit = z
+  .number()
+  .int()
+  .min(1)
+  .max(MAX_CONCURRENT_RUNS)
+  .nullable();
 export const PublicAgentSources = z.array(
   z.object({ id: AgentSourceId, name: Text, kind: Text }),
 );
@@ -23,16 +30,22 @@ export const McpPreferencesInput = z
   .strictObject({
     approvalMode: z.enum(["ask", "allow"]).optional(),
     agentPermissionMode: Permission.optional(),
+    autoWatchPrs: z.boolean().optional(),
+    maxConcurrentPerHarness: HarnessConcurrencyLimit.optional(),
   })
   .refine(
     (value) =>
       value.approvalMode !== undefined ||
-      value.agentPermissionMode !== undefined,
+      value.agentPermissionMode !== undefined ||
+      value.autoWatchPrs !== undefined ||
+      value.maxConcurrentPerHarness !== undefined,
     "Choose a preference to change",
   );
 export const PublicMcpPreferences = z.object({
   approvalMode: z.enum(["ask", "allow"]),
   agentPermissionMode: Permission,
+  autoWatchPrs: z.boolean(),
+  maxConcurrentPerHarness: HarnessConcurrencyLimit,
 });
 export const McpCatalogInput = z.strictObject({
   values: z.record(Text.max(100), Text.max(10000)).default({}),

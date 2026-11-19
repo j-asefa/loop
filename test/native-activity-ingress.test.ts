@@ -246,11 +246,13 @@ it("records Claude result usage including cached inputs, excluding foreign resul
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
   adapter.message(result);
   expect(conversationUsage("owner", "conv").runs[run.id]).toEqual({
     input_tokens: 175,
     output_tokens: 20,
+    cache_read_tokens: 50,
   });
 });
 const option = (id: string, confirmed: string) => ({
@@ -285,6 +287,9 @@ it.each(["codex", "claude", "pi", "opencode", "acp"])(
     const { createAgent } = await import("../src/server/domain");
     const { createGithubClient, withGithubClient } =
       await import("../src/server/github-api");
+    const { setAutoWatchPrs } =
+      await import("../src/server/mcp/approval-policy");
+    setAutoWatchPrs("owner", true);
     const connection = id();
     seedConnection(db, {
       id: connection,

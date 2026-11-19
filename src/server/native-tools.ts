@@ -185,7 +185,7 @@ export function nativeBindings(
         tool: "loop_review_read",
         connectionId: "__loop__",
         description:
-          "Read immutable captured repository context for this review. Omit path to list files, changed paths and omissions (offset paginates the list). Supply path to read text; version before reads the baseline of a changed file. Text offsets are character offsets; use nextOffset to continue. This tool cannot read live files, execute commands or edit anything.",
+          "Read immutable captured repository context for this review. Omit path and diff to list files, changed paths and omissions (offset paginates the list). Pass diff: true to read the captured diff in chunks. Supply path to read file text; version before reads the baseline of a changed file. Text offsets are character offsets; use nextOffset to continue. This tool cannot read live files, execute commands or edit anything.",
         inputSchema: z.toJSONSchema(reviewReadSchema),
       },
     ];
@@ -217,7 +217,7 @@ export function nativeBindings(
     : [];
   if (reviewTeams.length)
     descriptions.loop_request_review =
-      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index), three reviewers examine it independently and the team lead consolidates their findings. By default this call returns a reviewId immediately and durably queues a follow-up in this conversation. Finish your current turn when ready; after the consolidated review ends, the queued follow-up resumes your task and retrieves the report with loop_review_status. Completion is not approval. Optional wait:true blocks until completion, creates no follow-up, and may exceed your harness timeout; recover with loop_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
+      "Ask a code review team to review your changes, for example before you open a pull request. Loop captures an immutable snapshot of your working checkout (scope branch: commits since base; uncommitted: working-tree changes including new files; staged: the index). Pass mode quick for a single-agent lead review (lower token usage) or full (default) for three independent reviewers plus the lead. By default this call returns a reviewId immediately and durably queues a follow-up in this conversation. Finish your current turn when ready; after the review ends, the queued follow-up resumes your task and retrieves the report with loop_review_status. Completion is not approval. Optional wait:true blocks until completion, creates no follow-up, and may exceed your harness timeout; recover with loop_review_status if it does. Edits made after the capture are not reviewed; fix confirmed findings, then request another review if needed. The review never edits files, runs tests or opens a pull request. Review teams: " +
       JSON.stringify(reviewTeams);
   if (team?.manager_id === run.agent_id) {
     const workers = teamMembersQueries.activeInstructions(

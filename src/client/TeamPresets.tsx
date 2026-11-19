@@ -1,4 +1,5 @@
 import { ConnectionModelPicker } from "./ConnectionModelPicker";
+import { EffortSelect } from "./EffortSelect";
 import { ErrorNotice } from "./ErrorNotice";
 import { IdempotencyKey } from "../shared/contract-ids";
 import { ModelId } from "../shared/contract-ids.js";
@@ -16,10 +17,15 @@ import { executionSourceId } from "./sourceRouting";
 import { performStoredEffect, creationFailureSettled } from "./pendingCommands";
 import { viewOwner, viewGeneration } from "./viewCache";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
+import type { ModelOption } from "../shared/models";
 import type { Connection, Folder, Team } from "../shared/types";
 
-type Choice = { connectionId: ConnectionId; model: string };
-const models = (c?: Connection): { id: string; name?: string }[] => {
+type Choice = {
+  connectionId: ConnectionId;
+  model: string;
+  effort?: string | null;
+};
+const models = (c?: Connection): ModelOption[] => {
   try {
     return JSON.parse(c?.models || "[]");
   } catch {
@@ -104,13 +110,17 @@ export function PresetTeamForm({
     generation === viewGeneration() &&
     source === executionSourceId();
   function chooser(label: string, value: Choice, change: (c: Choice) => void) {
+    const connectionModels = models(
+      available.find((c) => c.id === value.connectionId),
+    );
+    const selectedModel = connectionModels.find((m) => m.id === value.model);
     return (
       <fieldset>
         <legend>{label}</legend>
         <ConnectionModelPicker
           connections={available}
           connection={value.connectionId}
-          models={models(available.find((c) => c.id === value.connectionId))}
+          models={connectionModels}
           model={value.model}
           connectionAriaLabel={`${label} connection`}
           modelAriaLabel={`${label} model`}
@@ -119,9 +129,17 @@ export function PresetTeamForm({
             change({
               connectionId: parseId(ConnectionId, c?.id || ""),
               model: models(c)[0]?.id || "",
+              effort: null,
             });
           }}
-          onModel={(model) => change({ ...value, model })}
+          onModel={(model) => change({ ...value, model, effort: null })}
+        />
+        <EffortSelect
+          model={selectedModel}
+          value={value.effort || ""}
+          label={`${label} effort`}
+          compact
+          onChange={(effort) => change({ ...value, effort: effort || null })}
         />
       </fieldset>
     );

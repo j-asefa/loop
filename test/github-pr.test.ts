@@ -435,6 +435,8 @@ it("does not retry a merge against a changed head even when Allow is selected", 
   calls.length = 0;
   pull = { ...restPull, head: { ...restPull.head, sha: "b".repeat(40) } };
   setMcpApprovalMode("alice", "allow");
+  const { setAutoWatchPrs } = await import("../src/server/mcp/approval-policy");
+  setAutoWatchPrs("alice", true);
   const run = submit("alice", {
     agentId: agent.id,
     input: "Merge the reviewed head",
@@ -470,6 +472,8 @@ it("starts one watch for a PR created by the official GitHub tool", async () => 
   });
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(run.id);
   setMcpApprovalMode("alice", "allow");
+  const { setAutoWatchPrs } = await import("../src/server/mcp/approval-policy");
+  setAutoWatchPrs("alice", true);
   const args = {
     owner: "acme",
     repo: "api",

@@ -513,12 +513,24 @@ export function ForkSheet({
 export function UsageLine({
   usage,
 }: {
-  usage?: { input_tokens: number; output_tokens: number };
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens?: number;
+  };
 }) {
   if (!usage || usage.input_tokens + usage.output_tokens === 0) return null;
+  const cachedPct =
+    usage.cache_read_tokens && usage.input_tokens > 0
+      ? Math.min(
+          100,
+          Math.round((usage.cache_read_tokens / usage.input_tokens) * 100),
+        )
+      : 0;
   return (
     <p className="usage-line" title="Recorded token usage for this response">
-      {compactNumber(usage.input_tokens)} in ·{" "}
+      {compactNumber(usage.input_tokens)} in
+      {cachedPct > 0 ? ` (${cachedPct}% cached)` : ""} ·{" "}
       {compactNumber(usage.output_tokens)} out tokens
     </p>
   );

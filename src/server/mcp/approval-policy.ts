@@ -3,6 +3,7 @@ import * as approvalsQueries from "../sql/approvals.js";
 import { db, now } from "../db.js";
 import { approve } from "../approvals.js";
 import { Problem } from "../domain.js";
+import { MAX_CONCURRENT_RUNS } from "../../shared/concurrency.js";
 import {
   DEFAULT_PERMISSION_MODE,
   isPermissionMode,
@@ -11,6 +12,36 @@ import {
 
 export function mcpApprovalMode(owner: string): "ask" | "allow" {
   return mcpPreferencesQueries.approvalMode(db, owner)?.approval_mode || "ask";
+}
+/** Whether agent-created pull requests automatically start polling watches. */
+export function autoWatchPrs(owner: string): boolean {
+  return mcpPreferencesQueries.autoWatchPrs(db, owner)?.auto_watch_prs === 1;
+}
+export function setAutoWatchPrs(owner: string, enabled: boolean) {
+  mcpPreferencesQueries.setAutoWatchPrs(db, owner, enabled ? 1 : 0);
+  return { autoWatchPrs: enabled };
+}
+/** Optional per-harness active-run cap for this owner (null means workspace limit). */
+export function maxConcurrentPerHarness(owner: string): number | null {
+  const value = mcpPreferencesQueries.maxConcurrentPerHarness(
+    db,
+    owner,
+  )?.max_concurrent_per_harness;
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_CONCURRENT_RUNS
+  )
+    return value;
+  return null;
+}
+export function setMaxConcurrentPerHarness(
+  owner: string,
+  limit: number | null,
+) {
+  mcpPreferencesQueries.setMaxConcurrentPerHarness(db, owner, limit);
+  return { maxConcurrentPerHarness: limit };
 }
 /** The workspace's standing approval level for native harness tool calls. */
 export function agentPermissionMode(owner: string): PermissionMode {

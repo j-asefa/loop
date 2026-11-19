@@ -246,6 +246,7 @@ export const PublicWithdrawnDraft = z.object({
 const Tokens = z.object({
   input_tokens: z.number(),
   output_tokens: z.number(),
+  cache_read_tokens: z.number().optional(),
 });
 export const PublicUsage = z.object({
   runs: z.record(RunId, Tokens),
