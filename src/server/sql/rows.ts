@@ -835,6 +835,7 @@ export const QueryRecords = {
   }),
   memory_sources: MemorySourceRecord,
   memory_passages: z.object({
+    id: z.number().int(),
     source_id: Id,
     revision: z.number(),
     ordinal: z.number().int().nonnegative(),

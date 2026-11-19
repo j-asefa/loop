@@ -79,7 +79,7 @@ export function pending(db: Database.Database) {
 
 const searchStatement = statement(
   `SELECT s.id,p.revision,p.start,p.end FROM memory_passage_fts f
-   JOIN memory_passages p ON p.rowid=f.rowid
+   JOIN memory_passages p ON p.id=f.rowid
    JOIN memory_sources s ON s.id=p.source_id AND s.revision=p.revision
    WHERE memory_passage_fts MATCH @match
      AND s.owner_id=@owner

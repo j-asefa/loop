@@ -82,9 +82,9 @@ export function memoryPassages(
       previous.end = block.end;
     else passages.push(block);
   }
-  // Published output can place a decision across two adjacent paragraphs.
+  // Adjacent paragraphs can contain parts of the same evidence.
   // Add an overlapping raw span at each eligible boundary.
-  if (result && passages.length > 1) {
+  if (passages.length > 1) {
     const bridges: MemoryPassage[] = [];
     for (let index = 1; index < passages.length; index++) {
       const previous = passages[index - 1];

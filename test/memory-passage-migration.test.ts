@@ -29,15 +29,18 @@ it("preserves offsets and packs paragraphs around a short fenced block", () => {
   ).toBe(true);
 });
 
-it("bridges an artifact boundary before a final single-word paragraph", () => {
-  const raw = "filler ".repeat(227) + "tamarind\n\nsorrel";
-  const passages = memoryPassages(raw, true).map(({ start, end }) =>
-    raw.slice(start, end),
-  );
-  expect(
-    passages.some((passage) => passage.includes("tamarind\n\nsorrel")),
-  ).toBe(true);
-});
+it.each([true, false])(
+  "bridges a boundary before a final single-word paragraph (artifact=%s)",
+  (artifact) => {
+    const raw = "filler ".repeat(227) + "tamarind\n\nsorrel";
+    const passages = memoryPassages(raw, artifact).map(({ start, end }) =>
+      raw.slice(start, end),
+    );
+    expect(
+      passages.some((passage) => passage.includes("tamarind\n\nsorrel")),
+    ).toBe(true);
+  },
+);
 
 it("upgrades captured notes and resumes a bounded backfill without interrupting search", () => {
   const workspace = createTestWorkspace();
@@ -87,11 +90,17 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
       const before = await recall();
       const counts = [captureMemory(), captureMemory(), captureMemory()];
       const after = await recall();
+      sources.tombstone(db, 'a-000');
+      const { default: Database } = await import('better-sqlite3');
+      const maintenance = new Database(db.name);
+      maintenance.exec('VACUUM');
+      maintenance.close();
+      const compacted = await recall();
       const saved = sources.owned(db, 'z-owner', 'owner');
       const indexed = passages.search(db, 'sapphire', 'owner', null).map(s => s.revision);
       sources.tombstone(db, 'z-owner');
       const deleted = passages.search(db, 'sapphire', 'owner', null).length;
-      console.log(JSON.stringify({ before, counts, after, revision: saved.revision, indexed, deleted }));
+      console.log(JSON.stringify({ before, counts, after, compacted, revision: saved.revision, indexed, deleted }));
       db.close();
     `,
       ],
@@ -105,6 +114,7 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
       before: ["sapphire revision proof"],
       counts: [100, 7, 0],
       after: ["sapphire revision proof"],
+      compacted: ["sapphire revision proof"],
       revision: 1,
       indexed: [1],
       deleted: 0,
