@@ -1003,6 +1003,17 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
     "pending",
   );
 
+  const encodingTurn = turn();
+  const latin = join(worktree, "latin.txt");
+  writeFileSync(latin, Buffer.from([0xe9]));
+  const latinReview = await request(encodingTurn, { scope: "uncommitted" });
+  finish(encodingTurn, latinReview);
+  writeFileSync(latin, Buffer.from([0xe8]));
+  const changedByte = await request(turn(encodingTurn.conversation_id), {
+    scope: "uncommitted",
+  });
+  expect(changedByte.reviewers).toBe(3);
+
   // Another conversation asking about the same checkout has no history here.
   const elsewhere = await request(turn());
   expect(elsewhere.followUp).toBeUndefined();

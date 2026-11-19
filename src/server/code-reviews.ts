@@ -125,10 +125,15 @@ function followUpOf(
   // short changed hunk can sit inside a newline-dense captured file.
   let characters = 0;
   for (const capture of new Set([snapshot, baseline, prior])) {
-    characters += capture.diff.length;
-    for (const map of [capture.before, capture.files])
-      for (const text of Object.values(map)) characters += text.length;
-    if (characters > 64_000) return;
+    for (const text of [
+      capture.diff,
+      ...Object.values(capture.before),
+      ...Object.values(capture.files),
+    ]) {
+      characters += text.length;
+      // Stored text cannot distinguish a literal U+FFFD from decoding loss.
+      if (characters > 64_000 || text.includes("\uFFFD")) return;
+    }
   }
   // For a working-tree addition, disappearance can mean deletion or a new
   // ignore rule. The capture cannot establish which happened.
