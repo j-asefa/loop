@@ -13,9 +13,9 @@ const MONTH = MONTHS.join("|");
 const ISO = "\\d{4}-\\d{2}-\\d{2}";
 const NAMED_MONTH = `(?:${MONTH})(?:\\s+\\d{4})?`;
 const RELATIVE =
-  "(?:today|yesterday|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
+  "(?:today|yesterday|tomorrow|(?:this|last)\\s+(?:week|month)|\\d+\\s+(?:days?|weeks?)\\s+ago)";
 const phrase = new RegExp(
-  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:(?:from|within)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
+  `(?<![\\p{L}\\p{N}_./+@$-])(?:(since|before|after)\\s+(${ISO}|${NAMED_MONTH}|${RELATIVE})|on\\s+(${ISO})|in\\s+(${NAMED_MONTH})|(?:(?:from|within)\\s+)?(${RELATIVE})|(${ISO}|${NAMED_MONTH}))(?![\\p{L}\\p{N}_/+@$]|[.-][\\p{L}\\p{N}_]|['’][\\p{L}]|[\\[(])`,
   "giu",
 );
 function maskFences(query: string) {
@@ -133,8 +133,9 @@ function relativeBoundary(text: string, today: number) {
   const date = new Date(today);
   const monday = today - ((date.getUTCDay() + 6) % 7) * DAY;
   const [first, second] = text.toLowerCase().split(/\s+/);
-  if (first === "today" || first === "yesterday") {
-    const start = today - (first === "yesterday" ? DAY : 0);
+  if (first === "today" || first === "yesterday" || first === "tomorrow") {
+    const start =
+      today + (first === "tomorrow" ? DAY : first === "yesterday" ? -DAY : 0);
     return { start, end: start + DAY };
   }
   if (first === "this" || first === "last") {
@@ -177,10 +178,11 @@ function classifyMemoryTime(
     const alternative =
       seenDate &&
       /\b(?:or|nor)(?:[\s,([{]+[\p{L}]+){0,4}[\s,([{]*$/iu.test(between);
-    const preposition = /^(?:from|on|in|within)\b/iu.exec(match[0])?.[0];
+    const preposition =
+      relation ?? /^(?:from|on|in|within)\b/iu.exec(match[0])?.[0];
     const exclusionContext = preposition ? between + preposition : between;
     const exclusion =
-      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated|on|in|within)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
+      /\b(?:not|except|excluding|without)(?:(?:\s+[\p{L}]+){0,4}\s+(?:from|for|during|of|dated|on|in|within|before|after|since)|\s+(?:anything|everything))?[\s,:([{]*$/iu.test(
         exclusionContext,
       );
     const target = bound ?? iso ?? month ?? relative ?? bare;
@@ -209,8 +211,9 @@ function classifyMemoryTime(
     ) {
       continue;
     }
-    if (modifier === "since") {
-      from = Math.max(from ?? boundary.start, boundary.start);
+    if (modifier === "since" || modifier === "after") {
+      const start = modifier === "after" ? boundary.end : boundary.start;
+      from = Math.max(from ?? start, start);
     } else if (modifier === "before") {
       to = Math.min(to ?? boundary.start, boundary.start);
     } else {
