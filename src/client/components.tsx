@@ -12,7 +12,11 @@ import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
-import { DisplaySpec, markOpenSpecFences } from "./DisplaySpec";
+import {
+  DisplaySpec,
+  DisplayWritingContext,
+  markOpenSpecFences,
+} from "./DisplaySpec";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
@@ -265,7 +269,6 @@ export const RichText = memo(function RichText({
                 .replace(/\n$/, "")}
               compact={compact}
               open={code.properties?.dataSpecOpen === true}
-              writing={writing}
               markdown={(content) => (
                 <RichText
                   content={content}
@@ -301,29 +304,31 @@ export const RichText = memo(function RichText({
         );
       },
     }),
-    [diagrams, compact, writing, sourceId],
+    [diagrams, compact, sourceId],
   );
   return (
     <div className="markdown">
-      <Markdown
-        remarkPlugins={[
-          remarkGfm,
-          ...(diagrams ? [markOpenSpecFences] : []),
-          ...(math?.remark || []),
-          ...(compact
-            ? [
-                [compactMarkdown, { displays: diagrams }] as [
-                  typeof compactMarkdown,
-                  { displays: boolean },
-                ],
-              ]
-            : []),
-        ]}
-        rehypePlugins={math?.rehype}
-        components={renderers}
-      >
-        {content}
-      </Markdown>
+      <DisplayWritingContext.Provider value={writing}>
+        <Markdown
+          remarkPlugins={[
+            remarkGfm,
+            ...(diagrams ? [markOpenSpecFences] : []),
+            ...(math?.remark || []),
+            ...(compact
+              ? [
+                  [compactMarkdown, { displays: diagrams }] as [
+                    typeof compactMarkdown,
+                    { displays: boolean },
+                  ],
+                ]
+              : []),
+          ]}
+          rehypePlugins={math?.rehype}
+          components={renderers}
+        >
+          {content}
+        </Markdown>
+      </DisplayWritingContext.Provider>
     </div>
   );
 });

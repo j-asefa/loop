@@ -278,3 +278,26 @@ it("drops displays inside GFM footnotes", () => {
     expect(preview).toContain("After.");
   }
 });
+
+it("drops a display following fence-like lines in block math", () => {
+  const source = [
+    "Before.",
+    "",
+    "$$",
+    "```text",
+    "$$",
+    "",
+    fence.trim(),
+    '{"op":"add","path":"/root","value":"d"}',
+    "```",
+    "",
+    "After.",
+  ].join("\n");
+  for (const preview of [
+    collapse(source, 200),
+    searchExcerpt(source, "", ""),
+    plainPreview(source),
+  ]) {
+    expect(preview).not.toContain('"op"');
+  }
+});

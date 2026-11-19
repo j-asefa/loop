@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { readDisplaySpec, type DisplayNode } from "../shared/display-spec";
 import { DisplayChart } from "./DisplayChart";
 import "./display.css";
@@ -66,21 +66,21 @@ function closedFence(raw: string, value: string) {
   );
 }
 
+export const DisplayWritingContext = createContext(false);
+
 export function DisplaySpec({
   source,
   compact = false,
   open = false,
-  writing = false,
   markdown,
 }: {
   source: string;
   compact?: boolean;
   // The fence has not closed.
   open?: boolean;
-  // The answer is still being written (its run is working).
-  writing?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
+  const writing = useContext(DisplayWritingContext);
   const live = open && writing;
   const read = useMemo(
     () => readDisplaySpec(source, { open, writing: live }),

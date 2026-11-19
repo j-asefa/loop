@@ -1,8 +1,13 @@
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { remarkChatMath } from "./remark-chat-math.js";
 
-const markdown = unified().use(remarkParse).use(remarkGfm).freeze();
+const markdown = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkChatMath)
+  .freeze();
 type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
 
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */

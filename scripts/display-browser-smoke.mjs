@@ -9,7 +9,8 @@
 // block as far as it is written ("Display loading…", then part, then all),
 // never shows its JSON, keeps the conversation link when the text is cut at
 // 4,000 characters, and the finished run's Done card shows the whole display.
-// Text advances by fixture writes and reloads, not live streaming. Set
+// Fixture writes drive the mounted completion check; earlier progress uses
+// reloads. Set
 // LOOP_SCREENSHOT_DIR to save light and
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
@@ -408,10 +409,40 @@ for (const engine of selectedEngines()) {
       assert(!(await cutSheet.innerText()).includes('{"op"'));
       assert(!(await cutSheet.innerText()).includes("could not be drawn"));
 
-      // The run finishes: its Done card shows the whole display.
+      // Keep the conversation mounted while a run with a chart finishes.
+      // The incomplete block proves the writing state reached this view.
+      update(
+        working,
+        `${charts}\n\n\`\`\`spec\n${patch({
+          op: "add",
+          path: "/root",
+          value: "pending",
+        })}`,
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(workingThread.getByText("Display loading…")).toBeVisible();
+      const disclosure = workingThread
+        .locator(".display-chart-numbers")
+        .first();
+      await disclosure.locator("summary").click();
+      await expect(disclosure).toHaveAttribute("open", "");
       fixture.db
         .prepare("UPDATE runs SET state='completed' WHERE id=?")
         .run(working.run);
+      await expect(
+        workingThread.getByText(
+          "This display could not be drawn. Its source is below.",
+        ),
+      ).toBeVisible();
+      await expect(disclosure).toHaveAttribute("open", "");
+
+      // The run's Done card shows the full fixture answer after sealing.
       seal(working, answer);
       await page.goto(fixture.base, { waitUntil: "networkidle" });
       const finished = page
