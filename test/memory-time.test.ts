@@ -37,7 +37,7 @@ it.each([
   expect(window).toEqual({
     from: timestamp(from),
     to: timestamp(to),
-    matched: { index: 7, text },
+    matched: [{ index: 7, text }],
   });
   expect(withoutMemoryTime(query, window)).toBe("recall   from the ledger");
 });
@@ -49,6 +49,9 @@ it.each([
   "summarize “Last Week Tonight”",
   "update the `today` field",
   "group by week",
+  "read report.today field",
+  "read today.report field",
+  "before `cleanup` October",
   "on 2026-02-29",
   "before 2026-11-31",
   "last weekly",
@@ -64,4 +67,14 @@ it("keeps the quoted occurrence of a phrase", () => {
   expect(withoutMemoryTime(query, parseMemoryTime(query, now))).toBe(
     'find "last week" entries from  ',
   );
+});
+
+it("applies and removes both ends of an explicit range", () => {
+  const query = "since 2026-10-01 and before 2026-11-01 harvest";
+  const window = parseMemoryTime(query, now);
+  expect(window).toMatchObject({
+    from: Date.parse("2026-10-01"),
+    to: Date.parse("2026-11-01"),
+  });
+  expect(withoutMemoryTime(query, window)).toBe("  and   harvest");
 });

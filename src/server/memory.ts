@@ -763,7 +763,7 @@ export async function recallForRun(
     recall = await searchMemory(run.owner_id, project, run.input, {
       relevant: true,
       conversation: run.conversation_id,
-      window: parseMemoryTime(run.input),
+      window: parseMemoryTime(run.input, run.created_at),
     });
   } catch (error) {
     // Recall is optional context: a failed search sends the turn without it.
@@ -827,7 +827,7 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
         !(kind === "artifact" && s.source_id === key)
       )
         continue;
-      memorySourcesQueries.advanceRevision(db, now(), s.id);
+      memorySourcesQueries.advanceRevision(db, s.id);
     }
     // An included artifact may have no saved copy yet, and the worker's
     // incremental capture only sees changed rows: capture it here.

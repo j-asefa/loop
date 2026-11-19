@@ -1354,6 +1354,32 @@ it("supplies only the requested date window and never widens it", async () => {
   expect(result.prompt).toContain("in-window evidence");
   expect(result.prompt).not.toContain("older evidence");
   expect(result.prompt).not.toContain("private evidence");
+  for (const enabled of [false, true]) {
+    expect(
+      (
+        await request(
+          "/memory/policy",
+          { scope: "workspace", enabled },
+          "alice",
+          "PUT",
+        )
+      ).status,
+    ).toBe(200);
+  }
+  const range = "amethyst harvest since 2026-10-12 and before 2026-10-13";
+  const bounded = await nativePrompt(range);
+  expect(bounded.prompt).toContain("in-window evidence");
+  expect(bounded.prompt).not.toContain("older evidence");
+
+  db.prepare("DELETE FROM memory_passages WHERE source_id=?").run(
+    inside.data.id,
+  );
+  db.prepare("DELETE FROM memory_passage_backfill").run();
+  const pending = await nativePrompt(range);
+  expect(pending.prompt).toContain("in-window evidence");
+  expect(pending.prompt).not.toContain("older evidence");
+  expect(pending.prompt).not.toContain("private evidence");
+  captureMemory();
   const absent = "amethyst harvest on 2026-10-13";
   expect((await nativePrompt(absent)).prompt).toBe(absent);
 });

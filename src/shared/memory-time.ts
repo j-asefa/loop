@@ -1,7 +1,7 @@
 export type MemoryTimeWindow = {
   from: number | null;
   to: number | null;
-  matched?: { index: number; text: string };
+  matched?: { index: number; text: string }[];
 };
 
 const DAY = 86_400_000;
@@ -13,8 +13,8 @@ const MONTH = MONTHS.join("|");
 const ISO = "\\d{4}-\\d{2}-\\d{2}";
 const NAMED_MONTH = `(?:${MONTH})(?:[ \\t]+\\d{4})?`;
 const phrase = new RegExp(
-  `\\b(?:(since|before)[ \\t]+(${ISO}|${NAMED_MONTH})|on[ \\t]+(${ISO})|in[ \\t]+(${NAMED_MONTH})|(today|yesterday)|((?:this|last)[ \\t]+(?:week|month))|(\\d+)[ \\t]+(days?|weeks?)[ \\t]+ago)\\b`,
-  "gi",
+  `(?<![\\p{L}\\p{N}_.-])(?:(since|before)[ \\t]+(${ISO}|${NAMED_MONTH})|on[ \\t]+(${ISO})|in[ \\t]+(${NAMED_MONTH})|(today|yesterday)|((?:this|last)[ \\t]+(?:week|month))|(\\d+)[ \\t]+(days?|weeks?)[ \\t]+ago)(?![\\p{L}\\p{N}_]|[.-][\\p{L}\\p{N}_])`,
+  "giu",
 );
 const quoted =
   /"[^"\n]*"|(?<![\p{L}\p{N}])'[^'\n]*'|“[^”\n]*”|‘[^’\n]*’|`[^`\n]*`/gu;
@@ -48,24 +48,35 @@ export function parseMemoryTime(
   if (!Number.isFinite(today)) return undefined;
   const date = new Date(today);
   const monday = today - ((date.getUTCDay() + 6) % 7) * DAY;
-  const searchable = query.replace(quoted, (text) => " ".repeat(text.length));
+  const searchable = query.replace(quoted, (text) =>
+    "\u0000".repeat(text.length),
+  );
+  let open: MemoryTimeWindow | undefined;
   for (const match of searchable.matchAll(phrase)) {
     const [, relation, target, iso, named, day, period, count, unit] = match;
-    const matched = { index: match.index, text: match[0] };
+    const matched = [{ index: match.index, text: match[0] }];
     if (target || iso || named) {
       const boundary = dateBoundary(target ?? iso ?? named, today);
       if (!boundary) continue;
-      return {
-        from: relation?.toLowerCase() === "before" ? null : boundary.start,
-        to:
-          relation?.toLowerCase() === "since"
-            ? null
-            : relation?.toLowerCase() === "before"
-              ? boundary.start
-              : boundary.end,
-        matched,
-      };
+      const modifier = relation?.toLowerCase();
+      if (modifier === "since" || modifier === "before") {
+        const from = modifier === "since" ? boundary.start : null;
+        const to = modifier === "before" ? boundary.start : null;
+        if (!open) open = { from, to, matched };
+        else if (
+          (open.from === null && from !== null) ||
+          (open.to === null && to !== null)
+        )
+          return {
+            from: open.from ?? from,
+            to: open.to ?? to,
+            matched: [...(open.matched ?? []), ...matched],
+          };
+        continue;
+      }
+      if (!open) return { from: boundary.start, to: boundary.end, matched };
     }
+    if (open) continue;
     if (day) {
       const from = today - (day.toLowerCase() === "yesterday" ? DAY : 0);
       return { from, to: from + DAY, matched };
@@ -90,14 +101,15 @@ export function parseMemoryTime(
     const from = (weeks ? monday : today) - ago * span;
     return { from, to: from + span, matched };
   }
-  return undefined;
+  return open;
 }
 
 export function withoutMemoryTime(query: string, window?: MemoryTimeWindow) {
-  const match = window?.matched;
-  return match
-    ? query.slice(0, match.index) +
-        " " +
-        query.slice(match.index + match.text.length)
-    : query;
+  return (window?.matched ?? []).reduceRight(
+    (text, match) =>
+      text.slice(0, match.index) +
+      " " +
+      text.slice(match.index + match.text.length),
+    query,
+  );
 }

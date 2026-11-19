@@ -122,14 +122,10 @@ export function forOwner(db: Database.Database, owner: string) {
 }
 
 const advanceRevisionStatement = statement(
-  "UPDATE memory_sources SET revision=revision+1,updated_at=? WHERE id=?",
+  "UPDATE memory_sources SET revision=revision+1 WHERE id=?",
 );
-export function advanceRevision(
-  db: Database.Database,
-  updated: number,
-  id: string,
-) {
-  return advanceRevisionStatement(db).run(updated, id);
+export function advanceRevision(db: Database.Database, id: string) {
+  return advanceRevisionStatement(db).run(id);
 }
 
 const tombstoneStatement = statement(
