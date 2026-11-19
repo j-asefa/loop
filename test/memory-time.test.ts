@@ -215,6 +215,7 @@ it.each([
   "harvest notes from today or earlier",
   "harvest notes from this week, but do not retrieve notes from yesterday",
   "notes from this week if available, or yesterday",
+  "find harvest notes before 2026-10-12 if there are any, or after 2026-11-01",
   "find harvest notes from this week, but ignore yesterday",
   "find harvest notes from any day apart from yesterday",
   "Find amethyst harvest notes. Do not include notes from yesterday",
@@ -350,6 +351,14 @@ it("preserves the date when an exclusion verb describes the topic", () => {
       now,
     ),
   ).toMatchObject({
+    from: Date.parse("2026-11-09"),
+    to: Date.parse("2026-11-16"),
+  });
+});
+
+it("preserves a date when skipping is the topic", () => {
+  const query = "find notes about why we decided to skip the harvest last week";
+  expect(parseMemoryTime(query, now)).toMatchObject({
     from: Date.parse("2026-11-09"),
     to: Date.parse("2026-11-16"),
   });

@@ -185,10 +185,7 @@ function classifyMemoryTime(
         /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)[\s,()[\]{}]*$/iu.test(between)
       : seenDate &&
         /^[\s,()[\]{}]*(?:or|nor|and\s*\/\s*or)\b/iu.test(
-          alternativeContext.replace(
-            /^\s+if\s+(?:available|needed|possible)\s*,/iu,
-            "",
-          ),
+          alternativeContext.replace(/^\s+if\s+[^,]*,/iu, ""),
         );
     const sharedMonthPreposition =
       previousExplicitMonth &&
@@ -205,7 +202,7 @@ function classifyMemoryTime(
     const exclusion =
       /\b(?:exclude|excluding|except|skip|ignor(?:e|ing)|omit(?:ting)?|never|other\s+than|apart\s+from|but\s+not(?!\s+only\b)|not\s+including|(?:don['’]t|do\s+not)\s+(?:include|use|recall|retrieve)|leav(?:e|ing)\s+out)\b/iu.test(
         (exclusionContext.split(/[.!?;]/u).at(-1) ?? "").replace(
-          /\bhow\s+to\s+\p{L}+/giu,
+          /\b(?:how|decided|chose|planned)\s+to\s+\p{L}+/giu,
           " ",
         ),
       ) ||
