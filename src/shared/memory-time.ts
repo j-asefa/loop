@@ -175,7 +175,10 @@ export function parseMemoryTime(
     previousEnd = match.index + match[0].length;
     const alternative =
       matched.length > 0 && /\b(?:or|nor)\s*$/iu.test(between);
-    if (bare && !alternative) continue;
+    const exclusion =
+      /\b(?:not|except|excluding)(?:\s+(?:from|for))?[\s([{]*$/iu.test(between);
+    if (bare && !alternative && !exclusion && !/^\p{L}+\s+\d{4}$/u.test(bare))
+      continue;
     const target = bound ?? iso ?? month ?? relative ?? bare;
     const boundary =
       dateBoundary(target, today) ?? relativeBoundary(target, today);
@@ -194,9 +197,7 @@ export function parseMemoryTime(
         continue;
     }
     // A single interval cannot express exclusions or alternative dates.
-    if (/\b(?:not|except|excluding)(?:\s+(?:from|for))?\s*$/iu.test(between))
-      return undefined;
-    if (alternative) return undefined;
+    if (exclusion || alternative) return undefined;
     if (modifier === "since") {
       from = Math.max(from ?? boundary.start, boundary.start);
     } else if (modifier === "before") {
@@ -206,7 +207,7 @@ export function parseMemoryTime(
         period &&
         (boundary.start < period.start || boundary.end > period.end)
       )
-        continue;
+        return undefined;
       period = boundary;
       from = Math.max(from ?? boundary.start, boundary.start);
       to = Math.min(to ?? boundary.end, boundary.end);

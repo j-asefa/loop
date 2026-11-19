@@ -20,6 +20,7 @@ it.each([
   ["11 days ago", "2026-11-08", "2026-11-09"],
   ["1 week ago", "2026-11-09", "2026-11-16"],
   ["2 weeks ago", "2026-11-02", "2026-11-09"],
+  ["October 2026", "2026-10-01", "2026-11-01"],
   ["in October", "2026-10-01", "2026-11-01"],
   ["in December", "2025-12-01", "2026-01-01"],
   ["in January 2025", "2025-01-01", "2025-02-01"],
@@ -178,6 +179,9 @@ it.each([
   "harvest on 2026-10-12 or 2026-10-13",
   "harvest in October or November",
   "harvest except for yesterday",
+  "harvest last week, excluding 2026-11-12",
+  "harvest not (yesterday)",
+  "compare harvest last week with last month",
   "harvest since Monday, excluding yesterday",
 ])("keeps unsupported date choices searchable in %s", (query) => {
   const window = parseMemoryTime(query, now);
