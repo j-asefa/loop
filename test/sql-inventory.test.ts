@@ -129,9 +129,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     boundary?: Boundary;
     bindings: Map<string, Binding>;
     parameters?: Set<string>;
+    classes?: Map<string, Scope>;
   };
   const nodes: any[] = [];
   const scopes = new Map<object, Scope>();
+  const parents = new Map<object, any>();
   const declarationScopes = new Map<object, Scope>();
   const varDeclarations = new Set<object>();
   const functionKinds = new Set([
@@ -140,6 +142,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     "ArrowFunctionExpression",
   ]);
   const classKinds = new Set(["ClassDeclaration", "ClassExpression"]);
+  const objectMethod = (node: any) =>
+    node?.type === "Property" && node.value?.type === "FunctionExpression";
   const scopeKinds = new Set([
     "BlockStatement",
     "CatchClause",
@@ -149,17 +153,17 @@ function sqlCallLines(file: string, text: string, script = false) {
     "SwitchStatement",
   ]);
   const fileScope: Scope = { bindings: new Map() };
-  const visit = (node: any, parent: Scope): void => {
+  const visit = (node: any, parent: Scope, syntaxParent?: any): void => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
-      node.forEach((item) => visit(item, parent));
+      node.forEach((item) => visit(item, parent, syntaxParent));
       return;
     }
     const boundary = functionKinds.has(node.type)
       ? "function"
       : classKinds.has(node.type) ||
           (node.type === "ObjectExpression" &&
-            node.properties.some((member: any) => member.method))
+            node.properties.some(objectMethod))
         ? "receiver"
         : undefined;
     const scope: Scope =
@@ -172,8 +176,10 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (node.type) {
       nodes.push(node);
       scopes.set(node, scope);
+      parents.set(node, syntaxParent);
     }
-    for (const value of Object.values(node)) visit(value, scope);
+    for (const value of Object.values(node))
+      visit(value, scope, node.type ? node : syntaxParent);
   };
   visit(program, fileScope);
   const scopeOf = (node: any) => scopes.get(node) ?? fileScope;
@@ -201,6 +207,22 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const bindingOf = (name: string, node: any) =>
     declaringScope(name, node)?.bindings.get(name);
+  const receiverClass = new Map<Scope, any>();
+  const thisScope = (node: any): Scope | undefined => {
+    for (let cursor = node; cursor; cursor = parents.get(cursor)) {
+      if (classKinds.has(cursor.type)) return scopeOf(cursor);
+      if (
+        !functionKinds.has(cursor.type) ||
+        cursor.type === "ArrowFunctionExpression"
+      )
+        continue;
+      const parent = parents.get(cursor);
+      if (parent?.type === "MethodDefinition" || objectMethod(parent))
+        return boundaryScope(parent, "receiver");
+      return undefined;
+    }
+    return undefined;
+  };
   const property = (node: any) =>
     node?.computed ? node.property?.value : node?.property?.name;
   const receiver = (node: any): string | undefined => {
@@ -228,7 +250,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       expression.source.value === "better-sqlite3"
     );
   };
-  const bindings = (pattern: any) => {
+  const bindings = (pattern: any): { key: string; name: string }[] => {
     if (pattern.type === "AssignmentPattern") pattern = pattern.left;
     if (pattern.type === "Identifier") return [{ name: pattern.name, key: "" }];
     if (pattern.type !== "ObjectPattern") return [];
@@ -250,6 +272,15 @@ function sqlCallLines(file: string, text: string, script = false) {
     });
   };
   const dbModule = /(?:^|\/)db(?:\.js)?$/;
+  const destructuredDatabase = (source: any): Binding =>
+    (source?.type === "ImportExpression" &&
+      dbModule.test(source.source.value)) ||
+    (script &&
+      source?.type === "Identifier" &&
+      (source.name === "fixture" ||
+        declaringScope(source.name, source)?.parameters?.has(source.name)))
+      ? "connection"
+      : "inferred";
   const recordObject = (scope: Scope, name: string, value: any): void => {
     scope.bindings.set(name, "object");
     for (const member of value.properties) {
@@ -264,6 +295,11 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   for (const node of nodes) {
     const scope = declarationScope(node);
+    if (classKinds.has(node.type)) {
+      receiverClass.set(scope, node);
+      if (node.type === "ClassDeclaration" && scope.parent && node.id)
+        (scope.parent.classes ??= new Map()).set(node.id.name, scope);
+    }
     if (
       node.id &&
       (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration")
@@ -302,16 +338,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           value.arguments[0]?.value === "better-sqlite3");
       for (const { key, name } of bindings(node.id)) {
         let binding: Binding = "other";
-        if (key === "db")
-          binding =
-            (value?.type === "ImportExpression" &&
-              dbModule.test(value.source.value)) ||
-            (script &&
-              value?.type === "Identifier" &&
-              (value.name === "fixture" ||
-                declaringScope(value.name, value)?.parameters?.has(value.name)))
-              ? "connection"
-              : "inferred";
+        if (key === "db") binding = destructuredDatabase(value);
         if (key === "" && value?.type === "ObjectExpression") {
           recordObject(scope, name, value);
           continue;
@@ -342,6 +369,22 @@ function sqlCallLines(file: string, text: string, script = false) {
   }
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
+  const receiverBinding = (scope: Scope, name: string) => {
+    const seen = new Set<Scope>();
+    let current: Scope | undefined = scope;
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const binding = current.bindings.get(name);
+      if (binding) return binding;
+      const parent: { type: string; name?: string } | undefined =
+        receiverClass.get(current)?.superClass;
+      current =
+        parent?.type === "Identifier" && parent.name
+          ? declaringScope(parent.name, parent)?.classes?.get(parent.name)
+          : undefined;
+    }
+    return undefined;
+  };
   const connectionKind = (node: any) => {
     const expression = unwrap(node);
     if (
@@ -353,10 +396,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!name) return undefined;
     const [root] = name.split(".");
     const owner =
-      root === "this"
-        ? boundaryScope(node, "receiver")
-        : declaringScope(root, node);
-    const binding = owner ? owner.bindings.get(name) : bindingOf(name, node);
+      root === "this" ? thisScope(node) : declaringScope(root, node);
+    const binding = owner
+      ? receiverBinding(owner, name)
+      : root === "this"
+        ? undefined
+        : bindingOf(name, node);
     if (
       (name === "db" || name.endsWith(".db")) &&
       (!script || binding !== "object")
@@ -386,26 +431,45 @@ function sqlCallLines(file: string, text: string, script = false) {
   while (changed) {
     changed = false;
     for (const node of nodes) {
-      if (!["VariableDeclarator", "AssignmentExpression"].includes(node.type))
-        continue;
       const declaration = node.type === "VariableDeclarator";
-      const target = receiver(declaration ? node.id : node.left);
-      const value = unwrap(declaration ? node.init : node.right);
-      if (!target) continue;
-      const binding = connectionKind(value);
-      if (!binding) continue;
-      const instance = target.startsWith("this.")
-        ? boundaryScope(node, "receiver")
-        : undefined;
-      const owner = declaration
-        ? declarationScope(node)
-        : (instance ??
-          declaringScope(target.split(".")[0], node) ??
-          scopeOf(node));
-      const previous = owner.bindings.get(target);
-      if (previous === binding || previous === "connection") continue;
-      owner.bindings.set(target, binding);
-      changed = true;
+      const field = node.type === "PropertyDefinition" && !node.static;
+      if (!declaration && !field && node.type !== "AssignmentExpression")
+        continue;
+      const target = declaration ? node.id : node.left;
+      const value = unwrap(
+        declaration ? node.init : field ? node.value : node.right,
+      );
+      const assigned: { name: string; binding: Binding | undefined }[] = [];
+      if (target?.type === "ObjectPattern") {
+        for (const { key, name } of bindings(target))
+          if (key === "db")
+            assigned.push({ name, binding: destructuredDatabase(value) });
+      } else if (field) {
+        const key = node.computed
+          ? node.key.value
+          : (node.key.name ?? node.key.value);
+        if (typeof key === "string")
+          assigned.push({
+            name: `this.${key}`,
+            binding: connectionKind(value),
+          });
+      } else {
+        const name = receiver(target);
+        if (name) assigned.push({ name, binding: connectionKind(value) });
+      }
+      for (const { name, binding } of assigned) {
+        if (!binding) continue;
+        const owner = declaration
+          ? declarationScope(node)
+          : name.startsWith("this.")
+            ? thisScope(node)
+            : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
+        if (!owner) continue;
+        const previous = owner.bindings.get(name);
+        if (previous === binding || previous === "connection") continue;
+        owner.bindings.set(name, binding);
+        changed = true;
+      }
     }
   }
   const methods = new Set(["prepare", "exec"]);
@@ -611,6 +675,36 @@ it("keeps receiver aliases and shadowed constructors in their own scope", () => 
   `;
   expect(sqlCallLines("probe.ts", text)).toEqual([5]);
   expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 9]);
+});
+
+it("follows inherited fields, field initializers and destructuring assignments", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    class Parent {
+      constructor() {
+        this.connection = db;
+        function dispatch() { this.connection.exec(command); }
+        dispatch.call(adapter);
+      }
+    }
+    class Child extends Parent {
+      read() {
+        this.connection.prepare(query);
+        const read = () => this.connection.prepare(query);
+        function dispatch() { this.connection.exec(command); }
+        dispatch.call(adapter);
+      }
+    }
+    class Independent {
+      connection = new SQLite(":memory:");
+      read() { this.connection.exec(query); }
+    }
+    let handle;
+    ({ db: handle } = fixture);
+    handle.exec(query);
+  `;
+  expect(sqlCallLines("probe.ts", text)).toEqual([12, 13, 20]);
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([12, 13, 20, 24]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
