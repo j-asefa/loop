@@ -391,22 +391,21 @@ export function ownedAgentFileExists(
 }
 
 /**
- * Whether a run's prompt was written by its owner: its first user message is
- * a personal send, none of its user messages (including later steering) carry
- * shared outside text or came from an integration token, and the run is not a
+ * Whether a run's prompts were all written by its owner: every user message of
+ * the run (its first prompt and anything steered in later) is a personal send
+ * without shared outside text or an integration token, and the run is not a
  * snapshot review. Agent mail, watched pull requests and digests are not
- * personal, and a later personal steer does not make them so. Always 0 or 1.
+ * personal. Always 0 or 1. Shared text earlier in the conversation is checked
+ * at recall time (hasSharedMessage), not in the capture scan, where it cost
+ * about 0.8 s per full pass on a live workspace.
  */
 export const personalRunSql = (run: string, owner: string) =>
-  `COALESCE((SELECT json_extract(m.metadata,'$.personal')=1
-      AND COALESCE(json_extract(m.metadata,'$.shared'),0)=0
-    FROM messages m
-    WHERE m.owner_id=${owner} AND m.run_id=${run} AND m.role='user'
-    ORDER BY m.rowid LIMIT 1),0)=1
+  `(EXISTS(SELECT 1 FROM messages m WHERE m.owner_id=${owner} AND m.run_id=${run} AND m.role='user')
   AND NOT EXISTS(SELECT 1 FROM messages sm WHERE sm.owner_id=${owner} AND sm.run_id=${run}
-    AND sm.role='user' AND json_extract(sm.metadata,'$.shared')=1)
+    AND sm.role='user' AND (COALESCE(json_extract(sm.metadata,'$.personal'),0)<>1
+      OR COALESCE(json_extract(sm.metadata,'$.shared'),0)=1))
   AND NOT EXISTS(SELECT 1 FROM runs pr WHERE pr.id=${run} AND pr.owner_id=${owner}
-    AND json_extract(pr.payload,'$.reviewId') IS NOT NULL)`;
+    AND json_extract(pr.payload,'$.reviewId') IS NOT NULL))`;
 // A published result is in memory by default only when it is a finished
 // answer by the feed's own rule (resultOutputSql) to a prompt its owner typed:
 // tool output, files and traces are published too but are not results, and an
@@ -420,12 +419,17 @@ const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutput
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.
 const memoryDefaultStatement = statement(
-  `SELECT a.pinned,a.archived,a.conversation_id,${publishedResultSql} AS result
+  `SELECT a.pinned,a.archived,a.conversation_id,a.folder_id,${publishedResultSql} AS result
     FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
     WHERE a.id=? AND a.owner_id=?`,
 );
 const memoryDefaultRow = QueryRecords.artifacts
-  .pick({ pinned: true, archived: true, conversation_id: true })
+  .pick({
+    pinned: true,
+    archived: true,
+    conversation_id: true,
+    folder_id: true,
+  })
   .extend({ result: z.number() });
 export function memoryDefault(
   db: Database.Database,

@@ -1,4 +1,4 @@
-import { recallForRun, type Recall } from "./memory.js";
+import { recallForRun, withoutRecall, type Recall } from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -897,7 +897,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
           instructions: runtimeInstructions(
             snapshot.instructions,
             bindings,
-            history.findLast((m) => m.role === "user")?.content,
+            // Recalled evidence is not part of what the owner wrote: PR
+            // links in it must not become the latest message's context.
+            withoutRecall(history.findLast((m) => m.role === "user")?.content),
           ),
           messages: structuredClone(history),
           signal: AbortSignal.any([signal, generation.signal]),

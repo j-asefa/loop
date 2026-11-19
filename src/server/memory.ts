@@ -54,6 +54,9 @@ function eligible(s: any) {
       s.owner_id,
     );
     if (!artifact || artifact.archived) return false;
+    // A moved artifact is out of its old project at once; the capture pass
+    // refreshes its saved copy for the new one.
+    if ((artifact.folder_id || null) !== (s.project_id || null)) return false;
     // An explicit include/exclude or a pin is the owner's choice for this
     // artifact. Otherwise a result is in by default, unless the owner turned
     // memory off for the conversation that produced it (results are captured
@@ -69,11 +72,17 @@ function eligible(s: any) {
         (!!artifact.result &&
           !(
             artifact.conversation_id &&
-            memoryPolicyQueries.enabled(
+            (memoryPolicyQueries.enabled(
               db,
               s.owner_id,
               "conversation:" + artifact.conversation_id,
-            )?.enabled === 0
+            )?.enabled === 0 ||
+              // A later answer can restate text shared earlier in its thread.
+              messagesQueries.hasSharedMessage(
+                db,
+                artifact.conversation_id,
+                s.owner_id,
+              ))
           ));
     if (!included) return false;
   }
@@ -304,8 +313,9 @@ export async function searchMemory(
       )
         continue;
       const s = readMemory(owner, candidate.id, candidate.revision, project);
-      if (relevant && !coversQuery(s.title + "\n" + s.content, terms)) continue;
       const excerpt = s.content.slice(0, Math.min(1100, 5500 - characters));
+      // Judge relevance on the text the agent will actually see.
+      if (relevant && !coversQuery(s.title + "\n" + excerpt, terms)) continue;
       if (!excerpt) break;
       characters += excerpt.length;
       sources.push({
@@ -368,6 +378,12 @@ const quoted = (text: string) =>
  * including its delimiters, stays within RECALL_CHARACTERS, and the receipt
  * lists exactly the sources it contains.
  */
+/** A turn's text without the evidence block recallForRun appended to it. */
+export function withoutRecall(text: string | undefined) {
+  if (text === undefined || !text.endsWith(`</${EVIDENCE_TAG}>`)) return text;
+  const start = text.lastIndexOf(`\n\n<${EVIDENCE_TAG}>\n`);
+  return start < 0 ? text : text.slice(0, start);
+}
 export type Recall = {
   /** The evidence block to append to the turn's input ("" for none). */
   text: string;

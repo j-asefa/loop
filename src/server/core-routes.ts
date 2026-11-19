@@ -560,6 +560,9 @@ routes.on(
             idempotencyKey: d.idempotencyKey,
             attachmentIds: run.payload.attachmentIds || [],
             replyTo: run.payload.replyTo,
+            // A retry is sent the way the original was: personal or not,
+            // shared or not (memory recall depends on both).
+            ...messagesQueries.promptFlags(db, run.id, run.owner_id),
           });
           inheritEffect(run.owner_id, "run", run.id, replacement.id);
           return replacement;
