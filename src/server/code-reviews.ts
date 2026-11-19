@@ -124,12 +124,18 @@ function followUpOf(
     previous.snapshot().base !== snapshot.base
   )
     return;
-  const { unseen } = snapshotDelta(snapshot, baseline);
+  const delta = snapshotDelta(snapshot, baseline);
+  const { unseen } = delta;
   if (
     unseen > FOLLOW_UP_MAX_UNSEEN_LINES ||
     unseen * 2 > changedLines(snapshot)
   )
     return;
+  const leadDelta =
+    previous.id === full.id
+      ? delta
+      : snapshotDelta(snapshot, previous.snapshot());
+  if (Buffer.byteLength(leadDelta.hunks) > 24_000) return;
   return previous.id;
 }
 export function startCodeReview(...args: Parameters<typeof ensureCodeReview>) {

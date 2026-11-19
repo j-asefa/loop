@@ -127,7 +127,8 @@ export function changedLines(snapshot: Snapshot) {
   for (const path of snapshot.changed) {
     const a = lines(fileText(snapshot.before, path)),
       b = lines(fileText(snapshot.files, path));
-    count += Math.min(changes(edits(a, b)), unmatched(a, b));
+    count +=
+      a.length * b.length > MAX_CELLS ? unmatched(a, b) : changes(edits(a, b));
   }
   for (const mode of modes(snapshot.diff).values())
     if (mode.some((line) => line.startsWith("old mode "))) count++;
@@ -146,40 +147,24 @@ export function snapshotDelta(current: Snapshot, previous: Snapshot) {
   for (const path of [
     ...new Set([...current.changed, ...previous.changed]),
   ].sort()) {
-    if (!changedNow.has(path)) {
-      // Follow-ups share a base commit. When this path returns to that
-      // base, the previous snapshot contains both sides of the reversal.
-      const reversal = edits(
-        lines(fileText(previous.files, path)),
-        lines(fileText(previous.before, path)),
-      );
-      const dropped = changes(reversal);
-      if (!dropped) continue;
-      unseen += dropped;
-      hunks.push(
-        `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n` +
-          (current.omitted.includes(path)
-            ? `This snapshot omits this file (binary, oversized or excluded by name), so the ${dropped} changed lines the earlier snapshot had cannot be compared.`
-            : `This snapshot no longer changes this file: the ${dropped} changed lines the earlier snapshot had are gone. \n${excerpt(reversal)}`),
-      );
-      continue;
-    }
-    // The earlier review covered this file only as an edit from the same
-    // base text. With another base (another base ref, or upstream edits under
-    // a rebase) or no earlier edit, the whole edit from this base is new.
+    const reverted = !changedNow.has(path);
+    const oldBase = fileText(previous.before, path);
+    const newBase = fileText(current.before, path);
     const then =
-      changedBefore.has(path) &&
-      fileText(previous.before, path) === fileText(current.before, path)
+      reverted || (changedBefore.has(path) && oldBase === newBase)
         ? fileText(previous.files, path)
-        : fileText(current.before, path);
-    const now = fileText(current.files, path);
+        : newBase;
+    const now = reverted ? oldBase : fileText(current.files, path);
     if (then === now) continue;
     const ops = edits(lines(then), lines(now));
-    const count = changes(ops);
-    if (!count) continue;
-    unseen += count;
+    // Empty files have no lines, but their presence can affect behavior.
+    unseen += Math.max(1, changes(ops));
+    const evidence = current.omitted.includes(path)
+      ? "This snapshot omits this file; its current contents cannot be compared."
+      : excerpt(ops) ||
+        (now === undefined ? "Empty file removed." : "Empty file added.");
     hunks.push(
-      `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n${excerpt(ops)}`,
+      `--- earlier snapshot: ${path}\n+++ this snapshot: ${path}\n${evidence}`,
     );
   }
   // A mode set, changed or put back since the earlier snapshot. The text may

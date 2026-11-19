@@ -84,7 +84,6 @@ it("counts an untracked file a captured diff lists by name only, and a file retu
   expect(delta.unseen).toBe(110);
   expect(delta.hunks).toContain("+++ this snapshot: notes.ts");
   // The excerpt shows exactly which earlier lines were removed.
-  expect(delta.hunks).toContain("no longer changes this file: the 10 changed");
   expect(delta.hunks).toContain("-line 19");
   // A file that became omitted is said to be uncomparable, not gone.
   expect(
@@ -165,4 +164,19 @@ it("counts one terminated line in a newly created file", () => {
       ),
     ),
   ).toBe(1);
+});
+
+it("shows empty untracked file creation and removal and counts reviewed moves", () => {
+  const empty = snapshot({ "__init__.py": [] });
+  expect(snapshotDelta(empty, snapshot({}))).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("Empty file added."),
+  });
+  expect(snapshotDelta(snapshot({}), empty)).toEqual({
+    unseen: 1,
+    hunks: expect.stringContaining("Empty file removed."),
+  });
+  expect(
+    changedLines(snapshot({ a: ["b", "a", "c"] }, { a: ["a", "b", "c"] })),
+  ).toBe(2);
 });

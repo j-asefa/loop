@@ -890,7 +890,12 @@ it("reviews a repeat request as a lead-only follow-up only while a completed ful
   const eighth = turn(first.conversation_id);
   const resumed = await request(eighth);
   expect(resumed.followUp?.previous_review_id).toBe(grown.id);
-  finish(eighth, resumed, "x".repeat(24_001));
+  finish(eighth, resumed);
+  commit("long.ts", ["é".repeat(13_000)]);
+  const longTurn = turn(first.conversation_id);
+  const long = await request(longTurn);
+  expect(long.reviewers).toBe(3);
+  finish(longTurn, long, "x".repeat(24_001));
   const oversized = await request(turn(first.conversation_id));
   expect(oversized.reviewers).toBe(3);
 
