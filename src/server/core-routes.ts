@@ -512,7 +512,14 @@ routes.on(
     const { queue, ...data } = req.body;
     res.json(
       runResponse(
-        submit(res.locals.owner, { ...data, steer: !queue, personal: true }),
+        submit(res.locals.owner, {
+          ...data,
+          steer: !queue,
+          personal: true,
+          // An integration token's text must not search or enter memory: it
+          // could read memory beyond the token's own scopes.
+          shared: !!res.locals.bearer,
+        }),
       ),
     );
   },
@@ -553,6 +560,9 @@ routes.on(
             idempotencyKey: d.idempotencyKey,
             attachmentIds: run.payload.attachmentIds || [],
             replyTo: run.payload.replyTo,
+            // A retry is sent the way the original was: personal or not,
+            // shared or not (memory recall depends on both).
+            ...messagesQueries.promptFlags(db, run.id, run.owner_id),
           });
           inheritEffect(run.owner_id, "run", run.id, replacement.id);
           return replacement;

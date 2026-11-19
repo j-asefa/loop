@@ -1,4 +1,8 @@
-import { cardRow, type CardQuerySelection } from "./artifacts.js";
+import {
+  cardRow,
+  personalRunSql,
+  type CardQuerySelection,
+} from "./artifacts.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -713,6 +717,50 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
       SELECT f.id,f.owner_id,p.project_id FROM folders f
       JOIN folder_project p ON f.parent_id=p.id AND f.owner_id=p.owner_id
     )`;
+const personalPromptStatement = statement(
+  `SELECT 1 AS found WHERE ${personalRunSql("@run", "@owner")}`,
+);
+const promptFlagsStatement = statement(
+  "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
+);
+const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
+const unwrittenMessageStatement = statement(
+  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND m.created_at<=? AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
+);
+/**
+ * Whether any user message in a conversation, up to `before`, was not written
+ * by its owner in Loop: agent mail, a watched pull request, a digest, shared
+ * outside text or an integration token's send. Later messages could not have
+ * shaped a result produced before them.
+ */
+export function hasUnwrittenMessage(
+  db: Database.Database,
+  conversation: string,
+  owner: string,
+  before: number,
+) {
+  return (
+    unwrittenMessageStatement(db).get(conversation, owner, before) !== undefined
+  );
+}
+/** How a run's first prompt was sent: personal, and whether it was shared. */
+export function promptFlags(db: Database.Database, run: string, owner: string) {
+  const row = promptFlagsStatement(db).get(owner, run);
+  const flags =
+    row === undefined
+      ? undefined
+      : parseRecord(promptFlagsRow, row, "messages");
+  return { personal: !!flags?.personal, shared: !!flags?.shared };
+}
+/** Whether a run's first prompt was typed by its owner; see personalRunSql. */
+export function hasPersonalPrompt(
+  db: Database.Database,
+  run: string,
+  owner: string,
+) {
+  return personalPromptStatement(db).get({ run, owner }) !== undefined;
+}
+
 export const personalMessageSql = `m.role='user'
     AND r.id IS NOT NULL AND r.conversation_id=c.id
     AND (c.project_id IS NULL OR EXISTS(SELECT 1 FROM folders p WHERE p.id=c.project_id AND p.owner_id=m.owner_id))

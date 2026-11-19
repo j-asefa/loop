@@ -112,13 +112,14 @@ MCP connections, broker checks and MCP Apps are described in [MCP tools](mcp.md)
 
 | File | Owns |
 | --- | --- |
-| [memory.ts](../src/server/memory.ts) | Local keyword search; recall is untrusted historical evidence, never current authorization |
+| [memory.ts](../src/server/memory.ts) | Local keyword search and first-turn recall: up to five sources (6,000 characters) that share enough of the turn's terms, appended to the input as untrusted historical evidence, never current authorization, with a run receipt |
 | [artifact-metadata.ts](../src/shared/artifact-metadata.ts) | One strict schema per artifact role |
 | [imageUpload.ts](../src/client/imageUpload.ts) | Browser image scaling before upload |
 
 Rules not yet stated in a single file:
 
 - A streamed answer's search index and feed revisions keep their last snapshot until the run finishes; interrupted streams keep the last indexed snapshot until finalized. Scope, inclusion, revision and tombstone checks apply again before indexed candidates are returned.
+- A conversation's first native or API-key turn gets recall from its owner's eligible memory (workspace and project policy apply): published results, pinned artifacts, notes and included conversations, excluding the turn's own conversation. Later turns and snapshot reviews get none. Native turns hash the input including recall before dispatch; API-key turns keep it in the checkpoint, so a resumed run does not search again.
 - Message attachments reach native turns as file references read through `loop_read_file`; API-key connections also receive the current turn's images and PDFs inline.
 - File publication validates the selected path, size and digest before storing private content; downloads require owner access, and a worker path alone is not a published file.
 

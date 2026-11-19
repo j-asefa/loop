@@ -1,3 +1,4 @@
+import { recallForRun, withoutRecall, type Recall } from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -131,6 +132,8 @@ export function submit(
     // User follow-ups steer active work. Internal delegation/retry creates work.
     steer?: boolean;
     personal?: boolean;
+    /** The prompt carries text the owner shared from elsewhere. */
+    shared?: boolean;
     // Sent by Loop on your behalf (a watched pull request or a teammate
     // agent's message), not typed by you.
     automation?: Automation;
@@ -342,6 +345,7 @@ export function submit(
               attachments,
               replyTo,
               personal: data.personal === true,
+              ...(data.shared ? { shared: true } : {}),
               ...(data.automation ? { automation: data.automation } : {}),
             },
           );
@@ -372,6 +376,7 @@ export function submit(
           attachments,
           replyTo,
           personal: data.personal === true,
+          ...(data.shared ? { shared: true } : {}),
           ...(data.automation ? { automation: data.automation } : {}),
         }),
         messageAt,
@@ -507,6 +512,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
         ? { attachments: m.metadata.attachments }
         : {}),
     }));
+    let recall: Recall | undefined;
     if (snapshot.reviewId)
       history.push({ role: "user", content: reviewContext(run) });
     // Bound total context explicitly; oversized histories require an intentional continuation.
@@ -515,8 +521,30 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
         413,
         "This conversation is too large for this run. Select messages and create a focused continuation.",
       );
+    if (!snapshot.reviewId) {
+      // The current turn is the last user message; recall is appended to it
+      // once and kept in the checkpoint, so a resumed run does not search again.
+      const turn = history.findLastIndex((m) => m.role === "user");
+      if (turn >= 0) {
+        const found = await recallForRun(run, snapshot.folderId || null);
+        const withRecall = {
+          ...history[turn],
+          content: history[turn].content + found.text,
+        };
+        // Recall never pushes a history that fit over the bound: it is left
+        // out (and unrecorded) instead.
+        const candidate = [...history];
+        candidate[turn] = withRecall;
+        if (Buffer.byteLength(JSON.stringify(candidate)) <= 500000) {
+          history[turn] = withRecall;
+          recall = found;
+        }
+      }
+    }
     const messageId = id();
     db.transaction(() => {
+      // The receipt commits with the checkpoint that holds the recalled text.
+      recall?.record();
       openAnswer(run, {
         messageId,
         title: run.input.slice(0, 85),
@@ -869,7 +897,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
           instructions: runtimeInstructions(
             snapshot.instructions,
             bindings,
-            history.findLast((m) => m.role === "user")?.content,
+            // Recalled evidence is not part of what the owner wrote: PR
+            // links in it must not become the latest message's context.
+            withoutRecall(history.findLast((m) => m.role === "user")?.content),
           ),
           messages: structuredClone(history),
           signal: AbortSignal.any([signal, generation.signal]),

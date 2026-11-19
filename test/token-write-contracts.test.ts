@@ -82,6 +82,18 @@ it("companion commits and replays every local token write with owner isolation",
     "ALTER TABLE approvals ADD COLUMN fixture_secret TEXT DEFAULT 'private-storage-field'",
   );
   const first = await json(await post("/runs", firstBody), 202);
+  // A token's send is never treated as the owner's own text by memory.
+  expect(
+    JSON.parse(
+      (
+        f.db
+          .prepare(
+            "SELECT metadata FROM messages WHERE run_id=? AND role='user'",
+          )
+          .get(first.id) as { metadata: string }
+      ).metadata,
+    ),
+  ).toMatchObject({ personal: true, shared: true });
   expect(JSON.stringify(first)).not.toContain("private-storage-field");
   expect(JSON.stringify(first)).not.toContain("integration-fixture-credential");
   expect(receipt(f, writer.id, firstBody.idempotencyKey)).toMatchObject({
