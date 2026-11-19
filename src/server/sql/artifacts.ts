@@ -391,10 +391,11 @@ export function ownedAgentFileExists(
 }
 
 /**
- * Whether a run's first prompt was written by its owner: a personal send that
- * does not carry shared outside text, for a run that is not a snapshot review.
- * Agent mail, watched pull requests and digests are not personal. Later
- * steering messages do not change what started the run. Always 0 or 1.
+ * Whether a run's prompt was written by its owner: its first user message is
+ * a personal send, none of its user messages (including later steering) carry
+ * shared outside text or came from an integration token, and the run is not a
+ * snapshot review. Agent mail, watched pull requests and digests are not
+ * personal, and a later personal steer does not make them so. Always 0 or 1.
  */
 export const personalRunSql = (run: string, owner: string) =>
   `COALESCE((SELECT json_extract(m.metadata,'$.personal')=1
@@ -402,6 +403,8 @@ export const personalRunSql = (run: string, owner: string) =>
     FROM messages m
     WHERE m.owner_id=${owner} AND m.run_id=${run} AND m.role='user'
     ORDER BY m.rowid LIMIT 1),0)=1
+  AND NOT EXISTS(SELECT 1 FROM messages sm WHERE sm.owner_id=${owner} AND sm.run_id=${run}
+    AND sm.role='user' AND json_extract(sm.metadata,'$.shared')=1)
   AND NOT EXISTS(SELECT 1 FROM runs pr WHERE pr.id=${run} AND pr.owner_id=${owner}
     AND json_extract(pr.payload,'$.reviewId') IS NOT NULL)`;
 // A published result is in memory by default only when it is a finished

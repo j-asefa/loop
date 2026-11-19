@@ -146,9 +146,9 @@ export function moveQueuedRun(owner: string, runId: string, body: unknown) {
         folderId:
           typeof payload.folderId === "string" ? payload.folderId : undefined,
         steer: false,
-        personal: true,
-        // Moving keeps a shared send's outside text marked as not typed.
-        shared: messagesQueries.hasSharedPrompt(db, run.id, owner),
+        // A move keeps how the message was sent: mail or a watched pull
+        // request stays non-personal, and shared text stays shared.
+        ...messagesQueries.promptFlags(db, run.id, owner),
       };
       // A repeated move returns the run the first attempt created.
       if (runsQueries.hasIdempotency(db, owner, d.idempotencyKey))

@@ -720,16 +720,18 @@ const PROMPTS_WITH = `WITH RECURSIVE folder_project(id,owner_id,project_id) AS (
 const personalPromptStatement = statement(
   `SELECT 1 AS found WHERE ${personalRunSql("@run", "@owner")}`,
 );
-const sharedPromptStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' AND json_extract(m.metadata,'$.shared')=1 ORDER BY m.rowid LIMIT 1",
+const promptFlagsStatement = statement(
+  "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
 );
-/** Whether a run's prompt carries text its owner shared from elsewhere. */
-export function hasSharedPrompt(
-  db: Database.Database,
-  run: string,
-  owner: string,
-) {
-  return sharedPromptStatement(db).get(owner, run) !== undefined;
+const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
+/** How a run's first prompt was sent: personal, and whether it was shared. */
+export function promptFlags(db: Database.Database, run: string, owner: string) {
+  const row = promptFlagsStatement(db).get(owner, run);
+  const flags =
+    row === undefined
+      ? undefined
+      : parseRecord(promptFlagsRow, row, "messages");
+  return { personal: !!flags?.personal, shared: !!flags?.shared };
 }
 /** Whether a run's first prompt was typed by its owner; see personalRunSql. */
 export function hasPersonalPrompt(
