@@ -112,3 +112,71 @@
   color: var(--muted);
   font-size: 12px;
 }
+.display-chart {
+  display: grid;
+  /* An open table of numbers scrolls; it must not widen the chart. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+.display-chart-title {
+  font-weight: 600;
+}
+.display-chart-axis {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.display-chart-x {
+  text-align: center;
+}
+.display-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  overflow: visible;
+  font-size: 11px;
+}
+.display-chart-svg text {
+  fill: var(--muted);
+}
+.display-chart-grid line {
+  stroke: var(--line);
+}
+.display-chart-baseline {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.display-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.display-chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.display-chart-legend svg {
+  flex: none;
+  width: 16px;
+  height: 10px;
+}
+.display-chart-numbers {
+  min-width: 0;
+}
+.display-chart-numbers summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.display-chart-numbers .table-scroll {
+  margin-top: 6px;
+}

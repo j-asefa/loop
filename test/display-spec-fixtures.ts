@@ -881,6 +881,159 @@ export const displayFixtures: DisplayFixture[] = [
       ],
     },
   },
+  // ---- PR 2: charts as drawn -------------------------------------------
+  {
+    name: "a line series shorter than its categories",
+    source: chartCard({
+      type: "line",
+      categories: ["a", "b", "c", "d"],
+      series: [{ name: "s", values: [1, 2] }],
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" line series=1 categories=4',
+      ],
+    },
+  },
+  {
+    name: "a bar series longer than its categories",
+    source: chartCard({
+      type: "bar",
+      categories: ["a", "b"],
+      series: [{ name: "s", values: [1, 2, 3, 4] }],
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" bar series=1 categories=2',
+      ],
+    },
+  },
+  {
+    name: "bar, line and area charts with negative values",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, ["bar", "line", "area"]),
+      ...(["bar", "line", "area"] as const).map((type) =>
+        element(type, "Chart", {
+          title: type,
+          chart: {
+            type,
+            categories: ["a", "b", "c"],
+            series: [{ name: "s", values: [-3, 0, 5] }],
+          },
+        }),
+      ),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        '  Chart "bar" bar series=1 categories=3',
+        '  Chart "line" line series=1 categories=3',
+        '  Chart "area" area series=1 categories=3',
+      ],
+    },
+  },
+  {
+    name: "an all-zero series",
+    source: chartCard({
+      type: "area",
+      categories: ["a", "b", "c"],
+      series: [{ name: "s", values: [0, 0, 0] }],
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" area series=1 categories=3',
+      ],
+    },
+  },
+  {
+    name: "an all-equal series",
+    source: chartCard({
+      type: "line",
+      categories: ["a", "b", "c"],
+      series: [{ name: "s", values: [7, 7, 7] }],
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" line series=1 categories=3',
+      ],
+    },
+  },
+  {
+    name: "a pie with one segment",
+    source: chartCard({
+      type: "pie",
+      segments: [{ label: "all", value: 3 }],
+    }),
+    expect: {
+      outline: ['Card title="Frame"', '  Chart "Trend" pie segments=1'],
+    },
+  },
+  {
+    name: "a bar chart with more series than colours",
+    source: chartCard({
+      type: "bar",
+      categories: ["a", "b"],
+      series: Array.from({ length: 9 }, (_, i) => ({
+        name: `s${i}`,
+        values: [i, i + 1],
+      })),
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" bar series=9 categories=2',
+      ],
+    },
+  },
+  {
+    name: "huge and tiny chart values",
+    source: chartCard({
+      type: "line",
+      categories: ["a", "b", "c"],
+      series: [
+        { name: "big", values: [-1.7e308, 1.7e308, 0] },
+        { name: "tiny", values: [5e-324, 1e-323, 0] },
+      ],
+    }),
+    expect: {
+      outline: [
+        'Card title="Frame"',
+        '  Chart "Trend" line series=2 categories=3',
+      ],
+    },
+  },
+  {
+    name: "a table rejected by the character limit charges no cells",
+    source: lines(
+      root("s"),
+      element("s", "Section", {}, ["t", "t", "t", "t", "t", "one"]),
+      element("t", "Table", {
+        headers: Array.from(
+          { length: DISPLAY_LIMITS.tableColumns },
+          (_, i) => `h${i}`,
+        ),
+        rows: Array.from({ length: DISPLAY_LIMITS.tableRows }, () => [
+          "y".repeat(150),
+        ]),
+      }),
+      element("one", "Table", { headers: ["a"], rows: [["1"]] }),
+    ),
+    expect: {
+      outline: [
+        "Section",
+        ...Array(4).fill(
+          `  Table headers=${JSON.stringify(Array.from({ length: DISPLAY_LIMITS.tableColumns }, (_, i) => `h${i}`))} align=${JSON.stringify(Array(DISPLAY_LIMITS.tableColumns).fill("left"))} caption=null rows=${DISPLAY_LIMITS.tableRows} first=${JSON.stringify(["y".repeat(150), ...Array(DISPLAY_LIMITS.tableColumns - 1).fill("")])} last=${JSON.stringify(["y".repeat(150), ...Array(DISPLAY_LIMITS.tableColumns - 1).fill("")])}`,
+        ),
+        "  !Table invalid",
+        '  Table headers=["a"] align=["left"] caption=null rows=1 first=["1"] last=["1"]',
+      ],
+    },
+  },
 ];
 
 // A table with the column limit and `rows` rows, one cell filled per row.

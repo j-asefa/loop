@@ -323,28 +323,24 @@ function draw(
   const built = build(key, type, element.props ?? {}, []);
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
-  if (built.type === "Table") {
-    const cells = built.rows.length * built.headers.length;
-    // A table drawn as a placeholder uses none of the budget.
-    if (state.cells + cells > DISPLAY_LIMITS.tableCells)
-      return placeholder(
-        key,
-        type,
-        "invalid",
-        `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
-      );
-    state.cells += cells;
-  }
-  if (built.type === "Text") {
-    if (state.text + built.content.length > DISPLAY_LIMITS.textCharacters)
-      return placeholder(
-        key,
-        type,
-        "invalid",
-        `The display has more than ${DISPLAY_LIMITS.textCharacters} characters of Text`,
-      );
-    state.text += built.content.length;
-  }
+  // An element drawn as a placeholder charges none of the budgets.
+  const cells =
+    built.type === "Table" ? built.rows.length * built.headers.length : 0;
+  if (state.cells + cells > DISPLAY_LIMITS.tableCells)
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      `The display has more than ${DISPLAY_LIMITS.tableCells} table cells`,
+    );
+  const text = built.type === "Text" ? built.content.length : 0;
+  if (state.text + text > DISPLAY_LIMITS.textCharacters)
+    return placeholder(
+      key,
+      type,
+      "invalid",
+      `The display has more than ${DISPLAY_LIMITS.textCharacters} characters of Text`,
+    );
   const drawn = drawnLength(built);
   if (state.drawn + drawn > DISPLAY_LIMITS.drawnCharacters)
     return placeholder(
@@ -353,6 +349,8 @@ function draw(
       "invalid",
       `The display has more than ${DISPLAY_LIMITS.drawnCharacters} characters`,
     );
+  state.cells += cells;
+  state.text += text;
   state.drawn += drawn;
   if ("children" in built) {
     path.add(key);
