@@ -242,7 +242,18 @@ function classifyMemoryTime(
         continue;
     }
     // A single interval cannot express exclusions or alternative dates.
-    if (alternative || sharedMonthPreposition || (exclusion && !bareMonth))
+    const excludedMonth =
+      bareMonth &&
+      seenDate &&
+      /^[\s,]*(?:but\s+)?(?:except(?:\s+for)?|excluding|omit|skip|without)\s+$/iu.test(
+        between,
+      );
+    if (
+      alternative ||
+      sharedMonthPreposition ||
+      excludedMonth ||
+      (exclusion && !bareMonth)
+    )
       return null;
     if (bareMonth) continue;
     seenDate = true;
