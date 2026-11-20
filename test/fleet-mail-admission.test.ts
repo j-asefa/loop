@@ -1302,6 +1302,7 @@ it.each([
   "memory tool",
   "Fleet steering",
   "memory-bearing local steering",
+  "unread local steering",
 ] as const)(
   "preserves the restriction when a copied answer incorporated later %s",
   async (kind) => {
@@ -1362,9 +1363,17 @@ it.each([
           interrupt: true,
         }),
       ).toMatchObject({ delivery: "steered" });
+      if (kind === "memory-bearing local steering") {
+        const stop = new SteeringInbox(run).listen(async () => {});
+        await stop();
+      } else {
+        expect(transition(run, "completed")).toBe(true);
+      }
     }
     db.prepare("UPDATE messages SET content=? WHERE id=?").run(
-      "Final answer based on the new input.",
+      kind === "unread local steering"
+        ? "Final answer."
+        : "Final answer based on the new input.",
       messageId,
     );
     const fork = forkConversation(owner, run.conversation_id!, { messageId });
@@ -1377,7 +1386,9 @@ it.each([
             thread: { ...mail.thread, recipientConversationId: fork.id },
           })
         ).admission,
-      ).toMatchObject({ state: "refused" });
+      ).toMatchObject({
+        state: kind === "unread local steering" ? "accepted" : "refused",
+      });
     } else {
       const followUp = submit(owner, {
         agentId: local.id,

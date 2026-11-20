@@ -12,6 +12,18 @@ import { statement, statementVariants } from "./statement.js";
 const contextMessagePositionSql = `(c.at IS NULL OR copy.created_at<c.at OR
   (copy.created_at=c.at AND copy.rowid<=c.seq))`;
 
+// Live destinations reserve pending mail. Copied answers omit known unread
+// steering, unless the owner selected the steering message itself.
+const contextMailPositionSql = `
+    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
+      OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
+      OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
+    AND (c.at IS NULL OR copy.rowid=c.seq OR NOT EXISTS (
+      SELECT 1 FROM run_steering st WHERE st.message_id=copy.id
+        AND (st.state='pending' OR st.failure_reason='run-ended-unread')
+    ))
+    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)`;
+
 // An answer is updated in place and can include evidence from later in its own run.
 export const runInConversationContextSql = `(c.at IS NULL OR r.id=c.answer_run OR EXISTS (
   SELECT 1 FROM messages prompt
@@ -42,10 +54,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
   WHERE sender.conversation_id IS NOT NULL
-    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
-      OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
-      OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
-    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
+    ${contextMailPositionSql}
   UNION
   SELECT a.conversation_id, copy.created_at, copy.rowid, a.run_id
   FROM context c
@@ -56,10 +65,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN json_each(mail.file_ids) file
   JOIN artifacts a ON a.id=file.value AND a.owner_id=mail.owner_id
   WHERE a.conversation_id IS NOT NULL
-    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
-      OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
-      OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
-    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
+    ${contextMailPositionSql}
   UNION
   SELECT child.conversation_id, c.at, c.seq,
     CASE WHEN r.id=c.answer_run THEN child.id END
