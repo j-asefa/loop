@@ -23,15 +23,15 @@ export const externalEvidenceSql = `EXISTS(
         AND i.state IN ('completed','failed') AND i.result IS NOT NULL)
       OR EXISTS(SELECT 1 FROM run_traces t WHERE t.run_id=r.id
         AND t.owner_id=r.owner_id AND t.kind='tool'
-        AND ((instr(t.metadata,'"externalContent"')>0
-          AND json_extract(CASE WHEN json_valid(t.metadata) THEN t.metadata ELSE '{}' END,'$.externalContent')=1)
-          OR lower(replace(replace(t.title,'_',''),' ','')) IN
+        AND COALESCE(CASE WHEN instr(t.metadata,'"externalContent"')>0 AND json_valid(t.metadata)
+          THEN json_extract(t.metadata,'$.externalContent') END,
+          (lower(replace(replace(t.title,'_',''),' ','')) IN
             ('websearch','webfetch','websearchexa','webfetchexa')
           OR (t.title GLOB 'mcp__*__*' AND t.title NOT GLOB 'mcp__${WORKSPACE_MCP_SERVER}__*'
             AND t.title NOT GLOB 'mcp____loop____*')
           OR (t.title='mcpToolCall'
             AND json_extract(CASE WHEN json_valid(t.content) THEN t.content ELSE '{}' END,'$.server')
-              NOT IN ('','${WORKSPACE_MCP_SERVER}','__loop__'))))
+              NOT IN ('','${WORKSPACE_MCP_SERVER}','__loop__')))))
       OR EXISTS(SELECT 1 FROM agent_activities v WHERE v.run_id=r.id
         AND v.owner_id=r.owner_id AND v.kind='tool'
         AND instr(v.record,'"category":"fetch"')>0

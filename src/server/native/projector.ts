@@ -377,7 +377,9 @@ export class NativeProjector {
         native: true,
         itemId: item.id,
         status: item.status,
-        ...(item.externalContent && { externalContent: true }),
+        ...(item.externalContent !== undefined && {
+          externalContent: item.externalContent,
+        }),
       },
     });
     const status = item.status;

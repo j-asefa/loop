@@ -1559,15 +1559,20 @@ it("excludes recorded external answers from push and labels them in pull", async
     personal: true,
     idempotencyKey: id(),
   });
-  recordTrace(
-    await answerNext("empty-server", "The gardenia build key is four."),
+  const localAnswer = await answerNext(
     "empty-server",
-    {
-      kind: "tool",
-      title: "mcpToolCall",
-      content: '{"server":""}',
-    },
+    "The gardenia build key is four.",
   );
+  recordTrace(localAnswer, "empty-server", {
+    kind: "tool",
+    title: "mcpToolCall",
+    content: '{"server":""}',
+  });
+  recordTrace(localAnswer, "display-only", {
+    kind: "tool",
+    title: "Web Search",
+    metadata: { native: true, externalContent: false },
+  });
   const fetch = submit("alice", {
     agentId: agent.id,
     input: "Iris transfer channel",
@@ -1658,6 +1663,8 @@ it("excludes recorded external answers from push and labels them in pull", async
       includeExternal: true,
     })
   ).sources.find((source) => source.resultId === runResultId(external.id));
+  if (!savedExternal)
+    throw new Error("External fixture missing from agent search");
   const { owned: ownedSource } =
     await import("../src/server/sql/memory-sources");
   const indexRow = ownedSource(db, savedExternal.id, "alice")!;

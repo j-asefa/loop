@@ -64,6 +64,19 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
       type: "item",
       item: { title: "Lookup complete", externalContent: true },
     });
+    muse.adapter.item(
+      {
+        itemId: "local",
+        kind: "toolCall",
+        tool: "local",
+        displayLabel: { done: "Web Search" },
+      },
+      true,
+    );
+    expect(muse.events.at(-1)).toMatchObject({
+      type: "item",
+      item: { title: "Web Search", externalContent: false },
+    });
   });
   it("Codex streams output and replaces it with final authoritative output", () => {
     const { adapter, updates } = capture(Codex, "codex");
