@@ -1529,6 +1529,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     changed = true;
   };
   const restCopies = new Map<object, Set<object>>();
+  const arrayElementCallbacks = new Set([
+    "every",
+    "filter",
+    "find",
+    "findIndex",
+    "findLast",
+    "findLastIndex",
+    "flatMap",
+    "forEach",
+    "map",
+    "some",
+  ]);
   const trackRestCopy = (scope: Scope, pattern: any, rest: any, value: any) => {
     if (!value) return;
     const copies = restCopies.get(rest) ?? new Set<object>();
@@ -1672,6 +1684,19 @@ function sqlCallLines(file: string, text: string, script = false) {
         script &&
         (node.type === "CallExpression" || node.type === "NewExpression")
       ) {
+        if (
+          node.type === "CallExpression" &&
+          node.callee.type === "MemberExpression" &&
+          arrayElementCallbacks.has(property(node.callee))
+        ) {
+          const array = staticArray(node.callee.object);
+          const callback =
+            array && functionReference(unwrap(node.arguments[0]));
+          const parameter = callback?.params[0];
+          if (array && parameter)
+            for (const item of staticArguments(array).values)
+              trackParameter(scopeOf(callback), parameter, unwrap(item));
+        }
         const { fn, items } = invocation(node);
         const argumentsList = fn && items ? staticArguments(items) : undefined;
         for (const [index, parameter] of (fn?.params ?? []).entries()) {
@@ -2948,6 +2973,18 @@ it("follows reassigned wrappers and stable captured handle replacements", () => 
     maybeDatabase();
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 13]);
+});
+
+it("passes known array elements to callbacks", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    [db].forEach((connection) => connection.exec("BEGIN"));
+    const handles = [{ connection: db }];
+    function migrate({ connection }) { connection.exec(migrationText); }
+    handles.map(migrate);
+    [{ exec: runCommand }].forEach((commandAdapter) => commandAdapter.exec(command));
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
