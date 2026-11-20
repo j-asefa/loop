@@ -1,5 +1,9 @@
-import { useMemo, type ReactNode } from "react";
-import { readDisplaySpec, type DisplayNode } from "../shared/display-spec";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  isDisplayFenceLanguage,
+  readDisplaySpec,
+  type DisplayNode,
+} from "../shared/display-spec";
 import { DisplayChart } from "./DisplayChart";
 import "./display.css";
 
@@ -17,16 +21,164 @@ type Context = {
   compact: boolean;
 };
 
+// Remark plugin: marks a `spec` fence that has not closed (an answer still
+// being written, or text cut short). Markdown parses an open fence as a code
+// block. Only an unclosed block at the end of the answer can still grow.
+export function markOpenSpecFences({
+  previewFenceCut,
+  previewEndsAtLine,
+  previewFenceIsSpec,
+  cappedPreview = false,
+}: {
+  previewFenceCut?: boolean;
+  previewEndsAtLine?: boolean;
+  previewFenceIsSpec?: boolean;
+  cappedPreview?: boolean;
+} = {}) {
+  return (tree: MdNode, file: { value: unknown }) => {
+    const source = String(file.value);
+    let lastContent = source.length;
+    while (lastContent > 0 && " \t\r\n".includes(source[lastContent - 1]))
+      lastContent--;
+    const visit = (node: MdNode) => {
+      if (
+        previewFenceIsSpec &&
+        node.type === "code" &&
+        node.position?.end.offset === source.length &&
+        node.value === "" &&
+        !/[\r\n]/.test(source.slice(node.position.start.offset))
+      )
+        node.lang = "spec";
+      if (
+        node.type === "code" &&
+        isDisplayFenceLanguage(node.lang) &&
+        node.position
+      ) {
+        const raw = source.slice(
+          node.position.start.offset,
+          node.position.end.offset,
+        );
+        const cut =
+          previewFenceCut && node.position.end.offset === source.length;
+        if (
+          ((cut && !previewFenceIsSpec) ||
+            (cappedPreview &&
+              previewFenceCut === undefined &&
+              node.position.end.offset === source.length)) &&
+          !/[\r\n]/.test(raw)
+        ) {
+          // The prefix of an ordinary language tag can look like "spec".
+          node.lang = "text";
+          return;
+        }
+        const hasCloser = closedFence(raw, node.value ?? "");
+        const open = cut || !hasCloser;
+        const atEnd = (node.position.end.offset ?? 0) >= lastContent;
+        // A newline after a parsed closer proves its line was fully captured.
+        // A closer at the exact cutoff may still be a prefix of a longer line.
+        const atPreviewEnd =
+          cappedPreview &&
+          atEnd &&
+          (open ||
+            (previewFenceCut !== false &&
+              !/^[ \t]*[\r\n]/.test(source.slice(node.position.end.offset))));
+        if (open || atPreviewEnd)
+          node.data = {
+            ...node.data,
+            hProperties: {
+              ...node.data?.hProperties,
+              dataSpecOpen: open,
+              dataSpecCanGrow: open && atEnd,
+              dataSpecAtPreviewEnd: atPreviewEnd,
+              dataSpecLineMayContinue:
+                (open || atPreviewEnd) &&
+                atEnd &&
+                !hasCloser &&
+                !previewEndsAtLine &&
+                !/[\r\n][ \t]*$/.test(source),
+            },
+          };
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+type MdNode = {
+  type: string;
+  lang?: string | null;
+  value?: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  data?: { hProperties?: Record<string, unknown> };
+  children?: MdNode[];
+};
+// The parser includes literal fence-like lines in its code value and
+// excludes the real closer. Compare line counts so indentation is interpreted
+// by Markdown, including inside list items and quotes.
+function closedFence(raw: string, value: string) {
+  const lines = raw.split(/\r\n?|\n/);
+  if (lines.length < 2) return false;
+  const open = /^(`{3,}|~{3,})/.exec(raw)?.[1];
+  const close = /^[ \t>]*(`{3,}|~{3,})[ \t]*$/.exec(lines.at(-1)!)?.[1];
+  return (
+    !!open &&
+    !!close &&
+    close[0] === open[0] &&
+    close.length >= open.length &&
+    (value === "" || value.split(/\r\n?|\n/).length < lines.length - 1)
+  );
+}
+
+export const DisplayWritingContext = createContext(false);
+
 export function DisplaySpec({
   source,
   compact = false,
+  open = false,
+  canGrow = false,
+  omitSource = false,
+  lineMayContinue = false,
   markdown,
 }: {
   source: string;
   compact?: boolean;
+  // The fence has not closed.
+  open?: boolean;
+  canGrow?: boolean;
+  omitSource?: boolean;
+  lineMayContinue?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
-  const read = useMemo(() => readDisplaySpec(source), [source]);
+  const writing = useContext(DisplayWritingContext);
+  const live = open && canGrow && writing;
+  const incomplete = live || omitSource;
+  const read = useMemo(
+    () =>
+      readDisplaySpec(source, {
+        open: open || omitSource,
+        writing: incomplete,
+        finalLineIncomplete: incomplete && lineMayContinue,
+      }),
+    [source, open, omitSource, incomplete, lineMayContinue],
+  );
+  // While written, a block with no root element yet shows a short line, not
+  // its source; a finished answer never does.
+  if (
+    !read.ok &&
+    live &&
+    (read.reason === "empty" ||
+      read.reason === "no_root" ||
+      read.reason === "missing_root")
+  )
+    return (
+      <p className="note display-loading" role="status">
+        Display loading…
+      </p>
+    );
+  if (!read.ok && live)
+    return <p className="note">This display could not be drawn yet.</p>;
+  if (!read.ok && omitSource)
+    return <p className="note">Open the conversation to see this display.</p>;
   if (!read.ok) {
     const shown = source.replace(/\n$/, "");
     return (
@@ -45,6 +197,9 @@ export function DisplaySpec({
   }
   return (
     <div className="display-spec">
+      {open && !live && !omitSource && read.skippedCount > 0 && (
+        <p className="note">Some display updates could not be applied.</p>
+      )}
       <DisplayNodeView
         node={read.root}
         context={{ markdown, compact }}
@@ -63,14 +218,22 @@ function Children({
   context: Context;
   level: number;
 }) {
-  return nodes.map((child, index) => (
-    <DisplayNodeView
-      key={`${index}:${child.key}`}
-      node={child}
-      context={context}
-      level={level + 1}
-    />
-  ));
+  // Keys come from element keys, so a display that grows while it is
+  // written keeps every drawn element in place. A key listed twice is
+  // told apart by how many times it appeared before.
+  const seen = new Map<string, number>();
+  return nodes.map((child) => {
+    const occurrence = seen.get(child.key) ?? 0;
+    seen.set(child.key, occurrence + 1);
+    return (
+      <DisplayNodeView
+        key={`${child.key}#${occurrence}`}
+        node={child}
+        context={context}
+        level={level + 1}
+      />
+    );
+  });
 }
 
 function DisplayNodeView({

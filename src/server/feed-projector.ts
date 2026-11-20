@@ -40,10 +40,7 @@ function threadDisplayRow(row: SourceRow): SourceRow {
     card_title:
       (row.card_run_input?.length ?? 0) > 1000 ? feedCardTitle(row) : undefined,
     card_run_input: row.card_run_input?.slice(0, 1000) ?? null,
-    message_content:
-      row.message_content === null
-        ? null
-        : feedMessagePrefix(row.message_content),
+    ...feedMessagePrefix(row.message_content),
     message_metadata: null,
   };
 }
@@ -189,6 +186,9 @@ export function projectFeed(db: Database.Database, emit: Emit) {
           {
             ...r,
             message_content: r.message_content?.slice(0, 4000) ?? null,
+            ...((r.message_content?.length ?? 0) > 4000
+              ? { message_content_truncated: true }
+              : {}),
             pending_approvals: approvals.length,
             approval_id: approvals[0]?.id ?? null,
             approval_run_id: approvals[0]?.run_id ?? null,

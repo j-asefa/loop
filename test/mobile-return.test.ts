@@ -1296,6 +1296,44 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   ).toEqual({ feed_hidden: 0 });
 });
 
+it("marks full Done-card display content as complete at the feed cap", async () => {
+  const { doneCards } = await import("../src/server/done-cards");
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Full display");
+  const completed = run(w.owner, a.id, cid, "completed");
+  const body =
+    "x".repeat(1000) + "\n\n```spec\n" + '{"op":"add","path":"/root"';
+  message(w.owner, cid, "assistant", body, completed);
+  await api(w.owner, "/feed?filter=done");
+  const entry = doneCards(w.owner, {
+    folders: null,
+    teamIds: [],
+    limit: 10,
+  }).find(
+    ({ card }) => card.type === "done" && card.display.conversation_id === cid,
+  );
+  expect(entry?.card).toMatchObject({
+    type: "done",
+    display: { last_message: { content: body, content_truncated: false } },
+  });
+});
+
+it("marks an exact-length Done feed preview as complete", async () => {
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Exact Done preview");
+  const completed = run(w.owner, a.id, cid, "completed");
+  const body = "🧪".repeat(1000);
+  message(w.owner, cid, "assistant", body, completed);
+  const response = await api(w.owner, "/feed?filter=done");
+  expect(
+    response.data.items.find(
+      (item: { conversation_id: string }) => item.conversation_id === cid,
+    )?.last_message,
+  ).toMatchObject({ content: body, content_truncated: false });
+});
+
 it("counts unread Done results and marks only the opened result read", async () => {
   const { doneCards } = await import("../src/server/done-cards");
   const w = workspaceFor(),
@@ -1586,6 +1624,31 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
   expect((await card("done")).title).toBe(title);
 });
 
+it("reports exact truncation through the thread feed projection", async () => {
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Bounded preview");
+  const live = run(w.owner, a.id, cid, "running");
+  const exact = "🧪".repeat(1000);
+  const id = message(w.owner, cid, "assistant", exact, live);
+  const card = async () =>
+    (await api(w.owner, "/feed?filter=all")).data.items.find(
+      (item: { conversation_id: string }) => item.conversation_id === cid,
+    );
+  expect((await card()).last_message).toMatchObject({
+    content: exact,
+    content_truncated: false,
+  });
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+    exact + " more",
+    id,
+  );
+  expect((await card()).last_message).toMatchObject({
+    content: exact,
+    content_truncated: true,
+  });
+});
+
 it("shows a working agent's output so far on its feed card", async () => {
   const w = workspaceFor(),
     a = w.agent(),
@@ -1618,6 +1681,19 @@ it("shows a working agent's output so far on its feed card", async () => {
   expect((await card()).live_preview).toBe(
     "Reading the diff and checking the queue changes.",
   );
+  const limit = "x".repeat(4000);
+  for (const [content, truncated] of [
+    [limit, false],
+    [limit + "x", true],
+  ] as const) {
+    recordConversationUpdate(ownedRun(live, w.owner) as any, "update-1", {
+      content,
+    });
+    expect(await card()).toMatchObject({
+      live_preview: limit,
+      live_preview_truncated: truncated,
+    });
+  }
   // A finished run shows its last message instead.
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(live);
   expect((await card()).live_preview).toBeNull();

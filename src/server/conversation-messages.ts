@@ -60,6 +60,13 @@ export function conversationMessages(
   const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
   if (hasMore) items.pop();
   return {
+    latest_progress_messages: transcriptQueries
+      .latestProgressMessages(db, owner, conversation)
+      .map((entry) => ({
+        run_id: entry.run_id,
+        id: entry.id,
+        cursor: position(entry),
+      })),
     next: hasMore ? encode(position(items.at(-1)!)) : null,
     range: {
       from: hasMore ? position(items.at(-1)!) : ([0, 0, 0] as Position),

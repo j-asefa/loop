@@ -58,6 +58,16 @@ it("shows the matching passage instead of the repeated title or beginning of a l
   ).toBe("Read the guide for details.");
 });
 
+it("preserves a word that starts with the title after removing a display", () => {
+  expect(
+    searchExcerpt(
+      "```spec\n{}\n```\nDeployment succeeded.",
+      "Deploy",
+      "deployment",
+    ),
+  ).toBe("Deployment succeeded.");
+});
+
 it("preserves searchable identifiers and starts at a word before the earliest match", () => {
   const prefix = "background ".repeat(40);
   const result = searchExcerpt(

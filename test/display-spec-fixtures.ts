@@ -17,6 +17,9 @@ export type DisplayFixture = {
   expect: { outline: string[] } | { fails: DisplayFailure };
   // Lines the reader skipped. Omitted means none.
   skipped?: number;
+  // A block whose fence has not closed: still being written, or final (its
+  // run ended mid-block). Omitted means closed.
+  open?: "writing" | "final";
 };
 
 export function outline(node: DisplayNode, depth = 0): string[] {
@@ -1066,6 +1069,56 @@ export const displayFixtures: DisplayFixture[] = [
         '  Table headers=["a"] align=["left"] caption=null rows=1 first=["1"] last=["1"]',
       ],
     },
+  },
+  // ---- PR 3: blocks whose fence has not closed ----------------------------
+  {
+    name: "an open block with nothing written yet",
+    source: "",
+    open: "writing",
+    expect: { fails: "empty" },
+  },
+  {
+    name: "an open block with only its root line",
+    source: lines(root("card")),
+    open: "writing",
+    expect: { fails: "missing_root" },
+  },
+  {
+    name: "an open block ending in half a line",
+    source:
+      lines(
+        root("card"),
+        element("card", "Card", { title: "Weekly" }, ["a", "b"]),
+        element("a", "Field", { label: "Deploys", value: 12 }),
+      ) + '\n{"op":"add","path":"/elements/b","value":{"type":"Fi',
+    open: "writing",
+    expect: { outline: ['Card title="Weekly"', '  Field "Deploys"="12"'] },
+  },
+  {
+    name: "an open block cut mid-element after its run ended",
+    source:
+      lines(
+        root("card"),
+        element("card", "Card", { title: "Weekly" }, ["a", "b"]),
+        element("a", "Field", { label: "Deploys", value: 12 }),
+      ) + '\n{"op":"add","path":"/elements/b","value":{"type":"Fi',
+    open: "final",
+    skipped: 1,
+    expect: {
+      outline: [
+        'Card title="Weekly"',
+        '  Field "Deploys"="12"',
+        "  !Element invalid",
+      ],
+    },
+  },
+  {
+    name: "an open block's half line is not skipped, an earlier bad line is",
+    source:
+      lines(root("d")) + "\nnot json\n" + '{"op":"add","path":"/elements/d"',
+    open: "writing",
+    expect: { fails: "missing_root" },
+    skipped: 1,
   },
 ];
 

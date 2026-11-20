@@ -63,7 +63,13 @@ import {
   type CardDragSession,
 } from "./useDoneCardGestures";
 import type { CardWindow } from "./card-pager";
-import { compareCardOrder, type Card, type CardEntry } from "../shared/cards";
+import {
+  LIVE_PREVIEW_LIMIT,
+  FEED_MESSAGE_PREFIX_LIMIT,
+  compareCardOrder,
+  type Card,
+  type CardEntry,
+} from "../shared/cards";
 import { CardBody } from "./ContentCard";
 import {
   SourceProvider,
@@ -350,6 +356,10 @@ function FeedCard({
     !!item.live_preview,
     !!awaitingUpdate,
   ]);
+  const messagePreviewCapped =
+    item.last_message?.content_truncated ??
+    Array.from(item.last_message?.content ?? "").length >=
+      FEED_MESSAGE_PREFIX_LIMIT;
   const content =
     item.live_preview ||
     (awaitingUpdate
@@ -357,6 +367,9 @@ function FeedCard({
       : message?.id === messageId
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
+  const previewAtLimit =
+    item.live_preview_truncated ??
+    (item.live_preview?.length ?? 0) >= LIVE_PREVIEW_LIMIT;
   const openReading = () => {
     if (onSelect) {
       onSelect();
@@ -522,7 +535,16 @@ function FeedCard({
           {detail && <p className="field-hint feed-detail">{detail}</p>}
           {item.live_preview ? (
             <div className="preview live-preview">
-              <RichText content={item.live_preview} compact />
+              {/* live_preview is only set while the run works. */}
+              <RichText
+                content={item.live_preview}
+                compact
+                writing
+                cappedPreview={previewAtLimit}
+                previewEndsAtLine={item.live_preview_ends_at_line}
+                previewFenceIsSpec={item.live_preview_fence_spec}
+                previewFenceCut={item.live_preview_fence_cut ?? false}
+              />
             </div>
           ) : item.run &&
             WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -565,6 +587,7 @@ function FeedCard({
                     content={
                       item.last_message!.content ?? item.last_message!.preview
                     }
+                    cappedPreview={messagePreviewCapped}
                     compact
                   />
                 )}
@@ -717,7 +740,24 @@ function FeedCard({
                     item.card ? (
                       <CardBody card={item.card} />
                     ) : (
-                      <RichText content={content} />
+                      <RichText
+                        content={content}
+                        previewEndsAtLine={item.live_preview_ends_at_line}
+                        previewFenceIsSpec={item.live_preview_fence_spec}
+                        previewFenceCut={
+                          item.live_preview
+                            ? (item.live_preview_fence_cut ?? false)
+                            : undefined
+                        }
+                        cappedPreview={
+                          item.live_preview
+                            ? previewAtLimit
+                            : message?.id !== messageId && messagePreviewCapped
+                        }
+                        writing={
+                          !!item.live_preview && content === item.live_preview
+                        }
+                      />
                     )
                   ) : (
                     <p className="field-hint">
@@ -738,7 +778,7 @@ function FeedCard({
                     </button>
                   </ErrorNotice>
                 )}
-                {item.live_preview && item.live_preview.length >= 4000 && (
+                {previewAtLimit && (
                   <button
                     className="text-button"
                     onClick={() => leaveReading(onOpen)}

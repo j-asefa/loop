@@ -1,3 +1,4 @@
+import { FEED_MESSAGE_PREFIX_LIMIT } from "../shared/cards.js";
 import { z } from "zod";
 import { collapse } from "./collapse.js";
 import { ResultDefectKindSchema } from "../shared/result.js";
@@ -43,6 +44,7 @@ export type FeedRow = {
   message_id: string | null;
   message_role: string | null;
   message_content: string | null;
+  message_content_truncated?: boolean;
   message_metadata: string | null;
   message_created_at: number | null;
   message_automation: string | null;
@@ -82,6 +84,10 @@ export type FeedCardDetail = {
     can_move_down: boolean;
   }[];
   live_preview: string | null;
+  live_preview_truncated?: boolean;
+  live_preview_ends_at_line?: boolean;
+  live_preview_fence_cut: boolean;
+  live_preview_fence_spec?: boolean;
 };
 export function feedCardTitle(
   row: Pick<
@@ -94,15 +100,24 @@ export function feedCardTitle(
     ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title)
   );
 }
-export function feedMessagePrefix(text: string) {
+export function feedMessagePrefix(
+  text: string | null,
+): Pick<FeedRow, "message_content" | "message_content_truncated"> {
   // Match SQLite substr: its limit counts Unicode code points, not UTF-16.
+  if (text === null) return { message_content: null };
   let value = "",
     count = 0;
   for (const point of text) {
-    if (count++ === 1000) break;
+    if (count++ === FEED_MESSAGE_PREFIX_LIMIT)
+      return { message_content: value, message_content_truncated: true };
     value += point;
   }
-  return value;
+  return {
+    message_content: value,
+    ...(count === FEED_MESSAGE_PREFIX_LIMIT
+      ? { message_content_truncated: false }
+      : {}),
+  };
 }
 export function displayFeedCard(
   detail: FeedCardDetail,
@@ -165,6 +180,14 @@ export function displayFeedCard(
           preview: collapse(message.content, 200),
           // Markdown for full-size Feed cards; the card clips it visually.
           content: message.content.slice(0, 4000),
+          ...(message.content.length > 4000 ||
+          row.message_content_truncated !== undefined
+            ? {
+                content_truncated:
+                  message.content.length > 4000 ||
+                  row.message_content_truncated === true,
+              }
+            : {}),
           created_at: message.created_at,
           // So the card's menu offers Save or Remove from Saved, as the
           // thread and the result card already do.
@@ -203,6 +226,20 @@ export function displayFeedCard(
       run && STARTED_RUN_DISPLAY_STATES.includes(run.state)
         ? detail.live_preview
         : null,
+    ...(run &&
+    STARTED_RUN_DISPLAY_STATES.includes(run.state) &&
+    detail.live_preview_truncated !== undefined
+      ? {
+          live_preview_truncated: detail.live_preview_truncated,
+          live_preview_ends_at_line: detail.live_preview_ends_at_line,
+          live_preview_fence_spec: detail.live_preview_fence_spec || undefined,
+        }
+      : {}),
+    ...(run &&
+    STARTED_RUN_DISPLAY_STATES.includes(run.state) &&
+    detail.live_preview_fence_cut
+      ? { live_preview_fence_cut: true }
+      : {}),
     pending_approvals: mode === "done" ? 0 : row.pending_approvals,
     position_message_id: row.position_message_id,
     later: row.later_id

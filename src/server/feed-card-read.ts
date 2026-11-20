@@ -1,3 +1,4 @@
+import { FEED_MESSAGE_PREFIX_LIMIT } from "../shared/cards.js";
 import * as feedCardsQueries from "./sql/feed-cards.js";
 import * as feedCardDirtyQueries from "./sql/feed-card-dirty.js";
 import type Database from "better-sqlite3";
@@ -76,16 +77,34 @@ function display(
   row.approval_run_id = mode === "done" ? null : (approvals[0]?.run_id ?? null);
   row.approval_message_id =
     mode === "done" ? null : (approvals[0]?.message_id ?? null);
-  if (!full && row.message_content !== null)
-    row.message_content = feedMessagePrefix(row.message_content);
+  if (!full && row.message_content !== null) {
+    const prefix = feedMessagePrefix(row.message_content);
+    row.message_content = prefix.message_content;
+    // Older thread rows may already have been clipped at the prefix limit.
+    // Done rows use a larger storage limit, so exact prefixes are known.
+    if (
+      row.message_content_truncated !== undefined ||
+      prefix.message_content_truncated ||
+      (mode === "done" && prefix.message_content_truncated === false)
+    )
+      row.message_content_truncated =
+        row.message_content_truncated === true ||
+        prefix.message_content_truncated === true;
+  }
   const detail = {
     ...card.detail,
     pull: currentPull(thread.thread!.watches, Date.now()),
     queued_runs: thread.thread!.queued_runs,
   };
   const item = displayFeedCard(detail, row, mode);
-  if (full && item.last_message)
+  if (full && item.last_message) {
     item.last_message.content = row.message_content!;
+    item.last_message.content_truncated =
+      row.message_content_truncated ??
+      (item.last_message.content.length >= FEED_MESSAGE_PREFIX_LIMIT
+        ? false
+        : undefined);
+  }
   return { row, display: item };
 }
 

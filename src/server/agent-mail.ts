@@ -2,6 +2,7 @@ import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
+import { dropSpecBlocks } from "../shared/text.js";
 import * as agentsQueries from "./sql/agents.js";
 import { assertCompatibleMemoryContext } from "./memory.js";
 import * as teamsQueries from "./sql/teams.js";
@@ -1836,7 +1837,8 @@ export function publicMailMessage(mail: Mail) {
     kind: mail.kind,
     from: mail.sender_agent_id,
     to: mail.recipient_agent_id,
-    preview: mail.body.slice(0, 600),
+    // Shown as plain text: a display's JSON source is dropped (D11).
+    preview: dropSpecBlocks(mail.body).slice(0, 600),
     created_at: mail.created_at,
     status: statusOf(mail),
     error: mail.error,

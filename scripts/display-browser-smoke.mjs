@@ -5,10 +5,17 @@
 // hiding the answer; and that a display never overflows a 320 or 390px phone
 // (wide tables scroll inside it). Charts: each type is drawn as a named SVG
 // that fits the phone, category labels do not overlap, and the numbers are in
-// a table under the chart. Set LOOP_SCREENSHOT_DIR to save light and
+// a table under the chart. While a run works, the Working card draws an open
+// block as far as it is written ("Display loading…", then part, then all),
+// never shows its JSON, keeps the conversation link when the text is cut at
+// 4,000 characters, and the finished run's Done card shows the whole display.
+// Fixture writes drive the mounted completion check; earlier progress uses
+// reloads. Set
+// LOOP_SCREENSHOT_DIR to save light and
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { smokeScreenshotDirectory } from "./helpers/smoke-diagnostics.mjs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -157,6 +164,18 @@ const shots = smokeScreenshotDirectory("LOOP_DISPLAY_SCREENSHOT_DIR", {
   ciDefault: false,
 });
 const answer = `Here is the report.\n\n${display}\n\nTell me if you want more detail.`;
+// One answer at three points while it is written: the root only, half the
+// elements (the last line cut mid-way), and the whole closed block.
+const written = display.slice("```spec\n".length, -"\n```".length).split("\n");
+const intro = "Here is the report.\n\n```spec\n";
+const writingSteps = [
+  ["loading", intro + written[0] + "\n" + written[1].slice(0, 30)],
+  [
+    "partial",
+    intro + written.slice(0, 6).join("\n") + "\n" + written[6].slice(0, 25),
+  ],
+  ["complete", answer],
+];
 const broken = `Before the block.\n\n${fence(patch(add("orphan", { type: "Divider" })))}\n\nAfter the block.`;
 
 for (const engine of selectedEngines()) {
@@ -305,6 +324,523 @@ for (const engine of selectedEngines()) {
         page.locator("dialog.feed-reading-sheet[open] .display-spec"),
       ).toHaveCount(1);
 
+      // A display drawn while it is written, then finished.
+      const workingCard = () =>
+        page
+          .locator(".feed-results .feed-item-card")
+          .filter({ hasText: working.title });
+      for (const [step, text] of writingSteps) {
+        update(working, text);
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        const live = workingCard().locator(".live-preview");
+        await expect(live).toBeVisible();
+        if (step === "loading") {
+          await expect(live.locator(".display-loading")).toHaveText(
+            "Display loading…",
+          );
+          await expect(live.locator(".display-spec")).toHaveCount(0);
+        } else {
+          await expect(live.locator(".display-spec")).toHaveCount(1);
+          await expect(live.locator(".display-title")).toHaveText(
+            "Weekly deploys",
+          );
+          await expect(live.locator(".display-loading")).toHaveCount(0);
+        }
+        if (step === "partial") {
+          await expect(live.locator(".display-field")).toHaveCount(2);
+          await expect(live.locator(".display-placeholder")).toHaveCount(0);
+          await expect(live.locator(".table-scroll")).toHaveCount(0);
+        }
+        if (step === "complete")
+          await expect(live.locator(".display-link-button")).toHaveText(
+            "Open dashboard",
+          );
+        const shown = await workingCard().innerText();
+        assert(!shown.includes('{"op"'), `Working card showed JSON (${step})`);
+        assert(!shown.includes("could not be drawn"), step);
+        if (shots)
+          for (const scheme of ["light", "dark"]) {
+            await page.emulateMedia({ colorScheme: scheme });
+            await workingCard().screenshot({
+              path: join(
+                shots,
+                `${engine.name()}-working-${step}-${scheme}.png`,
+              ),
+            });
+          }
+        await page.emulateMedia({ colorScheme: "light" });
+      }
+      update(working, "    ```spec\n    An indented code example");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview pre")).toContainText(
+        "An indented code example",
+      );
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+
+      // The reading sheet and the conversation draw the open block the same
+      // way while the run works.
+      update(working, writingSteps[1][1]);
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      const workingSheet = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(workingSheet.locator(".display-field")).toHaveCount(2);
+      await expect(workingSheet.locator(".display-placeholder")).toHaveCount(0);
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      const workingThread = page.locator("dialog.conversation-sheet[open]");
+      await expect(
+        workingThread.locator(".message .display-field"),
+      ).toHaveCount(2);
+      await expect(
+        workingThread.locator(".message .display-placeholder"),
+      ).toHaveCount(0);
+
+      // Cut at 4,000 characters: drawn as an open block, with the link on.
+      const long =
+        "Background. ".repeat(320) +
+        "\n\n" +
+        answer.replace("Here is the report.\n\n", "");
+      update(working, long);
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      const cutSheet = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+      assert(!(await cutSheet.innerText()).includes('{"op"'));
+      assert(!(await cutSheet.innerText()).includes("could not be drawn"));
+
+      // A cap that cuts off the suffix of a fence-like content line
+      // must not turn it into an apparent closing fence.
+      const rootOnly =
+        "```spec\n" +
+        patch({
+          op: "add",
+          path: "/root",
+          value: "pending",
+        }) +
+        "\n";
+      update(
+        working,
+        rootOnly + " ".repeat(4000 - rootOnly.length - 4) + "\n```draft",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+      await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
+
+      const genuineCloser =
+        rootOnly + " ".repeat(4000 - rootOnly.length - 4) + "\n```";
+      for (const full of [
+        genuineCloser,
+        genuineCloser + "\nAfter.",
+        genuineCloser + "`",
+      ]) {
+        update(working, full);
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        await expect(workingCard().locator(".live-preview")).toContainText(
+          "This display could not be drawn.",
+        );
+        await workingCard().locator(".feed-row").click();
+        await expect(cutSheet).toContainText(
+          "This display could not be drawn.",
+        );
+      }
+
+      // The preview cap can keep only three of a four-backtick closer.
+      // The Working preview stays open until the full answer is opened.
+      const fourBacktickRoot = "`" + rootOnly;
+      update(
+        working,
+        fourBacktickRoot +
+          " ".repeat(4000 - fourBacktickRoot.length - 4) +
+          "\n````",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+
+      // A nonbreaking space keeps a delimiter-like line inside the fence.
+      update(working, rootOnly + "```\u00a0");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
+
+      update(working, "\n".repeat(3999) + "Deployment succeeded.");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "Deployment succeeded.",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet).toContainText("Deployment succeeded.");
+
+      update(working, " ".repeat(4000) + "Visible after whitespace.");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview pre")).toContainText(
+        "Visible after whitespace.",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator("pre")).toContainText(
+        "Visible after whitespace.",
+      );
+
+      update(
+        working,
+        "\u00a0" + " ".repeat(3999) + "Ready after unicode spaces.",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "Ready after unicode spaces.",
+      );
+
+      update(working, "\u00a0" + " ".repeat(3999) + "```spec");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "```spec",
+      );
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+
+      for (const [clipped, remainder] of [
+        ["```spec", "imen\nordinary example"],
+        ["```spec", " example `invalid"],
+        ["```spec note\u2028", "`invalid"],
+        ["```spec", " " + "x".repeat(4000) + "`invalid"],
+        ["```spec", " " + "x".repeat(4001) + "\n"],
+      ]) {
+        const prose = "Text. " + "x".repeat(4000 - 8 - clipped.length) + "\n\n";
+        update(working, prose + clipped + remainder);
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        await expect(
+          workingCard().locator(".live-preview code.language-text"),
+        ).toHaveCount(1);
+        await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+        await workingCard().locator(".feed-row").click();
+        await expect(cutSheet.locator("code.language-text")).toHaveCount(1);
+        await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
+      }
+
+      // A complete-looking patch at the cap can still have an invalid suffix.
+      const replacement = fence(
+        patch(
+          { op: "add", path: "/root", value: "card" },
+          add("card", { type: "Card", props: { title: "Earlier title" } }),
+          {
+            op: "replace",
+            path: "/elements/card",
+            value: { type: "Card", props: { title: "Clipped title" } },
+          },
+        ),
+      ).slice(0, -4);
+      const padded =
+        "Text. " +
+        "x".repeat(4000 - 8 - replacement.length) +
+        "\n\n" +
+        replacement;
+      update(working, padded + " invalid\n```");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".display-title")).toHaveText(
+        "Earlier title",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator(".display-title")).toHaveText(
+        "Earlier title",
+      );
+      update(working, padded + "\n```");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".display-title")).toHaveText(
+        "Clipped title",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator(".display-title")).toHaveText(
+        "Clipped title",
+      );
+
+      // The renderer recognizes both forms of whitespace in the language token.
+      for (const [encodedOpener, continuation] of [
+        ["```spec", "&#32;extra"],
+        ["```spec", "\u00a0extra"],
+        ["```sp", "ec"],
+        ["```", "spec"],
+        ["```", "`spec"],
+        ["~~~", "~spec"],
+        ["- ```", "spec"],
+      ]) {
+        update(
+          working,
+          "Text. " +
+            "x".repeat(4000 - 8 - encodedOpener.length) +
+            "\n\n" +
+            encodedOpener +
+            continuation +
+            "\n",
+        );
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        await expect(workingCard().getByText("Display loading…")).toBeVisible();
+        await workingCard().locator(".feed-row").click();
+        await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      }
+      const ordinaryFenceAtCut = "```javascript\n```";
+      update(
+        working,
+        "Text. " +
+          "x".repeat(4000 - 8 - ordinaryFenceAtCut.length) +
+          "\n\n" +
+          ordinaryFenceAtCut +
+          "spec\nordinary code\n```",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(
+        workingCard().locator(".live-preview code.language-javascript"),
+      ).toHaveCount(1);
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator("code.language-javascript")).toHaveCount(1);
+      await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
+
+      // Earlier progress messages are final while the latest is still growing.
+      const progress = fixture.db.prepare(
+        "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) SELECT ?,owner_id,conversation_id,run_id,'assistant',?,?,created_at+? FROM messages WHERE run_id=? AND role='assistant' ORDER BY created_at LIMIT 1",
+      );
+      const earlierUpdate = randomUUID();
+      const currentUpdate = randomUUID();
+      progress.run(
+        earlierUpdate,
+        "Earlier update.\n\n" + rootOnly,
+        '{"progress":true}',
+        1,
+        working.run,
+      );
+      progress.run(
+        currentUpdate,
+        "Current update.\n\n" + rootOnly,
+        '{"progress":true}',
+        2,
+        working.run,
+      );
+      // Move an older fixture prompt into this conversation while retaining
+      // its earlier transcript sequence, independent of the active run.
+      const priorPrompt = fixture.db
+        .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
+        .get(done.run).id;
+      fixture.db
+        .prepare(
+          "UPDATE messages SET conversation_id=?,run_id=NULL,content=? WHERE id=?",
+        )
+        .run(working.id, "Earlier fixture prompt.", priorPrompt);
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      const updates = workingThread.locator(".agent-progress");
+      await expect(
+        updates.filter({ hasText: "Earlier update." }),
+      ).toContainText("This display could not be drawn.");
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      const transcriptPath = `/api/conversations/${working.id}`;
+      const recoveryRead = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === transcriptPath &&
+          url.searchParams.get("message") === priorPrompt
+        );
+      });
+      // A non-append replacement beyond the event budget forces a recovery
+      // read of this older message while the live progress row is retained.
+      fixture.db
+        .prepare("UPDATE messages SET content=? WHERE id=?")
+        .run("Recovered earlier prompt. " + "x".repeat(70_000), priorPrompt);
+      const recoveryPage = await (await recoveryRead).json();
+      assert.deepEqual(
+        recoveryPage.latest_progress_messages.map(({ id }) => id),
+        [currentUpdate],
+      );
+      await expect(
+        workingThread.getByText(/Recovered earlier prompt/),
+      ).toBeVisible();
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      fixture.db
+        .prepare(
+          "UPDATE messages SET conversation_id=?,run_id=?,content=? WHERE id=?",
+        )
+        .run(done.id, done.run, done.title, priorPrompt);
+      for (const [anchor, label, displayState] of [
+        [earlierUpdate, "Earlier update.", "This display could not be drawn."],
+        [currentUpdate, "Current update.", "Display loading…"],
+      ]) {
+        const anchoredRead = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === transcriptPath &&
+            url.searchParams.get("message") === anchor
+          );
+        });
+        // Observe the anchored snapshot before the tail recovery read.
+        await page.route(
+          (url) =>
+            url.pathname === transcriptPath &&
+            url.searchParams.get("message") !== anchor,
+          (route) => route.abort(),
+        );
+        await page.goto(
+          `${fixture.base}/?conversation=${working.id}&message=${anchor}`,
+          { waitUntil: "domcontentloaded" },
+        );
+        const anchoredPage = await (await anchoredRead).json();
+        assert(anchoredPage.messages.some((message) => message.id === anchor));
+        assert.equal(
+          anchoredPage.messages.some((message) => message.id === currentUpdate),
+          anchor === currentUpdate,
+        );
+        assert.notEqual(anchoredPage.latest_agent_message.id, currentUpdate);
+        await expect(updates.filter({ hasText: label })).toContainText(
+          displayState,
+        );
+        if (anchor === currentUpdate)
+          await expect(
+            updates.filter({ hasText: label }).locator("code.language-spec"),
+          ).toHaveCount(0);
+        await page.unrouteAll({ behavior: "wait" });
+      }
+      // New progress sorts before the ordinary answer, so an answer anchor
+      // can absorb it through events without fetching a newer page.
+      const answerAnchor = fixture.db
+        .prepare(
+          "SELECT id FROM messages WHERE run_id=? AND role='assistant' AND json_extract(metadata,'$.progress') IS NOT 1",
+        )
+        .get(working.run).id;
+      await page.route(
+        (url) =>
+          url.pathname === transcriptPath &&
+          url.searchParams.get("message") !== answerAnchor,
+        (route) => route.abort(),
+      );
+      await page.goto(
+        `${fixture.base}/?conversation=${working.id}&message=${answerAnchor}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      const newerUpdate = randomUUID();
+      progress.run(
+        newerUpdate,
+        "Newer live update.\n\n" + rootOnly,
+        '{"progress":true}',
+        3,
+        working.run,
+      );
+      await expect(
+        updates.filter({ hasText: "Newer live update." }),
+      ).toContainText("Display loading…");
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("This display could not be drawn.");
+      await page.unrouteAll({ behavior: "wait" });
+      fixture.db
+        .prepare("DELETE FROM messages WHERE id IN (?, ?, ?)")
+        .run(earlierUpdate, currentUpdate, newerUpdate);
+
+      // Keep the conversation mounted while a run with a chart finishes.
+      // The incomplete block proves the writing state reached this view.
+      update(
+        working,
+        `${charts}\n\n\`\`\`spec\n${patch({
+          op: "add",
+          path: "/root",
+          value: "pending",
+        })}`,
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await workingCard().locator(".feed-row").click();
+      await workingSheet
+        .getByRole("button", { name: "Reply", exact: true })
+        .click();
+      await expect(workingThread.getByText("Display loading…")).toBeVisible();
+      const disclosure = workingThread
+        .locator(".display-chart-numbers")
+        .first();
+      await disclosure.locator("summary").click();
+      await expect(disclosure).toHaveAttribute("open", "");
+      fixture.db
+        .prepare("UPDATE runs SET state='completed' WHERE id=?")
+        .run(working.run);
+      await expect(
+        workingThread.getByText(
+          "This display could not be drawn. Its source is below.",
+        ),
+      ).toBeVisible();
+      await expect(disclosure).toHaveAttribute("open", "");
+
+      // The run's Done card shows the full fixture answer after sealing.
+      seal(working, answer);
+      await page.goto(fixture.base, { waitUntil: "networkidle" });
+      const finished = page
+        .locator(".feed-results .feed-item-card")
+        .filter({ hasText: working.title });
+      await expect(finished.locator(".display-spec")).toHaveCount(1);
+      await expect(finished.locator(".display-loading")).toHaveCount(0);
+      if (shots)
+        for (const scheme of ["light", "dark"]) {
+          await page.emulateMedia({ colorScheme: scheme });
+          await finished.screenshot({
+            path: join(shots, `${engine.name()}-finished-done-${scheme}.png`),
+          });
+        }
+      await page.emulateMedia({ colorScheme: "light" });
+
       // Charts: each type drawn as a named SVG that fits the phone, with its
       // numbers in a table.
       seal(done, chartAnswer);
@@ -425,7 +961,7 @@ for (const engine of selectedEngines()) {
       assert.deepEqual(errors, []);
       await context.close();
       console.log(
-        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, charts, source fallback and 320/390px overflow passed`,
+        `${engine.name()}: displays in Done and Working cards, reader and conversation, degraded elements, displays while written, charts, source fallback and 320/390px overflow passed`,
       );
     } finally {
       await closeBrowser();

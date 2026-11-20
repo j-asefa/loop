@@ -12,7 +12,11 @@ import { Avatar } from "./Avatar";
 import type { ResultCard } from "../shared/cards";
 import { Chart } from "./Chart";
 import { Diagram } from "./Diagram";
-import { DisplaySpec } from "./DisplaySpec";
+import {
+  DisplaySpec,
+  DisplayWritingContext,
+  markOpenSpecFences,
+} from "./DisplaySpec";
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
@@ -210,10 +214,22 @@ export const RichText = memo(function RichText({
   content,
   diagrams = true,
   compact = false,
+  writing = false,
+  previewFenceCut,
+  previewEndsAtLine,
+  previewFenceIsSpec,
+  cappedPreview = false,
 }: {
   content: string;
   diagrams?: boolean;
   compact?: boolean;
+  // The content is an answer still being written (its run is working): an
+  // unclosed display grows as lines arrive instead of being final.
+  writing?: boolean;
+  previewFenceCut?: boolean;
+  previewEndsAtLine?: boolean;
+  previewFenceIsSpec?: boolean;
+  cappedPreview?: boolean;
 }) {
   const sourceId = useSourceId();
   const math = useMarkdownMath(content);
@@ -260,6 +276,12 @@ export const RichText = memo(function RichText({
                 .join("")
                 .replace(/\n$/, "")}
               compact={compact}
+              open={code.properties?.dataSpecOpen === true}
+              canGrow={code.properties?.dataSpecCanGrow === true}
+              omitSource={code.properties?.dataSpecAtPreviewEnd === true}
+              lineMayContinue={
+                code.properties?.dataSpecLineMayContinue === true
+              }
               markdown={(content) => (
                 <RichText
                   content={content}
@@ -299,24 +321,42 @@ export const RichText = memo(function RichText({
   );
   return (
     <div className="markdown">
-      <Markdown
-        remarkPlugins={[
-          remarkGfm,
-          ...(math?.remark || []),
-          ...(compact
-            ? [
-                [compactMarkdown, { displays: diagrams }] as [
-                  typeof compactMarkdown,
-                  { displays: boolean },
-                ],
-              ]
-            : []),
-        ]}
-        rehypePlugins={math?.rehype}
-        components={renderers}
-      >
-        {content}
-      </Markdown>
+      <DisplayWritingContext.Provider value={writing}>
+        <Markdown
+          remarkPlugins={[
+            remarkGfm,
+            ...(diagrams
+              ? [
+                  [
+                    markOpenSpecFences,
+                    {
+                      previewFenceCut,
+                      cappedPreview,
+                      previewEndsAtLine,
+                      previewFenceIsSpec,
+                    },
+                  ] as [
+                    typeof markOpenSpecFences,
+                    Parameters<typeof markOpenSpecFences>[0],
+                  ],
+                ]
+              : []),
+            ...(math?.remark || []),
+            ...(compact
+              ? [
+                  [compactMarkdown, { displays: diagrams }] as [
+                    typeof compactMarkdown,
+                    { displays: boolean },
+                  ],
+                ]
+              : []),
+          ]}
+          rehypePlugins={math?.rehype}
+          components={renderers}
+        >
+          {content}
+        </Markdown>
+      </DisplayWritingContext.Provider>
     </div>
   );
 });

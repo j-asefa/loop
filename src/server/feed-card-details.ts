@@ -1,3 +1,5 @@
+import { LIVE_PREVIEW_LIMIT } from "../shared/cards.js";
+import { isDisplayFenceToken } from "../shared/text.js";
 import { STARTED_RUN_STATES } from "../shared/run-state.js";
 import { canSwapQueuedRuns, editableQueuedRun } from "./queued-run-policy.js";
 import { runPreview } from "./run-preview.js";
@@ -85,6 +87,7 @@ export function runDetails(
     pull: null,
     queued_runs: [],
     live_preview: null,
+    live_preview_fence_cut: false,
   };
   if (!runId) return detail;
   const run = runsQueries.owned(db, runId, owner);
@@ -113,8 +116,89 @@ export function runDetails(
   }
   if (STARTED_RUN_STATES.includes(run.state)) {
     const { latest, artifact } = runPreview(db, owner, runId);
-    detail.live_preview =
-      (latest ?? artifact?.content ?? "").trim().slice(0, 4000) || null;
+    // Markdown uses both leading and trailing whitespace to parse fences.
+    let source = latest ?? artifact?.content ?? "";
+    if (source.length > LIVE_PREVIEW_LIMIT)
+      source = source.replace(/^(?:[ \t]*(?:\r\n?|\n))+/, "");
+    if (!/\S/.test(source.slice(0, LIVE_PREVIEW_LIMIT))) {
+      const firstText = source.search(/\S/);
+      if (firstText >= LIVE_PREVIEW_LIMIT) {
+        const lineStart =
+          Math.max(
+            source.lastIndexOf("\n", firstText),
+            source.lastIndexOf("\r", firstText),
+          ) + 1;
+        // Keep the first line's prefix, including Unicode whitespace
+        // that Markdown treats as literal content instead of indentation.
+        const prefix = source.slice(
+          lineStart,
+          Math.min(lineStart + 4, firstText),
+        );
+        source = prefix + source.slice(firstText);
+      }
+    }
+    const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
+    detail.live_preview = /\S/.test(preview) ? preview : null;
+    if (preview.length === LIVE_PREVIEW_LIMIT)
+      detail.live_preview_truncated = source.length > preview.length;
+    if (source.length > preview.length) {
+      const lastLine = preview.slice(
+        Math.max(preview.lastIndexOf("\n"), preview.lastIndexOf("\r")) + 1,
+      );
+      // Keep fence classification bounded even when a run keeps appending to
+      // the same line. A fence whose line cannot be verified stays provisional.
+      const lookaheadEnd = preview.length + LIVE_PREVIEW_LIMIT;
+      const suffix = source.slice(preview.length, lookaheadEnd);
+      detail.live_preview_ends_at_line = /^[ \t]*[\r\n]/.test(suffix);
+      const suffixClipped = source.length > lookaheadEnd;
+      const lineEnd = suffix.search(/[\r\n]/);
+      const info = lineEnd < 0 ? suffix : suffix.slice(0, lineEnd);
+      const invalidBacktickInfo =
+        info.includes("`") || (suffixClipped && lineEnd < 0);
+      const fence =
+        /^[ \t>]*(?:(?:[-+*]|[0-9]{1,9}[.)])[ \t>]+)*(`{3,}|~{3,})([ \t]*)$/.exec(
+          lastLine,
+        );
+      if (fence) {
+        // A longer run of the same delimiter can still be a real closer.
+        const sameCloser = fence[2]
+          ? /^[ \t]*(?:[\r\n]|$)/
+          : fence[1][0] === "`"
+            ? /^`*[ \t]*(?:[\r\n]|$)/
+            : /^~*[ \t]*(?:[\r\n]|$)/;
+        const closer = sameCloser.exec(suffix);
+        detail.live_preview_fence_cut =
+          !closer || (suffixClipped && !/[\r\n]$/.test(closer[0]));
+        // The cutoff may split the delimiter before it reaches the info string.
+        const fenceInfo = fence[2]
+          ? info
+          : info.replace(fence[1][0] === "`" ? /^`+/ : /^~+/, "");
+        const token = /^[ \t]*([^ \t]+)(?:[ \t]|$)/.exec(fenceInfo)?.[1];
+        if (
+          token &&
+          (lineEnd >= 0 || !suffixClipped) &&
+          (fence[1][0] !== "`" || !fenceInfo.includes("`")) &&
+          isDisplayFenceToken(token)
+        )
+          detail.live_preview_fence_spec = true;
+      } else {
+        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*([^`~ \t]+)([^\r\n]*)$/.exec(
+          lastLine,
+        );
+        if (opener) {
+          const continuation = !opener[3] && /^[^ \t\r\n]+/.exec(suffix)?.[0];
+          const continuesAsDisplay =
+            !!continuation && isDisplayFenceToken(opener[2] + continuation);
+          // The cutoff can shorten a language token or remove a backtick
+          // that makes a backtick opener's info string invalid.
+          detail.live_preview_fence_cut =
+            (!!continuation && !continuesAsDisplay) ||
+            (opener[1][0] === "`" && invalidBacktickInfo);
+          if (continuesAsDisplay && !detail.live_preview_fence_cut)
+            detail.live_preview_fence_spec = !isDisplayFenceToken(opener[2]);
+        }
+      }
+    }
   }
 
   return detail;

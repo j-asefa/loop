@@ -96,6 +96,7 @@ export const DoneDisplaySchema = z.object({
       role: MessageRole,
       preview: z.string(),
       content: z.string(),
+      content_truncated: z.boolean().optional(),
       created_at: time,
       saved: z.boolean(),
       automation: z.string().optional(),

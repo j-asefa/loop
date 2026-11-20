@@ -15,6 +15,9 @@ import { ArtifactKindSchema } from "./artifact-kind.js";
 import { ArtifactRoleSchema } from "./artifact-role.js";
 import { MessageRole } from "./message-roles.js";
 
+export const LIVE_PREVIEW_LIMIT = 4000;
+export const FEED_MESSAGE_PREFIX_LIMIT = 1000;
+
 const CardViewSchema = z.enum(["results", "saved", "sent", "done"]);
 export const CardIdSchema = z
   .string()

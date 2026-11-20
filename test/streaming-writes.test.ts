@@ -113,7 +113,8 @@ it("keeps the result live while deferring its indexes until completion", async (
     const text = chunks.slice(0, through).join("");
     expect(step.preview).toBe(text);
     expect(step.artifact).toBe(text);
-    expect(step.projected).toBe(text.trim() || null);
+    // The preview must keep whitespace that can affect Markdown fences.
+    expect(step.projected).toBe(text || null);
     // Preserve the shadow projection work bound and prove unflushed chunks
     // perform no database work between the 250 ms materialization batches.
     expect(step.statements).toBeLessThanOrEqual(47);

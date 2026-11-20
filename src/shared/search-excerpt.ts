@@ -36,7 +36,8 @@ export function searchExcerpt(
   query: string,
   length = 320,
 ): z.infer<typeof SearchExcerptSchema> {
-  let text = content
+  // A display's source is JSON, never words worth showing (handoff D11).
+  let text = dropSpecBlocks(content)
     .replace(/```[^\n]*\n?/g, " ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -50,8 +51,10 @@ export function searchExcerpt(
     .replace(/[*`#]/g, "")
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
     .trim();
-  if (heading && text.toLowerCase().startsWith(heading.toLowerCase()))
-    text = text.slice(heading.length).trim();
+  if (heading && text.toLowerCase().startsWith(heading.toLowerCase())) {
+    const remainder = text.slice(heading.length);
+    if (!/^[\p{L}\p{N}\p{M}_]/u.test(remainder)) text = remainder.trim();
+  }
   if (!text) return "";
   const positions = searchTerms(query)
     .map((word) => text.toLowerCase().indexOf(word))
@@ -69,6 +72,7 @@ export function searchExcerpt(
   );
 }
 import { z } from "zod";
+import { dropSpecBlocks } from "./text.js";
 
 // Excerpts are plain text, not HTML or ranges into the original document.
 export const SearchExcerptSchema = z.string();

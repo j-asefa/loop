@@ -13,7 +13,10 @@ it("keeps fixture names unique so none is silently replaced", () => {
 
 for (const fixture of displayFixtures)
   it(`reads: ${fixture.name}`, () => {
-    const read = readDisplaySpec(fixture.source);
+    const read = readDisplaySpec(fixture.source, {
+      open: !!fixture.open,
+      writing: fixture.open === "writing",
+    });
     expect(summarize(read)).toEqual(fixture.expect);
     expect(read.skippedCount).toBe(fixture.skipped ?? 0);
   });

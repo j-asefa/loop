@@ -24,7 +24,7 @@ type TranscriptRange = {
   from: ProjectedMessage["cursor"];
   before: ProjectedMessage["cursor"];
 };
-const comparePosition = (
+export const comparePosition = (
   a: ProjectedMessage["cursor"],
   b: ProjectedMessage["cursor"],
 ) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
@@ -168,6 +168,9 @@ export class TranscriptProjection {
         (message) => comparePosition(message.cursor, end) >= 0,
       )
     );
+  }
+  removedAfter(messageId: string, cursor: number) {
+    return (this.removed.get(messageId) ?? -1) > cursor;
   }
   rows() {
     return [...this.messages.values()]

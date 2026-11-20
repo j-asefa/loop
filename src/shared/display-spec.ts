@@ -9,6 +9,12 @@ import { z } from "zod";
 // `replace` on `/root` (a string) and `/elements/<key>` (a whole element) are
 // applied; every other line is skipped and counted.
 
+// Match the first language word used by the Markdown-to-HTML renderer after
+// the parser has decoded character references in a fence's language token.
+export function isDisplayFenceLanguage(language: string | null | undefined) {
+  return language?.split(/\s+/, 1)[0] === "spec";
+}
+
 export const DISPLAY_LIMITS = {
   // Characters of block source.
   source: 65536,
@@ -279,7 +285,13 @@ function draw(
   elements: Map<string, RawElement>,
   path: Set<string>,
   depth: number,
-  state: { count: number; cells: number; text: number; drawn: number },
+  state: {
+    count: number;
+    cells: number;
+    text: number;
+    drawn: number;
+    omitMissing: boolean;
+  },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
   if (++state.count > DISPLAY_LIMITS.elements)
@@ -363,9 +375,11 @@ function draw(
   state.drawn += drawn;
   if ("children" in built) {
     path.add(key);
-    built.children = list.map((child) =>
-      draw(child, elements, path, depth + 1, state),
-    );
+    built.children = list.flatMap((child) => {
+      // Pending references still count toward the same limits as placeholders.
+      const drawnChild = draw(child, elements, path, depth + 1, state);
+      return state.omitMissing && !elements.has(child) ? [] : [drawnChild];
+    });
     path.delete(key);
   }
   return built;
@@ -403,8 +417,24 @@ function drawnLength(node: DisplayNode): number {
   }
 }
 
-// Reads the text inside a `spec` fence. The block is treated as complete.
-export function readDisplaySpec(source: string): DisplayRead {
+export type DisplayReadOptions = {
+  // The fence has not closed. While writing, its final line may be incomplete.
+  open?: boolean;
+  // The block is still being written: children whose elements have not
+  // arrived are left out instead of drawn as placeholders.
+  writing?: boolean;
+  finalLineIncomplete?: boolean;
+};
+
+// Reads the text inside a `spec` fence; by default the block is complete.
+export function readDisplaySpec(
+  source: string,
+  {
+    open = false,
+    writing = false,
+    finalLineIncomplete = false,
+  }: DisplayReadOptions = {},
+): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
   const skip = (line: number, reason: string) => {
     skips.skippedCount++;
@@ -416,7 +446,9 @@ export function readDisplaySpec(source: string): DisplayRead {
   let root: string | undefined;
   const elements = new Map<string, RawElement>();
   let applied = 0;
-  source.split("\n").forEach((raw, index) => {
+  const all = source.split("\n");
+  all.forEach((raw, index) => {
+    if (finalLineIncomplete && index === all.length - 1) return;
     const line = index + 1;
     const trimmed = raw.trim();
     if (!trimmed) return;
@@ -424,6 +456,7 @@ export function readDisplaySpec(source: string): DisplayRead {
     try {
       patch = JSON.parse(trimmed);
     } catch {
+      if (open && writing && index === all.length - 1) return;
       return skip(line, "Not valid JSON");
     }
     if (!isObject(patch)) return skip(line, "Not a JSON object");
@@ -456,7 +489,13 @@ export function readDisplaySpec(source: string): DisplayRead {
   if (root === undefined) return { ok: false, reason: "no_root", ...skips };
   if (!elements.has(root))
     return { ok: false, reason: "missing_root", ...skips };
-  const state = { count: 0, cells: 0, text: 0, drawn: 0 };
+  const state = {
+    count: 0,
+    cells: 0,
+    text: 0,
+    drawn: 0,
+    omitMissing: open && writing,
+  };
   try {
     return {
       ok: true,

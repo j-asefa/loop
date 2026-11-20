@@ -1,3 +1,4 @@
+import { dropSpecBlocks } from "../shared/text";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -51,6 +52,7 @@ import { ActivityView } from "./ActivityRecords";
 import { SessionActivityControls } from "./SessionActivityControls";
 import type { ActivityRecord } from "../shared/agent-activities";
 import {
+  conversationLatestProgress,
   conversationRefreshCursor,
   type ConversationMessage,
 } from "./conversationMessages";
@@ -70,6 +72,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useMemo,
   type ReactNode,
 } from "react";
 import {
@@ -439,6 +442,8 @@ function ConversationView({
   const positionSent = useRef("");
   const dataRef = useRef(data);
   dataRef.current = data;
+  const reportedProgressRef =
+    useRef<ConversationPage["latest_progress_messages"]>(undefined);
   const agent = agents.find((a) => a.id === data?.conversation.agent_id),
     imported = data?.conversation.origin?.endsWith("-import");
   const project = folders.find(
@@ -600,6 +605,15 @@ function ConversationView({
         }, delay);
         return;
       }
+      // A removal cannot tell us which progress row is now latest. Keep the
+      // snapshot cursor until the refresh resolves any unseen predecessor.
+      request.queued ||=
+        fresh.latest_progress_messages?.some((message) =>
+          projection.projection.removedAfter(
+            message.id,
+            fresh.projection.cursor,
+          ),
+        ) ?? false;
       fresh = {
         ...fresh,
         messages: workspaceApi.conversation.response.shape.messages.parse(
@@ -646,6 +660,8 @@ function ConversationView({
         setOrigin({ messageId: fresh.position_message_id || null });
       setLoadError("");
       if (fresh.saved) setSavedIds(new Set(fresh.saved));
+      // Socket handlers can run before React renders this accepted snapshot.
+      reportedProgressRef.current = fresh.latest_progress_messages;
       setData((old) =>
         !initial && old
           ? {
@@ -766,6 +782,12 @@ function ConversationView({
             event.type === "message.remove" ||
             (event.type === "message.delta" && "revision" in event.payload))
         ) {
+          const removed =
+            event.type === "message.remove"
+              ? transcriptHandoff.current.projection.messages.get(
+                  event.payload.messageId,
+                )
+              : undefined;
           const outcome = transcriptHandoff.current.receive(
             entry.id,
             event as TranscriptEvent,
@@ -779,12 +801,18 @@ function ConversationView({
           )
             missingMessages.current.delete(event.payload.messageId);
           refresh ||= outcome === "gap";
-          // The reported latest agent message is gone: ask which is latest now.
+          // A reported latest message is gone: ask which is latest now.
           refresh ||=
             event.type === "message.remove" &&
             outcome === "applied" &&
-            event.payload.messageId ===
-              dataRef.current?.latest_agent_message?.id;
+            (event.payload.messageId ===
+              dataRef.current?.latest_agent_message?.id ||
+              reportedProgressRef.current?.some(
+                (message) => message.id === event.payload.messageId,
+              ) === true ||
+              (!!removed &&
+                readMessageMetadata(removed.metadata, "fallback").progress ===
+                  true));
           if (outcome === "gap")
             markMissing(
               event.type === "message.upsert"
@@ -1066,6 +1094,16 @@ function ConversationView({
       setError((e as Error).message);
     }
   }
+  const latestProgressByRun = useMemo(
+    () =>
+      conversationLatestProgress(
+        transcriptHandoff.current.ready
+          ? transcriptHandoff.current.projection.messages.values()
+          : data?.messages,
+        data?.latest_progress_messages,
+      ),
+    [data?.messages, data?.latest_progress_messages],
+  );
   const latestRun = [...(data?.messages || [])]
     .reverse()
     .find((m) => m.run_id && m.run_state);
@@ -1799,7 +1837,22 @@ function ConversationView({
                       <RichText content={meta.replyTo.content} />
                     </details>
                   )}
-                  {showContent && <RichText content={m.content} />}
+                  {showContent && (
+                    <RichText
+                      content={m.content}
+                      // Only the current progress update can still grow.
+                      writing={
+                        m.role === "assistant" &&
+                        !!m.run_state &&
+                        STARTED_RUN_DISPLAY_STATES.includes(m.run_state) &&
+                        (meta.progress
+                          ? !meta.final &&
+                            !!m.run_id &&
+                            latestProgressByRun.get(m.run_id)?.id === m.id
+                          : !anchor || latestAgent === m.id)
+                      }
+                    />
+                  )}
                   {m.role === "user" &&
                     m.run_id &&
                     m.run_state === "queued" && (
@@ -2135,7 +2188,7 @@ function ConversationView({
                     />
                     <span>
                       {m.role === "user" ? "You" : "Agent"}:{" "}
-                      {m.content.slice(0, 180)}
+                      {dropSpecBlocks(m.content).slice(0, 180)}
                     </span>
                   </label>
                 ))}
