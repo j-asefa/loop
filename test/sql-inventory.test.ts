@@ -287,6 +287,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? left + right
         : undefined;
     }
+    if (node?.type === "MemberExpression") {
+      const name = receiver(node);
+      return name
+        ? declaringScope(name.split(".")[0], node)?.strings?.get(name)
+        : undefined;
+    }
     return node?.type === "Identifier"
       ? declaringScope(node.name, node)?.strings?.get(node.name)
       : node?.value;
@@ -449,6 +455,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     const recordField = (key: string, child: any, owner = scope) => {
       const path = `${name}.${key}`;
       if (!owner.bindings.has(path)) owner.bindings.set(path, "other");
+      const string = literalKey(child);
+      if (typeof string === "string")
+        (owner.strings ??= new Map()).set(path, string);
       if (functionKinds.has(child?.type))
         (owner.functions ??= new Map()).set(path, child);
       if (isAggregate(child)) recordObject(owner, path, child);
@@ -1052,6 +1061,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
+    if (isAggregate(expression)) return "object";
     if (expression?.type === "Literal" && expression.regex) return "object";
     if (
       expression?.type === "LogicalExpression" &&
@@ -1296,7 +1306,13 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
       if (write?.operator === "=") {
         const source = writtenSource(write, name);
+        const target = bindings(write.left).find(
+          (binding) => binding.name === name,
+        );
         return (
+          (target?.key
+            ? destructuredMethod(write.right, target.key)
+            : undefined) ??
           sqliteMethod(source.value) ??
           (source.origin &&
             receiverProperty(
@@ -1423,8 +1439,10 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (value?.type === "ConditionalExpression") {
         for (const branch of [value.consequent, value.alternate]) {
           const source = unwrap(branch);
-          if (connectionKind(source) === "object")
+          if (connectionKind(source) === "object") {
+            recordArgument(scope, name, source);
             trackBinding(scope, name, "object", source, spread);
+          }
         }
       }
       const returned = returnedObject(value);
@@ -2864,6 +2882,20 @@ it("follows iterated SQLite handles and ignores a method replaced by destructuri
     execute(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5, 7]);
+});
+
+it("tracks conditional literal fields, destructured methods and stored method keys", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const store = flag ? { connection: scratch } : { connection: db };
+    store.connection.exec("BEGIN");
+    let execute;
+    ({ exec: execute } = db);
+    execute.call(db, "BEGIN");
+    const methods = { write: "exec" };
+    db[methods.write]("BEGIN");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
