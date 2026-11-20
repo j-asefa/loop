@@ -6,6 +6,7 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { NotDelivered } from "../src/adapters/types.js";
+import { runResultId } from "../src/shared/result.js";
 
 const dir = testDirectory();
 
@@ -22,6 +23,8 @@ const { withTestAdapter } = await import("../src/server/providers");
 const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { saveArtifact } = await import("../src/server/artifacts");
+const { getResult, listResultContextEdges } =
+  await import("../src/server/result-publication");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
 const fleetEffectsQueries =
@@ -782,6 +785,166 @@ it("does not recall into turns the owner did not type", async () => {
   expect((await request(`/runs/${mail.run.id}/memory`)).data.mode).toBe(
     "not-used",
   );
+});
+
+it("links recalled passages to a sealed result and records deterministic citations", async () => {
+  const agent = agentFor("alice");
+  const saved = submit("alice", {
+    agentId: agent.id,
+    input: "Hemlock deploy checksum",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const excerpt = "The hemlock deploy checksum is seven.";
+  await answerNext("seal-evidence-source", excerpt);
+  const source = getResult("alice", runResultId(saved.id), db)!;
+  const commit = "a".repeat(40);
+  db.prepare(
+    `INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,
+       directory,source,branch,start_head,start_dirty,start_untracked,started_at,state)
+       VALUES(?,'alice',?,?,?,'/tmp/worktree','/tmp/monorepo','topic',?,0,0,?,'started')`,
+  ).run(
+    id(),
+    saved.id,
+    agent.id,
+    source.provenance.conversationId,
+    commit,
+    now(),
+  );
+  captureMemory();
+  const next = submit("alice", {
+    agentId: agent.id,
+    input: "What is the hemlock deploy checksum?",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      const prompt = request.messages.at(-1)!.content;
+      expect(prompt).toContain(
+        "result " + source.id + " sha256:" + source.contentDigest.slice(0, 12),
+      );
+      expect(prompt).toContain(excerpt);
+      expect(prompt).toContain("at monorepo@" + commit.slice(0, 12));
+      const citation = prompt.match(/\[[a-f\d]{64}@\d+\]/)![0];
+      yield { text: "Based on " + citation };
+    },
+  });
+  try {
+    const active = claim(
+      "seal-evidence-target",
+      (candidate) => candidate.id === next.id,
+    )!;
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
+    restore();
+  }
+  const sealed = getResult("alice", runResultId(next.id), db)!;
+  expect(sealed.lineage.suppliedContext).toMatchObject([
+    {
+      resultId: source.id,
+      contentDigest: source.contentDigest,
+      suppliedText: excerpt,
+      excerpt: true,
+    },
+  ]);
+  expect(listResultContextEdges("alice", sealed.id, db)).toMatchObject([
+    { source_result_id: source.id },
+  ]);
+  const receipt = await request(`/runs/${next.id}/memory`);
+  expect(JSON.parse(receipt.data.sources)).toMatchObject([
+    { resultId: source.id, contentDigest: source.contentDigest, cited: true },
+  ]);
+  expect(receipt.data.sources).not.toContain(excerpt);
+  expect(getResult("alice", source.id, db)).toEqual(source);
+
+  const pull = submit("alice", {
+    agentId: agent.id,
+    input: "Look up the saved value.",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const restorePull = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      const tool = request.messages.find(
+        (message) => message.toolCallId === "hemlock-search",
+      );
+      if (!tool) {
+        yield {
+          toolCall: {
+            id: "hemlock-search",
+            name: "loop_memory_search",
+            arguments: { query: "hemlock deploy checksum" },
+          },
+        };
+        return;
+      }
+      expect(
+        JSON.parse(JSON.parse(tool.content).content[0].text).hits,
+      ).toContainEqual(
+        expect.objectContaining({
+          resultId: source.id,
+          contentDigest: source.contentDigest,
+          excerpt,
+          checkout: { repository: "monorepo", branch: "topic", commit },
+        }),
+      );
+      yield { text: "I found the saved value." };
+    },
+  });
+  try {
+    const active = claim("seal-pull-target", (run) => run.id === pull.id)!;
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
+    restorePull();
+  }
+  expect(
+    getResult("alice", runResultId(pull.id), db)?.lineage.suppliedContext,
+  ).toContainEqual(
+    expect.objectContaining({
+      resultId: source.id,
+      contentDigest: source.contentDigest,
+      suppliedText: excerpt,
+      excerpt: true,
+    }),
+  );
+  const pullReceipt = await request(`/runs/${pull.id}/memory`);
+  const pulled = JSON.parse(pullReceipt.data.sources).find(
+    (entry: { resultId?: string }) => entry.resultId === source.id,
+  );
+  expect(pulled).toMatchObject({ via: "tool" });
+  expect(pulled).not.toHaveProperty("cited");
+  const artifact = db
+    .prepare("SELECT id,title FROM artifacts WHERE run_id=? AND role='answer'")
+    .get(saved.id) as { id: string; title: string };
+  artifactsQueries.edit(
+    db,
+    artifact.title,
+    excerpt + " Corrected locally.",
+    0,
+    0,
+    now(),
+    artifact.id,
+  );
+  captureMemory();
+  expect((await nativePrompt("hemlock deploy checksum")).prompt).toContain(
+    "edited after publication",
+  );
+  expect(
+    artifactsQueries.memoryResultEvidence(db, artifact.id, "another-owner"),
+  ).toBeUndefined();
+  expect(
+    (await searchMemory("another-owner", null, "hemlock deploy checksum"))
+      .sources,
+  ).toEqual([]);
 });
 
 it("recalls only finished, unarchived results from conversations still in memory", async () => {

@@ -449,6 +449,42 @@ export function memoryDefault(
     : parseRecord(memoryDefaultRow, row, "artifacts");
 }
 
+const memoryResultEvidenceStatement = statement(
+  `SELECT r.id AS result_id, r.content_digest,
+          a.content IS NOT json_extract(r.outcome,'$.body') AS edited,
+          k.source AS checkout_source, k.branch AS checkout_branch,
+          COALESCE(NULLIF(k.end_head,''), k.start_head) AS checkout_commit
+     FROM artifacts a
+     JOIN results r ON r.owner_id=a.owner_id AND r.id='run:'||a.run_id
+       AND r.sealed=1 AND r.conversation_id=a.conversation_id
+     LEFT JOIN agent_checkpoints cp ON cp.run_id=a.run_id
+     LEFT JOIN run_checkouts k ON k.owner_id=a.owner_id AND k.run_id=a.run_id
+     WHERE a.id=? AND a.owner_id=? AND a.role='answer'
+       AND (json_extract(a.metadata,'$.messageId')=r.message_id OR
+         (json_extract(a.metadata,'$.messageId') IS NULL AND
+           ((cp.artifact_id=a.id AND cp.message_id=r.message_id) OR
+             a.content=json_extract(r.outcome,'$.body'))))`,
+);
+const memoryResultEvidenceRow = z.object({
+  result_id: z.string(),
+  content_digest: z.string().regex(/^[0-9a-f]{64}$/),
+  edited: z.number(),
+  checkout_source: z.string().nullable(),
+  checkout_branch: z.string().nullable(),
+  checkout_commit: z.string().nullable(),
+});
+/** Project sealed evidence without loading attachments or result lineage. */
+export function memoryResultEvidence(
+  db: Database.Database,
+  id: string,
+  owner: string,
+) {
+  const row = memoryResultEvidenceStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(memoryResultEvidenceRow, row, "artifacts");
+}
+
 export const MEMORY_CANDIDATE_BATCH = 250;
 // The cheap already-captured check comes first: once memory has caught up it
 // rejects almost every row before the result clause's correlated lookups.

@@ -69,6 +69,7 @@ Rules that span those files and the Feed:
 
 - Done result cards and Replies enumerate sealed Results only, and the `/saved` list shows a saved answer's sealed Result. The browser's Saved page reads [cards.ts](../src/server/cards.ts) instead, which lists bookmarked artifacts and messages, not Results. Result cards are projections rebuilt from Results with mutable overlays (reads, dismissals, Trails, saves); raw transcripts decide neither which answers are published nor what they say.
 - Done is attributed to the sealed author, while folder filters and moves follow current organization: the folder the run recorded, otherwise the conversation's current folder. A card whose publication project differs from its current one shows `produced_in`. Idle-thread, Working, Queued and approval cards remain operational state.
+- New run results record recalled sealed evidence in `lineage.suppliedContext` and the result context edges. Each entry records the exact supplied excerpt and the sealed source digest. Historical republishing leaves this lineage empty when no recall receipt was recorded.
 
 ## Workspace HTTP contracts
 
@@ -128,6 +129,7 @@ Rules not yet stated in a single file:
 - Agents can search saved memory through the [native memory search tool](mcp.md#search-saved-loop-memory). Search receipts append to the same run record as automatic recall. Historical receipt entries without a source label still display.
 - Dated recall nominates passages with the first six terms after removing the recognized date phrase. Relevance checks the full term set. Date-only prompts abstain because nomination requires a lexical match. The date window applies to the ranked candidate pool, so out-of-window matches can occupy nomination slots. When no candidate qualifies, dated recall abstains.
 - Each excerpt is headed `[id@revision] <result|note|message> by <you|agent name|unknown author>, <updated date, UTC>, "<title>", <link>`. The run's receipt records its kind, author and update timestamp. A user-role message gets the author label “you” only if the message records that the owner typed it without shared content.
+- Recalled sealed results include the result ID, a digest prefix and a checkout citation when available. Edited source artifacts are labelled. The receipt marks a source cited when the final answer contains its link or bracketed ID and revision. This uses literal string matching.
 - Message attachments reach native turns as file references read through `loop_read_file`; API-key connections also receive the current turn's images and PDFs inline.
 - File publication validates the selected path, size and digest before storing private content; downloads require owner access, and a worker path alone is not a published file.
 

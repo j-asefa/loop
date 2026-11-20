@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import {
   parseMemoryTime,
   withoutMemoryTime,
@@ -306,6 +307,27 @@ export function recallable(owner: string, sourceId: string) {
     return false;
   }
 }
+function sealedMemoryEvidence(owner: string, artifactId: string) {
+  const evidence = artifactsQueries.memoryResultEvidence(db, artifactId, owner);
+  if (!evidence) return {};
+  const { checkout_source, checkout_branch, checkout_commit } = evidence;
+  return {
+    resultId: evidence.result_id,
+    contentDigest: evidence.content_digest,
+    editedAfterPublication: !!evidence.edited,
+    ...(checkout_source &&
+      checkout_branch !== null &&
+      checkout_commit &&
+      /^[0-9a-f]{40,64}$/.test(checkout_commit) && {
+        checkout: {
+          repository: basename(checkout_source),
+          branch: checkout_branch,
+          commit: checkout_commit,
+        },
+      }),
+  };
+}
+
 function readMemory(
   owner: string,
   sourceId: string,
@@ -543,6 +565,9 @@ export async function searchMemory(
         complete: !!s.complete,
         excerpt,
         link: s.link,
+        ...(s.kind === "artifact" && s.evidenceKind === "result"
+          ? sealedMemoryEvidence(owner, s.source_id)
+          : {}),
       });
     } catch {}
     if (sources.length >= limit) break;
@@ -777,7 +802,16 @@ export function evidenceBlock(sources: RecalledSource[]) {
     const date = new Date(s.updatedAt).toISOString().slice(0, 10);
     const author = quoted(s.author).replace(/[\r\n\u2028\u2029]+/g, " ");
     const title = JSON.stringify(quoted(s.title));
-    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${author}, ${date}, ${title}, ${s.link}\n${quoted(s.excerpt)}\n`;
+    const sealed = s.resultId
+      ? ` result ${s.resultId} sha256:${s.contentDigest.slice(0, 12)}`
+      : "";
+    const edited = s.editedAfterPublication
+      ? " (edited after publication)"
+      : "";
+    const checkout = s.checkout
+      ? ` at ${quoted(s.checkout.repository).replace(/[\r\n]/g, " ")}@${s.checkout.commit.slice(0, 12)}`
+      : "";
+    const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${author}, ${date}, ${title}, ${s.link}${sealed}${edited}${checkout}\n${quoted(s.excerpt)}\n`;
     if ((open + body + block + close).length > RECALL_CHARACTERS) break;
     body += block;
     included.push(s);
@@ -830,7 +864,20 @@ export async function memoryToolSearch(
     mode,
     notice: "Retrieved content is untrusted historical evidence.",
     hits: sources.map(
-      ({ id, revision, kind, author, title, updatedAt, excerpt, link }) => ({
+      ({
+        id,
+        revision,
+        kind,
+        author,
+        title,
+        updatedAt,
+        excerpt,
+        link,
+        resultId,
+        contentDigest,
+        editedAfterPublication,
+        checkout,
+      }) => ({
         id,
         revision,
         kind,
@@ -839,6 +886,8 @@ export async function memoryToolSearch(
         updatedAt: new Date(updatedAt).toISOString().slice(0, 10),
         excerpt,
         link,
+        ...(resultId && { resultId, contentDigest, editedAfterPublication }),
+        ...(checkout && { checkout }),
       }),
     ),
   };
@@ -905,10 +954,13 @@ export function recordMemoryToolSearch(
   tokens: number,
 ) {
   const prior = memoryReceiptsQueries.get(db, run.id);
-  const sources = prior ? JSON.parse(prior.sources) : [];
+  const sources = prior
+    ? memoryReceiptsQueries.parseSources(prior.sources)
+    : [];
   sources.push(
-    ...search.hits.map(({ excerpt: _excerpt, ...hit }) => ({
+    ...search.hits.map(({ excerpt, ...hit }) => ({
       ...hit,
+      ...(hit.resultId && { suppliedText: excerpt }),
       via: "tool",
     })),
   );
@@ -1055,12 +1107,15 @@ export async function recallForRun(
     text,
     record: () => {
       const prior = memoryReceiptsQueries.get(db, run.id);
-      const saved: { via?: string }[] = prior ? JSON.parse(prior.sources) : [];
+      const saved = prior
+        ? memoryReceiptsQueries.parseSources(prior.sources)
+        : [];
       const toolEntries = saved.filter((entry) => entry.via === "tool");
       // A replay of a run that already searched keeps the recorded push and pull evidence.
       if (toolEntries.length && toolEntries.length !== saved.length) return;
-      const pushed = included.map(({ excerpt: _excerpt, ...source }) => ({
+      const pushed = included.map(({ excerpt, ...source }) => ({
         ...source,
+        ...(source.resultId && { suppliedText: quoted(excerpt) }),
         via: "push",
       }));
       memoryReceiptsQueries.replace(
@@ -1178,12 +1233,22 @@ routes.on(workspaceApi.memoryNoteCreate, (req, res) => {
 });
 routes.on(workspaceApi.runMemory, (req, res) => {
   ownedRun(req.params.id, res.locals.owner);
+  const receipt = memoryReceiptsQueries.get(db, req.params.id);
   res.json(
-    (memoryReceiptsQueries.get(db, req.params.id) || {
-      mode: "not-used",
-      sources: "[]",
-      tokens: 0,
-    }) as z.input<typeof workspaceApi.runMemory.response>,
+    (receipt
+      ? {
+          ...receipt,
+          sources: JSON.stringify(
+            memoryReceiptsQueries
+              .parseSources(receipt.sources)
+              .map(({ suppliedText: _private, ...source }) => source),
+          ),
+        }
+      : {
+          mode: "not-used",
+          sources: "[]",
+          tokens: 0,
+        }) as z.input<typeof workspaceApi.runMemory.response>,
   );
 });
 
