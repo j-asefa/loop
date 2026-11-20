@@ -767,7 +767,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const name = receiver(target);
       const targets = name
         ? [{ name, key: "" }]
-        : !declaration && node.operator === "="
+        : declaration || node.operator === "="
           ? bindings(target)
           : [];
       if (!declaration && node.operator === "=") {
@@ -1451,19 +1451,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     const value = unwrap(
       write.type === "VariableDeclarator" ? write.init : write.right,
     );
-    if (
-      write.left?.type === "ObjectPattern" ||
-      write.left?.type === "ArrayPattern"
-    ) {
-      const target = bindings(write.left).find(
-        (binding) => binding.name === name,
-      );
+    const pattern = write.left ?? write.id;
+    if (pattern?.type === "ObjectPattern" || pattern?.type === "ArrayPattern") {
+      const target = bindings(pattern).find((binding) => binding.name === name);
       if (target) return destructuredSource(value, target.key, target.fallback);
     }
     return { value };
   };
   const methods = new Set(["prepare", "exec"]);
-  if (script) methods.add("pragma");
+  if (script) {
+    methods.add("pragma");
+    methods.add("transaction");
+  }
   const destructuredMethod = (source: any, path: string) => {
     const separator = path.lastIndexOf(".");
     const method = path.slice(separator + 1);
@@ -1499,7 +1498,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const source = writtenSource(write, name);
-        const target = bindings(write.left).find(
+        const target = bindings(write.left ?? write.id).find(
           (binding) => binding.name === name,
         );
         for (const { node, key } of assignmentsByName.get(name) ?? []) {
@@ -1512,7 +1511,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
         return (
           (target?.key
-            ? destructuredMethod(write.right, target.key)
+            ? destructuredMethod(write.right ?? write.init, target.key)
             : undefined) ??
           sqliteMethod(source.value) ??
           (source.origin &&
@@ -2046,6 +2045,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (!methods.has(method)) return false;
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
+      if (method === "transaction") return false;
       const opaqueReceiver =
         script &&
         (!binding || binding === "other") &&
@@ -2078,7 +2078,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         "",
       );
       const keyword =
-        /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.exec(
+        /^\s*(?:SELECT|VALUES|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.exec(
           sql,
         );
       // For an opaque receiver, a standalone keyword is also a plausible command.
@@ -3340,6 +3340,20 @@ it("recognizes conditional method writes, appended bracket reads and frozen fixt
     fixture.connection.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 9, 11]);
+});
+
+it("honors destructured initializers and recognizes SQLite VALUES and transactions", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let { handle } = { handle: /^SELECT/ };
+    handle.exec("SELECT 1");
+    handle = db;
+    handle.exec("BEGIN");
+    function read(fixture) { fixture.db.prepare("VALUES (1)"); }
+    db.transaction(write);
+    commandAdapter.transaction(write);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
