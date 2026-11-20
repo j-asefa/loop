@@ -832,6 +832,23 @@ export function hasSharedInput(
 ) {
   return sharedInputStatement(db).get(owner, run) !== undefined;
 }
+
+const sharedContextStatement = statement(
+  `${conversationContextSql}
+   SELECT 1 FROM context c
+   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+   WHERE copy.role='user' AND json_extract(copy.metadata,'$.shared')=1
+     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
+   LIMIT 1`,
+);
+/** Shared input remains restricted across copies, delegation and local relays. */
+export function conversationHasSharedInput(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return sharedContextStatement(db).get({ owner, conversation }) !== undefined;
+}
 export const unwrittenMessageSql = `m.role='user' AND
   (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1)`;
 const unwrittenMessageStatement = statement(

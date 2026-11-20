@@ -943,6 +943,14 @@ export function canUseMemorySearch(
 ) {
   return (
     !messagesQueries.hasSharedInput(db, run.owner_id, run.id) &&
+    !(
+      run.conversation_id &&
+      messagesQueries.conversationHasSharedInput(
+        db,
+        run.owner_id,
+        run.conversation_id,
+      )
+    ) &&
     canSearchSavedMemory(run)
   );
 }
@@ -1079,9 +1087,12 @@ routes.on(workspaceApi.memoryStatus, (_req, res) => {
   const owner = res.locals.owner;
   res.json({
     policies: memoryPolicyQueries.forOwner(db, owner),
-    sources: memorySourcesQueries.summaries(db, owner) as z.input<
-      typeof workspaceApi.memoryStatus.response
-    >["sources"],
+    sources: memorySourcesQueries.summaries(db, owner).map((summary) => {
+      if (!summary.eligible || summary.tombstone || summary.kind === "note")
+        return summary;
+      const source = memorySourcesQueries.owned(db, summary.id, owner);
+      return { ...summary, eligible: source && eligibleKind(source) ? 1 : 0 };
+    }) as z.input<typeof workspaceApi.memoryStatus.response>["sources"],
   });
 });
 routes.on(workspaceApi.memoryPolicy, (req, res) => {

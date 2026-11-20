@@ -48,7 +48,7 @@ Watching stops when the pull request is merged or closed, or when you choose **S
 ## Search saved Loop memory
 
 `loop_memory_search` is available to native and API-key agents, including local mail and delegated turns.
-Shared input, including prompts and steering submitted by integration tokens, disables memory search for the receiving run.
+Shared input, including prompts and steering submitted by integration tokens, disables memory search through related delegation, local mail and copied context.
 Runs with a remote Fleet mail grant, including work that inherits it, cannot search memory.
 Conversations with a Fleet mail grant in their run history also exclude automatic recall and memory search.
 Forks and continuations inherit the restriction when their copied history reaches Fleet mail.

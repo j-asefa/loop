@@ -12,6 +12,8 @@ const dir = testDirectory();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, ownedRun } = await import("../src/server/domain");
+const { createTeam } = await import("../src/server/teams");
+const { sendMail } = await import("../src/server/agent-mail");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
 const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
@@ -517,8 +519,17 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
 });
 
 it("withholds saved-memory search from the shared prompts used by integration tokens", async () => {
+  const manager = agentFor("alice");
+  const worker = agentFor("alice");
+  const recipient = agentFor("alice");
+  const team = createTeam("alice", {
+    name: "Shared input team",
+    managerId: manager.id,
+    members: [worker.id],
+  });
   const run = submit("alice", {
-    agentId: agentFor("alice").id,
+    agentId: manager.id,
+    teamId: team.id,
     input: "Search saved notes",
     idempotencyKey: id(),
     personal: true,
@@ -537,6 +548,30 @@ it("withholds saved-memory search from the shared prompts used by integration to
   await expect(
     invokeNative(active, tool, "shared-search", { query: "notes" }),
   ).rejects.toMatchObject({ status: 403 });
+  const delegation = nativeBindings(active).find(
+    (binding) => binding.tool === "loop_delegate",
+  )!;
+  const outcome = await invokeNative(active, delegation, "shared-delegation", {
+    tasks: [{ agentId: worker.id, input: "Search saved notes" }],
+    wait: false,
+  });
+  if (!("result" in outcome)) throw new Error("Expected a queued worker");
+  const childId = JSON.parse(outcome.result.content[0].text).delegated[0].runId;
+  const message = sendMail(active, "shared-relay", {
+    to: recipient.id,
+    scope: "direct",
+    body: "Search saved notes",
+  });
+  const forwarded = db
+    .prepare("SELECT run_id FROM agent_mail WHERE id=?")
+    .get(message.messageId) as { run_id: string };
+  for (const id of [childId, forwarded.run_id]) {
+    const linked = claim("shared-child", (candidate) => candidate.id === id)!;
+    expect(
+      nativeBindings(linked).some((binding) => binding.tool === tool.tool),
+    ).toBe(false);
+    expect(transition(linked, "completed")).toBe(true);
+  }
   expect(transition(active, "completed")).toBe(true);
 });
 
@@ -1203,6 +1238,55 @@ it("captures an artifact as soon as the owner includes it", async () => {
   expect((await nativePrompt("rigel failover drill")).prompt).toContain(
     "west region",
   );
+});
+
+it("marks a saved source unavailable in settings after it gains Fleet provenance", async () => {
+  const owner = "fleet-memory-settings";
+  const origin = submit(owner, {
+    agentId: agentFor(owner).id,
+    input: "Save a trace",
+    idempotencyKey: id(),
+  });
+  const claimed = claim(
+    "save-trace",
+    (candidate) => candidate.id === origin.id,
+  )!;
+  expect(transition(claimed, "completed")).toBe(true);
+  const artifact = saveArtifact(owner, {
+    title: "Fleet settings source",
+    content: "Saved trace",
+    role: "trace",
+    conversation: origin.conversation_id,
+    run: origin.id,
+  });
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "artifact:" + artifact,
+          enabled: true,
+        },
+        owner,
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const listed = async () =>
+    (await request("/memory", undefined, owner)).data.sources[0];
+  expect(await listed()).toMatchObject({
+    title: "Fleet settings source",
+    eligible: 1,
+  });
+  fleetEffectsQueries.insert(
+    db,
+    owner,
+    "run",
+    origin.id,
+    id(),
+    JSON.stringify({ operation: "mail" }),
+  );
+  expect(await listed()).toMatchObject({ eligible: 0 });
 });
 
 it("keeps a pinned result when its conversation is excluded from memory", async () => {
