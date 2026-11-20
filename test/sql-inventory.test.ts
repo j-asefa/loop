@@ -367,7 +367,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       const key = member.computed
         ? literalKey(member.key)
         : (member.key.name ?? member.key.value);
-      return typeof key === "string" ? within(member.value, key) : [];
+      return typeof key === "string" || typeof key === "number"
+        ? within(member.value, String(key))
+        : [];
     });
   };
   const dbModule = /(?:^|\/)db(?:\.[cm]?[jt]s)?$/;
@@ -416,10 +418,12 @@ function sqlCallLines(file: string, text: string, script = false) {
   }[] = [];
   const typedParameters: { scope: Scope; parameter: any; annotation: any }[] =
     [];
-  const objectKey = (member: any) =>
-    member.computed
+  const objectKey = (member: any) => {
+    const key = member.computed
       ? literalKey(member.key)
       : (member.key.name ?? member.key.value);
+    return typeof key === "number" ? String(key) : key;
+  };
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
   const staticArray = (node: any): any[] | undefined => {
@@ -1119,8 +1123,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return undefined;
   };
+  const resolvingConnections = new Set<object>();
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
+    if (!expression || resolvingConnections.has(expression)) return undefined;
+    resolvingConnections.add(expression);
+    try {
+      return classifyConnection(expression);
+    } finally {
+      resolvingConnections.delete(expression);
+    }
+  };
+  const classifyConnection = (expression: any): Binding | undefined => {
     if (isAggregate(expression)) return "object";
     if (
       script &&
@@ -1206,6 +1220,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           importsSqlite(callee.object)))
     )
       return "connection";
+    if (callee && instanceReference(expression)) return "object";
     const name = receiver(expression);
     if (!name) return undefined;
     const databaseName = name === "db" || name.endsWith(".db");
@@ -1223,12 +1238,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     const [root] = name.split(".");
     const owner =
-      root === "this" ? thisScope(node) : declaringScope(root, node);
+      root === "this"
+        ? thisScope(expression)
+        : declaringScope(root, expression);
     const binding = owner
-      ? receiverBinding(owner, receiverPath(node, name))
+      ? receiverBinding(owner, receiverPath(expression, name))
       : root === "this"
         ? undefined
-        : bindingOf(name, node);
+        : bindingOf(name, expression);
     if (databaseName) {
       if (!owner) return "connection";
       if (!binding || binding === "other") return "inferred";
@@ -1324,7 +1341,17 @@ function sqlCallLines(file: string, text: string, script = false) {
     fallback: any,
   ): ReturnType<typeof propertySource> => {
     const member = propertySource(source, key);
-    return fallback && member.binding === undefined && isMissing(member.value)
+    const alias = member.origin;
+    const initial =
+      alias &&
+      member.binding === "other" &&
+      propertyInitializers.findLast(
+        (entry) => entry.scope === alias.scope && entry.name === alias.name,
+      )?.value;
+    const missing =
+      (member.binding === undefined && isMissing(member.value)) ||
+      Boolean(initial && isMissing(initial));
+    return fallback && missing
       ? { value: fallback, binding: connectionKind(fallback) }
       : member;
   };
@@ -3096,6 +3123,25 @@ it("honors completed block writes and propagates assigned for-of handles", () =>
     maybe.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10]);
+});
+
+it("terminates recursive array analysis and handles named defaults and numeric fields", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const choices = [db ?? choices.at(0)];
+    choices.at(0).exec("BEGIN");
+    const options = { connection: undefined };
+    const { connection = db } = options;
+    connection.exec("BEGIN");
+    const handles = { 0: db };
+    handles[0].exec(migrationText);
+    class Commands { exec() {} }
+    let handle = db;
+    handle.exec(migrationText);
+    handle = new Commands();
+    handle.exec(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 9, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
