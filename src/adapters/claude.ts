@@ -76,21 +76,15 @@ export class Claude extends DirectAdapter implements Adapter {
   // prompt). Kept across prompt() (unlike childItems) so a re-established
   // item in the fresh window carries the known text instead of replacing it
   // with empty; cleared with childItems at the result. Entries are written
-  // only while no turn is open (mid-turn writes are never read back). Each
-  // entry is capped at the projector's display-preview limit and the total
-  // is byte-capped, so neither one long-lived stream nor many streams can
-  // grow adapter memory with copies of full child output.
+  // only while no turn is open (mid-turn writes are never read back), and
+  // each entry is capped at the projector's display-preview limit. Never
+  // evicted: dropping a seed would make a later re-established item empty
+  // and erase the projector's retained text, while keeping the id and
+  // skipping the item would let a delta create a phase-less item that could
+  // be selected as the answer. Memory is bounded per entry and only grows
+  // with the distinct child ids seen between turns.
   private childText = new Map<string, string>();
-  // Ids written to childText while no turn was open. Unlike childText this
-  // never evicts, so a delta for an evicted id can still tell that its full
-  // item was emitted: the projector retains it (a full message is always
-  // commentary), and the delta merges into it instead of re-establishing an
-  // empty item over it.
-  private childSeen = new Set<string>();
-  private childTextBytes = 0;
   private rememberChildText(id: string, text: string) {
-    const previous = this.childText.get(id);
-    const previousBytes = previous ? Buffer.byteLength(previous) : 0;
     // Keep only a display-sized tail, mirroring the projector's own preview
     // bound, so one long-lived stream cannot grow its entry without limit.
     if (Buffer.byteLength(text) > 64000) {
@@ -103,17 +97,7 @@ export class Claude extends DirectAdapter implements Adapter {
       }
       text = text.slice(-low);
     }
-    this.childTextBytes += Buffer.byteLength(text) - previousBytes;
     this.childText.set(id, text);
-    this.childSeen.add(id);
-    // Hard bound on recall-window seeding memory. Eviction is safe for the
-    // retained display: the evicted id stays in childSeen, so a later delta
-    // merges into the projector's item instead of replacing its text.
-    while (this.childTextBytes > 4 * 1024 * 1024 && this.childText.size > 1) {
-      const oldest = this.childText.keys().next().value!;
-      this.childTextBytes -= Buffer.byteLength(this.childText.get(oldest)!);
-      this.childText.delete(oldest);
-    }
   }
   private interrupted = false;
   private active = false;
@@ -602,25 +586,21 @@ export class Claude extends DirectAdapter implements Adapter {
             (this.childText.get(id) ?? "") + e.delta.text,
           );
         if (m.parent_tool_use_id && this.active && !this.childItems.has(id)) {
-          if (this.childText.has(id) || !this.childSeen.has(id)) {
-            this.childItems.add(id);
-            this.emit({
-              type: "item",
-              item: {
-                id,
-                kind: "assistant",
-                // Seed with any text already known for this id (a full child
-                // assistant message seen earlier, possibly before prompt());
-                // the projector replaces by id, so an empty item would drop it.
-                text: this.childText.get(id) ?? "",
-                phase: "commentary",
-              },
-            });
-          }
-          // An id seen while no turn was open whose seed was evicted: its
-          // full item is still retained by the projector (commentary), so
-          // emit only the delta and let it merge into that item instead of
-          // re-establishing an empty one over its text.
+          this.childItems.add(id);
+          this.emit({
+            type: "item",
+            item: {
+              id,
+              kind: "assistant",
+              // Seed with any text already known for this id (a full child
+              // assistant message or deltas seen earlier, possibly before
+              // prompt()); the projector replaces by id, so an empty item
+              // would drop it. Never skipped: a delta alone could create a
+              // phase-less item that becomes the run's answer.
+              text: this.childText.get(id) ?? "",
+              phase: "commentary",
+            },
+          });
         }
         this.emit({ type: "delta", id, text: e.delta.text });
       }
@@ -716,8 +696,6 @@ export class Claude extends DirectAdapter implements Adapter {
       this.messageIds.clear();
       this.childItems.clear();
       this.childText.clear();
-      this.childSeen.clear();
-      this.childTextBytes = 0;
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();

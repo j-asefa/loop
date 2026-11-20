@@ -653,10 +653,10 @@ it("caps a single recall stream's cached seed at the display limit", () => {
   expect(stored.endsWith("x".repeat(1000))).toBe(true);
 });
 
-it("merges a post-prompt delta for an evicted recall id instead of re-establishing over it", async () => {
+it("still establishes a commentary item when a post-prompt delta's recall seed was lost", async () => {
   const sessions = new NativeSessions();
-  const run = turn("conv", "claude-seen-evicted");
-  const current = start(sessions, "claude-seen-evicted-generation", run);
+  const run = turn("conv", "claude-seed-lost");
+  const current = start(sessions, "claude-seed-lost-generation", run);
   sessions.state.startTurn(current.live, run);
   const emitted: AdapterEvent[] = [];
   const adapter = new Claude(
@@ -666,7 +666,7 @@ it("merges a post-prompt delta for an evicted recall id instead of re-establishi
       project: dir,
       version: "fixture",
       billing: "existing",
-      resume: "claude-seen-evicted",
+      resume: "claude-seed-lost",
     },
     (e) => {
       emitted.push(e);
@@ -676,33 +676,32 @@ it("merges a post-prompt delta for an evicted recall id instead of re-establishi
   adapter.active = true;
   adapter.native = { write: async () => undefined };
   const send = (m: any) =>
-    adapter.message({ session_id: "claude-seen-evicted", ...m });
+    adapter.message({ session_id: "claude-seed-lost", ...m });
   // Turn 1 ends; the child's full message arrives while no turn is open.
   adapter.message({
     type: "result",
-    session_id: "claude-seen-evicted",
+    session_id: "claude-seed-lost",
     is_error: false,
   });
   send({
     type: "assistant",
     parent_tool_use_id: "task-1",
     message: {
-      id: "child-seen",
+      id: "child-seed-lost",
       role: "assistant",
       content: [{ type: "text", text: "Retained text" }],
     },
   });
-  // The seed cache evicts the id (as >4 MiB of other recall output would),
-  // while childSeen still records that its commentary item was emitted.
-  adapter.childText.delete("child-seen");
-  expect(adapter.childSeen.has("child-seen")).toBe(true);
+  // The recall seed is missing for this id (as after extreme cache
+  // pressure); the id is also not in the new turn's cleared item window.
+  adapter.childText.delete("child-seed-lost");
   await adapter.prompt("next");
-  sessions.state.startTurn(current.live, turn("conv", "claude-seen-evicted-2"));
+  sessions.state.startTurn(current.live, turn("conv", "claude-seed-lost-2"));
   emitted.length = 0;
   send({
     type: "stream_event",
     parent_tool_use_id: "task-1",
-    event: { type: "message_start", message: { id: "child-seen" } },
+    event: { type: "message_start", message: { id: "child-seed-lost" } },
   });
   send({
     type: "stream_event",
@@ -712,9 +711,27 @@ it("merges a post-prompt delta for an evicted recall id instead of re-establishi
       delta: { type: "text_delta", text: " more" },
     },
   });
-  // No establishing item is emitted for the evicted-but-seen id: the delta
-  // alone merges into the retained commentary item instead of replacing it.
-  expect(emitted).toEqual([{ type: "delta", id: "child-seen", text: " more" }]);
+  // The delta is still preceded by a commentary item, so the fresh window's
+  // item is never phase-less and cannot become the new run's answer.
+  expect(emitted).toEqual([
+    {
+      type: "item",
+      item: {
+        id: "child-seed-lost",
+        kind: "assistant",
+        text: "",
+        phase: "commentary",
+      },
+    },
+    { type: "delta", id: "child-seed-lost", text: " more" },
+  ]);
+  expect(current.live.items.get("child-seed-lost")).toEqual({
+    id: "child-seed-lost",
+    kind: "assistant",
+    text: " more",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
 const option = (id: string, confirmed: string) => ({
