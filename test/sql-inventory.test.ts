@@ -768,15 +768,25 @@ function sqlCallLines(file: string, text: string, script = false) {
         (block?.type !== "BlockStatement" && block?.type !== "Program")
       )
         continue;
-      const scope = scopeOf(node);
-      const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
-      for (const { name } of targets) {
-        if (name.startsWith("this.")) continue;
-        const writes = byName.get(name) ?? [];
-        writes.push(node);
-        byName.set(name, writes);
+      // A standalone block runs in sequence with its surrounding statements.
+      for (
+        let container = block;
+        container;
+        container = parents.get(container)
+      ) {
+        if (container.type !== "BlockStatement" && container.type !== "Program")
+          break;
+        const scope = scopeOf(container);
+        const byName =
+          straightLineWrites.get(scope) ?? new Map<string, any[]>();
+        for (const { name } of targets) {
+          if (name.startsWith("this.")) continue;
+          const writes = byName.get(name) ?? [];
+          writes.push(node);
+          byName.set(name, writes);
+        }
+        straightLineWrites.set(scope, byName);
       }
-      straightLineWrites.set(scope, byName);
     }
   }
   const isConstructor = (name: string, node: any) =>
@@ -1709,20 +1719,19 @@ function sqlCallLines(file: string, text: string, script = false) {
           changed = true;
         }
       }
-      if (
-        script &&
-        node.type === "ForOfStatement" &&
-        node.left.type === "VariableDeclaration"
-      ) {
+      if (script && node.type === "ForOfStatement") {
         const array = staticArray(node.right);
-        const declaration = node.left.declarations[0];
-        if (array)
+        const declaration =
+          node.left.type === "VariableDeclaration"
+            ? node.left.declarations[0]
+            : undefined;
+        const target = declaration?.id ?? node.left;
+        const owner = declaration
+          ? declarationScope(declaration)
+          : target.type === "Identifier" && declaringScope(target.name, target);
+        if (array && owner)
           for (const item of staticArguments(array).values)
-            trackParameter(
-              declarationScope(declaration),
-              declaration.id,
-              unwrap(item),
-            );
+            trackParameter(owner, target, unwrap(item));
       }
       if (script && functionKinds.has(node.type))
         for (const parameter of node.params)
@@ -3072,6 +3081,21 @@ it("tracks array rest elements and SQLite methods invoked through Reflect.apply"
     function dispatch(Reflect) { Reflect.apply(db.exec, db, [migrationText]); }
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6]);
+});
+
+it("honors completed block writes and propagates assigned for-of handles", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let handle = db;
+    { handle = { exec: runCommand }; }
+    handle.exec(command);
+    let selected;
+    for (selected of [db]) selected.exec("BEGIN");
+    let maybe = db;
+    if (flag) { maybe = { exec: runCommand }; }
+    maybe.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
