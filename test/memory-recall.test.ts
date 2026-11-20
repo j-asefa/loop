@@ -23,8 +23,11 @@ const { withTestAdapter } = await import("../src/server/providers");
 const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { saveArtifact } = await import("../src/server/artifacts");
-const { getResult, listResultContextEdges } =
-  await import("../src/server/result-publication");
+const {
+  getResult,
+  listResultContextEdges,
+  publishImportedConversationResults,
+} = await import("../src/server/result-publication");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
 const fleetEffectsQueries =
@@ -801,13 +804,14 @@ it("links recalled passages to a sealed result and records deterministic citatio
   const commit = "a".repeat(40);
   db.prepare(
     `INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,
-       directory,source,branch,start_head,start_dirty,start_untracked,started_at,state)
-       VALUES(?,'alice',?,?,?,'/tmp/worktree','/tmp/monorepo','topic',?,0,0,?,'started')`,
+       directory,source,branch,start_head,end_head,start_dirty,start_untracked,started_at,state)
+       VALUES(?,'alice',?,?,?,'/tmp/worktree','/tmp/monorepo','topic',?,?,0,0,?,'captured')`,
   ).run(
     id(),
     saved.id,
     agent.id,
     source.provenance.conversationId,
+    "b".repeat(40),
     commit,
     now(),
   );
@@ -873,13 +877,16 @@ it("links recalled passages to a sealed result and records deterministic citatio
       return [];
     },
     async *stream(_secret, request) {
+      const calls = request.messages.filter((message) =>
+        message.toolCallId?.startsWith("hemlock-search-"),
+      );
       const tool = request.messages.find(
-        (message) => message.toolCallId === "hemlock-search",
+        (message) => message.toolCallId === "hemlock-search-2",
       );
       if (!tool) {
         yield {
           toolCall: {
-            id: "hemlock-search",
+            id: "hemlock-search-" + (calls.length + 1),
             name: "loop_memory_search",
             arguments: { query: "hemlock deploy checksum" },
           },
@@ -907,15 +914,19 @@ it("links recalled passages to a sealed result and records deterministic citatio
     restorePull();
   }
   expect(
-    getResult("alice", runResultId(pull.id), db)?.lineage.suppliedContext,
-  ).toContainEqual(
+    getResult(
+      "alice",
+      runResultId(pull.id),
+      db,
+    )?.lineage.suppliedContext.filter((item) => item.resultId === source.id),
+  ).toEqual([
     expect.objectContaining({
       resultId: source.id,
       contentDigest: source.contentDigest,
       suppliedText: excerpt,
       excerpt: true,
     }),
-  );
+  ]);
   const pullReceipt = await request(`/runs/${pull.id}/memory`);
   const pulled = JSON.parse(pullReceipt.data.sources).find(
     (entry: { resultId?: string }) => entry.resultId === source.id,
@@ -935,8 +946,33 @@ it("links recalled passages to a sealed result and records deterministic citatio
     artifact.id,
   );
   captureMemory();
-  expect((await nativePrompt("hemlock deploy checksum")).prompt).toContain(
-    "edited after publication",
+  db.prepare("UPDATE run_checkouts SET end_head=NULL WHERE run_id=?").run(
+    saved.id,
+  );
+  const editedPrompt = (await nativePrompt("hemlock deploy checksum")).prompt;
+  expect(editedPrompt).toContain("edited after publication");
+  expect(editedPrompt).not.toContain("at monorepo@");
+  const edited = submit("alice", {
+    agentId: agent.id,
+    input: "What was the hemlock deploy checksum?",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("edited-memory-result", "The checksum was corrected.");
+  expect(
+    getResult("alice", runResultId(edited.id), db)?.lineage.suppliedContext.map(
+      (item) => item.resultId,
+    ),
+  ).not.toContain(source.id);
+  expect(
+    JSON.parse((await request(`/runs/${edited.id}/memory`)).data.sources),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        resultId: source.id,
+        editedAfterPublication: true,
+      }),
+    ]),
   );
   expect(
     artifactsQueries.memoryResultEvidence(db, artifact.id, "another-owner"),
@@ -945,6 +981,61 @@ it("links recalled passages to a sealed result and records deterministic citatio
     (await searchMemory("another-owner", null, "hemlock deploy checksum"))
       .sources,
   ).toEqual([]);
+});
+
+it("links a recalled standalone answer message to its sealed result", async () => {
+  const agent = agentFor("alice");
+  const origin = submit("alice", {
+    agentId: agent.id,
+    input: "Start an archive",
+    idempotencyKey: id(),
+  });
+  await answerNext("archive-init", "Archive started.");
+  const conversation = origin.conversation_id!;
+  const text = "The albatross build manifest contains a cobalt checksum.";
+  messagesQueries.insert(
+    db,
+    id(),
+    "alice",
+    conversation,
+    null,
+    "assistant",
+    text,
+    "{}",
+    now(),
+  );
+  const [source] = publishImportedConversationResults(
+    "alice",
+    conversation,
+    db,
+  );
+  expect(source.outcome.body).toBe(text);
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "conversation:" + conversation,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "albatross cobalt checksum",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("recalled-archive", "I found the manifest.");
+  expect(
+    getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+  ).toContainEqual(
+    expect.objectContaining({ resultId: source.id, suppliedText: text }),
+  );
 });
 
 it("recalls only finished, unarchived results from conversations still in memory", async () => {

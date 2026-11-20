@@ -453,7 +453,7 @@ const memoryResultEvidenceStatement = statement(
   `SELECT r.id AS result_id, r.content_digest,
           a.content IS NOT json_extract(r.outcome,'$.body') AS edited,
           k.source AS checkout_source, k.branch AS checkout_branch,
-          COALESCE(NULLIF(k.end_head,''), k.start_head) AS checkout_commit
+          k.end_head AS checkout_commit
      FROM artifacts a
      JOIN results r ON r.owner_id=a.owner_id AND r.id='run:'||a.run_id
        AND r.sealed=1 AND r.conversation_id=a.conversation_id

@@ -10,6 +10,7 @@ import { ftsQuery, searchTerms } from "../shared/search-excerpt.js";
 import { workspaceLink } from "../shared/workspace-links.js";
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
 import * as artifactsQueries from "./sql/artifacts.js";
+import * as resultsQueries from "./sql/results.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
@@ -328,6 +329,25 @@ function sealedMemoryEvidence(owner: string, artifactId: string) {
   };
 }
 
+function sealedMessageEvidence(
+  owner: string,
+  source: Pick<
+    QueryRow<"memory_sources">,
+    "source_id" | "conversation_id" | "content"
+  > & { truncated: boolean },
+) {
+  const result = resultsQueries.canonicalByMessage(db, owner, source.source_id);
+  if (!result || result.provenance.conversationId !== source.conversation_id)
+    return {};
+  return {
+    resultId: result.id,
+    contentDigest: result.contentDigest,
+    editedAfterPublication: source.truncated
+      ? !result.outcome.body.startsWith(source.content)
+      : source.content !== result.outcome.body,
+  };
+}
+
 function readMemory(
   owner: string,
   sourceId: string,
@@ -567,7 +587,9 @@ export async function searchMemory(
         link: s.link,
         ...(s.kind === "artifact" && s.evidenceKind === "result"
           ? sealedMemoryEvidence(owner, s.source_id)
-          : {}),
+          : s.kind === "message" && s.role === "assistant"
+            ? sealedMessageEvidence(owner, s)
+            : {}),
       });
     } catch {}
     if (sources.length >= limit) break;

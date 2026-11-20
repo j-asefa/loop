@@ -605,6 +605,8 @@ function suppliesFromMemory(
   const sources = memoryReceiptsQueries.parseSources(receipt.sources);
   let marked = false;
   const supplied: ResultSupplyItem[] = [];
+  const recorded = new Set<string>();
+  let totalChars = 0;
   for (const source of sources) {
     if (
       (typeof source.link === "string" &&
@@ -619,7 +621,12 @@ function suppliesFromMemory(
     }
     if (
       typeof source.resultId !== "string" ||
-      typeof source.suppliedText !== "string"
+      typeof source.suppliedText !== "string" ||
+      source.editedAfterPublication === true ||
+      recorded.has(source.resultId) ||
+      supplied.length >= MAX_RESULT_SUPPLY_ITEMS ||
+      source.suppliedText.length > MAX_RESULT_SUPPLY_CHARS ||
+      totalChars + source.suppliedText.length > MAX_TOTAL_RESULT_SUPPLY_CHARS
     )
       continue;
     const result = resultsQueries.canonicalById(
@@ -633,6 +640,8 @@ function suppliesFromMemory(
       result.provenance.runId === run
     )
       continue;
+    recorded.add(result.id);
+    totalChars += source.suppliedText.length;
     supplied.push({
       resultId: result.id,
       contentDigest: result.contentDigest,
