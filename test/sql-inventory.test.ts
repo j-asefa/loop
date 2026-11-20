@@ -247,6 +247,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   }
   const receiverClass = new Map<Scope, any>();
   const boundReceivers = new Map<object, object[]>();
+  const explicitReceiverScopes = new Map<object, Scope>();
   const receiverContext = (
     node: any,
     seen = new Set<object>(),
@@ -281,7 +282,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         const context = receiverContext(receiver, seen);
         if (context) return context;
       }
-      return undefined;
+      const explicit = explicitReceiverScopes.get(cursor);
+      return explicit ? { scope: explicit, static: false } : undefined;
     }
     return undefined;
   };
@@ -637,8 +639,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (
       node.type !== "CallExpression" ||
       method?.type !== "MemberExpression" ||
-      !["call", "apply", "bind"].includes(property(method)) ||
-      node.arguments[0]?.type !== "ThisExpression"
+      !["call", "apply", "bind"].includes(property(method))
     )
       continue;
     const source = unwrap(method.object);
@@ -647,8 +648,18 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? source
         : declaringScope(source.name, source)?.functions?.get(source.name);
     if (!fn) continue;
+    const argument = unwrap(node.arguments[0]);
+    if (argument?.type !== "ThisExpression") {
+      if (
+        argument?.type === "Identifier" &&
+        declaringScope(argument.name, argument) &&
+        !explicitReceiverScopes.has(fn)
+      )
+        explicitReceiverScopes.set(fn, { bindings: new Map() });
+      continue;
+    }
     const receivers = boundReceivers.get(fn) ?? [];
-    receivers.push(node.arguments[0]);
+    receivers.push(argument);
     boundReceivers.set(fn, receivers);
   }
   const isConstructor = (name: string, node: any) =>
@@ -888,6 +899,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "connection";
     const name = receiver(expression);
     if (!name) return undefined;
+    const databaseName = name === "db" || name.endsWith(".db");
+    if (databaseName && !script) return "connection";
     if (expression.type === "Identifier") {
       const write = straightLineWrites
         .get(scopeOf(expression))
@@ -919,8 +932,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       : root === "this"
         ? undefined
         : bindingOf(name, node);
-    if (name === "db" || name.endsWith(".db")) {
-      if (!script || !owner) return "connection";
+    if (databaseName) {
+      if (!owner) return "connection";
       if (!binding || binding === "other") return "inferred";
     }
     return binding;
@@ -1145,6 +1158,11 @@ function sqlCallLines(file: string, text: string, script = false) {
         const member = propertySource(argument, key);
         const value =
           member.value ?? (member.binding === undefined ? fallback : undefined);
+        const method =
+          methods.has(key) && connectionKind(argument) === "connection"
+            ? key
+            : sqliteMethod(value);
+        trackMethod(scope, name, method);
         trackBinding(
           scope,
           name,
@@ -2205,6 +2223,25 @@ it("follows parameter defaults and namespace types while observing factory sprea
     function seed(connection: DatabaseTypes.Database) { connection.exec(migrationText); }
 `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 10]);
+});
+
+it("preserves server receiver detection and follows method destructuring in script parameters", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    class Store { constructor(database) { this.db = database; } }
+    const store = new Store(db);
+    store.db.exec(migrationText);
+    function migrate() {
+      this.connection = db;
+      this.connection.exec(migrationText);
+    }
+    const holder = {};
+    migrate.call(holder);
+    function seed({ exec }, connection, text) { exec.call(connection, text); }
+    seed(db, db, migrationText);
+`;
+  expect(sqlCallLines("probe.ts", text)).toEqual([5, 8]);
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 8, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
