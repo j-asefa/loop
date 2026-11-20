@@ -62,20 +62,10 @@ const failures: Record<DisplayFailure, string> = {
 
 function displaySource(input: string) {
   const lines = input.split(/\r\n?|\n/);
-  const first = lines.findIndex((line) => line.trim() !== "");
-  const last = lines.findLastIndex((line) => line.trim() !== "");
-  const opener = /^ {0,3}(\x60{3,}|~{3,})/.exec(lines[first] ?? "");
-  const closer = /^ {0,3}(\x60{3,}|~{3,})[ \t]*$/.exec(lines[last] ?? "");
-  if (
-    opener &&
-    closer &&
-    last > first &&
-    closer[1].length >= opener[1].length &&
-    closer[1][0] === opener[1][0]
-  ) {
-    const { children } = markdown.parse(
-      lines.slice(first, last + 1).join("\n"),
-    );
+  const first = lines.findIndex((line) => /[^ \t]/.test(line));
+  if (/^ {0,3}(\x60{3,}|~{3,})/.test(lines[first] ?? "")) {
+    // Markdown preserves internal line endings and removes fence indentation.
+    const { children } = markdown.parse(input);
     const node = children[0];
     if (
       children.length !== 1 ||
@@ -87,7 +77,7 @@ function displaySource(input: string) {
       };
     return { source: node.value };
   }
-  return { source: lines.join("\n") };
+  return { source: input };
 }
 
 // Leave room for the failure summary and reference within the API runtime's

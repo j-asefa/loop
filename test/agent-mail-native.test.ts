@@ -3,6 +3,8 @@ import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers/wait.js";
 import { createHash } from "node:crypto";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { realpathSync } from "node:fs";
 
@@ -408,14 +410,13 @@ it.each([
           )?.state === "accepted",
       );
       const endpoint = { ...ticket };
-      const call = async (body: object) =>
-        (
-          await fetch(endpoint.url + "/pi", {
-            method: "POST",
-            headers: { authorization: "Bearer " + endpoint.token },
-            body: JSON.stringify(body),
-          })
-        ).json();
+      const requestPi = (body: object) =>
+        fetch(endpoint.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + endpoint.token },
+          body: JSON.stringify(body),
+        });
+      const call = async (body: object) => (await requestPi(body)).json();
       await call({ method: "tools/list" });
       if (cause === "cancel") {
         const children = Array.from(
@@ -439,17 +440,41 @@ it.each([
           name: "loop_check_display",
           arguments: { spec },
         };
-        expect(await call(display)).toMatchObject({
+        const validResult = {
           content: [
             { text: expect.stringContaining("Display valid. Elements: 17.") },
           ],
-        });
-        const extra = await fetch(endpoint.url + "/pi", {
-          method: "POST",
-          headers: { authorization: "Bearer " + endpoint.token },
-          body: JSON.stringify({ ...display, name: "loop_message" }),
-        });
-        expect(extra.status).toBe(413);
+        };
+        expect(await call(display)).toMatchObject(validResult);
+        expect(await call(display)).toMatchObject(validResult);
+        expect(
+          (await requestPi({ ...display, arguments: { spec: spec + "\n" } }))
+            .status,
+        ).toBe(409);
+        expect(
+          (await requestPi({ ...display, name: "loop_message" })).status,
+        ).toBe(413);
+        const client = new Client({ name: "display-fixture", version: "1" });
+        try {
+          await client.connect(
+            new StreamableHTTPClientTransport(new URL(endpoint.url), {
+              requestInit: {
+                headers: { Authorization: "Bearer " + endpoint.token },
+              },
+            }),
+          );
+          expect((await client.listTools()).tools).toContainEqual(
+            expect.objectContaining({ name: display.name }),
+          );
+          expect(
+            await client.callTool({
+              name: display.name,
+              arguments: display.arguments,
+            }),
+          ).toMatchObject(validResult);
+        } finally {
+          await client.close();
+        }
       }
       const concurrentExpiry = cause === "concurrent-expiry";
       if (cause === "expiry" || concurrentExpiry)

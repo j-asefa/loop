@@ -299,6 +299,10 @@ it("draws or falls back at the source size limit as the reader does", () => {
   const atHtml = render(fence(at!.source));
   expect(atHtml).toContain('class="display-spec"');
   expect(atHtml).not.toContain("This display could not be drawn");
+  expect(render("```spec\n" + at!.source)).toContain('class="display-spec"');
+  expect(render(fence(at!.source.replace("\n", "\r\n")))).toContain(
+    "This display could not be drawn",
+  );
   const overHtml = render(fence(over!.source));
   expect(overHtml).not.toContain('class="display-spec"');
   expect(overHtml).toContain("This display could not be drawn");

@@ -409,6 +409,7 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call("```spec example\n" + valid + "\n```")).toContain(
     "Display valid.",
   );
+  expect(await call("```spec\n" + valid)).toContain("Display valid.");
   expect(await call("~~~spec&#32;example\n" + valid + "\n~~~")).toContain(
     "Display valid.",
   );
@@ -461,8 +462,11 @@ it("validates display blocks through the native binding without recording a disp
     .split("\n")
     .map((line) => "  " + line)
     .join("\r\n");
+  expect(
+    await call("  ~~~spec\r\n" + indented.slice(0, -1) + "\r\n  ~~~"),
+  ).toContain("Display valid.");
   expect(await call("  ~~~spec\r\n" + indented + "\r\n  ~~~")).toContain(
-    "Display valid.",
+    "Block exceeds",
   );
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),

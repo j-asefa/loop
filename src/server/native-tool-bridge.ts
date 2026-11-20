@@ -128,8 +128,11 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
+    // Keep the request identity without retaining a potentially large payload.
     const key = run.id + ":" + requestId,
-      digest = JSON.stringify([name, args]);
+      digest = createHash("sha256")
+        .update(JSON.stringify([name, args]))
+        .digest("hex");
     const previous = t.calls.get(key);
     if (previous && previous.digest !== digest)
       throw new Error("Tool request identity was reused");
