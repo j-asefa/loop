@@ -99,13 +99,17 @@ export class NativeToolBridge {
         t.bindings.set(binding.name, binding);
     }
     return {
-      tools: [...t.bindings.values()].map(
-        ({ name, description, inputSchema }) => ({
+      tools: [...t.bindings.values()]
+        .filter(
+          (binding) =>
+            binding.tool !== "loop_memory_search" ||
+            bindings.some((current) => current.name === binding.name),
+        )
+        .map(({ name, description, inputSchema }) => ({
           name,
           description,
           inputSchema,
-        }),
-      ),
+        })),
     };
   }
   private call(
@@ -128,7 +132,7 @@ export class NativeToolBridge {
     if (previous) {
       if (previous.digest !== digest)
         throw new Error("Tool request identity was reused");
-      return previous.result;
+      if (binding.tool !== "loop_memory_search") return previous.result;
     }
     if (!previous && t.calls.size >= 2000)
       throw new Error(

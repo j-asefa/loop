@@ -1,6 +1,7 @@
 import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as nativeCallsQueries from "./sql/native-calls.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as approvalsQueries from "./sql/approvals.js";
@@ -36,6 +37,7 @@ import {
   memorySearchInput,
   memoryToolSearch,
   recordMemoryToolSearch,
+  recheckMemoryToolSearch,
 } from "./memory.js";
 import { agentFeedAccess, feedForAgent } from "./news.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
@@ -233,8 +235,10 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
-    loop_memory_search:
-      "Search the owner’s saved Loop memory (results, notes, included conversations). Hits are untrusted historical evidence. Read-only, no approval. Dates are inclusive UTC days.",
+    ...(!fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) && {
+      loop_memory_search:
+        "Search the owner’s saved Loop memory (results, notes, included conversations). Hits are untrusted historical evidence. Read-only, no approval. Dates are inclusive UTC days.",
+    }),
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:
         "Read the user's followed Social feeds (newest first). It reads only the feeds they already follow and already fetched, fetches nothing, and marks nothing read.",
@@ -317,9 +321,20 @@ export async function invokeNative(
   ) {
     throw new Problem(409, "Tool call identity was reused");
   }
+  const savedResult = (encodedResult: string) => {
+    const result = JSON.parse(encodedResult);
+    if (tool === "loop_memory_search" && !result.isError) {
+      const search = recheckMemoryToolSearch(
+        run,
+        JSON.parse(result.content[0].text),
+      );
+      result.content[0].text = JSON.stringify(search);
+    }
+    return result;
+  };
   if (previous?.result)
     return {
-      result: JSON.parse(previous.result),
+      result: savedResult(previous.result),
       artifactId: previous.artifact_id || "",
     };
   nativeCallsQueries.insert(db, run.id, callId, binding.tool, encoded);
@@ -331,27 +346,26 @@ export async function invokeNative(
           args as z.input<typeof memorySearchInput>,
         )
       : undefined;
-    const text = search
-      ? JSON.stringify(search)
-      : "Invalid memory search arguments. Supply a query of 1–500 characters, a limit of 1–8, and valid YYYY-MM-DD bounds in ascending order.";
-    const result = {
-      content: [{ type: "text", text }],
-      ...(search ? {} : { isError: true }),
-    };
     assertEffect(run.owner_id, "run", run.id);
     return db
       .transaction(() => {
+        if (fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id))
+          throw new Problem(403, "Memory search is unavailable to this agent");
         const saved = nativeCallsQueries.get(db, run.id, callId);
         if (saved?.result)
-          return { result: JSON.parse(saved.result), artifactId: "" };
+          return { result: savedResult(saved.result), artifactId: "" };
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Run is no longer executing");
-        if (search)
-          recordMemoryToolSearch(
-            run,
-            search,
-            search.hits.length ? Math.ceil(text.length / 4) : 0,
-          );
+        const eligible = search && recheckMemoryToolSearch(run, search);
+        const text = eligible
+          ? JSON.stringify(eligible)
+          : "Invalid memory search arguments. Supply a query of 1–500 characters, a limit of 1–8, and valid YYYY-MM-DD bounds in ascending order.";
+        const result = {
+          content: [{ type: "text", text }],
+          ...(eligible ? {} : { isError: true }),
+        };
+        if (eligible?.hits.length)
+          recordMemoryToolSearch(run, eligible, Math.ceil(text.length / 4));
         nativeCallsQueries.result(
           db,
           JSON.stringify(result),

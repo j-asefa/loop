@@ -348,7 +348,7 @@ export async function searchMemory(
     window,
     limit = 5,
     excerptBudget = 5500,
-    filterDatesBeforeRanking = false,
+    filterBeforeRanking = false,
     kind,
   }: {
     /** Keep only sources that contain enough of the query's terms. */
@@ -358,7 +358,7 @@ export async function searchMemory(
     window?: MemoryTimeWindow;
     limit?: number;
     excerptBudget?: number;
-    filterDatesBeforeRanking?: boolean;
+    filterBeforeRanking?: boolean;
     kind?: "result" | "note" | "message";
   } = {},
 ) {
@@ -387,7 +387,8 @@ export async function searchMemory(
       owner,
       project,
       kind,
-      filterDatesBeforeRanking ? window : undefined,
+      filterBeforeRanking ? window : undefined,
+      filterBeforeRanking ? conversation : null,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
@@ -404,7 +405,8 @@ export async function searchMemory(
             owner,
             project,
             kind,
-            filterDatesBeforeRanking ? window : undefined,
+            filterBeforeRanking ? window : undefined,
+            filterBeforeRanking ? conversation : null,
           ),
         );
       }
@@ -785,7 +787,7 @@ export async function memoryToolSearch(
   const { mode, sources } = await searchMemory(run.owner_id, project, query, {
     limit,
     excerptBudget: limit * EXCERPT_CHARACTERS,
-    filterDatesBeforeRanking: true,
+    filterBeforeRanking: true,
     kind,
     relevant: strict,
     conversation: run.conversation_id,
@@ -822,6 +824,33 @@ export async function memoryToolSearch(
   )
     response.hits.pop();
   return response;
+}
+
+export function recheckMemoryToolSearch(
+  run: Run,
+  search: Awaited<ReturnType<typeof memoryToolSearch>>,
+) {
+  const project = run.payload.folderId ?? null;
+  if (
+    !enabled(run.owner_id, "workspace") ||
+    (project && !enabled(run.owner_id, "project:" + project))
+  )
+    return { ...search, mode: "disabled", hits: [] };
+  return {
+    ...search,
+    hits: search.hits.filter((hit) => {
+      try {
+        return (
+          readMemory(run.owner_id, hit.id, hit.revision, project)
+            .evidenceKind === hit.kind &&
+          !memorySourcesQueries.inConversation(db, hit.id, run.conversation_id)
+        );
+      } catch (error) {
+        if (error instanceof Problem && error.status === 404) return false;
+        throw error;
+      }
+    }),
+  };
 }
 
 export function recordMemoryToolSearch(

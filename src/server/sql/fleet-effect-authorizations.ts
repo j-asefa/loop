@@ -81,3 +81,21 @@ export function firstCommand(
     ? undefined
     : parseRecord(firstCommandRow, row, "fleet_effect_authorizations");
 }
+
+const mailAuthorityStatement = statement(
+  `SELECT 1 FROM fleet_effect_authorizations
+   WHERE owner_id=@owner AND effect_kind='run' AND effect_id=@run
+     AND json_extract(grant_context,'$.operation')='mail'
+   UNION ALL SELECT 1 FROM fleet_effect_edit_authorizations
+   WHERE owner_id=@owner AND effect_kind='run' AND effect_id=@run
+     AND json_extract(grant_context,'$.operation')='mail'
+   LIMIT 1`,
+);
+/** Covers incoming Fleet mail, steering, and dependent runs that inherit its grant. */
+export function hasMailAuthority(
+  db: Database.Database,
+  owner: string,
+  run: string,
+) {
+  return mailAuthorityStatement(db).get({ owner, run }) !== undefined;
+}

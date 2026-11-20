@@ -16,10 +16,13 @@ const { nativeBindings, invokeNative } =
   await import("../src/server/native-tools");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
+const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
+const fleetEffectsQueries =
+  await import("../src/server/sql/fleet-effect-authorizations");
 const artifactsQueries = await import("../src/server/sql/artifacts");
 const memoryPassageQueries = await import("../src/server/sql/memory-passages");
 const messagesQueries = await import("../src/server/sql/messages");
@@ -80,7 +83,10 @@ async function nativePrompt(
   input: string,
   followUp?: { agentId: string; conversationId: string },
   personal = true,
-  duringPrompt?: (run: NonNullable<ReturnType<typeof claim>>) => Promise<void>,
+  duringPrompt?: (
+    run: NonNullable<ReturnType<typeof claim>>,
+    generation: string,
+  ) => Promise<void>,
 ) {
   // Personal is what the owner's own send route records; mail does not.
   const run = submit("alice", {
@@ -107,7 +113,7 @@ async function nativePrompt(
       async prompt(text: string, beforeDispatch?: () => void) {
         beforeDispatch?.();
         prompt = text;
-        await duringPrompt?.(claimed);
+        await duringPrompt?.(claimed, generation);
         live.finish!("completed");
       },
     }),
@@ -256,6 +262,76 @@ it("bounds the serialized tool response before recording the returned hits", asy
     },
   );
   expect(run.id).toBeDefined();
+});
+
+it("rechecks cached memory hits and blocks runs with a remote mail grant", async () => {
+  const own = await note(
+    "Tamarisk cache",
+    "tamarisk cached deployment evidence",
+  );
+  await nativePrompt("continue", undefined, false, async (run, generation) => {
+    const findTool = (candidate: typeof run) =>
+      nativeBindings(candidate).find(
+        (entry) => entry.tool === "loop_memory_search",
+      );
+    const bridge = new NativeToolBridge();
+    await bridge.start();
+    try {
+      const ticket = bridge.issue(run.conversation_id!, generation);
+      const call = async (body: object) => {
+        const response = await fetch(ticket.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + ticket.token },
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(200);
+        return (await response.json()) as { content?: { text: string }[] };
+      };
+      await call({ method: "tools/list" });
+      const search = (id: string, query: string) =>
+        call({
+          method: "tools/call",
+          id,
+          name: "loop_memory_search",
+          arguments: { query },
+        });
+      await search("first-empty", "nonexistentfoxtrot");
+      expect((await request(`/runs/${run.id}/memory`)).data.mode).toBe(
+        "not-used",
+      );
+      const first = await search("replay", "tamarisk");
+      expect(JSON.stringify(first)).toContain("cached deployment evidence");
+      const historical = (await request(`/runs/${run.id}/memory`)).data;
+      expect(
+        (
+          await request(
+            `/memory/sources/${own.data.id}`,
+            undefined,
+            "alice",
+            "DELETE",
+          )
+        ).status,
+      ).toBe(200);
+      const retry = await search("replay", "tamarisk");
+      expect(JSON.parse(retry.content![0].text).hits).toEqual([]);
+      expect((await request(`/runs/${run.id}/memory`)).data).toEqual(
+        historical,
+      );
+    } finally {
+      await bridge.close();
+    }
+
+    const remote = { ...run, id: id() };
+    const grant = JSON.stringify({ operation: "mail" });
+    fleetEffectsQueries.insert(db, run.owner_id, "run", remote.id, id(), grant);
+    expect(findTool(remote)).toBeUndefined();
+    const inherited = { ...run, id: id() };
+    db.prepare(
+      "INSERT INTO fleet_effect_edit_authorizations VALUES(?,?,?,?,?)",
+    ).run(run.owner_id, "run", inherited.id, id(), grant);
+    expect(findTool(inherited)).toBeUndefined();
+    expect(findTool(run)).toBeDefined();
+  });
 });
 
 it("bounds recalled text and adds nothing when no saved memory matches", async () => {
@@ -512,6 +588,7 @@ it("recalls only finished, unarchived results from conversations still in memory
   captureMemory();
   const recalled = async () =>
     (await nativePrompt("kepler orbit period")).prompt;
+  const competitors: string[] = [];
   const outside = Date.parse("2026-01-01");
   for (let i = 0; i < 76; i++) {
     const { data } = await note("period", "period period period");
@@ -519,6 +596,7 @@ it("recalls only finished, unarchived results from conversations still in memory
       outside,
       data.id,
     );
+    competitors.push(data.id);
   }
   const inside = await note(
     "Relevant dates",
@@ -554,6 +632,18 @@ it("recalls only finished, unarchived results from conversations still in memory
       if (!("result" in dated)) throw new Error("Expected a completed search");
       expect(JSON.parse(dated.result.content[0].text).hits).toMatchObject([
         { id: inside.data.id, updatedAt: "2026-02-02" },
+      ]);
+      for (const id of competitors)
+        db.prepare(
+          "UPDATE memory_sources SET conversation_id=? WHERE id=?",
+        ).run(run.conversation_id, id);
+      const across = await invokeNative(run, tool, "across", {
+        query: "period",
+        kind: "note",
+      });
+      if (!("result" in across)) throw new Error("Expected a completed search");
+      expect(JSON.parse(across.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id },
       ]);
     },
   );

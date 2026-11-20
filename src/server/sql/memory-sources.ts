@@ -81,9 +81,16 @@ export function setComplete(
 }
 
 // Results are captured without a conversation, so match their artifact's.
+export const inConversationSql = `(s.conversation_id IS @conversation OR
+  (s.kind='artifact' AND EXISTS (
+    SELECT 1 FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id
+      AND a.conversation_id=@conversation
+  )))`;
+
 const inConversationStatement = statement(
-  "SELECT 1 AS found FROM memory_sources s WHERE s.id=@id AND (s.conversation_id=@conversation OR (s.kind='artifact' AND EXISTS(SELECT 1 FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND a.conversation_id=@conversation)))",
+  `SELECT 1 AS found FROM memory_sources s WHERE s.id=@id AND @conversation IS NOT NULL AND ${inConversationSql}`,
 );
+
 export function inConversation(
   db: Database.Database,
   id: string,
