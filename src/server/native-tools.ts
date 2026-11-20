@@ -297,6 +297,22 @@ export function nativeBindings(
   }));
 }
 /** Refresh saved search outputs at the API provider boundary, without appending receipts. */
+function refreshedMailStatus(run: Run, args: unknown) {
+  try {
+    if (!canSearchSavedMemory(run))
+      throw new Problem(
+        403,
+        "Mail previews are unavailable in Fleet mail context",
+      );
+    return {
+      content: [{ type: "text", text: JSON.stringify(mailStatus(run, args)) }],
+    };
+  } catch (error) {
+    if (!(error instanceof Problem)) throw error;
+    return { isError: true, content: [{ type: "text", text: error.message }] };
+  }
+}
+
 export function memorySearchProviderHistory(
   run: Run,
   messages: import("./providers.js").ChatMessage[],
@@ -305,12 +321,14 @@ export function memorySearchProviderHistory(
     if (message.role !== "tool" || !message.toolCallId || message.isError)
       return message;
     const call = nativeCallsQueries.get(db, run.id, message.toolCallId);
-    if (call?.tool === "loop_message_status" && !canSearchSavedMemory(run))
+    if (call?.tool === "loop_message_status" && call.result) {
+      const status = refreshedMailStatus(run, JSON.parse(call.arguments));
       return {
         ...message,
-        isError: true,
-        content: "Mail previews are unavailable in Fleet mail context",
+        isError: status.isError ?? false,
+        content: JSON.stringify(status),
       };
+    }
     if (call?.tool !== "loop_memory_search" || !call.result) return message;
     const result = JSON.parse(call.result);
     if (result.isError) return message;
@@ -362,6 +380,8 @@ export async function invokeNative(
   }
   const savedResult = (encodedResult: string) => {
     const result = JSON.parse(encodedResult);
+    if (tool === "loop_message_status" && !result.isError)
+      return refreshedMailStatus(run, args);
     if (tool === "loop_memory_search" && !result.isError) {
       const search = recheckMemoryToolSearch(
         run,

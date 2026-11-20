@@ -768,6 +768,54 @@ it.each([
   },
 );
 
+it("refreshes cached mail status after the sender uses saved memory", async () => {
+  const origin = agent(owner);
+  const recipient = agent(owner);
+  const started = submit(owner, {
+    agentId: origin.id,
+    input: "Send an update",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "status-origin",
+    (candidate) => candidate.id === started.id,
+  )!;
+  const sent = sendMail(sender, "status-mail", {
+    to: recipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const delivery = row(sent.messageId);
+  const run = claim(
+    "status-recipient",
+    (candidate) => candidate.id === delivery.run_id,
+  )!;
+  const status = nativeBindings(run).find(
+    (entry) => entry.tool === "loop_message_status",
+  )!;
+  const read = async () => {
+    const result = await invokeNative(run, status, "same-status", {
+      threadId: sent.threadId,
+    });
+    if (!("result" in result)) throw new Error("Expected mail status");
+    return JSON.parse(result.result.content[0].text);
+  };
+  expect(await read()).toMatchObject({
+    messages: [{ preview: "Earlier work summary" }],
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    sender.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(await read()).toMatchObject({
+    subject: "Agent message",
+    messages: [{ preview: null }],
+  });
+});
+
 it("keeps receipts from blocking delegation and earlier turns visible through local mail relays", async () => {
   const sender = agent(owner);
   const firstRelay = agent(owner);

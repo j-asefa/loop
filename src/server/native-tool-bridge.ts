@@ -146,7 +146,8 @@ export class NativeToolBridge {
     if (previous) {
       if (
         binding.connectionId !== "__loop__" ||
-        binding.tool !== "loop_memory_search"
+        (binding.tool !== "loop_memory_search" &&
+          binding.tool !== "loop_message_status")
       )
         return previous.result;
     }
