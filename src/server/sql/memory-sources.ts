@@ -6,6 +6,54 @@ import { personalRunSql, resultOutputSql } from "./artifacts.js";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import { WORKSPACE_MCP_SERVER } from "../../shared/workspace-tools.js";
+
+// Uses the current memory source alias s in the passage and document queries.
+export const externalEvidenceSql = `EXISTS(
+  SELECT 1 FROM runs r WHERE r.owner_id=s.owner_id
+    AND r.id=CASE s.kind
+      WHEN 'artifact' THEN (SELECT a.run_id FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND a.role='answer')
+      WHEN 'message' THEN (SELECT m.run_id FROM messages m WHERE m.id=s.source_id AND m.owner_id=s.owner_id AND m.role='assistant')
+    END
+    AND (
+      EXISTS(SELECT 1 FROM native_calls n WHERE n.run_id=r.id
+        AND n.tool='loop_feed' AND n.result IS NOT NULL)
+      OR EXISTS(SELECT 1 FROM tool_invocations i WHERE i.run_id=r.id
+        AND i.owner_id=r.owner_id AND i.connection_id<>'__loop__'
+        AND i.state IN ('completed','failed') AND i.result IS NOT NULL)
+      OR EXISTS(SELECT 1 FROM run_traces t WHERE t.run_id=r.id
+        AND t.owner_id=r.owner_id AND t.kind='tool'
+        AND COALESCE(CASE WHEN instr(t.metadata,'"externalContent"')>0 AND json_valid(t.metadata)
+          THEN json_extract(t.metadata,'$.externalContent') END,
+          (lower(replace(replace(t.title,'_',''),' ','')) IN
+            ('websearch','webfetch','websearchexa','webfetchexa')
+          OR (t.title GLOB 'mcp__*__*' AND t.title NOT GLOB 'mcp__${WORKSPACE_MCP_SERVER}__*'
+            AND t.title NOT GLOB 'mcp____loop____*')
+          OR (t.title='mcpToolCall'
+            AND json_extract(CASE WHEN json_valid(t.content) THEN t.content ELSE '{}' END,'$.server')
+              NOT IN ('','${WORKSPACE_MCP_SERVER}','__loop__')))))
+      OR EXISTS(SELECT 1 FROM agent_activities v WHERE v.run_id=r.id
+        AND v.owner_id=r.owner_id AND v.kind='tool'
+        AND instr(v.record,'"category":"fetch"')>0
+        AND CASE WHEN json_valid(v.record) THEN
+          json_extract(v.record,'$.source.transport')='acp'
+          AND json_extract(v.record,'$.data.category')='fetch'
+          AND json_extract(v.record,'$.data.status')='completed'
+        END)
+    )
+)`;
+
+const externalEvidenceStatement = statement(
+  `SELECT 1 FROM memory_sources s WHERE s.id=? AND s.owner_id=? AND ${externalEvidenceSql}`,
+);
+/** Recognize external content from recorded calls for this owner's answer. */
+export function hasExternalEvidence(
+  db: Database.Database,
+  owner: string,
+  source: string,
+) {
+  return externalEvidenceStatement(db).get(source, owner) !== undefined;
+}
 
 const ownedStatement = statement(
   "SELECT * FROM memory_sources WHERE id=? AND owner_id=?",

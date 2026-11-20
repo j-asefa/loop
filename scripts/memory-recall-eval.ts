@@ -23,7 +23,7 @@ import {
 /** Characters of a source that the pre-passage excerpt showed. */
 export const HEAD_CHARACTERS = 1100;
 const EVIDENCE_BLOCK =
-  /<loop-historical-evidence[\s\S]*?<\/loop-historical-evidence>/g;
+  /<loop-historical-evidence[\s\S]*?<\/loop-historical-evidence(?: nonce="[a-f\d]{32}")?>/g;
 
 export type EvalQuery = {
   set: "known" | "null" | "temporal";
@@ -48,6 +48,8 @@ export type EvalQuery = {
 
 export type EvalMetrics = {
   pullHit8?: number;
+  externalTargetShare?: number;
+  pushHit5WithExternal?: number;
   known: number;
   deep: number;
   null: number;
@@ -237,10 +239,12 @@ export async function evaluate(
     memoryToolSearch,
   } = (await import("../src/server/memory.js")) as Memory;
   const { db } = await import("../src/server/db.js");
-  const { recallTime } = await import("../src/server/sql/memory-sources.js");
-  const search = (q: EvalQuery) =>
+  const { hasExternalEvidence, recallTime } =
+    await import("../src/server/sql/memory-sources.js");
+  const search = (q: EvalQuery, includeExternal = false) =>
     searchMemory(q.owner, q.project, q.query, {
       relevant: true,
+      includeExternal,
       window:
         q.set === "temporal"
           ? parseMemoryTime(q.query, q.referenceAt)
@@ -260,6 +264,8 @@ export async function evaluate(
   };
   const deep = { n: 0, hit5: 0, coverage: [] as number[] };
   let pullHits = 0;
+  let externalTargets = 0;
+  let pushHitsWithExternal = 0;
   let temporal = 0;
   let temporalHits = 0;
   let temporalOutside = 0;
@@ -296,6 +302,13 @@ export async function evaluate(
       continue;
     }
     known.n++;
+    if (q.target && hasExternalEvidence(db, q.owner, q.target))
+      externalTargets++;
+    const counterfactual = evidenceBlock(
+      (await search(q, true)).sources,
+    ).included;
+    if (counterfactual.some((source) => source.id === q.target))
+      pushHitsWithExternal++;
     const pull = await memoryToolSearch(
       { owner_id: q.owner, conversation_id: q.conversation ?? null },
       q.project,
@@ -332,6 +345,8 @@ export async function evaluate(
     hit1: share(known.hit1, known.n),
     hit5: share(known.hit5, known.n),
     pullHit8: share(pullHits, known.n),
+    externalTargetShare: share(externalTargets, known.n),
+    pushHit5WithExternal: share(pushHitsWithExternal, known.n),
     mrr5: share(known.rr, known.n),
     abstainKnown: share(known.abstain, known.n),
     abstainNull: share(abstainNull, nulls),
@@ -358,6 +373,8 @@ const ROWS: [keyof EvalMetrics, string, "count" | "share" | "number"][] = [
   ["hit1", "hit@1", "share"],
   ["hit5", "hit@5", "share"],
   ["pullHit8", "pull hit@8", "share"],
+  ["externalTargetShare", "known-item targets labelled external", "share"],
+  ["pushHit5WithExternal", "push hit@5 with external targets allowed", "share"],
   ["mrr5", "MRR@5", "number"],
   ["abstainKnown", "abstain (known-item, wrong)", "share"],
   ["abstainNull", "abstain (null)", "share"],
@@ -404,10 +421,48 @@ const COPIED_TABLES = [
   "artifact_publications",
   "agent_checkpoints",
   "results",
+  "native_calls",
+  "tool_invocations",
+  "run_traces",
+  "agent_activities",
   "memory_policy",
   "memory_sources",
   "memory_note_versions",
 ];
+
+const evidenceCopy: Record<
+  string,
+  { where: string; redacted: Record<string, string> }
+> = {
+  native_calls: {
+    where: "tool='loop_feed' AND result IS NOT NULL",
+    redacted: { arguments: "'{}'", result: "'{}'" },
+  },
+  tool_invocations: {
+    where: "state IN ('completed','failed') AND result IS NOT NULL",
+    redacted: { args: "'{}'", result: "'{}'" },
+  },
+  run_traces: {
+    where: "kind='tool'",
+    redacted: {
+      content: `CASE WHEN title='mcpToolCall' AND json_valid(content)
+        THEN json_object('server', json_extract(content, '$.server')) ELSE '' END`,
+      metadata: `CASE WHEN json_valid(metadata)
+        THEN json_object('externalContent', json_extract(metadata, '$.externalContent')) ELSE '{}' END`,
+    },
+  },
+  agent_activities: {
+    where: `kind='tool' AND instr(record,'"category":"fetch"')>0
+      AND CASE WHEN json_valid(record) THEN
+        json_extract(record,'$.source.transport')='acp'
+        AND json_extract(record,'$.data.category')='fetch'
+        AND json_extract(record,'$.data.status')='completed'
+      END`,
+    redacted: {
+      record: `'{"source":{"transport":"acp"},"data":{"category":"fetch","status":"completed"}}'`,
+    },
+  },
+};
 /**
  * Copies the tables recall reads from a workspace database, opened read-only,
  * into the freshly migrated database the server modules opened. A full backup
@@ -443,12 +498,18 @@ async function copyFrom(path: string) {
         const shared = columns(source, table).filter((c) => target.has(c));
         if (!shared.length) continue;
         const list = shared.map((c) => `"${c}"`).join(",");
+        const evidence = evidenceCopy[table];
+        const select = shared
+          .map((column) => evidence?.redacted[column] ?? `"${column}"`)
+          .join(",");
         const insert = db.prepare(
           `INSERT OR REPLACE INTO ${table}(${list}) VALUES(${shared.map(() => "?").join(",")})`,
         );
         let rows = 0;
         for (const row of source
-          .prepare(`SELECT ${list} FROM ${table}`)
+          .prepare(
+            `SELECT ${select} FROM ${table}${evidence ? ` WHERE ${evidence.where}` : ""}`,
+          )
           .raw()
           .iterate())
           (insert.run(row as unknown[]), rows++);

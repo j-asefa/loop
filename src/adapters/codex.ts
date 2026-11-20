@@ -551,6 +551,12 @@ export class Codex extends DirectAdapter implements Adapter {
           kind: "tool",
           title: item.type,
           status: normalizeItemStatus(item.status, completed),
+          ...((item.type === "webSearch" ||
+            (item.type === "mcpToolCall" &&
+              typeof item.server === "string" &&
+              !!item.server &&
+              item.server !== WORKSPACE_MCP_SERVER &&
+              item.server !== "__loop__")) && { externalContent: true }),
           text:
             item.type === "mcpToolCall" &&
             (item.server === WORKSPACE_MCP_SERVER || !item.server) &&

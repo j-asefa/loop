@@ -54,6 +54,7 @@ export const ItemSchema = z.object({
   text: z.string(),
   title: z.string().optional(),
   status: NativeItemState.optional(),
+  externalContent: z.boolean().optional(),
   phase: z.enum(["commentary", "final_answer"]).optional(),
 });
 export type Item = z.input<typeof ItemSchema>;

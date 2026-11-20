@@ -34,6 +34,50 @@ function capture(Adapter: any, harness: string) {
   };
 }
 describe("actual direct adapter event handlers (deterministic protocol fixtures)", () => {
+  it("preserves external tool identity independently of native display text", () => {
+    const codex = capture(Codex, "codex");
+    codex.adapter.item(
+      {
+        id: "large-mcp",
+        type: "mcpToolCall",
+        server: "other",
+        tool: "lookup",
+        result: { content: "x".repeat(70_000) },
+      },
+      true,
+    );
+    expect(codex.events.at(-1)).toMatchObject({
+      type: "item",
+      item: { title: "mcpToolCall", externalContent: true },
+    });
+    const muse = capture(Muse, "muse");
+    muse.adapter.item(
+      {
+        itemId: "mcp",
+        kind: "toolCall",
+        tool: "mcp__other__lookup",
+        displayLabel: { done: "Lookup complete" },
+      },
+      true,
+    );
+    expect(muse.events.at(-1)).toMatchObject({
+      type: "item",
+      item: { title: "Lookup complete", externalContent: true },
+    });
+    muse.adapter.item(
+      {
+        itemId: "local",
+        kind: "toolCall",
+        tool: "local",
+        displayLabel: { done: "Web Search" },
+      },
+      true,
+    );
+    expect(muse.events.at(-1)).toMatchObject({
+      type: "item",
+      item: { title: "Web Search", externalContent: false },
+    });
+  });
   it("Codex streams output and replaces it with final authoritative output", () => {
     const { adapter, updates } = capture(Codex, "codex");
     adapter.message({

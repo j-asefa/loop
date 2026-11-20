@@ -643,7 +643,9 @@ function suppliesFromMemory(
       source.editedAfterPublication === true ||
       recorded.has(source.resultId) ||
       supplied.length >= MAX_RESULT_SUPPLY_ITEMS ||
-      source.suppliedText.length > MAX_RESULT_SUPPLY_CHARS ||
+      (source.via === "push" && typeof source.unmarkedExcerptLength === "number"
+        ? source.unmarkedExcerptLength
+        : source.suppliedText.length) > MAX_RESULT_SUPPLY_CHARS ||
       totalChars + source.suppliedText.length > MAX_TOTAL_RESULT_SUPPLY_CHARS
     )
       continue;

@@ -1,6 +1,7 @@
 import {
   conversationRecallEnabledSql,
   evidenceKindSql,
+  externalEvidenceSql,
   inConversationSql,
   recallWindowSql,
 } from "./memory-sources.js";
@@ -92,7 +93,7 @@ const searchStatement = statement(
      AND s.eligible=1 AND s.tombstone=0
      AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL))
    AND (@kind IS NULL OR ${evidenceKindSql}=@kind) AND ${recallWindowSql} AND (@conversation IS NULL OR NOT ${inConversationSql}) AND (@pull=0 OR ${conversationRecallEnabledSql})
-   ORDER BY rank LIMIT 75`,
+   AND (@excludeExternal=0 OR NOT ${externalEvidenceSql}) ORDER BY rank LIMIT 75`,
 );
 const offsetsRow = QueryRecords.memory_passages.pick({
   start: true,
@@ -120,6 +121,7 @@ export function search(
   window?: { from: number | null; to: number | null },
   conversation: string | null = null,
   pull = false,
+  excludeExternal = false,
 ) {
   return searchStatement(db)
     .all({
@@ -131,6 +133,7 @@ export function search(
       to: window?.to ?? null,
       conversation,
       pull: pull ? 1 : 0,
+      excludeExternal: excludeExternal ? 1 : 0,
     })
     .map((row) => parseRecord(searchRow, row, "memory_passages"));
 }

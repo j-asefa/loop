@@ -147,7 +147,21 @@ it("flushes dirty native items and completes after exceeding the display window"
         "SELECT id FROM messages WHERE update_key='native-message:reclassified'",
       )
       .get() as { id: string };
-    event({ id: "reclassified", kind: "tool", text: "Actually tool output" });
+    event({
+      id: "reclassified",
+      kind: "tool",
+      title: "mcpToolCall",
+      externalContent: true,
+      text: JSON.stringify({ server: "other", output: "x".repeat(70_000) }),
+    });
+    expect(
+      db
+        .prepare(
+          `SELECT json_extract(metadata,'$.externalContent') AS external,
+      json_valid(content) AS valid FROM run_traces WHERE run_id=? AND trace_key=?`,
+        )
+        .get(run.id, "reclassified"),
+    ).toEqual({ external: 1, valid: 0 });
     sessions.projector.projectOutput(live, true);
     expect(
       db.prepare("SELECT id FROM messages WHERE id=?").get(reclassified.id),
