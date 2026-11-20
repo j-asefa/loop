@@ -306,14 +306,21 @@ function sqlCallLines(file: string, text: string, script = false) {
       expression.source.value === "better-sqlite3"
     );
   };
-  const bindings = (pattern: any): { key: string; name: string }[] => {
+  const bindings = (
+    pattern: any,
+  ): { key: string; name: string; fallback?: any }[] => {
     if (!pattern) return [];
+    if (
+      pattern.type === "AssignmentPattern" &&
+      pattern.left.type === "Identifier"
+    )
+      return [{ name: pattern.left.name, key: "", fallback: pattern.right }];
     if (pattern.type === "AssignmentPattern") pattern = pattern.left;
     if (pattern.type === "RestElement") return bindings(pattern.argument);
     if (pattern.type === "Identifier") return [{ name: pattern.name, key: "" }];
     const within = (element: any, key: string) =>
       bindings(element).map((binding) => ({
-        name: binding.name,
+        ...binding,
         key: binding.key ? `${key}.${binding.key}` : key,
       }));
     if (pattern.type === "ArrayPattern") {
@@ -790,6 +797,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "connection";
     const callee =
       expression?.type === "NewExpression" && unwrap(expression.callee);
+    if (callee?.name === "RegExp" && !declaringScope("RegExp", callee))
+      return "object";
     if (
       callee &&
       (memberReference(callee, (scope, key) => scope.bindings.get(key)) ===
@@ -1131,14 +1140,18 @@ function sqlCallLines(file: string, text: string, script = false) {
         origin?: ObjectAlias;
       }[] = [];
       if (target?.type === "ObjectPattern" || target?.type === "ArrayPattern") {
-        for (const { key, name } of bindings(target)) {
+        for (const { key, name, fallback } of bindings(target)) {
           const {
             binding: property,
-            value: extracted,
+            value: member,
             origin,
           } = propertySource(value, key);
+          const extracted =
+            member ?? (property === undefined ? fallback : undefined);
           const binding =
             property ??
+            (isAggregate(extracted) ? "object" : undefined) ??
+            connectionKind(extracted) ??
             (key === "db" ? destructuredDatabase(value) : undefined);
           const path = receiver(value);
           const owner =
@@ -1226,7 +1239,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const text =
         statement?.type === "TemplateLiteral"
           ? statement.quasis[0]?.value.cooked
-          : statement?.value;
+          : literalKey(statement);
       return (
         typeof text === "string" &&
         ((method === "pragma" && binding === "inferred") ||
@@ -1890,6 +1903,24 @@ it("preserves destructured receivers and distinguishes regex calls from opaque S
     checks.sql.exec("SELECT 1");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7]);
+});
+
+it("follows default handles and SQL constants while excluding constructed regexes", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const { connection = db } = {};
+    connection.exec(query);
+    const migration = "SELECT 1";
+    export function run(fixture) {
+      const { db } = fixture;
+      db.exec(migration);
+    }
+    const prefix = new RegExp("^SELECT");
+    prefix.exec("SELECT 1");
+    const { connection: adapter = db } = { connection: { exec: runCommand } };
+    adapter.exec(migration);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
