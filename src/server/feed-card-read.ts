@@ -76,16 +76,28 @@ function display(
   row.approval_run_id = mode === "done" ? null : (approvals[0]?.run_id ?? null);
   row.approval_message_id =
     mode === "done" ? null : (approvals[0]?.message_id ?? null);
-  if (!full && row.message_content !== null)
-    row.message_content = feedMessagePrefix(row.message_content);
+  if (!full && row.message_content !== null) {
+    const prefix = feedMessagePrefix(row.message_content);
+    row.message_content = prefix.message_content;
+    // A stored row may already have been clipped before this read.
+    if (
+      row.message_content_truncated !== undefined ||
+      prefix.message_content_truncated
+    )
+      row.message_content_truncated =
+        row.message_content_truncated === true ||
+        prefix.message_content_truncated === true;
+  }
   const detail = {
     ...card.detail,
     pull: currentPull(thread.thread!.watches, Date.now()),
     queued_runs: thread.thread!.queued_runs,
   };
   const item = displayFeedCard(detail, row, mode);
-  if (full && item.last_message)
+  if (full && item.last_message) {
     item.last_message.content = row.message_content!;
+    item.last_message.content_truncated = row.message_content_truncated;
+  }
   return { row, display: item };
 }
 

@@ -162,6 +162,7 @@ export const FeedItem = DoneDisplaySchema.extend({
     .extend({
       created_at: Time,
       content: Text.optional(),
+      content_truncated: z.boolean().optional(),
       saved: z.boolean().optional(),
     })
     .nullable(),

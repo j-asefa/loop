@@ -1,3 +1,4 @@
+import { feedMessagePrefix } from "../src/server/feed-card-display";
 import type { CardReadTransport } from "../src/shared/card-client";
 import { routePath } from "../src/shared/route-path";
 import { expect, it, vi } from "vitest";
@@ -283,4 +284,16 @@ it("keeps concurrent callers on Cards while an expired revision resets the pager
       (window) => window?.page.items[0].card.id === "d:message:kept",
     ),
   ).toBe(true);
+});
+
+it("distinguishes a complete message at the feed cap from a clipped message", () => {
+  const exact = "🌕".repeat(1000);
+  expect(feedMessagePrefix(exact)).toEqual({
+    message_content: exact,
+    message_content_truncated: false,
+  });
+  expect(feedMessagePrefix(exact + " more")).toEqual({
+    message_content: exact,
+    message_content_truncated: true,
+  });
 });

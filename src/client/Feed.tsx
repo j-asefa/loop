@@ -356,6 +356,10 @@ function FeedCard({
     !!item.live_preview,
     !!awaitingUpdate,
   ]);
+  const messagePreviewCapped =
+    item.last_message?.content_truncated ??
+    Array.from(item.last_message?.content ?? "").length >=
+      FEED_MESSAGE_PREFIX_LIMIT;
   const content =
     item.live_preview ||
     (awaitingUpdate
@@ -578,10 +582,7 @@ function FeedCard({
                     content={
                       item.last_message!.content ?? item.last_message!.preview
                     }
-                    cappedPreview={
-                      Array.from(item.last_message!.content ?? "").length >=
-                      FEED_MESSAGE_PREFIX_LIMIT
-                    }
+                    cappedPreview={messagePreviewCapped}
                     compact
                   />
                 )}
@@ -737,6 +738,11 @@ function FeedCard({
                       <RichText
                         content={content}
                         previewFenceCut={item.live_preview_fence_cut}
+                        cappedPreview={
+                          !item.live_preview &&
+                          message?.id !== messageId &&
+                          messagePreviewCapped
+                        }
                         writing={
                           !!item.live_preview && content === item.live_preview
                         }

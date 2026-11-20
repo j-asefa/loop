@@ -44,6 +44,7 @@ export type FeedRow = {
   message_id: string | null;
   message_role: string | null;
   message_content: string | null;
+  message_content_truncated?: boolean;
   message_metadata: string | null;
   message_created_at: number | null;
   message_automation: string | null;
@@ -96,15 +97,24 @@ export function feedCardTitle(
     ((row.card_run_state && collapse(row.card_run_input, 200)) || row.title)
   );
 }
-export function feedMessagePrefix(text: string) {
+export function feedMessagePrefix(
+  text: string | null,
+): Pick<FeedRow, "message_content" | "message_content_truncated"> {
   // Match SQLite substr: its limit counts Unicode code points, not UTF-16.
+  if (text === null) return { message_content: null };
   let value = "",
     count = 0;
   for (const point of text) {
-    if (count++ === FEED_MESSAGE_PREFIX_LIMIT) break;
+    if (count++ === FEED_MESSAGE_PREFIX_LIMIT)
+      return { message_content: value, message_content_truncated: true };
     value += point;
   }
-  return value;
+  return {
+    message_content: value,
+    ...(count === FEED_MESSAGE_PREFIX_LIMIT
+      ? { message_content_truncated: false }
+      : {}),
+  };
 }
 export function displayFeedCard(
   detail: FeedCardDetail,
@@ -167,6 +177,14 @@ export function displayFeedCard(
           preview: collapse(message.content, 200),
           // Markdown for full-size Feed cards; the card clips it visually.
           content: message.content.slice(0, 4000),
+          ...(message.content.length > 4000 ||
+          row.message_content_truncated !== undefined
+            ? {
+                content_truncated:
+                  message.content.length > 4000 ||
+                  row.message_content_truncated === true,
+              }
+            : {}),
           created_at: message.created_at,
           // So the card's menu offers Save or Remove from Saved, as the
           // thread and the result card already do.
