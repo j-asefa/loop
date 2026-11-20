@@ -2,6 +2,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { remarkChatMath } from "./remark-chat-math.js";
+import { isDisplayFenceLanguage } from "./display-spec.js";
 
 const markdown = unified()
   .use(remarkParse)
@@ -49,7 +50,7 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
       const { start, end: stop } = node.position;
       if (start.offset === undefined || stop.offset === undefined) continue;
       if (
-        node.lang === "spec" ||
+        isDisplayFenceLanguage(node.lang) ||
         (includeBacktickCode && text.startsWith("```", start.offset))
       ) {
         // Drop the opener's quote or list markers along with the block.

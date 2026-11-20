@@ -1,3 +1,5 @@
+import { isDisplayFenceLanguage } from "../shared/display-spec";
+
 // Parse complete data, never a character-truncated JSON/Markdown fragment.
 export function structuredPreview(content: string): unknown {
   const text = content.trim();
@@ -138,7 +140,7 @@ export function compactMarkdown(
         node.type === "code" &&
         node.lang !== "mermaid" &&
         node.lang !== "math" &&
-        !(displays && node.lang === "spec")
+        !(displays && isDisplayFenceLanguage(node.lang))
       )
         node.value = node.value.split("\n").slice(0, 10).join("\n");
     }

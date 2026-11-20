@@ -1,5 +1,9 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { readDisplaySpec, type DisplayNode } from "../shared/display-spec";
+import {
+  isDisplayFenceLanguage,
+  readDisplaySpec,
+  type DisplayNode,
+} from "../shared/display-spec";
 import { DisplayChart } from "./DisplayChart";
 import "./display.css";
 
@@ -30,7 +34,11 @@ export function markOpenSpecFences({
     while (lastContent > 0 && " \t\r\n".includes(source[lastContent - 1]))
       lastContent--;
     const visit = (node: MdNode) => {
-      if (node.type === "code" && node.lang === "spec" && node.position) {
+      if (
+        node.type === "code" &&
+        isDisplayFenceLanguage(node.lang) &&
+        node.position
+      ) {
         const raw = source.slice(
           node.position.start.offset,
           node.position.end.offset,

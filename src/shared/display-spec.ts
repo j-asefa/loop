@@ -9,6 +9,12 @@ import { z } from "zod";
 // `replace` on `/root` (a string) and `/elements/<key>` (a whole element) are
 // applied; every other line is skipped and counted.
 
+// Match the first language word used by the Markdown-to-HTML renderer after
+// the parser has decoded character references in a fence's language token.
+export function isDisplayFenceLanguage(language: string | null | undefined) {
+  return language?.split(/\s+/, 1)[0] === "spec";
+}
+
 export const DISPLAY_LIMITS = {
   // Characters of block source.
   source: 65536,

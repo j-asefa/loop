@@ -444,6 +444,15 @@ it("hides missing children at the cutoff but shows them in the full answer", () 
   expect(render(source, false)).toContain("display-placeholder");
 });
 
+it("keeps decoded language whitespace consistent across rendering and plain previews", () => {
+  const source =
+    "```spec&#32;extra\n" + '{"op":"add","path":"/root","value":"pending"}';
+  expect(render(source, true)).toContain("Display loading");
+  expect(dropSpecBlocks("Before.\n\n" + source + "\n```\n\nAfter.")).toBe(
+    "Before.\n\n\nAfter.",
+  );
+});
+
 it("keeps a partial replacement from looking like a failed update in a capped preview", () => {
   const source =
     fence +
