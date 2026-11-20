@@ -1089,23 +1089,26 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
   }
-  const iteratedItems = (node: any): any[] => {
+  const precedingPushes = (node: any): any[][] => {
     const source = unwrap(node);
-    const array = staticArray(source);
-    if (!array) return [];
-    const items = staticArguments(array).values;
-    if (source.type === "Identifier") {
-      const owner = declaringScope(source.name, source);
-      const pushes = owner && arrayPushes.get(owner)?.get(source.name);
-      for (const push of pushes ?? []) {
-        if (
+    if (source?.type !== "Identifier") return [];
+    const owner = declaringScope(source.name, source);
+    const pushes = owner && arrayPushes.get(owner)?.get(source.name);
+    return (pushes ?? [])
+      .filter(
+        (push) =>
           push.end <= source.start &&
-          boundaryScope(push, "function") === boundaryScope(source, "function")
+          boundaryScope(push, "function") === boundaryScope(source, "function"),
+      )
+      .map((push) => push.arguments);
+  };
+  const iteratedItems = (node: any): any[] => {
+    const array = staticArray(node);
+    return array
+      ? [array, ...precedingPushes(node)].flatMap(
+          (items) => staticArguments(items).values,
         )
-          items.push(...staticArguments(push.arguments).values);
-      }
-    }
-    return items;
+      : [];
   };
   const reachesRead = (
     node: any,
@@ -1214,7 +1217,10 @@ function sqlCallLines(file: string, text: string, script = false) {
           ? -literalKey(argument.argument)
           : literalKey(argument);
       if (array && Number.isInteger(index)) {
-        const { values, complete } = staticArguments(array);
+        const pushes = precedingPushes(expression.callee.object);
+        const { values, complete } = staticArguments(
+          pushes.length ? array.concat(...pushes) : array,
+        );
         if (index >= 0 || complete) return connectionKind(values.at(index));
       }
     }
@@ -1840,7 +1846,7 @@ function sqlCallLines(file: string, text: string, script = false) {
             array && functionReference(unwrap(node.arguments[0]));
           const parameter = callback?.params[0];
           if (array && parameter)
-            for (const item of staticArguments(array).values)
+            for (const item of iteratedItems(node.callee.object))
               trackParameter(scopeOf(callback), parameter, unwrap(item));
         }
         const { fn, items } = invocation(node);
@@ -3278,6 +3284,20 @@ it("respects fixture spread overrides and follows nested returns and array pushe
     for (const handle of handles) handle.exec(text);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([9, 12]);
+});
+
+it("uses preceding array pushes for loops, callbacks and fixed index reads", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const handles = [];
+    handles.at(0)?.exec("BEGIN");
+    handles.push(db);
+    handles.forEach(connection => connection.exec(migrationText));
+    handles.at(0).exec("BEGIN");
+    handles.at(-1).exec("BEGIN");
+    for (const connection of handles) connection.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7, 8, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
