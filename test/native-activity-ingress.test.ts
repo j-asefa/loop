@@ -913,6 +913,56 @@ it("keeps an active-turn child stream's text when a delayed delta arrives in the
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("marks a delta-only child stream commentary when it arrives during recall", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-recall-delta");
+  const current = start(sessions, "claude-recall-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-recall-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  // Turn 1 ends; the next run attaches during recall, before prompt() would
+  // mark the adapter active again.
+  adapter.message({
+    type: "result",
+    session_id: "claude-recall-delta",
+    is_error: false,
+  });
+  sessions.state.startTurn(current.live, turn("conv", "claude-recall-delta-2"));
+  // A delta-only child stream arrives in that recall window (no full message).
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "recall-delta" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "Recall fragment" },
+    },
+  });
+  // The item is commentary, never phase-less: it cannot become the answer
+  // even though the run is already attached and the adapter is inactive.
+  expect(current.live.items.get("recall-delta")).toEqual({
+    id: "recall-delta",
+    kind: "assistant",
+    text: "Recall fragment",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,

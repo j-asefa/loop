@@ -588,11 +588,13 @@ export class Claude extends DirectAdapter implements Adapter {
         // A child stream's deltas must never leave a phase-less assistant
         // item the projector could pick as the run's answer. Establish the
         // commentary item before the first delta so the projector merges the
-        // deltas into it and keeps the child's text as progress only. Only
-        // while a user turn is open: after the result the projector drops
-        // deltas, so an empty item emitted then could only clobber saved
-        // native history.
-        if (m.parent_tool_use_id && this.active && !this.childItems.has(id)) {
+        // deltas into it and keeps the child's text as progress only — even
+        // during recall, when the next run is already attached but active is
+        // still false: a delta alone there would create a phase-less item
+        // the projector could select as the answer. When no run is attached
+        // the projector drops the delta and only upserts this seeded
+        // commentary item, which cannot be selected.
+        if (m.parent_tool_use_id && !this.childItems.has(id)) {
           this.childItems.add(id);
           this.emit({
             type: "item",
