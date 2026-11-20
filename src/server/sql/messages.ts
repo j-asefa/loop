@@ -43,7 +43,8 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   WHERE sender.conversation_id IS NOT NULL
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
   UNION
-  SELECT child.conversation_id, c.at, c.seq, child.id
+  SELECT child.conversation_id, c.at, c.seq,
+    CASE WHEN r.id=c.answer_run THEN child.id END
   FROM context c
   JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
   JOIN delegations d ON d.parent_run_id=r.id AND d.background=0

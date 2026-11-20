@@ -458,6 +458,7 @@ it("atomically queues one attributed direct message and returns its original tar
     e = envelope(local.id);
   // Identical UUIDs on different machines must remain distinct participants.
   e.source.agentId = local.id;
+  e.sender.name = "Remote display name from the peer";
   const agentsBefore = db.prepare("SELECT count(*) n FROM agents").get();
   const reservationId = await prepare(e);
   const result = await call("accept", { envelope: e, reservationId });
@@ -585,7 +586,7 @@ it("atomically queues one attributed direct message and returns its original tar
     throw new Error("Expected mail delivery status");
   expect(JSON.parse(statusResult.result.content[0].text)).toMatchObject({
     subject: "Agent message",
-    messages: [{ preview: null }],
+    messages: [{ from: "@Remote agent", preview: null }],
   });
 });
 
@@ -777,6 +778,14 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
     input: "Delegate work",
     idempotencyKey: id(),
   });
+  const prompt = db
+    .prepare(
+      "SELECT id,created_at FROM messages WHERE run_id=? AND role='user'",
+    )
+    .get(original.id) as { id: string; created_at: number };
+  const promptOnly = forkConversation(owner, original.conversation_id!, {
+    messageId: prompt.id,
+  });
   const child = submit(owner, {
     agentId: worker.id,
     input: "Retrieve saved evidence",
@@ -790,7 +799,7 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
     "lexical",
     '[{"id":"saved","via":"tool"}]',
     15,
-    now(),
+    Math.max(now(), prompt.created_at + 1),
   );
   for (const id of [child.id, original.id]) {
     const run = claim(
@@ -822,6 +831,17 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
       "memory-relay",
       (candidate) => candidate.id === delivery.run_id,
     )!;
+    const status = nativeBindings(source).find(
+      (binding) => binding.tool === "loop_message_status",
+    )!;
+    const outcome = await invokeNative(source, status, "check-receipt", {
+      threadId: sent.threadId,
+    });
+    if (!("result" in outcome)) throw new Error("Expected mail status");
+    expect(JSON.parse(outcome.result.content[0].text)).toMatchObject({
+      subject: "Agent message",
+      messages: [{ preview: null }],
+    });
   }
   const incoming = envelope(secondRelay.id);
   expect(
@@ -835,6 +855,18 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
       })
     ).admission,
   ).toMatchObject({ state: "refused" });
+  const cleanIncoming = envelope(sender.id);
+  expect(
+    (
+      await deliver({
+        ...cleanIncoming,
+        thread: {
+          ...cleanIncoming.thread,
+          recipientConversationId: promptOnly.id,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
 });
 
 it.each([0, 1])(

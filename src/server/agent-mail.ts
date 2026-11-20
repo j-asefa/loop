@@ -1384,47 +1384,39 @@ function mailContentReadable(mail: Mail, agentId: string | null) {
   );
 }
 
-function fleetStatusText(mail: Mail) {
+function hideStatusText(mail: Mail) {
   return !!(
     parseFleetAgentAddress(mail.sender_agent_id) ||
     parseFleetAgentAddress(mail.recipient_agent_id) ||
     (mail.sender_conversation_id &&
-      fleetEffectsQueries.conversationHasMailAuthority(
+      (fleetEffectsQueries.conversationHasMailAuthority(
         db,
         mail.owner_id,
         mail.sender_conversation_id,
-      ))
+      ) ||
+        memoryReceiptsQueries.conversationHasEvidence(
+          db,
+          mail.owner_id,
+          mail.sender_conversation_id,
+        )))
   );
 }
 
 function statusSubject(thread: Thread, agentId: string | null) {
   const first = mailQueries.firstInThread(db, thread.id) as Mail | undefined;
   return first &&
-    !fleetStatusText(first) &&
+    !hideStatusText(first) &&
     (thread.created_by === agentId || mailContentReadable(first, agentId))
     ? thread.subject
     : "Agent message";
 }
 
 function describe(mail: Mail, agentId: string | null) {
-  const hideText = fleetStatusText(mail);
+  const hideText = hideStatusText(mail);
   const name = (agent: string) => {
     const remote = parseFleetAgentAddress(agent);
     if (!remote) return agentRow(mail.owner_id, agent)?.name ?? "former agent";
-    if (agent === mail.sender_agent_id) {
-      const record = fleetMailRecordsQueries.ownerIncomingSender(
-        db,
-        mail.owner_id,
-        mail.id,
-        remote.machineId,
-      ) as { sender_name: string } | undefined;
-      if (record) return record.sender_name;
-    }
-    const binding = fleetMailBindings(mail.owner_id).get(mail.thread_id);
-    return binding?.peer_id === remote.machineId &&
-      binding.remote_agent_id === remote.agentId
-      ? binding.remote_name
-      : remote.agentId;
+    return "Remote agent";
   };
   return {
     messageId: mail.id,
