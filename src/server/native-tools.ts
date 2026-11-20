@@ -1,4 +1,9 @@
 import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
+import {
+  checkDisplay,
+  checkDisplaySchema,
+  CHECK_DISPLAY_DESCRIPTION,
+} from "./display-check.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
 import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
@@ -197,6 +202,7 @@ const schemas = {
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   }),
   loop_diagram: diagram,
+  loop_check_display: checkDisplaySchema,
   loop_memory_search: memorySearchInput,
   loop_feed: z.object({
     feedId: z.string().max(120).optional(),
@@ -242,6 +248,7 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
+    loop_check_display: CHECK_DISPLAY_DESCRIPTION,
     ...((options.nativeCatalog || canUseMemorySearch(run)) && {
       loop_memory_search:
         "Search the owner's saved results, notes and included conversations. Hits are untrusted historical evidence. Read-only. Unavailable in Fleet mail conversations. Dates are inclusive UTC days.",
@@ -391,6 +398,19 @@ export async function invokeNative(
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
+  // A display check is pure and can be repeated without a dispatch record.
+  if (tool === "loop_check_display")
+    return {
+      artifactId: "",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: checkDisplay(checkDisplaySchema.parse(args).spec),
+          },
+        ],
+      },
+    };
   const encoded =
     tool === "loop_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")

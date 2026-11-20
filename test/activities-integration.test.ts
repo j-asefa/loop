@@ -21,13 +21,15 @@ import {
   type ActivityItem,
 } from "../src/client/activityView";
 import { seedConversation } from "./helpers/seed.js";
+import { DISPLAY_COMPONENTS, DISPLAY_LIMITS } from "../src/shared/display-spec";
 testDirectory();
 
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { applyActivity, listActivities, ingestNativeActivity } =
   await import("../src/server/activities");
-const { nativeBindings } = await import("../src/server/native-tools");
+const { invokeNative, nativeBindings } =
+  await import("../src/server/native-tools");
 const { historyActivities, historyProjection } =
   await import("../src/server/native-history");
 afterAll(() => {
@@ -356,6 +358,72 @@ it("offers loop_plan with a provider-compatible, validated schema and agent-faci
     validate({ steps: [{ id: "has space", title: "Do", status: "pending" }] }),
   ).toBe(false);
   expect(plan.description).toMatch(/never infers a plan/);
+});
+
+it("validates display blocks through the native binding without recording a dispatch", async () => {
+  conversation("check-display");
+  enqueue("owner", "t", "check-display", { conversation: "check-display" });
+  const run = claim("w")!;
+  const find = (options: Parameters<typeof nativeBindings>[1]) =>
+    nativeBindings(run, options).find(
+      (tool) => tool.tool === "loop_check_display",
+    )!;
+  const binding = find({ plans: true });
+  expect(find({ nativeCatalog: true })).toEqual(binding);
+  expect(binding.description.length).toBeLessThan(700);
+  expect(
+    nativeBindings({
+      ...run,
+      payload: { ...run.payload, reviewId: "fixture" },
+    }).map(({ tool }) => tool),
+  ).toEqual(["loop_review_read"]);
+  const validate = new Ajv2020({ strict: false }).compile(binding.inputSchema);
+  expect(validate({ spec: "" })).toBe(true);
+  expect(validate({ spec: 42 })).toBe(false);
+  expect(validate({})).toBe(false);
+  const root = JSON.stringify({ op: "add", path: "/root", value: "card" });
+  const card = JSON.stringify({
+    op: "add",
+    path: "/elements/card",
+    value: { type: "Card" },
+  });
+  const valid = root + "\n" + card;
+  const changes = () =>
+    db.prepare("SELECT total_changes() AS count").pluck().get();
+  const before = changes();
+  const call = async (spec: string) => {
+    const outcome = await invokeNative(run, binding, "check-fixture", { spec });
+    expect(outcome).toMatchObject({ artifactId: "" });
+    if (!("result" in outcome))
+      throw new Error("Display check requested approval");
+    expect(outcome.result.isError).toBeUndefined();
+    return outcome.result.content[0].text as string;
+  };
+  expect(await call(valid)).toContain("Display valid. Elements: 1.");
+  expect(await call("````spec\n" + valid + "\n````")).toContain(
+    "Display valid.",
+  );
+  expect(await call(root)).toContain("/root points to a missing element");
+  expect(await call("[]")).toContain("Line 1:");
+  expect(await call("!\n".repeat(DISPLAY_LIMITS.skippedDetail + 1))).toContain(
+    `Line ${DISPLAY_LIMITS.skippedDetail + 1}: Not valid JSON.`,
+  );
+  const invalid = await call(
+    valid.replace('"type":"Card"', '"type":"Card","children":["bad"]') +
+      '\n{"op":"add","path":"/elements/bad","value":{"type":"LinkButton","props":{"label":"Bad","url":"file:///file"}}}\nno json',
+  );
+  expect(invalid).toContain('Element "bad"');
+  expect(invalid).toContain("HTTP(S) url");
+  expect(invalid).toContain("Line 4:");
+  for (const component of DISPLAY_COMPONENTS)
+    expect(invalid).toContain("- " + component + ":");
+  const atLimit = valid + " ".repeat(DISPLAY_LIMITS.source - valid.length);
+  expect(await call(atLimit)).toContain("Display valid.");
+  expect(await call(atLimit + " ")).toContain("Block exceeds");
+  await expect(
+    invokeNative(run, binding, "bad-shape", { spec: 3 }),
+  ).rejects.toThrow();
+  expect(changes()).toBe(before);
 });
 
 it("migration 030 is additive and preserves conversations and native bindings", () => {

@@ -114,6 +114,9 @@ const propSchemas = {
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);
+export const DISPLAY_COMPONENTS = Object.keys(
+  propSchemas,
+) as (keyof typeof propSchemas)[];
 
 export type DisplayAlign = z.infer<typeof alignment>;
 export type DisplayNode =
@@ -424,6 +427,7 @@ export type DisplayReadOptions = {
   // arrived are left out instead of drawn as placeholders.
   writing?: boolean;
   finalLineIncomplete?: boolean;
+  allSkippedLines?: boolean;
 };
 
 // Reads the text inside a `spec` fence; by default the block is complete.
@@ -433,12 +437,13 @@ export function readDisplaySpec(
     open = false,
     writing = false,
     finalLineIncomplete = false,
+    allSkippedLines = false,
   }: DisplayReadOptions = {},
 ): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
   const skip = (line: number, reason: string) => {
     skips.skippedCount++;
-    if (skips.skipped.length < DISPLAY_LIMITS.skippedDetail)
+    if (allSkippedLines || skips.skipped.length < DISPLAY_LIMITS.skippedDetail)
       skips.skipped.push({ line, reason });
   };
   if (source.length > DISPLAY_LIMITS.source)
