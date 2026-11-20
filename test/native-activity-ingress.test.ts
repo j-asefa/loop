@@ -263,7 +263,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(() => conversationUsage("intruder", "conv")).toThrow();
 });
 
-it("records Claude result usage including cached inputs, excluding foreign results", () => {
+it("records Claude result usage including cached inputs, excluding foreign results", async () => {
   const run = turn("conv", "usage-claude");
   const sessions = new NativeSessions();
   const current = start(sessions, "usage-claude-generation", run);
@@ -305,7 +305,969 @@ it("records Claude result usage including cached inputs, excluding foreign resul
     output_tokens: 20,
     cache_read_tokens: 50,
   });
+  await sessions.close();
 });
+
+// The projector picks the last non-commentary assistant item with text as a
+// completed run's answer (projectOutput), so child-session output must carry
+// phase "commentary" at ingress to stay out of that selection.
+const retainedAnswer = (live: Live) =>
+  [...live.items.values()].findLast(
+    (i) => i.kind === "assistant" && i.phase !== "commentary" && i.text.trim(),
+  );
+
+it("marks Claude child-session assistant messages as commentary so they cannot become the run's answer", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-commentary");
+  const current = start(sessions, "claude-child-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-commentary",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-commentary", ...m });
+  send({
+    type: "assistant",
+    parent_tool_use_id: null,
+    message: {
+      id: "parent-msg",
+      role: "assistant",
+      content: [{ type: "text", text: "Parent final" }],
+    },
+  });
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-msg",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text" }],
+    },
+  });
+  // Parent-session items keep their exact shape; the child is commentary.
+  expect(current.live.items.get("parent-msg")).toEqual({
+    id: "parent-msg",
+    kind: "assistant",
+    text: "Parent final",
+  });
+  expect(current.live.items.get("child-msg")).toEqual({
+    id: "child-msg",
+    kind: "assistant",
+    text: "Child text",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)?.id).toBe("parent-msg");
+  await sessions.close();
+});
+
+it("establishes a commentary item before a child stream's first delta", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-delta");
+  const current = start(sessions, "claude-child-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-delta", ...m });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-2",
+    event: { type: "message_start", message: { id: "child-stream" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-2",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "Child stream text" },
+    },
+  });
+  // The delta merged into the commentary item the adapter established first;
+  // a turn ending here (no parent text) must not select the child stream.
+  expect(current.live.items.get("child-stream")).toEqual({
+    id: "child-stream",
+    kind: "assistant",
+    text: "Child stream text",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("merges a child delta into an earlier child assistant message instead of replacing its text", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-child-late-delta");
+  const current = start(sessions, "claude-child-late-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-child-late-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-child-late-delta", ...m });
+  // Full child assistant message arrives first, then its stream's delta.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-3",
+    message: {
+      id: "child-late",
+      role: "assistant",
+      content: [{ type: "text", text: "Full child text" }],
+    },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-3",
+    event: { type: "message_start", message: { id: "child-late" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-3",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " and more" },
+    },
+  });
+  // The delta merged into the existing commentary item; the earlier text is
+  // not overwritten by an empty re-established item.
+  expect(current.live.items.get("child-late")).toEqual({
+    id: "child-late",
+    kind: "assistant",
+    text: "Full child text and more",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("ignores late child events for a stream whose turn already completed", async () => {
+  const sessions = new NativeSessions();
+  const first = turn("conv", "claude-cross-turn-1");
+  const current = start(sessions, "claude-cross-turn-generation", first);
+  sessions.state.startTurn(current.live, first);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cross-turn",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-cross-turn", ...m });
+  // Turn 1: the child session emits an assistant message, then the turn ends.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-cross",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text one" }],
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-cross-turn",
+    is_error: false,
+  });
+  // Between turns the child re-emits content for the completed stream, and
+  // after the next prompt a delayed delta arrives. Both are late events for
+  // a frozen stream and must be ignored: re-creating the item would move or
+  // overwrite turn 1's native row and misattribute the output.
+  emitted.length = 0;
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-cross",
+      role: "assistant",
+      content: [{ type: "text", text: "Child text two" }],
+    },
+  });
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-cross-turn-2"));
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-cross" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " late" },
+    },
+  });
+  expect(
+    emitted.filter((e) => e.type === "item" || e.type === "delta"),
+  ).toEqual([]);
+  expect(current.live.items.get("child-cross")).toBeUndefined();
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("does not overwrite a recall-window child message with a later delta's empty item", async () => {
+  const sessions = new NativeSessions();
+  const first = turn("conv", "claude-recall-1");
+  const current = start(sessions, "claude-recall-generation", first);
+  sessions.state.startTurn(current.live, first);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-recall",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-recall", ...m });
+  // Turn 1 ends.
+  adapter.message({
+    type: "result",
+    session_id: "claude-recall",
+    is_error: false,
+  });
+  // The next run attaches; a delayed full child message arrives during the
+  // recall window, before the next prompt is dispatched.
+  sessions.state.startTurn(current.live, turn("conv", "claude-recall-2"));
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-recall",
+      role: "assistant",
+      content: [{ type: "text", text: "Full recall text" }],
+    },
+  });
+  // A first delta also arrives during recall, before the prompt is sent.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-recall" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " A" },
+    },
+  });
+  await adapter.prompt("next");
+  // The child stream's second delta arrives after the new prompt.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " B" },
+    },
+  });
+  // The re-established item carried the recall text including its first
+  // delta, so the second delta appended instead of overwriting either.
+  expect(current.live.items.get("child-recall")).toEqual({
+    id: "child-recall",
+    kind: "assistant",
+    text: "Full recall text A B",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("caps a single recall stream's cached seed at the display limit", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-cap");
+  const current = start(sessions, "claude-cache-cap-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-cap",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-cache-cap", ...m });
+  // Turn 1 ends; one long-lived child stream keeps streaming while no turn
+  // is open.
+  adapter.message({
+    type: "result",
+    session_id: "claude-cache-cap",
+    is_error: false,
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-big" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "x".repeat(200_000) },
+    },
+  });
+  const stored = adapter.childText.get("child-big") as string;
+  expect(Buffer.byteLength(stored)).toBeLessThanOrEqual(64000);
+  expect(stored.endsWith("x".repeat(1000))).toBe(true);
+  await sessions.close();
+});
+
+it("bounds the child text cache so a long session cannot accumulate child output", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-bound");
+  const current = start(sessions, "claude-cache-bound-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-bound",
+    },
+    current.emit,
+  ) as any;
+  // Enough 64,000-byte entries to exceed the 4 MiB budget, so the oldest
+  // ids are evicted and the cache stays bounded for the adapter's lifetime.
+  for (let i = 0; i < 70; i++)
+    adapter.rememberChildText("bound-" + i, "x".repeat(64000));
+  expect(adapter.childText.has("bound-0")).toBe(false);
+  expect(adapter.childText.size).toBeLessThanOrEqual(66);
+  expect(adapter.childTextBytes).toBeLessThanOrEqual(4 * 1024 * 1024 + 64000);
+  await sessions.close();
+});
+
+it("bounds the child text cache by entry count even for empty-text streams", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-count");
+  const current = start(sessions, "claude-cache-count-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-count",
+    },
+    current.emit,
+  ) as any;
+  // Many distinct ids whose text is empty or near-empty: the byte counter
+  // never moves, so eviction must also bound the entry count.
+  for (let i = 0; i < 600; i++) adapter.rememberChildText("empty-" + i, "");
+  expect(adapter.childText.size).toBeLessThanOrEqual(512);
+  await sessions.close();
+});
+
+it("keeps a post-prompt delta commentary even when its recall seed was evicted", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-seed-lost");
+  const current = start(sessions, "claude-seed-lost-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-seed-lost",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-seed-lost", ...m });
+  // Turn 1 ends; the next run attaches and, during recall, the child's full
+  // message is retained in this run's window.
+  adapter.message({
+    type: "result",
+    session_id: "claude-seed-lost",
+    is_error: false,
+  });
+  sessions.state.startTurn(current.live, turn("conv", "claude-seed-lost-2"));
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-seed-lost",
+      role: "assistant",
+      content: [{ type: "text", text: "Retained text" }],
+    },
+  });
+  // The recall seed is evicted here (as after extreme cache pressure), but
+  // the retained commentary item in this run's window still holds the text.
+  adapter.childText.delete("child-seed-lost");
+  await adapter.prompt("next");
+  emitted.length = 0;
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-seed-lost" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " more" },
+    },
+  });
+  // A new turn cleared the child ids, so the delta re-establishes its
+  // commentary item before appending. With the seed evicted, the item
+  // carries only the fragment (the documented eviction trade-off: the
+  // progress preview loses earlier text), but it is never phase-less, so it
+  // cannot become the run's answer.
+  expect(emitted).toEqual([
+    {
+      type: "item",
+      item: {
+        id: "child-seed-lost",
+        kind: "assistant",
+        text: "",
+        phase: "commentary",
+      },
+    },
+    { type: "delta", id: "child-seed-lost", text: " more" },
+  ]);
+  expect(current.live.items.get("child-seed-lost")).toEqual({
+    id: "child-seed-lost",
+    kind: "assistant",
+    text: " more",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("keeps an active-turn child message's text when a delayed delta arrives in the next turn", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-delayed-delta");
+  const current = start(sessions, "claude-delayed-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-delayed-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-delayed-delta", ...m });
+  // Turn 1, while active: the child's full assistant message arrives.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-old",
+      role: "assistant",
+      content: [{ type: "text", text: "Full active text" }],
+    },
+  });
+  // Turn 1 ends with no further child content; turn 2 starts fresh.
+  adapter.message({
+    type: "result",
+    session_id: "claude-delayed-delta",
+    is_error: false,
+  });
+  await adapter.prompt("next");
+  sessions.state.startTurn(
+    current.live,
+    turn("conv", "claude-delayed-delta-2"),
+  );
+  // A delayed delta for the same child message id finally arrives. The
+  // stream's turn completed, so the event is ignored: re-creating the item
+  // would move turn 1's native row to this run and misattribute its text.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-old" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " more" },
+    },
+  });
+  // Turn 1's recorded child text is left alone; nothing is attributed to
+  // this run for the completed stream.
+  expect(current.live.items.get("child-old")).toBeUndefined();
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("keeps an active-turn child stream's text when a delayed delta arrives in the next turn", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-active-delta");
+  const current = start(sessions, "claude-active-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-active-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-active-delta", ...m });
+  // Turn 1, while active: a delta-only child stream (no full message).
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-delta" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-active-delta",
+    is_error: false,
+  });
+  // A delayed delta for the same stream arrives. The stream's turn
+  // completed, so the event is ignored: the earlier text stays with its own
+  // run instead of being attributed to this one.
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-active-delta-2"));
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-delta" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  expect(current.live.items.get("child-delta")).toBeUndefined();
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("marks a delta-only child stream commentary when it arrives during recall", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-recall-delta");
+  const current = start(sessions, "claude-recall-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-recall-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  // Turn 1 ends; the next run attaches during recall, before prompt() would
+  // mark the adapter active again.
+  adapter.message({
+    type: "result",
+    session_id: "claude-recall-delta",
+    is_error: false,
+  });
+  sessions.state.startTurn(current.live, turn("conv", "claude-recall-delta-2"));
+  // A delta-only child stream arrives in that recall window (no full message).
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "recall-delta" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "Recall fragment" },
+    },
+  });
+  // The item is commentary, never phase-less: it cannot become the answer
+  // even though the run is already attached and the adapter is inactive.
+  expect(current.live.items.get("recall-delta")).toEqual({
+    id: "recall-delta",
+    kind: "assistant",
+    text: "Recall fragment",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("keeps between-run child deltas commentary even across a window reset", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-between-2");
+  const current = start(sessions, "claude-between-2-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-between-2",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  // Turn 1 ends; the first child delta arrives between runs.
+  adapter.message({
+    type: "result",
+    session_id: "claude-between-2",
+    is_error: false,
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-2" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  // The next run attaches, resetting the projector's item window, and the
+  // second child delta arrives pre-prompt.
+  sessions.state.startTurn(current.live, turn("conv", "claude-between-2b"));
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-2" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  // Each between-run delta produced a commentary item; the fragment joined
+  // and is never phase-less, so it cannot become the run's answer.
+  expect(current.live.items.get("between-2")).toEqual({
+    id: "between-2",
+    kind: "assistant",
+    text: "AB",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("re-establishes a between-run child stream as commentary after the next prompt", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-between-3");
+  const current = start(sessions, "claude-between-3-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-between-3",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-between-3", ...m });
+  // Turn 1 ends; the child's first delta arrives between runs and is folded
+  // into a commentary item that no run owns.
+  adapter.message({
+    type: "result",
+    session_id: "claude-between-3",
+    is_error: false,
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-3" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  // The next run attaches (resetting the item window) and is dispatched;
+  // only then does the child's next delta arrive.
+  sessions.state.startTurn(current.live, turn("conv", "claude-between-3b"));
+  await adapter.prompt("next");
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  // The delta re-established its seeded commentary item in the new window
+  // instead of leaving a phase-less fragment eligible as the answer.
+  expect(current.live.items.get("between-3")).toEqual({
+    id: "between-3",
+    kind: "assistant",
+    text: "AB",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("drops late events for a completed child stream even after thousands of other ids", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-prior-many");
+  const current = start(sessions, "claude-prior-many-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-prior-many",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-prior-many", ...m });
+  // One turn completes thousands of child streams; the first id must stay
+  // frozen no matter how many others complete after it.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-first",
+      role: "assistant",
+      content: [{ type: "text", text: "First child text" }],
+    },
+  });
+  for (let i = 0; i < 6005; i++)
+    send({
+      type: "assistant",
+      parent_tool_use_id: "task-" + (2 + i),
+      message: {
+        id: "overflow-" + i,
+        role: "assistant",
+        content: [{ type: "text", text: "x" }],
+      },
+    });
+  adapter.message({
+    type: "result",
+    session_id: "claude-prior-many",
+    is_error: false,
+  });
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-prior-many-2"));
+  emitted.length = 0;
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-first" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " late" },
+    },
+  });
+  // The completed stream stays frozen — its id is never evicted from the
+  // prior-id set, so the late delta cannot re-create or overwrite it.
+  expect(
+    emitted.filter((e) => e.type === "item" || e.type === "delta"),
+  ).toEqual([]);
+  expect(current.live.items.get("child-first")).toBeUndefined();
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("still emits a frozen child frame's tool update while suppressing its text", async () => {
+  const conversation = "claude-frozen-tool";
+  seedConversation(db, {
+    id: conversation,
+    owner_id: "owner",
+    title: "t",
+    created_at: 0,
+  });
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'codex',?,0)",
+  ).run(conversation, dir);
+  const sessions = new NativeSessions();
+  const run = turn(conversation, "claude-frozen-tool");
+  const current = start(
+    sessions,
+    "claude-frozen-tool-generation",
+    run,
+    conversation,
+  );
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-frozen-tool",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-frozen-tool", ...m });
+  // Turn 1 records the completed stream; a late frame re-emits it WITH a
+  // tool_use block alongside its text.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-tool",
+      role: "assistant",
+      content: [{ type: "text", text: "Late text" }],
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-frozen-tool",
+    is_error: false,
+  });
+  emitted.length = 0;
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-tool",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Late text again" },
+        {
+          type: "tool_use",
+          id: "tool-late",
+          name: "Read",
+          input: { file_path: "README.md" },
+        },
+      ],
+    },
+  });
+  // The frozen stream's text item is suppressed, but the frame's tool_use
+  // still yields its running item so the trace keeps the tool arguments.
+  expect(
+    emitted.filter((e) => e.type === "item" && e.item.kind === "assistant"),
+  ).toEqual([]);
+  expect(emitted).toContainEqual({
+    type: "item",
+    item: {
+      id: "tool-late",
+      kind: "tool",
+      title: "Read",
+      text: JSON.stringify({ file_path: "README.md" }, null, 2),
+      status: "running",
+    },
+  });
+  await sessions.close();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,

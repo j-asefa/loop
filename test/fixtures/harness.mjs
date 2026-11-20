@@ -155,9 +155,45 @@ function finish(status = "completed", failure = "Fixture native turn failed") {
       type: "assistant",
       message: {
         id: active,
-        content: [{ type: "text", text: "Fixture done" }],
+        content: process.env.LOOP_TEST_CLAUDE_PARENT_BLANK
+          ? []
+          : [{ type: "text", text: "Fixture done" }],
       },
     });
+    // Child-session (Task tool) output between the parent's final assistant
+    // message and the parent result. LOOP_TEST_CLAUDE_CHILD_TEXT also sends
+    // the full child assistant message; LOOP_TEST_CLAUDE_CHILD_DELTA_ONLY
+    // sends only the child stream, which can outlive its assistant message.
+    const childText = process.env.LOOP_TEST_CLAUDE_CHILD_TEXT;
+    const childDeltaOnly = process.env.LOOP_TEST_CLAUDE_CHILD_DELTA_ONLY;
+    if (childText || childDeltaOnly) {
+      const childId = "child-" + count;
+      const childParent = "task-" + count;
+      const text = childText || childDeltaOnly;
+      out({
+        type: "stream_event",
+        parent_tool_use_id: childParent,
+        event: { type: "message_start", message: { id: childId } },
+      });
+      out({
+        type: "stream_event",
+        parent_tool_use_id: childParent,
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text },
+        },
+      });
+      if (childText)
+        out({
+          type: "assistant",
+          parent_tool_use_id: childParent,
+          message: {
+            id: childId,
+            role: "assistant",
+            content: [{ type: "text", text: childText }],
+          },
+        });
+    }
     out({
       type: "result",
       subtype: "success",
@@ -789,13 +825,14 @@ if (kind !== "opencode") {
           type: "stream_event",
           event: { type: "message_start", message: { id: active } },
         });
-        out({
-          type: "stream_event",
-          event: {
-            type: "content_block_delta",
-            delta: { type: "text_delta", text: "Fixture " },
-          },
-        });
+        if (!process.env.LOOP_TEST_CLAUDE_PARENT_BLANK)
+          out({
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              delta: { type: "text_delta", text: "Fixture " },
+            },
+          });
         out({
           type: "assistant",
           message: {

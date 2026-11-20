@@ -63,6 +63,59 @@ export class Claude extends DirectAdapter implements Adapter {
   private requests = new Map<string, any>();
   private session: string;
   private messageIds = new Map<string, string>();
+  // Assistant item ids already emitted for child-session (Task tool) streams.
+  // Keyed by the item id, because a stream's id can switch before
+  // `message_start` arrives. An id already emitted must never be established
+  // again: the projector replaces an item by id, so an empty re-established
+  // item would overwrite the child's saved text. Cleared at the result and
+  // again at the next new user turn, so a delayed delta re-establishes its
+  // commentary item in the fresh projector window.
+  private childItems = new Set<string>();
+  // Child item ids whose stream completed in an earlier turn. A completed
+  // child stream is frozen: a late delta or assistant message for it must
+  // never re-create its item in a later run (that would move or overwrite
+  // the earlier run's native row and misattribute the output), so such
+  // events are ignored entirely. Ids are harvested at each turn's result
+  // and kept for the adapter's lifetime — they are ids only, and evicting
+  // one would let a late event treat a completed stream as new.
+  private priorChildIds = new Set<string>();
+  // Last-known text per child item id for the current (or upcoming) turn:
+  // the full assistant message (written whether a turn is open or not) plus
+  // any deltas seen before the next prompt. Kept across prompt() (unlike
+  // childItems) so a re-established item in a fresh window carries the known
+  // text instead of replacing it with empty; cleared at the result, where
+  // its ids move into priorChildIds. Each entry is capped at the projector's
+  // display-preview limit and the map is bounded by both bytes and entry
+  // count, so a long session cannot grow adapter memory with copies of
+  // child output.
+  private childText = new Map<string, string>();
+  private childTextBytes = 0;
+  private rememberChildText(id: string, text: string) {
+    // Keep only a display-sized tail, mirroring the projector's own preview
+    // bound, so one long-lived stream cannot grow its entry without limit.
+    if (Buffer.byteLength(text) > 64000) {
+      let low = 0;
+      let high = text.length;
+      while (low < high) {
+        const keep = Math.ceil((low + high) / 2);
+        if (Buffer.byteLength(text.slice(-keep)) <= 64000) low = keep;
+        else high = keep - 1;
+      }
+      text = text.slice(-low);
+    }
+    const previous = this.childText.get(id);
+    const previousBytes = previous ? Buffer.byteLength(previous) : 0;
+    this.childTextBytes += Buffer.byteLength(text) - previousBytes;
+    this.childText.set(id, text);
+    while (
+      (this.childTextBytes > 4 * 1024 * 1024 || this.childText.size > 512) &&
+      this.childText.size > 1
+    ) {
+      const oldest = this.childText.keys().next().value!;
+      this.childTextBytes -= Buffer.byteLength(this.childText.get(oldest)!);
+      this.childText.delete(oldest);
+    }
+  }
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
@@ -299,6 +352,17 @@ export class Claude extends DirectAdapter implements Adapter {
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
     this.interrupted = false;
+    // A new user turn clears the child ids: attaching the run resets the
+    // projector's item window, and an item folded between runs has no run,
+    // so a post-dispatch delta must re-establish its commentary item (seeded
+    // from childText) or the projector would create a phase-less fragment
+    // that is eligible as the answer. Mid-turn steering follow-ups also call
+    // prompt() while a turn is active; they keep the ids so their deltas
+    // still merge into the open items. Trade-off: if a stream's seed was
+    // evicted from childText (over 512 streams or 4 MiB in one turn cycle),
+    // the re-established item carries only the new fragment, so that
+    // stream's progress preview loses earlier text. It is never phase-less.
+    if (!this.active) this.childItems.clear();
     this.active = true;
     await this.native.write({
       type: "user",
@@ -526,12 +590,65 @@ export class Claude extends DirectAdapter implements Adapter {
         if (this.messageIds.size > 128)
           this.messageIds.delete(this.messageIds.keys().next().value!);
       }
-      if (e.type === "content_block_delta" && e.delta.type === "text_delta")
-        this.emit({
-          type: "delta",
-          id: this.messageIds.get(stream) ?? m.uuid,
-          text: e.delta.text,
-        });
+      if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
+        const id = this.messageIds.get(stream) ?? m.uuid;
+        // A child stream whose turn completed is frozen; a late delta must
+        // not re-create its item in this run (it would move or overwrite
+        // the earlier run's native row), so ignore it entirely.
+        if (m.parent_tool_use_id && this.priorChildIds.has(id)) return;
+        if (m.parent_tool_use_id && !this.active) {
+          // Between turns the projector may drop a bare delta (no run) or
+          // attach the next run during recall before active flips true. In
+          // both cases a bare delta could leave a phase-less item that is
+          // selectable as the answer, so fold the delta into a single
+          // commentary item carrying the accumulated seed: the item is
+          // never phase-less and its text preserves the stream (including
+          // an evicted seed's id — the item then carries the fragment, not
+          // an empty seed). No separate delta is emitted here.
+          this.rememberChildText(
+            id,
+            (this.childText.get(id) ?? "") + e.delta.text,
+          );
+          this.emit({
+            type: "item",
+            item: {
+              id,
+              kind: "assistant",
+              text: this.childText.get(id) ?? "",
+              phase: "commentary",
+            },
+          });
+        } else if (m.parent_tool_use_id && !this.childItems.has(id)) {
+          this.childItems.add(id);
+          this.emit({
+            type: "item",
+            item: {
+              id,
+              kind: "assistant",
+              // Seed with any text already known for this id (a full child
+              // assistant message or deltas seen earlier); the projector
+              // replaces by id, so an empty item would drop it.
+              text: this.childText.get(id) ?? "",
+              phase: "commentary",
+            },
+          });
+        }
+        // Keep the seed current with every active delta (the inactive fold
+        // above already accumulated its delta), so a later re-established
+        // item carries everything the stream has said so far and a
+        // subsequent delta appends instead of overwriting it. Empty deltas
+        // contribute nothing, so they do not add a cache entry.
+        if (m.parent_tool_use_id && this.active && e.delta.text)
+          this.rememberChildText(
+            id,
+            (this.childText.get(id) ?? "") + e.delta.text,
+          );
+        // Root (parent) streams always emit deltas; child streams emit them
+        // only while a turn is open (while inactive their delta was folded
+        // into the commentary item above).
+        if (!m.parent_tool_use_id || this.active)
+          this.emit({ type: "delta", id, text: e.delta.text });
+      }
       if (
         e.type === "content_block_start" &&
         e.content_block.type === "tool_use"
@@ -558,11 +675,31 @@ export class Claude extends DirectAdapter implements Adapter {
         .filter((b: any) => b.type === "text")
         .map((b: any) => b.text)
         .join("\n");
-      if (text)
+      // A child stream whose turn completed is frozen: a late assistant
+      // message for it must not re-create its item, but its tool updates are
+      // still emitted below so the trace keeps the tool arguments.
+      const frozen =
+        m.parent_tool_use_id && this.priorChildIds.has(m.message.id);
+      if (text && !frozen) {
+        // Remember the emitted id and its text so a later delta merges into
+        // this item instead of establishing an empty one that replaces it.
+        if (m.parent_tool_use_id) {
+          this.childItems.add(m.message.id);
+          this.rememberChildText(m.message.id, text);
+        }
         this.emit({
           type: "item",
-          item: { id: m.message.id, kind: "assistant", text },
+          item: {
+            id: m.message.id,
+            kind: "assistant",
+            text,
+            // A Task tool (subagent) session's assistant message must not
+            // become the parent run's answer; commentary keeps it visible
+            // as progress while the projector excludes it from selection.
+            ...(m.parent_tool_use_id ? { phase: "commentary" as const } : {}),
+          },
         });
+      }
       for (const b of content)
         if (b.type === "tool_use") {
           this.activityInputs.set(b.id, { name: b.name, input: b.input });
@@ -604,7 +741,17 @@ export class Claude extends DirectAdapter implements Adapter {
       if (usage) this.emit({ type: "usage", usage });
       if (this.steering.result()) return;
       this.active = false;
+      // The turn's child streams are now complete; freeze their ids so late
+      // events for them cannot move or overwrite this run's native history.
+      // The set is ids-only and kept for the adapter's lifetime: evicting an
+      // id would let a late event treat a completed stream as new and
+      // overwrite its recorded history.
+      for (const id of this.childItems) this.priorChildIds.add(id);
+      for (const id of this.childText.keys()) this.priorChildIds.add(id);
       this.messageIds.clear();
+      this.childItems.clear();
+      this.childText.clear();
+      this.childTextBytes = 0;
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();
