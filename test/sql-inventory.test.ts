@@ -289,21 +289,22 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? left + right
         : undefined;
     }
-    if (node?.type === "MemberExpression") {
-      const name = receiver(node);
-      return name
-        ? declaringScope(name.split(".")[0], node)?.strings?.get(name)
-        : undefined;
-    }
-    if (node?.type !== "Identifier") return node?.value;
-    const owner = declaringScope(node.name, node);
-    const write = latestWrite(node, node.name, owner);
+    if (node?.type !== "Identifier" && node?.type !== "MemberExpression")
+      return node?.value;
+    const name = receiver(node);
+    if (!name) return undefined;
+    const owner = declaringScope(name.split(".")[0], node);
+    const write = latestWrite(node, name, owner);
     if (write?.type === "VariableDeclarator")
       return literalKey(unwrap(write.init));
-    if (write?.operator === "=" && write.left.type === "Identifier")
+    if (
+      write?.operator === "=" &&
+      (write.left.type === "Identifier" ||
+        write.left.type === "MemberExpression")
+    )
       return literalKey(unwrap(write.right));
     if (write?.type === "AssignmentExpression") return undefined;
-    return owner?.strings?.get(node.name);
+    return owner?.strings?.get(name);
   };
   const property = (node: any) =>
     node?.computed ? literalKey(node.property) : node?.property?.name;
@@ -1139,43 +1140,85 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
   }
-  const precedingPushes = (node: any): any[][] => {
+  const precedingPushes = (node: any): any[] => {
     const source = unwrap(node);
     if (source?.type !== "Identifier") return [];
     const owner = declaringScope(source.name, source);
     const pushes = owner && arrayPushes.get(owner)?.get(source.name);
-    return (pushes ?? [])
-      .filter(
-        (push) =>
-          push.end <= source.start &&
-          boundaryScope(push, "function") === boundaryScope(source, "function"),
-      )
-      .map((push) => push.arguments);
+    return (pushes ?? []).filter(
+      (push) =>
+        push.end <= source.start &&
+        boundaryScope(push, "function") === boundaryScope(source, "function"),
+    );
+  };
+  const indexAssignments = new Map<string, { index: number; node: any }[]>();
+  for (const [path, writes] of assignmentsByName) {
+    const match = /^([^.]+)\.(0|[1-9]\d*)$/.exec(path);
+    if (!match || Number(match[2]) >= 2 ** 32 - 1) continue;
+    const entries = indexAssignments.get(match[1]) ?? [];
+    for (const { node, key } of writes)
+      if (!key) entries.push({ index: Number(match[2]), node });
+    indexAssignments.set(match[1], entries);
+  }
+  const arrayContents = (node: any) => {
+    const source = unwrap(node);
+    const array = staticArray(source);
+    if (!array) return undefined;
+    const initial = staticArguments(array);
+    const elements = new Map(initial.values.entries());
+    const extra: any[] = [];
+    let length = initial.values.length;
+    let complete = initial.complete;
+    const events: { node: any; index?: number }[] = precedingPushes(source).map(
+      (node) => ({ node }),
+    );
+    if (source.type === "Identifier") {
+      const owner = declaringScope(source.name, source);
+      for (const entry of indexAssignments.get(source.name) ?? []) {
+        if (
+          entry.node.end > source.start ||
+          declaringScope(source.name, entry.node) !== owner
+        )
+          continue;
+        const path = `${source.name}.${entry.index}`;
+        for (
+          let scope: Scope | undefined = scopeOf(source);
+          scope;
+          scope = scope.parent
+        ) {
+          if (straightLineWrites.get(scope)?.get(path)?.includes(entry.node)) {
+            events.push(entry);
+            break;
+          }
+          if (scope === owner || scope.boundary === "function") break;
+        }
+      }
+    }
+    for (const { node, index } of events.sort(
+      (a, b) => a.node.start - b.node.start,
+    )) {
+      if (index !== undefined) {
+        elements.set(index, unwrap(node.right));
+        length = Math.max(length, index + 1);
+        continue;
+      }
+      const addition = staticArguments(node.arguments);
+      if (complete) {
+        for (const value of addition.values) elements.set(length++, value);
+        complete = addition.complete;
+      } else extra.push(...addition.values);
+    }
+    return { elements, extra, length, complete };
   };
   const iteratedItems = (node: any): any[] => {
-    const source = staticSet(node) ?? node;
-    const array = staticArray(source);
-    return array
-      ? [array, ...precedingPushes(source)].flatMap(
-          (items) => staticArguments(items).values,
-        )
-      : [];
+    const array = arrayContents(staticSet(node) ?? node);
+    return array ? [...array.elements.values(), ...array.extra] : [];
   };
   const indexedItem = (source: any, index: number): any => {
-    const array = staticArray(source);
-    if (!array || !Number.isInteger(index)) return undefined;
-    const pushes = precedingPushes(source);
-    const { values, complete } = staticArguments(
-      pushes.length ? array.concat(...pushes) : array,
-    );
-    const target = unwrap(source);
-    const position = index < 0 && complete ? values.length + index : index;
-    if (target.type === "Identifier" && position >= 0) {
-      const owner = declaringScope(target.name, target);
-      const write = latestWrite(target, `${target.name}.${position}`, owner);
-      if (write?.operator === "=") return unwrap(write.right);
-    }
-    return index >= 0 || complete ? values.at(index) : undefined;
+    if (!Number.isInteger(index)) return undefined;
+    const array = arrayContents(source);
+    if (!array || (index < 0 && !array.complete)) return undefined;
+    return array.elements.get(index >= 0 ? index : array.length + index);
   };
   const reachesRead = (
     node: any,
@@ -1446,9 +1489,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? propertySource(value, tail)
         : { value, binding: connectionKind(value) };
     };
-    if (object?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(head)) {
-      return resolve(staticArguments(object.elements).values[Number(head)]);
-    }
+    if (/^(?:0|[1-9]\d*)$/.test(head) && staticArray(object))
+      return resolve(indexedItem(object, Number(head)));
     if (object?.type === "ObjectExpression") {
       for (let index = object.properties.length - 1; index >= 0; index--) {
         const member = object.properties[index];
@@ -2112,7 +2154,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (!methods.has(method)) return false;
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
-      if (method === "transaction") return false;
+      if (method === "transaction") {
+        const parent = parents.get(node);
+        return (
+          binding === "inferred" &&
+          parent?.type === "CallExpression" &&
+          parent.callee === node
+        );
+      }
       const opaqueReceiver =
         script &&
         (!binding || binding === "other") &&
@@ -3470,6 +3519,26 @@ it("follows known iterable aliases, sets and nested fields on inline factory res
     open().storage.connection.exec("BEGIN");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 8, 10]);
+});
+
+it("shares array mutations and current method keys and recognizes invoked inferred transactions", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const handles = [];
+    handles[0] = db;
+    for (const handle of handles) handle.exec("BEGIN");
+    const pushed = [];
+    pushed.push(db);
+    const [handle] = pushed;
+    handle.exec("BEGIN");
+    const keys = { write: "close" };
+    keys.write = "exec";
+    db[keys.write]("BEGIN");
+    keys.write = "close";
+    db[keys.write]();
+    export function seed(db) { db.transaction(write)(); }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 9, 12, 15]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
