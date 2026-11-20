@@ -1,4 +1,7 @@
-import { comparePosition } from "../shared/transcript-projection";
+import {
+  comparePosition,
+  type ProjectedMessage,
+} from "../shared/transcript-projection";
 import type { Message } from "../shared/types";
 import { readMessageMetadata } from "../shared/message-metadata";
 
@@ -42,7 +45,10 @@ type ProgressPosition = {
   cursor: ConversationMessage["cursor"];
 };
 export function conversationLatestProgress(
-  messages: readonly ConversationMessage[] = [],
+  messages: readonly Pick<
+    ProjectedMessage,
+    "id" | "run_id" | "cursor" | "role" | "metadata"
+  >[] = [],
   reported: readonly ProgressPosition[] = [],
 ) {
   const byRun = new Map(reported.map((message) => [message.run_id, message]));
