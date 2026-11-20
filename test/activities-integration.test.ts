@@ -502,6 +502,22 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call(table([[10], [20, 30]]))).toContain(
     'Element "card": Table row 2 has more cells (2) than headers (1).',
   );
+  const leaf =
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: {
+        type: "Text",
+        props: { content: "Summary" },
+        children: ["details"],
+      },
+    }) +
+    '\n{"op":"add","path":"/elements/details","value":{"type":"Divider"}}';
+  expect(await call(leaf)).toContain(
+    'Element "card": Text does not draw children.',
+  );
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),
   ).resolves.toMatchObject({

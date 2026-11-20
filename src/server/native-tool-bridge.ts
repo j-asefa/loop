@@ -122,8 +122,6 @@ export class NativeToolBridge {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ) {
-    if (requestId.length >= TOOL_REQUEST_ID_LIMIT)
-      throw new Error("Native tool request ID is too long");
     const live = nativeSessions.current(t.conversation, t.generation);
     const run = live.run!;
     const binding = t.bindings.get(name);
@@ -131,8 +129,9 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
-    // Keep the request identity without retaining a potentially large payload.
-    const key = run.id + ":" + requestId,
+    // Bound cached data without changing the call ID used at dispatch.
+    const callId = run.id + ":" + requestId,
+      key = createHash("sha256").update(callId).digest("hex"),
       digest = createHash("sha256")
         .update(JSON.stringify([name, args]))
         .digest("hex");
@@ -216,7 +215,7 @@ export class NativeToolBridge {
           }
           const response = await (
             binding.connectionId === "__loop__" ? invokeNative : invokeTool
-          )(run, binding, key, args);
+          )(run, binding, callId, args);
           if ("result" in response) {
             if (binding.tool === "loop_install_mcp") {
               this.list(t);

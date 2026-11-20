@@ -495,11 +495,10 @@ it.each([
               params: { name: display.name, arguments: display.arguments },
             }),
           });
-          expect(await longId.json()).toMatchObject({
-            error: {
-              message: expect.stringContaining("request ID is too long"),
-            },
-          });
+          expect(await longId.json()).toMatchObject({ result: validResult });
+          expect(
+            (await requestPi({ ...display, id: "x".repeat(200) })).status,
+          ).toBe(400);
         } finally {
           await client.close();
         }

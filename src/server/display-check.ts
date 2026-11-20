@@ -41,7 +41,7 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
 const patchForm =
   "One JSON object per line with op add or replace. Use path /root with a string key, or /elements/<key> with an element object.";
 const elementForm =
-  "An element has type, optional props (defaults to {}), and optional children (element keys in order). Omit visible and repeat. Other fields and unknown props are ignored.";
+  "An element has type and optional props (defaults to {}). Supply children (element keys in order) only for Card, Section, Fields, and Actions. Omit visible and repeat. Other fields and unknown props are ignored.";
 const reference = [
   "Component reference",
   patchForm,
@@ -103,16 +103,15 @@ export function checkDisplay(input: string): string {
     remaining -= issue.length + 1;
     issues.push(issue);
   };
-  const warnedRows = new Set<string>();
+  const warnings = new Map<string, Set<string>>();
   const display = readDisplaySpec(source.source, {
     allSkippedLines: true,
-    onTableOverflow(key, row, cells, headers) {
-      const location = key + ":" + row;
-      if (warnedRows.has(location)) return;
-      warnedRows.add(location);
-      add(
-        `Element ${quotedDiagnostic(key)}: Table row ${row} has more cells (${cells}) than headers (${headers}). Add headers or remove the extra cells before publishing.`,
-      );
+    onWarning(key, detail) {
+      const details = warnings.get(key) ?? new Set<string>();
+      if (details.has(detail)) return;
+      details.add(detail);
+      warnings.set(key, details);
+      add(`Element ${quotedDiagnostic(key)}: ${detail}`);
     },
   });
   for (const { line, reason } of display.skipped)

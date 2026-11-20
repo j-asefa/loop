@@ -65,6 +65,26 @@ it("lists placeholders with a detail an agent can act on", () => {
   ]);
 });
 
+it("checks a shared table once and draws it at each reference", () => {
+  const warnings: string[] = [];
+  const read = readDisplaySpec(
+    [
+      '{"op":"add","path":"/root","value":"section"}',
+      '{"op":"add","path":"/elements/section","value":{"type":"Section","children":["table","table"]}}',
+      '{"op":"add","path":"/elements/table","value":{"type":"Table","props":{"headers":["Amount"],"rows":[[10,20]]}}}',
+    ].join("\n"),
+    { onWarning: (key, detail) => warnings.push(key + ": " + detail) },
+  );
+  expect(warnings).toEqual([
+    "table: Table row 1 has more cells (2) than headers (1). Add headers or remove the extra cells before publishing.",
+  ]);
+  expect(read).toMatchObject({
+    ok: true,
+    count: 3,
+    root: { children: [{ rows: [["10"]] }, { rows: [["10"]] }] },
+  });
+});
+
 it("never throws on hostile input", () => {
   const nest = "[".repeat(20000);
   const inputs = [

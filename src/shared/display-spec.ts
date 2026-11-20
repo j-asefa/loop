@@ -172,12 +172,7 @@ export type DisplayRead =
   | ({ ok: false; reason: DisplayFailure } & Skips);
 
 type RawElement = Record<string, unknown>;
-type TableOverflow = (
-  key: string,
-  row: number,
-  cells: number,
-  headers: number,
-) => void;
+type DisplayWarning = (key: string, detail: string) => void;
 
 class DisplayLimit extends Error {
   constructor(readonly reason: DisplayFailure) {
@@ -209,7 +204,7 @@ function build(
   type: string,
   props: unknown,
   children: DisplayNode[],
-  onTableOverflow?: TableOverflow,
+  onWarning?: DisplayWarning,
 ): DisplayNode | string {
   switch (type) {
     case "Card": {
@@ -246,10 +241,13 @@ function build(
       const p = propSchemas.Table.safeParse(props);
       if (!p.success) return problem(p.error);
       const width = p.data.headers.length;
-      if (onTableOverflow)
+      if (onWarning)
         p.data.rows.forEach((row, index) => {
           if (row.length > width)
-            onTableOverflow(key, index + 1, row.length, width);
+            onWarning(
+              key,
+              `Table row ${index + 1} has more cells (${row.length}) than headers (${width}). Add headers or remove the extra cells before publishing.`,
+            );
         });
       return {
         type,
@@ -306,7 +304,8 @@ function draw(
     text: number;
     drawn: number;
     omitMissing: boolean;
-    onTableOverflow?: TableOverflow;
+    onWarning?: DisplayWarning;
+    tables?: Map<string, DisplayNode | string>;
   },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
@@ -339,7 +338,14 @@ function draw(
       "unsupported",
       "visible and repeat are not supported",
     );
-  const list = takesChildren.has(type) ? (element.children ?? []) : [];
+  const hasChildren = takesChildren.has(type);
+  const children = element.children ?? [];
+  const list = hasChildren ? children : [];
+  if (!hasChildren && (!Array.isArray(children) || children.length > 0))
+    state.onWarning?.(
+      key,
+      `${type} does not draw children. Move them into a component that accepts children, such as Card or Section.`,
+    );
   if (!Array.isArray(list) || !list.every((k) => typeof k === "string"))
     return placeholder(
       key,
@@ -349,13 +355,13 @@ function draw(
     );
   // Props are checked before children are visited, so an invalid container
   // is one placeholder and its children count toward no limit.
-  const built = build(
-    key,
-    type,
-    element.props ?? {},
-    [],
-    state.onTableOverflow,
-  );
+  // The checker can reuse validated tables. Every visit still charges the
+  // display budgets, and each table is a leaf with no per-visit children.
+  let built = state.tables?.get(key);
+  if (built === undefined) {
+    built = build(key, type, element.props ?? {}, [], state.onWarning);
+    if (type === "Table") state.tables?.set(key, built);
+  }
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
   // An element drawn as a placeholder charges none of the budgets.
@@ -447,7 +453,7 @@ export type DisplayReadOptions = {
   writing?: boolean;
   finalLineIncomplete?: boolean;
   allSkippedLines?: boolean;
-  onTableOverflow?: TableOverflow;
+  onWarning?: DisplayWarning;
 };
 
 // Reads the text inside a `spec` fence; by default the block is complete.
@@ -458,7 +464,7 @@ export function readDisplaySpec(
     writing = false,
     finalLineIncomplete = false,
     allSkippedLines = false,
-    onTableOverflow,
+    onWarning,
   }: DisplayReadOptions = {},
 ): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
@@ -521,7 +527,8 @@ export function readDisplaySpec(
     text: 0,
     drawn: 0,
     omitMissing: open && writing,
-    onTableOverflow,
+    onWarning,
+    tables: onWarning ? new Map<string, DisplayNode | string>() : undefined,
   };
   try {
     return {
