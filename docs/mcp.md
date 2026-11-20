@@ -54,6 +54,7 @@ Forks and continuations inherit the restriction when their copied history reache
 Fleet admission also checks saved-memory receipts behind copied history, local mail relays and delegated tasks.
 Blocking workers and managers share the restriction while work can return directly to the manager.
 Fleet-constrained runs cannot use the agent mail status tool.
+A conversation that has used saved memory cannot send mail to a Fleet peer, including previously queued mail that has not reached transport.
 Other runs can inspect delivery state for Fleet mail and mail from saved-memory contexts with the subject and preview hidden.
 Remote participants use a generic label.
 A Fleet mail conversation refuses local mail or a background result from a conversation with saved-memory evidence.

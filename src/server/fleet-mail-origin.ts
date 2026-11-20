@@ -7,6 +7,7 @@ import * as fleetMailDispatchQueries from "./sql/fleet-mail-dispatch.js";
 import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
 import * as fleetMailEffectsQueries from "./sql/fleet-mail-effects.js";
 import * as mailQueries from "./sql/agent-mail.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import type { MailStatus } from "../shared/agent-mail.js";
 import { FleetGrantContext } from "../shared/fleet.js";
 import {
@@ -108,6 +109,17 @@ export function captureFleetMailSender(run: Run, mail: OriginMail) {
 
 function currentSender(mail: OriginMail) {
   if (!mail.sender_run_id || !mail.sender_conversation_id) throw refused();
+  if (
+    memoryReceiptsQueries.conversationHasEvidence(
+      db,
+      mail.owner_id,
+      mail.sender_conversation_id,
+    )
+  )
+    throw new MailRefusal(
+      403,
+      "Fleet mail is unavailable from a conversation that used saved memory.",
+    );
   const sender = eligibleMailAgent(mail.owner_id, mail.sender_agent_id);
   mailConversation(mail.owner_id, sender.id, mail.sender_conversation_id);
   let run: Run;

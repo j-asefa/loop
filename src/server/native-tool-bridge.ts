@@ -144,7 +144,11 @@ export class NativeToolBridge {
         ],
       });
     if (previous) {
-      if (binding.tool !== "loop_memory_search") return previous.result;
+      if (
+        binding.connectionId !== "__loop__" ||
+        binding.tool !== "loop_memory_search"
+      )
+        return previous.result;
     }
     if (!previous && t.calls.size >= 2000)
       throw new Error(

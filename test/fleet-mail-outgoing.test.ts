@@ -379,16 +379,11 @@ it("persists a single source-owned envelope before IO and reconciles destination
   const first = sendMail(run, "one", input);
   expect(first.delivery).toBe("transport_pending");
   expect(visible(agent.id).remote_conversation).toBeNull();
-  const binding = db
-    .prepare(
-      "SELECT remote_name FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
-    )
-    .get(owner, first.threadId) as { remote_name: string };
   const status = mailStatus(run, { threadId: first.threadId });
   if (!("messages" in status)) throw new Error("Expected thread messages");
   expect(status.messages[0]).toMatchObject({
     from: "@" + agent.name,
-    to: "@" + binding.remote_name,
+    to: "@Remote agent",
   });
   expect(calls).toEqual([]);
   expect(sendMail(run, "one", input).messageId).toBe(first.messageId);
@@ -1072,6 +1067,30 @@ it("keeps backoff after local thread deletion and never replays a lost accepted 
   await next.drain();
   expect(journal.outgoing(mail.messageId)?.settled).toBe(true);
   expect(received).toHaveLength(1);
+});
+
+it("refuses outbound Fleet mail from a conversation with saved evidence at dispatch", async () => {
+  const { run } = source();
+  const queued = sendMail(run, "before-memory", {
+    to: remote(),
+    body: "Earlier queued message",
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    run.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const refused = sendMail(run, "after-memory", {
+    to: remote(),
+    body: "Saved evidence",
+  });
+  expect(refused.delivery).toBe("not_delivered");
+  expect(journal.outgoing(refused.messageId)).toBeNull();
+  await drainer().drain();
+  expect(received).toHaveLength(0);
+  expect(journal.outgoing(queued.messageId)?.settled).toBe(true);
 });
 
 it("keeps an unsent message pending after peer authentication refusal and retries its same identity", async () => {
