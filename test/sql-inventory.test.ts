@@ -324,12 +324,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (pattern.type !== "ObjectPattern") return [];
     return pattern.properties.flatMap((member: any) => {
       if (member.type !== "Property") return [];
-      const key =
-        member.key.type === "Literal"
-          ? member.key.value
-          : member.computed
-            ? undefined
-            : member.key.name;
+      const key = member.computed
+        ? literalKey(member.key)
+        : (member.key.name ?? member.key.value);
       return typeof key === "string" ? within(member.value, key) : [];
     });
   };
@@ -772,6 +769,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     if (script && fixtureCall(expression)) return "object";
     if (
+      script &&
+      expression?.type === "MemberExpression" &&
+      property(expression) === "db" &&
+      fixtureCall(unwrap(expression.object))
+    )
+      return "connection";
+    if (
       expression?.type === "CallExpression" &&
       returnsDatabase.has(invocation(expression).fn)
     )
@@ -1147,6 +1151,8 @@ function sqlCallLines(file: string, text: string, script = false) {
             : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
         if (!owner) continue;
         const path = receiverPath(node, name);
+        if (node.type === "AssignmentExpression" && receiver(target))
+          recordArgument(owner, path, value);
         trackMethod(owner, path, method);
         trackBinding(
           owner,
@@ -1823,6 +1829,23 @@ it("tracks extracted argument objects and static receivers while honoring nested
     merged.storage.connection.exec(command);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 9]);
+});
+
+it("follows inline fixtures, computed destructuring and assigned object fields", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import { designFixture } from "./helpers/design-fixture.mjs";
+    (await designFixture()).db.exec(query);
+    const db = new SQLite(":memory:");
+    const source = { connection: db };
+    const key = "connection";
+    const { [key]: handle } = source;
+    handle.exec(query);
+    let storage;
+    storage = { connection: db };
+    storage.connection.exec(query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 9, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
