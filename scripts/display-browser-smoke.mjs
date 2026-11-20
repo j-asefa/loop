@@ -555,22 +555,25 @@ for (const engine of selectedEngines()) {
         await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
       }
 
-      // The renderer recognizes decoded whitespace in the full language token.
+      // The renderer recognizes both forms of whitespace in the language token.
       const encodedOpener = "```spec";
-      update(
-        working,
-        "Text. " +
-          "x".repeat(4000 - 8 - encodedOpener.length) +
-          "\n\n" +
-          encodedOpener +
-          "&#32;extra\n",
-      );
-      await page.goto(`${fixture.base}/?filter=working`, {
-        waitUntil: "networkidle",
-      });
-      await expect(workingCard().getByText("Display loading…")).toBeVisible();
-      await workingCard().locator(".feed-row").click();
-      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      for (const separator of ["&#32;", "\u00a0"]) {
+        update(
+          working,
+          "Text. " +
+            "x".repeat(4000 - 8 - encodedOpener.length) +
+            "\n\n" +
+            encodedOpener +
+            separator +
+            "extra\n",
+        );
+        await page.goto(`${fixture.base}/?filter=working`, {
+          waitUntil: "networkidle",
+        });
+        await expect(workingCard().getByText("Display loading…")).toBeVisible();
+        await workingCard().locator(".feed-row").click();
+        await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+      }
 
       // Earlier progress messages are final while the latest is still growing.
       const progress = fixture.db.prepare(
@@ -630,7 +633,10 @@ for (const engine of selectedEngines()) {
         .prepare("UPDATE messages SET content=? WHERE id=?")
         .run("Recovered earlier prompt. " + "x".repeat(70_000), priorPrompt);
       const recoveryPage = await (await recoveryRead).json();
-      assert.deepEqual(recoveryPage.latest_progress_messages, []);
+      assert.deepEqual(
+        recoveryPage.latest_progress_messages.map(({ id }) => id),
+        [currentUpdate],
+      );
       await expect(
         workingThread.getByText(/Recovered earlier prompt/),
       ).toBeVisible();

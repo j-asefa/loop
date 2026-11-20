@@ -240,7 +240,7 @@ export const ConversationPage = z.object({
   latest_agent_message: z
     .object({ id: MessageId, cursor: ProjectedMessage.shape.cursor })
     .nullable(),
-  // Present for anchored pages, whose visible rows may omit newer progress.
+  // Conversation-wide, independent of which rows this page contains.
   latest_progress_messages: z
     .array(
       z.object({

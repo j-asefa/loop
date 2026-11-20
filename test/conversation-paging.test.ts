@@ -188,9 +188,18 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
       { id: progress2, run_id: first, cursor: latest.cursor },
     ]);
   }
-  expect(conversationMessages("alice", c).latest_progress_messages).toBe(
-    undefined,
-  );
+  for (let i = 0; i < TRANSCRIPT_PAGE_ITEMS; i++)
+    message(c, second, "assistant");
+  const tail = conversationMessages("alice", c);
+  expect(tail.messages.some(({ id }) => id === progress2)).toBe(false);
+  expect(tail.latest_progress_messages).toEqual([
+    {
+      id: progress2,
+      run_id: first,
+      cursor: entries.find(({ id }) => id === progress2)!.cursor,
+    },
+  ]);
+  expect(conversationMessages("bob", c).latest_progress_messages).toEqual([]);
   expect(() => conversationMessages("bob", c, undefined, progress2)).toThrow(
     "Message not found",
   );
