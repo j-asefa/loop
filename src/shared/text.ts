@@ -11,6 +11,13 @@ const markdown = unified()
   .freeze();
 type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
 
+/** Decode a bounded, raw fence language token using the Markdown parser. */
+export function isEncodedDisplayFenceToken(token: string) {
+  if (!token.includes("&")) return false;
+  const node = markdown.parse("~~~" + token + "\n~~~").children[0];
+  return node?.type === "code" && isDisplayFenceLanguage(node.lang);
+}
+
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export function plainPreview(text: string, length = 140) {
   const flat = dropFencedBlocks(text, true)

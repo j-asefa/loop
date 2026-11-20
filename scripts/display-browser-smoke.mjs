@@ -555,6 +555,23 @@ for (const engine of selectedEngines()) {
         await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
       }
 
+      // The renderer recognizes decoded whitespace in the full language token.
+      const encodedOpener = "```spec";
+      update(
+        working,
+        "Text. " +
+          "x".repeat(4000 - 8 - encodedOpener.length) +
+          "\n\n" +
+          encodedOpener +
+          "&#32;extra\n",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.getByText("Display loading…")).toBeVisible();
+
       // Earlier progress messages are final while the latest is still growing.
       const progress = fixture.db.prepare(
         "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) SELECT ?,owner_id,conversation_id,run_id,'assistant',?,?,created_at+? FROM messages WHERE run_id=? AND role='assistant' ORDER BY created_at LIMIT 1",

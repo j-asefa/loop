@@ -1,4 +1,5 @@
 import { LIVE_PREVIEW_LIMIT } from "../shared/cards.js";
+import { isEncodedDisplayFenceToken } from "../shared/text.js";
 import { STARTED_RUN_STATES } from "../shared/run-state.js";
 import { canSwapQueuedRuns, editableQueuedRun } from "./queued-run-policy.js";
 import { runPreview } from "./run-preview.js";
@@ -159,14 +160,16 @@ export function runDetails(
         detail.live_preview_fence_cut =
           !closer || (suffixClipped && !/[\r\n]$/.test(closer[0]));
       } else {
-        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*[^`~ \t]+([^\r\n]*)$/.exec(
+        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*([^`~ \t]+)([^\r\n]*)$/.exec(
           lastLine,
         );
         if (opener) {
+          const continuation = !opener[3] && /^[^ \t\r\n]+/.exec(suffix)?.[0];
           // The cutoff can shorten a language token or remove a backtick
           // that makes a backtick opener's info string invalid.
           detail.live_preview_fence_cut =
-            (!opener[2] && /^[^ \t\r\n]/.test(suffix)) ||
+            (!!continuation &&
+              !isEncodedDisplayFenceToken(opener[2] + continuation)) ||
             (opener[1][0] === "`" &&
               (/^[^\r\n]*`/.test(suffix) ||
                 (suffixClipped && !/[\r\n]/.test(suffix))));

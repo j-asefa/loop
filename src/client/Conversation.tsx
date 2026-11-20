@@ -612,6 +612,13 @@ function ConversationView({
             fresh.projection.cursor,
           ),
         ) ?? false;
+      // A narrow recovery keeps the loaded view's progress positions.
+      // A deletion and the invalidation that caused recovery can share a frame.
+      if (recovery && !replacedProjection)
+        request.queued ||=
+          dataRef.current?.latest_progress_messages?.some((message) =>
+            projection.projection.removedAfter(message.id, -1),
+          ) ?? false;
       fresh = {
         ...fresh,
         messages: workspaceApi.conversation.response.shape.messages.parse(
