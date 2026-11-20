@@ -71,21 +71,22 @@ export class Claude extends DirectAdapter implements Adapter {
   // again at the next new user turn, so a delayed delta re-establishes its
   // commentary item in the fresh projector window.
   private childItems = new Set<string>();
-  // Last-known text per child item id: the full assistant message (written
-  // whether a turn is open or not) plus any deltas seen before the next
-  // prompt. Kept across prompt() and the result (unlike childItems) so a
-  // re-established item in a fresh window carries the known text instead of
-  // replacing it with empty — a delayed delta for an earlier message id must
-  // append, not overwrite its stored text. Each entry is capped at the
-  // projector's display-preview limit and the total is byte-capped at the
-  // projector's own display-window scale, evicting the oldest ids, so a
-  // long session that repeatedly uses subagents cannot grow adapter memory
-  // with copies of child output. The map is bounded by both bytes and entry
-  // count: empty or tiny deltas would otherwise add entries without moving
-  // the byte counter. Eviction only ever drops the oldest ids (the least
-  // likely to still receive a delayed delta); a re-established item for an
-  // evicted id starts from the fragment, while its earlier text stays in
-  // that id's own run's progress rows.
+  // Child item ids whose stream completed in an earlier turn. A completed
+  // child stream is frozen: a late delta or assistant message for it must
+  // never re-create its item in a later run (that would move or overwrite
+  // the earlier run's native row and misattribute the output), so such
+  // events are ignored entirely. Ids are harvested at each turn's result
+  // and bounded so the set stays small for the adapter's lifetime.
+  private priorChildIds = new Set<string>();
+  // Last-known text per child item id for the current (or upcoming) turn:
+  // the full assistant message (written whether a turn is open or not) plus
+  // any deltas seen before the next prompt. Kept across prompt() (unlike
+  // childItems) so a re-established item in a fresh window carries the known
+  // text instead of replacing it with empty; cleared at the result, where
+  // its ids move into priorChildIds. Each entry is capped at the projector's
+  // display-preview limit and the map is bounded by both bytes and entry
+  // count, so a long session cannot grow adapter memory with copies of
+  // child output.
   private childText = new Map<string, string>();
   private childTextBytes = 0;
   private rememberChildText(id: string, text: string) {
@@ -585,6 +586,10 @@ export class Claude extends DirectAdapter implements Adapter {
       }
       if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
         const id = this.messageIds.get(stream) ?? m.uuid;
+        // A child stream whose turn completed is frozen; a late delta must
+        // not re-create its item in this run (it would move or overwrite
+        // the earlier run's native row), so ignore it entirely.
+        if (m.parent_tool_use_id && this.priorChildIds.has(id)) return;
         if (m.parent_tool_use_id && !this.active) {
           // Between turns the projector may drop a bare delta (no run) or
           // attach the next run during recall before active flips true. In
@@ -667,8 +672,11 @@ export class Claude extends DirectAdapter implements Adapter {
       if (text) {
         // Remember the emitted id and its text so a later delta merges into
         // this item instead of establishing an empty one that replaces it,
-        // even when the delta arrives in a later turn.
+        // even when the delta arrives in a later turn. A child stream whose
+        // turn completed is frozen: ignore late assistant messages for it so
+        // its recorded history stays as it is.
         if (m.parent_tool_use_id) {
+          if (this.priorChildIds.has(m.message.id)) return;
           this.childItems.add(m.message.id);
           this.rememberChildText(m.message.id, text);
         }
@@ -726,8 +734,18 @@ export class Claude extends DirectAdapter implements Adapter {
       if (usage) this.emit({ type: "usage", usage });
       if (this.steering.result()) return;
       this.active = false;
+      // The turn's child streams are now complete; freeze their ids so late
+      // events for them cannot move or overwrite this run's native history.
+      for (const id of this.childItems) this.priorChildIds.add(id);
+      for (const id of this.childText.keys()) this.priorChildIds.add(id);
+      while (this.priorChildIds.size > 4096) {
+        const oldest = this.priorChildIds.keys().next().value!;
+        this.priorChildIds.delete(oldest);
+      }
       this.messageIds.clear();
       this.childItems.clear();
+      this.childText.clear();
+      this.childTextBytes = 0;
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();

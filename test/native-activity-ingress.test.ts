@@ -467,11 +467,12 @@ it("merges a child delta into an earlier child assistant message instead of repl
   await sessions.close();
 });
 
-it("keeps a delayed child stream delta commentary across turn boundaries", async () => {
+it("ignores late child events for a stream whose turn already completed", async () => {
   const sessions = new NativeSessions();
   const first = turn("conv", "claude-cross-turn-1");
   const current = start(sessions, "claude-cross-turn-generation", first);
   sessions.state.startTurn(current.live, first);
+  const emitted: AdapterEvent[] = [];
   const adapter = new Claude(
     {
       harness: "claude",
@@ -481,7 +482,10 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
       billing: "existing",
       resume: "claude-cross-turn",
     },
-    current.emit,
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
   ) as any;
   adapter.active = true;
   adapter.native = { write: async () => undefined };
@@ -502,7 +506,11 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
     session_id: "claude-cross-turn",
     is_error: false,
   });
-  // Between turns the child emits another assistant message for the stream.
+  // Between turns the child re-emits content for the completed stream, and
+  // after the next prompt a delayed delta arrives. Both are late events for
+  // a frozen stream and must be ignored: re-creating the item would move or
+  // overwrite turn 1's native row and misattribute the output.
+  emitted.length = 0;
   send({
     type: "assistant",
     parent_tool_use_id: "task-1",
@@ -512,7 +520,6 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
       content: [{ type: "text", text: "Child text two" }],
     },
   });
-  // Turn 2 starts and the child stream's delayed delta finally arrives.
   await adapter.prompt("next");
   sessions.state.startTurn(current.live, turn("conv", "claude-cross-turn-2"));
   send({
@@ -528,15 +535,10 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
       delta: { type: "text_delta", text: " late" },
     },
   });
-  // The fragment re-establishes a commentary item in the fresh window (the
-  // between-turns text is carried over, not dropped) rather than a phase-less
-  // one that could become the new run's answer.
-  expect(current.live.items.get("child-cross")).toEqual({
-    id: "child-cross",
-    kind: "assistant",
-    text: "Child text two late",
-    phase: "commentary",
-  });
+  expect(
+    emitted.filter((e) => e.type === "item" || e.type === "delta"),
+  ).toEqual([]);
+  expect(current.live.items.get("child-cross")).toBeUndefined();
   expect(retainedAnswer(current.live)).toBeUndefined();
   await sessions.close();
 });
@@ -832,7 +834,9 @@ it("keeps an active-turn child message's text when a delayed delta arrives in th
     current.live,
     turn("conv", "claude-delayed-delta-2"),
   );
-  // A delayed delta for the same child message id finally arrives.
+  // A delayed delta for the same child message id finally arrives. The
+  // stream's turn completed, so the event is ignored: re-creating the item
+  // would move turn 1's native row to this run and misattribute its text.
   send({
     type: "stream_event",
     parent_tool_use_id: "task-1",
@@ -846,14 +850,9 @@ it("keeps an active-turn child message's text when a delayed delta arrives in th
       delta: { type: "text_delta", text: " more" },
     },
   });
-  // The re-established item carries the earlier full text; the delta appends
-  // instead of overwriting the retained child history.
-  expect(current.live.items.get("child-old")).toEqual({
-    id: "child-old",
-    kind: "assistant",
-    text: "Full active text more",
-    phase: "commentary",
-  });
+  // Turn 1's recorded child text is left alone; nothing is attributed to
+  // this run for the completed stream.
+  expect(current.live.items.get("child-old")).toBeUndefined();
   expect(retainedAnswer(current.live)).toBeUndefined();
   await sessions.close();
 });
@@ -897,7 +896,9 @@ it("keeps an active-turn child stream's text when a delayed delta arrives in the
     session_id: "claude-active-delta",
     is_error: false,
   });
-  // Turn 2 starts; a delayed delta for the same stream arrives.
+  // A delayed delta for the same stream arrives. The stream's turn
+  // completed, so the event is ignored: the earlier text stays with its own
+  // run instead of being attributed to this one.
   await adapter.prompt("next");
   sessions.state.startTurn(current.live, turn("conv", "claude-active-delta-2"));
   send({
@@ -913,14 +914,7 @@ it("keeps an active-turn child stream's text when a delayed delta arrives in the
       delta: { type: "text_delta", text: "B" },
     },
   });
-  // The re-established item carries the streamed "A" from the earlier turn;
-  // the delayed "B" appends instead of replacing it.
-  expect(current.live.items.get("child-delta")).toEqual({
-    id: "child-delta",
-    kind: "assistant",
-    text: "AB",
-    phase: "commentary",
-  });
+  expect(current.live.items.get("child-delta")).toBeUndefined();
   expect(retainedAnswer(current.live)).toBeUndefined();
   await sessions.close();
 });
