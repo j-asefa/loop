@@ -192,6 +192,7 @@ export const FeedItem = DoneDisplaySchema.extend({
   live_preview: MaybeText.optional(),
   live_preview_truncated: z.boolean().optional(),
   live_preview_ends_at_line: z.boolean().optional(),
+  live_preview_fence_spec: z.boolean().optional(),
   live_preview_fence_cut: z.boolean().optional(),
   pending_approvals: z.number(),
   next_action: z

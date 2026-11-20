@@ -168,14 +168,17 @@ export function runDetails(
         );
         if (opener) {
           const continuation = !opener[3] && /^[^ \t\r\n]+/.exec(suffix)?.[0];
+          const continuesAsDisplay =
+            !!continuation && isDisplayFenceToken(opener[2] + continuation);
           // The cutoff can shorten a language token or remove a backtick
           // that makes a backtick opener's info string invalid.
           detail.live_preview_fence_cut =
-            (!!continuation &&
-              !isDisplayFenceToken(opener[2] + continuation)) ||
+            (!!continuation && !continuesAsDisplay) ||
             (opener[1][0] === "`" &&
               (/^[^\r\n]*`/.test(suffix) ||
                 (suffixClipped && !/[\r\n]/.test(suffix))));
+          if (continuesAsDisplay && !detail.live_preview_fence_cut)
+            detail.live_preview_fence_spec = !isDisplayFenceToken(opener[2]);
         }
       }
     }

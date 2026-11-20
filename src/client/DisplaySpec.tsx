@@ -27,10 +27,12 @@ type Context = {
 export function markOpenSpecFences({
   previewFenceCut,
   previewEndsAtLine,
+  previewFenceIsSpec,
   cappedPreview = false,
 }: {
   previewFenceCut?: boolean;
   previewEndsAtLine?: boolean;
+  previewFenceIsSpec?: boolean;
   cappedPreview?: boolean;
 } = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
@@ -39,6 +41,13 @@ export function markOpenSpecFences({
     while (lastContent > 0 && " \t\r\n".includes(source[lastContent - 1]))
       lastContent--;
     const visit = (node: MdNode) => {
+      if (
+        previewFenceIsSpec &&
+        node.type === "code" &&
+        node.position?.end.offset === source.length &&
+        node.value === ""
+      )
+        node.lang = "spec";
       if (
         node.type === "code" &&
         isDisplayFenceLanguage(node.lang) &&

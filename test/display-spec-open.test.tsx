@@ -174,6 +174,20 @@ it("keeps prose after an unmatched literal inline delimiter", () => {
   ).toContain("The build failed.");
 });
 
+it("does not pair literal inline delimiters across a removed display", () => {
+  const source = [
+    "A literal \\``` marker. Deployment succeeded.",
+    "",
+    "````spec",
+    '{"value":"```"}',
+    "````",
+    "",
+    "Another literal \\``` marker.",
+  ].join("\n");
+  expect(plainPreview(source)).toContain("Deployment succeeded.");
+  expect(plainPreview(source)).toContain("Another literal");
+});
+
 it("keeps plain previews identical for text with no open fence", () => {
   const before = (text: string, length = 140) => {
     const flat = text

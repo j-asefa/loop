@@ -87,6 +87,7 @@ export type FeedCardDetail = {
   live_preview_truncated?: boolean;
   live_preview_ends_at_line?: boolean;
   live_preview_fence_cut: boolean;
+  live_preview_fence_spec?: boolean;
 };
 export function feedCardTitle(
   row: Pick<
@@ -231,6 +232,7 @@ export function displayFeedCard(
       ? {
           live_preview_truncated: detail.live_preview_truncated,
           live_preview_ends_at_line: detail.live_preview_ends_at_line,
+          live_preview_fence_spec: detail.live_preview_fence_spec || undefined,
         }
       : {}),
     ...(run &&

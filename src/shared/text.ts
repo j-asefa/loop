@@ -21,7 +21,6 @@ export function isDisplayFenceToken(token: string) {
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export function plainPreview(text: string, length = 140) {
   const flat = dropFencedBlocks(text, true)
-    .replace(/```[\s\S]*?```/g, " ")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(^|\s)#{1,6}\s+/g, "$1")
@@ -49,6 +48,10 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
     return text;
   if (!text.includes("```") && !text.includes("~~~")) return text;
   const kept: string[] = [];
+  // Preserve legacy handling of inline backticks within each retained span.
+  // A removed block must not cause its preceding and following markers to pair.
+  const keep = (span: string) =>
+    includeBacktickCode ? span.replace(/```[\s\S]*?```/g, " ") : span;
   let end = 0;
   const pending: MarkdownNode[] = markdown.parse(text).children.reverse();
   while (pending.length) {
@@ -61,7 +64,7 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
         (includeBacktickCode && text.startsWith("```", start.offset))
       ) {
         // Drop the opener's quote or list markers along with the block.
-        kept.push(text.slice(end, start.offset - start.column + 1));
+        kept.push(keep(text.slice(end, start.offset - start.column + 1)));
         end = stop.offset;
         if (text[end] === "\r") end++;
         if (text[end] === "\n") end++;
@@ -71,6 +74,6 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
         pending.push(node.children[i]);
     }
   }
-  kept.push(text.slice(end));
+  kept.push(keep(text.slice(end)));
   return kept.join("");
 }

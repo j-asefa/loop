@@ -217,6 +217,7 @@ export const RichText = memo(function RichText({
   writing = false,
   previewFenceCut,
   previewEndsAtLine,
+  previewFenceIsSpec,
   cappedPreview = false,
 }: {
   content: string;
@@ -227,6 +228,7 @@ export const RichText = memo(function RichText({
   writing?: boolean;
   previewFenceCut?: boolean;
   previewEndsAtLine?: boolean;
+  previewFenceIsSpec?: boolean;
   cappedPreview?: boolean;
 }) {
   const sourceId = useSourceId();
@@ -327,7 +329,12 @@ export const RichText = memo(function RichText({
               ? [
                   [
                     markOpenSpecFences,
-                    { previewFenceCut, cappedPreview, previewEndsAtLine },
+                    {
+                      previewFenceCut,
+                      cappedPreview,
+                      previewEndsAtLine,
+                      previewFenceIsSpec,
+                    },
                   ] as [
                     typeof markOpenSpecFences,
                     Parameters<typeof markOpenSpecFences>[0],

@@ -596,16 +596,19 @@ for (const engine of selectedEngines()) {
       );
 
       // The renderer recognizes both forms of whitespace in the language token.
-      const encodedOpener = "```spec";
-      for (const separator of ["&#32;", "\u00a0"]) {
+      for (const [encodedOpener, continuation] of [
+        ["```spec", "&#32;extra"],
+        ["```spec", "\u00a0extra"],
+        ["```sp", "ec"],
+      ]) {
         update(
           working,
           "Text. " +
             "x".repeat(4000 - 8 - encodedOpener.length) +
             "\n\n" +
             encodedOpener +
-            separator +
-            "extra\n",
+            continuation +
+            "\n",
         );
         await page.goto(`${fixture.base}/?filter=working`, {
           waitUntil: "networkidle",

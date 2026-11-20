@@ -542,6 +542,7 @@ function FeedCard({
                 writing
                 cappedPreview={previewAtLimit}
                 previewEndsAtLine={item.live_preview_ends_at_line}
+                previewFenceIsSpec={item.live_preview_fence_spec}
                 previewFenceCut={item.live_preview_fence_cut ?? false}
               />
             </div>
@@ -742,6 +743,7 @@ function FeedCard({
                       <RichText
                         content={content}
                         previewEndsAtLine={item.live_preview_ends_at_line}
+                        previewFenceIsSpec={item.live_preview_fence_spec}
                         previewFenceCut={
                           item.live_preview
                             ? (item.live_preview_fence_cut ?? false)
