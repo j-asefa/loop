@@ -942,13 +942,13 @@ export function canSearchSavedMemory(
 export function assertMemoryContext(run: Run, addingEvidence = false) {
   if (
     run.conversation_id &&
-    ((addingEvidence && !canSearchSavedMemory(run)) ||
-      (fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) &&
-        memoryReceiptsQueries.conversationHasEvidence(
-          db,
-          run.owner_id,
-          run.conversation_id,
-        )))
+    !canSearchSavedMemory(run) &&
+    (addingEvidence ||
+      memoryReceiptsQueries.conversationHasEvidence(
+        db,
+        run.owner_id,
+        run.conversation_id,
+      ))
   )
     throw new Problem(
       403,

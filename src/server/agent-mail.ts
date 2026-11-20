@@ -3,6 +3,7 @@ import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
+import * as artifactsQueries from "./sql/artifacts.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
@@ -1567,9 +1568,20 @@ function assertFleetMailDestination(
   senderConversation?: string | null,
   fileIds: string[] = [],
 ) {
+  if (!conversation) return;
+  const fleetAttachment = fileIds.some((id) => {
+    const source = artifactsQueries.owned(db, id, owner);
+    return (
+      !!source?.conversation_id &&
+      fleetEffectsQueries.conversationHasMailAuthority(
+        db,
+        owner,
+        source.conversation_id,
+      )
+    );
+  });
   if (
-    fleetMail &&
-    conversation &&
+    (fleetMail || fleetAttachment) &&
     memoryReceiptsQueries.conversationHasEvidence(db, owner, conversation)
   )
     throw new MailRefusal(

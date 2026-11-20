@@ -42,7 +42,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
   WHERE sender.conversation_id IS NOT NULL
-    AND (copy.rowid=c.seq OR delivery.state<>'cancelled'
+    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
       OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
       OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
@@ -56,7 +56,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN json_each(mail.file_ids) file
   JOIN artifacts a ON a.id=file.value AND a.owner_id=mail.owner_id
   WHERE a.conversation_id IS NOT NULL
-    AND (copy.rowid=c.seq OR delivery.state<>'cancelled'
+    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
       OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
       OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)

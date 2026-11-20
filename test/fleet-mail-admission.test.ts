@@ -799,6 +799,36 @@ it("refuses a local attachment from a saved-memory conversation when the recipie
   const incoming = await deliver(envelope(recipient.id));
   if (incoming.admission.state !== "accepted")
     throw new Error("Expected accepted mail");
+  const incomingMail = row(incoming.admission.mailId);
+  const fleetRun = claim(
+    "fleet-file-origin",
+    (candidate) => candidate.id === incomingMail.run_id,
+  )!;
+  const fleetFile = storePublishedFile(fleetRun, "fleet-origin-file", {
+    title: "Fleet context",
+    name: "fleet.txt",
+    mime: "text/plain",
+    bytes: Buffer.from("Fleet evidence"),
+  });
+  expect(transition(fleetRun, "completed")).toBe(true);
+  const newTurn = submit(owner, {
+    agentId: recipient.id,
+    input: "Send the Fleet file",
+    idempotencyKey: id(),
+  });
+  const fleetRelay = claim(
+    "fresh-fleet-file-sender",
+    (candidate) => candidate.id === newTurn.id,
+  )!;
+  expect(
+    sendMail(fleetRelay, "local-fleet-file", {
+      to: origin.id,
+      body: "Read the file",
+      scope: "direct",
+      conversationId: author.conversation_id,
+      fileIds: [fleetFile.artifactId],
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
   const fresh = submit(owner, {
     agentId: origin.id,
     input: "Send the file",
@@ -948,6 +978,27 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
   const cancelledMail = row(unread.messageId);
   const queued = ownedRun(cancelledMail.run_id!, owner);
   expect(transition(queued, "cancelled")).toBe(true);
+  const failedRecipient = agent(owner);
+  const failedMail = sendMail(source, id(), {
+    to: failedRecipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const failedDelivery = row(failedMail.messageId);
+  const failedRun = ownedRun(failedDelivery.run_id!, owner);
+  expect(transition(failedRun, "failed")).toBe(true);
+  const afterFailure = envelope(failedRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...afterFailure,
+        thread: {
+          ...afterFailure.thread,
+          recipientConversationId: failedRun.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
   const unreadMessage = db
     .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
     .get(queued.id) as { id: string };
