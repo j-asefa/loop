@@ -341,7 +341,10 @@ function sqlCallLines(file: string, text: string, script = false) {
           : undefined;
     return typeof path === "string" && dbModule.test(path);
   };
-  const knownProperty = (source: any, key: string) => {
+  const propertyOrigin = (
+    source: any,
+    key: string,
+  ): ObjectAlias | undefined => {
     const path = receiver(source);
     const root = path?.split(".")[0];
     const owner =
@@ -349,8 +352,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? thisScope(source)
         : root && declaringScope(root, source);
     return owner
-      ? receiverBinding(owner, receiverPath(source, `${path}.${key}`))
+      ? { scope: owner, name: receiverPath(source, `${path}.${key}`) }
       : undefined;
+  };
+  const knownProperty = (source: any, key: string) => {
+    const origin = propertyOrigin(source, key);
+    return origin ? receiverBinding(origin.scope, origin.name) : undefined;
   };
   const destructuredDatabase = (source: any): Binding => {
     const binding = knownProperty(source, "db");
@@ -752,6 +759,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
+    if (expression?.type === "Literal" && expression.regex) return "object";
     const conditional = expression?.type === "ConditionalExpression";
     const fallback =
       expression?.type === "LogicalExpression" &&
@@ -819,7 +827,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   function propertySource(
     source: any,
     key: string,
-  ): { value?: any; binding?: Binding } {
+  ): { value?: any; binding?: Binding; origin?: ObjectAlias } {
     const object = unwrap(source);
     const separator = key.indexOf(".");
     const head = separator < 0 ? key : key.slice(0, separator);
@@ -844,7 +852,11 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       }
     }
-    return { binding: knownProperty(object, key) };
+    const origin = propertyOrigin(object, key);
+    return {
+      origin,
+      binding: origin ? receiverBinding(origin.scope, origin.name) : undefined,
+    };
   }
   const methods = new Set(["prepare", "exec"]);
   if (script) methods.add("pragma");
@@ -913,6 +925,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     binding: Binding | undefined,
     value?: any,
     spread?: SpreadSource,
+    propertyAlias?: ObjectAlias,
   ) => {
     if (fixtureFactory(value) && !scope.fixtureFactories?.has(name)) {
       (scope.fixtureFactories ??= new Set()).add(name);
@@ -950,10 +963,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!binding) return;
     if (binding === "object") {
       const original = receiver(value);
-      const path = original && receiverPath(value, original);
-      const origin = original?.startsWith("this.")
-        ? thisScope(value)
-        : path && declaringScope(path.split(".")[0], value);
+      const path =
+        propertyAlias?.name ?? (original && receiverPath(value, original));
+      const origin =
+        propertyAlias?.scope ??
+        (original?.startsWith("this.")
+          ? thisScope(value)
+          : path && declaringScope(path.split(".")[0], value));
       const sources = scope.objectAliases?.get(name) ?? [];
       if (
         origin &&
@@ -993,7 +1009,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const { key, name } of bindings(parameter)) {
       if (key) {
         const member = propertySource(argument, key);
-        trackBinding(scope, name, member.binding, member.value);
+        trackBinding(
+          scope,
+          name,
+          member.binding,
+          member.value,
+          undefined,
+          member.origin,
+        );
         recordArgument(scope, name, member.value);
         continue;
       }
@@ -1104,13 +1127,16 @@ function sqlCallLines(file: string, text: string, script = false) {
         name: string;
         binding: Binding | undefined;
         method?: string;
+        extracted?: any;
+        origin?: ObjectAlias;
       }[] = [];
       if (target?.type === "ObjectPattern" || target?.type === "ArrayPattern") {
         for (const { key, name } of bindings(target)) {
-          const { binding: property, value: extracted } = propertySource(
-            value,
-            key,
-          );
+          const {
+            binding: property,
+            value: extracted,
+            origin,
+          } = propertySource(value, key);
           const binding =
             property ??
             (key === "db" ? destructuredDatabase(value) : undefined);
@@ -1128,7 +1154,8 @@ function sqlCallLines(file: string, text: string, script = false) {
             methods.has(key) && connectionKind(value) === "connection"
               ? key
               : (sqliteMethod(extracted) ?? stored ?? undefined);
-          if (binding || method) assigned.push({ name, binding, method });
+          if (binding || method)
+            assigned.push({ name, binding, method, extracted, origin });
         }
       } else if (field) {
         const key = node.computed
@@ -1143,7 +1170,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         const name = receiver(target);
         if (name) assigned.push({ name, binding: connectionKind(value) });
       }
-      for (const { name, binding, method } of assigned) {
+      for (const { name, binding, method, extracted, origin } of assigned) {
         const owner = declaration
           ? declarationScope(node)
           : field || name.startsWith("this.")
@@ -1159,8 +1186,10 @@ function sqlCallLines(file: string, text: string, script = false) {
           path,
           binding,
           target?.type === "ObjectPattern" || target?.type === "ArrayPattern"
-            ? undefined
+            ? extracted
             : value,
+          undefined,
+          origin,
         );
       }
     }
@@ -1182,7 +1211,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       const opaqueMember =
         script &&
         (!binding || binding === "other") &&
-        node.callee.object.type === "MemberExpression";
+        (node.callee.object.type === "MemberExpression" ||
+          node.callee.object.type === "Identifier");
       if (binding !== "inferred" && !opaqueMember) return false;
       // Inferred receivers need recognizable SQL text or a statement variable.
       const statement = node.arguments[0];
@@ -1199,7 +1229,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           : statement?.value;
       return (
         typeof text === "string" &&
-        (method === "pragma" ||
+        ((method === "pragma" && binding === "inferred") ||
           /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.test(
             text,
           ))
@@ -1846,6 +1876,20 @@ it("follows inline fixtures, computed destructuring and assigned object fields",
     storage.connection.exec(query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 9, 12]);
+});
+
+it("preserves destructured receivers and distinguishes regex calls from opaque SQLite calls", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    const fixture = { storage: { connection: db } };
+    const { storage } = fixture;
+    storage.connection.exec(query);
+    export function run(connection) { connection.prepare("SELECT 1"); }
+    const checks = { sql: /^SELECT/ };
+    checks.sql.exec("SELECT 1");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
