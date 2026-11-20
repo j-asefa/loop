@@ -456,9 +456,10 @@ const evidenceCopy: Record<
       AND CASE WHEN json_valid(record) THEN
         json_extract(record,'$.source.transport')='acp'
         AND json_extract(record,'$.data.category')='fetch'
+        AND json_extract(record,'$.data.status')='completed'
       END`,
     redacted: {
-      record: `'{"source":{"transport":"acp"},"data":{"category":"fetch"}}'`,
+      record: `'{"source":{"transport":"acp"},"data":{"category":"fetch","status":"completed"}}'`,
     },
   },
 };

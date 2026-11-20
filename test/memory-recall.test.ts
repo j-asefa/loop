@@ -1591,7 +1591,23 @@ it("excludes recorded external answers from push and labels them in pull", async
     "tool",
     JSON.stringify({
       source: { transport: "acp" },
-      data: { category: "fetch", title: "Load details" },
+      data: { category: "fetch", title: "Load details", status: "completed" },
+    }),
+    1,
+    now(),
+    now(),
+  );
+  activities.upsert(
+    db,
+    "alice",
+    emptyServer.conversation_id,
+    id(),
+    emptyServer.conversation_id,
+    emptyServer.id,
+    "tool",
+    JSON.stringify({
+      source: { transport: "acp" },
+      data: { category: "fetch", status: "proposed" },
     }),
     1,
     now(),

@@ -38,6 +38,7 @@ export const externalEvidenceSql = `EXISTS(
         AND CASE WHEN json_valid(v.record) THEN
           json_extract(v.record,'$.source.transport')='acp'
           AND json_extract(v.record,'$.data.category')='fetch'
+          AND json_extract(v.record,'$.data.status')='completed'
         END)
     )
 )`;
