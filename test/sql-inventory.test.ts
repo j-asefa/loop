@@ -354,12 +354,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       : (member.key.name ?? member.key.value);
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
-  const recordObject = (
-    scope: Scope,
-    name: string,
-    value: any,
-    excluded = new Set<string>(),
-  ): void => {
+  const recordObject = (scope: Scope, name: string, value: any): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
     const recordField = (key: string, child: any) => {
@@ -377,19 +372,25 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
       return;
     }
-    const later = new Set(excluded);
+    const later = new Set<string>();
     for (let index = value.properties.length - 1; index >= 0; index--) {
       const member = value.properties[index];
       if (member.type === "SpreadElement") {
         const source = unwrap(member.argument);
-        if (source?.type === "ObjectExpression")
-          recordObject(scope, name, source, later);
-        else
+        const spread = { object: value, index, excluded: new Set(later) };
+        if (source?.type === "ObjectExpression") {
+          const literal: Scope = { bindings: new Map() };
+          recordObject(literal, "object", source);
+          const aliases = (scope.objectAliases ??= new Map());
+          const sources = aliases.get(name) ?? [];
+          sources.push({ scope: literal, name: "object", spread });
+          aliases.set(name, sources);
+        } else
           propertyInitializers.push({
             scope,
             name,
             value: source,
-            spread: { object: value, index, excluded: new Set(later) },
+            spread,
           });
         continue;
       }
@@ -754,9 +755,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     const name = receiver(expression);
     if (!name) return undefined;
     if (expression.type === "MemberExpression") {
-      const cls = classReference(unwrap(expression.object));
-      const known =
-        cls && receiverBinding(cls, `static.${property(expression)}`);
+      const object = unwrap(expression.object);
+      const cls = classReference(object);
+      const instance = instanceReference(object);
+      const known = cls
+        ? receiverBinding(cls, `static.${property(expression)}`)
+        : instance && receiverBinding(instance, `this.${property(expression)}`);
       if (known) return known;
     }
     const [root] = name.split(".");
@@ -1743,6 +1747,22 @@ it("follows static fields and fallback handles without reporting typed adapters"
     }
   `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 7, 10, 12]);
+});
+
+it("tracks external instance fields and gives inline and named spreads equal precedence", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    class Reader { connection = new SQLite(":memory:"); }
+    const reader = new Reader();
+    reader.connection.exec(query);
+    const override = { connection: { exec: runCommand } };
+    const mixed = { ...{ connection: db }, ...override };
+    mixed.connection.exec(command);
+    const reversed = { ...override, ...{ connection: db } };
+    reversed.connection.exec(query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
