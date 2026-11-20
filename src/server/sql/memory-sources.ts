@@ -166,10 +166,18 @@ export const recallTimeSql = `CASE s.kind
   WHEN 'message' THEN s.created_at
   ELSE s.updated_at END`;
 
-/** Conversation sources require a current explicit opt-in. */
+/** Messages require opt-in. Artifact defaults honor conversation opt-out unless pinned or explicitly included. */
 export const conversationRecallEnabledSql = `(s.conversation_id IS NULL OR EXISTS (
   SELECT 1 FROM memory_policy mp
   WHERE mp.owner_id=s.owner_id AND mp.scope='conversation:' || s.conversation_id AND mp.enabled=1
+)) AND (s.kind<>'artifact' OR NOT EXISTS (
+  SELECT 1 FROM artifacts a
+  JOIN memory_policy cp ON cp.owner_id=a.owner_id
+    AND cp.scope='conversation:' || a.conversation_id AND cp.enabled=0
+  LEFT JOIN memory_policy ap ON ap.owner_id=a.owner_id
+    AND ap.scope='artifact:' || a.id
+  WHERE a.id=s.source_id AND a.owner_id=s.owner_id
+    AND COALESCE(ap.enabled, a.pinned, 0)=0
 ))`;
 
 export const recallWindowSql = `(@from IS NULL OR ${recallTimeSql} >= @from)

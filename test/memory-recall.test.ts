@@ -814,6 +814,19 @@ it("recalls only finished, unarchived results from conversations still in memory
   archive(0);
   expect(await recalled()).toContain("orbit period is 42 days");
 
+  const resultCandidates = () =>
+    memoryPassageQueries.search(
+      db,
+      '"kepler"',
+      "alice",
+      null,
+      "result",
+      undefined,
+      null,
+      true,
+    );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+
   // Turning memory off for the source conversation excludes its results.
   await request(
     "/memory/policy",
@@ -821,7 +834,37 @@ it("recalls only finished, unarchived results from conversations still in memory
     "alice",
     "PUT",
   );
+  expect(resultCandidates()).toHaveLength(0);
   expect(await recalled()).not.toContain("orbit period is 42 days");
+
+  artifactsQueries.edit(
+    db,
+    answer.title,
+    answer.content,
+    1,
+    0,
+    now(),
+    answer.id,
+  );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+  artifactsQueries.edit(
+    db,
+    answer.title,
+    answer.content,
+    0,
+    0,
+    now(),
+    answer.id,
+  );
+  const inclusion = await request(
+    "/memory/policy",
+    { scope: "artifact:" + answer.id, enabled: true },
+    "alice",
+    "PUT",
+  );
+  expect(inclusion.status).toBe(200);
+  captureMemory();
+  expect(resultCandidates().length).toBeGreaterThan(0);
 });
 
 it("keeps quoted sources inside the evidence block and the receipt within the budget", async () => {

@@ -169,7 +169,11 @@ function compactJsonSchema(node: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (COMPACT_OMIT_KEYS.has(key)) continue;
-    if (key === "pattern" && record.format === "uuid") continue;
+    if (
+      key === "pattern" &&
+      (record.format === "uuid" || record.format === "date")
+    )
+      continue;
     out[key] = compactJsonSchema(value);
   }
   return out;
