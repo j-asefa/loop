@@ -609,6 +609,114 @@ it("does not overwrite a recall-window child message with a later delta's empty 
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("caps a single recall stream's cached seed at the display limit", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-cap");
+  const current = start(sessions, "claude-cache-cap-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-cap",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-cache-cap", ...m });
+  // Turn 1 ends; one long-lived child stream keeps streaming while no turn
+  // is open.
+  adapter.message({
+    type: "result",
+    session_id: "claude-cache-cap",
+    is_error: false,
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-big" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "x".repeat(200_000) },
+    },
+  });
+  const stored = adapter.childText.get("child-big") as string;
+  expect(Buffer.byteLength(stored)).toBeLessThanOrEqual(64000);
+  expect(stored.endsWith("x".repeat(1000))).toBe(true);
+});
+
+it("merges a post-prompt delta for an evicted recall id instead of re-establishing over it", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-seen-evicted");
+  const current = start(sessions, "claude-seen-evicted-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-seen-evicted",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-seen-evicted", ...m });
+  // Turn 1 ends; the child's full message arrives while no turn is open.
+  adapter.message({
+    type: "result",
+    session_id: "claude-seen-evicted",
+    is_error: false,
+  });
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-seen",
+      role: "assistant",
+      content: [{ type: "text", text: "Retained text" }],
+    },
+  });
+  // The seed cache evicts the id (as >4 MiB of other recall output would),
+  // while childSeen still records that its commentary item was emitted.
+  adapter.childText.delete("child-seen");
+  expect(adapter.childSeen.has("child-seen")).toBe(true);
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-seen-evicted-2"));
+  emitted.length = 0;
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-seen" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " more" },
+    },
+  });
+  // No establishing item is emitted for the evicted-but-seen id: the delta
+  // alone merges into the retained commentary item instead of replacing it.
+  expect(emitted).toEqual([{ type: "delta", id: "child-seen", text: " more" }]);
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,
