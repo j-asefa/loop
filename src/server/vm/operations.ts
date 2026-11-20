@@ -26,7 +26,7 @@ export type VmOperationOutcome =
   | { state: "uncertain" | "pending"; errorMessage: string | null };
 
 export type VmOperationRefusal =
-  /** The id was used for a different request, or belongs to someone else. */
+  /** The owner already used the id for a different request. */
   | "key_conflict"
   /** The experiment does not exist for this owner. */
   | "missing_experiment"
@@ -115,8 +115,6 @@ export async function runVmOperation(
           throw new VmOperationRefused("key_conflict");
         return existing;
       }
-      if (vmOperationsQueries.idTaken(db, operation.id))
-        throw new VmOperationRefused("key_conflict");
       if (
         !experimentVmsQueries.byId(db, operation.owner, operation.experimentId)
       )
@@ -175,8 +173,14 @@ export async function runVmOperation(
       ? { state: "failed", errorMessage, replayed: false }
       : { state: "uncertain", errorMessage };
   }
-  const errorMessage = effects.failure?.(result) ?? null;
-  const to = errorMessage === null ? "succeeded" : "failed";
+  const incomplete = effects.incomplete?.(result) ?? null;
+  const errorMessage = incomplete ?? effects.failure?.(result) ?? null;
+  const to =
+    incomplete !== null
+      ? "uncertain"
+      : errorMessage === null
+        ? "succeeded"
+        : "failed";
   // The receipt and the local record of what the call did commit together.
   // If apply throws, both roll back and the receipt stays pending until the
   // sweep marks it uncertain for a reconcile.
@@ -195,6 +199,7 @@ export async function runVmOperation(
     })
     .immediate();
   if (!settled) return current();
+  if (to === "uncertain") return { state: "uncertain", errorMessage };
   return errorMessage === null
     ? { state: "succeeded", result, replayed: false }
     : { state: "failed", errorMessage, replayed: false };
@@ -212,6 +217,10 @@ export class VmRecordConflict extends Error {
  * transaction that settles the receipt, so the local record and the receipt
  * commit together or not at all. */
 export type VmOperationEffects = {
+  /** An answer that does not show the outcome yet, such as a VM still
+   * starting: the receipt stays uncertain (with the answer and `apply`'s
+   * writes kept) for a reconcile to settle. */
+  incomplete?(result: unknown): string | null;
   /** A failure the answer itself reports, such as a VM that booted into
    * "failed"; null when the call did what was asked. */
   failure?(result: unknown): string | null;
@@ -253,6 +262,16 @@ export function vmOperationEffects(
   };
   const created = operation.kind === "create" || operation.kind === "fork";
   return {
+    incomplete: (result) => {
+      if (!created) return null;
+      const { status } = result as CreatedVm;
+      return status === "running" ||
+        status === "sleeping" ||
+        status === "paused" ||
+        status === "failed"
+        ? null
+        : `The VM is ${status}`;
+    },
     failure: (result) =>
       created && (result as CreatedVm).status === "failed"
         ? ((result as CreatedVm).errorMessage ??
@@ -306,7 +325,8 @@ export function vmOperationEffects(
         const { url } = result as { url: string };
         if (
           !experimentPreviewsQueries.upsert(db, {
-            id: operation.id,
+            // Experiment ids are unique across owners; operation ids are not.
+            id: `${vm.id}:${request.port}`,
             owner: vm.owner,
             experimentId: vm.id,
             port: request.port,
@@ -374,17 +394,21 @@ export type VmReconciliation =
   | { outcome: "failed"; errorMessage: string }
   | { outcome: "still_uncertain"; reason: string };
 
-// `notYet`: the provider shows the effect did not happen. The original call
-// may still be in flight until the longest provider call has passed, so such
-// an observation settles nothing before then.
+// Until the longest provider call has passed, the original call may still
+// land and change what a lookup saw: a late delete can remove a listener a
+// later expose added, a late sleep can stop a VM a later resume woke. So an
+// observation settles only when its lookup began after that window. The one
+// exception is `early`: a create or fork whose VM exists, because a late
+// arrival of the original create reaches the same VM (its provider
+// idempotency key is scoped to the experiment) and cannot undo it.
 type Observation =
-  | { settle: "succeeded"; result: unknown; status?: VmStatus }
+  | { settle: "succeeded"; result: unknown; status?: VmStatus; early?: true }
   | {
       settle: "failed";
       errorMessage: string;
       status?: VmStatus;
       result?: unknown;
-      notYet?: true;
+      early?: true;
     }
   | { settle: "unknown"; reason: string };
 
@@ -416,9 +440,8 @@ export async function reconcileVmOperation(
   );
   if (!vm) return { outcome: "still_uncertain", reason: "experiment missing" };
 
-  // The age is taken before the provider is asked: an observation counts as
-  // "did not happen" only if it was made after the original call could have
-  // finished.
+  // The age is taken before the provider is asked, so the lookup itself
+  // must begin after the original call could have finished.
   const observedAt = clock();
   let observation: Observation;
   try {
@@ -431,8 +454,7 @@ export async function reconcileVmOperation(
   if (observation.settle === "unknown")
     return { outcome: "still_uncertain", reason: observation.reason };
   if (
-    observation.settle === "failed" &&
-    observation.notYet &&
+    !observation.early &&
     observedAt - operation.created_at <= VM_OPERATION_MAX_CALL_MS
   )
     return {
@@ -513,13 +535,13 @@ async function observe(
         settle: "failed",
         errorMessage: "The provider has no VM with this name",
         status: "terminated",
-        notYet: true,
       };
     if (match.status === "failed")
       return {
         settle: "failed",
         errorMessage: "The provider reports the VM failed",
         result: { remoteId: match.remoteId, status: "failed" },
+        early: true,
       };
     // Only a VM that finished starting shows the create succeeded.
     if (
@@ -531,6 +553,7 @@ async function observe(
     return {
       settle: "succeeded",
       result: { remoteId: match.remoteId, status: match.status },
+      early: true,
     };
   }
   if (!vm.remote_id) return unsure("the VM has no provider id");
@@ -545,13 +568,11 @@ async function observe(
         : {
             settle: "failed",
             errorMessage: "The port is not published",
-            notYet: true,
           };
     return published
       ? {
           settle: "failed",
           errorMessage: "The port is still published",
-          notYet: true,
         }
       : { settle: "succeeded", result: null };
   }
@@ -570,6 +591,5 @@ async function observe(
     settle: "failed",
     errorMessage: `The provider reports the VM ${status}`,
     status,
-    notYet: true,
   };
 }

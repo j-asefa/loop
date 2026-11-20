@@ -16,6 +16,7 @@ import {
   runVmOperation,
 } from "../src/server/vm/operations.js";
 import { VmProviderError, type VmStatus } from "../src/server/vm/provider.js";
+import { authVolumeName } from "../src/server/vm/sailbox-image.js";
 
 // Fixture coverage: an in-memory database with the production migrations and
 // a scripted provider. No Sailbox is contacted.
@@ -190,22 +191,28 @@ it("does not call the provider again for an uncertain operation or start another
   expect(calls).toBe(0);
 });
 
-it("keeps another owner's experiment and operation ids out of reach", async () => {
+it("keeps each owner's experiments and operation ids apart", async () => {
   await create("op1", async () => ({ remoteId: "sb-1" }));
   let calls = 0;
   const call = async () => {
     calls += 1;
-    return {};
+    return { remoteId: "sb-b" };
   };
   await expect(create("op9", call, { owner: "bob" })).rejects.toMatchObject({
     reason: "missing_experiment",
   });
-  experiment("bob", "exp2");
-  await expect(
-    create("op1", call, { owner: "bob", experimentId: "exp2" }),
-  ).rejects.toMatchObject({ reason: "key_conflict" });
   expect(calls).toBe(0);
-  expect(vmOperationsQueries.byId(db, "bob", "op1")).toBeUndefined();
+  // Operation ids are scoped to the owner: bob's "op1" is his own receipt
+  // and reveals nothing about alice's.
+  experiment("bob", "exp2");
+  expect(
+    await create("op1", call, { owner: "bob", experimentId: "exp2" }),
+  ).toMatchObject({ state: "succeeded", replayed: false });
+  expect(calls).toBe(1);
+  expect(vmOperationsQueries.byId(db, "alice", "op1")).toMatchObject({
+    experiment_id: "exp1",
+    result_json: '{"remoteId":"sb-1"}',
+  });
   expect(
     transitionVm(db, { owner: "bob", id: "exp1" }, "running", { now: clock() }),
   ).toEqual({ changed: false, reason: "missing" });
@@ -777,6 +784,60 @@ it("refuses a preview on another owner's experiment", () => {
     "https://evil.example",
   );
   expect(experimentPreviewsQueries.byExperiment(db, "bob", "exp1")).toEqual([]);
+});
+
+it("does not settle an uncertain unexpose from an absent port until the window has passed", async () => {
+  await runningVm();
+  await uncertain("op1", "unexpose", { port: 3000 });
+  const provider = found();
+  expect(await reconcileSoon(provider)).toEqual({
+    outcome: "still_uncertain",
+    reason: "the original call may still be in flight",
+  });
+  expect(await reconcile(provider)).toMatchObject({ outcome: "succeeded" });
+});
+
+it("keeps a create answered while its VM is still starting uncertain, then settles it by reconcile", async () => {
+  expect(
+    await create(
+      "op1",
+      async () => ({ remoteId: "sb-1", status: "provisioning" }),
+      {},
+      createEffects("exp1", "op1"),
+    ),
+  ).toEqual({ state: "uncertain", errorMessage: "The VM is provisioning" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-1",
+    state: "provisioning",
+  });
+  expect(
+    await reconcileSoon(found({ remoteId: "sb-1", status: "running" })),
+  ).toMatchObject({ outcome: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("running");
+});
+
+it("moves a failed VM to the asleep state a later create adopts", async () => {
+  await uncertainCreate();
+  await reconcile(found());
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("failed");
+  expect(
+    await create(
+      "op2",
+      async () => ({ remoteId: "sb-2", status: "sleeping" }),
+      {},
+      createEffects("exp1", "op2"),
+    ),
+  ).toMatchObject({ state: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-2",
+    state: "sleeping",
+  });
+});
+
+it("gives each owner a separate auth volume", () => {
+  expect(authVolumeName("alice")).toMatch(/^loop-auth-[0-9a-f]{16}$/);
+  expect(authVolumeName("alice")).toBe(authVolumeName("alice"));
+  expect(authVolumeName("alice")).not.toBe(authVolumeName("bob"));
 });
 
 it("refuses illegal and stale VM transitions", () => {

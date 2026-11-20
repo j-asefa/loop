@@ -250,7 +250,11 @@ export function createSailboxProvider(options: {
             "Sailboxes listed Sailboxes in a shape Loop could not read",
           );
         for (const item of value.data as unknown[]) {
-          if (!item || typeof item !== "object")
+          if (
+            !item ||
+            typeof item !== "object" ||
+            typeof (item as { name?: unknown }).name !== "string"
+          )
             throw new VmProviderError(
               "uncertain",
               "Sailboxes listed an entry Loop could not read",

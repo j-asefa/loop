@@ -45,12 +45,6 @@ export function byId(db: Database.Database, owner: string, id: string) {
   return row === undefined ? undefined : parse(row);
 }
 
-const idTakenStatement = statement("SELECT 1 FROM vm_operations WHERE id=?");
-/** Whether any owner holds this id, without revealing whose it is. */
-export function idTaken(db: Database.Database, id: string) {
-  return idTakenStatement(db).get(id) !== undefined;
-}
-
 const unsettledByExperimentStatement = statement(
   "SELECT * FROM vm_operations WHERE owner_id=? AND experiment_id=? AND state IN ('pending','uncertain') ORDER BY created_at, id",
 );

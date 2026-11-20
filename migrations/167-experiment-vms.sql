@@ -57,12 +57,12 @@ CREATE TABLE experiment_previews (
 );
 
 -- A receipt written before every provider call. id is the caller's
--- idempotency key; request_digest refuses the same key for a different
+-- idempotency key, unique within the owner; request_digest refuses the same key for a different
 -- request, and request_json keeps the request so a reconcile can check what
 -- was asked. An operation left pending by a crash becomes uncertain and is
 -- never sent again without the owner asking.
 CREATE TABLE vm_operations (
-  id TEXT PRIMARY KEY,
+  id TEXT NOT NULL,
   owner_id TEXT NOT NULL,
   experiment_id TEXT NOT NULL REFERENCES experiment_vms(id),
   kind TEXT NOT NULL,
@@ -72,7 +72,8 @@ CREATE TABLE vm_operations (
   result_json TEXT,
   error_message TEXT,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id)
 );
 CREATE INDEX vm_operations_experiment ON vm_operations(experiment_id, created_at);
 CREATE INDEX vm_operations_unsettled ON vm_operations(state) WHERE state IN ('pending', 'uncertain');

@@ -303,6 +303,7 @@ it("treats a listing it cannot read as uncertain, not as proof of absence", asyn
     { data: [] },
     { data: "none", has_more: false },
     { data: [null], has_more: false },
+    { data: [{ sailbox_id: "sb_1", status: "running" }], has_more: false },
   ]) {
     const { provider } = fake(() => ok(page));
     await expect(

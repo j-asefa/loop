@@ -9,7 +9,8 @@ export const VM_TRANSITIONS = {
   sleeping: ["running", "destroying", "failed"],
   paused: ["running", "destroying", "failed"],
   // Only the owner's explicit reconcile, retry or destroy leaves failed.
-  failed: ["provisioning", "running", "destroying"],
+  // sleeping/paused: a reconcile or retry adopted a VM found asleep.
+  failed: ["provisioning", "running", "sleeping", "paused", "destroying"],
   destroying: ["destroyed", "failed"],
   // Terminal: the project, its threads, results and files stay readable.
   destroyed: [],

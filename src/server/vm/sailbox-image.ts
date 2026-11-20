@@ -17,7 +17,11 @@ import { createHash } from "node:crypto";
 // https://github.com/earendil-works/pi. The installers fetch their latest
 // releases; the image version pins the script, not the harness versions.
 
-export const AUTH_VOLUME_NAME = "loop-auth";
+/** Each owner's credentials live on their own volume, so two owners sharing
+ * one Sail account never mount each other's sign-ins. */
+export function authVolumeName(owner: string) {
+  return `loop-auth-${createHash("sha256").update(owner).digest("hex").slice(0, 16)}`;
+}
 export const AUTH_MOUNT_PATH = "/mnt/loop-auth";
 export const WORKSPACE_PATH = "/workspace";
 export const SAIL_APP_NAME = "loop-experiments";
