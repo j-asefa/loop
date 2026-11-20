@@ -1114,7 +1114,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     return { parentPaths, replacement, suffix };
   };
   const localCalls = new Map<Scope | undefined, any[]>();
-  const arrayPushes = new Map<Scope, Map<string, any[]>>();
+  const arrayPushes = new Map<any[], any[]>();
   if (script) {
     for (const node of nodes) {
       if (node.type !== "CallExpression") continue;
@@ -1130,35 +1130,29 @@ function sqlCallLines(file: string, text: string, script = false) {
       ) {
         const target = unwrap(node.callee.object);
         if (target?.type !== "Identifier") continue;
-        const owner = declaringScope(target.name, target);
-        if (!owner || !staticArray(target)) continue;
-        const names = arrayPushes.get(owner) ?? new Map<string, any[]>();
-        const pushes = names.get(target.name) ?? [];
+        const array = staticArray(target);
+        if (!array) continue;
+        const pushes = arrayPushes.get(array) ?? [];
         pushes.push(node);
-        names.set(target.name, pushes);
-        arrayPushes.set(owner, names);
+        arrayPushes.set(array, pushes);
       }
     }
   }
-  const precedingPushes = (node: any): any[] => {
-    const source = unwrap(node);
-    if (source?.type !== "Identifier") return [];
-    const owner = declaringScope(source.name, source);
-    const pushes = owner && arrayPushes.get(owner)?.get(source.name);
-    return (pushes ?? []).filter(
-      (push) =>
-        push.end <= source.start &&
-        boundaryScope(push, "function") === boundaryScope(source, "function"),
-    );
-  };
-  const indexAssignments = new Map<string, { index: number; node: any }[]>();
+  const indexAssignments = new Map<
+    any[],
+    { index: number; path: string; node: any }[]
+  >();
   for (const [path, writes] of assignmentsByName) {
-    const match = /^([^.]+)\.(0|[1-9]\d*)$/.exec(path);
-    if (!match || Number(match[2]) >= 2 ** 32 - 1) continue;
-    const entries = indexAssignments.get(match[1]) ?? [];
-    for (const { node, key } of writes)
-      if (!key) entries.push({ index: Number(match[2]), node });
-    indexAssignments.set(match[1], entries);
+    const match = /^[^.]+\.(0|[1-9]\d*)$/.exec(path);
+    if (!match || Number(match[1]) >= 2 ** 32 - 1) continue;
+    for (const { node, key } of writes) {
+      if (key || node.left.type !== "MemberExpression") continue;
+      const array = staticArray(node.left.object);
+      if (!array) continue;
+      const entries = indexAssignments.get(array) ?? [];
+      entries.push({ index: Number(match[1]), path, node });
+      indexAssignments.set(array, entries);
+    }
   }
   const arrayContents = (node: any) => {
     const source = unwrap(node);
@@ -1169,29 +1163,29 @@ function sqlCallLines(file: string, text: string, script = false) {
     const extra: any[] = [];
     let length = initial.values.length;
     let complete = initial.complete;
-    const events: { node: any; index?: number }[] = precedingPushes(source).map(
-      (node) => ({ node }),
-    );
-    if (source.type === "Identifier") {
-      const owner = declaringScope(source.name, source);
-      for (const entry of indexAssignments.get(source.name) ?? []) {
+    const events: { node: any; index?: number }[] = (
+      arrayPushes.get(array) ?? []
+    )
+      .filter(
+        (push) =>
+          push.end <= source.start &&
+          boundaryScope(push, "function") === boundaryScope(source, "function"),
+      )
+      .map((node) => ({ node }));
+    for (const entry of indexAssignments.get(array) ?? []) {
+      if (entry.node.end > source.start) continue;
+      for (
+        let scope: Scope | undefined = scopeOf(source);
+        scope;
+        scope = scope.parent
+      ) {
         if (
-          entry.node.end > source.start ||
-          declaringScope(source.name, entry.node) !== owner
-        )
-          continue;
-        const path = `${source.name}.${entry.index}`;
-        for (
-          let scope: Scope | undefined = scopeOf(source);
-          scope;
-          scope = scope.parent
+          straightLineWrites.get(scope)?.get(entry.path)?.includes(entry.node)
         ) {
-          if (straightLineWrites.get(scope)?.get(path)?.includes(entry.node)) {
-            events.push(entry);
-            break;
-          }
-          if (scope === owner || scope.boundary === "function") break;
+          events.push(entry);
+          break;
         }
+        if (scope.boundary === "function") break;
       }
     }
     for (const { node, index } of events.sort(
@@ -1402,7 +1396,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         return receiverBinding(result, `result.${keys.join(".")}`);
     }
     const callee =
-      expression?.type === "NewExpression" && unwrap(expression.callee);
+      (expression?.type === "NewExpression" ||
+        (script && expression?.type === "CallExpression")) &&
+      unwrap(expression.callee);
     if (callee?.name === "RegExp" && !declaringScope("RegExp", callee))
       return "object";
     if (
@@ -2155,11 +2151,17 @@ function sqlCallLines(file: string, text: string, script = false) {
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
       if (method === "transaction") {
+        if (binding !== "inferred") return false;
         const parent = parents.get(node);
+        const target =
+          parent?.type === "MemberExpression" &&
+          parent.object === node &&
+          ["deferred", "immediate", "exclusive"].includes(property(parent))
+            ? parent
+            : node;
+        const invocation = parents.get(target);
         return (
-          binding === "inferred" &&
-          parent?.type === "CallExpression" &&
-          parent.callee === node
+          invocation?.type === "CallExpression" && invocation.callee === target
         );
       }
       const opaqueReceiver =
@@ -3539,6 +3541,27 @@ it("shares array mutations and current method keys and recognizes invoked inferr
     export function seed(db) { db.transaction(write)(); }
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 9, 12, 15]);
+});
+
+it("shares array mutations across aliases and detects callable SQLite and transaction variants", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import { db } from "../src/server/db.js";
+    const handles = [];
+    const alias = handles;
+    handles.push(db);
+    alias[0].exec("BEGIN");
+    alias[0] = { exec: runCommand };
+    handles.at(0).exec(command);
+    const connection = SQLite(":memory:");
+    connection.exec("BEGIN");
+    export function seed(db) {
+      db.transaction(write).immediate();
+      db.transaction(write).deferred();
+      db.transaction(write).exclusive();
+    }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 11, 13, 14, 15]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
