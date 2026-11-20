@@ -31,7 +31,14 @@ export const externalEvidenceSql = `EXISTS(
             AND t.title NOT GLOB 'mcp____loop____*')
           OR (t.title='mcpToolCall'
             AND json_extract(CASE WHEN json_valid(t.content) THEN t.content ELSE '{}' END,'$.server')
-              NOT IN ('${WORKSPACE_MCP_SERVER}','__loop__'))))
+              NOT IN ('','${WORKSPACE_MCP_SERVER}','__loop__'))))
+      OR EXISTS(SELECT 1 FROM agent_activities v WHERE v.run_id=r.id
+        AND v.owner_id=r.owner_id AND v.kind='tool'
+        AND instr(v.record,'"category":"fetch"')>0
+        AND CASE WHEN json_valid(v.record) THEN
+          json_extract(v.record,'$.source.transport')='acp'
+          AND json_extract(v.record,'$.data.category')='fetch'
+        END)
     )
 )`;
 

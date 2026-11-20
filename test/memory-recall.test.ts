@@ -1553,6 +1553,45 @@ it("excludes recorded external answers from push and labels them in pull", async
   });
   await answerNext("legacy-result", "The lotus shard owner is Pat.");
   const { recordTrace } = await import("../src/server/traces");
+  const emptyServer = submit("alice", {
+    agentId: agent.id,
+    input: "Gardenia build key",
+    personal: true,
+    idempotencyKey: id(),
+  });
+  recordTrace(
+    await answerNext("empty-server", "The gardenia build key is four."),
+    "empty-server",
+    {
+      kind: "tool",
+      title: "mcpToolCall",
+      content: '{"server":""}',
+    },
+  );
+  const fetch = submit("alice", {
+    agentId: agent.id,
+    input: "Iris transfer channel",
+    personal: true,
+    idempotencyKey: id(),
+  });
+  await answerNext("acp-fetch", "Iris transfer channel uses the blue pipe.");
+  const activities = await import("../src/server/sql/agent-activities");
+  activities.upsert(
+    db,
+    "alice",
+    fetch.conversation_id,
+    id(),
+    fetch.conversation_id,
+    fetch.id,
+    "tool",
+    JSON.stringify({
+      source: { transport: "acp" },
+      data: { category: "fetch", title: "Load details" },
+    }),
+    1,
+    now(),
+    now(),
+  );
   const web = submit("alice", {
     agentId: agent.id,
     input: "Camellia backup window",
@@ -1593,6 +1632,11 @@ it("excludes recorded external answers from push and labels them in pull", async
   );
   expect((await nativePrompt("lotus shard owner")).prompt).toContain(
     "owner is Pat",
+  );
+  expect(
+    (await searchMemory("alice", null, "gardenia build key")).sources,
+  ).toContainEqual(
+    expect.objectContaining({ resultId: runResultId(emptyServer.id) }),
   );
   const query = { query: "hyacinth deploy version" };
   expect(
@@ -1648,6 +1692,7 @@ it("excludes recorded external answers from push and labels them in pull", async
   for (const [run, query] of [
     [web, "camellia backup window"],
     [mcp, "dahlia incident channel"],
+    [fetch, "iris transfer channel"],
   ] as const) {
     const resultId = runResultId(run.id);
     expect(

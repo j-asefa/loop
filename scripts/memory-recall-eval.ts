@@ -424,6 +424,7 @@ const COPIED_TABLES = [
   "native_calls",
   "tool_invocations",
   "run_traces",
+  "agent_activities",
   "memory_policy",
   "memory_sources",
   "memory_note_versions",
@@ -448,6 +449,16 @@ const evidenceCopy: Record<
         THEN json_object('server', json_extract(content, '$.server')) ELSE '' END`,
       metadata: `CASE WHEN json_valid(metadata)
         THEN json_object('externalContent', json_extract(metadata, '$.externalContent')) ELSE '{}' END`,
+    },
+  },
+  agent_activities: {
+    where: `kind='tool' AND instr(record,'"category":"fetch"')>0
+      AND CASE WHEN json_valid(record) THEN
+        json_extract(record,'$.source.transport')='acp'
+        AND json_extract(record,'$.data.category')='fetch'
+      END`,
+    redacted: {
+      record: `'{"source":{"transport":"acp"},"data":{"category":"fetch"}}'`,
     },
   },
 };
