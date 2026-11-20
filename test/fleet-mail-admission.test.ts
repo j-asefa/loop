@@ -40,6 +40,7 @@ const { forkConversation } =
 const { continueConversation } =
   await import("../src/server/conversation-continuations.js");
 const { executeAgent, submit } = await import("../src/server/agent-runtime.js");
+const { storePublishedFile } = await import("../src/server/published-files.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const {
   fleetMailPolicyHandlers,
@@ -768,6 +769,76 @@ it.each([
     }
   },
 );
+
+it("refuses a local attachment from a saved-memory conversation when the recipient has Fleet context", async () => {
+  const origin = agent(owner);
+  const recipient = agent(owner);
+  const publication = submit(owner, {
+    agentId: origin.id,
+    input: "Publish evidence",
+    idempotencyKey: id(),
+  });
+  const author = claim(
+    "local-publisher",
+    (candidate) => candidate.id === publication.id,
+  )!;
+  const file = storePublishedFile(author, "local-memory-file", {
+    title: "Evidence",
+    name: "evidence.txt",
+    mime: "text/plain",
+    bytes: Buffer.from("Saved evidence"),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    author.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(transition(author, "completed")).toBe(true);
+  const incoming = await deliver(envelope(recipient.id));
+  if (incoming.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const fresh = submit(owner, {
+    agentId: origin.id,
+    input: "Send the file",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "local-fresh-file-sender",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  expect(
+    sendMail(sender, "local-evidence", {
+      to: recipient.id,
+      body: "Read the file",
+      scope: "direct",
+      conversationId: incoming.admission.conversationId,
+      fileIds: [file.artifactId],
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  const clean = agent(owner);
+  const sent = sendMail(sender, "local-evidence-clean", {
+    to: clean.id,
+    body: "Read the file",
+    scope: "direct",
+    fileIds: [file.artifactId],
+  });
+  expect(sent.delivery).toBe("new_turn");
+  const delivered = row(sent.messageId);
+  const later = envelope(clean.id);
+  expect(
+    (
+      await deliver({
+        ...later,
+        thread: {
+          ...later.thread,
+          recipientConversationId: delivered.recipient_conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+});
 
 it("refreshes cached mail status after the sender uses saved memory", async () => {
   const origin = agent(owner);

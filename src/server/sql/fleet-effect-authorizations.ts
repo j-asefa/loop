@@ -129,7 +129,14 @@ const conversationMailAuthoritySql = `FROM context c
        ))
    )`;
 const conversationMailAuthorityStatement = statement(
-  `${conversationContextSql} SELECT 1 ${conversationMailAuthoritySql} LIMIT 1`,
+  `${conversationContextSql}
+   SELECT 1 WHERE EXISTS (
+     SELECT 1 FROM fleet_effect_authorizations WHERE owner_id=@owner AND effect_kind='run'
+       AND json_extract(grant_context,'$.operation')='mail'
+     UNION ALL
+     SELECT 1 FROM fleet_effect_edit_authorizations WHERE owner_id=@owner AND effect_kind='run'
+       AND json_extract(grant_context,'$.operation')='mail'
+   ) AND EXISTS (SELECT 1 ${conversationMailAuthoritySql})`,
 );
 export function conversationHasMailAuthority(
   db: Database.Database,

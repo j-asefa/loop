@@ -71,6 +71,15 @@ function eligibleKind(s: QueryRow<"memory_sources">): EvidenceKind | null {
     // An edited artifact's saved copy may hold text the owner removed: leave
     // it out until the capture pass saves the new version.
     if (!artifact || artifact.archived || !artifact.current) return null;
+    if (
+      artifact.conversation_id &&
+      fleetEffectsQueries.conversationHasMailAuthority(
+        db,
+        s.owner_id,
+        artifact.conversation_id,
+      )
+    )
+      return null;
     // A moved artifact is out of its old project at once; the capture pass
     // refreshes its saved copy for the new one.
     if ((artifact.folder_id || null) !== (s.project_id || null)) return null;

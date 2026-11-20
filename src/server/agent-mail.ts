@@ -36,7 +36,10 @@ import {
   type RunNotice,
 } from "./row-schemas.js";
 
-import { sharedMailFiles } from "./agent-mail-files.js";
+import {
+  authorizeFleetFileOrigin,
+  sharedMailFiles,
+} from "./agent-mail-files.js";
 import { uploadFile } from "./uploads.js";
 
 import {
@@ -702,6 +705,7 @@ function dispatch(
     routed.conversationId,
     fleetMail,
     senderRun?.conversation_id,
+    JSON.parse(mail.file_ids),
   );
   const steer =
     mail.interrupt === 1 &&
@@ -1561,6 +1565,7 @@ function assertFleetMailDestination(
   conversation: string | null | undefined,
   fleetMail: boolean,
   senderConversation?: string | null,
+  fileIds: string[] = [],
 ) {
   if (
     fleetMail &&
@@ -1573,14 +1578,22 @@ function assertFleetMailDestination(
     );
   if (
     conversation &&
-    senderConversation &&
-    fleetEffectsQueries.conversationHasMailAuthority(db, owner, conversation) &&
-    memoryReceiptsQueries.conversationHasEvidence(db, owner, senderConversation)
-  )
-    throw new MailRefusal(
-      403,
-      "Saved-memory context cannot be sent to this Fleet mail conversation.",
-    );
+    fleetEffectsQueries.conversationHasMailAuthority(db, owner, conversation)
+  ) {
+    if (
+      senderConversation &&
+      memoryReceiptsQueries.conversationHasEvidence(
+        db,
+        owner,
+        senderConversation,
+      )
+    )
+      throw new MailRefusal(
+        403,
+        "Saved-memory context cannot be sent to this Fleet mail conversation.",
+      );
+    for (const id of fileIds) authorizeFleetFileOrigin(owner, id);
+  }
 }
 const REQUEUED =
   "The task ended before this message was read. Loop queued it as a new turn instead.";
@@ -1640,6 +1653,7 @@ function requeue(mail: Mail) {
                 runsQueries.owned(db, mail.sender_run_id, mail.owner_id),
               )?.conversation_id
             : undefined,
+          JSON.parse(mail.file_ids),
         );
         const run = submit(mail.owner_id, {
           agentId: mail.recipient_agent_id,

@@ -47,6 +47,20 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
       OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
   UNION
+  SELECT a.conversation_id, copy.created_at, copy.rowid, a.run_id
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND mail.state='sent'
+    AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
+  JOIN json_each(mail.file_ids) file
+  JOIN artifacts a ON a.id=file.value AND a.owner_id=mail.owner_id
+  WHERE a.conversation_id IS NOT NULL
+    AND (copy.rowid=c.seq OR delivery.state<>'cancelled'
+      OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
+      OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
+    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
+  UNION
   SELECT child.conversation_id, c.at, c.seq,
     CASE WHEN r.id=c.answer_run THEN child.id END
   FROM context c
