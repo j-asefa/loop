@@ -1072,16 +1072,72 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
     JSON.stringify([
       { id: "shared", revision: 1, link },
       { id: "shared", revision: 2, link },
+      { id: "short", revision: 1, link: "/?memory=abc" },
+      { id: "long", revision: 1, link: "/?memory=abc123" },
     ]),
     0,
     now(),
   );
-  await answerNext("revision-citation", `See ${link} and [shared@2].`);
+  await answerNext(
+    "revision-citation",
+    `See ${link} and [shared@2]. Also see [the other source](https://loop.example/?memory=abc123).`,
+  );
   const data = (await request(`/runs/${run.id}/memory`)).data;
   expect(JSON.parse(data.sources)).toEqual([
     { id: "shared", revision: 1, link },
     { id: "shared", revision: 2, link, cited: true },
+    { id: "short", revision: 1, link: "/?memory=abc" },
+    { id: "long", revision: 1, link: "/?memory=abc123", cited: true },
   ]);
+});
+
+it("links explicitly saved answers outside default result recall", async () => {
+  const agent = agentFor("alice");
+  const original = submit("alice", {
+    agentId: agent.id,
+    input: "Cypress migration batch",
+    idempotencyKey: id(),
+  });
+  const excerpt = "The cypress migration batch contains eighteen rows.";
+  await answerNext("cypress-original", excerpt);
+  const artifact = db
+    .prepare("SELECT id FROM artifacts WHERE run_id=? AND role='answer'")
+    .get(original.id) as { id: string };
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "artifact:" + artifact.id,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "cypress migration batch",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("cypress-recall", "I found the batch.");
+  expect(
+    getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+  ).toContainEqual(
+    expect.objectContaining({
+      resultId: runResultId(original.id),
+      suppliedText: excerpt,
+    }),
+  );
+  const { data } = await request(`/runs/${run.id}/memory`);
+  expect(JSON.parse(data.sources)).toContainEqual(
+    expect.objectContaining({
+      kind: "note",
+      resultId: runResultId(original.id),
+    }),
+  );
 });
 
 it("recalls only finished, unarchived results from conversations still in memory", async () => {

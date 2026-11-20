@@ -592,7 +592,7 @@ export async function searchMemory(
         complete: !!s.complete,
         excerpt,
         link: s.link,
-        ...(s.kind === "artifact" && s.evidenceKind === "result"
+        ...(s.kind === "artifact"
           ? sealedMemoryEvidence(owner, s.source_id, s.savedContent)
           : s.kind === "message" && s.role === "assistant"
             ? sealedMessageEvidence(owner, s)

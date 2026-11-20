@@ -603,6 +603,14 @@ function suppliesFromMemory(
   const receipt = memoryReceiptsQueries.get(database, run);
   if (!receipt) return [];
   const sources = memoryReceiptsQueries.parseSources(receipt.sources);
+  const citedLinks = new Set(
+    Array.from(
+      answer.matchAll(
+        /(?:^|[\s<("'\x60\[])(?:https?:\/\/[^\s<>"'\x60()[\]{}\/]+)?(\/[^\s<>"'\x60()[\]{}]+)/g,
+      ),
+      ([, link]) => link.replace(/[.,;:!?]+$/, ""),
+    ),
+  );
   const linkTargets = new Map<string, Set<string>>();
   for (const source of sources) {
     if (source.providerCallId || typeof source.link !== "string") continue;
@@ -620,7 +628,7 @@ function suppliesFromMemory(
       (typeof source.link === "string" &&
         source.link &&
         linkTargets.get(source.link)?.size === 1 &&
-        answer.includes(source.link)) ||
+        citedLinks.has(source.link)) ||
       (typeof source.id === "string" &&
         typeof source.revision === "number" &&
         answer.includes(`[${source.id}@${source.revision}]`))
