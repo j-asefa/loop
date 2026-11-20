@@ -13,7 +13,10 @@ import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as passageQueries from "./sql/memory-passages.js";
-import { memoryPassages, type MemoryPassage } from "./memory-passages.js";
+import {
+  indexedMemoryPassages,
+  type MemoryPassage,
+} from "./memory-passages.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -153,7 +156,7 @@ function putSource(s: any) {
       title: s.title,
       content: s.content,
     },
-    memoryPassages(s.content, s.kind),
+    indexedMemoryPassages(s.content, s.kind),
   );
   memorySourcesQueries.setComplete(db, s.complete === false ? 0 : 1, sourceId);
   if (s.kind === "note")
@@ -262,7 +265,7 @@ export function captureMemory() {
         passageQueries.replace(
           db,
           source,
-          memoryPassages(source.content, source.kind),
+          indexedMemoryPassages(source.content, source.kind),
         );
       backfilled = pending.length;
       if (backfilled < passageQueries.MEMORY_PASSAGE_BATCH)
