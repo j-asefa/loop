@@ -474,6 +474,16 @@ for (const engine of selectedEngines()) {
       await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       await expect(cutSheet.locator("code.language-spec")).toHaveCount(0);
 
+      update(working, "\n".repeat(3999) + "Deployment succeeded.");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".live-preview")).toContainText(
+        "Deployment succeeded.",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet).toContainText("Deployment succeeded.");
+
       update(working, " ".repeat(4000) + "Visible after whitespace.");
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",

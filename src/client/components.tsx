@@ -216,6 +216,7 @@ export const RichText = memo(function RichText({
   compact = false,
   writing = false,
   previewFenceCut = false,
+  cappedPreview = false,
 }: {
   content: string;
   diagrams?: boolean;
@@ -224,6 +225,7 @@ export const RichText = memo(function RichText({
   // unclosed display grows as lines arrive instead of being final.
   writing?: boolean;
   previewFenceCut?: boolean;
+  cappedPreview?: boolean;
 }) {
   const sourceId = useSourceId();
   const math = useMarkdownMath(content);
@@ -272,6 +274,7 @@ export const RichText = memo(function RichText({
               compact={compact}
               open={code.properties?.dataSpecOpen === true}
               canGrow={code.properties?.dataSpecCanGrow === true}
+              omitSource={code.properties?.dataSpecAtPreviewEnd === true}
               markdown={(content) => (
                 <RichText
                   content={content}
@@ -317,9 +320,9 @@ export const RichText = memo(function RichText({
             remarkGfm,
             ...(diagrams
               ? [
-                  [markOpenSpecFences, { previewFenceCut }] as [
+                  [markOpenSpecFences, { previewFenceCut, cappedPreview }] as [
                     typeof markOpenSpecFences,
-                    { previewFenceCut: boolean },
+                    { previewFenceCut: boolean; cappedPreview: boolean },
                   ],
                 ]
               : []),

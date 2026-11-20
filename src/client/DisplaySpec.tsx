@@ -20,7 +20,10 @@ type Context = {
 // Remark plugin: marks a `spec` fence that has not closed (an answer still
 // being written, or text cut short). Markdown parses an open fence as a code
 // block. Only an unclosed block at the end of the answer can still grow.
-export function markOpenSpecFences({ previewFenceCut = false } = {}) {
+export function markOpenSpecFences({
+  previewFenceCut = false,
+  cappedPreview = false,
+} = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
     let lastContent = source.length;
@@ -39,14 +42,16 @@ export function markOpenSpecFences({ previewFenceCut = false } = {}) {
           node.lang = "text";
           return;
         }
-        // A clipped content line can look like a closing delimiter.
-        if (cut || !closedFence(raw, node.value ?? ""))
+        const open = cut || !closedFence(raw, node.value ?? "");
+        const atEnd = (node.position.end.offset ?? 0) >= lastContent;
+        if (open || (cappedPreview && atEnd))
           node.data = {
             ...node.data,
             hProperties: {
               ...node.data?.hProperties,
-              dataSpecOpen: true,
-              dataSpecCanGrow: (node.position.end.offset ?? 0) >= lastContent,
+              dataSpecOpen: open,
+              dataSpecCanGrow: open && atEnd,
+              dataSpecAtPreviewEnd: cappedPreview && atEnd,
             },
           };
       }
@@ -87,6 +92,7 @@ export function DisplaySpec({
   compact = false,
   open = false,
   canGrow = false,
+  omitSource = false,
   markdown,
 }: {
   source: string;
@@ -94,6 +100,7 @@ export function DisplaySpec({
   // The fence has not closed.
   open?: boolean;
   canGrow?: boolean;
+  omitSource?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
   const writing = useContext(DisplayWritingContext);
@@ -118,6 +125,8 @@ export function DisplaySpec({
     );
   if (!read.ok && live)
     return <p className="note">This display could not be drawn yet.</p>;
+  if (!read.ok && omitSource)
+    return <p className="note">Open the conversation to see this display.</p>;
   if (!read.ok) {
     const shown = source.replace(/\n$/, "");
     return (

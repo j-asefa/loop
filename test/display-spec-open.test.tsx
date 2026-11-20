@@ -401,3 +401,13 @@ it("finalizes a quote when Unicode paragraph content follows it", () => {
     "This display could not be drawn.",
   );
 });
+
+it("keeps partial source out of a capped thread preview", () => {
+  const source = fence + '{"op":"add","path":"/root","value":"pending"}';
+  const preview = renderToStaticMarkup(
+    <RichText content={source} compact cappedPreview />,
+  );
+  expect(preview).toContain("Open the conversation to see this display.");
+  expect(preview).not.toContain("&quot;op&quot;");
+  expect(render(source, false)).toContain("&quot;op&quot;");
+});

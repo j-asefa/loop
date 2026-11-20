@@ -577,6 +577,10 @@ function FeedCard({
                     content={
                       item.last_message!.content ?? item.last_message!.preview
                     }
+                    cappedPreview={
+                      (item.last_message!.content?.length ?? 0) >=
+                      LIVE_PREVIEW_LIMIT
+                    }
                     compact
                   />
                 )}

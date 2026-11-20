@@ -117,6 +117,8 @@ export function runDetails(
     const { latest, artifact } = runPreview(db, owner, runId);
     // Markdown uses both leading and trailing whitespace to parse fences.
     let source = latest ?? artifact?.content ?? "";
+    if (source.length > LIVE_PREVIEW_LIMIT)
+      source = source.replace(/^(?:[ \t]*(?:\r\n?|\n))+/, "");
     if (!/\S/.test(source.slice(0, LIVE_PREVIEW_LIMIT))) {
       const firstText = source.search(/\S/);
       if (firstText >= LIVE_PREVIEW_LIMIT) {
