@@ -240,6 +240,8 @@ export const ConversationPage = z.object({
   latest_agent_message: z
     .object({ id: MessageId, cursor: ProjectedMessage.shape.cursor })
     .nullable(),
+  // Present for anchored pages, whose visible rows may omit newer progress.
+  latest_progress_message_ids: z.array(MessageId).optional(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
 const ResultFields = {

@@ -4,6 +4,7 @@ import * as transcriptQueries from "./sql/conversation-transcript.js";
 import { z } from "zod";
 import { db } from "./db.js";
 import { Problem } from "./domain.js";
+import { STARTED_RUN_DISPLAY_STATES } from "../shared/run-state.js";
 
 type Position = [number, number, number];
 type TranscriptPosition = NonNullable<
@@ -59,7 +60,29 @@ export function conversationMessages(
   );
   const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
   if (hasMore) items.pop();
+  const progressIds: string[] = [];
+  if (anchor) {
+    const activeRuns = new Set<string>();
+    for (const item of items) {
+      if (
+        item.run_id &&
+        item.run_state &&
+        STARTED_RUN_DISPLAY_STATES.includes(item.run_state)
+      )
+        activeRuns.add(item.run_id);
+    }
+    for (const run of activeRuns) {
+      const latest = transcriptQueries.latestProgressMessage(
+        db,
+        owner,
+        run,
+        conversation,
+      );
+      if (latest) progressIds.push(latest.id);
+    }
+  }
   return {
+    latest_progress_message_ids: anchor ? progressIds : undefined,
     next: hasMore ? encode(position(items.at(-1)!)) : null,
     range: {
       from: hasMore ? position(items.at(-1)!) : ([0, 0, 0] as Position),

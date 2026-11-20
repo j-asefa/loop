@@ -572,39 +572,44 @@ for (const engine of selectedEngines()) {
         updates.filter({ hasText: "Current update." }),
       ).toContainText("Display loading…");
       const transcriptPath = `/api/conversations/${working.id}`;
-      const anchoredRead = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          url.pathname === transcriptPath &&
-          url.searchParams.get("message") === earlierUpdate
+      for (const [anchor, label, displayState] of [
+        [earlierUpdate, "Earlier update.", "This display could not be drawn."],
+        [currentUpdate, "Current update.", "Display loading…"],
+      ]) {
+        const anchoredRead = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === transcriptPath &&
+            url.searchParams.get("message") === anchor
+          );
+        });
+        // Observe the anchored snapshot before the tail recovery read.
+        await page.route(
+          (url) =>
+            url.pathname === transcriptPath &&
+            url.searchParams.get("message") !== anchor,
+          (route) => route.abort(),
         );
-      });
-      // Keep a tail recovery read from replacing the anchored snapshot
-      // before the assertion sees what the user originally opened.
-      await page.route(
-        (url) =>
-          url.pathname === transcriptPath &&
-          url.searchParams.get("message") !== earlierUpdate,
-        (route) => route.abort(),
-      );
-      await page.goto(
-        `${fixture.base}/?conversation=${working.id}&message=${earlierUpdate}`,
-        { waitUntil: "domcontentloaded" },
-      );
-      const anchoredPage = await (await anchoredRead).json();
-      assert(
-        anchoredPage.messages.some((message) => message.id === earlierUpdate),
-      );
-      assert(
-        !anchoredPage.messages.some((message) => message.id === currentUpdate),
-      );
-      await expect(
-        updates.filter({ hasText: "Earlier update." }),
-      ).toContainText("This display could not be drawn.");
-      await expect(updates.filter({ hasText: "Current update." })).toHaveCount(
-        0,
-      );
-      await page.unrouteAll({ behavior: "wait" });
+        await page.goto(
+          `${fixture.base}/?conversation=${working.id}&message=${anchor}`,
+          { waitUntil: "domcontentloaded" },
+        );
+        const anchoredPage = await (await anchoredRead).json();
+        assert(anchoredPage.messages.some((message) => message.id === anchor));
+        assert.equal(
+          anchoredPage.messages.some((message) => message.id === currentUpdate),
+          anchor === currentUpdate,
+        );
+        assert.notEqual(anchoredPage.latest_agent_message.id, currentUpdate);
+        await expect(updates.filter({ hasText: label })).toContainText(
+          displayState,
+        );
+        if (anchor === currentUpdate)
+          await expect(
+            updates.filter({ hasText: label }).locator("code.language-spec"),
+          ).toHaveCount(0);
+        await page.unrouteAll({ behavior: "wait" });
+      }
       fixture.db
         .prepare("DELETE FROM messages WHERE id IN (?, ?)")
         .run(earlierUpdate, currentUpdate);

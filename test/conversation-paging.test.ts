@@ -180,6 +180,17 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
     JSON.parse(entries.find((entry) => entry.id === answer)!.metadata)
       .completedMessageId,
   ).toBe(finalTrace);
+  db.prepare("UPDATE runs SET state='running' WHERE id=?").run(first);
+  for (const target of [progress, progress2]) {
+    const page = conversationMessages("alice", c, undefined, target);
+    expect(page.latest_progress_message_ids).toEqual([progress2]);
+  }
+  expect(conversationMessages("alice", c).latest_progress_message_ids).toBe(
+    undefined,
+  );
+  expect(() => conversationMessages("bob", c, undefined, progress2)).toThrow(
+    "Message not found",
+  );
   db.prepare(
     "UPDATE runs SET state='failed',error='updated state' WHERE id=?",
   ).run(first);
@@ -190,6 +201,7 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
   ).toMatchObject({ run_state: "failed", run_error: "updated state" });
   const anchored = conversationMessages("alice", c, undefined, progress2);
   expect(anchored.messages.at(-1)?.id).toBe(progress2);
+  expect(anchored.latest_progress_message_ids).toEqual([]);
   expect(() => conversationMessages("bob", c, undefined, answer)).toThrow(
     "Message not found",
   );

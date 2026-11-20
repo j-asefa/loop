@@ -100,6 +100,24 @@ export function latestAgentMessage(
     : parseRecord(latestAgentMessageRow, row, "conversation_transcript");
 }
 
+const latestProgressMessageStatement = statement(
+  `SELECT t.message_id id FROM conversation_transcript t
+   JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
+   WHERE t.owner_id=? AND t.run_id=? AND t.conversation_id=?
+     AND m.role='assistant' AND json_extract(m.metadata,'$.progress')=1
+   ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1`,
+);
+const latestProgressMessageRow = QueryRecords.messages.pick({ id: true });
+export function latestProgressMessage(
+  db: Database.Database,
+  ...bindings: [owner: string, run: string, conversation: string]
+) {
+  const row = latestProgressMessageStatement(db).get(...bindings);
+  return row === undefined
+    ? undefined
+    : parseRecord(latestProgressMessageRow, row, "conversation_transcript");
+}
+
 const messageSelection = `FROM conversation_transcript p JOIN messages m ON m.id=p.message_id AND m.owner_id=p.owner_id
     WHERE p.owner_id=? AND p.run_id=? AND length(trim(m.content))>0
     ORDER BY p.position,p.phase,p.ordinal`;
