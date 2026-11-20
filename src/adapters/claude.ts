@@ -352,12 +352,17 @@ export class Claude extends DirectAdapter implements Adapter {
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
     this.interrupted = false;
-    // childItems is kept across prompt(): an id folded or established for
-    // this cycle stays known, so a post-prompt delta for it merges into its
-    // retained commentary item instead of re-establishing an empty one over
-    // it (which could erase the retained text after cache eviction). The
-    // set is cleared at the turn's result, and late events for prior-turn
-    // ids are dropped, so keeping it cannot leave a phase-less fragment.
+    // A new user turn clears the child ids: attaching the run resets the
+    // projector's item window, and an item folded between runs has no run,
+    // so a post-dispatch delta must re-establish its commentary item (seeded
+    // from childText) or the projector would create a phase-less fragment
+    // that is eligible as the answer. Mid-turn steering follow-ups also call
+    // prompt() while a turn is active; they keep the ids so their deltas
+    // still merge into the open items. Trade-off: if a stream's seed was
+    // evicted from childText (over 512 streams or 4 MiB in one turn cycle),
+    // the re-established item carries only the new fragment, so that
+    // stream's progress preview loses earlier text. It is never phase-less.
+    if (!this.active) this.childItems.clear();
     this.active = true;
     await this.native.write({
       type: "user",
@@ -599,10 +604,7 @@ export class Claude extends DirectAdapter implements Adapter {
           // commentary item carrying the accumulated seed: the item is
           // never phase-less and its text preserves the stream (including
           // an evicted seed's id — the item then carries the fragment, not
-          // an empty seed). No separate delta is emitted here. The id is
-          // remembered so a post-prompt delta merges into this item instead
-          // of re-establishing an empty one over it.
-          this.childItems.add(id);
+          // an empty seed). No separate delta is emitted here.
           this.rememberChildText(
             id,
             (this.childText.get(id) ?? "") + e.delta.text,

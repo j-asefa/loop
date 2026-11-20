@@ -711,7 +711,7 @@ it("bounds the child text cache by entry count even for empty-text streams", asy
   await sessions.close();
 });
 
-it("does not erase a recall item's text when its seed is evicted before a later delta", async () => {
+it("keeps a post-prompt delta commentary even when its recall seed was evicted", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-seed-lost");
   const current = start(sessions, "claude-seed-lost-generation", run);
@@ -770,16 +770,27 @@ it("does not erase a recall item's text when its seed is evicted before a later 
       delta: { type: "text_delta", text: " more" },
     },
   });
-  // The delta merges into the retained commentary item (no empty item is
-  // re-established over its text), so the later fragment appends and the
-  // item stays commentary.
+  // A new turn cleared the child ids, so the delta re-establishes its
+  // commentary item before appending. With the seed evicted, the item
+  // carries only the fragment (the documented eviction trade-off: the
+  // progress preview loses earlier text), but it is never phase-less, so it
+  // cannot become the run's answer.
   expect(emitted).toEqual([
+    {
+      type: "item",
+      item: {
+        id: "child-seed-lost",
+        kind: "assistant",
+        text: "",
+        phase: "commentary",
+      },
+    },
     { type: "delta", id: "child-seed-lost", text: " more" },
   ]);
   expect(current.live.items.get("child-seed-lost")).toEqual({
     id: "child-seed-lost",
     kind: "assistant",
-    text: "Retained text more",
+    text: " more",
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
@@ -1019,6 +1030,70 @@ it("keeps between-run child deltas commentary even across a window reset", async
   // and is never phase-less, so it cannot become the run's answer.
   expect(current.live.items.get("between-2")).toEqual({
     id: "between-2",
+    kind: "assistant",
+    text: "AB",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("re-establishes a between-run child stream as commentary after the next prompt", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-between-3");
+  const current = start(sessions, "claude-between-3-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-between-3",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-between-3", ...m });
+  // Turn 1 ends; the child's first delta arrives between runs and is folded
+  // into a commentary item that no run owns.
+  adapter.message({
+    type: "result",
+    session_id: "claude-between-3",
+    is_error: false,
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-3" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  // The next run attaches (resetting the item window) and is dispatched;
+  // only then does the child's next delta arrive.
+  sessions.state.startTurn(current.live, turn("conv", "claude-between-3b"));
+  await adapter.prompt("next");
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  // The delta re-established its seeded commentary item in the new window
+  // instead of leaving a phase-less fragment eligible as the answer.
+  expect(current.live.items.get("between-3")).toEqual({
+    id: "between-3",
     kind: "assistant",
     text: "AB",
     phase: "commentary",
