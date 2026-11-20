@@ -369,16 +369,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     });
   };
   const dbModule = /(?:^|\/)db(?:\.[cm]?[jt]s)?$/;
-  const loadsDatabaseModule = (source: any) => {
-    const path =
-      source?.type === "ImportExpression"
-        ? source.source.value
-        : source?.type === "CallExpression" &&
-            ["tsImport", "require"].includes(source.callee.name)
-          ? source.arguments[0]?.value
-          : undefined;
-    return typeof path === "string" && dbModule.test(path);
-  };
+  const fixtureModule = /(?:^|\/)design-fixture(?:\.mjs)?$/;
+  const modulePath = (source: any): string | undefined =>
+    source?.type === "ImportExpression"
+      ? source.source.value
+      : source?.type === "CallExpression" &&
+          ["tsImport", "require"].includes(source.callee.name)
+        ? source.arguments[0]?.value
+        : undefined;
+  const loadsDatabaseModule = (source: any) =>
+    dbModule.test(modulePath(source) ?? "");
+  const loadsFixtureModule = (source: any) =>
+    fixtureModule.test(modulePath(source) ?? "");
   const propertyOrigin = (
     source: any,
     key: string,
@@ -600,7 +602,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           specifier.imported?.name === "Database"
         )
           (scope.sqliteTypes ??= new Set()).add(specifier.local.name);
-        if (/(?:^|\/)design-fixture(?:\.mjs)?$/.test(node.source.value)) {
+        if (fixtureModule.test(node.source.value)) {
           if (specifier.type === "ImportNamespaceSpecifier") {
             binding = "object";
             (scope.fixtureFactories ??= new Set()).add(
@@ -651,6 +653,14 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (key === "" && loadsDatabaseModule(value)) {
           binding = "object";
           scope.bindings.set(`${name}.db`, "connection");
+        }
+        if (loadsFixtureModule(value)) {
+          if (key === "designFixture")
+            (scope.fixtureFactories ??= new Set()).add(name);
+          if (key === "") {
+            binding = "object";
+            (scope.fixtureFactories ??= new Set()).add(`${name}.designFixture`);
+          }
         }
         if (key === "" && importsSqlite(value)) {
           binding = "object";
@@ -1051,15 +1061,17 @@ function sqlCallLines(file: string, text: string, script = false) {
         write?.end,
       );
       if (suffix) {
-        const reachesSqlite = parentPaths.some((path) =>
+        const reachesSqlite = [name, ...parentPaths].some((path) =>
           assignmentsByName
             .get(path)
             ?.some(
               ({ node, key }) =>
                 !key &&
                 reachesRead(node, expression, path, owner, replacement.end) &&
-                propertySource(node.right, name.slice(path.length + 1))
-                  .binding === "connection",
+                (path === name
+                  ? connectionKind(node.right)
+                  : propertySource(node.right, name.slice(path.length + 1))
+                      .binding) === "connection",
             ),
         );
         if (reachesSqlite) return "connection";
@@ -1094,6 +1106,23 @@ function sqlCallLines(file: string, text: string, script = false) {
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
     if (isAggregate(expression)) return "object";
+    if (
+      script &&
+      expression?.type === "CallExpression" &&
+      expression.callee.type === "MemberExpression" &&
+      property(expression.callee) === "at"
+    ) {
+      const array = staticArray(expression.callee.object);
+      const argument = expression.arguments[0];
+      const index =
+        argument?.type === "UnaryExpression" && argument.operator === "-"
+          ? -literalKey(argument.argument)
+          : literalKey(argument);
+      if (array && Number.isInteger(index)) {
+        const { values, complete } = staticArguments(array);
+        if (index >= 0 || complete) return connectionKind(values.at(index));
+      }
+    }
     if (expression?.type === "Literal" && expression.regex) return "object";
     if (
       expression?.type === "LogicalExpression" &&
@@ -2985,6 +3014,23 @@ it("passes known array elements to callbacks", () => {
     [{ exec: runCommand }].forEach((commandAdapter) => commandAdapter.exec(command));
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5]);
+});
+
+it("recognizes dynamic fixture imports, fixed array at calls and conditional replacement fields", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const { designFixture: open } = await import("./helpers/design-fixture.mjs");
+    const { db: connection } = await open();
+    connection.exec(text);
+    const handles = [db];
+    handles.at(0).exec("BEGIN");
+    handles.at(-1).exec("BEGIN");
+    let store = {};
+    store = { connection: { exec: runCommand } };
+    if (flag) store.connection = db;
+    store.connection.exec("BEGIN");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 8, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
