@@ -367,7 +367,9 @@ function FeedCard({
       : message?.id === messageId
         ? (message?.content ?? "")
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
-  const previewAtLimit = (item.live_preview?.length ?? 0) >= LIVE_PREVIEW_LIMIT;
+  const previewAtLimit =
+    item.live_preview_truncated ??
+    (item.live_preview?.length ?? 0) >= LIVE_PREVIEW_LIMIT;
   const openReading = () => {
     if (onSelect) {
       onSelect();
@@ -538,7 +540,8 @@ function FeedCard({
                 content={item.live_preview}
                 compact
                 writing
-                previewFenceCut={item.live_preview_fence_cut}
+                cappedPreview={previewAtLimit}
+                previewFenceCut={item.live_preview_fence_cut ?? false}
               />
             </div>
           ) : item.run &&
@@ -737,11 +740,15 @@ function FeedCard({
                     ) : (
                       <RichText
                         content={content}
-                        previewFenceCut={item.live_preview_fence_cut}
+                        previewFenceCut={
+                          item.live_preview
+                            ? (item.live_preview_fence_cut ?? false)
+                            : undefined
+                        }
                         cappedPreview={
-                          !item.live_preview &&
-                          message?.id !== messageId &&
-                          messagePreviewCapped
+                          item.live_preview
+                            ? previewAtLimit
+                            : message?.id !== messageId && messagePreviewCapped
                         }
                         writing={
                           !!item.live_preview && content === item.live_preview

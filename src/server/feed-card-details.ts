@@ -139,6 +139,8 @@ export function runDetails(
     }
     const preview = source.slice(0, LIVE_PREVIEW_LIMIT);
     detail.live_preview = /\S/.test(preview) ? preview : null;
+    if (preview.length === LIVE_PREVIEW_LIMIT)
+      detail.live_preview_truncated = source.length > preview.length;
     if (source.length > preview.length) {
       const lastLine = preview.slice(
         Math.max(preview.lastIndexOf("\n"), preview.lastIndexOf("\r")) + 1,

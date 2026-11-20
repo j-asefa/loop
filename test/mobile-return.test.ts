@@ -1681,6 +1681,19 @@ it("shows a working agent's output so far on its feed card", async () => {
   expect((await card()).live_preview).toBe(
     "Reading the diff and checking the queue changes.",
   );
+  const limit = "x".repeat(4000);
+  for (const [content, truncated] of [
+    [limit, false],
+    [limit + "x", true],
+  ] as const) {
+    recordConversationUpdate(ownedRun(live, w.owner) as any, "update-1", {
+      content,
+    });
+    expect(await card()).toMatchObject({
+      live_preview: limit,
+      live_preview_truncated: truncated,
+    });
+  }
   // A finished run shows its last message instead.
   db.prepare("UPDATE runs SET state='completed' WHERE id=?").run(live);
   expect((await card()).live_preview).toBeNull();

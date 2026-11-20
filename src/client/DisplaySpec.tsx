@@ -25,7 +25,7 @@ type Context = {
 // being written, or text cut short). Markdown parses an open fence as a code
 // block. Only an unclosed block at the end of the answer can still grow.
 export function markOpenSpecFences({
-  previewFenceCut = false,
+  previewFenceCut,
   cappedPreview = false,
 } = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
@@ -45,7 +45,13 @@ export function markOpenSpecFences({
         );
         const cut =
           previewFenceCut && node.position.end.offset === source.length;
-        if (cut && !/[\r\n]/.test(raw)) {
+        if (
+          (cut ||
+            (cappedPreview &&
+              previewFenceCut === undefined &&
+              node.position.end.offset === source.length)) &&
+          !/[\r\n]/.test(raw)
+        ) {
           // The prefix of an ordinary language tag can look like "spec".
           node.lang = "text";
           return;
@@ -59,7 +65,8 @@ export function markOpenSpecFences({
           cappedPreview &&
           atEnd &&
           (open ||
-            !/^[ \t]*[\r\n]/.test(source.slice(node.position.end.offset)));
+            (previewFenceCut !== false &&
+              !/^[ \t]*[\r\n]/.test(source.slice(node.position.end.offset))));
         if (open || atPreviewEnd)
           node.data = {
             ...node.data,

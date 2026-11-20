@@ -215,7 +215,7 @@ export const RichText = memo(function RichText({
   diagrams = true,
   compact = false,
   writing = false,
-  previewFenceCut = false,
+  previewFenceCut,
   cappedPreview = false,
 }: {
   content: string;
@@ -325,7 +325,7 @@ export const RichText = memo(function RichText({
               ? [
                   [markOpenSpecFences, { previewFenceCut, cappedPreview }] as [
                     typeof markOpenSpecFences,
-                    { previewFenceCut: boolean; cappedPreview: boolean },
+                    { previewFenceCut?: boolean; cappedPreview: boolean },
                   ],
                 ]
               : []),

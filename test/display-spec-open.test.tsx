@@ -492,3 +492,11 @@ it("waits for the final patch line ending in a capped preview", () => {
     "Earlier value",
   );
 });
+
+it("keeps an unverified bare language token literal at a thread cutoff", () => {
+  const preview = renderToStaticMarkup(
+    <RichText content={"Before.\n\n```spec"} compact cappedPreview />,
+  );
+  expect(preview).toContain("language-text");
+  expect(preview).not.toContain("Open the conversation to see this display.");
+});

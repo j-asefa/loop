@@ -555,6 +555,35 @@ for (const engine of selectedEngines()) {
         await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
       }
 
+      // A complete-looking patch at the cap can still have an invalid suffix.
+      const replacement = fence(
+        patch(
+          { op: "add", path: "/root", value: "card" },
+          add("card", { type: "Card", props: { title: "Earlier title" } }),
+          {
+            op: "replace",
+            path: "/elements/card",
+            value: { type: "Card", props: { title: "Clipped title" } },
+          },
+        ),
+      ).slice(0, -4);
+      const padded =
+        "Text. " +
+        "x".repeat(4000 - 8 - replacement.length) +
+        "\n\n" +
+        replacement;
+      update(working, padded + " invalid\n```");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".display-title")).toHaveText(
+        "Earlier title",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator(".display-title")).toHaveText(
+        "Earlier title",
+      );
+
       // The renderer recognizes both forms of whitespace in the language token.
       const encodedOpener = "```spec";
       for (const separator of ["&#32;", "\u00a0"]) {
