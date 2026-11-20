@@ -1,3 +1,4 @@
+import { FEED_MESSAGE_PREFIX_LIMIT } from "../shared/cards.js";
 import {
   publicRunStateSql,
   WORKING_RUN_DISPLAY_STATES_SQL,
@@ -105,7 +106,7 @@ SELECT k.*,
   pf.id project_id,pf.name project_name,
   m.metadata message_metadata,
   CASE WHEN res.sealed=1 THEN 'assistant' ELSE m.role END message_role,
-  ${doneOnly ? "CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END" : "substr(CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END,1,1000)"} message_content,
+  ${doneOnly ? "CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END" : `substr(CASE WHEN res.sealed=1 THEN json_extract(res.outcome,'$.body') ELSE m.content END,1,${FEED_MESSAGE_PREFIX_LIMIT + 1})`} message_content,
   COALESCE(m.created_at,res.created_at) message_created_at,
   json_extract(m.metadata,'$.automation.kind') message_automation,json_extract(m.metadata,'$.automation.fromName') message_automation_from,
   (k.message_id IS NOT NULL AND (EXISTS(SELECT 1 FROM message_bookmarks b WHERE b.owner_id=@owner AND b.message_id=k.message_id)

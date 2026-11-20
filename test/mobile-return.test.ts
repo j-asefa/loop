@@ -1586,6 +1586,31 @@ it("heads a Done card with the prompt its answer replies to, not the thread's fi
   expect((await card("done")).title).toBe(title);
 });
 
+it("reports exact truncation through the thread feed projection", async () => {
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Bounded preview");
+  const live = run(w.owner, a.id, cid, "running");
+  const exact = "🧪".repeat(1000);
+  const id = message(w.owner, cid, "assistant", exact, live);
+  const card = async () =>
+    (await api(w.owner, "/feed?filter=all")).data.items.find(
+      (item: { conversation_id: string }) => item.conversation_id === cid,
+    );
+  expect((await card()).last_message).toMatchObject({
+    content: exact,
+    content_truncated: false,
+  });
+  db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+    exact + " more",
+    id,
+  );
+  expect((await card()).last_message).toMatchObject({
+    content: exact,
+    content_truncated: true,
+  });
+});
+
 it("shows a working agent's output so far on its feed card", async () => {
   const w = workspaceFor(),
     a = w.agent(),
