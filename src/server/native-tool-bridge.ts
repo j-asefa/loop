@@ -24,6 +24,10 @@ import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
 
+const TOOL_BODY_LIMIT = 128_000;
+// A display's character budget can produce a much larger UTF-8 JSON request.
+const DISPLAY_CHECK_BODY_LIMIT = 512 * 1024;
+
 type Ticket = {
   conversation: string;
   generation: string;
@@ -275,13 +279,22 @@ export class NativeToolBridge {
         const chunks: Buffer[] = [];
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > 128000) {
+          if (size > DISPLAY_CHECK_BODY_LIMIT) {
             res.writeHead(413).end();
             return;
           }
           chunks.push(chunk);
         }
         body = JSON.parse(Buffer.concat(chunks).toString());
+        if (
+          size > TOOL_BODY_LIMIT &&
+          (body?.method !== "tools/call" ||
+            (match![2] ? body.name : body.params?.name) !==
+              "loop_check_display")
+        ) {
+          res.writeHead(413).end();
+          return;
+        }
       }
       if (match![2]) {
         if (req.method !== "POST" || !body || typeof body !== "object") {

@@ -1,13 +1,15 @@
 import { z } from "zod";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import {
   DISPLAY_COMPONENTS,
   DISPLAY_LIMITS,
   displayProblems,
+  isDisplayFenceLanguage,
   readDisplaySpec,
   type DisplayFailure,
 } from "../shared/display-spec.js";
 import { PUBLISHED_REPLY_BODY_LIMIT } from "../shared/steering-replies.js";
-import { isDisplayFenceToken } from "../shared/text.js";
 
 const components = DISPLAY_COMPONENTS.join(", ");
 export const CHECK_DISPLAY_DESCRIPTION =
@@ -16,9 +18,11 @@ export const CHECK_DISPLAY_DESCRIPTION =
   '. Write one JSON Patch add per line to /root or /elements/<key>. Call this tool to check a block and get the full reference. It runs nothing and needs no approval. Example:\n{"op":"add","path":"/root","value":"summary"}\n{"op":"add","path":"/elements/summary","value":{"type":"Text","props":{"content":"Ready."}}}';
 
 export const checkDisplaySchema = z.strictObject({
-  // Allow room for an optional fence around a source at the renderer limit.
-  spec: z.string().max(DISPLAY_LIMITS.source + 256),
+  spec: z.string(),
 });
+const markdown = unified().use(remarkParse).freeze();
+// Allow three spaces of fence indentation per line, CRLF and the wrapper.
+const MAX_DISPLAY_INPUT = 5 * DISPLAY_LIMITS.source + 256;
 
 const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Card: "optional title and subtitle strings; children allowed",
@@ -60,7 +64,7 @@ function displaySource(input: string) {
   const lines = input.split(/\r\n?|\n/);
   const first = lines.findIndex((line) => line.trim() !== "");
   const last = lines.findLastIndex((line) => line.trim() !== "");
-  const opener = /^ {0,3}(\x60{3,}|~{3,})([^\r\n]*)$/.exec(lines[first] ?? "");
+  const opener = /^ {0,3}(\x60{3,}|~{3,})/.exec(lines[first] ?? "");
   const closer = /^ {0,3}(\x60{3,}|~{3,})[ \t]*$/.exec(lines[last] ?? "");
   if (
     opener &&
@@ -69,16 +73,19 @@ function displaySource(input: string) {
     closer[1].length >= opener[1].length &&
     closer[1][0] === opener[1][0]
   ) {
-    const info = opener[2];
-    const token = info.replace(/^[ \t]+/, "").split(/[ \t]/, 1)[0];
+    const { children } = markdown.parse(
+      lines.slice(first, last + 1).join("\n"),
+    );
+    const node = children[0];
     if (
-      !isDisplayFenceToken(token) ||
-      (opener[1][0] === "`" && info.includes("`"))
+      children.length !== 1 ||
+      node?.type !== "code" ||
+      !isDisplayFenceLanguage(node.lang)
     )
       return {
-        issue: `Line ${first + 1}: Use spec as the fenced block's language.`,
+        issue: `Line ${first + 1}: Use a single fenced block with spec as the fenced block's language.`,
       };
-    return { source: lines.slice(first + 1, last).join("\n") };
+    return { source: node.value };
   }
   return { source: lines.join("\n") };
 }
@@ -90,6 +97,8 @@ const quotedDiagnostic = (value: string) =>
   JSON.stringify(value.length > 160 ? value.slice(0, 159) + "…" : value);
 
 export function checkDisplay(input: string): string {
+  if (input.length > MAX_DISPLAY_INPUT)
+    return [failures.too_large, "", reference].join("\n");
   const source = displaySource(input);
   if (source.issue !== undefined)
     return [source.issue, "", reference].join("\n");

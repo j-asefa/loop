@@ -417,6 +417,40 @@ it.each([
           })
         ).json();
       await call({ method: "tools/list" });
+      if (cause === "cancel") {
+        const children = Array.from(
+          { length: 16 },
+          (_, index) => "text" + index,
+        );
+        const spec = [
+          { path: "/root", value: "card" },
+          { path: "/elements/card", value: { type: "Card", children } },
+          ...children.map((key) => ({
+            path: "/elements/" + key,
+            value: { type: "Text", props: { content: "語".repeat(3000) } },
+          })),
+        ]
+          .map((patch) => JSON.stringify({ op: "add", ...patch }))
+          .join("\n");
+        expect(Buffer.byteLength(spec)).toBeGreaterThan(128_000);
+        const display = {
+          method: "tools/call",
+          id: "display",
+          name: "loop_check_display",
+          arguments: { spec },
+        };
+        expect(await call(display)).toMatchObject({
+          content: [
+            { text: expect.stringContaining("Display valid. Elements: 17.") },
+          ],
+        });
+        const extra = await fetch(endpoint.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + endpoint.token },
+          body: JSON.stringify({ ...display, name: "loop_message" }),
+        });
+        expect(extra.status).toBe(413);
+      }
       const concurrentExpiry = cause === "concurrent-expiry";
       if (cause === "expiry" || concurrentExpiry)
         db.exec(

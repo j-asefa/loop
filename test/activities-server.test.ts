@@ -3,6 +3,7 @@ import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { settleRun } from "./helpers/run-outcome.js";
 import { afterAll, expect, it } from "vitest";
+import { DISPLAY_LIMITS } from "../src/shared/display-spec.js";
 
 testDirectory();
 const { db, id, now } = await import("../src/server/db");
@@ -44,6 +45,47 @@ function agent(owner = "alice") {
 }
 const steps = (statuses: string[]) =>
   statuses.map((status, i) => ({ id: "s" + i, title: "Step " + i, status }));
+
+it("returns an oversized display diagnostic to the API provider and continues the run", async () => {
+  const a = agent();
+  submit("alice", {
+    agentId: a.id,
+    input: "Check my display",
+    idempotencyKey: id(),
+  });
+  const run = claim("display-check-worker")!;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      const result = input.messages.find((message) => message.role === "tool");
+      if (!result) {
+        yield {
+          toolCall: {
+            id: "oversized-display",
+            name: "loop_check_display",
+            arguments: { spec: " ".repeat(6 * DISPLAY_LIMITS.source) },
+          },
+        };
+        return;
+      }
+      expect(result.content).toContain("Block exceeds");
+      yield { text: "I can shorten the display." };
+    },
+  });
+  try {
+    await expect(executeAgent(run)).resolves.toMatchObject({
+      kind: "finished",
+    });
+    transition(run, "completed");
+    expect(
+      db.prepare("SELECT result FROM runs WHERE id = ?").get(run.id),
+    ).toEqual({ result: "I can shorten the display." });
+  } finally {
+    restore();
+  }
+});
 
 it("API-provider runs publish structured plans, tool lifecycle and confirmed settings", async () => {
   const a = agent();
