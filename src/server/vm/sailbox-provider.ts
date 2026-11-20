@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PassThrough, Writable } from "node:stream";
 import {
   VmProviderError,
@@ -177,10 +178,11 @@ export function createSailboxProvider(options: {
     },
 
     async ensureVolume(name) {
-      // Creating a volume that already exists returns it.
+      // Creating a volume that already exists returns it, so each call gets a
+      // fresh key: a fixed one would replay a stale answer for 24 hours.
       const value = await json("POST", `${api}/sailbox-volumes`, {
         body: { name },
-        idempotencyKey: `loop-volume-${name}`,
+        idempotencyKey: randomUUID(),
       });
       return { volumeId: field(value, "volume_id") };
     },
@@ -217,8 +219,13 @@ export function createSailboxProvider(options: {
         accept404: true,
       });
       if (!response) return null;
-      const value = (await response.json()) as Record<string, unknown>;
-      return { status: sailboxStatus(value.status) };
+      const value: unknown = await response.json().catch(() => undefined);
+      if (!value || typeof value !== "object")
+        throw new VmProviderError(
+          "uncertain",
+          "Sailboxes GET answered with a body Loop could not read",
+        );
+      return { status: sailboxStatus((value as { status?: unknown }).status) };
     },
 
     async findByName(appId, name) {

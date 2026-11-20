@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { beforeEach, expect, it } from "vitest";
 import { applyMigrations } from "../src/server/migrations.js";
+import { applyMigrationsThrough } from "./helpers/migrations.js";
 import * as experimentVmsQueries from "../src/server/sql/experiment-vms.js";
 import * as vmOperationsQueries from "../src/server/sql/vm-operations.js";
 import {
@@ -306,4 +307,29 @@ it("refuses illegal and stale VM transitions", () => {
   expect(row?.state).toBe("destroyed");
   expect(row?.destroyed_at).toBeGreaterThan(0);
   expect(transitionVm(db, vm, "running", { now: clock() }).changed).toBe(false);
+});
+
+it("adds the experiment tables to a database a released version wrote, leaving its rows alone", () => {
+  const upgrade = new Database(":memory:");
+  upgrade.pragma("foreign_keys=ON");
+  applyMigrationsThrough(upgrade, 166);
+  upgrade
+    .prepare(
+      "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('f1','alice','project','Notes',1)",
+    )
+    .run();
+  applyMigrations(upgrade);
+  expect(upgrade.prepare("SELECT id,name FROM folders").all()).toEqual([
+    { id: "f1", name: "Notes" },
+  ]);
+  for (const table of [
+    "vm_provider_configs",
+    "experiment_vms",
+    "experiment_previews",
+    "vm_operations",
+  ])
+    expect(upgrade.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual(
+      { n: 0 },
+    );
+  upgrade.close();
 });
