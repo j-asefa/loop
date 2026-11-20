@@ -1,3 +1,7 @@
+import {
+  isWorkspaceMemorySearch,
+  WORKSPACE_MCP_SERVER,
+} from "../shared/workspace-tools.js";
 import { normalizeItemStatus } from "../shared/native-item-state.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { DirectAdapter } from "./direct-adapter.js";
@@ -547,7 +551,12 @@ export class Codex extends DirectAdapter implements Adapter {
           kind: "tool",
           title: item.type,
           status: normalizeItemStatus(item.status, completed),
-          text: JSON.stringify(item, null, 2),
+          text:
+            item.type === "mcpToolCall" &&
+            (item.server === WORKSPACE_MCP_SERVER || !item.server) &&
+            isWorkspaceMemorySearch(item.tool)
+              ? ""
+              : JSON.stringify(item, null, 2),
         },
       });
   }

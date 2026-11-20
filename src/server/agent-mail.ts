@@ -3,7 +3,7 @@ import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
-import * as artifactsQueries from "./sql/artifacts.js";
+import { assertCompatibleMemoryContext } from "./memory.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
@@ -698,7 +698,7 @@ function dispatch(
         mail.owner_id,
         mail.sender_run_id,
       ));
-  assertFleetMailDestination(
+  assertCompatibleMemoryContext(
     mail.owner_id,
     routed.conversationId,
     fleetMail,
@@ -1558,38 +1558,6 @@ function deliverResult(row: {
   }).immediate();
 }
 
-function assertFleetMailDestination(
-  owner: string,
-  conversation: string | null | undefined,
-  fleetMail: boolean,
-  senderConversation?: string | null,
-  fileIds: string[] = [],
-) {
-  const origins = new Set(
-    [
-      conversation,
-      senderConversation,
-      ...fileIds.map(
-        (id) => artifactsQueries.owned(db, id, owner)?.conversation_id,
-      ),
-    ].filter((candidate): candidate is string => !!candidate),
-  );
-  const fleetContext =
-    fleetMail ||
-    [...origins].some((id) =>
-      fleetEffectsQueries.conversationHasMailAuthority(db, owner, id),
-    );
-  if (
-    fleetContext &&
-    [...origins].some((id) =>
-      memoryReceiptsQueries.conversationHasEvidence(db, owner, id),
-    )
-  )
-    throw new MailRefusal(
-      403,
-      "Fleet mail and saved memory cannot share conversation context.",
-    );
-}
 const REQUEUED =
   "The task ended before this message was read. Loop queued it as a new turn instead.";
 const CANCELLED =
@@ -1628,7 +1596,7 @@ function requeue(mail: Mail) {
             team &&
             workingIn(team, mail.recipient_agent_id)) ||
           message.conversation_id;
-        assertFleetMailDestination(
+        assertCompatibleMemoryContext(
           mail.owner_id,
           conversationId,
           fleetEffectsQueries.hasMailAuthority(

@@ -1,6 +1,7 @@
 import { ActivityKey } from "../src/shared/contract-ids.js";
 import { describe, it, expect } from "vitest";
 import { Codex } from "../src/adapters/codex";
+import { Acp } from "../src/adapters/acp";
 import { Claude } from "../src/adapters/claude";
 import { Muse } from "../src/adapters/muse";
 import { Pi } from "../src/adapters/pi";
@@ -191,6 +192,52 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
       state: { status: "completed", output: "Private excerpt" },
     });
     for (const { events } of [claude, open]) {
+      expect(JSON.stringify(events)).not.toContain("Private excerpt");
+      expect(events.at(-1)).toMatchObject({
+        type: "item",
+        item: { text: "", status: "completed" },
+      });
+    }
+  });
+  it("Codex and ACP omit managed memory search results from projections", () => {
+    const codex = capture(Codex, "codex");
+    codex.adapter.item(
+      {
+        type: "mcpToolCall",
+        id: "m",
+        server: "loop_workspace",
+        tool: "loop_memory_search",
+        result: { content: "Private excerpt" },
+      },
+      true,
+    );
+    const acp = capture(Acp, "acp");
+    acp.adapter.session = "test";
+    acp.adapter.active = true;
+    acp.adapter.update({
+      sessionId: "test",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "m",
+        title: "loop_memory_search",
+        status: "in_progress",
+      },
+    });
+    acp.adapter.update({
+      sessionId: "test",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "m",
+        status: "completed",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "Private excerpt" },
+          },
+        ],
+      },
+    });
+    for (const { events } of [codex, acp]) {
       expect(JSON.stringify(events)).not.toContain("Private excerpt");
       expect(events.at(-1)).toMatchObject({
         type: "item",

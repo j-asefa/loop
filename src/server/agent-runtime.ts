@@ -1,5 +1,6 @@
 import {
   assertMemoryContext,
+  assertCompatibleMemoryContext,
   recallForRun,
   withoutRecall,
   type Recall,
@@ -281,6 +282,14 @@ export function submit(
             agent.id,
           );
       }
+      if (attachments.length && !data.automation)
+        assertCompatibleMemoryContext(
+          owner,
+          conversation,
+          false,
+          null,
+          attachments.map((file) => file.id),
+        );
       const previousReview = runsQueries.latestConversationPayloadByRowid(
         db,
         owner,

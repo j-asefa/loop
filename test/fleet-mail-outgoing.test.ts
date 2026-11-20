@@ -1166,6 +1166,24 @@ it("refuses a Fleet attachment published from another conversation with saved ev
   });
   expect(sent.delivery).toBe("not_delivered");
   expect(journal.outgoing(sent.messageId)).toBeNull();
+  expect(transition(active, "completed")).toBe(true);
+  const withPromptAttachment = submit(owner, {
+    agentId: agent.id,
+    input: "Review the attached file",
+    idempotencyKey: id(),
+    personal: true,
+    attachmentIds: [published.artifactId],
+  });
+  const promptRun = claim(
+    "prompt-file",
+    (candidate) => candidate.id === withPromptAttachment.id,
+  )!;
+  const summarized = sendMail(promptRun, "send-attachment-summary", {
+    to: remote(),
+    body: "File summary",
+  });
+  expect(summarized.delivery).toBe("not_delivered");
+  expect(journal.outgoing(summarized.messageId)).toBeNull();
 });
 
 it("captures an authorized publication by immutable source, content and message identity before network IO", () => {

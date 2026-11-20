@@ -938,6 +938,38 @@ export function canSearchSavedMemory(
   );
 }
 
+export function assertCompatibleMemoryContext(
+  owner: string,
+  conversation: string | null | undefined,
+  fleetMail: boolean,
+  senderConversation?: string | null,
+  fileIds: string[] = [],
+) {
+  const origins = new Set(
+    [
+      conversation,
+      senderConversation,
+      ...fileIds.map(
+        (id) => artifactsQueries.owned(db, id, owner)?.conversation_id,
+      ),
+    ].filter((candidate): candidate is string => !!candidate),
+  );
+  const fleetContext =
+    fleetMail ||
+    [...origins].some((id) =>
+      fleetEffectsQueries.conversationHasMailAuthority(db, owner, id),
+    );
+  if (
+    fleetContext &&
+    [...origins].some((id) =>
+      memoryReceiptsQueries.conversationHasEvidence(db, owner, id),
+    )
+  )
+    throw new Problem(
+      403,
+      "Fleet mail and saved memory cannot share conversation context.",
+    );
+}
 /** Fleet mail and saved memory cannot share a conversation's model context. */
 export function assertMemoryContext(run: Run, addingEvidence = false) {
   if (
