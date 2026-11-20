@@ -241,7 +241,15 @@ export const ConversationPage = z.object({
     .object({ id: MessageId, cursor: ProjectedMessage.shape.cursor })
     .nullable(),
   // Present for anchored pages, whose visible rows may omit newer progress.
-  latest_progress_message_ids: z.array(MessageId).optional(),
+  latest_progress_messages: z
+    .array(
+      z.object({
+        run_id: RunId,
+        id: MessageId,
+        cursor: ProjectedMessage.shape.cursor,
+      }),
+    )
+    .optional(),
 });
 export type ConversationPage = z.infer<typeof ConversationPage>;
 const ResultFields = {

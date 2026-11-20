@@ -101,13 +101,13 @@ export function latestAgentMessage(
 }
 
 const latestProgressMessageStatement = statement(
-  `SELECT t.message_id id FROM conversation_transcript t
+  `SELECT t.message_id id,t.position,t.phase,t.ordinal FROM conversation_transcript t
    JOIN messages m ON m.id=t.message_id AND m.owner_id=t.owner_id
    WHERE t.owner_id=? AND t.run_id=? AND t.conversation_id=?
-     AND m.role='assistant' AND json_extract(m.metadata,'$.progress')=1
+     AND t.position IS NOT NULL AND m.role='assistant' AND json_extract(m.metadata,'$.progress')=1
    ORDER BY t.position DESC,t.phase DESC,t.ordinal DESC LIMIT 1`,
 );
-const latestProgressMessageRow = QueryRecords.messages.pick({ id: true });
+const latestProgressMessageRow = positionRow.extend({ id: z.string() });
 export function latestProgressMessage(
   db: Database.Database,
   ...bindings: [owner: string, run: string, conversation: string]

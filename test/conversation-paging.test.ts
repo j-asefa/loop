@@ -183,9 +183,12 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
   db.prepare("UPDATE runs SET state='running' WHERE id=?").run(first);
   for (const target of [progress, progress2]) {
     const page = conversationMessages("alice", c, undefined, target);
-    expect(page.latest_progress_message_ids).toEqual([progress2]);
+    const latest = entries.find((entry) => entry.id === progress2)!;
+    expect(page.latest_progress_messages).toEqual([
+      { id: progress2, run_id: first, cursor: latest.cursor },
+    ]);
   }
-  expect(conversationMessages("alice", c).latest_progress_message_ids).toBe(
+  expect(conversationMessages("alice", c).latest_progress_messages).toBe(
     undefined,
   );
   expect(() => conversationMessages("bob", c, undefined, progress2)).toThrow(
@@ -201,7 +204,7 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
   ).toMatchObject({ run_state: "failed", run_error: "updated state" });
   const anchored = conversationMessages("alice", c, undefined, progress2);
   expect(anchored.messages.at(-1)?.id).toBe(progress2);
-  expect(anchored.latest_progress_message_ids).toEqual([]);
+  expect(anchored.latest_progress_messages).toEqual([]);
   expect(() => conversationMessages("bob", c, undefined, answer)).toThrow(
     "Message not found",
   );

@@ -60,7 +60,7 @@ export function conversationMessages(
   );
   const hasMore = items.length > TRANSCRIPT_PAGE_ITEMS;
   if (hasMore) items.pop();
-  const progressIds: string[] = [];
+  const latestProgress: { run_id: string; id: string; cursor: Position }[] = [];
   if (anchor) {
     const activeRuns = new Set<string>();
     for (const item of items) {
@@ -78,11 +78,16 @@ export function conversationMessages(
         run,
         conversation,
       );
-      if (latest) progressIds.push(latest.id);
+      if (latest)
+        latestProgress.push({
+          run_id: run,
+          id: latest.id,
+          cursor: position(latest),
+        });
     }
   }
   return {
-    latest_progress_message_ids: anchor ? progressIds : undefined,
+    latest_progress_messages: anchor ? latestProgress : undefined,
     next: hasMore ? encode(position(items.at(-1)!)) : null,
     range: {
       from: hasMore ? position(items.at(-1)!) : ([0, 0, 0] as Position),

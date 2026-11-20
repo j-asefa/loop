@@ -613,7 +613,7 @@ for (const engine of selectedEngines()) {
         .prepare("UPDATE messages SET content=? WHERE id=?")
         .run("Recovered earlier prompt. " + "x".repeat(70_000), priorPrompt);
       const recoveryPage = await (await recoveryRead).json();
-      assert.deepEqual(recoveryPage.latest_progress_message_ids, []);
+      assert.deepEqual(recoveryPage.latest_progress_messages, []);
       await expect(
         workingThread.getByText(/Recovered earlier prompt/),
       ).toBeVisible();
@@ -663,9 +663,44 @@ for (const engine of selectedEngines()) {
           ).toHaveCount(0);
         await page.unrouteAll({ behavior: "wait" });
       }
+      // New progress sorts before the ordinary answer, so an answer anchor
+      // can absorb it through events without fetching a newer page.
+      const answerAnchor = fixture.db
+        .prepare(
+          "SELECT id FROM messages WHERE run_id=? AND role='assistant' AND json_extract(metadata,'$.progress') IS NOT 1",
+        )
+        .get(working.run).id;
+      await page.route(
+        (url) =>
+          url.pathname === transcriptPath &&
+          url.searchParams.get("message") !== answerAnchor,
+        (route) => route.abort(),
+      );
+      await page.goto(
+        `${fixture.base}/?conversation=${working.id}&message=${answerAnchor}`,
+        { waitUntil: "domcontentloaded" },
+      );
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      const newerUpdate = randomUUID();
+      progress.run(
+        newerUpdate,
+        "Newer live update.\n\n" + rootOnly,
+        '{"progress":true}',
+        3,
+        working.run,
+      );
+      await expect(
+        updates.filter({ hasText: "Newer live update." }),
+      ).toContainText("Display loading…");
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("This display could not be drawn.");
+      await page.unrouteAll({ behavior: "wait" });
       fixture.db
-        .prepare("DELETE FROM messages WHERE id IN (?, ?)")
-        .run(earlierUpdate, currentUpdate);
+        .prepare("DELETE FROM messages WHERE id IN (?, ?, ?)")
+        .run(earlierUpdate, currentUpdate, newerUpdate);
 
       // Keep the conversation mounted while a run with a chart finishes.
       // The incomplete block proves the writing state reached this view.

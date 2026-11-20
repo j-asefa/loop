@@ -95,6 +95,7 @@ import { performStoredEffect } from "./pendingCommands";
 import {
   TranscriptHandoff,
   ProjectedMessage,
+  comparePosition,
   type TranscriptEvent,
 } from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
@@ -655,10 +656,10 @@ function ConversationView({
               messages: fresh.messages,
               // A recovery page repairs retained rows. Its anchor describes
               // that page only, so keep the loaded view's progress metadata.
-              latest_progress_message_ids:
+              latest_progress_messages:
                 recovery && !replacedProjection
-                  ? old.latest_progress_message_ids
-                  : fresh.latest_progress_message_ids,
+                  ? old.latest_progress_messages
+                  : fresh.latest_progress_messages,
               next: replacedProjection
                 ? fresh.next
                 : recovery
@@ -787,12 +788,15 @@ function ConversationView({
           )
             missingMessages.current.delete(event.payload.messageId);
           refresh ||= outcome === "gap";
-          // The reported latest agent message is gone: ask which is latest now.
+          // A reported latest message is gone: ask which is latest now.
           refresh ||=
             event.type === "message.remove" &&
             outcome === "applied" &&
-            event.payload.messageId ===
-              dataRef.current?.latest_agent_message?.id;
+            (event.payload.messageId ===
+              dataRef.current?.latest_agent_message?.id ||
+              dataRef.current?.latest_progress_messages?.some(
+                (message) => message.id === event.payload.messageId,
+              ) === true);
           if (outcome === "gap")
             markMissing(
               event.type === "message.upsert"
@@ -1075,17 +1079,29 @@ function ConversationView({
     }
   }
   const latestProgressByRun = useMemo(() => {
-    const byRun = new Map<string, string>();
+    const byRun = new Map(
+      data?.latest_progress_messages?.map((message) => [
+        message.run_id,
+        message,
+      ]),
+    );
     for (const message of data?.messages ?? []) {
       if (
         message.role === "assistant" &&
         message.run_id &&
         readMessageMetadata(message.metadata, "fallback").progress
-      )
-        byRun.set(message.run_id, message.id);
+      ) {
+        const latest = byRun.get(message.run_id);
+        if (!latest || comparePosition(message.cursor, latest.cursor) > 0)
+          byRun.set(message.run_id, {
+            id: message.id,
+            run_id: message.run_id,
+            cursor: message.cursor,
+          });
+      }
     }
     return byRun;
-  }, [data?.messages]);
+  }, [data?.messages, data?.latest_progress_messages]);
   const latestRun = [...(data?.messages || [])]
     .reverse()
     .find((m) => m.run_id && m.run_state);
@@ -1830,10 +1846,7 @@ function ConversationView({
                         (meta.progress
                           ? !meta.final &&
                             !!m.run_id &&
-                            (data?.latest_progress_message_ids?.includes(
-                              m.id,
-                            ) ??
-                              latestProgressByRun.get(m.run_id) === m.id)
+                            latestProgressByRun.get(m.run_id)?.id === m.id
                           : !anchor || latestAgent === m.id)
                       }
                     />
