@@ -142,7 +142,11 @@ export function runDetails(
       const lastLine = preview.slice(
         Math.max(preview.lastIndexOf("\n"), preview.lastIndexOf("\r")) + 1,
       );
-      const suffix = source.slice(preview.length);
+      // Keep fence classification bounded even when a run keeps appending to
+      // the same line. A fence whose line cannot be verified stays provisional.
+      const lookaheadEnd = preview.length + LIVE_PREVIEW_LIMIT;
+      const suffix = source.slice(preview.length, lookaheadEnd);
+      const suffixClipped = source.length > lookaheadEnd;
       const fence = /^[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(lastLine);
       if (fence) {
         // A longer run of the same delimiter can still be a real closer.
@@ -151,7 +155,9 @@ export function runDetails(
           : fence[1][0] === "`"
             ? /^`*[ \t]*(?:[\r\n]|$)/
             : /^~*[ \t]*(?:[\r\n]|$)/;
-        detail.live_preview_fence_cut = !sameCloser.test(suffix);
+        const closer = sameCloser.exec(suffix);
+        detail.live_preview_fence_cut =
+          !closer || (suffixClipped && !/[\r\n]$/.test(closer[0]));
       } else {
         const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*[^`~ \t]+([^\r\n]*)$/.exec(
           lastLine,
@@ -161,7 +167,9 @@ export function runDetails(
           // that makes a backtick opener's info string invalid.
           detail.live_preview_fence_cut =
             (!opener[2] && /^[^ \t\r\n]/.test(suffix)) ||
-            (opener[1][0] === "`" && /^[^\r\n]*`/.test(suffix));
+            (opener[1][0] === "`" &&
+              (/^[^\r\n]*`/.test(suffix) ||
+                (suffixClipped && !/[\r\n]/.test(suffix))));
         }
       }
     }

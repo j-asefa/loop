@@ -520,6 +520,8 @@ for (const engine of selectedEngines()) {
         ["```spec", "imen\nordinary example"],
         ["```spec", " example `invalid"],
         ["```spec note\u2028", "`invalid"],
+        ["```spec", " " + "x".repeat(4000) + "`invalid"],
+        ["```spec", " " + "x".repeat(4001) + "\n"],
       ]) {
         const prose = "Text. " + "x".repeat(4000 - 8 - clipped.length) + "\n\n";
         update(working, prose + clipped + remainder);

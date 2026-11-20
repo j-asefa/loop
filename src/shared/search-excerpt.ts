@@ -51,8 +51,10 @@ export function searchExcerpt(
     .replace(/[*`#]/g, "")
     .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
     .trim();
-  if (heading && text.toLowerCase().startsWith(heading.toLowerCase()))
-    text = text.slice(heading.length).trim();
+  if (heading && text.toLowerCase().startsWith(heading.toLowerCase())) {
+    const remainder = text.slice(heading.length);
+    if (!/^[\p{L}\p{N}\p{M}_]/u.test(remainder)) text = remainder.trim();
+  }
   if (!text) return "";
   const positions = searchTerms(query)
     .map((word) => text.toLowerCase().indexOf(word))
