@@ -742,7 +742,6 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const returnsDatabase = new Set<object>();
   const returnedObjects = new Map<object, Scope>();
-  const recordedReturns = new Set<object>();
   const returnedObject = (expression: any) =>
     expression?.type === "CallExpression"
       ? returnedObjects.get(invocation(expression).fn)
@@ -1000,10 +999,17 @@ function sqlCallLines(file: string, text: string, script = false) {
     );
   };
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
-  const isDatabaseType = (type: any, node: any) =>
-    type?.type === "TSQualifiedName"
-      ? type.right?.name === "Database" && isConstructor(type.left?.name, node)
-      : isConstructor(type?.name, node);
+  const isDatabaseType = (type: any, node: any) => {
+    if (type?.type !== "TSQualifiedName")
+      return isConstructor(type?.name, node);
+    if (type.right?.name !== "Database") return false;
+    const name = type.left?.name;
+    const owner = declaringScope(name, node);
+    return (
+      isConstructor(name, node) ||
+      (owner && receiverBinding(owner, `${name}.default`) === "constructor")
+    );
+  };
   for (const node of nodes) {
     const type = node.typeAnnotation?.typeAnnotation?.typeName;
     if (node.type === "Identifier" && isDatabaseType(type, node))
@@ -1134,18 +1140,20 @@ function sqlCallLines(file: string, text: string, script = false) {
     changed = true;
   };
   const trackParameter = (scope: Scope, parameter: any, argument: any) => {
-    for (const { key, name } of bindings(parameter)) {
+    for (const { key, name, fallback } of bindings(parameter)) {
       if (key) {
         const member = propertySource(argument, key);
+        const value =
+          member.value ?? (member.binding === undefined ? fallback : undefined);
         trackBinding(
           scope,
           name,
-          member.binding,
-          member.value,
+          member.binding ?? connectionKind(value),
+          value,
           undefined,
           member.origin,
         );
-        recordArgument(scope, name, member.value);
+        recordArgument(scope, name, value);
         continue;
       }
       trackBinding(scope, name, connectionKind(argument), argument);
@@ -1171,37 +1179,40 @@ function sqlCallLines(file: string, text: string, script = false) {
     return { values, complete: true };
   };
   const restCopies = new Set<object>();
+  const returnExpressions: { fn: object; value: any }[] = [];
+  if (script) {
+    for (const node of nodes) {
+      if (
+        node.type !== "ReturnStatement" &&
+        node.type !== "ArrowFunctionExpression"
+      )
+        continue;
+      const value = unwrap(
+        node.type === "ReturnStatement" ? node.argument : node.body,
+      );
+      let fn = node;
+      while (fn && !functionKinds.has(fn.type)) fn = parents.get(fn);
+      if (!fn || !value) continue;
+      returnExpressions.push({ fn, value });
+      // Register literal fields before resolving any spread that uses the result.
+      if (isAggregate(value)) {
+        const result = returnedObjects.get(fn) ?? { bindings: new Map() };
+        returnedObjects.set(fn, result);
+        recordObject(result, "result", value);
+      }
+    }
+  }
   while (changed) {
     changed = false;
     for (const { scope, name, value, spread } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value, spread);
-    for (const node of nodes) {
-      if (
-        script &&
-        (node.type === "ReturnStatement" ||
-          node.type === "ArrowFunctionExpression")
-      ) {
-        const value = unwrap(
-          node.type === "ReturnStatement" ? node.argument : node.body,
-        );
-        let fn = node;
-        while (fn && !functionKinds.has(fn.type)) fn = parents.get(fn);
-        if (fn && isAggregate(value) && !recordedReturns.has(node)) {
-          const result = returnedObjects.get(fn) ?? { bindings: new Map() };
-          returnedObjects.set(fn, result);
-          recordObject(result, "result", value);
-          recordedReturns.add(node);
-          changed = true;
-        }
-        if (
-          fn &&
-          !returnsDatabase.has(fn) &&
-          connectionKind(value) === "connection"
-        ) {
-          returnsDatabase.add(fn);
-          changed = true;
-        }
+    for (const { fn, value } of returnExpressions) {
+      if (!returnsDatabase.has(fn) && connectionKind(value) === "connection") {
+        returnsDatabase.add(fn);
+        changed = true;
       }
+    }
+    for (const node of nodes) {
       if (script && functionKinds.has(node.type))
         for (const parameter of node.params)
           if (parameter.type === "AssignmentPattern")
@@ -2179,6 +2190,21 @@ it("follows conditional fixture fields and named replacements and skips leading 
     }
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8, 14]);
+});
+
+it("follows parameter defaults and namespace types while observing factory spread order", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import * as DatabaseTypes from "better-sqlite3";
+    const sqlite = new SQLite(":memory:");
+    function migrate({ connection = sqlite }, migrationText) { connection.exec(migrationText); }
+    migrate({}, migrationText);
+    const { connection: adapter } = { ...{ connection: sqlite }, ...makeAdapter() };
+    adapter.exec(command);
+    function makeAdapter() { return { connection: { exec: runCommand } }; }
+    function seed(connection: DatabaseTypes.Database) { connection.exec(migrationText); }
+`;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
