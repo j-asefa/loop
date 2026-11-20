@@ -2,6 +2,10 @@ import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import {
+  conversationContextSql,
+  runInConversationContextSql,
+} from "./messages.js";
 
 const conversationRunsStatement = statement(
   "SELECT m.run_id FROM memory_receipts m JOIN runs r ON r.id=m.run_id\n        WHERE r.owner_id=? AND r.conversation_id=?",
@@ -68,12 +72,16 @@ export function get(db: Database.Database, run: string) {
 }
 
 const conversationHasEvidenceStatement = statement(
-  `SELECT 1 FROM memory_receipts m JOIN runs r ON r.id=m.run_id
-   WHERE r.owner_id=@owner AND r.conversation_id=@conversation
+  `${conversationContextSql}
+   SELECT 1 FROM context c
+   JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
+   JOIN memory_receipts m ON m.run_id=r.id
+   WHERE ${runInConversationContextSql}
+     AND (c.at IS NULL OR m.created_at<=c.at)
      AND EXISTS (SELECT 1 FROM json_each(m.sources))
    LIMIT 1`,
 );
-/** Whether a run in this owner’s conversation recorded saved evidence. */
+/** Whether this owner’s conversation or copied history contains saved evidence. */
 export function conversationHasEvidence(
   db: Database.Database,
   owner: string,

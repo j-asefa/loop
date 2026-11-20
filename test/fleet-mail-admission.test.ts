@@ -739,6 +739,66 @@ it.each([
   },
 );
 
+it("keeps copied memory evidence out of Fleet context and later mail out of clean forks", async () => {
+  const local = agent(owner);
+  const original = submit(owner, {
+    agentId: local.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const message = db
+    .prepare(
+      "SELECT id,created_at FROM messages WHERE run_id=? AND role='user'",
+    )
+    .get(original.id) as { id: string; created_at: number };
+  const remembered = forkConversation(owner, original.conversation_id!, {
+    messageId: message.id,
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    original.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    message.created_at,
+  );
+  const incoming = envelope(local.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: { ...incoming.thread, recipientConversationId: remembered.id },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+
+  db.prepare("DELETE FROM memory_receipts WHERE run_id=?").run(original.id);
+  const late = envelope(local.id);
+  expect(
+    (
+      await deliver({
+        ...late,
+        thread: {
+          ...late.thread,
+          recipientConversationId: original.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  const forkTurn = submit(owner, {
+    agentId: local.id,
+    conversationId: remembered.id,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(forkTurn.id, owner)).some(
+      (entry) => entry.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+});
+
 it("preserves Fleet memory restrictions when mail context is copied", async () => {
   const local = agent(owner);
   const received = await deliver(envelope(local.id));

@@ -2,6 +2,10 @@ import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import {
+  conversationContextSql,
+  runInConversationContextSql,
+} from "./messages.js";
 
 const commandGrantsStatement = statement(
   "\n    SELECT grant_context FROM fleet_effect_authorizations\n    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId AND command_id=@commandId\n    UNION ALL SELECT grant_context FROM fleet_effect_edit_authorizations\n    WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effectId AND command_id=@commandId\n  ",
@@ -101,18 +105,9 @@ export function hasMailAuthority(
   return mailAuthorityStatement(db).get({ owner, effect, kind }) !== undefined;
 }
 
-// Forks and continuations preserve source conversation IDs on copied messages.
-// Follow their owner-scoped provenance, including copies of copies.
-const conversationSourcesSql = `WITH RECURSIVE sources(id) AS (
-  SELECT @conversation
-  UNION
-  SELECT json_extract(m.metadata,'$.sourceConversation')
-  FROM sources s JOIN messages m ON m.conversation_id=s.id AND m.owner_id=@owner
-  WHERE m.run_id IS NULL AND json_type(m.metadata,'$.sourceConversation')='text'
-)`;
-const conversationMailAuthoritySql = `FROM sources s
-   JOIN runs r ON r.conversation_id=s.id AND r.owner_id=@owner
-   WHERE EXISTS (
+const conversationMailAuthoritySql = `FROM context c
+   JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
+   WHERE ${runInConversationContextSql} AND EXISTS (
      SELECT 1 FROM fleet_effect_authorizations g
      WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
        AND json_extract(g.grant_context,'$.operation')='mail'
@@ -120,9 +115,21 @@ const conversationMailAuthoritySql = `FROM sources s
      SELECT 1 FROM fleet_effect_edit_authorizations g
      WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
        AND json_extract(g.grant_context,'$.operation')='mail'
+       AND (c.at IS NULL OR NOT EXISTS (
+         SELECT 1 FROM agent_mail delivery
+         WHERE delivery.owner_id=g.owner_id AND delivery.id=g.command_id
+           AND delivery.recipient_conversation_id=c.id
+           AND COALESCE((
+             SELECT dm.created_at>c.at OR (dm.created_at=c.at AND dm.rowid>c.seq)
+             FROM messages dm
+             WHERE dm.owner_id=delivery.owner_id AND dm.conversation_id=c.id
+               AND json_extract(dm.metadata,'$.automation.mailId')=delivery.id
+             ORDER BY dm.created_at,dm.rowid LIMIT 1
+           ),delivery.sent_at>c.at,0)
+       ))
    )`;
 const conversationMailAuthorityStatement = statement(
-  `${conversationSourcesSql} SELECT 1 ${conversationMailAuthoritySql} LIMIT 1`,
+  `${conversationContextSql} SELECT 1 ${conversationMailAuthoritySql} LIMIT 1`,
 );
 export function conversationHasMailAuthority(
   db: Database.Database,
@@ -136,7 +143,7 @@ export function conversationHasMailAuthority(
 }
 
 const conversationMailRunsStatement = statement(
-  `${conversationSourcesSql} SELECT r.id ${conversationMailAuthoritySql}`,
+  `${conversationContextSql} SELECT DISTINCT r.id ${conversationMailAuthoritySql}`,
 );
 const conversationMailRunRow = QueryRecords.runs.pick({ id: true });
 /** Runs whose persisted authority constrains relayed mail from this conversation. */
