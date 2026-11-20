@@ -800,6 +800,72 @@ it("keeps an active-turn child message's text when a delayed delta arrives in th
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("keeps an active-turn child stream's text when a delayed delta arrives in the next turn", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-active-delta");
+  const current = start(sessions, "claude-active-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-active-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-active-delta", ...m });
+  // Turn 1, while active: a delta-only child stream (no full message).
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-delta" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-active-delta",
+    is_error: false,
+  });
+  // Turn 2 starts; a delayed delta for the same stream arrives.
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-active-delta-2"));
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-delta" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  // The re-established item carries the streamed "A" from the earlier turn;
+  // the delayed "B" appends instead of replacing it.
+  expect(current.live.items.get("child-delta")).toEqual({
+    id: "child-delta",
+    kind: "assistant",
+    text: "AB",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,

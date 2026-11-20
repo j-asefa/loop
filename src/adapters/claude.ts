@@ -577,14 +577,6 @@ export class Claude extends DirectAdapter implements Adapter {
         // while a user turn is open: after the result the projector drops
         // deltas, so an empty item emitted then could only clobber saved
         // native history.
-        if (m.parent_tool_use_id && !this.active)
-          // Keep the recall seed current: the projector may merge or drop
-          // these deltas, but the next turn's re-established item must carry
-          // them so a later delta appends instead of overwriting them.
-          this.rememberChildText(
-            id,
-            (this.childText.get(id) ?? "") + e.delta.text,
-          );
         if (m.parent_tool_use_id && this.active && !this.childItems.has(id)) {
           this.childItems.add(id);
           this.emit({
@@ -602,6 +594,14 @@ export class Claude extends DirectAdapter implements Adapter {
             },
           });
         }
+        // Keep the seed current with every delta, open turn or not, so a
+        // later re-established item carries everything the stream has said
+        // so far and a subsequent delta appends instead of overwriting it.
+        if (m.parent_tool_use_id)
+          this.rememberChildText(
+            id,
+            (this.childText.get(id) ?? "") + e.delta.text,
+          );
         this.emit({ type: "delta", id, text: e.delta.text });
       }
       if (
