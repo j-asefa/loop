@@ -224,30 +224,50 @@ function sqlCallLines(file: string, text: string, script = false) {
     declaringScope(name, node)?.bindings.get(name);
   const receiverClass = new Map<Scope, any>();
   const boundReceivers = new Map<object, object[]>();
-  const thisScope = (
+  const receiverContext = (
     node: any,
     seen = new Set<object>(),
-  ): Scope | undefined => {
+  ): { scope: Scope; static: boolean } | undefined => {
     for (let cursor = node; cursor; cursor = parents.get(cursor)) {
-      if (classKinds.has(cursor.type)) return scopeOf(cursor);
+      if (classKinds.has(cursor.type))
+        return { scope: scopeOf(cursor), static: false };
+      if (
+        cursor.type === "PropertyDefinition" ||
+        cursor.type === "StaticBlock"
+      ) {
+        const scope = boundaryScope(cursor, "receiver");
+        if (scope)
+          return {
+            scope,
+            static: cursor.static || cursor.type === "StaticBlock",
+          };
+      }
       if (
         !functionKinds.has(cursor.type) ||
         cursor.type === "ArrowFunctionExpression"
       )
         continue;
       const parent = parents.get(cursor);
-      if (parent?.type === "MethodDefinition" || objectMethod(parent))
-        return boundaryScope(parent, "receiver");
+      if (parent?.type === "MethodDefinition" || objectMethod(parent)) {
+        const scope = boundaryScope(parent, "receiver");
+        return scope && { scope, static: Boolean(parent.static) };
+      }
       if (seen.has(cursor)) return undefined;
       seen.add(cursor);
       for (const receiver of boundReceivers.get(cursor) ?? []) {
-        const scope = thisScope(receiver, seen);
-        if (scope) return scope;
+        const context = receiverContext(receiver, seen);
+        if (context) return context;
       }
       return undefined;
     }
     return undefined;
   };
+  const thisScope = (node: any) => receiverContext(node)?.scope;
+  const receiverPath = (node: any, path: string) =>
+    (path === "this" || path.startsWith("this.")) &&
+    receiverContext(node)?.static
+      ? `static${path.slice(4)}`
+      : path;
   const literalKey = (node: any) =>
     node?.type === "Identifier"
       ? declaringScope(node.name, node)?.strings?.get(node.name)
@@ -331,7 +351,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       root === "this"
         ? thisScope(source)
         : root && declaringScope(root, source);
-    return owner ? receiverBinding(owner, `${path}.${key}`) : undefined;
+    return owner
+      ? receiverBinding(owner, receiverPath(source, `${path}.${key}`))
+      : undefined;
   };
   const destructuredDatabase = (source: any): Binding => {
     const binding = knownProperty(source, "db");
@@ -579,15 +601,26 @@ function sqlCallLines(file: string, text: string, script = false) {
                 alias.spread.excluded.has(suffix.split(".")[0])))
           )
             continue;
+          const visited = new Set(aliases).add(alias);
           const property = receiverProperty(
             alias.scope,
             alias.name + name.slice(path.length),
             select,
             combine,
-            new Set(aliases).add(alias),
+            visited,
           );
           binding = combine(binding, property);
-          if (property !== undefined && alias.spread)
+          if (
+            alias.spread &&
+            (property !== undefined ||
+              receiverProperty(
+                alias.scope,
+                `${alias.name}.${suffix.split(".")[0]}`,
+                (owner, key) => owner.bindings.get(key),
+                undefined,
+                visited,
+              ) !== undefined)
+          )
             groups.add(alias.spread.object);
         }
       }
@@ -621,7 +654,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     const owner = name.startsWith("this.")
       ? thisScope(expression)
       : declaringScope(name.split(".")[0], expression);
-    return owner ? receiverProperty(owner, name, select) : undefined;
+    return owner
+      ? receiverProperty(owner, receiverPath(expression, name), select)
+      : undefined;
   };
   const returnsDatabase = new Set<object>();
   const classReference = (expression: any): Scope | undefined =>
@@ -767,7 +802,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     const owner =
       root === "this" ? thisScope(node) : declaringScope(root, node);
     const binding = owner
-      ? receiverBinding(owner, name)
+      ? receiverBinding(owner, receiverPath(node, name))
       : root === "this"
         ? undefined
         : bindingOf(name, node);
@@ -910,8 +945,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     trackMethod(scope, name, sqliteMethod(value));
     if (!binding) return;
     if (binding === "object") {
-      const path = receiver(value);
-      const origin = path?.startsWith("this.")
+      const original = receiver(value);
+      const path = original && receiverPath(value, original);
+      const origin = original?.startsWith("this.")
         ? thisScope(value)
         : path && declaringScope(path.split(".")[0], value);
       const sources = scope.objectAliases?.get(name) ?? [];
@@ -936,25 +972,29 @@ function sqlCallLines(file: string, text: string, script = false) {
     scope.bindings.set(name, binding);
     changed = true;
   };
-  const recordedArguments = new Map<object, Set<object>>();
+  const recordedArguments = new Map<object, Map<Scope, Set<string>>>();
+  const recordArgument = (scope: Scope, name: string, argument: any) => {
+    if (!isAggregate(argument)) return;
+    const destinations =
+      recordedArguments.get(argument) ?? new Map<Scope, Set<string>>();
+    const names = destinations.get(scope) ?? new Set<string>();
+    if (names.has(name)) return;
+    names.add(name);
+    destinations.set(scope, names);
+    recordedArguments.set(argument, destinations);
+    recordObject(scope, name, argument);
+    changed = true;
+  };
   const trackParameter = (scope: Scope, parameter: any, argument: any) => {
     for (const { key, name } of bindings(parameter)) {
       if (key) {
         const member = propertySource(argument, key);
         trackBinding(scope, name, member.binding, member.value);
+        recordArgument(scope, name, member.value);
         continue;
       }
       trackBinding(scope, name, connectionKind(argument), argument);
-      if (isAggregate(argument)) {
-        const destinations =
-          recordedArguments.get(argument) ?? new Set<object>();
-        if (!destinations.has(parameter)) {
-          destinations.add(parameter);
-          recordedArguments.set(argument, destinations);
-          recordObject(scope, name, argument);
-          changed = true;
-        }
-      }
+      recordArgument(scope, name, argument);
     }
   };
   const staticArguments = (
@@ -1106,10 +1146,11 @@ function sqlCallLines(file: string, text: string, script = false) {
             ? thisScope(node)
             : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
         if (!owner) continue;
-        trackMethod(owner, name, method);
+        const path = receiverPath(node, name);
+        trackMethod(owner, path, method);
         trackBinding(
           owner,
-          name,
+          path,
           binding,
           target?.type === "ObjectPattern" || target?.type === "ArrayPattern"
             ? undefined
@@ -1763,6 +1804,25 @@ it("tracks external instance fields and gives inline and named spreads equal pre
     reversed.connection.exec(query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 11]);
+});
+
+it("tracks extracted argument objects and static receivers while honoring nested overrides", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import adapter from "./command-adapter.mjs";
+    const db = new SQLite(":memory:");
+    function extract({ storage }, query) { storage.connection.exec(query); }
+    extract({ storage: { connection: db } }, query);
+    class Store {
+      static connection = db;
+      static flush(statement) { this.connection.exec(statement); }
+    }
+    const base = { storage: { connection: db } };
+    const override = { storage: adapter };
+    const merged = { ...base, ...override };
+    merged.storage.connection.exec(command);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
