@@ -606,6 +606,7 @@ it("recalls only finished, unarchived results from conversations still in memory
     Date.parse("2026-02-02"),
     inside.data.id,
   );
+  const answerRunId = run.id;
   const { prompt: first } = await nativePrompt(
     "kepler orbit period",
     undefined,
@@ -623,6 +624,57 @@ it("recalls only finished, unarchived results from conversations still in memory
       expect(JSON.parse(response.result.content[0].text).hits).toMatchObject([
         { kind: "result", excerpt: "The kepler orbit period is 42 days." },
       ]);
+      const artifact = db
+        .prepare(
+          "SELECT id,title,content,updated_at FROM artifacts WHERE run_id=? AND role='answer'",
+        )
+        .get(answerRunId) as {
+        id: string;
+        title: string;
+        content: string;
+        updated_at: number;
+      };
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        Date.parse("2026-02-02"),
+        artifact.id,
+      );
+      const dateArgs = {
+        query: "period",
+        kind: "result",
+        since: "2026-02-02",
+        until: "2026-02-02",
+      };
+      const inWindow = await invokeNative(run, tool, "cached-date", dateArgs);
+      if (!("result" in inWindow))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(inWindow.result.content[0].text).hits).toHaveLength(1);
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        Date.parse("2026-03-02"),
+        artifact.id,
+      );
+      const shifted = await invokeNative(run, tool, "cached-date", dateArgs);
+      if (!("result" in shifted))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(shifted.result.content[0].text).hits).toEqual([]);
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        artifact.updated_at,
+        artifact.id,
+      );
       const dated = await invokeNative(run, tool, "dated", {
         query: "period",
         kind: "note",

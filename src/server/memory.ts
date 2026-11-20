@@ -778,6 +778,18 @@ export const memorySearchInput = z
     "since must be on or before until",
   );
 
+function memoryToolWindow({
+  since,
+  until,
+}: Pick<z.input<typeof memorySearchInput>, "since" | "until">) {
+  return since || until
+    ? {
+        from: since ? Date.parse(since + "T00:00:00Z") : null,
+        to: until ? Date.parse(until + "T00:00:00Z") + 86_400_000 : null,
+      }
+    : undefined;
+}
+
 export async function memoryToolSearch(
   run: Pick<Run, "owner_id" | "conversation_id">,
   project: string | null,
@@ -792,13 +804,7 @@ export async function memoryToolSearch(
     kind,
     relevant: strict,
     conversation: run.conversation_id,
-    window:
-      since || until
-        ? {
-            from: since ? Date.parse(since + "T00:00:00Z") : null,
-            to: until ? Date.parse(until + "T00:00:00Z") + 86_400_000 : null,
-          }
-        : undefined,
+    window: memoryToolWindow({ since, until }),
   });
   const response = {
     mode,
@@ -830,6 +836,7 @@ export async function memoryToolSearch(
 export function recheckMemoryToolSearch(
   run: Run,
   search: Awaited<ReturnType<typeof memoryToolSearch>>,
+  input: z.input<typeof memorySearchInput>,
 ) {
   const project = run.payload.folderId ?? null;
   if (
@@ -837,17 +844,34 @@ export function recheckMemoryToolSearch(
     (project && !enabled(run.owner_id, "project:" + project))
   )
     return { ...search, mode: "disabled", hits: [] };
+  const window = memoryToolWindow(input);
   return {
     ...search,
-    hits: search.hits.filter((hit) => {
+    hits: search.hits.flatMap((hit) => {
       try {
-        return (
+        if (
           readMemory(run.owner_id, hit.id, hit.revision, project)
-            .evidenceKind === hit.kind &&
-          !memorySourcesQueries.inConversation(db, hit.id, run.conversation_id)
+            .evidenceKind !== hit.kind ||
+          memorySourcesQueries.inConversation(db, hit.id, run.conversation_id)
+        )
+          return [];
+        const updated = memorySourcesQueries.recallTime(
+          db,
+          hit.id,
+          run.owner_id,
         );
+        if (
+          updated === undefined ||
+          (window &&
+            ((window.from !== null && updated < window.from) ||
+              (window.to !== null && updated >= window.to)))
+        )
+          return [];
+        return [
+          { ...hit, updatedAt: new Date(updated).toISOString().slice(0, 10) },
+        ];
       } catch (error) {
-        if (error instanceof Problem && error.status === 404) return false;
+        if (error instanceof Problem && error.status === 404) return [];
         throw error;
       }
     }),

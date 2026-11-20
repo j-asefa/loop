@@ -42,6 +42,7 @@ const {
   MAIL_LIMITS,
   agentMessages,
   mailStatus,
+  sendMail,
 } = await import("../src/server/agent-mail.js");
 const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
 const { AgentThreadMessagesQuery, AgentThreadDetail } =
@@ -742,6 +743,18 @@ it("keeps a remote interrupt out of an active conversation with recorded memory"
     "memory-interrupt",
     (candidate) => candidate.id === busy.id,
   )!;
+  const earlier = envelope(local.id);
+  const queuedBeforeRecall = await deliver({
+    ...earlier,
+    thread: {
+      ...earlier.thread,
+      recipientConversationId: busy.conversation_id,
+    },
+  });
+  if (queuedBeforeRecall.admission.state !== "accepted")
+    throw new Error("Expected queued mail");
+  const mail = row(queuedBeforeRecall.admission.mailId);
+
   db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
     busy.id,
     "lexical",
@@ -749,13 +762,33 @@ it("keeps a remote interrupt out of an active conversation with recorded memory"
     15,
     now(),
   );
-  const received = await deliver(envelope(local.id, { interrupt: true }));
-  if (received.admission.state !== "accepted")
-    throw new Error("Expected accepted mail");
-  const mail = row(received.admission.mailId);
-  expect(mail.delivery).toBe("queued");
-  expect(mail.steering_id).toBeNull();
-  expect(mail.run_id).not.toBe(active.id);
+  expect(
+    (await deliver(envelope(local.id, { interrupt: true }))).admission,
+  ).toMatchObject({ state: "refused" });
+  const relay = agent(owner);
+  const origin = await deliver(envelope(relay.id));
+  if (origin.admission.state !== "accepted")
+    throw new Error("Expected accepted relay");
+  const relayMail = row(origin.admission.mailId);
+  const relayRun = claim(
+    "memory-relay",
+    (candidate) => candidate.id === relayMail.run_id,
+  )!;
+  expect(
+    sendMail(relayRun, "inherited", {
+      to: local.id,
+      body: "Try to relay into the active turn",
+      scope: "direct",
+      conversationId: busy.conversation_id,
+      interrupt: true,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  expect(
+    db
+      .prepare("SELECT COUNT(*) AS n FROM run_steering WHERE run_id=?")
+      .get(active.id),
+  ).toEqual({ n: 0 });
+  transition(relayRun, "completed");
   expect(transition(active, "completed")).toBe(true);
   const queued = claim(
     "memory-execution",

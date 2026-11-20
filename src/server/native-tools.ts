@@ -328,6 +328,7 @@ export async function invokeNative(
       const search = recheckMemoryToolSearch(
         run,
         JSON.parse(result.content[0].text),
+        args as z.input<typeof memorySearchInput>,
       );
       result.content[0].text = JSON.stringify(search);
     }
@@ -357,7 +358,13 @@ export async function invokeNative(
           return { result: savedResult(saved.result), artifactId: "" };
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Run is no longer executing");
-        const eligible = search && recheckMemoryToolSearch(run, search);
+        const eligible =
+          search &&
+          recheckMemoryToolSearch(
+            run,
+            search,
+            args as z.input<typeof memorySearchInput>,
+          );
         const text = eligible
           ? JSON.stringify(eligible)
           : "Invalid memory search arguments. Supply a query of 1–500 characters, a limit of 1–8, and valid YYYY-MM-DD bounds in ascending order.";

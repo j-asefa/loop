@@ -1,3 +1,4 @@
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
@@ -680,16 +681,31 @@ function dispatch(
             ),
         }
       : route(team!, recipient.id, thread, senderRun, preferParent);
+  const fleetMail =
+    sender.kind === "remote" ||
+    (mail.sender_run_id &&
+      fleetEffectsQueries.hasMailAuthority(
+        db,
+        mail.owner_id,
+        mail.sender_run_id,
+      ));
+  if (
+    fleetMail &&
+    routed.conversationId &&
+    memoryReceiptsQueries.conversationHasEvidence(
+      db,
+      mail.owner_id,
+      routed.conversationId,
+    )
+  )
+    throw new MailRefusal(
+      403,
+      "Choose a fresh conversation for this Fleet mail.",
+    );
   const steer =
     mail.interrupt === 1 &&
     routed.active &&
     !!routed.conversationId &&
-    (sender.kind !== "remote" ||
-      !memoryReceiptsQueries.conversationHasEvidence(
-        db,
-        mail.owner_id,
-        routed.conversationId,
-      )) &&
     steerable(mail.owner_id, routed.conversationId, recipient.id);
   const automation: Automation = {
     kind: mail.kind === "result" ? "agent_result" : "agent_message",
