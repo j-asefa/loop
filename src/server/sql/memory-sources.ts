@@ -159,6 +159,9 @@ export const recallTimeSql = `CASE s.kind
   WHEN 'message' THEN s.created_at
   ELSE s.updated_at END`;
 
+export const recallWindowSql = `(@from IS NULL OR ${recallTimeSql} >= @from)
+  AND (@to IS NULL OR ${recallTimeSql} < @to)`;
+
 const recallTimeStatement = statement(
   `SELECT ${recallTimeSql} AS updated_at FROM memory_sources s WHERE s.id=? AND s.owner_id=?`,
 );

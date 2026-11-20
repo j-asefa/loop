@@ -347,7 +347,11 @@ export async function invokeNative(
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Run is no longer executing");
         if (search)
-          recordMemoryToolSearch(run, search, Math.ceil(text.length / 4));
+          recordMemoryToolSearch(
+            run,
+            search,
+            search.hits.length ? Math.ceil(text.length / 4) : 0,
+          );
         nativeCallsQueries.result(
           db,
           JSON.stringify(result),

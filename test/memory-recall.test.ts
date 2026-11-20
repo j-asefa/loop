@@ -204,6 +204,9 @@ it("offers pull search for native and mail turns, and appends a receipt once per
       ],
     });
     expect(await invokeNative(run, tool, "memory-1", args)).toEqual(response);
+    const beforeEmpty = (await request(`/runs/${run.id}/memory`)).data;
+    await invokeNative(run, tool, "empty", { query: "tuvwxyzzyzz" });
+    expect((await request(`/runs/${run.id}/memory`)).data).toEqual(beforeEmpty);
   };
   const { run } = await nativePrompt(
     "cerulean deployment history",
@@ -509,7 +512,22 @@ it("recalls only finished, unarchived results from conversations still in memory
   captureMemory();
   const recalled = async () =>
     (await nativePrompt("kepler orbit period")).prompt;
-  for (let i = 0; i < 76; i++) await note("period", "period period period");
+  const outside = Date.parse("2026-01-01");
+  for (let i = 0; i < 76; i++) {
+    const { data } = await note("period", "period period period");
+    db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+      outside,
+      data.id,
+    );
+  }
+  const inside = await note(
+    "Relevant dates",
+    "The period aligns with the newer notes.",
+  );
+  db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+    Date.parse("2026-02-02"),
+    inside.data.id,
+  );
   const { prompt: first } = await nativePrompt(
     "kepler orbit period",
     undefined,
@@ -526,6 +544,16 @@ it("recalls only finished, unarchived results from conversations still in memory
         throw new Error("Expected a completed search");
       expect(JSON.parse(response.result.content[0].text).hits).toMatchObject([
         { kind: "result", excerpt: "The kepler orbit period is 42 days." },
+      ]);
+      const dated = await invokeNative(run, tool, "dated", {
+        query: "period",
+        kind: "note",
+        since: "2026-02-02",
+        until: "2026-02-02",
+      });
+      if (!("result" in dated)) throw new Error("Expected a completed search");
+      expect(JSON.parse(dated.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id, updatedAt: "2026-02-02" },
       ]);
     },
   );

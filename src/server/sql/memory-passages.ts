@@ -1,4 +1,4 @@
-import { evidenceKindSql } from "./memory-sources.js";
+import { evidenceKindSql, recallWindowSql } from "./memory-sources.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -86,7 +86,7 @@ const searchStatement = statement(
      AND s.owner_id=@owner
      AND s.eligible=1 AND s.tombstone=0
      AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL))
-   AND (@kind IS NULL OR ${evidenceKindSql}=@kind)
+   AND (@kind IS NULL OR ${evidenceKindSql}=@kind) AND ${recallWindowSql}
    ORDER BY rank LIMIT 75`,
 );
 const offsetsRow = QueryRecords.memory_passages.pick({
@@ -112,8 +112,16 @@ export function search(
   owner: string,
   project: string | null,
   kind: "result" | "note" | "message" | null = null,
+  window?: { from: number | null; to: number | null },
 ) {
   return searchStatement(db)
-    .all({ match, owner, project, kind })
+    .all({
+      match,
+      owner,
+      project,
+      kind,
+      from: window?.from ?? null,
+      to: window?.to ?? null,
+    })
     .map((row) => parseRecord(searchRow, row, "memory_passages"));
 }

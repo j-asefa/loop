@@ -348,6 +348,7 @@ export async function searchMemory(
     window,
     limit = 5,
     excerptBudget = 5500,
+    filterDatesBeforeRanking = false,
     kind,
   }: {
     /** Keep only sources that contain enough of the query's terms. */
@@ -357,6 +358,7 @@ export async function searchMemory(
     window?: MemoryTimeWindow;
     limit?: number;
     excerptBudget?: number;
+    filterDatesBeforeRanking?: boolean;
     kind?: "result" | "note" | "message";
   } = {},
 ) {
@@ -385,6 +387,7 @@ export async function searchMemory(
       owner,
       project,
       kind,
+      filterDatesBeforeRanking ? window : undefined,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
@@ -401,6 +404,7 @@ export async function searchMemory(
             owner,
             project,
             kind,
+            filterDatesBeforeRanking ? window : undefined,
           ),
         );
       }
@@ -781,6 +785,7 @@ export async function memoryToolSearch(
   const { mode, sources } = await searchMemory(run.owner_id, project, query, {
     limit,
     excerptBudget: limit * EXCERPT_CHARACTERS,
+    filterDatesBeforeRanking: true,
     kind,
     relevant: strict,
     conversation: run.conversation_id,
