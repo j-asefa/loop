@@ -48,6 +48,7 @@ const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
 const { AgentThreadMessagesQuery, AgentThreadDetail } =
   await import("../src/shared/agent-thread-feed.js");
 const { nativeSessions } = await import("../src/server/native-sessions.js");
+const { createTeam } = await import("../src/server/teams.js");
 const { invokeNative, nativeBindings } =
   await import("../src/server/native-tools.js");
 const { SteeringInbox } = await import("../src/server/steering.js");
@@ -735,7 +736,20 @@ it.each([
 
 it("withholds memory search from a local follow-up after Fleet mail", async () => {
   const local = agent(owner);
-  const received = await deliver(envelope(local.id));
+  const worker = agent(owner);
+  const team = createTeam(owner, {
+    name: "Fleet follow-up",
+    managerId: local.id,
+    members: [worker.id],
+  });
+  const incomingEnvelope = envelope(local.id);
+  const received = await deliver({
+    ...incomingEnvelope,
+    thread: {
+      ...incomingEnvelope.thread,
+      recipientConversationId: team.conversation_id!,
+    },
+  });
   if (received.admission.state !== "accepted")
     throw new Error("Expected accepted mail");
   const mail = row(received.admission.mailId);
@@ -750,6 +764,7 @@ it("withholds memory search from a local follow-up after Fleet mail", async () =
     input: "Find my saved notes",
     idempotencyKey: id(),
     personal: true,
+    teamId: team.id,
   });
   const running = claim(
     "local-after-fleet",
@@ -764,6 +779,22 @@ it("withholds memory search from a local follow-up after Fleet mail", async () =
   await expect(
     invokeNative(running, tool, "search", { query: "notes" }),
   ).rejects.toMatchObject({ status: 403 });
+
+  const delegate = nativeBindings(running).find(
+    (entry) => entry.tool === "loop_delegate",
+  )!;
+  const delegated = await invokeNative(running, delegate, "fleet-child", {
+    tasks: [{ agentId: worker.id, input: "Find saved notes" }],
+    wait: false,
+  });
+  if (!("result" in delegated))
+    throw new Error("Expected background delegation");
+  const childId = JSON.parse(delegated.result.content[0].text).delegated[0]
+    .runId;
+  const child = ownedRun(childId, owner);
+  expect(nativeBindings(child).some((entry) => entry.tool === tool.tool)).toBe(
+    false,
+  );
 
   const recipient = agent(owner);
   const target = submit(owner, {

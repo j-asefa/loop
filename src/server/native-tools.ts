@@ -1,6 +1,7 @@
 import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as nativeCallsQueries from "./sql/native-calls.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as approvalsQueries from "./sql/approvals.js";
@@ -685,6 +686,13 @@ export async function invokeNative(
           );
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Manager is no longer running");
+        const fleetOrigins = run.conversation_id
+          ? fleetEffectsQueries.conversationMailRuns(
+              db,
+              run.owner_id,
+              run.conversation_id,
+            )
+          : [];
         return tasks.map((task, i) => {
           const parent = run.payload;
           const child = submit(run.owner_id, {
@@ -695,6 +703,9 @@ export async function invokeNative(
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
           inheritEffect(run.owner_id, "run", run.id, child.id);
+          for (const origin of fleetOrigins)
+            if (origin !== run.id)
+              inheritEffect(run.owner_id, "run", origin, child.id);
           delegationsQueries.insert(
             db,
             run.id,
