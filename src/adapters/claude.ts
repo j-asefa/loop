@@ -76,7 +76,8 @@ export class Claude extends DirectAdapter implements Adapter {
   // never re-create its item in a later run (that would move or overwrite
   // the earlier run's native row and misattribute the output), so such
   // events are ignored entirely. Ids are harvested at each turn's result
-  // and bounded so the set stays small for the adapter's lifetime.
+  // and kept for the adapter's lifetime — they are ids only, and evicting
+  // one would let a late event treat a completed stream as new.
   private priorChildIds = new Set<string>();
   // Last-known text per child item id for the current (or upcoming) turn:
   // the full assistant message (written whether a turn is open or not) plus
@@ -351,12 +352,12 @@ export class Claude extends DirectAdapter implements Adapter {
   async prompt(text: string, beforeDispatch?: () => void) {
     beforeDispatch?.();
     this.interrupted = false;
-    // A new user turn clears the previous turn's child ids so a delayed
-    // child delta re-establishes its commentary item in the fresh projector
-    // window instead of leaving a phase-less fragment. Mid-turn steering
-    // follow-ups also call prompt() while a turn is active; they must keep
-    // the ids so their deltas still merge into the open items.
-    if (!this.active) this.childItems.clear();
+    // childItems is kept across prompt(): an id folded or established for
+    // this cycle stays known, so a post-prompt delta for it merges into its
+    // retained commentary item instead of re-establishing an empty one over
+    // it (which could erase the retained text after cache eviction). The
+    // set is cleared at the turn's result, and late events for prior-turn
+    // ids are dropped, so keeping it cannot leave a phase-less fragment.
     this.active = true;
     await this.native.write({
       type: "user",
@@ -598,7 +599,10 @@ export class Claude extends DirectAdapter implements Adapter {
           // commentary item carrying the accumulated seed: the item is
           // never phase-less and its text preserves the stream (including
           // an evicted seed's id — the item then carries the fragment, not
-          // an empty seed). No separate delta is emitted here.
+          // an empty seed). No separate delta is emitted here. The id is
+          // remembered so a post-prompt delta merges into this item instead
+          // of re-establishing an empty one over it.
+          this.childItems.add(id);
           this.rememberChildText(
             id,
             (this.childText.get(id) ?? "") + e.delta.text,
@@ -669,14 +673,15 @@ export class Claude extends DirectAdapter implements Adapter {
         .filter((b: any) => b.type === "text")
         .map((b: any) => b.text)
         .join("\n");
-      if (text) {
+      // A child stream whose turn completed is frozen: a late assistant
+      // message for it must not re-create its item, but its tool updates are
+      // still emitted below so the trace keeps the tool arguments.
+      const frozen =
+        m.parent_tool_use_id && this.priorChildIds.has(m.message.id);
+      if (text && !frozen) {
         // Remember the emitted id and its text so a later delta merges into
-        // this item instead of establishing an empty one that replaces it,
-        // even when the delta arrives in a later turn. A child stream whose
-        // turn completed is frozen: ignore late assistant messages for it so
-        // its recorded history stays as it is.
+        // this item instead of establishing an empty one that replaces it.
         if (m.parent_tool_use_id) {
-          if (this.priorChildIds.has(m.message.id)) return;
           this.childItems.add(m.message.id);
           this.rememberChildText(m.message.id, text);
         }
@@ -736,12 +741,11 @@ export class Claude extends DirectAdapter implements Adapter {
       this.active = false;
       // The turn's child streams are now complete; freeze their ids so late
       // events for them cannot move or overwrite this run's native history.
+      // The set is ids-only and kept for the adapter's lifetime: evicting an
+      // id would let a late event treat a completed stream as new and
+      // overwrite its recorded history.
       for (const id of this.childItems) this.priorChildIds.add(id);
       for (const id of this.childText.keys()) this.priorChildIds.add(id);
-      while (this.priorChildIds.size > 4096) {
-        const oldest = this.priorChildIds.keys().next().value!;
-        this.priorChildIds.delete(oldest);
-      }
       this.messageIds.clear();
       this.childItems.clear();
       this.childText.clear();

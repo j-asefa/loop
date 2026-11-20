@@ -711,7 +711,7 @@ it("bounds the child text cache by entry count even for empty-text streams", asy
   await sessions.close();
 });
 
-it("still establishes a commentary item when a post-prompt delta's recall seed was lost", async () => {
+it("does not erase a recall item's text when its seed is evicted before a later delta", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-seed-lost");
   const current = start(sessions, "claude-seed-lost-generation", run);
@@ -735,12 +735,14 @@ it("still establishes a commentary item when a post-prompt delta's recall seed w
   adapter.native = { write: async () => undefined };
   const send = (m: any) =>
     adapter.message({ session_id: "claude-seed-lost", ...m });
-  // Turn 1 ends; the child's full message arrives while no turn is open.
+  // Turn 1 ends; the next run attaches and, during recall, the child's full
+  // message is retained in this run's window.
   adapter.message({
     type: "result",
     session_id: "claude-seed-lost",
     is_error: false,
   });
+  sessions.state.startTurn(current.live, turn("conv", "claude-seed-lost-2"));
   send({
     type: "assistant",
     parent_tool_use_id: "task-1",
@@ -750,11 +752,10 @@ it("still establishes a commentary item when a post-prompt delta's recall seed w
       content: [{ type: "text", text: "Retained text" }],
     },
   });
-  // The recall seed is missing for this id (as after extreme cache
-  // pressure); the id is also not in the new turn's cleared item window.
+  // The recall seed is evicted here (as after extreme cache pressure), but
+  // the retained commentary item in this run's window still holds the text.
   adapter.childText.delete("child-seed-lost");
   await adapter.prompt("next");
-  sessions.state.startTurn(current.live, turn("conv", "claude-seed-lost-2"));
   emitted.length = 0;
   send({
     type: "stream_event",
@@ -769,24 +770,16 @@ it("still establishes a commentary item when a post-prompt delta's recall seed w
       delta: { type: "text_delta", text: " more" },
     },
   });
-  // The delta is still preceded by a commentary item, so the fresh window's
-  // item is never phase-less and cannot become the new run's answer.
+  // The delta merges into the retained commentary item (no empty item is
+  // re-established over its text), so the later fragment appends and the
+  // item stays commentary.
   expect(emitted).toEqual([
-    {
-      type: "item",
-      item: {
-        id: "child-seed-lost",
-        kind: "assistant",
-        text: "",
-        phase: "commentary",
-      },
-    },
     { type: "delta", id: "child-seed-lost", text: " more" },
   ]);
   expect(current.live.items.get("child-seed-lost")).toEqual({
     id: "child-seed-lost",
     kind: "assistant",
-    text: " more",
+    text: "Retained text more",
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
@@ -1031,6 +1024,172 @@ it("keeps between-run child deltas commentary even across a window reset", async
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("drops late events for a completed child stream even after thousands of other ids", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-prior-many");
+  const current = start(sessions, "claude-prior-many-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-prior-many",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-prior-many", ...m });
+  // One turn completes thousands of child streams; the first id must stay
+  // frozen no matter how many others complete after it.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-first",
+      role: "assistant",
+      content: [{ type: "text", text: "First child text" }],
+    },
+  });
+  for (let i = 0; i < 6005; i++)
+    send({
+      type: "assistant",
+      parent_tool_use_id: "task-" + (2 + i),
+      message: {
+        id: "overflow-" + i,
+        role: "assistant",
+        content: [{ type: "text", text: "x" }],
+      },
+    });
+  adapter.message({
+    type: "result",
+    session_id: "claude-prior-many",
+    is_error: false,
+  });
+  await adapter.prompt("next");
+  sessions.state.startTurn(current.live, turn("conv", "claude-prior-many-2"));
+  emitted.length = 0;
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-first" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " late" },
+    },
+  });
+  // The completed stream stays frozen — its id is never evicted from the
+  // prior-id set, so the late delta cannot re-create or overwrite it.
+  expect(
+    emitted.filter((e) => e.type === "item" || e.type === "delta"),
+  ).toEqual([]);
+  expect(current.live.items.get("child-first")).toBeUndefined();
+  expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
+});
+
+it("still emits a frozen child frame's tool update while suppressing its text", async () => {
+  const conversation = "claude-frozen-tool";
+  seedConversation(db, {
+    id: conversation,
+    owner_id: "owner",
+    title: "t",
+    created_at: 0,
+  });
+  db.prepare(
+    "INSERT INTO companion_sessions(worktree_agent_id,conversation_id,harness,project,updated_at) VALUES('fixture-agent',?,'codex',?,0)",
+  ).run(conversation, dir);
+  const sessions = new NativeSessions();
+  const run = turn(conversation, "claude-frozen-tool");
+  const current = start(
+    sessions,
+    "claude-frozen-tool-generation",
+    run,
+    conversation,
+  );
+  sessions.state.startTurn(current.live, run);
+  const emitted: AdapterEvent[] = [];
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-frozen-tool",
+    },
+    (e) => {
+      emitted.push(e);
+      current.emit(e);
+    },
+  ) as any;
+  adapter.active = true;
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-frozen-tool", ...m });
+  // Turn 1 records the completed stream; a late frame re-emits it WITH a
+  // tool_use block alongside its text.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-tool",
+      role: "assistant",
+      content: [{ type: "text", text: "Late text" }],
+    },
+  });
+  adapter.message({
+    type: "result",
+    session_id: "claude-frozen-tool",
+    is_error: false,
+  });
+  emitted.length = 0;
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-tool",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Late text again" },
+        {
+          type: "tool_use",
+          id: "tool-late",
+          name: "Read",
+          input: { file_path: "README.md" },
+        },
+      ],
+    },
+  });
+  // The frozen stream's text item is suppressed, but the frame's tool_use
+  // still yields its running item so the trace keeps the tool arguments.
+  expect(
+    emitted.filter((e) => e.type === "item" && e.item.kind === "assistant"),
+  ).toEqual([]);
+  expect(emitted).toContainEqual({
+    type: "item",
+    item: {
+      id: "tool-late",
+      kind: "tool",
+      title: "Read",
+      text: JSON.stringify({ file_path: "README.md" }, null, 2),
+      status: "running",
+    },
+  });
   await sessions.close();
 });
 
