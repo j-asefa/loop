@@ -906,6 +906,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     const expression = unwrap(node);
     if (expression?.type === "Literal" && expression.regex) return "object";
     if (
+      expression?.type === "LogicalExpression" &&
+      expression.operator === "&&"
+    )
+      return connectionKind(expression.right);
+    if (
       expression?.type === "CallExpression" &&
       expression.callee.name === "RegExp" &&
       !declaringScope("RegExp", expression.callee)
@@ -941,7 +946,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "connection";
     if (returnedObject(expression)) return "object";
     if (expression?.type === "MemberExpression") {
-      const result = returnedObject(unwrap(expression.object));
+      const object = unwrap(expression.object);
+      if (isAggregate(object)) {
+        const key = property(expression);
+        return key === undefined
+          ? undefined
+          : propertySource(object, String(key)).binding;
+      }
+      const result = returnedObject(object);
       if (result)
         return receiverBinding(result, `result.${property(expression)}`);
     }
@@ -964,10 +976,25 @@ function sqlCallLines(file: string, text: string, script = false) {
     const databaseName = name === "db" || name.endsWith(".db");
     if (databaseName && !script) return "connection";
     if (expression.type === "Identifier") {
-      const write = straightLineWrites
-        .get(scopeOf(expression))
-        ?.get(name)
-        ?.findLast((assignment) => assignment.end <= expression.start);
+      const owner = declaringScope(name, expression);
+      let write: any;
+      for (
+        let scope: Scope | undefined = scopeOf(expression);
+        scope;
+        scope = scope.parent
+      ) {
+        const candidate = straightLineWrites
+          .get(scope)
+          ?.get(name)
+          ?.findLast(
+            (assignment) =>
+              assignment.end <= expression.start &&
+              declaringScope(name, assignment) === owner,
+          );
+        if (candidate && (!write || candidate.end > write.end))
+          write = candidate;
+        if (scope === owner || scope.boundary === "function") break;
+      }
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const value = unwrap(
           write.type === "VariableDeclarator" ? write.init : write.right,
@@ -977,7 +1004,6 @@ function sqlCallLines(file: string, text: string, script = false) {
           ((value?.type === "Identifier" || value?.type === "CallExpression") &&
             connectionKind(value) === "object")
         ) {
-          const owner = declaringScope(name, expression);
           const fn = boundaryScope(expression, "function");
           const mayReach = assignmentsByName
             .get(name)
@@ -2438,6 +2464,21 @@ it("follows forwarded factory results and named arrays passed through apply", ()
     execute.apply(null, args);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6]);
+});
+
+it("resolves inline fields and guarded SQLite aliases and respects enclosing block writes", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import { db } from "../src/server/db.js";
+    let handle = new SQLite(":memory:");
+    { handle.exec(migrationText); }
+    handle = { exec: runCommand };
+    { handle.exec(command); }
+    ({ connection: new SQLite(":memory:") }).connection.exec("BEGIN");
+    const connection = enabled && db;
+    if (connection) connection.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 8, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
