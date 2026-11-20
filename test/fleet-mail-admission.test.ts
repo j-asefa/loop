@@ -21,6 +21,7 @@ import {
   fleetAgentAddress,
 } from "../src/shared/fleet-mail.js";
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
+import { ContinueInput } from "../src/shared/library-contract-schemas.js";
 import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-admission-"));
@@ -32,7 +33,11 @@ const { createAgent, ownedRun } = await import("../src/server/domain.js");
 const { readRunFile } = await import("../src/server/uploads.js");
 const { sharedMailFiles } = await import("../src/server/agent-mail-files.js");
 const { personalFiles } = await import("../src/server/personal-files.js");
-const { captureMemory } = await import("../src/server/memory.js");
+const { captureMemory, recallForRun } = await import("../src/server/memory.js");
+const { forkConversation } =
+  await import("../src/server/mobile-return/forking.js");
+const { continueConversation } =
+  await import("../src/server/conversation-continuations.js");
 const { executeAgent, submit } = await import("../src/server/agent-runtime.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const {
@@ -733,6 +738,57 @@ it.each([
     }
   },
 );
+
+it("preserves Fleet memory restrictions when mail context is copied", async () => {
+  const local = agent(owner);
+  const received = await deliver(envelope(local.id));
+  if (received.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const mail = row(received.admission.mailId);
+  const incoming = claim(
+    "fleet-before-copy",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  transition(incoming, "completed");
+  const userMessage = db.prepare(
+    "SELECT id FROM messages WHERE conversation_id=? AND run_id=? AND role='user'",
+  );
+  const original = userMessage.get(incoming.conversation_id, incoming.id) as {
+    id: string;
+  };
+  const fork = forkConversation(owner, incoming.conversation_id!, {
+    messageId: original.id,
+  });
+  const copied = db
+    .prepare(
+      "SELECT id,run_id FROM messages WHERE conversation_id=? AND role='user'",
+    )
+    .get(fork.id) as { id: string; run_id: null };
+  expect(copied.run_id).toBeNull();
+  const forkTurn = submit(owner, {
+    agentId: local.id,
+    conversationId: fork.id,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const continuation = continueConversation(
+    owner,
+    fork.id,
+    ContinueInput.parse({
+      agentId: local.id,
+      messageIds: [copied.id],
+      start: { input: "Find my saved notes", idempotencyKey: id() },
+    }),
+  );
+  for (const runId of [forkTurn.id, continuation.runId]) {
+    const run = ownedRun(runId, owner);
+    expect(
+      nativeBindings(run).some((entry) => entry.tool === "loop_memory_search"),
+    ).toBe(false);
+    expect((await recallForRun(run, null)).text).toBeFalsy();
+  }
+});
 
 it("withholds memory search from a local follow-up after Fleet mail", async () => {
   const local = agent(owner);

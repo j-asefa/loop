@@ -101,8 +101,18 @@ export function hasMailAuthority(
   return mailAuthorityStatement(db).get({ owner, effect, kind }) !== undefined;
 }
 
-const conversationMailAuthoritySql = `FROM runs r
-   WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND EXISTS (
+// Forks and continuations preserve source conversation IDs on copied messages.
+// Follow their owner-scoped provenance, including copies of copies.
+const conversationSourcesSql = `WITH RECURSIVE sources(id) AS (
+  SELECT @conversation
+  UNION
+  SELECT json_extract(m.metadata,'$.sourceConversation')
+  FROM sources s JOIN messages m ON m.conversation_id=s.id AND m.owner_id=@owner
+  WHERE m.run_id IS NULL AND json_type(m.metadata,'$.sourceConversation')='text'
+)`;
+const conversationMailAuthoritySql = `FROM sources s
+   JOIN runs r ON r.conversation_id=s.id AND r.owner_id=@owner
+   WHERE EXISTS (
      SELECT 1 FROM fleet_effect_authorizations g
      WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
        AND json_extract(g.grant_context,'$.operation')='mail'
@@ -112,7 +122,7 @@ const conversationMailAuthoritySql = `FROM runs r
        AND json_extract(g.grant_context,'$.operation')='mail'
    )`;
 const conversationMailAuthorityStatement = statement(
-  `SELECT 1 ${conversationMailAuthoritySql} LIMIT 1`,
+  `${conversationSourcesSql} SELECT 1 ${conversationMailAuthoritySql} LIMIT 1`,
 );
 export function conversationHasMailAuthority(
   db: Database.Database,
@@ -126,7 +136,7 @@ export function conversationHasMailAuthority(
 }
 
 const conversationMailRunsStatement = statement(
-  `SELECT r.id ${conversationMailAuthoritySql}`,
+  `${conversationSourcesSql} SELECT r.id ${conversationMailAuthoritySql}`,
 );
 const conversationMailRunRow = QueryRecords.runs.pick({ id: true });
 /** Runs whose persisted authority constrains relayed mail from this conversation. */
