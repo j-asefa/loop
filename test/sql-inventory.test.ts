@@ -999,11 +999,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         const value = unwrap(
           write.type === "VariableDeclarator" ? write.init : write.right,
         );
-        if (
-          isAggregate(value) ||
-          ((value?.type === "Identifier" || value?.type === "CallExpression") &&
-            connectionKind(value) === "object")
-        ) {
+        if (isAggregate(value) || connectionKind(value) === "object") {
           const fn = boundaryScope(expression, "function");
           const mayReach = assignmentsByName
             .get(name)
@@ -1327,7 +1323,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       const kind = connectionKind(value);
       if (
         kind === "object" &&
-        (value.type === "Identifier" || returnedObject(value))
+        (value.type === "Identifier" ||
+          fixtureCall(value) ||
+          returnedObject(value))
       ) {
         let result = returnedObjects.get(fn);
         if (!result) {
@@ -2479,6 +2477,21 @@ it("resolves inline fields and guarded SQLite aliases and respects enclosing blo
     if (connection) connection.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 8, 10]);
+});
+
+it("follows wrapped design fixtures and stops classifying handles replaced by regexes", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import { designFixture } from "./helpers/design-fixture.mjs";
+    const makeFixture = () => designFixture();
+    const fixture = await makeFixture();
+    fixture.db.exec(migrationText);
+    let handle = db;
+    handle.exec(migrationText);
+    handle = new RegExp("^SELECT");
+    handle.exec("SELECT 1");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
