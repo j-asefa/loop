@@ -223,6 +223,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   const bindingOf = (name: string, node: any) =>
     declaringScope(name, node)?.bindings.get(name);
   const straightLineWrites = new Map<Scope, Map<string, any[]>>();
+  const assignmentsByName = new Map<string, any[]>();
   if (script) {
     for (const node of nodes) {
       const declaration = node.type === "VariableDeclarator";
@@ -232,6 +233,11 @@ function sqlCallLines(file: string, text: string, script = false) {
         target?.type !== "Identifier"
       )
         continue;
+      if (!declaration && node.operator === "=") {
+        const writes = assignmentsByName.get(target.name) ?? [];
+        writes.push(node);
+        assignmentsByName.set(target.name, writes);
+      }
       const statement = parents.get(node);
       const block = parents.get(statement);
       if (
@@ -286,7 +292,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (context) return context;
       }
       const explicit = explicitReceiverScopes.get(cursor);
-      return explicit ? { scope: explicit, static: false } : undefined;
+      if (explicit || !script)
+        return { scope: explicit ?? scopeOf(cursor), static: false };
+      return undefined;
     }
     return undefined;
   };
@@ -859,6 +867,12 @@ function sqlCallLines(file: string, text: string, script = false) {
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
     if (expression?.type === "Literal" && expression.regex) return "object";
+    if (
+      expression?.type === "CallExpression" &&
+      expression.callee.name === "RegExp" &&
+      !declaringScope("RegExp", expression.callee)
+    )
+      return "object";
     const conditional = expression?.type === "ConditionalExpression";
     const fallback =
       expression?.type === "LogicalExpression" &&
@@ -918,8 +932,22 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (
           isAggregate(value) ||
           (value?.type === "Identifier" && connectionKind(value) === "object")
-        )
+        ) {
+          const owner = declaringScope(name, expression);
+          const fn = boundaryScope(expression, "function");
+          const mayReach = assignmentsByName
+            .get(name)
+            ?.some(
+              (assignment) =>
+                assignment.start >= write.end &&
+                assignment.end <= expression.start &&
+                declaringScope(name, assignment) === owner &&
+                boundaryScope(assignment, "function") === fn &&
+                connectionKind(assignment.right) === "connection",
+            );
+          if (mayReach) return "connection";
           return "object";
+        }
       }
     }
     if (expression.type === "MemberExpression") {
@@ -1108,6 +1136,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     trackMethod(scope, name, sqliteMethod(value));
     if (!binding) return;
     if (binding === "object") {
+      if (value?.type === "ConditionalExpression") {
+        for (const branch of [value.consequent, value.alternate]) {
+          const source = unwrap(branch);
+          if (connectionKind(source) === "object")
+            trackBinding(scope, name, "object", source, spread);
+        }
+      }
       const returned = returnedObject(value);
       const original = receiver(value);
       const path =
@@ -2284,6 +2319,29 @@ it("detects ordinary method receivers and computed keys without using later writ
 `;
   expect(sqlCallLines("probe.ts", text)).toContain(4);
   expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 10, 15]);
+});
+
+it("detects constructor receivers and conditional SQLite bindings while excluding RegExp calls", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    function Store() { this.connection = db; this.connection.exec(migrationText); }
+    new Store();
+    const primary = { db };
+    const scratch = { db };
+    const fixture = flag ? primary : scratch;
+    fixture.db.exec(migrationText);
+    let handle = { exec: runCommand };
+    handle.exec(command);
+    if (flag) handle = db;
+    handle.exec(migrationText);
+    let other = { exec: runCommand };
+    if (flag) { other = db; }
+    other.exec(migrationText);
+    const pattern = RegExp("^SELECT");
+    pattern.exec("SELECT 1");
+`;
+  expect(sqlCallLines("probe.ts", text)).toContain(3);
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([8, 12, 15]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
