@@ -263,7 +263,7 @@ it("records native turn tokens through adapter ingress without replay or cross-t
   expect(() => conversationUsage("intruder", "conv")).toThrow();
 });
 
-it("records Claude result usage including cached inputs, excluding foreign results", () => {
+it("records Claude result usage including cached inputs, excluding foreign results", async () => {
   const run = turn("conv", "usage-claude");
   const sessions = new NativeSessions();
   const current = start(sessions, "usage-claude-generation", run);
@@ -305,6 +305,7 @@ it("records Claude result usage including cached inputs, excluding foreign resul
     output_tokens: 20,
     cache_read_tokens: 50,
   });
+  await sessions.close();
 });
 
 // The projector picks the last non-commentary assistant item with text as a
@@ -315,7 +316,7 @@ const retainedAnswer = (live: Live) =>
     (i) => i.kind === "assistant" && i.phase !== "commentary" && i.text.trim(),
   );
 
-it("marks Claude child-session assistant messages as commentary so they cannot become the run's answer", () => {
+it("marks Claude child-session assistant messages as commentary so they cannot become the run's answer", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-child-commentary");
   const current = start(sessions, "claude-child-generation", run);
@@ -365,9 +366,10 @@ it("marks Claude child-session assistant messages as commentary so they cannot b
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)?.id).toBe("parent-msg");
+  await sessions.close();
 });
 
-it("establishes a commentary item before a child stream's first delta", () => {
+it("establishes a commentary item before a child stream's first delta", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-child-delta");
   const current = start(sessions, "claude-child-delta-generation", run);
@@ -408,9 +410,10 @@ it("establishes a commentary item before a child stream's first delta", () => {
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
-it("merges a child delta into an earlier child assistant message instead of replacing its text", () => {
+it("merges a child delta into an earlier child assistant message instead of replacing its text", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-child-late-delta");
   const current = start(sessions, "claude-child-late-delta-generation", run);
@@ -461,6 +464,7 @@ it("merges a child delta into an earlier child assistant message instead of repl
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("keeps a delayed child stream delta commentary across turn boundaries", async () => {
@@ -534,6 +538,7 @@ it("keeps a delayed child stream delta commentary across turn boundaries", async
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("does not overwrite a recall-window child message with a later delta's empty item", async () => {
@@ -607,9 +612,10 @@ it("does not overwrite a recall-window child message with a later delta's empty 
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
-it("caps a single recall stream's cached seed at the display limit", () => {
+it("caps a single recall stream's cached seed at the display limit", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-cache-cap");
   const current = start(sessions, "claude-cache-cap-generation", run);
@@ -651,9 +657,10 @@ it("caps a single recall stream's cached seed at the display limit", () => {
   const stored = adapter.childText.get("child-big") as string;
   expect(Buffer.byteLength(stored)).toBeLessThanOrEqual(64000);
   expect(stored.endsWith("x".repeat(1000))).toBe(true);
+  await sessions.close();
 });
 
-it("bounds the child text cache so a long session cannot accumulate child output", () => {
+it("bounds the child text cache so a long session cannot accumulate child output", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-cache-bound");
   const current = start(sessions, "claude-cache-bound-generation", run);
@@ -676,9 +683,10 @@ it("bounds the child text cache so a long session cannot accumulate child output
   expect(adapter.childText.has("bound-0")).toBe(false);
   expect(adapter.childText.size).toBeLessThanOrEqual(66);
   expect(adapter.childTextBytes).toBeLessThanOrEqual(4 * 1024 * 1024 + 64000);
+  await sessions.close();
 });
 
-it("bounds the child text cache by entry count even for empty-text streams", () => {
+it("bounds the child text cache by entry count even for empty-text streams", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-cache-count");
   const current = start(sessions, "claude-cache-count-generation", run);
@@ -698,6 +706,7 @@ it("bounds the child text cache by entry count even for empty-text streams", () 
   // never moves, so eviction must also bound the entry count.
   for (let i = 0; i < 600; i++) adapter.rememberChildText("empty-" + i, "");
   expect(adapter.childText.size).toBeLessThanOrEqual(512);
+  await sessions.close();
 });
 
 it("still establishes a commentary item when a post-prompt delta's recall seed was lost", async () => {
@@ -779,6 +788,7 @@ it("still establishes a commentary item when a post-prompt delta's recall seed w
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("keeps an active-turn child message's text when a delayed delta arrives in the next turn", async () => {
@@ -845,6 +855,7 @@ it("keeps an active-turn child message's text when a delayed delta arrives in th
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("keeps an active-turn child stream's text when a delayed delta arrives in the next turn", async () => {
@@ -911,6 +922,7 @@ it("keeps an active-turn child stream's text when a delayed delta arrives in the
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("marks a delta-only child stream commentary when it arrives during recall", async () => {
@@ -961,6 +973,7 @@ it("marks a delta-only child stream commentary when it arrives during recall", a
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 it("keeps between-run child deltas commentary even across a window reset", async () => {
@@ -1024,6 +1037,7 @@ it("keeps between-run child deltas commentary even across a window reset", async
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
+  await sessions.close();
 });
 
 const option = (id: string, confirmed: string) => ({
