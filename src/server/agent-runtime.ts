@@ -2,6 +2,7 @@ import {
   assertMemoryContext,
   assertCompatibleMemoryContext,
   recallForRun,
+  recordedRecallNonce,
   withoutRecall,
   type Recall,
 } from "./memory.js";
@@ -922,7 +923,10 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             bindings,
             // Recalled evidence is not part of what the owner wrote: PR
             // links in it must not become the latest message's context.
-            withoutRecall(history.findLast((m) => m.role === "user")?.content),
+            withoutRecall(
+              history.findLast((m) => m.role === "user")?.content,
+              recordedRecallNonce(run.id),
+            ),
           ),
           messages: structuredClone(providerHistory.messages),
           signal: AbortSignal.any([signal, generation.signal]),

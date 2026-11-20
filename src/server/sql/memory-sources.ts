@@ -8,15 +8,14 @@ import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 import { WORKSPACE_MCP_SERVER } from "../../shared/workspace-tools.js";
 
-const externalEvidenceStatement = statement(
-  `SELECT 1 AS matched
-    FROM memory_sources s
-    LEFT JOIN artifacts a ON s.kind='artifact' AND a.id=s.source_id
-      AND a.owner_id=s.owner_id AND a.role='answer'
-    LEFT JOIN messages m ON s.kind='message' AND m.id=s.source_id
-      AND m.owner_id=s.owner_id AND m.role='assistant'
-    JOIN runs r ON r.id=COALESCE(a.run_id,m.run_id) AND r.owner_id=s.owner_id
-    WHERE s.id=@source AND s.owner_id=@owner AND (
+// Uses the current memory source alias s in the passage and document queries.
+export const externalEvidenceSql = `EXISTS(
+  SELECT 1 FROM runs r WHERE r.owner_id=s.owner_id
+    AND r.id=CASE s.kind
+      WHEN 'artifact' THEN (SELECT a.run_id FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND a.role='answer')
+      WHEN 'message' THEN (SELECT m.run_id FROM messages m WHERE m.id=s.source_id AND m.owner_id=s.owner_id AND m.role='assistant')
+    END
+    AND (
       EXISTS(SELECT 1 FROM native_calls n WHERE n.run_id=r.id
         AND n.tool='loop_feed' AND n.result IS NOT NULL)
       OR EXISTS(SELECT 1 FROM tool_invocations i WHERE i.run_id=r.id
@@ -26,11 +25,15 @@ const externalEvidenceStatement = statement(
         AND t.owner_id=r.owner_id AND t.kind='tool'
         AND (lower(replace(replace(t.title,'_',''),' ','')) IN
             ('websearch','webfetch','websearchexa','webfetchexa')
-          OR (t.title GLOB 'mcp__*__*' AND t.title NOT GLOB @workspacePrefix)
+          OR (t.title GLOB 'mcp__*__*' AND t.title NOT GLOB 'mcp__${WORKSPACE_MCP_SERVER}__*')
           OR (t.title='mcpToolCall'
             AND json_extract(CASE WHEN json_valid(t.content) THEN t.content ELSE '{}' END,'$.server')
-              NOT IN (@workspace,'__loop__'))))
-    )`,
+              NOT IN ('${WORKSPACE_MCP_SERVER}','__loop__'))))
+    )
+)`;
+
+const externalEvidenceStatement = statement(
+  `SELECT 1 FROM memory_sources s WHERE s.id=? AND s.owner_id=? AND ${externalEvidenceSql}`,
 );
 /** Recognize external content from recorded calls for this owner's answer. */
 export function hasExternalEvidence(
@@ -38,14 +41,7 @@ export function hasExternalEvidence(
   owner: string,
   source: string,
 ) {
-  return (
-    externalEvidenceStatement(db).get({
-      owner,
-      source,
-      workspace: WORKSPACE_MCP_SERVER,
-      workspacePrefix: `mcp__${WORKSPACE_MCP_SERVER}__*`,
-    }) !== undefined
-  );
+  return externalEvidenceStatement(db).get(source, owner) !== undefined;
 }
 
 const ownedStatement = statement(

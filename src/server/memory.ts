@@ -488,6 +488,7 @@ export async function searchMemory(
       filterBeforeRanking ? window : undefined,
       filterBeforeRanking ? conversation : null,
       filterBeforeRanking,
+      !includeExternal,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
@@ -507,6 +508,7 @@ export async function searchMemory(
             filterBeforeRanking ? window : undefined,
             filterBeforeRanking ? conversation : null,
             filterBeforeRanking,
+            !includeExternal,
           ),
         );
       }
@@ -840,18 +842,32 @@ const evidenceNonce = () => randomBytes(16).toString("hex");
  * lists exactly the sources it contains.
  */
 /** A turn's text without the evidence block recallForRun appended to it. */
-export function withoutRecall(text: string | undefined) {
+export function withoutRecall(
+  text: string | undefined,
+  expectedNonce?: string,
+) {
   if (text === undefined) return text;
   const nonce = text.match(
     /<\/loop-historical-evidence nonce="([a-f\d]{32})">$/,
   )?.[1];
   if (nonce) {
+    if (nonce !== expectedNonce) return text;
     const start = text.lastIndexOf(`\n\n<${EVIDENCE_TAG} nonce="${nonce}">\n`);
     return start < 0 ? text : text.slice(0, start);
   }
   if (!text.endsWith(`</${EVIDENCE_TAG}>`)) return text;
   const start = text.lastIndexOf(`\n\n<${EVIDENCE_TAG}>\n`);
   return start < 0 ? text : text.slice(0, start);
+}
+export function recordedRecallNonce(runId: string) {
+  const receipt = memoryReceiptsQueries.get(db, runId);
+  if (!receipt) return undefined;
+  const nonce = memoryReceiptsQueries
+    .parseSources(receipt.sources)
+    .find((source) => source.via === "push")?.evidenceNonce;
+  return typeof nonce === "string" && /^[a-f\d]{32}$/.test(nonce)
+    ? nonce
+    : undefined;
 }
 export type Recall = {
   /** The evidence block to append to the turn's input ("" for none). */
@@ -1247,16 +1263,7 @@ export async function recallForRun(
     reportBackgroundFailure("memory.recall", error);
     return noRecall;
   }
-  const originalReceipt = memoryReceiptsQueries.get(db, run.id);
-  const savedNonce =
-    originalReceipt &&
-    memoryReceiptsQueries
-      .parseSources(originalReceipt.sources)
-      .find((source) => source.via === "push")?.evidenceNonce;
-  const nonce =
-    typeof savedNonce === "string" && /^[a-f\d]{32}$/.test(savedNonce)
-      ? savedNonce
-      : evidenceNonce();
+  const nonce = recordedRecallNonce(run.id) ?? evidenceNonce();
   const { text, included } = evidenceBlock(recall.sources, nonce);
   if (!included.length) return noRecall;
   return {
@@ -1271,7 +1278,10 @@ export async function recallForRun(
       if (toolEntries.length && toolEntries.length !== saved.length) return;
       const pushed = included.map(({ excerpt, ...source }) => ({
         ...source,
-        ...(source.resultId && { suppliedText: markedExcerpt(excerpt, nonce) }),
+        ...(source.resultId && {
+          suppliedText: markedExcerpt(excerpt, nonce),
+          unmarkedExcerptLength: excerpt.length,
+        }),
         evidenceNonce: nonce,
         via: "push",
       }));
@@ -1405,6 +1415,7 @@ routes.on(workspaceApi.runMemory, (req, res) => {
                   providerCallId,
                   excerptTruncated: _truncated,
                   evidenceNonce: _nonce,
+                  unmarkedExcerptLength: _length,
                   ...source
                 }) =>
                   providerCallId ? { ...source, delivered: false } : source,
