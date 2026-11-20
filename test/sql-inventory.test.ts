@@ -171,6 +171,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     "SwitchStatement",
   ]);
   const fileScope: Scope = { bindings: new Map() };
+  const functionNodes = new Map<Scope, any>();
   const visit = (node: any, parent: Scope, syntaxParent?: any): void => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
@@ -192,6 +193,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       for (const declaration of node.declarations)
         varDeclarations.add(declaration);
     if (node.type) {
+      if (boundary === "function") functionNodes.set(scope, node);
       nodes.push(node);
       scopes.set(node, scope);
       parents.set(node, syntaxParent);
@@ -866,6 +868,16 @@ function sqlCallLines(file: string, text: string, script = false) {
       : memberReference(expression, (scope, key) => scope.instances?.get(key));
   const functionReference = (expression: any): any => {
     if (functionKinds.has(expression?.type)) return expression;
+    if (script && expression?.type === "Identifier") {
+      const name = expression.name;
+      const write = latestWrite(
+        expression,
+        name,
+        declaringScope(name, expression),
+      );
+      if (write?.operator === "=")
+        return functionReference(writtenSource(write, name).value);
+    }
     if (expression?.type === "MemberExpression") {
       const object = unwrap(expression.object);
       const cls = classReference(object);
@@ -950,8 +962,10 @@ function sqlCallLines(file: string, text: string, script = false) {
     expression: any,
     name: string,
     owner: Scope | undefined,
+    captured = false,
   ) => {
     let write: any;
+    let before = expression.start;
     for (
       let scope: Scope | undefined = scopeOf(expression);
       scope;
@@ -962,12 +976,30 @@ function sqlCallLines(file: string, text: string, script = false) {
         ?.get(name)
         ?.findLast(
           (assignment) =>
-            assignment.end <= expression.start &&
+            assignment.end <= before &&
             declaringScope(name.split(".")[0], assignment) === owner,
         );
       if (candidate && (!write || candidate.end > write.end)) write = candidate;
-      if (scope === owner || scope.boundary === "function") break;
+      if (scope === owner) break;
+      if (scope.boundary === "function") {
+        const fn = functionNodes.get(scope);
+        if (!captured || write || !fn || fn.type === "FunctionDeclaration")
+          break;
+        before = fn.start;
+      }
     }
+    if (
+      write &&
+      before < expression.start &&
+      assignmentsByName
+        .get(name)
+        ?.some(
+          ({ node }) =>
+            node.start >= write.end &&
+            declaringScope(name.split(".")[0], node) === owner,
+        )
+    )
+      return undefined;
     return write;
   };
   const latestParentWrite = (
@@ -1011,7 +1043,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   ): Binding | undefined => {
     if (!name.startsWith("this.")) {
       const owner = declaringScope(name.split(".")[0], expression);
-      const write = latestWrite(expression, name, owner);
+      const write = latestWrite(expression, name, owner, true);
       const { parentPaths, replacement, suffix } = latestParentWrite(
         expression,
         name,
@@ -2896,6 +2928,26 @@ it("tracks conditional literal fields, destructured methods and stored method ke
     db[methods.write]("BEGIN");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 9]);
+});
+
+it("follows reassigned wrappers and stable captured handle replacements", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let run = () => {};
+    run = (connection, sql) => connection.exec(sql);
+    run(db, query);
+    let handle = db;
+    handle.exec(query);
+    handle = { exec: runCommand };
+    const callback = () => handle.exec(command);
+    callback();
+    let other = db;
+    other = { exec: runCommand };
+    const maybeDatabase = () => other.exec(query);
+    if (flag) other = db;
+    maybeDatabase();
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 13]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
