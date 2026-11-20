@@ -92,9 +92,6 @@ export function checkDisplay(input: string): string {
   const source = displaySource(input);
   if (source.issue !== undefined)
     return [source.issue, "", reference].join("\n");
-  const display = readDisplaySpec(source.source, {
-    allSkippedLines: true,
-  });
   const issues: string[] = [];
   let remaining = DIAGNOSTIC_BUDGET;
   let omitted = 0;
@@ -106,6 +103,18 @@ export function checkDisplay(input: string): string {
     remaining -= issue.length + 1;
     issues.push(issue);
   };
+  const warnedRows = new Set<string>();
+  const display = readDisplaySpec(source.source, {
+    allSkippedLines: true,
+    onTableOverflow(key, row, cells, headers) {
+      const location = key + ":" + row;
+      if (warnedRows.has(location)) return;
+      warnedRows.add(location);
+      add(
+        `Element ${quotedDiagnostic(key)}: Table row ${row} has more cells (${cells}) than headers (${headers}). Add headers or remove the extra cells before publishing.`,
+      );
+    },
+  });
   for (const { line, reason } of display.skipped)
     add(`Line ${line}: ${reason}.`);
   if (display.ok) {

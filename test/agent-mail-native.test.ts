@@ -461,14 +461,16 @@ it.each([
         });
         expect(malformed.status).toBe(413);
         const client = new Client({ name: "display-fixture", version: "1" });
+        const transport = new StreamableHTTPClientTransport(
+          new URL(endpoint.url),
+          {
+            requestInit: {
+              headers: { Authorization: "Bearer " + endpoint.token },
+            },
+          },
+        );
         try {
-          await client.connect(
-            new StreamableHTTPClientTransport(new URL(endpoint.url), {
-              requestInit: {
-                headers: { Authorization: "Bearer " + endpoint.token },
-              },
-            }),
-          );
+          await client.connect(transport);
           expect((await client.listTools()).tools).toContainEqual(
             expect.objectContaining({ name: display.name }),
           );
@@ -478,6 +480,26 @@ it.each([
               arguments: display.arguments,
             }),
           ).toMatchObject(validResult);
+          const longId = await fetch(endpoint.url, {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + endpoint.token,
+              Accept: "application/json, text/event-stream",
+              "Content-Type": "application/json",
+              "Mcp-Session-Id": transport.sessionId!,
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "x".repeat(200),
+              method: "tools/call",
+              params: { name: display.name, arguments: display.arguments },
+            }),
+          });
+          expect(await longId.json()).toMatchObject({
+            error: {
+              message: expect.stringContaining("request ID is too long"),
+            },
+          });
         } finally {
           await client.close();
         }

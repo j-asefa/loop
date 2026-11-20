@@ -490,6 +490,18 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call(chart([10, 20]))).toContain(
     'Element "card": Chart series "Visits" has more values (2) than categories (1).',
   );
+  const table = (rows: number[][]) =>
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: { type: "Table", props: { headers: ["Amount"], rows } },
+    });
+  expect(await call(table([[], [10]]))).toContain("Display valid.");
+  expect(await call(table([[10], [20, 30]]))).toContain(
+    'Element "card": Table row 2 has more cells (2) than headers (1).',
+  );
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),
   ).resolves.toMatchObject({

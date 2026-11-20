@@ -25,6 +25,7 @@ import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
 
 const TOOL_BODY_LIMIT = 128_000;
+const TOOL_REQUEST_ID_LIMIT = 200;
 // A display's character budget can produce a much larger UTF-8 JSON request.
 const DISPLAY_CHECK_BODY_LIMIT = 512 * 1024;
 
@@ -121,6 +122,8 @@ export class NativeToolBridge {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ) {
+    if (requestId.length >= TOOL_REQUEST_ID_LIMIT)
+      throw new Error("Native tool request ID is too long");
     const live = nativeSessions.current(t.conversation, t.generation);
     const run = live.run!;
     const binding = t.bindings.get(name);
@@ -315,7 +318,7 @@ export class NativeToolBridge {
             ? this.list(t)
             : body.method === "tools/call" &&
                 typeof body.id === "string" &&
-                body.id.length < 200 &&
+                body.id.length < TOOL_REQUEST_ID_LIMIT &&
                 typeof body.name === "string"
               ? await this.call(t, body.id, body.name, body.arguments || {})
               : null;
