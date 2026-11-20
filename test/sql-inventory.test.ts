@@ -330,6 +330,16 @@ function sqlCallLines(file: string, text: string, script = false) {
       node?.type === "TSSatisfiesExpression"
     )
       node = node.type === "AwaitExpression" ? node.argument : node.expression;
+    if (
+      script &&
+      node?.type === "CallExpression" &&
+      node.callee.type === "MemberExpression" &&
+      node.callee.object.name === "Object" &&
+      property(node.callee) === "freeze" &&
+      !declaringScope("Object", node.callee.object) &&
+      node.arguments[0]?.type !== "SpreadElement"
+    )
+      return unwrap(node.arguments[0]);
     return node;
   };
   const importsSqlite = (node: any) => {
@@ -1110,6 +1120,15 @@ function sqlCallLines(file: string, text: string, script = false) {
         )
       : [];
   };
+  const indexedItem = (source: any, index: number): any => {
+    const array = staticArray(source);
+    if (!array || !Number.isInteger(index)) return undefined;
+    const pushes = precedingPushes(source);
+    const { values, complete } = staticArguments(
+      pushes.length ? array.concat(...pushes) : array,
+    );
+    return index >= 0 || complete ? values.at(index) : undefined;
+  };
   const reachesRead = (
     node: any,
     expression: any,
@@ -1210,19 +1229,13 @@ function sqlCallLines(file: string, text: string, script = false) {
       expression.callee.type === "MemberExpression" &&
       property(expression.callee) === "at"
     ) {
-      const array = staticArray(expression.callee.object);
       const argument = expression.arguments[0];
       const index =
         argument?.type === "UnaryExpression" && argument.operator === "-"
           ? -literalKey(argument.argument)
           : literalKey(argument);
-      if (array && Number.isInteger(index)) {
-        const pushes = precedingPushes(expression.callee.object);
-        const { values, complete } = staticArguments(
-          pushes.length ? array.concat(...pushes) : array,
-        );
-        if (index >= 0 || complete) return connectionKind(values.at(index));
-      }
+      const item = indexedItem(expression.callee.object, index);
+      if (item) return connectionKind(item);
     }
     if (expression?.type === "Literal" && expression.regex) return "object";
     if (
@@ -1267,6 +1280,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (returnedObject(expression)) return "object";
     if (expression?.type === "MemberExpression") {
       const object = unwrap(expression.object);
+      const index = property(expression);
+      if (script && /^(?:0|[1-9]\d*)$/.test(String(index))) {
+        const item = indexedItem(object, Number(index));
+        if (item) return connectionKind(item);
+      }
       if (isAggregate(object)) {
         const key = property(expression);
         return key === undefined
@@ -1484,6 +1502,14 @@ function sqlCallLines(file: string, text: string, script = false) {
         const target = bindings(write.left).find(
           (binding) => binding.name === name,
         );
+        for (const { node, key } of assignmentsByName.get(name) ?? []) {
+          if (!reachesRead(node, expression, name, owner, write.end)) continue;
+          const method = key
+            ? (destructuredMethod(node.right, key) ??
+              sqliteMethod(propertySource(node.right, key).value))
+            : sqliteMethod(unwrap(node.right));
+          if (method) return method;
+        }
         return (
           (target?.key
             ? destructuredMethod(write.right, target.key)
@@ -3298,6 +3324,22 @@ it("uses preceding array pushes for loops, callbacks and fixed index reads", () 
     for (const connection of handles) connection.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7, 8, 9]);
+});
+
+it("recognizes conditional method writes, appended bracket reads and frozen fixtures", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let execute = runCommand;
+    execute(command);
+    if (flag) execute = db.exec.bind(db);
+    execute("BEGIN");
+    const handles = [];
+    handles.push(db);
+    handles[0].exec("BEGIN");
+    const fixture = Object.freeze({ connection: db });
+    fixture.connection.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 9, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
