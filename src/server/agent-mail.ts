@@ -681,15 +681,23 @@ function dispatch(
             ),
         }
       : route(team!, recipient.id, thread, senderRun, preferParent);
+  const fleetOrigins = senderRun?.conversation_id
+    ? fleetEffectsQueries.conversationMailRuns(
+        db,
+        mail.owner_id,
+        senderRun.conversation_id,
+      )
+    : [];
   const fleetMail =
     sender.kind === "remote" ||
-    (mail.sender_run_id &&
+    fleetOrigins.length > 0 ||
+    (!!mail.sender_run_id &&
       fleetEffectsQueries.hasMailAuthority(
         db,
         mail.owner_id,
         mail.sender_run_id,
       ));
-  assertFleetMailDestination(mail.owner_id, routed.conversationId, !!fleetMail);
+  assertFleetMailDestination(mail.owner_id, routed.conversationId, fleetMail);
   const steer =
     mail.interrupt === 1 &&
     routed.active &&
@@ -768,6 +776,12 @@ function dispatch(
         steeringId,
         "steering",
       );
+  }
+  for (const origin of fleetOrigins) {
+    if (origin === mail.sender_run_id) continue;
+    inheritEffect(mail.owner_id, "run", origin, run.id);
+    if (typeof steeringId === "string")
+      inheritEffect(mail.owner_id, "run", origin, steeringId, "steering");
   }
   const busy = !!runsQueries.hasOtherActive(
     db,

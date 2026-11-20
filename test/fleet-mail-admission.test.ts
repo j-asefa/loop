@@ -764,6 +764,41 @@ it("withholds memory search from a local follow-up after Fleet mail", async () =
   await expect(
     invokeNative(running, tool, "search", { query: "notes" }),
   ).rejects.toMatchObject({ status: 403 });
+
+  const recipient = agent(owner);
+  const target = submit(owner, {
+    agentId: recipient.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    target.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(
+    sendMail(running, "blocked-relay", {
+      to: recipient.id,
+      body: "Follow up on the prior discussion",
+      scope: "direct",
+      conversationId: target.conversation_id,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  const cleanRecipient = agent(owner);
+  const relayed = sendMail(running, "clean-relay", {
+    to: cleanRecipient.id,
+    body: "Follow up on the prior discussion",
+    scope: "direct",
+  });
+  expect(relayed.delivery).toBe("new_turn");
+  const savedRelay = row(relayed.messageId);
+  const relayRun = ownedRun(savedRelay.run_id!, owner);
+  expect(
+    nativeBindings(relayRun).some((entry) => entry.tool === tool.tool),
+  ).toBe(false);
 });
 
 it("keeps a remote interrupt out of an active conversation with recorded memory", async () => {
