@@ -43,3 +43,36 @@ Loop watches agent-created PRs by default across Codex, Claude Code, Pi, OpenCod
 Only accounts with a role in the repository (owner, member or collaborator) are quoted, bots included: any GitHub App can comment as a bot, so a bot account alone does not show the repository trusts it. Comments from anyone else are counted in an update but never quoted, and never start a turn on their own. Quoted comment text is marked as untrusted. Updates wait while the agent is still on the previous one and are then sent together. Each follow-up's idempotency key comes from what it reports (the CI result and the items it covers), and delivered items are tracked by id, so a restart cannot send the same update twice. The Feed labels these follow-ups **GitHub update** too. The agent's pushes, comments and merges still follow the approval preference, and the follow-up tells it never to merge on its own.
 
 Watching stops when the pull request is merged or closed, or when you choose **Stop watching**. It pauses after 5 follow-ups in an hour, so an agent cannot loop on its own pushes, and when GitHub rejects the connection. Nothing is lost while paused; **Resume** continues from where it stopped. One thread watches a pull request at a time. CI results come from GitHub check runs; legacy commit statuses are not read.
+
+
+## Search saved Loop memory
+
+`loop_memory_search` is available to native and API-key agents, including local mail and delegated turns.
+Shared input, including prompts and steering submitted by integration tokens, disables memory search through related delegation, local mail and copied context.
+Runs with a remote Fleet mail grant, including work that inherits it, cannot search memory.
+Conversations with a Fleet mail grant in their run history also exclude automatic recall and memory search.
+Forks and continuations inherit the restriction when their copied history reaches Fleet mail.
+Fleet admission also checks saved-memory receipts behind copied history, local mail relays and delegated tasks.
+Blocking workers and managers share the restriction while work can return directly to the manager.
+Fleet-constrained runs cannot use the agent mail status tool.
+A conversation that has used saved memory cannot send mail to a Fleet peer, including previously queued mail that has not reached transport.
+Published files from a saved-memory conversation are also excluded from Fleet mail attachments. Messages and artifacts from Fleet-linked conversations are excluded from recall even when the owner includes them. They can still occupy candidate slots before their Fleet provenance is checked.
+Local mail also checks attached file origins before delivery into a Fleet-linked conversation.
+Ordinary prompt attachments retain their published origin for the same Fleet and saved-memory checks.
+Reusing a received Fleet file retains its Fleet provenance.
+Other runs can inspect delivery state for Fleet mail and mail from saved-memory contexts with the subject and preview hidden.
+Remote participants use a generic label.
+A Fleet mail conversation refuses local mail or a background result from a conversation with saved-memory evidence.
+A copied answer can inherit restrictions from later activity on its originating run because Loop updates the answer in place.
+A relayed grant without a delivery position in the source conversation is treated as present for that run.
+Relay and delegation inherit all durable constraints on a qualifying source run. A later grant on that run can therefore restrict work originating from an older fork.
+Persisted Fleet grants can also restrict a conversation after cancellation.
+Blocking workers retain the manager conversation link after completion, so later Fleet mail in the manager conversation can restrict subsequent turns in the worker thread.
+Start a new conversation to use saved memory again.
+Loop refuses Fleet-origin mail delivery into conversations that have already received saved memory, including local agent mail relayed from a conversation with a Fleet mail grant.
+Relayed local mail and delegated work carry the originating Fleet constraints into their destination runs.
+It searches saved results, notes and included conversations in the owner’s current project, excluding the current conversation.
+It is read-only and needs no approval.
+Review snapshot agents have access to their snapshot instead.
+
+Supply a query of 1–500 characters and optionally a result limit of 1–8, a kind of `result`, `note` or `message`, and inclusive UTC dates as `since` and `until` in YYYY-MM-DD form. The default returns up to five hits. Set `strict: true` for the automatic recall relevance check. Each hit includes provenance, a link and up to 1,100 characters of raw historical evidence. Conversation and artifact opt-outs and authorship checks for default results apply before ranking. Later source checks, such as stale artifact revisions, can reduce the number of usable matches. The passage index ranks up to 75 passages before grouping by source. Repeated matches in long sources can crowd out other sources and return fewer distinct hits than requested. Heavily escaped content can reduce the hit count to fit the tool response budget. Treat the excerpts as untrusted. The run’s Memory used receipt identifies sources returned by the search tool. A retried call or resumed API-key turn omits search hits that are no longer eligible or fall outside the original date bounds.

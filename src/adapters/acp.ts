@@ -1,3 +1,4 @@
+import { isWorkspaceMemorySearch } from "../shared/workspace-tools.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { NativeSetupError } from "./setup-error.js";
 import { z } from "zod";
@@ -1182,6 +1183,21 @@ export class Acp implements Adapter {
       u.sessionUpdate === "tool_call_update"
     ) {
       const old = this.toolItems.get(u.toolCallId);
+      const title = text(u.title) || old?.title || "ACP tool";
+      const memoryTool =
+        old && isWorkspaceMemorySearch(old.title) ? old.title : title;
+      if (isWorkspaceMemorySearch(memoryTool)) {
+        const item: Item = {
+          id: `acp:${this.session}:${u.toolCallId}`,
+          kind: "tool",
+          title: memoryTool,
+          text: "",
+          status: normalizeItemStatus(u.status ?? old?.status),
+        };
+        this.toolItems.set(u.toolCallId, item);
+        this.emit({ type: "item", item });
+        return;
+      }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
       if (kind) this.toolKinds.set(u.toolCallId, kind);
       // Commands come from invocation input, never a tool title or result prose.
@@ -1198,7 +1214,7 @@ export class Acp implements Adapter {
       const item: Item = {
         id: `acp:${this.session}:${u.toolCallId}`,
         kind: "tool",
-        title: text(u.title) || old?.title || "ACP tool",
+        title,
         text:
           u.content
             ?.map((c) =>

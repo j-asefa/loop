@@ -178,6 +178,7 @@ it("keeps native Loop MCP tool definitions compact so Antigravity loads them eag
       "loop_read_file",
       "loop_reply",
       "loop_feed",
+      "loop_memory_search",
     ]),
   );
   for (const [name, bytes] of Object.entries(byName)) {

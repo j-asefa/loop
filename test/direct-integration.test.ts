@@ -1,6 +1,7 @@
 import { ActivityKey } from "../src/shared/contract-ids.js";
 import { describe, it, expect } from "vitest";
 import { Codex } from "../src/adapters/codex";
+import { Acp } from "../src/adapters/acp";
 import { Claude } from "../src/adapters/claude";
 import { Muse } from "../src/adapters/muse";
 import { Pi } from "../src/adapters/pi";
@@ -131,6 +132,119 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
         replace: [{ text: "/fixture" }],
       },
     });
+  });
+  it("Pi emits memory search status without projecting the retrieved excerpt", () => {
+    const { adapter, events } = capture(Pi, "pi");
+    adapter.message({
+      type: "tool_execution_start",
+      toolCallId: "memory",
+      toolName: "loop_memory_search",
+      args: { query: "test" },
+    });
+    adapter.message({
+      type: "tool_execution_update",
+      toolCallId: "memory",
+      partialResult: { content: [{ type: "text", text: "Private excerpt" }] },
+    });
+    adapter.message({
+      type: "tool_execution_end",
+      toolCallId: "memory",
+      result: { content: [{ type: "text", text: "Private excerpt" }] },
+    });
+    expect(JSON.stringify(events)).not.toContain("Private excerpt");
+    expect(events.at(-1)).toMatchObject({
+      type: "item",
+      item: { text: "", status: "completed" },
+    });
+  });
+  it("Claude and OpenCode omit managed memory search results from projections", () => {
+    const claude = capture(Claude, "claude");
+    claude.adapter.message({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "m",
+            name: "mcp__loop_workspace__loop_memory_search",
+            input: { query: "notes" },
+          },
+        ],
+      },
+    });
+    claude.adapter.message({
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: "m", content: "Private excerpt" },
+        ],
+      },
+    });
+    const open = capture(OpenCode, "opencode");
+    open.adapter.session = "test";
+    open.adapter.activeTurn = true;
+    open.adapter.part({
+      type: "tool",
+      id: "m",
+      sessionID: "test",
+      messageID: "run",
+      tool: "loop_workspace_loop_memory_search",
+      state: { status: "completed", output: "Private excerpt" },
+    });
+    for (const { events } of [claude, open]) {
+      expect(JSON.stringify(events)).not.toContain("Private excerpt");
+      expect(events.at(-1)).toMatchObject({
+        type: "item",
+        item: { text: "", status: "completed" },
+      });
+    }
+  });
+  it("Codex and ACP omit managed memory search results from projections", () => {
+    const codex = capture(Codex, "codex");
+    codex.adapter.item(
+      {
+        type: "mcpToolCall",
+        id: "m",
+        server: "loop_workspace",
+        tool: "loop_memory_search",
+        result: { content: "Private excerpt" },
+      },
+      true,
+    );
+    const acp = capture(Acp, "acp");
+    acp.adapter.session = "test";
+    acp.adapter.active = true;
+    acp.adapter.update({
+      sessionId: "test",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "m",
+        title: "loop_memory_search",
+        status: "in_progress",
+      },
+    });
+    acp.adapter.update({
+      sessionId: "test",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "m",
+        title: "Search complete",
+        status: "completed",
+        content: [
+          {
+            type: "content",
+            content: { type: "text", text: "Private excerpt" },
+          },
+        ],
+      },
+    });
+    for (const { events } of [codex, acp]) {
+      expect(JSON.stringify(events)).not.toContain("Private excerpt");
+      expect(events.at(-1)).toMatchObject({
+        type: "item",
+        item: { text: "", status: "completed" },
+      });
+    }
   });
   it("OpenCode rejects another session and previous turns", () => {
     const { adapter, updates } = capture(OpenCode, "opencode");

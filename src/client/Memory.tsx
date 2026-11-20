@@ -403,12 +403,16 @@ export function MemoryUsed({ runId }: { runId: string }) {
               id: string;
               link: string;
               title: string;
-              role: string;
+              role?: string;
+              kind?: string;
+              via?: "push" | "tool";
               revision: number;
             }[]
-          >(receipt.sources, []).map((s) => (
-            <p key={s.id}>
-              <a href={s.link}>{s.title}</a> · {s.role} · revision {s.revision}
+          >(receipt.sources, []).map((s, index) => (
+            <p key={s.id + ":" + index}>
+              <a href={s.link}>{s.title}</a> · {s.role ?? s.kind} · revision{" "}
+              {s.revision}
+              {s.via === "tool" && " · Search tool"}
             </p>
           ))}
         </>

@@ -19,6 +19,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { nativeSessions } from "./native-sessions.js";
 import { nativeBindings, invokeNative } from "./native-tools.js";
+import { canSearchSavedMemory } from "./memory.js";
 import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
@@ -78,7 +79,8 @@ export class NativeToolBridge {
     const live = nativeSessions.current(t.conversation, t.generation, false);
     const run = live.run || live.bootstrapRun;
     const bindings = [
-      ...nativeBindings(run),
+      // Some harnesses register tools only at session start. Dispatch checks the current run.
+      ...nativeBindings(run, { nativeCatalog: true }),
       ...toolBindings(run.owner_id, run.agent_id!).map((b) => ({
         ...b,
         name:
@@ -125,10 +127,29 @@ export class NativeToolBridge {
     const key = run.id + ":" + requestId,
       digest = JSON.stringify([name, args]);
     const previous = t.calls.get(key);
+    if (previous && previous.digest !== digest)
+      throw new Error("Tool request identity was reused");
+    if (
+      binding.connectionId === "__loop__" &&
+      binding.tool === "loop_message_status" &&
+      !canSearchSavedMemory(run)
+    )
+      return Promise.resolve({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Mail previews are unavailable in Fleet mail context",
+          },
+        ],
+      });
     if (previous) {
-      if (previous.digest !== digest)
-        throw new Error("Tool request identity was reused");
-      return previous.result;
+      if (
+        binding.connectionId !== "__loop__" ||
+        (binding.tool !== "loop_memory_search" &&
+          binding.tool !== "loop_message_status")
+      )
+        return previous.result;
     }
     if (!previous && t.calls.size >= 2000)
       throw new Error(

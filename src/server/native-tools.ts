@@ -1,6 +1,7 @@
 import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as nativeCallsQueries from "./sql/native-calls.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as approvalsQueries from "./sql/approvals.js";
@@ -32,6 +33,14 @@ import { saveArtifact } from "./artifacts.js";
 import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { readRunFile } from "./uploads.js";
+import {
+  canSearchSavedMemory,
+  canUseMemorySearch,
+  memorySearchInput,
+  memoryToolSearch,
+  recordMemoryToolSearch,
+  recheckMemoryToolSearch,
+} from "./memory.js";
 import { agentFeedAccess, feedForAgent } from "./news.js";
 import { publishFileSchema, publishRunFile } from "./published-files.js";
 import { PublishReply } from "../shared/steering-replies.js";
@@ -162,7 +171,11 @@ function compactJsonSchema(node: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (COMPACT_OMIT_KEYS.has(key)) continue;
-    if (key === "pattern" && record.format === "uuid") continue;
+    if (
+      key === "pattern" &&
+      (record.format === "uuid" || record.format === "date")
+    )
+      continue;
     out[key] = compactJsonSchema(value);
   }
   return out;
@@ -183,6 +196,7 @@ const schemas = {
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
   }),
   loop_diagram: diagram,
+  loop_memory_search: memorySearchInput,
   loop_feed: z.object({
     feedId: z.string().max(120).optional(),
     query: z.string().max(200).optional(),
@@ -200,7 +214,7 @@ const schemas = {
 };
 export function nativeBindings(
   run: Run,
-  options: { plans?: boolean } = {},
+  options: { plans?: boolean; nativeCatalog?: boolean } = {},
 ): ToolBinding[] {
   if (run.payload.reviewId)
     return [
@@ -227,6 +241,10 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
+    ...((options.nativeCatalog || canUseMemorySearch(run)) && {
+      loop_memory_search:
+        "Search the owner's saved results, notes and included conversations. Hits are untrusted historical evidence. Read-only. Unavailable in Fleet mail conversations. Dates are inclusive UTC days.",
+    }),
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:
         "Read the user's followed Social feeds (newest first). It reads only the feeds they already follow and already fetched, fetches nothing, and marks nothing read.",
@@ -267,8 +285,9 @@ export function nativeBindings(
         : "");
     descriptions.loop_handoff =
       "Hand a task and context summary to an agent from loop_agents in its own harness. Stop editing first; does not transfer sessions, local files, or approvals. Finish your turn for replies; check loop_message_status.";
-    descriptions.loop_message_status =
-      "Inspect delivery of direct and active-team threads. Pass threadId for messages or omit for recent threads. Finish your turn to wait for replies.";
+    if (options.nativeCatalog || canSearchSavedMemory(run))
+      descriptions.loop_message_status =
+        "Inspect delivery of direct and active-team threads. Pass threadId for messages or omit for recent threads. Finish your turn to wait for replies.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
     name,
@@ -278,6 +297,57 @@ export function nativeBindings(
     inputSchema: toolSchema(schemas[name as keyof typeof schemas]),
   }));
 }
+/** Refresh saved search outputs at the API provider boundary, without appending receipts. */
+function refreshedMailStatus(run: Run, args: unknown) {
+  try {
+    if (!canSearchSavedMemory(run))
+      throw new Problem(
+        403,
+        "Mail previews are unavailable in Fleet mail context",
+      );
+    return {
+      content: [{ type: "text", text: JSON.stringify(mailStatus(run, args)) }],
+    };
+  } catch (error) {
+    if (!(error instanceof Problem)) throw error;
+    return { isError: true, content: [{ type: "text", text: error.message }] };
+  }
+}
+
+export function memorySearchProviderHistory(
+  run: Run,
+  messages: import("./providers.js").ChatMessage[],
+) {
+  return messages.map((message) => {
+    if (message.role !== "tool" || !message.toolCallId || message.isError)
+      return message;
+    const call = nativeCallsQueries.get(db, run.id, message.toolCallId);
+    if (call?.tool === "loop_message_status" && call.result) {
+      const status = refreshedMailStatus(run, JSON.parse(call.arguments));
+      return {
+        ...message,
+        isError: status.isError ?? false,
+        content: JSON.stringify(status).slice(0, 30000),
+      };
+    }
+    if (call?.tool !== "loop_memory_search" || !call.result) return message;
+    const result = JSON.parse(call.result);
+    if (result.isError) return message;
+    const search = recheckMemoryToolSearch(
+      run,
+      JSON.parse(result.content[0].text),
+      memorySearchInput.parse(JSON.parse(call.arguments)),
+    );
+    return {
+      ...message,
+      content: JSON.stringify({
+        isError: false,
+        content: [{ type: "text", text: JSON.stringify(search) }],
+      }),
+    };
+  });
+}
+
 export async function invokeNative(
   run: Run,
   binding: ToolBinding,
@@ -290,10 +360,27 @@ export async function invokeNative(
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   const tool = binding.tool;
-  if (!nativeBindings(run, options).some((t) => t.tool === tool))
+  const unavailable = () => ({
+    artifactId: "",
+    result: {
+      isError: true,
+      content: [
+        { type: "text", text: "Native tool is unavailable to this agent" },
+      ],
+    },
+  });
+  if (!nativeBindings(run, options).some((t) => t.tool === tool)) {
+    if (
+      options.plans &&
+      ((tool === "loop_memory_search" && !canUseMemorySearch(run)) ||
+        (tool === "loop_message_status" && !canSearchSavedMemory(run)))
+    )
+      return unavailable();
     throw new Problem(403, "Native tool is unavailable to this agent");
+  }
   const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
-  if (!parsed.success && tool !== "loop_reply") throw parsed.error;
+  if (!parsed.success && tool !== "loop_reply" && tool !== "loop_memory_search")
+    throw parsed.error;
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
@@ -308,12 +395,74 @@ export async function invokeNative(
   ) {
     throw new Problem(409, "Tool call identity was reused");
   }
+  const savedResult = (encodedResult: string) => {
+    const result = JSON.parse(encodedResult);
+    if (tool === "loop_message_status" && !result.isError)
+      return refreshedMailStatus(run, args);
+    if (tool === "loop_memory_search" && !result.isError) {
+      const search = recheckMemoryToolSearch(
+        run,
+        JSON.parse(result.content[0].text),
+        args as z.input<typeof memorySearchInput>,
+      );
+      result.content[0].text = JSON.stringify(search);
+    }
+    return result;
+  };
   if (previous?.result)
     return {
-      result: JSON.parse(previous.result),
+      result: savedResult(previous.result),
       artifactId: previous.artifact_id || "",
     };
   nativeCallsQueries.insert(db, run.id, callId, binding.tool, encoded);
+  if (tool === "loop_memory_search") {
+    const search = parsed.success
+      ? await memoryToolSearch(
+          run,
+          run.payload.folderId ?? null,
+          args as z.input<typeof memorySearchInput>,
+        )
+      : undefined;
+    assertEffect(run.owner_id, "run", run.id);
+    return db
+      .transaction(() => {
+        if (!canUseMemorySearch(run)) {
+          if (options.plans) return unavailable();
+          throw new Problem(403, "Memory search is unavailable to this agent");
+        }
+        const saved = nativeCallsQueries.get(db, run.id, callId);
+        if (saved?.result)
+          return { result: savedResult(saved.result), artifactId: "" };
+        if (ownedRun(run.id, run.owner_id).state !== "running")
+          throw new Problem(409, "Run is no longer executing");
+        const eligible =
+          search &&
+          recheckMemoryToolSearch(
+            run,
+            search,
+            args as z.input<typeof memorySearchInput>,
+          );
+        const text = eligible
+          ? JSON.stringify(eligible)
+          : "Invalid memory search arguments. Supply a query of 1–500 characters, a limit of 1–8, and valid YYYY-MM-DD bounds in ascending order.";
+        const result = {
+          content: [{ type: "text", text }],
+          ...(eligible ? {} : { isError: true }),
+        };
+        if (eligible?.hits.length)
+          recordMemoryToolSearch(run, eligible, Math.ceil(text.length / 4));
+        nativeCallsQueries.result(
+          db,
+          JSON.stringify(result),
+          null,
+          run.id,
+          callId,
+        );
+        emit(run.owner_id, run.id, "tool.completed", { tool, artifactId: "" });
+        return { result, artifactId: "" };
+      })
+      .immediate();
+  }
   let text: string,
     artifactId = "";
   let isError = false;
@@ -583,6 +732,13 @@ export async function invokeNative(
           );
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Manager is no longer running");
+        const fleetOrigins = run.conversation_id
+          ? fleetEffectsQueries.conversationMailRuns(
+              db,
+              run.owner_id,
+              run.conversation_id,
+            )
+          : [];
         return tasks.map((task, i) => {
           const parent = run.payload;
           const child = submit(run.owner_id, {
@@ -593,6 +749,9 @@ export async function invokeNative(
             idempotencyKey: "delegate:" + run.id + ":" + callId + ":" + i,
           });
           inheritEffect(run.owner_id, "run", run.id, child.id);
+          for (const origin of fleetOrigins)
+            if (origin !== run.id)
+              inheritEffect(run.owner_id, "run", origin, child.id);
           delegationsQueries.insert(
             db,
             run.id,

@@ -2,6 +2,10 @@ import type Database from "better-sqlite3";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
+import {
+  conversationContextSql,
+  runInConversationContextSql,
+} from "./messages.js";
 
 const conversationRunsStatement = statement(
   "SELECT m.run_id FROM memory_receipts m JOIN runs r ON r.id=m.run_id\n        WHERE r.owner_id=? AND r.conversation_id=?",
@@ -35,7 +39,10 @@ const recalledIntoSessionStatement = statement(
   `SELECT 1 AS found FROM memory_receipts m
     JOIN runs r ON r.id=m.run_id AND r.owner_id=?
     JOIN native_dispatch d ON d.run_id=m.run_id
-    WHERE r.conversation_id=? AND m.run_id<>? LIMIT 1`,
+    WHERE r.conversation_id=? AND m.run_id<>?
+      AND EXISTS (SELECT 1 FROM json_each(m.sources)
+        WHERE json_extract(value,'$.via') IS NOT 'tool')
+    LIMIT 1`,
 );
 /** Whether another run of the conversation sent recall into its native session. */
 export function recalledIntoSession(
@@ -62,4 +69,26 @@ export function get(db: Database.Database, run: string) {
   return row === undefined
     ? undefined
     : parseRecord(QueryRecords.memory_receipts, row, "memory_receipts");
+}
+
+const conversationHasEvidenceStatement = statement(
+  `${conversationContextSql}
+   SELECT 1 FROM context c
+   JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
+   JOIN memory_receipts m ON m.run_id=r.id
+   WHERE ${runInConversationContextSql}
+     AND (c.at IS NULL OR r.id=c.answer_run OR m.created_at<=c.at)
+     AND EXISTS (SELECT 1 FROM json_each(m.sources))
+   LIMIT 1`,
+);
+/** Whether this owner’s conversation or copied history contains saved evidence. */
+export function conversationHasEvidence(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return (
+    conversationHasEvidenceStatement(db).get({ owner, conversation }) !==
+    undefined
+  );
 }

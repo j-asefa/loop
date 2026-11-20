@@ -8,6 +8,109 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
+import { incomingMailFilesSql } from "./fleet-mail-records.js";
+
+const contextMessagePositionSql = `(c.at IS NULL OR copy.created_at<c.at OR
+  (copy.created_at=c.at AND copy.rowid<=c.seq))`;
+const undispatchedTerminalSql = `delivery.state IN ('cancelled','failed','interrupted')
+  AND NOT EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
+  AND NOT EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id)`;
+
+// Live destinations reserve pending mail. Copied answers omit known unread
+// steering, unless the owner selected the steering message itself.
+const contextMailPositionSql = `
+    AND (copy.rowid=c.seq OR NOT (${undispatchedTerminalSql}))
+    AND (c.at IS NULL OR copy.rowid=c.seq OR NOT EXISTS (
+      SELECT 1 FROM run_steering st WHERE st.message_id=copy.id
+        AND (st.state='pending' OR st.failure_reason='run-ended-unread' OR EXISTS (
+          SELECT 1 FROM agent_mail requeued WHERE requeued.steering_id=st.id
+            AND requeued.owner_id=copy.owner_id AND requeued.requeued_run_id IS NOT NULL
+        ))
+    ))
+    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)`;
+
+// An answer is updated in place and can include evidence from later in its own run.
+export const runInConversationContextSql = `(c.at IS NULL OR r.id=c.answer_run OR EXISTS (
+  SELECT 1 FROM messages prompt
+  WHERE prompt.run_id=r.id AND prompt.owner_id=r.owner_id AND prompt.conversation_id=c.id
+    AND (prompt.created_at<c.at OR (prompt.created_at=c.at AND prompt.rowid<=c.seq))
+))`;
+
+/** Context linked through copied messages, accepted mail and blocking delegation. */
+export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answer_run) AS (
+  SELECT @conversation, NULL, NULL, NULL
+  UNION
+  SELECT origin.conversation_id, origin.created_at, origin.rowid,
+    CASE WHEN origin.role='assistant' THEN origin.run_id END
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN messages origin ON origin.owner_id=copy.owner_id
+    AND origin.id=json_extract(copy.metadata,'$.sourceMessage')
+    AND origin.conversation_id=json_extract(copy.metadata,'$.sourceConversation')
+  WHERE copy.run_id IS NULL
+    AND ${contextMessagePositionSql}
+  UNION
+  SELECT sender.conversation_id, copy.created_at, copy.rowid,
+    CASE WHEN mail.kind='result' THEN sender.id END
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND (mail.state='sent' OR copy.rowid=c.seq)
+    AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
+  JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
+  WHERE sender.conversation_id IS NOT NULL
+    ${contextMailPositionSql}
+  UNION
+  SELECT a.conversation_id, copy.created_at, copy.rowid, a.run_id
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND (mail.state='sent' OR copy.rowid=c.seq)
+    AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
+  JOIN json_each(mail.file_ids) file
+  JOIN artifacts a ON a.id=file.value AND a.owner_id=mail.owner_id
+  WHERE a.conversation_id IS NOT NULL
+    ${contextMailPositionSql}
+  UNION
+  SELECT a.conversation_id, copy.created_at, copy.rowid, a.run_id
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
+  JOIN json_each(copy.metadata,'$.attachments') file
+  JOIN artifacts a ON a.id=json_extract(file.value,'$.id') AND a.owner_id=copy.owner_id
+  WHERE a.conversation_id IS NOT NULL AND json_extract(copy.metadata,'$.automation.mailId') IS NULL
+    ${contextMailPositionSql}
+  UNION
+  SELECT source.conversation_id, copy.created_at, copy.rowid, NULL
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
+  JOIN json_each(copy.metadata,'$.attachments') file
+  JOIN (
+    SELECT incoming.recipient_conversation_id AS conversation_id, received.value AS file_id
+    ${incomingMailFilesSql}
+  ) source ON source.file_id=json_extract(file.value,'$.id')
+  WHERE source.conversation_id IS NOT NULL
+    ${contextMailPositionSql}
+  UNION
+  SELECT child.conversation_id, c.at, c.seq,
+    CASE WHEN r.id=c.answer_run THEN child.id END
+  FROM context c
+  JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
+  JOIN delegations d ON d.parent_run_id=r.id AND d.background=0
+  JOIN runs child ON child.id=d.child_run_id AND child.owner_id=r.owner_id
+  WHERE child.conversation_id IS NOT NULL AND ${runInConversationContextSql}
+  UNION
+  SELECT parent.conversation_id,
+    CASE WHEN c.at IS NULL AND d.background=0 THEN NULL ELSE r.created_at END,
+    CASE WHEN c.at IS NULL AND d.background=0 THEN NULL ELSE 9223372036854775807 END,
+    NULL
+  FROM context c
+  JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
+  JOIN delegations d ON d.child_run_id=r.id
+  JOIN runs parent ON parent.id=d.parent_run_id AND parent.owner_id=r.owner_id
+  WHERE parent.conversation_id IS NOT NULL AND ${runInConversationContextSql}
+)`;
 
 // Use with the messages alias `m` at model-context and attachment boundaries.
 // Owner-visible history retains refused/cancelled automation, but it cannot become
@@ -23,7 +126,12 @@ const READABLE_MAIL_SQL = `(json_extract(m.metadata,'$.automation.mailId') IS NU
   SELECT 1 FROM review_continuations rc JOIN runs delivery ON delivery.id=rc.run_id AND delivery.owner_id=rc.owner_id
   WHERE rc.run_id=m.run_id AND rc.owner_id=m.owner_id AND delivery.conversation_id=m.conversation_id
     AND delivery.state IN ('running','pausing','awaiting_approval','completed')
-))`;
+)) AND NOT EXISTS (
+  SELECT 1 FROM runs delivery
+  WHERE delivery.id=m.run_id AND delivery.owner_id=m.owner_id
+    AND m.role='user' AND json_array_length(m.metadata,'$.attachments')>0
+    AND ${undispatchedTerminalSql}
+)`;
 
 const insertStatement = statement(
   "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -273,9 +381,17 @@ export function forkPosition(
 }
 
 const forkHistoryStatement =
-  statement(`SELECT * FROM messages WHERE owner_id=@owner AND conversation_id=@conversation
-          AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
-          AND (created_at<@at OR (created_at=@at AND rowid<=@seq)) ORDER BY created_at,rowid`);
+  statement(`SELECT m.* FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=@conversation
+          AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND length(trim(m.content))>0
+          AND (${READABLE_MAIL_SQL} OR EXISTS (
+            SELECT 1 FROM agent_mail mail JOIN runs delivery ON delivery.id=m.run_id AND delivery.owner_id=m.owner_id
+            WHERE mail.id=json_extract(m.metadata,'$.automation.mailId') AND mail.owner_id=m.owner_id
+              AND mail.state='sent' AND delivery.state IN ('failed','interrupted')
+              AND NOT EXISTS (SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND s.state<>'delivered')
+              AND (EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
+                OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
+          ))
+          AND (m.created_at<@at OR (m.created_at=@at AND m.rowid<=@seq)) ORDER BY m.created_at,m.rowid`);
 
 export function forkHistory(
   db: Database.Database,
@@ -724,8 +840,38 @@ const promptFlagsStatement = statement(
   "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
 );
 const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
+const sharedInputStatement = statement(
+  "SELECT 1 FROM messages WHERE owner_id=? AND run_id=? AND role='user' AND json_extract(metadata,'$.shared')=1 LIMIT 1",
+);
+/** Shared input includes integration-token prompts and steering. */
+export function hasSharedInput(
+  db: Database.Database,
+  owner: string,
+  run: string,
+) {
+  return sharedInputStatement(db).get(owner, run) !== undefined;
+}
+
+const sharedContextStatement = statement(
+  `${conversationContextSql}
+   SELECT 1 FROM context c
+   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+   WHERE copy.role='user' AND json_extract(copy.metadata,'$.shared')=1
+     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
+   LIMIT 1`,
+);
+/** Shared input remains restricted across copies, delegation and local relays. */
+export function conversationHasSharedInput(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return sharedContextStatement(db).get({ owner, conversation }) !== undefined;
+}
+export const unwrittenMessageSql = `m.role='user' AND
+  (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1)`;
 const unwrittenMessageStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND m.created_at<=? AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
+  `SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.created_at<=? AND ${unwrittenMessageSql} LIMIT 1`,
 );
 /**
  * Whether any user message in a conversation, up to `before`, was not written

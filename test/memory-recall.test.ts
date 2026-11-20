@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import type { Provider } from "../src/shared/types.js";
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
@@ -11,13 +12,20 @@ const dir = testDirectory();
 const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, ownedRun } = await import("../src/server/domain");
+const { createTeam } = await import("../src/server/teams");
+const { sendMail } = await import("../src/server/agent-mail");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
+const { nativeBindings, invokeNative } =
+  await import("../src/server/native-tools");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
+const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { saveArtifact } = await import("../src/server/artifacts");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
+const fleetEffectsQueries =
+  await import("../src/server/sql/fleet-effect-authorizations");
 const artifactsQueries = await import("../src/server/sql/artifacts");
 const memoryPassageQueries = await import("../src/server/sql/memory-passages");
 const messagesQueries = await import("../src/server/sql/messages");
@@ -78,6 +86,10 @@ async function nativePrompt(
   input: string,
   followUp?: { agentId: string; conversationId: string },
   personal = true,
+  duringPrompt?: (
+    run: NonNullable<ReturnType<typeof claim>>,
+    generation: string,
+  ) => Promise<void>,
 ) {
   // Personal is what the owner's own send route records; mail does not.
   const run = submit("alice", {
@@ -104,6 +116,7 @@ async function nativePrompt(
       async prompt(text: string, beforeDispatch?: () => void) {
         beforeDispatch?.();
         prompt = text;
+        await duringPrompt?.(claimed, generation);
         live.finish!("completed");
       },
     }),
@@ -156,10 +169,225 @@ it("adds matching saved memory to a native turn as untrusted evidence and record
   ).toBe(404);
 });
 
+it("offers pull search for native and mail turns, and appends a receipt once per call", async () => {
+  const own = await note(
+    "Cerulean",
+    "cerulean deployment history and migration.",
+  );
+  await note(
+    "Private cerulean",
+    "cerulean deployment history is private",
+    "bob",
+  );
+  const search = async (run: NonNullable<ReturnType<typeof claim>>) => {
+    const tool = nativeBindings(run).find(
+      (entry) => entry.tool === "loop_memory_search",
+    )!;
+    expect(tool).toBeDefined();
+    expect(
+      nativeBindings({
+        ...run,
+        payload: { ...run.payload, reviewId: id() },
+      }).map((entry) => entry.tool),
+    ).not.toContain("loop_memory_search");
+    await expect(
+      invokeNative(run, tool, "bad-limit", { query: "cerulean", limit: 9 }),
+    ).resolves.toMatchObject({ result: { isError: true } });
+    await expect(
+      invokeNative(run, tool, "bad-date", {
+        query: "cerulean",
+        since: "2026-02-30",
+      }),
+    ).resolves.toMatchObject({ result: { isError: true } });
+    const args = { query: "cerulean", kind: "note", limit: 1 };
+    const response = await invokeNative(run, tool, "memory-1", args);
+    expect(response).toHaveProperty("result.content.0.text");
+    if (!("result" in response)) throw new Error("Expected a completed search");
+    expect(JSON.parse(response.result.content[0].text)).toMatchObject({
+      hits: [
+        expect.objectContaining({
+          id: own.data.id,
+          kind: "note",
+          excerpt: "cerulean deployment history and migration.",
+        }),
+      ],
+    });
+    expect(await invokeNative(run, tool, "memory-1", args)).toEqual(response);
+    const beforeEmpty = (await request(`/runs/${run.id}/memory`)).data;
+    await invokeNative(run, tool, "empty", { query: "tuvwxyzzyzz" });
+    expect((await request(`/runs/${run.id}/memory`)).data).toEqual(beforeEmpty);
+  };
+  const { run } = await nativePrompt(
+    "cerulean deployment history",
+    undefined,
+    true,
+    search,
+  );
+  const combined = (await request(`/runs/${run.id}/memory`)).data;
+  expect(
+    JSON.parse(combined.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["push", "tool"]);
+  expect(combined.tokens).toBeGreaterThan(0);
+  const mail = await nativePrompt("automated mail", undefined, false, search);
+  expect(mail.prompt).not.toContain("loop-historical-evidence");
+  const pulled = (await request(`/runs/${mail.run.id}/memory`)).data;
+  expect(
+    JSON.parse(pulled.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["tool"]);
+});
+
+it("bounds the serialized tool response before recording the returned hits", async () => {
+  for (let i = 0; i < 8; i++)
+    await note("Wisteria", "wisteria " + "\u0001".repeat(1060));
+  const { run } = await nativePrompt(
+    "continue",
+    undefined,
+    false,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "escape", {
+        query: "wisteria",
+        limit: 8,
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      expect(
+        JSON.stringify({ isError: false, content: response.result.content })
+          .length,
+      ).toBeLessThanOrEqual(30_000);
+      const { hits } = JSON.parse(response.result.content[0].text);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.length).toBeLessThan(8);
+      const { data } = await request(`/runs/${run.id}/memory`);
+      expect(JSON.parse(data.sources)).toHaveLength(hits.length);
+    },
+  );
+  expect(run.id).toBeDefined();
+});
+
+it("rechecks cached memory hits and blocks runs with a remote mail grant", async () => {
+  const own = await note(
+    "Tamarisk cache",
+    "tamarisk cached deployment evidence",
+  );
+  await nativePrompt("continue", undefined, false, async (run, generation) => {
+    const findTool = (candidate: typeof run) =>
+      nativeBindings(candidate).find(
+        (entry) => entry.tool === "loop_memory_search",
+      );
+    const bridge = new NativeToolBridge();
+    await bridge.start();
+    try {
+      const ticket = bridge.issue(run.conversation_id!, generation);
+      const call = async (body: object) => {
+        const response = await fetch(ticket.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + ticket.token },
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(200);
+        return (await response.json()) as { content?: { text: string }[] };
+      };
+      await call({ method: "tools/list" });
+      const search = (id: string, query: string) =>
+        call({
+          method: "tools/call",
+          id,
+          name: "loop_memory_search",
+          arguments: { query },
+        });
+      await search("first-empty", "nonexistentfoxtrot");
+      expect((await request(`/runs/${run.id}/memory`)).data.mode).toBe(
+        "not-used",
+      );
+      const first = await search("replay", "tamarisk");
+      expect(JSON.stringify(first)).toContain("cached deployment evidence");
+      const historical = (await request(`/runs/${run.id}/memory`)).data;
+      expect(
+        (
+          await request(
+            `/memory/sources/${own.data.id}`,
+            undefined,
+            "alice",
+            "DELETE",
+          )
+        ).status,
+      ).toBe(200);
+      const retry = await search("replay", "tamarisk");
+      expect(JSON.parse(retry.content![0].text).hits).toEqual([]);
+      expect((await request(`/runs/${run.id}/memory`)).data).toEqual(
+        historical,
+      );
+      const statusCall = {
+        method: "tools/call",
+        id: "mail-status",
+        name: "loop_message_status",
+        arguments: {},
+      };
+      expect(await call(statusCall)).not.toMatchObject({ isError: true });
+      fleetEffectsQueries.insert(
+        db,
+        run.owner_id,
+        "run",
+        run.id,
+        id(),
+        JSON.stringify({ operation: "mail" }),
+      );
+      try {
+        expect(await call(statusCall)).toMatchObject({
+          isError: true,
+          content: [
+            { text: "Mail previews are unavailable in Fleet mail context" },
+          ],
+        });
+      } finally {
+        db.prepare(
+          "DELETE FROM fleet_effect_authorizations WHERE owner_id=? AND effect_kind='run' AND effect_id=?",
+        ).run(run.owner_id, run.id);
+      }
+    } finally {
+      await bridge.close();
+    }
+
+    const remote = { ...run, id: id() };
+    const grant = JSON.stringify({ operation: "mail" });
+    fleetEffectsQueries.insert(db, run.owner_id, "run", remote.id, id(), grant);
+    expect(findTool(remote)).toBeUndefined();
+    const inherited = { ...run, id: id() };
+    db.prepare(
+      "INSERT INTO fleet_effect_edit_authorizations VALUES(?,?,?,?,?)",
+    ).run(run.owner_id, "run", inherited.id, id(), grant);
+    expect(findTool(inherited)).toBeUndefined();
+    expect(findTool(run)).toBeDefined();
+  });
+});
+
 it("bounds recalled text and adds nothing when no saved memory matches", async () => {
   for (let index = 0; index < 8; index++)
     await note(`Quasar ${index}`, `quasar checklist ${index} `.repeat(400));
-  const bounded = await nativePrompt("quasar checklist");
+  const bounded = await nativePrompt(
+    "quasar checklist",
+    undefined,
+    true,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "eight", {
+        query: "quasar checklist",
+        limit: 8,
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      const { hits } = JSON.parse(response.result.content[0].text);
+      expect(hits).toHaveLength(8);
+      expect(
+        hits.every((hit: { excerpt: string }) => hit.excerpt.length <= 1100),
+      ).toBe(true);
+    },
+  );
   const added = bounded.prompt.slice("quasar checklist".length);
   expect(added.length).toBeGreaterThan(0);
   expect(added.length).toBeLessThanOrEqual(RECALL_CHARACTERS);
@@ -207,6 +435,211 @@ it("adds nothing when the workspace turns memory off", async () => {
   expect(prompt).toContain("pulsar rollout must wait for the canary");
 });
 
+it("removes revoked search evidence from an API checkpoint before resuming the provider", async () => {
+  const own = await note(
+    "Papaya checkpoint",
+    "papaya evidence slated for removal",
+  );
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Continue the task",
+    idempotencyKey: id(),
+  });
+  const claimed = claim("memory-checkpoint")!;
+  expect(claimed.id).toBe(run.id);
+  const calls = await import("../src/server/sql/native-calls");
+  const persistResult = calls.result;
+  const pause = vi.spyOn(calls, "result").mockImplementation((...args) => {
+    const saved = persistResult(...args);
+    if (args[4] === "papaya-search") transition(claimed, "pausing");
+    return saved;
+  });
+  let rounds = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      if (rounds++ === 0) {
+        yield {
+          toolCall: {
+            id: "papaya-search",
+            name: "loop_memory_search",
+            arguments: { query: "papaya" },
+          },
+        };
+      } else {
+        const tool = input.messages.find(
+          (message) => message.toolCallId === "papaya-search",
+        )!;
+        expect(
+          JSON.parse(JSON.parse(tool.content).content[0].text).hits,
+        ).toEqual([]);
+        yield { text: "Finished after resuming." };
+      }
+    },
+  });
+  try {
+    expect(await settleRun(executeAgent, claimed)).toMatchObject({
+      kind: "paused",
+    });
+    expect(rounds).toBe(1);
+    const checkpoint = db
+      .prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id) as { history: string };
+    expect(checkpoint.history).toContain("papaya evidence slated for removal");
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM run_traces WHERE run_id=? AND title='loop_memory_search'",
+        )
+        .get(run.id),
+    ).toEqual({ content: "" });
+    const before = (await request(`/runs/${run.id}/memory`)).data;
+    expect(
+      (
+        await request(
+          `/memory/sources/${own.data.id}`,
+          undefined,
+          "alice",
+          "DELETE",
+        )
+      ).status,
+    ).toBe(200);
+    transition(claimed, "queued");
+    const resumed = claim("resume-memory-checkpoint")!;
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
+    transition(resumed, "completed");
+    expect(rounds).toBe(2);
+    expect((await request(`/runs/${run.id}/memory`)).data).toEqual(before);
+  } finally {
+    pause.mockRestore();
+    restore();
+  }
+});
+
+it("withholds saved-memory search from the shared prompts used by integration tokens", async () => {
+  const manager = agentFor("alice");
+  const worker = agentFor("alice");
+  const recipient = agentFor("alice");
+  const team = createTeam("alice", {
+    name: "Shared input team",
+    managerId: manager.id,
+    members: [worker.id],
+  });
+  const run = submit("alice", {
+    agentId: manager.id,
+    teamId: team.id,
+    input: "Search saved notes",
+    idempotencyKey: id(),
+    personal: true,
+    shared: true,
+  });
+  const active = claim(
+    "shared-memory-input",
+    (candidate) => candidate.id === run.id,
+  )!;
+  const tool = nativeBindings(active, { nativeCatalog: true }).find(
+    (binding) => binding.tool === "loop_memory_search",
+  )!;
+  expect(
+    nativeBindings(active).some((binding) => binding.tool === tool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(active, tool, "shared-search", { query: "notes" }),
+  ).rejects.toMatchObject({ status: 403 });
+  const delegation = nativeBindings(active).find(
+    (binding) => binding.tool === "loop_delegate",
+  )!;
+  const outcome = await invokeNative(active, delegation, "shared-delegation", {
+    tasks: [{ agentId: worker.id, input: "Search saved notes" }],
+    wait: false,
+  });
+  if (!("result" in outcome)) throw new Error("Expected a queued worker");
+  const childId = JSON.parse(outcome.result.content[0].text).delegated[0].runId;
+  const message = sendMail(active, "shared-relay", {
+    to: recipient.id,
+    scope: "direct",
+    body: "Search saved notes",
+  });
+  const forwarded = db
+    .prepare("SELECT run_id FROM agent_mail WHERE id=?")
+    .get(message.messageId) as { run_id: string };
+  for (const id of [childId, forwarded.run_id]) {
+    const linked = claim("shared-child", (candidate) => candidate.id === id)!;
+    expect(
+      nativeBindings(linked).some((binding) => binding.tool === tool.tool),
+    ).toBe(false);
+    expect(transition(linked, "completed")).toBe(true);
+  }
+  expect(transition(active, "completed")).toBe(true);
+});
+
+it("keeps an API-key turn running when Fleet context changes after tool advertisement", async () => {
+  const agent = agentFor("alice");
+  const earlier = submit("alice", {
+    agentId: agent.id,
+    input: "Earlier turn",
+    idempotencyKey: id(),
+  });
+  const previous = claim(
+    "before-fleet-grant",
+    (candidate) => candidate.id === earlier.id,
+  )!;
+  expect(transition(previous, "completed")).toBe(true);
+  const run = submit("alice", {
+    agentId: agent.id,
+    conversationId: earlier.conversation_id!,
+    input: "Continue",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "during-fleet-grant",
+    (candidate) => candidate.id === run.id,
+  )!;
+  let rounds = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      if (rounds++ === 0) {
+        expect(
+          input.tools?.some((tool) => tool.name === "loop_memory_search"),
+        ).toBe(true);
+        fleetEffectsQueries.insert(
+          db,
+          run.owner_id,
+          "run",
+          earlier.id,
+          id(),
+          JSON.stringify({ operation: "mail" }),
+        );
+        yield {
+          toolCall: {
+            id: "late-search",
+            name: "loop_memory_search",
+            arguments: { query: "notes" },
+          },
+        };
+      } else {
+        const result = input.messages.find(
+          (message) => message.toolCallId === "late-search",
+        )!;
+        expect(JSON.parse(result.content)).toMatchObject({ isError: true });
+        yield { text: "Finished despite the unavailable tool." };
+      }
+    },
+  });
+  try {
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(rounds).toBe(2);
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
 it("appends recall to the current turn of an API-key run once", async () => {
   await note("Comet", "comet build needs the arm64 runner");
   const agent = agentFor("alice");
@@ -216,14 +649,45 @@ it("appends recall to the current turn of an API-key run once", async () => {
     idempotencyKey: id(),
     personal: true,
   });
+  let round = 0;
   let history: { role: string; content: string }[] = [];
   const restore = withTestAdapter("openai", {
     async models() {
       return [];
     },
     async *stream(_secret, input) {
-      history = input.messages;
-      yield { text: "The comet build ran on the x64 runner instead of arm64." };
+      if (round++ === 0) {
+        history = [...input.messages];
+        expect(
+          input.tools?.some((tool) => tool.name === "loop_memory_search"),
+        ).toBe(true);
+        yield {
+          toolCall: {
+            id: "comet-invalid",
+            name: "loop_memory_search",
+            arguments: { query: "comet build", limit: 9 },
+          },
+        };
+      } else if (round === 2) {
+        expect(
+          input.messages.some(
+            (message) =>
+              message.role === "tool" &&
+              message.content.includes("Invalid memory search arguments"),
+          ),
+        ).toBe(true);
+        yield {
+          toolCall: {
+            id: "comet-pull",
+            name: "loop_memory_search",
+            arguments: { query: "comet build", kind: "note" },
+          },
+        };
+      } else {
+        yield {
+          text: "The comet build ran on the x64 runner instead of arm64.",
+        };
+      }
     },
   });
   try {
@@ -234,6 +698,10 @@ it("appends recall to the current turn of an API-key run once", async () => {
   } finally {
     restore();
   }
+  const savedMemory = (await request(`/runs/${run.id}/memory`)).data;
+  expect(
+    JSON.parse(savedMemory.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["push", "tool"]);
   const turn = history.at(-1)!;
   expect(turn.role).toBe("user");
   expect(turn.content).toContain("Why did the comet build fail?");
@@ -355,7 +823,131 @@ it("recalls only finished, unarchived results from conversations still in memory
   captureMemory();
   const recalled = async () =>
     (await nativePrompt("kepler orbit period")).prompt;
-  const first = await recalled();
+  const competitors: string[] = [];
+  const outside = Date.parse("2026-01-01");
+  for (let i = 0; i < 76; i++) {
+    const { data } = await note("period", "period period period");
+    db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+      outside,
+      data.id,
+    );
+    competitors.push(data.id);
+  }
+  const inside = await note(
+    "Relevant dates",
+    "The period aligns with the newer notes.",
+  );
+  db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+    Date.parse("2026-02-02"),
+    inside.data.id,
+  );
+  const otherConversation = run.conversation_id;
+  const answerRunId = run.id;
+  const { prompt: first } = await nativePrompt(
+    "kepler orbit period",
+    undefined,
+    true,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "result", {
+        query: "period",
+        kind: "result",
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(response.result.content[0].text).hits).toMatchObject([
+        { kind: "result", excerpt: "The kepler orbit period is 42 days." },
+      ]);
+      const artifact = db
+        .prepare(
+          "SELECT id,title,content,updated_at FROM artifacts WHERE run_id=? AND role='answer'",
+        )
+        .get(answerRunId) as {
+        id: string;
+        title: string;
+        content: string;
+        updated_at: number;
+      };
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        Date.parse("2026-02-02"),
+        artifact.id,
+      );
+      const dateArgs = {
+        query: "period",
+        kind: "result",
+        since: "2026-02-02",
+        until: "2026-02-02",
+      };
+      const inWindow = await invokeNative(run, tool, "cached-date", dateArgs);
+      if (!("result" in inWindow))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(inWindow.result.content[0].text).hits).toHaveLength(1);
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        Date.parse("2026-03-02"),
+        artifact.id,
+      );
+      const shifted = await invokeNative(run, tool, "cached-date", dateArgs);
+      if (!("result" in shifted))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(shifted.result.content[0].text).hits).toEqual([]);
+      artifactsQueries.edit(
+        db,
+        artifact.title,
+        artifact.content,
+        0,
+        0,
+        artifact.updated_at,
+        artifact.id,
+      );
+      const dated = await invokeNative(run, tool, "dated", {
+        query: "period",
+        kind: "note",
+        since: "2026-02-02",
+        until: "2026-02-02",
+      });
+      if (!("result" in dated)) throw new Error("Expected a completed search");
+      expect(JSON.parse(dated.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id, updatedAt: "2026-02-02" },
+      ]);
+      for (const id of competitors)
+        db.prepare(
+          "UPDATE memory_sources SET conversation_id=? WHERE id=?",
+        ).run(run.conversation_id, id);
+      const across = await invokeNative(run, tool, "across", {
+        query: "period",
+        kind: "note",
+      });
+      if (!("result" in across)) throw new Error("Expected a completed search");
+      expect(JSON.parse(across.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id },
+      ]);
+      for (const id of competitors)
+        db.prepare(
+          "UPDATE memory_sources SET conversation_id=? WHERE id=?",
+        ).run(otherConversation, id);
+      const optedIn = await invokeNative(run, tool, "policy", {
+        query: "period",
+        kind: "note",
+      });
+      if (!("result" in optedIn))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(optedIn.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id },
+      ]);
+    },
+  );
   expect(first).toContain("orbit period is 42 days");
   expect(first).not.toContain("telemetry dump");
 
@@ -380,6 +972,22 @@ it("recalls only finished, unarchived results from conversations still in memory
   archive(0);
   expect(await recalled()).toContain("orbit period is 42 days");
 
+  const resultCandidates = () =>
+    memoryPassageQueries.search(
+      db,
+      '"kepler"',
+      "alice",
+      null,
+      "result",
+      undefined,
+      null,
+      true,
+    );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+  archive(1);
+  expect(resultCandidates()).toHaveLength(0);
+  archive(0);
+
   // Turning memory off for the source conversation excludes its results.
   await request(
     "/memory/policy",
@@ -387,7 +995,58 @@ it("recalls only finished, unarchived results from conversations still in memory
     "alice",
     "PUT",
   );
+  expect(resultCandidates()).toHaveLength(0);
   expect(await recalled()).not.toContain("orbit period is 42 days");
+
+  artifactsQueries.edit(
+    db,
+    answer.title,
+    answer.content,
+    1,
+    0,
+    now(),
+    answer.id,
+  );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+  artifactsQueries.edit(
+    db,
+    answer.title,
+    answer.content,
+    0,
+    0,
+    now(),
+    answer.id,
+  );
+  const inclusion = await request(
+    "/memory/policy",
+    { scope: "artifact:" + answer.id, enabled: true },
+    "alice",
+    "PUT",
+  );
+  expect(inclusion.status).toBe(200);
+  captureMemory();
+  expect(resultCandidates().length).toBeGreaterThan(0);
+
+  await request(
+    "/memory/policy",
+    { scope: "conversation:" + run.conversation_id, enabled: true },
+    "alice",
+    "PUT",
+  );
+  // Keep the existing passage revision to exercise live candidate filtering.
+  db.prepare(
+    "UPDATE memory_policy SET enabled=0 WHERE owner_id=? AND scope=?",
+  ).run("alice", "artifact:" + answer.id);
+  expect(resultCandidates()).toHaveLength(0);
+  db.prepare("DELETE FROM memory_policy WHERE owner_id=? AND scope=?").run(
+    "alice",
+    "artifact:" + answer.id,
+  );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+  db.prepare(
+    "UPDATE messages SET metadata=json_set(metadata,'$.shared',1) WHERE run_id=? AND role='user'",
+  ).run(run.id);
+  expect(resultCandidates()).toHaveLength(0);
 });
 
 it("keeps quoted sources inside the evidence block and the receipt within the budget", async () => {
@@ -579,6 +1238,55 @@ it("captures an artifact as soon as the owner includes it", async () => {
   expect((await nativePrompt("rigel failover drill")).prompt).toContain(
     "west region",
   );
+});
+
+it("marks a saved source unavailable in settings after it gains Fleet provenance", async () => {
+  const owner = "fleet-memory-settings";
+  const origin = submit(owner, {
+    agentId: agentFor(owner).id,
+    input: "Save a trace",
+    idempotencyKey: id(),
+  });
+  const claimed = claim(
+    "save-trace",
+    (candidate) => candidate.id === origin.id,
+  )!;
+  expect(transition(claimed, "completed")).toBe(true);
+  const artifact = saveArtifact(owner, {
+    title: "Fleet settings source",
+    content: "Saved trace",
+    role: "trace",
+    conversation: origin.conversation_id,
+    run: origin.id,
+  });
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "artifact:" + artifact,
+          enabled: true,
+        },
+        owner,
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const listed = async () =>
+    (await request("/memory", undefined, owner)).data.sources[0];
+  expect(await listed()).toMatchObject({
+    title: "Fleet settings source",
+    eligible: 1,
+  });
+  fleetEffectsQueries.insert(
+    db,
+    owner,
+    "run",
+    origin.id,
+    id(),
+    JSON.stringify({ operation: "mail" }),
+  );
+  expect(await listed()).toMatchObject({ eligible: 0 });
 });
 
 it("keeps a pinned result when its conversation is excluded from memory", async () => {

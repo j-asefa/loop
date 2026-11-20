@@ -1,5 +1,5 @@
 import { openAnswer } from "../answer-record.js";
-import { recallForRun } from "../memory.js";
+import { assertMemoryContext, recallForRun } from "../memory.js";
 import * as memoryReceiptsQueries from "../sql/memory-receipts.js";
 import { NativeSessionState } from "./state.js";
 import { runBoundary, type RunOutcome } from "../run-outcome.js";
@@ -612,6 +612,7 @@ export class NativeSessions {
   }
   async execute(run: Run): Promise<RunOutcome> {
     assertEffect(run.owner_id, "run", run.id);
+    assertMemoryContext(run);
     // The run is already claimed, so an upgrade that holds this harness
     // afterwards sees it as active; one that held it first is refused here.
     // A missing connection is reported by session() below.
@@ -660,6 +661,7 @@ export class NativeSessions {
         (recall?.text ?? "");
       db.transaction(() => {
         // The receipt commits with the dispatch record it describes.
+        assertMemoryContext(run, !!recall?.text);
         recall?.record();
         const messageId = id();
         openAnswer(run, {

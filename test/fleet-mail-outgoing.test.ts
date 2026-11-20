@@ -379,16 +379,11 @@ it("persists a single source-owned envelope before IO and reconciles destination
   const first = sendMail(run, "one", input);
   expect(first.delivery).toBe("transport_pending");
   expect(visible(agent.id).remote_conversation).toBeNull();
-  const binding = db
-    .prepare(
-      "SELECT remote_name FROM fleet_mail_threads WHERE owner_id=? AND thread_id=?",
-    )
-    .get(owner, first.threadId) as { remote_name: string };
   const status = mailStatus(run, { threadId: first.threadId });
   if (!("messages" in status)) throw new Error("Expected thread messages");
   expect(status.messages[0]).toMatchObject({
     from: "@" + agent.name,
-    to: "@" + binding.remote_name,
+    to: "@Remote agent",
   });
   expect(calls).toEqual([]);
   expect(sendMail(run, "one", input).messageId).toBe(first.messageId);
@@ -1074,6 +1069,50 @@ it("keeps backoff after local thread deletion and never replays a lost accepted 
   expect(received).toHaveLength(1);
 });
 
+it("refuses outbound Fleet mail from a conversation with saved evidence at dispatch", async () => {
+  const { agent, run } = source();
+  const peer = remote();
+  const queued = sendMail(run, "before-memory", {
+    to: peer,
+    body: "Earlier queued message",
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    run.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const refused = sendMail(run, "after-memory", {
+    to: peer,
+    body: "Saved evidence",
+  });
+  expect(refused.delivery).toBe("not_delivered");
+  expect(journal.outgoing(refused.messageId)).toBeNull();
+  await drainer().drain();
+  expect(received).toHaveLength(0);
+  expect(journal.outgoing(queued.messageId)?.settled).toBe(true);
+  expect(transition(run, "completed")).toBe(true);
+  const fresh = submit(owner, {
+    agentId: agent.id,
+    input: "Send a clean follow-up",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "clean-fleet-reply",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  const clean = sendMail(sender, "retry-thread-from-clean-context", {
+    to: peer,
+    threadId: refused.threadId,
+    body: "Safe follow-up",
+  });
+  expect(journal.pendingEnvelope(clean.messageId)).toMatchObject({
+    thread: { subject: "Safe follow-up" },
+    body: "Safe follow-up",
+  });
+});
+
 it("keeps an unsent message pending after peer authentication refusal and retries its same identity", async () => {
   const { run } = source();
   const mail = sendMail(run, "auth-refused", {
@@ -1092,6 +1131,59 @@ it("keeps an unsent message pending after peer authentication refusal and retrie
   await drain.drain();
   expect(journal.outgoing(mail.messageId)?.state).toBe("accepted");
   expect(received.map((item) => item.messageId)).toEqual([mail.messageId]);
+});
+
+it("refuses a Fleet attachment published from another conversation with saved evidence", () => {
+  const { agent, run } = source();
+  const published = storePublishedFile(run, "memory-file", {
+    name: "evidence.txt",
+    title: "Evidence",
+    mime: "text/plain",
+    bytes: Buffer.from("Saved evidence"),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    run.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(transition(run, "completed")).toBe(true);
+  const fresh = submit(owner, {
+    agentId: agent.id,
+    input: "Send a file",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "fresh-file-sender",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  expect(active.conversation_id).not.toBe(run.conversation_id);
+  const sent = sendMail(active, "forward-memory-file", {
+    to: remote(),
+    body: "Read the file",
+    fileIds: [published.artifactId],
+  });
+  expect(sent.delivery).toBe("not_delivered");
+  expect(journal.outgoing(sent.messageId)).toBeNull();
+  expect(transition(active, "completed")).toBe(true);
+  const withPromptAttachment = submit(owner, {
+    agentId: agent.id,
+    input: "Review the attached file",
+    idempotencyKey: id(),
+    personal: true,
+    attachmentIds: [published.artifactId],
+  });
+  const promptRun = claim(
+    "prompt-file",
+    (candidate) => candidate.id === withPromptAttachment.id,
+  )!;
+  const summarized = sendMail(promptRun, "send-attachment-summary", {
+    to: remote(),
+    body: "File summary",
+  });
+  expect(summarized.delivery).toBe("not_delivered");
+  expect(journal.outgoing(summarized.messageId)).toBeNull();
 });
 
 it("captures an authorized publication by immutable source, content and message identity before network IO", () => {

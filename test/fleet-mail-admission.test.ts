@@ -21,6 +21,7 @@ import {
   fleetAgentAddress,
 } from "../src/shared/fleet-mail.js";
 import { fleetMailApi } from "../src/shared/fleet-mail-api.js";
+import { ContinueInput } from "../src/shared/library-contract-schemas.js";
 import { FLEET_MAIL_FILE_CHUNK_BYTES } from "../src/shared/fleet-mail-files.js";
 
 const dir = mkdtempSync(join(tmpdir(), "loop-fleet-mail-admission-"));
@@ -32,8 +33,15 @@ const { createAgent, ownedRun } = await import("../src/server/domain.js");
 const { readRunFile } = await import("../src/server/uploads.js");
 const { sharedMailFiles } = await import("../src/server/agent-mail-files.js");
 const { personalFiles } = await import("../src/server/personal-files.js");
-const { captureMemory } = await import("../src/server/memory.js");
-const { submit } = await import("../src/server/agent-runtime.js");
+const { captureMemory, recallForRun, searchMemory } =
+  await import("../src/server/memory.js");
+const { forkConversation } =
+  await import("../src/server/mobile-return/forking.js");
+const { continueConversation } =
+  await import("../src/server/conversation-continuations.js");
+const { executeAgent, submit } = await import("../src/server/agent-runtime.js");
+const { agentHistory } = await import("../src/server/sql/messages.js");
+const { storePublishedFile } = await import("../src/server/published-files.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const {
   fleetMailPolicyHandlers,
@@ -42,10 +50,15 @@ const {
   MAIL_LIMITS,
   agentMessages,
   mailStatus,
+  sendMail,
 } = await import("../src/server/agent-mail.js");
 const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
 const { AgentThreadMessagesQuery, AgentThreadDetail } =
   await import("../src/shared/agent-thread-feed.js");
+const { nativeSessions } = await import("../src/server/native-sessions.js");
+const { createTeam } = await import("../src/server/teams.js");
+const { invokeNative, nativeBindings } =
+  await import("../src/server/native-tools.js");
 const { SteeringInbox } = await import("../src/server/steering.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -287,6 +300,7 @@ const row = (mailId: string) =>
   db.prepare("SELECT * FROM agent_mail WHERE id=?").get(mailId) as {
     id: string;
     run_id: string | null;
+    requeued_run_id: string | null;
     thread_id: string;
     recipient_conversation_id: string | null;
     steering_id: string | null;
@@ -375,6 +389,108 @@ it("keeps peer file chunks private until one atomic production mail admission", 
   expect(() =>
     readRunFile({ ...run, owner_id: "other-owner" }, fileId, 0, 128, "base64"),
   ).toThrow(/not attached/);
+  const memoryAgent = agent(owner);
+  const memoryTurn = submit(owner, {
+    agentId: memoryAgent.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    memoryTurn.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(() =>
+    submit(owner, {
+      agentId: memoryAgent.id,
+      conversationId: memoryTurn.conversation_id!,
+      input: "Read this received file",
+      idempotencyKey: id(),
+      attachmentIds: [fileId],
+    }),
+  ).toThrow(/Fleet mail and saved memory/);
+  const reuse = submit(owner, {
+    agentId: memoryAgent.id,
+    input: "Read the Fleet file in a fresh conversation",
+    idempotencyKey: id(),
+    attachmentIds: [fileId],
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(reuse.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(false);
+  expect(transition(ownedRun(reuse.id, owner), "cancelled")).toBe(true);
+  const clean = submit(owner, {
+    agentId: memoryAgent.id,
+    conversationId: reuse.conversation_id!,
+    input: "Continue without the file",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(clean.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+  expect(agentHistory(db, clean.conversation_id, owner, clean.id)).not.toEqual(
+    expect.arrayContaining([expect.objectContaining({ run_id: reuse.id })]),
+  );
+  expect(() => readRunFile(clean, fileId, 0, 128, "base64")).toThrow(
+    /not attached/,
+  );
+  const steeringAgent = agent(owner, "pi");
+  const starting = submit(owner, {
+    agentId: steeringAgent.id,
+    input: "Start an answer",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "received-file-steering",
+    (candidate) => candidate.id === starting.id,
+  )!;
+  const answer = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+  ).run(
+    answer,
+    owner,
+    active.conversation_id,
+    active.id,
+    "Summary of the attached file",
+    now() - 1000,
+  );
+  expect(
+    submit(owner, {
+      agentId: steeringAgent.id,
+      conversationId: active.conversation_id!,
+      input: "Read the file before finishing",
+      idempotencyKey: id(),
+      personal: true,
+      attachmentIds: [fileId],
+      steer: true,
+    }),
+  ).toHaveProperty("steeringId");
+  const stop = new SteeringInbox(active).listen(async () => {});
+  await stop();
+  const fork = forkConversation(owner, active.conversation_id!, {
+    messageId: answer,
+  });
+  const continuation = submit(owner, {
+    agentId: steeringAgent.id,
+    conversationId: fork.id,
+    input: "Find saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(continuation.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(false);
   const objectCount = db
     .prepare("SELECT count(*) n FROM objects WHERE owner_id=?")
     .get(owner);
@@ -448,6 +564,7 @@ it("atomically queues one attributed direct message and returns its original tar
     e = envelope(local.id);
   // Identical UUIDs on different machines must remain distinct participants.
   e.source.agentId = local.id;
+  e.sender.name = "Remote display name from the peer";
   const agentsBefore = db.prepare("SELECT count(*) n FROM agents").get();
   const reservationId = await prepare(e);
   const result = await call("accept", { envelope: e, reservationId });
@@ -548,6 +665,34 @@ it("atomically queues one attributed direct message and returns its original tar
     state: "accepted",
     status: "reading",
     conversationId: first.admission.conversationId,
+  });
+  expect(transition(ownedRun(mail.run_id!, owner), "completed")).toBe(true);
+  const clean = submit(owner, {
+    agentId: local.id,
+    input: "Check mail delivery",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const cleanRun = claim(
+    "clean-mail-status",
+    (candidate) => candidate.id === clean.id,
+  )!;
+  const statusTool = nativeBindings(cleanRun).find(
+    (binding) => binding.tool === "loop_message_status",
+  )!;
+  const statusResult = await invokeNative(
+    cleanRun,
+    statusTool,
+    "status-redaction",
+    {
+      threadId: mail.thread_id,
+    },
+  );
+  if (!("result" in statusResult))
+    throw new Error("Expected mail delivery status");
+  expect(JSON.parse(statusResult.result.content[0].text)).toMatchObject({
+    subject: "Agent message",
+    messages: [{ from: "@Remote agent", preview: null }],
   });
 });
 
@@ -728,6 +873,939 @@ it.each([
     }
   },
 );
+
+it("refuses a local attachment from a saved-memory conversation when the recipient has Fleet context", async () => {
+  const origin = agent(owner);
+  const recipient = agent(owner);
+  const publication = submit(owner, {
+    agentId: origin.id,
+    input: "Publish evidence",
+    idempotencyKey: id(),
+  });
+  const author = claim(
+    "local-publisher",
+    (candidate) => candidate.id === publication.id,
+  )!;
+  const file = storePublishedFile(author, "local-memory-file", {
+    title: "Evidence",
+    name: "evidence.txt",
+    mime: "text/plain",
+    bytes: Buffer.from("Saved evidence"),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    author.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(transition(author, "completed")).toBe(true);
+  const incoming = await deliver(envelope(recipient.id));
+  if (incoming.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const incomingMail = row(incoming.admission.mailId);
+  const fleetRun = claim(
+    "fleet-file-origin",
+    (candidate) => candidate.id === incomingMail.run_id,
+  )!;
+  const fleetFile = storePublishedFile(fleetRun, "fleet-origin-file", {
+    title: "Fleet context",
+    name: "fleet.txt",
+    mime: "text/plain",
+    bytes: Buffer.from("Fleet evidence"),
+  });
+  expect(transition(fleetRun, "completed")).toBe(true);
+  const newTurn = submit(owner, {
+    agentId: recipient.id,
+    input: "Send the Fleet file",
+    idempotencyKey: id(),
+  });
+  const fleetRelay = claim(
+    "fresh-fleet-file-sender",
+    (candidate) => candidate.id === newTurn.id,
+  )!;
+  expect(
+    sendMail(fleetRelay, "local-fleet-file", {
+      to: origin.id,
+      body: "Read the file",
+      scope: "direct",
+      conversationId: author.conversation_id,
+      fileIds: [fleetFile.artifactId],
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  const fresh = submit(owner, {
+    agentId: origin.id,
+    input: "Send the file",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "local-fresh-file-sender",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  expect(
+    sendMail(sender, "local-evidence", {
+      to: recipient.id,
+      body: "Read the file",
+      scope: "direct",
+      conversationId: incoming.admission.conversationId,
+      fileIds: [file.artifactId],
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  const clean = agent(owner);
+  const sent = sendMail(sender, "local-evidence-clean", {
+    to: clean.id,
+    body: "Read the file",
+    scope: "direct",
+    fileIds: [file.artifactId],
+  });
+  expect(sent.delivery).toBe("new_turn");
+  const delivered = row(sent.messageId);
+  const later = envelope(clean.id);
+  expect(
+    (
+      await deliver({
+        ...later,
+        thread: {
+          ...later.thread,
+          recipientConversationId: delivered.recipient_conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    fleetRelay.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const untouched = agent(owner, "pi");
+  const cleanTask = submit(owner, {
+    agentId: untouched.id,
+    input: "Keep working",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "clean-before-mixed-mail",
+    (candidate) => candidate.id === cleanTask.id,
+  )!;
+  expect(
+    sendMail(fleetRelay, "mixed-attachment-and-sender", {
+      to: untouched.id,
+      scope: "direct",
+      body: "Read this file",
+      fileIds: [fleetFile.artifactId],
+      interrupt: true,
+      conversationId: active.conversation_id,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  expect(
+    db.prepare("SELECT 1 FROM run_steering WHERE run_id=?").get(active.id),
+  ).toBeUndefined();
+});
+
+it("refreshes cached mail status after the sender uses saved memory", async () => {
+  const origin = agent(owner);
+  const recipient = agent(owner);
+  const started = submit(owner, {
+    agentId: origin.id,
+    input: "Send an update",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "status-origin",
+    (candidate) => candidate.id === started.id,
+  )!;
+  const sent = sendMail(sender, "status-mail", {
+    to: recipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const delivery = row(sent.messageId);
+  const run = claim(
+    "status-recipient",
+    (candidate) => candidate.id === delivery.run_id,
+  )!;
+  const status = nativeBindings(run).find(
+    (entry) => entry.tool === "loop_message_status",
+  )!;
+  const read = async () => {
+    const result = await invokeNative(run, status, "same-status", {
+      threadId: sent.threadId,
+    });
+    if (!("result" in result)) throw new Error("Expected mail status");
+    return JSON.parse(result.result.content[0].text);
+  };
+  expect(await read()).toMatchObject({
+    messages: [{ preview: "Earlier work summary" }],
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    sender.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(await read()).toMatchObject({
+    subject: "Agent message",
+    messages: [{ preview: null }],
+  });
+});
+
+it("keeps receipts from blocking delegation and earlier turns visible through local mail relays", async () => {
+  const sender = agent(owner);
+  const firstRelay = agent(owner);
+  const secondRelay = agent(owner);
+  const worker = agent(owner);
+  const original = submit(owner, {
+    agentId: sender.id,
+    input: "Delegate work",
+    idempotencyKey: id(),
+  });
+  const prompt = db
+    .prepare(
+      "SELECT id,created_at FROM messages WHERE run_id=? AND role='user'",
+    )
+    .get(original.id) as { id: string; created_at: number };
+  const promptOnly = forkConversation(owner, original.conversation_id!, {
+    messageId: prompt.id,
+  });
+  const child = submit(owner, {
+    agentId: worker.id,
+    input: "Retrieve saved evidence",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
+  ).run(original.id, "blocking:0", child.id, "{}");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    child.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    Math.max(now(), prompt.created_at + 1),
+  );
+  for (const id of [child.id, original.id]) {
+    const run = claim(
+      "finished-blocking-work",
+      (candidate) => candidate.id === id,
+    )!;
+    expect(transition(run, "completed")).toBe(true);
+  }
+  const followUp = submit(owner, {
+    agentId: sender.id,
+    conversationId: original.conversation_id!,
+    input: "Pass along the earlier work",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  let source = claim(
+    "first-memory-relay",
+    (candidate) => candidate.id === followUp.id,
+  )!;
+  const cancelledRecipient = agent(owner);
+  const unread = sendMail(source, id(), {
+    to: cancelledRecipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const cancelledMail = row(unread.messageId);
+  const queued = ownedRun(cancelledMail.run_id!, owner);
+  expect(transition(queued, "cancelled")).toBe(true);
+  const failedRecipient = agent(owner);
+  const failedMail = sendMail(source, id(), {
+    to: failedRecipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const failedDelivery = row(failedMail.messageId);
+  const failedRun = ownedRun(failedDelivery.run_id!, owner);
+  expect(transition(failedRun, "failed")).toBe(true);
+  const afterFailure = envelope(failedRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...afterFailure,
+        thread: {
+          ...afterFailure.thread,
+          recipientConversationId: failedRun.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  const unreadMessage = db
+    .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
+    .get(queued.id) as { id: string };
+  const fork = forkConversation(owner, queued.conversation_id!, {
+    messageId: unreadMessage.id,
+  });
+  expect(
+    db.prepare("SELECT id FROM messages WHERE conversation_id=?").all(fork.id),
+  ).toEqual([]);
+  db.prepare("UPDATE agent_mail SET state='refused' WHERE id=?").run(
+    cancelledMail.id,
+  );
+  const selected = continueConversation(
+    owner,
+    queued.conversation_id!,
+    ContinueInput.parse({
+      agentId: cancelledRecipient.id,
+      messageIds: [unreadMessage.id],
+      start: { input: "Use the selected context", idempotencyKey: id() },
+    }),
+  );
+  const selectedMail = envelope(cancelledRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...selectedMail,
+        thread: {
+          ...selectedMail.thread,
+          recipientConversationId: selected.id,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+  const fresh = envelope(cancelledRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...fresh,
+        thread: {
+          ...fresh.thread,
+          recipientConversationId: queued.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  for (const recipient of [firstRelay, secondRelay]) {
+    const sent = sendMail(source, id(), {
+      to: recipient.id,
+      scope: "direct",
+      body: "Earlier work summary",
+    });
+    expect(sent.delivery).toBe("new_turn");
+    const delivery = row(sent.messageId);
+    source = claim(
+      "memory-relay",
+      (candidate) => candidate.id === delivery.run_id,
+    )!;
+    const status = nativeBindings(source).find(
+      (binding) => binding.tool === "loop_message_status",
+    )!;
+    const outcome = await invokeNative(source, status, "check-receipt", {
+      threadId: sent.threadId,
+    });
+    if (!("result" in outcome)) throw new Error("Expected mail status");
+    expect(JSON.parse(outcome.result.content[0].text)).toMatchObject({
+      subject: "Agent message",
+      messages: [{ preview: null }],
+    });
+  }
+  const incoming = envelope(secondRelay.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: {
+          ...incoming.thread,
+          recipientConversationId: source.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+  const cleanIncoming = envelope(sender.id);
+  expect(
+    (
+      await deliver({
+        ...cleanIncoming,
+        thread: {
+          ...cleanIncoming.thread,
+          recipientConversationId: promptOnly.id,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+});
+
+it.each([0, 1])(
+  "keeps manager memory out of Fleet mail after copying a worker answer (background=%i)",
+  async (background) => {
+    const manager = agent(owner);
+    const worker = agent(owner);
+    const parent = submit(owner, {
+      agentId: manager.id,
+      input: "Delegate work",
+      idempotencyKey: id(),
+    });
+    db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+      parent.id,
+      "lexical",
+      '[{"id":"saved","via":"tool"}]',
+      15,
+      now(),
+    );
+    const child = submit(owner, {
+      agentId: worker.id,
+      input: "Evaluate saved evidence",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,?)",
+    ).run(parent.id, "task:0", child.id, "{}", background);
+    const answerId = id();
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+    ).run(
+      answerId,
+      owner,
+      child.conversation_id,
+      child.id,
+      "Summary of saved evidence",
+      now(),
+    );
+    const fork = forkConversation(owner, child.conversation_id!, {
+      messageId: answerId,
+    });
+    for (const conversationId of [child.conversation_id!, fork.id]) {
+      const incoming = envelope(worker.id);
+      expect(
+        (
+          await deliver({
+            ...incoming,
+            thread: {
+              ...incoming.thread,
+              recipientConversationId: conversationId,
+            },
+          })
+        ).admission,
+      ).toMatchObject({ state: "refused" });
+    }
+  },
+);
+
+it("refuses a background result with saved memory after Fleet mail reaches its manager", async () => {
+  const manager = agent(owner);
+  const worker = agent(owner);
+  const team = createTeam(owner, {
+    name: "Background result boundary",
+    managerId: manager.id,
+    members: [worker.id],
+  });
+  const parent = submit(owner, {
+    agentId: manager.id,
+    conversationId: team.conversation_id!,
+    input: "Delegate a task",
+    idempotencyKey: id(),
+  });
+  const child = submit(owner, {
+    agentId: worker.id,
+    teamId: team.id,
+    input: "Background work",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
+  ).run(parent.id, "result:0", child.id, "{}");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    child.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const incoming = envelope(manager.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: {
+          ...incoming.thread,
+          recipientConversationId: parent.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  const finished = claim(
+    "background-memory-result",
+    (candidate) => candidate.id === child.id,
+  )!;
+  db.prepare("UPDATE runs SET result=? WHERE id=?").run(
+    "Saved evidence",
+    child.id,
+  );
+  expect(transition(finished, "completed")).toBe(true);
+  sweepAgentMail();
+  expect(
+    db
+      .prepare(
+        "SELECT state,run_id FROM agent_mail WHERE owner_id=? AND sender_run_id=? AND kind='result'",
+      )
+      .get(owner, child.id),
+  ).toEqual({ state: "refused", run_id: null });
+});
+
+it("keeps copied memory evidence out of Fleet context and later mail out of clean forks", async () => {
+  const local = agent(owner);
+  const original = submit(owner, {
+    agentId: local.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const message = db
+    .prepare(
+      "SELECT id,created_at FROM messages WHERE run_id=? AND role='user'",
+    )
+    .get(original.id) as { id: string; created_at: number };
+  const remembered = forkConversation(owner, original.conversation_id!, {
+    messageId: message.id,
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    original.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    message.created_at,
+  );
+  const incoming = envelope(local.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: { ...incoming.thread, recipientConversationId: remembered.id },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+
+  db.prepare("DELETE FROM memory_receipts WHERE run_id=?").run(original.id);
+  const late = envelope(local.id);
+  expect(
+    (
+      await deliver({
+        ...late,
+        thread: {
+          ...late.thread,
+          recipientConversationId: original.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  const forkTurn = submit(owner, {
+    agentId: local.id,
+    conversationId: remembered.id,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(forkTurn.id, owner)).some(
+      (entry) => entry.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+});
+
+it.each([
+  "memory tool",
+  "Fleet steering",
+  "memory-bearing local steering",
+  "unread local steering",
+] as const)(
+  "preserves the restriction when a copied answer incorporated later %s",
+  async (kind) => {
+    const local = agent(owner, "pi");
+    const original = submit(owner, {
+      agentId: local.id,
+      input: "Start a task",
+      idempotencyKey: id(),
+      personal: true,
+    });
+    const run = claim(
+      "mutable-answer",
+      (candidate) => candidate.id === original.id,
+    )!;
+    const messageId = id();
+    const openedAt = now() - 1000;
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','','{}',?)",
+    ).run(messageId, owner, run.conversation_id, run.id, openedAt);
+    if (kind === "memory tool") {
+      db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+        run.id,
+        "lexical",
+        '[{"id":"saved","via":"tool"}]',
+        15,
+        now(),
+      );
+    } else if (kind === "Fleet steering") {
+      const mail = await deliver(envelope(local.id, { interrupt: true }));
+      expect(mail.admission).toMatchObject({
+        state: "accepted",
+        status: "steering",
+      });
+    } else {
+      const sender = agent(owner);
+      const task = submit(owner, {
+        agentId: sender.id,
+        input: "Read saved notes",
+        idempotencyKey: id(),
+      });
+      const source = claim(
+        "memory-steering-sender",
+        (candidate) => candidate.id === task.id,
+      )!;
+      db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+        source.id,
+        "lexical",
+        '[{"id":"saved","via":"tool"}]',
+        15,
+        now(),
+      );
+      const steered = sendMail(source, "steering-from-memory", {
+        to: local.id,
+        scope: "direct",
+        body: "Saved notes summary",
+        conversationId: run.conversation_id,
+        interrupt: true,
+      });
+      expect(steered).toMatchObject({ delivery: "steered" });
+      if (kind === "memory-bearing local steering") {
+        const stop = new SteeringInbox(run).listen(async () => {});
+        await stop();
+      } else {
+        expect(transition(run, "completed")).toBe(true);
+        sweepAgentMail();
+        expect(row(steered.messageId).requeued_run_id).toBeTruthy();
+      }
+    }
+    db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+      kind === "unread local steering"
+        ? "Final answer."
+        : "Final answer based on the new input.",
+      messageId,
+    );
+    const fork = forkConversation(owner, run.conversation_id!, { messageId });
+    if (kind !== "Fleet steering") {
+      const mail = envelope(local.id);
+      expect(
+        (
+          await deliver({
+            ...mail,
+            thread: { ...mail.thread, recipientConversationId: fork.id },
+          })
+        ).admission,
+      ).toMatchObject({
+        state: kind === "unread local steering" ? "accepted" : "refused",
+      });
+    } else {
+      const followUp = submit(owner, {
+        agentId: local.id,
+        conversationId: fork.id,
+        input: "Find saved notes",
+        idempotencyKey: id(),
+        personal: true,
+      });
+      expect(
+        nativeBindings(ownedRun(followUp.id, owner)).some(
+          (entry) => entry.tool === "loop_memory_search",
+        ),
+      ).toBe(false);
+    }
+  },
+);
+
+it("preserves Fleet memory restrictions when mail context is copied", async () => {
+  const local = agent(owner);
+  const received = await deliver(
+    envelope(local.id, { body: "Cinnabar Fleet evidence" }),
+  );
+  if (received.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const mail = row(received.admission.mailId);
+  const incoming = claim(
+    "fleet-before-copy",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  transition(incoming, "completed");
+  db.prepare(
+    "INSERT INTO memory_policy(owner_id,scope,enabled) VALUES(?,?,1)",
+  ).run(owner, "conversation:" + incoming.conversation_id);
+  captureMemory();
+  expect(
+    db
+      .prepare(
+        "SELECT id FROM memory_sources WHERE owner_id=? AND conversation_id=? AND kind='message'",
+      )
+      .get(owner, incoming.conversation_id),
+  ).toBeDefined();
+  expect((await searchMemory(owner, null, "cinnabar")).sources).toEqual([]);
+  db.prepare(
+    "INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,?,?,'accepted',?)",
+  ).run(incoming.id, id(), "fixture-dispatch", now());
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(incoming.id);
+  const laterAnswer = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+  ).run(
+    laterAnswer,
+    owner,
+    incoming.conversation_id,
+    incoming.id,
+    "Reply before failure",
+    now(),
+  );
+  const fork = forkConversation(owner, incoming.conversation_id!, {
+    messageId: laterAnswer,
+  });
+  const copied = db
+    .prepare(
+      "SELECT id,run_id FROM messages WHERE conversation_id=? AND role='user'",
+    )
+    .get(fork.id) as { id: string; run_id: null };
+  expect(copied.run_id).toBeNull();
+  const forkTurn = submit(owner, {
+    agentId: local.id,
+    conversationId: fork.id,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const continuation = continueConversation(
+    owner,
+    fork.id,
+    ContinueInput.parse({
+      agentId: local.id,
+      messageIds: [copied.id],
+      start: { input: "Find my saved notes", idempotencyKey: id() },
+    }),
+  );
+  for (const runId of [forkTurn.id, continuation.runId]) {
+    const run = ownedRun(runId, owner);
+    expect(
+      nativeBindings(run).some((entry) => entry.tool === "loop_memory_search"),
+    ).toBe(false);
+    expect((await recallForRun(run, null)).text).toBeFalsy();
+  }
+});
+
+it("withholds memory search from a local follow-up after Fleet mail", async () => {
+  const local = agent(owner);
+  const worker = agent(owner);
+  const team = createTeam(owner, {
+    name: "Fleet follow-up",
+    managerId: local.id,
+    members: [worker.id],
+  });
+  const incomingEnvelope = envelope(local.id);
+  const received = await deliver({
+    ...incomingEnvelope,
+    thread: {
+      ...incomingEnvelope.thread,
+      recipientConversationId: team.conversation_id!,
+    },
+  });
+  if (received.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const mail = row(received.admission.mailId);
+  const incoming = claim(
+    "fleet-before-memory",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  transition(incoming, "completed");
+  const followUp = submit(owner, {
+    agentId: local.id,
+    conversationId: incoming.conversation_id!,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+    teamId: team.id,
+  });
+  const running = claim(
+    "local-after-fleet",
+    (candidate) => candidate.id === followUp.id,
+  )!;
+  const tool = nativeBindings(running, { nativeCatalog: true }).find(
+    (entry) => entry.tool === "loop_memory_search",
+  )!;
+  expect(
+    nativeBindings(running).some((entry) => entry.tool === tool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(running, tool, "search", { query: "notes" }),
+  ).rejects.toMatchObject({ status: 403 });
+
+  const statusTool = nativeBindings(running, { nativeCatalog: true }).find(
+    (entry) => entry.tool === "loop_message_status",
+  )!;
+  expect(
+    nativeBindings(running).some((entry) => entry.tool === statusTool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(running, statusTool, "mail-previews", {}),
+  ).rejects.toMatchObject({ status: 403 });
+
+  const delegate = nativeBindings(running).find(
+    (entry) => entry.tool === "loop_delegate",
+  )!;
+  const delegated = await invokeNative(running, delegate, "fleet-child", {
+    tasks: [{ agentId: worker.id, input: "Find saved notes" }],
+    wait: false,
+  });
+  if (!("result" in delegated))
+    throw new Error("Expected background delegation");
+  const childId = JSON.parse(delegated.result.content[0].text).delegated[0]
+    .runId;
+  const child = ownedRun(childId, owner);
+  expect(nativeBindings(child).some((entry) => entry.tool === tool.tool)).toBe(
+    false,
+  );
+
+  const recipient = agent(owner);
+  const target = submit(owner, {
+    agentId: recipient.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    target.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(
+    sendMail(running, "blocked-relay", {
+      to: recipient.id,
+      body: "Follow up on the prior discussion",
+      scope: "direct",
+      conversationId: target.conversation_id,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  const cleanRecipient = agent(owner);
+  const relayed = sendMail(running, "clean-relay", {
+    to: cleanRecipient.id,
+    body: "Follow up on the prior discussion",
+    scope: "direct",
+  });
+  expect(relayed.delivery).toBe("new_turn");
+  const savedRelay = row(relayed.messageId);
+  const relayRun = ownedRun(savedRelay.run_id!, owner);
+  expect(
+    nativeBindings(relayRun).some((entry) => entry.tool === tool.tool),
+  ).toBe(false);
+});
+
+it("keeps a remote interrupt out of an active conversation with recorded memory", async () => {
+  const local = agent(owner, "pi");
+  const busy = submit(owner, {
+    agentId: local.id,
+    input: "Busy with saved memory",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "memory-interrupt",
+    (candidate) => candidate.id === busy.id,
+  )!;
+  const earlier = envelope(local.id);
+  const queuedBeforeRecall = await deliver({
+    ...earlier,
+    thread: {
+      ...earlier.thread,
+      recipientConversationId: busy.conversation_id,
+    },
+  });
+  if (queuedBeforeRecall.admission.state !== "accepted")
+    throw new Error("Expected queued mail");
+  const mail = row(queuedBeforeRecall.admission.mailId);
+
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    busy.id,
+    "lexical",
+    JSON.stringify([{ id: "saved", via: "tool" }]),
+    15,
+    now(),
+  );
+  expect(
+    (await deliver(envelope(local.id, { interrupt: true }))).admission,
+  ).toMatchObject({ state: "refused" });
+  const relay = agent(owner);
+  const origin = await deliver(envelope(relay.id));
+  if (origin.admission.state !== "accepted")
+    throw new Error("Expected accepted relay");
+  const relayMail = row(origin.admission.mailId);
+  const relayRun = claim(
+    "memory-relay",
+    (candidate) => candidate.id === relayMail.run_id,
+  )!;
+  expect(
+    sendMail(relayRun, "inherited", {
+      to: local.id,
+      body: "Try to relay into the active turn",
+      scope: "direct",
+      conversationId: busy.conversation_id,
+      interrupt: true,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  expect(
+    db
+      .prepare("SELECT COUNT(*) AS n FROM run_steering WHERE run_id=?")
+      .get(active.id),
+  ).toEqual({ n: 0 });
+  transition(relayRun, "completed");
+  expect(transition(active, "completed")).toBe(true);
+  const queued = claim(
+    "memory-execution",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  expect(queued.id).toBe(mail.run_id);
+  expect(
+    nativeBindings(queued).some((entry) => entry.tool === "loop_memory_search"),
+  ).toBe(false);
+  expect(
+    nativeBindings(queued, { nativeCatalog: true }).some(
+      (entry) => entry.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+  await expect(executeAgent(queued)).rejects.toThrow(
+    /Fleet mail and saved memory cannot share conversation context/,
+  );
+  await expect(nativeSessions.execute(queued)).rejects.toThrow(
+    /Fleet mail and saved memory cannot share conversation context/,
+  );
+  transition(queued, "cancelled");
+});
+
+it("refuses unread Fleet steering recovery when its conversation has saved memory", async () => {
+  const local = agent(owner, "codex");
+  const busy = submit(owner, {
+    agentId: local.id,
+    input: "Busy fixture task",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "requeue-memory",
+    (candidate) => candidate.id === busy.id,
+  )!;
+  const incoming = await deliver(envelope(local.id, { interrupt: true }));
+  if (incoming.admission.state !== "accepted")
+    throw new Error("Expected accepted steering");
+  const mail = row(incoming.admission.mailId);
+  expect(mail.delivery).toBe("steered");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    busy.id,
+    "lexical",
+    JSON.stringify([{ id: "saved", via: "push" }]),
+    15,
+    now(),
+  );
+  transition(active, "completed");
+  sweepAgentMail(now() + 60_000);
+  expect(row(mail.id)).toMatchObject({
+    state: "refused",
+    requeued_run_id: null,
+  });
+});
 
 it("enforces the shared per-run quota across new remote threads", async () => {
   const local = agent(),

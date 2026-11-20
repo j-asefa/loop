@@ -1,3 +1,9 @@
+import {
+  conversationRecallEnabledSql,
+  evidenceKindSql,
+  inConversationSql,
+  recallWindowSql,
+} from "./memory-sources.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
@@ -85,6 +91,7 @@ const searchStatement = statement(
      AND s.owner_id=@owner
      AND s.eligible=1 AND s.tombstone=0
      AND (s.project_id IS @project OR (s.kind='note' AND s.project_id IS NULL))
+   AND (@kind IS NULL OR ${evidenceKindSql}=@kind) AND ${recallWindowSql} AND (@conversation IS NULL OR NOT ${inConversationSql}) AND (@pull=0 OR ${conversationRecallEnabledSql})
    ORDER BY rank LIMIT 75`,
 );
 const offsetsRow = QueryRecords.memory_passages.pick({
@@ -109,8 +116,21 @@ export function search(
   match: string,
   owner: string,
   project: string | null,
+  kind: "result" | "note" | "message" | null = null,
+  window?: { from: number | null; to: number | null },
+  conversation: string | null = null,
+  pull = false,
 ) {
   return searchStatement(db)
-    .all({ match, owner, project })
+    .all({
+      match,
+      owner,
+      project,
+      kind,
+      from: window?.from ?? null,
+      to: window?.to ?? null,
+      conversation,
+      pull: pull ? 1 : 0,
+    })
     .map((row) => parseRecord(searchRow, row, "memory_passages"));
 }

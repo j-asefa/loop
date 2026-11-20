@@ -414,7 +414,7 @@ export const personalRunSql = (run: string, owner: string) =>
 // The cheap clauses come before resultOutputSql's correlated checkpoint lookups.
 const personalPublishedSql = `(EXISTS(SELECT 1 FROM artifact_publications p WHERE p.artifact_id=a.id)
   AND (a.run_id IS NULL OR (${personalRunSql("a.run_id", "a.owner_id")})))`;
-const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutputSql}),0)`;
+export const publishedResultSql = `COALESCE((${personalPublishedSql} AND ${resultOutputSql}),0)`;
 
 // What decides whether an artifact is in memory by default, read again at
 // recall time: pinned or a published result, unless archived.

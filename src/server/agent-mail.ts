@@ -1,6 +1,9 @@
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
+import { assertCompatibleMemoryContext } from "./memory.js";
 import * as teamsQueries from "./sql/teams.js";
 import * as connectionsQueries from "./sql/connections.js";
 import * as nativeDispatchQueries from "./sql/native-dispatch.js";
@@ -649,7 +652,7 @@ function dispatch(
   if (mailQueries.hasEarlierPending(db, thread.id, mail.id))
     throw new Problem(409, "Waiting for earlier accepted mail in this thread.");
   if (parseFleetAgentAddress(mail.recipient_agent_id)) {
-    enqueueFleetMail(mail, thread.subject);
+    enqueueFleetMail(mail, firstLine(mail.body));
     return;
   }
   const sender = mailSender(mail);
@@ -679,6 +682,29 @@ function dispatch(
             ),
         }
       : route(team!, recipient.id, thread, senderRun, preferParent);
+  const fleetOrigins = senderRun?.conversation_id
+    ? fleetEffectsQueries.conversationMailRuns(
+        db,
+        mail.owner_id,
+        senderRun.conversation_id,
+      )
+    : [];
+  const fleetMail =
+    sender.kind === "remote" ||
+    fleetOrigins.length > 0 ||
+    (!!mail.sender_run_id &&
+      fleetEffectsQueries.hasMailAuthority(
+        db,
+        mail.owner_id,
+        mail.sender_run_id,
+      ));
+  assertCompatibleMemoryContext(
+    mail.owner_id,
+    routed.conversationId,
+    fleetMail,
+    senderRun?.conversation_id,
+    JSON.parse(mail.file_ids),
+  );
   const steer =
     mail.interrupt === 1 &&
     routed.active &&
@@ -757,6 +783,12 @@ function dispatch(
         steeringId,
         "steering",
       );
+  }
+  for (const origin of fleetOrigins) {
+    if (origin === mail.sender_run_id) continue;
+    inheritEffect(mail.owner_id, "run", origin, run.id);
+    if (typeof steeringId === "string")
+      inheritEffect(mail.owner_id, "run", origin, steeringId, "steering");
   }
   const busy = !!runsQueries.hasOtherActive(
     db,
@@ -1354,32 +1386,39 @@ function mailContentReadable(mail: Mail, agentId: string | null) {
   );
 }
 
+function hideStatusText(mail: Mail) {
+  return !!(
+    parseFleetAgentAddress(mail.sender_agent_id) ||
+    parseFleetAgentAddress(mail.recipient_agent_id) ||
+    (mail.sender_conversation_id &&
+      (fleetEffectsQueries.conversationHasMailAuthority(
+        db,
+        mail.owner_id,
+        mail.sender_conversation_id,
+      ) ||
+        memoryReceiptsQueries.conversationHasEvidence(
+          db,
+          mail.owner_id,
+          mail.sender_conversation_id,
+        )))
+  );
+}
+
 function statusSubject(thread: Thread, agentId: string | null) {
-  if (thread.created_by === agentId) return thread.subject;
   const first = mailQueries.firstInThread(db, thread.id) as Mail | undefined;
-  return first && mailContentReadable(first, agentId)
+  return first &&
+    !hideStatusText(first) &&
+    (thread.created_by === agentId || mailContentReadable(first, agentId))
     ? thread.subject
     : "Agent message";
 }
 
 function describe(mail: Mail, agentId: string | null) {
+  const hideText = hideStatusText(mail);
   const name = (agent: string) => {
     const remote = parseFleetAgentAddress(agent);
     if (!remote) return agentRow(mail.owner_id, agent)?.name ?? "former agent";
-    if (agent === mail.sender_agent_id) {
-      const record = fleetMailRecordsQueries.ownerIncomingSender(
-        db,
-        mail.owner_id,
-        mail.id,
-        remote.machineId,
-      ) as { sender_name: string } | undefined;
-      if (record) return record.sender_name;
-    }
-    const binding = fleetMailBindings(mail.owner_id).get(mail.thread_id);
-    return binding?.peer_id === remote.machineId &&
-      binding.remote_agent_id === remote.agentId
-      ? binding.remote_name
-      : remote.agentId;
+    return "Remote agent";
   };
   return {
     messageId: mail.id,
@@ -1388,10 +1427,11 @@ function describe(mail: Mail, agentId: string | null) {
     to: `@${name(mail.recipient_agent_id)}`,
     sentAt: new Date(mail.sent_at ?? mail.created_at).toISOString(),
     status: statusOf(mail),
-    ...(mail.error ? { error: mail.error } : {}),
-    preview: mailContentReadable(mail, agentId)
-      ? mail.body.slice(0, 200)
-      : null,
+    ...(!hideText && mail.error ? { error: mail.error } : {}),
+    preview:
+      !hideText && mailContentReadable(mail, agentId)
+        ? mail.body.slice(0, 200)
+        : null,
   };
 }
 
@@ -1550,15 +1590,37 @@ function requeue(mail: Mail) {
         mail.kind === "result" ? mail.sender_run_id : undefined,
       );
       const run = db.transaction(() => {
+        // Prefer the active team conversation, otherwise use the original destination.
+        const conversationId =
+          (thread.scope === "team" &&
+            team &&
+            workingIn(team, mail.recipient_agent_id)) ||
+          message.conversation_id;
+        assertCompatibleMemoryContext(
+          mail.owner_id,
+          conversationId,
+          fleetEffectsQueries.hasMailAuthority(
+            db,
+            mail.owner_id,
+            mail.steering_id!,
+            "steering",
+          ) ||
+            (!!mail.sender_run_id &&
+              fleetEffectsQueries.hasMailAuthority(
+                db,
+                mail.owner_id,
+                mail.sender_run_id,
+              )),
+          mail.sender_run_id
+            ? maybeRunNotice(
+                runsQueries.owned(db, mail.sender_run_id, mail.owner_id),
+              )?.conversation_id
+            : undefined,
+          JSON.parse(mail.file_ids),
+        );
         const run = submit(mail.owner_id, {
           agentId: mail.recipient_agent_id,
-          // Where the recipient is working now, so this never opens a second
-          // session beside it; otherwise the conversation it was meant for.
-          conversationId:
-            (thread.scope === "team" &&
-              team &&
-              workingIn(team, mail.recipient_agent_id)) ||
-            message.conversation_id,
+          conversationId,
           mailScope: thread.scope,
           input: message.content,
           idempotencyKey: mail.idempotency_key + ":requeue",

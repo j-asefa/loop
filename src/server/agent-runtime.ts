@@ -1,4 +1,10 @@
-import { recallForRun, withoutRecall, type Recall } from "./memory.js";
+import {
+  assertMemoryContext,
+  assertCompatibleMemoryContext,
+  recallForRun,
+  withoutRecall,
+  type Recall,
+} from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -42,6 +48,7 @@ import {
   nativeBindings,
   invokeNative,
   runtimeInstructions,
+  memorySearchProviderHistory,
 } from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
@@ -275,6 +282,14 @@ export function submit(
             agent.id,
           );
       }
+      if (attachments.length && !data.automation)
+        assertCompatibleMemoryContext(
+          owner,
+          conversation,
+          false,
+          null,
+          attachments.map((file) => file.id),
+        );
       const previousReview = runsQueries.latestConversationPayloadByRowid(
         db,
         owner,
@@ -452,6 +467,7 @@ function apiCapabilities(run: Run) {
 }
 export async function executeAgent(run: Run): Promise<RunOutcome> {
   assertEffect(run.owner_id, "run", run.id);
+  assertMemoryContext(run);
   // Recheck after claim, before any checkpoint or native dispatch. A temporary
   // disconnection must not consume the durable review continuation.
   if (continuationQueries.shouldDefer(db, run.id, run.owner_id))
@@ -544,6 +560,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
     const messageId = id();
     db.transaction(() => {
       // The receipt commits with the checkpoint that holds the recalled text.
+      assertMemoryContext(run, !!recall?.text);
       recall?.record();
       openAnswer(run, {
         messageId,
@@ -645,6 +662,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             kind: "tool" as const,
             title: invocation.binding.tool,
           };
+          const memorySearch =
+            invocation.binding.connectionId === "__loop__" &&
+            invocation.binding.tool === "loop_memory_search";
           recordTrace(run, traceKey, {
             ...trace,
             metadata: { state: "running" },
@@ -740,7 +760,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             content:
               outcome.result.isError === true
                 ? toolErrorMessage(outcome.result)
-                : outcome.artifactId
+                : outcome.artifactId || memorySearch
                   ? ""
                   : JSON.stringify(outcome.result.content || []).slice(
                       0,
@@ -766,7 +786,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
                     },
                   ]
                 : []),
-              ...(outcome.result.content || [])
+              ...(memorySearch ? [] : outcome.result.content || [])
                 .filter(
                   (c: any) => c?.type === "text" && typeof c.text === "string",
                 )
@@ -901,7 +921,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             // links in it must not become the latest message's context.
             withoutRecall(history.findLast((m) => m.role === "user")?.content),
           ),
-          messages: structuredClone(history),
+          messages: structuredClone(memorySearchProviderHistory(run, history)),
           signal: AbortSignal.any([signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,

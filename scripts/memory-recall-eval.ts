@@ -47,6 +47,7 @@ export type EvalQuery = {
 };
 
 export type EvalMetrics = {
+  pullHit8?: number;
   known: number;
   deep: number;
   null: number;
@@ -228,8 +229,13 @@ export async function evaluate(
   queries: EvalQuery[],
   { skipped = 0, warmup = 10 }: { skipped?: number; warmup?: number } = {},
 ): Promise<EvalMetrics> {
-  const { searchMemory, evidenceBlock, matchedTerms, recallTerms } =
-    (await import("../src/server/memory.js")) as Memory;
+  const {
+    searchMemory,
+    evidenceBlock,
+    matchedTerms,
+    recallTerms,
+    memoryToolSearch,
+  } = (await import("../src/server/memory.js")) as Memory;
   const { db } = await import("../src/server/db.js");
   const { recallTime } = await import("../src/server/sql/memory-sources.js");
   const search = (q: EvalQuery) =>
@@ -253,6 +259,7 @@ export async function evaluate(
     coverage: [] as number[],
   };
   const deep = { n: 0, hit5: 0, coverage: [] as number[] };
+  let pullHits = 0;
   let temporal = 0;
   let temporalHits = 0;
   let temporalOutside = 0;
@@ -289,6 +296,12 @@ export async function evaluate(
       continue;
     }
     known.n++;
+    const pull = await memoryToolSearch(
+      { owner_id: q.owner, conversation_id: q.conversation ?? null },
+      q.project,
+      { query: q.query.trim().slice(0, 500), limit: 8, strict: false },
+    );
+    if (pull.hits.some((source) => source.id === q.target)) pullHits++;
     if (q.deep) deep.n++;
     if (!sources.length) known.abstain++;
     const rank = sources.slice(0, 5).findIndex((s) => s.id === q.target);
@@ -318,6 +331,7 @@ export async function evaluate(
     skipped,
     hit1: share(known.hit1, known.n),
     hit5: share(known.hit5, known.n),
+    pullHit8: share(pullHits, known.n),
     mrr5: share(known.rr, known.n),
     abstainKnown: share(known.abstain, known.n),
     abstainNull: share(abstainNull, nulls),
@@ -343,6 +357,7 @@ const ROWS: [keyof EvalMetrics, string, "count" | "share" | "number"][] = [
   ["skipped", "skipped (no search terms)", "count"],
   ["hit1", "hit@1", "share"],
   ["hit5", "hit@5", "share"],
+  ["pullHit8", "pull hit@8", "share"],
   ["mrr5", "MRR@5", "number"],
   ["abstainKnown", "abstain (known-item, wrong)", "share"],
   ["abstainNull", "abstain (null)", "share"],
@@ -356,12 +371,14 @@ const ROWS: [keyof EvalMetrics, string, "count" | "share" | "number"][] = [
   ["injectedP95", "injected chars (p95)", "number"],
   ["latencyP95Ms", "search p95 (ms)", "number"],
 ];
-const cell = (value: number, kind: string) =>
-  kind === "share"
-    ? (value * 100).toFixed(1) + "%"
-    : kind === "count"
-      ? String(value)
-      : value.toFixed(value < 10 ? 3 : 0);
+const cell = (value: number | undefined, kind: string) =>
+  value === undefined
+    ? "—"
+    : kind === "share"
+      ? (value * 100).toFixed(1) + "%"
+      : kind === "count"
+        ? String(value)
+        : value.toFixed(value < 10 ? 3 : 0);
 
 /** A Markdown table with one column per labelled run. */
 export function table(runs: [string, EvalMetrics][]) {

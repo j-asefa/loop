@@ -1,5 +1,6 @@
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as messagesQueries from "./sql/messages.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { FleetMailFile } from "../shared/fleet-mail.js";
@@ -11,6 +12,22 @@ import { MailRefusal } from "./agent-mail-policy.js";
 import type { Run } from "./queue.js";
 
 export class MailFileRefusal extends MailRefusal {}
+
+function authorizeFleetFileOrigin(owner: string, fileId: string) {
+  const artifact = ownedArtifact(fileId, owner);
+  if (
+    artifact.conversation_id &&
+    memoryReceiptsQueries.conversationHasEvidence(
+      db,
+      owner,
+      artifact.conversation_id,
+    )
+  )
+    throw new MailFileRefusal(
+      403,
+      "A file from a saved-memory conversation cannot be sent to a Fleet peer.",
+    );
+}
 
 /** The same grant applies to local mail and a verified outgoing fleet copy. */
 export function sharedMailFiles(run: Run, ids: string[]) {
@@ -67,6 +84,7 @@ export function captureFleetMailFiles(
   ids: string[],
 ) {
   return sharedMailFiles(run, ids).map((fileId) => {
+    authorizeFleetFileOrigin(run.owner_id, fileId);
     try {
       const file = contents(run.owner_id, fileId);
       const descriptor = FleetMailFile.safeParse({
@@ -100,7 +118,8 @@ export function authorizeFleetMailFiles(
       run,
       files.map((file) => file.fileId),
     );
-    for (const file of files) ownedArtifact(file.fileId, run.owner_id);
+    for (const file of files)
+      authorizeFleetFileOrigin(run.owner_id, file.fileId);
   } catch (error) {
     if (error instanceof Problem)
       throw new MailFileRefusal(

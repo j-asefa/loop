@@ -1,3 +1,5 @@
+import { publishedResultSql } from "./artifacts.js";
+import { unwrittenMessageSql } from "./messages.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { personalRunSql, resultOutputSql } from "./artifacts.js";
@@ -80,9 +82,16 @@ export function setComplete(
 }
 
 // Results are captured without a conversation, so match their artifact's.
+export const inConversationSql = `(s.conversation_id IS @conversation OR
+  (s.kind='artifact' AND EXISTS (
+    SELECT 1 FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id
+      AND a.conversation_id=@conversation
+  )))`;
+
 const inConversationStatement = statement(
-  "SELECT 1 AS found FROM memory_sources s WHERE s.id=@id AND (s.conversation_id=@conversation OR (s.kind='artifact' AND EXISTS(SELECT 1 FROM artifacts a WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND a.conversation_id=@conversation)))",
+  `SELECT 1 AS found FROM memory_sources s WHERE s.id=@id AND @conversation IS NOT NULL AND ${inConversationSql}`,
 );
+
 export function inConversation(
   db: Database.Database,
   id: string,
@@ -158,6 +167,29 @@ export const recallTimeSql = `CASE s.kind
   WHEN 'message' THEN s.created_at
   ELSE s.updated_at END`;
 
+/** Filter live policies and conversation authorship before ranking pull candidates. */
+export const conversationRecallEnabledSql = `(s.conversation_id IS NULL OR EXISTS (
+  SELECT 1 FROM memory_policy mp
+  WHERE mp.owner_id=s.owner_id AND mp.scope='conversation:' || s.conversation_id AND mp.enabled=1
+)) AND (s.kind<>'artifact' OR NOT EXISTS (
+  SELECT 1 FROM artifacts a
+  LEFT JOIN memory_policy cp ON cp.owner_id=a.owner_id
+    AND cp.scope='conversation:' || a.conversation_id AND cp.enabled=0
+  LEFT JOIN memory_policy ap ON ap.owner_id=a.owner_id
+    AND ap.scope='artifact:' || a.id
+  WHERE a.id=s.source_id AND a.owner_id=s.owner_id
+    AND (a.archived=1 OR ap.enabled=0 OR (ap.enabled IS NULL AND a.pinned=0 AND (
+      cp.enabled=0 OR EXISTS (
+        SELECT 1 FROM messages m WHERE m.conversation_id=a.conversation_id
+          AND m.owner_id=a.owner_id AND m.created_at<=a.created_at
+          AND ${unwrittenMessageSql}
+      )
+    )))
+))`;
+
+export const recallWindowSql = `(@from IS NULL OR ${recallTimeSql} >= @from)
+  AND (@to IS NULL OR ${recallTimeSql} < @to)`;
+
 const recallTimeStatement = statement(
   `SELECT ${recallTimeSql} AS updated_at FROM memory_sources s WHERE s.id=? AND s.owner_id=?`,
 );
@@ -225,3 +257,11 @@ export function promptsWithoutSources(db: Database.Database) {
     .all()
     .map((row) => parseRecord(promptsWithoutSourcesRow, row, "runs"));
 }
+
+// The source stores artifacts separately from notes; result status is live.
+export const evidenceKindSql = `CASE s.kind
+  WHEN 'artifact' THEN CASE WHEN EXISTS (
+    SELECT 1 FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+    WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND ${publishedResultSql}
+  ) THEN 'result' ELSE 'note' END
+  ELSE s.kind END`;
