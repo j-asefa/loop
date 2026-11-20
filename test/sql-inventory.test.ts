@@ -953,6 +953,30 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return write;
   };
+  const latestParentWrite = (
+    expression: any,
+    name: string,
+    owner: Scope | undefined,
+    after = -1,
+  ) => {
+    let prefix = name;
+    const parentPaths: string[] = [];
+    let replacement: any;
+    let suffix: string | undefined;
+    while (prefix.includes(".")) {
+      prefix = prefix.slice(0, prefix.lastIndexOf("."));
+      parentPaths.push(prefix);
+      const candidate = latestWrite(expression, prefix, owner);
+      if (
+        candidate?.operator === "=" &&
+        candidate.end > (replacement?.end ?? after)
+      ) {
+        replacement = candidate;
+        suffix = name.slice(prefix.length + 1);
+      }
+    }
+    return { parentPaths, replacement, suffix };
+  };
   const reachesRead = (
     node: any,
     expression: any,
@@ -1040,22 +1064,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!name.startsWith("this.")) {
       const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
-      let prefix = name;
-      const parentPaths: string[] = [];
-      let replacement: any;
-      let suffix: string | undefined;
-      while (prefix.includes(".")) {
-        prefix = prefix.slice(0, prefix.lastIndexOf("."));
-        parentPaths.push(prefix);
-        const candidate = latestWrite(expression, prefix, owner);
-        if (
-          candidate?.operator === "=" &&
-          candidate.end > (replacement?.end ?? write?.end ?? -1)
-        ) {
-          replacement = candidate;
-          suffix = name.slice(prefix.length + 1);
-        }
-      }
+      const { parentPaths, replacement, suffix } = latestParentWrite(
+        expression,
+        name,
+        owner,
+        write?.end,
+      );
       if (suffix) {
         const reachesSqlite = parentPaths.some((path) =>
           assignmentsByName
@@ -1188,6 +1202,21 @@ function sqlCallLines(file: string, text: string, script = false) {
       binding: origin ? receiverBinding(origin.scope, origin.name) : undefined,
     };
   }
+  const isMissing = (value: any) =>
+    !value ||
+    (value.type === "Identifier" &&
+      value.name === "undefined" &&
+      !bindingOf(value.name, value));
+  const destructuredSource = (
+    source: any,
+    key: string,
+    fallback: any,
+  ): ReturnType<typeof propertySource> => {
+    const member = propertySource(source, key);
+    return fallback && member.binding === undefined && isMissing(member.value)
+      ? { value: fallback, binding: connectionKind(fallback) }
+      : member;
+  };
   const methods = new Set(["prepare", "exec"]);
   if (script) methods.add("pragma");
   const destructuredMethod = (source: any, path: string) => {
@@ -1205,6 +1234,24 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (name && !name.startsWith("this.")) {
       const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
+      const { replacement, suffix } = latestParentWrite(
+        expression,
+        name,
+        owner,
+        write?.end,
+      );
+      if (suffix) {
+        const source = propertySource(replacement.right, suffix);
+        return (
+          sqliteMethod(source.value) ??
+          (source.origin &&
+            receiverProperty(
+              source.origin.scope,
+              source.origin.name,
+              (scope, key) => scope.sqliteMethods?.get(key),
+            ))
+        );
+      }
       if (write?.operator === "=") return sqliteMethod(unwrap(write.right));
     }
     if (expression?.type === "MemberExpression") {
@@ -1404,9 +1451,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (rest) trackRestCopy(scope, pattern, rest, argument);
     for (const { key, name, fallback } of bindings(parameter)) {
       if (key) {
-        const member = propertySource(argument, key);
-        const value =
-          member.value ?? (member.binding === undefined ? fallback : undefined);
+        const member = destructuredSource(argument, key, fallback);
+        const value = member.value;
         const method = destructuredMethod(argument, key) ?? sqliteMethod(value);
         trackMethod(scope, name, method);
         trackBinding(
@@ -1517,13 +1563,8 @@ function sqlCallLines(file: string, text: string, script = false) {
           )
             break;
           const passed = unwrap(argumentsList.values[index]);
-          const missing =
-            !passed ||
-            (passed.type === "Identifier" &&
-              passed.name === "undefined" &&
-              !bindingOf(passed.name, passed));
           const argument =
-            missing && parameter.type === "AssignmentPattern"
+            isMissing(passed) && parameter.type === "AssignmentPattern"
               ? unwrap(parameter.right)
               : passed;
           const scope = scopeOf(fn);
@@ -1574,11 +1615,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         for (const { key, name, fallback } of bindings(target)) {
           const {
             binding: property,
-            value: member,
+            value: extracted,
             origin,
-          } = propertySource(value, key);
-          const extracted =
-            member ?? (property === undefined ? fallback : undefined);
+          } = destructuredSource(value, key, fallback);
           const binding =
             property ??
             (isAggregate(extracted) ? "object" : undefined) ??
@@ -2709,6 +2748,21 @@ it("follows conditional replacement and destructuring without retaining overwrit
     ops.run(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10, 12]);
+});
+
+it("uses defaults for explicit undefined and clears method aliases when the object is replaced", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const { connection = db } = { connection: undefined };
+    connection.exec("BEGIN");
+    function migrate({ handle = db }) { handle.exec("BEGIN"); }
+    migrate({ handle: undefined });
+    let ops = { run: db.exec.bind(db) };
+    ops.run(migrationText);
+    ops = { run: runCommand };
+    ops.run(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 5, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
