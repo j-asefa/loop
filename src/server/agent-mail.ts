@@ -1,3 +1,4 @@
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { harnessLabel } from "../shared/harnesses.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -683,6 +684,12 @@ function dispatch(
     mail.interrupt === 1 &&
     routed.active &&
     !!routed.conversationId &&
+    (sender.kind !== "remote" ||
+      !memoryReceiptsQueries.conversationHasEvidence(
+        db,
+        mail.owner_id,
+        routed.conversationId,
+      )) &&
     steerable(mail.owner_id, routed.conversationId, recipient.id);
   const automation: Automation = {
     kind: mail.kind === "result" ? "agent_result" : "agent_message",

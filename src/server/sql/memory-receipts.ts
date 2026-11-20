@@ -66,3 +66,21 @@ export function get(db: Database.Database, run: string) {
     ? undefined
     : parseRecord(QueryRecords.memory_receipts, row, "memory_receipts");
 }
+
+const conversationHasEvidenceStatement = statement(
+  `SELECT 1 FROM memory_receipts m JOIN runs r ON r.id=m.run_id
+   WHERE r.owner_id=@owner AND r.conversation_id=@conversation
+     AND EXISTS (SELECT 1 FROM json_each(m.sources))
+   LIMIT 1`,
+);
+/** Whether a run in this owner’s conversation recorded saved evidence. */
+export function conversationHasEvidence(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return (
+    conversationHasEvidenceStatement(db).get({ owner, conversation }) !==
+    undefined
+  );
+}

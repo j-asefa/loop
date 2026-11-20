@@ -14,6 +14,7 @@ import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as passageQueries from "./sql/memory-passages.js";
 import { memoryPassages, type MemoryPassage } from "./memory-passages.js";
+import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -876,6 +877,24 @@ export function recordMemoryToolSearch(
   );
 }
 
+/** Fleet mail cannot run with memory recorded for an owner-local conversation. */
+export function assertMemoryContext(run: Run, addingEvidence = false) {
+  if (
+    run.conversation_id &&
+    fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) &&
+    (addingEvidence ||
+      memoryReceiptsQueries.conversationHasEvidence(
+        db,
+        run.owner_id,
+        run.conversation_id,
+      ))
+  )
+    throw new Problem(
+      403,
+      "Fleet mail cannot continue a conversation that used saved memory",
+    );
+}
+
 export async function recallForRun(
   run: Run,
   project: string | null,
@@ -884,6 +903,7 @@ export async function recallForRun(
 ): Promise<Recall> {
   if (
     !run.conversation_id ||
+    fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) ||
     !messagesQueries.hasPersonalPrompt(db, run.id, run.owner_id) ||
     runsQueries.hasEarlierCompletedConversationRun(
       db,

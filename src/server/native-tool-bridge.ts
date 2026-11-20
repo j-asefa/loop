@@ -78,7 +78,8 @@ export class NativeToolBridge {
     const live = nativeSessions.current(t.conversation, t.generation, false);
     const run = live.run || live.bootstrapRun;
     const bindings = [
-      ...nativeBindings(run),
+      // Some harnesses register tools only at session start. Dispatch checks the current run.
+      ...nativeBindings(run, { nativeCatalog: true }),
       ...toolBindings(run.owner_id, run.agent_id!).map((b) => ({
         ...b,
         name:
@@ -99,17 +100,13 @@ export class NativeToolBridge {
         t.bindings.set(binding.name, binding);
     }
     return {
-      tools: [...t.bindings.values()]
-        .filter(
-          (binding) =>
-            binding.tool !== "loop_memory_search" ||
-            bindings.some((current) => current.name === binding.name),
-        )
-        .map(({ name, description, inputSchema }) => ({
+      tools: [...t.bindings.values()].map(
+        ({ name, description, inputSchema }) => ({
           name,
           description,
           inputSchema,
-        })),
+        }),
+      ),
     };
   }
   private call(

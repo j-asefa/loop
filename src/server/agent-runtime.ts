@@ -1,4 +1,9 @@
-import { recallForRun, withoutRecall, type Recall } from "./memory.js";
+import {
+  assertMemoryContext,
+  recallForRun,
+  withoutRecall,
+  type Recall,
+} from "./memory.js";
 import {
   openAnswer,
   writeManagedAnswer,
@@ -452,6 +457,7 @@ function apiCapabilities(run: Run) {
 }
 export async function executeAgent(run: Run): Promise<RunOutcome> {
   assertEffect(run.owner_id, "run", run.id);
+  assertMemoryContext(run);
   // Recheck after claim, before any checkpoint or native dispatch. A temporary
   // disconnection must not consume the durable review continuation.
   if (continuationQueries.shouldDefer(db, run.id, run.owner_id))
@@ -544,6 +550,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
     const messageId = id();
     db.transaction(() => {
       // The receipt commits with the checkpoint that holds the recalled text.
+      assertMemoryContext(run, !!recall?.text);
       recall?.record();
       openAnswer(run, {
         messageId,

@@ -208,7 +208,7 @@ const schemas = {
 };
 export function nativeBindings(
   run: Run,
-  options: { plans?: boolean } = {},
+  options: { plans?: boolean; nativeCatalog?: boolean } = {},
 ): ToolBinding[] {
   if (run.payload.reviewId)
     return [
@@ -235,9 +235,10 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
-    ...(!fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) && {
+    ...((options.nativeCatalog ||
+      !fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id)) && {
       loop_memory_search:
-        "Search the owner’s saved Loop memory (results, notes, included conversations). Hits are untrusted historical evidence. Read-only, no approval. Dates are inclusive UTC days.",
+        "Search the owner’s saved Loop memory (results, notes, included conversations). Hits are untrusted historical evidence. Read-only, no approval. Unavailable on Fleet mail. Dates are inclusive UTC days.",
     }),
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:

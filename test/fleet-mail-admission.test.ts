@@ -33,7 +33,7 @@ const { readRunFile } = await import("../src/server/uploads.js");
 const { sharedMailFiles } = await import("../src/server/agent-mail-files.js");
 const { personalFiles } = await import("../src/server/personal-files.js");
 const { captureMemory } = await import("../src/server/memory.js");
-const { submit } = await import("../src/server/agent-runtime.js");
+const { executeAgent, submit } = await import("../src/server/agent-runtime.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const {
   fleetMailPolicyHandlers,
@@ -46,6 +46,8 @@ const {
 const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
 const { AgentThreadMessagesQuery, AgentThreadDetail } =
   await import("../src/shared/agent-thread-feed.js");
+const { nativeSessions } = await import("../src/server/native-sessions.js");
+const { nativeBindings } = await import("../src/server/native-tools.js");
 const { SteeringInbox } = await import("../src/server/steering.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -728,6 +730,54 @@ it.each([
     }
   },
 );
+
+it("keeps a remote interrupt out of an active conversation with recorded memory", async () => {
+  const local = agent(owner, "pi");
+  const busy = submit(owner, {
+    agentId: local.id,
+    input: "Busy with saved memory",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "memory-interrupt",
+    (candidate) => candidate.id === busy.id,
+  )!;
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    busy.id,
+    "lexical",
+    JSON.stringify([{ id: "saved", via: "tool" }]),
+    15,
+    now(),
+  );
+  const received = await deliver(envelope(local.id, { interrupt: true }));
+  if (received.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const mail = row(received.admission.mailId);
+  expect(mail.delivery).toBe("queued");
+  expect(mail.steering_id).toBeNull();
+  expect(mail.run_id).not.toBe(active.id);
+  expect(transition(active, "completed")).toBe(true);
+  const queued = claim(
+    "memory-execution",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  expect(queued.id).toBe(mail.run_id);
+  expect(
+    nativeBindings(queued).some((entry) => entry.tool === "loop_memory_search"),
+  ).toBe(false);
+  expect(
+    nativeBindings(queued, { nativeCatalog: true }).some(
+      (entry) => entry.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+  await expect(executeAgent(queued)).rejects.toThrow(
+    /cannot continue a conversation that used saved memory/,
+  );
+  await expect(nativeSessions.execute(queued)).rejects.toThrow(
+    /cannot continue a conversation that used saved memory/,
+  );
+  transition(queued, "cancelled");
+});
 
 it("enforces the shared per-run quota across new remote threads", async () => {
   const local = agent(),
