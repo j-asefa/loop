@@ -27,7 +27,7 @@ type Context = {
 export function markOpenSpecFences({
   previewFenceCut,
   cappedPreview = false,
-} = {}) {
+}: { previewFenceCut?: boolean; cappedPreview?: boolean } = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
     let lastContent = source.length;
