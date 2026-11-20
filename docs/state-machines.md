@@ -365,6 +365,44 @@ rolls back local work before recording either a refusal or another attempt. This
 an uncertain harness delivery. Retry records cascade with their source run or
 mail; ineligible results retain their metadata until source deletion.
 
+## Cloud VM experiments
+
+### `experiment_vms.state`
+
+Owner: `VM_TRANSITIONS` in [vm-state.ts](../src/shared/vm-state.ts), applied
+only by `transitionVm()` in [vm/machine.ts](../src/server/vm/machine.ts), which
+re-reads the owner's row inside one immediate transaction. A destroyed VM
+leaves its project, threads, results and published files readable.
+
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| `provisioning` | `running` / `failed` / `destroying` | The provider reported the VM up, refused the create, or the owner destroyed it; **tx** |
+| `running` | `sleeping` / `paused` / `destroying` / `failed` | Sleep observed or requested, pause, owner destroy, or a provider failure observed; **tx** |
+| `sleeping` | `running` / `destroying` / `failed` | Wake for a turn or a preview, owner destroy, or a failed wake; **tx** |
+| `paused` | `running` / `destroying` / `failed` | Resume, owner destroy, or a failed resume; **tx** |
+| `failed` | `provisioning` / `running` / `destroying` | The owner's reconcile or retry, or owner destroy; **tx** |
+| `destroying` | `destroyed` / `failed` | The provider confirmed the VM is gone (a missing VM counts), or refused; **tx** |
+| **`destroyed`** | — | Terminal |
+
+### `vm_operations.state`
+
+Owner: `VM_OPERATION_TRANSITIONS` in the same file, applied only by
+`transitionVmOperation()`. The row is a receipt: it is inserted `pending`
+before the provider is called, and its id is the caller's idempotency key.
+
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| `pending` | `succeeded` / `failed` / `uncertain` | The provider answered, refused, or gave no observed answer (timeout, disconnect, server error, or the worker's sweep found the row still pending after the longest provider call); **tx** |
+| `uncertain` | `succeeded` / `failed` | A late answer arrived, the owner's reconcile found the VM by its `remote_name`, or the provider confirmed it does not exist; **tx** |
+| **`succeeded`** | — | Terminal |
+| **`failed`** | — | Terminal |
+
+An uncertain operation is never sent again automatically. A retry is a new
+operation with a new id, and is refused while an earlier one for the same
+experiment is unsettled. Creates and forks send the provider an idempotency
+key scoped to the experiment, so a retry after an "absent" reconcile reaches
+the VM a still-running first attempt made instead of starting a second one.
+
 ## Fleets (experimental)
 
 | Record | States and edges | Guards |
