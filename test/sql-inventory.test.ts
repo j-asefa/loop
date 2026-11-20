@@ -988,6 +988,61 @@ function sqlCallLines(file: string, text: string, script = false) {
     node.end <= expression.start &&
     declaringScope(name.split(".")[0], node) === owner &&
     boundaryScope(node, "function") === boundaryScope(expression, "function");
+  const writtenBinding = (
+    expression: any,
+    name: string,
+  ): Binding | undefined => {
+    if (!name.startsWith("this.")) {
+      const owner = declaringScope(name.split(".")[0], expression);
+      const write = latestWrite(expression, name, owner);
+      const { parentPaths, replacement, suffix } = latestParentWrite(
+        expression,
+        name,
+        owner,
+        write?.end,
+      );
+      if (suffix) {
+        const reachesSqlite = parentPaths.some((path) =>
+          assignmentsByName
+            .get(path)
+            ?.some(
+              ({ node, key }) =>
+                !key &&
+                reachesRead(node, expression, path, owner, replacement.end) &&
+                propertySource(node.right, name.slice(path.length + 1))
+                  .binding === "connection",
+            ),
+        );
+        if (reachesSqlite) return "connection";
+        const property = propertySource(replacement.right, suffix);
+        if (property.binding) return property.binding;
+      }
+      if (write?.operator === "=" || write?.type === "VariableDeclarator") {
+        const value = unwrap(
+          write.type === "VariableDeclarator" ? write.init : write.right,
+        );
+        const kind = connectionKind(value);
+        const opaqueImport =
+          kind === "other" &&
+          value?.type === "Identifier" &&
+          declaringScope(value.name, value)?.imports?.has(value.name);
+        if (isAggregate(value) || kind === "object" || opaqueImport) {
+          const mayReach = assignmentsByName
+            .get(name)
+            ?.some(
+              ({ node, key }) =>
+                reachesRead(node, expression, name, owner, write.end) &&
+                (key
+                  ? propertySource(node.right, key).binding
+                  : connectionKind(node.right)) === "connection",
+            );
+          if (mayReach) return "connection";
+          return opaqueImport ? "other" : "object";
+        }
+      }
+    }
+    return undefined;
+  };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
     if (expression?.type === "Literal" && expression.regex) return "object";
@@ -1061,55 +1116,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!name) return undefined;
     const databaseName = name === "db" || name.endsWith(".db");
     if (databaseName && !script) return "connection";
-    if (!name.startsWith("this.")) {
-      const owner = declaringScope(name.split(".")[0], expression);
-      const write = latestWrite(expression, name, owner);
-      const { parentPaths, replacement, suffix } = latestParentWrite(
-        expression,
-        name,
-        owner,
-        write?.end,
-      );
-      if (suffix) {
-        const reachesSqlite = parentPaths.some((path) =>
-          assignmentsByName
-            .get(path)
-            ?.some(
-              ({ node, key }) =>
-                !key &&
-                reachesRead(node, expression, path, owner, replacement.end) &&
-                propertySource(node.right, name.slice(path.length + 1))
-                  .binding === "connection",
-            ),
-        );
-        if (reachesSqlite) return "connection";
-        const property = propertySource(replacement.right, suffix);
-        if (property.binding) return property.binding;
-      }
-      if (write?.operator === "=" || write?.type === "VariableDeclarator") {
-        const value = unwrap(
-          write.type === "VariableDeclarator" ? write.init : write.right,
-        );
-        const kind = connectionKind(value);
-        const opaqueImport =
-          kind === "other" &&
-          value?.type === "Identifier" &&
-          declaringScope(value.name, value)?.imports?.has(value.name);
-        if (isAggregate(value) || kind === "object" || opaqueImport) {
-          const mayReach = assignmentsByName
-            .get(name)
-            ?.some(
-              ({ node, key }) =>
-                reachesRead(node, expression, name, owner, write.end) &&
-                (key
-                  ? propertySource(node.right, key).binding
-                  : connectionKind(node.right)) === "connection",
-            );
-          if (mayReach) return "connection";
-          return opaqueImport ? "other" : "object";
-        }
-      }
-    }
+    const written = writtenBinding(expression, name);
+    if (written) return written;
     if (expression.type === "MemberExpression") {
       const object = unwrap(expression.object);
       const cls = classReference(object);
@@ -1193,10 +1201,19 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       }
     }
+    const path = receiver(object);
+    const written = path && writtenBinding(object, `${path}.${key}`);
+    if (written) return { binding: written };
     const returned = returnedObject(object);
+    const cls = classReference(object);
+    const instance = instanceReference(object);
     const origin = returned
       ? { scope: returned, name: `result.${key}` }
-      : propertyOrigin(object, key);
+      : cls
+        ? { scope: cls, name: `static.${key}` }
+        : instance
+          ? { scope: instance, name: `this.${key}` }
+          : propertyOrigin(object, key);
     return {
       origin,
       binding: origin ? receiverBinding(origin.scope, origin.name) : undefined,
@@ -2763,6 +2780,25 @@ it("uses defaults for explicit undefined and clears method aliases when the obje
     ops.run(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 5, 8]);
+});
+
+it("uses class fields and the latest writes when destructuring a receiver", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    class Store { connection = db; }
+    const store = new Store();
+    const { connection } = store;
+    connection.exec("BEGIN");
+    const { connection: inline } = new Store();
+    inline.exec(migrationText);
+    const holder = { connection: db };
+    const { connection: earlier } = holder;
+    earlier.exec(migrationText);
+    holder.connection = { exec: runCommand };
+    const { connection: adapter } = holder;
+    adapter.exec(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
