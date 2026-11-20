@@ -222,6 +222,29 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const bindingOf = (name: string, node: any) =>
     declaringScope(name, node)?.bindings.get(name);
+  const straightLineWrites = new Map<Scope, Map<string, any[]>>();
+  if (script) {
+    for (const node of nodes) {
+      if (
+        node.type !== "AssignmentExpression" ||
+        node.left.type !== "Identifier"
+      )
+        continue;
+      const statement = parents.get(node);
+      const block = parents.get(statement);
+      if (
+        statement?.type !== "ExpressionStatement" ||
+        (block?.type !== "BlockStatement" && block?.type !== "Program")
+      )
+        continue;
+      const scope = scopeOf(node);
+      const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
+      const writes = byName.get(node.left.name) ?? [];
+      writes.push(node);
+      byName.set(node.left.name, writes);
+      straightLineWrites.set(scope, byName);
+    }
+  }
   const receiverClass = new Map<Scope, any>();
   const boundReceivers = new Map<object, object[]>();
   const receiverContext = (
@@ -829,6 +852,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       returnsDatabase.has(invocation(expression).fn)
     )
       return "connection";
+    if (returnedObject(expression)) return "object";
     const callee =
       expression?.type === "NewExpression" && unwrap(expression.callee);
     if (callee?.name === "RegExp" && !declaringScope("RegExp", callee))
@@ -845,6 +869,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "connection";
     const name = receiver(expression);
     if (!name) return undefined;
+    if (expression.type === "Identifier") {
+      const write = straightLineWrites
+        .get(scopeOf(expression))
+        ?.get(name)
+        ?.findLast((assignment) => assignment.end <= expression.start);
+      if (write?.operator === "=" && isAggregate(unwrap(write.right)))
+        return "object";
+    }
     if (expression.type === "MemberExpression") {
       const object = unwrap(expression.object);
       const cls = classReference(object);
@@ -1015,11 +1047,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     trackMethod(scope, name, sqliteMethod(value));
     if (!binding) return;
     if (binding === "object") {
+      const returned = returnedObject(value);
       const original = receiver(value);
       const path =
-        propertyAlias?.name ?? (original && receiverPath(value, original));
+        propertyAlias?.name ??
+        (returned ? "result" : original && receiverPath(value, original));
       const origin =
         propertyAlias?.scope ??
+        returned ??
         (original?.startsWith("this.")
           ? thisScope(value)
           : path && declaringScope(path.split(".")[0], value));
@@ -1287,7 +1322,10 @@ function sqlCallLines(file: string, text: string, script = false) {
         return true;
       const text =
         statement?.type === "TemplateLiteral"
-          ? statement.quasis[0]?.value.cooked
+          ? binding === "inferred"
+            ? statement.quasis.find((quasi: any) => quasi.value.cooked?.trim())
+                ?.value.cooked
+            : statement.quasis[0]?.value.cooked
           : literalKey(statement);
       if (typeof text !== "string") return false;
       if (method === "pragma" && binding === "inferred") return true;
@@ -2018,6 +2056,28 @@ it("tracks returned connection objects and CommonJS constructors and honors nest
     new (require("better-sqlite3"))(":memory:").exec(migrationText);
 `;
   expect(sqlCallLines("probe.cjs", text, true)).toEqual([5, 10]);
+});
+
+it("follows assigned factory results, local reassignments and leading SQL interpolations", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    function open() { return { connection: new SQLite(":memory:") }; }
+    const store = open();
+    store.connection.exec(migrationText);
+    let handle = new SQLite(":memory:");
+    handle.exec(migrationText);
+    handle = { exec: runCommand };
+    handle.exec(command);
+    handle = new SQLite(":memory:");
+    handle.exec(migrationText);
+    if (condition) handle = { exec: runCommand };
+    handle.exec(migrationText);
+    export function run(fixture) {
+      const { db } = fixture;
+      db.exec(\`\${prefix} SELECT * FROM runs\`);
+    }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 11, 13, 16]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
