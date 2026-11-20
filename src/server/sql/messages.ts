@@ -20,7 +20,10 @@ const contextMailPositionSql = `
       OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
     AND (c.at IS NULL OR copy.rowid=c.seq OR NOT EXISTS (
       SELECT 1 FROM run_steering st WHERE st.message_id=copy.id
-        AND (st.state='pending' OR st.failure_reason='run-ended-unread')
+        AND (st.state='pending' OR st.failure_reason='run-ended-unread' OR EXISTS (
+          SELECT 1 FROM agent_mail requeued WHERE requeued.steering_id=st.id
+            AND requeued.owner_id=copy.owner_id AND requeued.requeued_run_id IS NOT NULL
+        ))
     ))
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)`;
 
@@ -49,7 +52,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
     CASE WHEN mail.kind='result' THEN sender.id END
   FROM context c
   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
-  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND mail.state='sent'
+  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND (mail.state='sent' OR copy.rowid=c.seq)
     AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
   JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
@@ -59,7 +62,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   SELECT a.conversation_id, copy.created_at, copy.rowid, a.run_id
   FROM context c
   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
-  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND mail.state='sent'
+  JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND (mail.state='sent' OR copy.rowid=c.seq)
     AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
   JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN json_each(mail.file_ids) file
@@ -818,6 +821,17 @@ const promptFlagsStatement = statement(
   "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
 );
 const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
+const sharedInputStatement = statement(
+  "SELECT 1 FROM messages WHERE owner_id=? AND run_id=? AND role='user' AND json_extract(metadata,'$.shared')=1 LIMIT 1",
+);
+/** Shared input includes integration-token prompts and steering. */
+export function hasSharedInput(
+  db: Database.Database,
+  owner: string,
+  run: string,
+) {
+  return sharedInputStatement(db).get(owner, run) !== undefined;
+}
 export const unwrittenMessageSql = `m.role='user' AND
   (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1)`;
 const unwrittenMessageStatement = statement(

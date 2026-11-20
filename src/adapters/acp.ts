@@ -1184,11 +1184,13 @@ export class Acp implements Adapter {
     ) {
       const old = this.toolItems.get(u.toolCallId);
       const title = text(u.title) || old?.title || "ACP tool";
-      if (isWorkspaceMemorySearch(title)) {
+      const memoryTool =
+        old && isWorkspaceMemorySearch(old.title) ? old.title : title;
+      if (isWorkspaceMemorySearch(memoryTool)) {
         const item: Item = {
           id: `acp:${this.session}:${u.toolCallId}`,
           kind: "tool",
-          title,
+          title: memoryTool,
           text: "",
           status: normalizeItemStatus(u.status ?? old?.status),
         };

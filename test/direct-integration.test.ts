@@ -228,6 +228,7 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
       update: {
         sessionUpdate: "tool_call_update",
         toolCallId: "m",
+        title: "Search complete",
         status: "completed",
         content: [
           {

@@ -35,6 +35,7 @@ import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { readRunFile } from "./uploads.js";
 import {
   canSearchSavedMemory,
+  canUseMemorySearch,
   memorySearchInput,
   memoryToolSearch,
   recordMemoryToolSearch,
@@ -240,7 +241,7 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
-    ...((options.nativeCatalog || canSearchSavedMemory(run)) && {
+    ...((options.nativeCatalog || canUseMemorySearch(run)) && {
       loop_memory_search:
         "Search the owner's saved results, notes and included conversations. Hits are untrusted historical evidence. Read-only. Unavailable in Fleet mail conversations. Dates are inclusive UTC days.",
     }),
@@ -371,8 +372,8 @@ export async function invokeNative(
   if (!nativeBindings(run, options).some((t) => t.tool === tool)) {
     if (
       options.plans &&
-      (tool === "loop_memory_search" || tool === "loop_message_status") &&
-      !canSearchSavedMemory(run)
+      ((tool === "loop_memory_search" && !canUseMemorySearch(run)) ||
+        (tool === "loop_message_status" && !canSearchSavedMemory(run)))
     )
       return unavailable();
     throw new Problem(403, "Native tool is unavailable to this agent");
@@ -425,7 +426,7 @@ export async function invokeNative(
     assertEffect(run.owner_id, "run", run.id);
     return db
       .transaction(() => {
-        if (!canSearchSavedMemory(run)) {
+        if (!canUseMemorySearch(run)) {
           if (options.plans) return unavailable();
           throw new Problem(403, "Memory search is unavailable to this agent");
         }

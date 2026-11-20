@@ -516,6 +516,30 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
   }
 });
 
+it("withholds saved-memory search from the shared prompts used by integration tokens", async () => {
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Search saved notes",
+    idempotencyKey: id(),
+    personal: true,
+    shared: true,
+  });
+  const active = claim(
+    "shared-memory-input",
+    (candidate) => candidate.id === run.id,
+  )!;
+  const tool = nativeBindings(active, { nativeCatalog: true }).find(
+    (binding) => binding.tool === "loop_memory_search",
+  )!;
+  expect(
+    nativeBindings(active).some((binding) => binding.tool === tool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(active, tool, "shared-search", { query: "notes" }),
+  ).rejects.toMatchObject({ status: 403 });
+  expect(transition(active, "completed")).toBe(true);
+});
+
 it("keeps an API-key turn running when Fleet context changes after tool advertisement", async () => {
   const agent = agentFor("alice");
   const earlier = submit("alice", {

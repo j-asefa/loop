@@ -859,7 +859,7 @@ export function recheckMemoryToolSearch(
 ) {
   const project = run.payload.folderId ?? null;
   if (
-    !canSearchSavedMemory(run) ||
+    !canUseMemorySearch(run) ||
     !enabled(run.owner_id, "workspace") ||
     (project && !enabled(run.owner_id, "project:" + project))
   )
@@ -935,6 +935,15 @@ export function canSearchSavedMemory(
         run.conversation_id,
       )
     )
+  );
+}
+
+export function canUseMemorySearch(
+  run: Pick<Run, "id" | "owner_id" | "conversation_id">,
+) {
+  return (
+    !messagesQueries.hasSharedInput(db, run.owner_id, run.id) &&
+    canSearchSavedMemory(run)
   );
 }
 

@@ -299,6 +299,7 @@ const row = (mailId: string) =>
   db.prepare("SELECT * FROM agent_mail WHERE id=?").get(mailId) as {
     id: string;
     run_id: string | null;
+    requeued_run_id: string | null;
     thread_id: string;
     recipient_conversation_id: string | null;
     steering_id: string | null;
@@ -1038,6 +1039,9 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
   expect(
     db.prepare("SELECT id FROM messages WHERE conversation_id=?").all(fork.id),
   ).toEqual([]);
+  db.prepare("UPDATE agent_mail SET state='refused' WHERE id=?").run(
+    cancelledMail.id,
+  );
   const selected = continueConversation(
     owner,
     queued.conversation_id!,
@@ -1354,20 +1358,21 @@ it.each([
         15,
         now(),
       );
-      expect(
-        sendMail(source, "steering-from-memory", {
-          to: local.id,
-          scope: "direct",
-          body: "Saved notes summary",
-          conversationId: run.conversation_id,
-          interrupt: true,
-        }),
-      ).toMatchObject({ delivery: "steered" });
+      const steered = sendMail(source, "steering-from-memory", {
+        to: local.id,
+        scope: "direct",
+        body: "Saved notes summary",
+        conversationId: run.conversation_id,
+        interrupt: true,
+      });
+      expect(steered).toMatchObject({ delivery: "steered" });
       if (kind === "memory-bearing local steering") {
         const stop = new SteeringInbox(run).listen(async () => {});
         await stop();
       } else {
         expect(transition(run, "completed")).toBe(true);
+        sweepAgentMail();
+        expect(row(steered.messageId).requeued_run_id).toBeTruthy();
       }
     }
     db.prepare("UPDATE messages SET content=? WHERE id=?").run(
