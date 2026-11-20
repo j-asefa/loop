@@ -734,6 +734,72 @@ it("still establishes a commentary item when a post-prompt delta's recall seed w
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("keeps an active-turn child message's text when a delayed delta arrives in the next turn", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-delayed-delta");
+  const current = start(sessions, "claude-delayed-delta-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-delayed-delta",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  adapter.native = { write: async () => undefined };
+  const send = (m: any) =>
+    adapter.message({ session_id: "claude-delayed-delta", ...m });
+  // Turn 1, while active: the child's full assistant message arrives.
+  send({
+    type: "assistant",
+    parent_tool_use_id: "task-1",
+    message: {
+      id: "child-old",
+      role: "assistant",
+      content: [{ type: "text", text: "Full active text" }],
+    },
+  });
+  // Turn 1 ends with no further child content; turn 2 starts fresh.
+  adapter.message({
+    type: "result",
+    session_id: "claude-delayed-delta",
+    is_error: false,
+  });
+  await adapter.prompt("next");
+  sessions.state.startTurn(
+    current.live,
+    turn("conv", "claude-delayed-delta-2"),
+  );
+  // A delayed delta for the same child message id finally arrives.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "child-old" } },
+  });
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " more" },
+    },
+  });
+  // The re-established item carries the earlier full text; the delta appends
+  // instead of overwriting the retained child history.
+  expect(current.live.items.get("child-old")).toEqual({
+    id: "child-old",
+    kind: "assistant",
+    text: "Full active text more",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,
