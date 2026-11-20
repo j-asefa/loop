@@ -226,7 +226,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   const bindingOf = (name: string, node: any) =>
     declaringScope(name, node)?.bindings.get(name);
   const straightLineWrites = new Map<Scope, Map<string, any[]>>();
-  const assignmentsByName = new Map<string, any[]>();
+  const assignmentsByName = new Map<string, { node: any; key?: string }[]>();
   const receiverClass = new Map<Scope, any>();
   const boundReceivers = new Map<object, object[]>();
   const explicitReceiverScopes = new Map<object, Scope>();
@@ -718,12 +718,16 @@ function sqlCallLines(file: string, text: string, script = false) {
       const target = declaration ? node.id : node.left;
       if (!declaration && node.type !== "AssignmentExpression") continue;
       const name = receiver(target);
-      if (!name || name.startsWith("this.")) continue;
       if (!declaration && node.operator === "=") {
-        const writes = assignmentsByName.get(name) ?? [];
-        writes.push(node);
-        assignmentsByName.set(name, writes);
+        const targets = name ? [{ name, key: "" }] : bindings(target);
+        for (const target of targets) {
+          if (target.name.startsWith("this.")) continue;
+          const writes = assignmentsByName.get(target.name) ?? [];
+          writes.push({ node, key: target.key || undefined });
+          assignmentsByName.set(target.name, writes);
+        }
       }
+      if (!name || name.startsWith("this.")) continue;
       const statement = parents.get(node);
       const block = parents.get(statement);
       if (
@@ -949,6 +953,17 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return write;
   };
+  const reachesRead = (
+    node: any,
+    expression: any,
+    name: string,
+    owner: Scope | undefined,
+    after: number,
+  ) =>
+    node.start >= after &&
+    node.end <= expression.start &&
+    declaringScope(name.split(".")[0], node) === owner &&
+    boundaryScope(node, "function") === boundaryScope(expression, "function");
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
     if (expression?.type === "Literal" && expression.regex) return "object";
@@ -1026,10 +1041,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
       let prefix = name;
+      const parentPaths: string[] = [];
       let replacement: any;
       let suffix: string | undefined;
       while (prefix.includes(".")) {
         prefix = prefix.slice(0, prefix.lastIndexOf("."));
+        parentPaths.push(prefix);
         const candidate = latestWrite(expression, prefix, owner);
         if (
           candidate?.operator === "=" &&
@@ -1040,6 +1057,18 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       }
       if (suffix) {
+        const reachesSqlite = parentPaths.some((path) =>
+          assignmentsByName
+            .get(path)
+            ?.some(
+              ({ node, key }) =>
+                !key &&
+                reachesRead(node, expression, path, owner, replacement.end) &&
+                propertySource(node.right, name.slice(path.length + 1))
+                  .binding === "connection",
+            ),
+        );
+        if (reachesSqlite) return "connection";
         const property = propertySource(replacement.right, suffix);
         if (property.binding) return property.binding;
       }
@@ -1053,16 +1082,14 @@ function sqlCallLines(file: string, text: string, script = false) {
           value?.type === "Identifier" &&
           declaringScope(value.name, value)?.imports?.has(value.name);
         if (isAggregate(value) || kind === "object" || opaqueImport) {
-          const fn = boundaryScope(expression, "function");
           const mayReach = assignmentsByName
             .get(name)
             ?.some(
-              (assignment) =>
-                assignment.start >= write.end &&
-                assignment.end <= expression.start &&
-                declaringScope(name.split(".")[0], assignment) === owner &&
-                boundaryScope(assignment, "function") === fn &&
-                connectionKind(assignment.right) === "connection",
+              ({ node, key }) =>
+                reachesRead(node, expression, name, owner, write.end) &&
+                (key
+                  ? propertySource(node.right, key).binding
+                  : connectionKind(node.right)) === "connection",
             );
           if (mayReach) return "connection";
           return opaqueImport ? "other" : "object";
@@ -1174,9 +1201,9 @@ function sqlCallLines(file: string, text: string, script = false) {
     return binding === "connection" ? method : undefined;
   };
   const sqliteMethod = (expression: any): string | undefined => {
-    if (script && expression?.type === "Identifier") {
-      const name = expression.name;
-      const owner = declaringScope(name, expression);
+    const name = script && receiver(expression);
+    if (name && !name.startsWith("this.")) {
+      const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
       if (write?.operator === "=") return sqliteMethod(unwrap(write.right));
     }
@@ -2663,6 +2690,25 @@ it("follows object-method receivers and computed constants and honors object rep
     store.connection.exec("SELECT 1");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 6, 8]);
+});
+
+it("follows conditional replacement and destructuring without retaining overwritten methods", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const adapter = { exec: runCommand };
+    let store = { connection: db };
+    store = { connection: adapter };
+    if (flag) store = { connection: db };
+    store.connection.exec("BEGIN");
+    let handle = adapter;
+    if (flag) ({ connection: handle } = { connection: db });
+    handle.exec(migrationText);
+    const ops = { run: db.exec.bind(db) };
+    ops.run(migrationText);
+    ops.run = runCommand;
+    ops.run(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
