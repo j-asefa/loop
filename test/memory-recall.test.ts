@@ -925,6 +925,9 @@ it("recalls only finished, unarchived results from conversations still in memory
       true,
     );
   expect(resultCandidates().length).toBeGreaterThan(0);
+  archive(1);
+  expect(resultCandidates()).toHaveLength(0);
+  archive(0);
 
   // Turning memory off for the source conversation excludes its results.
   await request(

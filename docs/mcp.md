@@ -55,6 +55,7 @@ Fleet admission also checks saved-memory receipts behind copied history, local m
 Blocking workers and managers share the restriction while work can return directly to the manager.
 Fleet-constrained runs cannot use the agent mail status tool.
 A conversation that has used saved memory cannot send mail to a Fleet peer, including previously queued mail that has not reached transport.
+Published files from a saved-memory conversation are also excluded from Fleet mail attachments. Messages from Fleet-linked conversations are excluded from recall even when the owner includes the conversation.
 Other runs can inspect delivery state for Fleet mail and mail from saved-memory contexts with the subject and preview hidden.
 Remote participants use a generic label.
 A Fleet mail conversation refuses local mail or a background result from a conversation with saved-memory evidence.

@@ -109,6 +109,14 @@ function eligibleKind(s: QueryRow<"memory_sources">): EvidenceKind | null {
   if (s.conversation_id) {
     if (!enabled(s.owner_id, "conversation:" + s.conversation_id, false))
       return null;
+    if (
+      fleetEffectsQueries.conversationHasMailAuthority(
+        db,
+        s.owner_id,
+        s.conversation_id,
+      )
+    )
+      return null;
     if (s.message_id) {
       const m = messagesQueries.ownedMetadata(db, s.message_id, s.owner_id);
       if (!m || readMessageMetadata(m.metadata).superseded) return null;

@@ -1113,6 +1113,41 @@ it("keeps an unsent message pending after peer authentication refusal and retrie
   expect(received.map((item) => item.messageId)).toEqual([mail.messageId]);
 });
 
+it("refuses a Fleet attachment published from another conversation with saved evidence", () => {
+  const { agent, run } = source();
+  const published = storePublishedFile(run, "memory-file", {
+    name: "evidence.txt",
+    title: "Evidence",
+    mime: "text/plain",
+    bytes: Buffer.from("Saved evidence"),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    run.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(transition(run, "completed")).toBe(true);
+  const fresh = submit(owner, {
+    agentId: agent.id,
+    input: "Send a file",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "fresh-file-sender",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  expect(active.conversation_id).not.toBe(run.conversation_id);
+  const sent = sendMail(active, "forward-memory-file", {
+    to: remote(),
+    body: "Read the file",
+    fileIds: [published.artifactId],
+  });
+  expect(sent.delivery).toBe("not_delivered");
+  expect(journal.outgoing(sent.messageId)).toBeNull();
+});
+
 it("captures an authorized publication by immutable source, content and message identity before network IO", () => {
   const { run } = source();
   const bytes = Buffer.from("PRIVATE_PUBLISHED_MAIL_CONTENT");

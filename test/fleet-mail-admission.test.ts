@@ -33,7 +33,8 @@ const { createAgent, ownedRun } = await import("../src/server/domain.js");
 const { readRunFile } = await import("../src/server/uploads.js");
 const { sharedMailFiles } = await import("../src/server/agent-mail-files.js");
 const { personalFiles } = await import("../src/server/personal-files.js");
-const { captureMemory, recallForRun } = await import("../src/server/memory.js");
+const { captureMemory, recallForRun, searchMemory } =
+  await import("../src/server/memory.js");
 const { forkConversation } =
   await import("../src/server/mobile-return/forking.js");
 const { continueConversation } =
@@ -1244,7 +1245,9 @@ it.each([
 
 it("preserves Fleet memory restrictions when mail context is copied", async () => {
   const local = agent(owner);
-  const received = await deliver(envelope(local.id));
+  const received = await deliver(
+    envelope(local.id, { body: "Cinnabar Fleet evidence" }),
+  );
   if (received.admission.state !== "accepted")
     throw new Error("Expected accepted mail");
   const mail = row(received.admission.mailId);
@@ -1253,6 +1256,18 @@ it("preserves Fleet memory restrictions when mail context is copied", async () =
     (candidate) => candidate.id === mail.run_id,
   )!;
   transition(incoming, "completed");
+  db.prepare(
+    "INSERT INTO memory_policy(owner_id,scope,enabled) VALUES(?,?,1)",
+  ).run(owner, "conversation:" + incoming.conversation_id);
+  captureMemory();
+  expect(
+    db
+      .prepare(
+        "SELECT id FROM memory_sources WHERE owner_id=? AND conversation_id=? AND kind='message'",
+      )
+      .get(owner, incoming.conversation_id),
+  ).toBeDefined();
+  expect((await searchMemory(owner, null, "cinnabar")).sources).toEqual([]);
   const userMessage = db.prepare(
     "SELECT id FROM messages WHERE conversation_id=? AND run_id=? AND role='user'",
   );

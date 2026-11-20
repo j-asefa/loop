@@ -178,7 +178,7 @@ export const conversationRecallEnabledSql = `(s.conversation_id IS NULL OR EXIST
   LEFT JOIN memory_policy ap ON ap.owner_id=a.owner_id
     AND ap.scope='artifact:' || a.id
   WHERE a.id=s.source_id AND a.owner_id=s.owner_id
-    AND (ap.enabled=0 OR (ap.enabled IS NULL AND a.pinned=0 AND (
+    AND (a.archived=1 OR ap.enabled=0 OR (ap.enabled IS NULL AND a.pinned=0 AND (
       cp.enabled=0 OR EXISTS (
         SELECT 1 FROM messages m WHERE m.conversation_id=a.conversation_id
           AND m.owner_id=a.owner_id AND m.created_at<=a.created_at
