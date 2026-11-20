@@ -653,6 +653,31 @@ it("caps a single recall stream's cached seed at the display limit", () => {
   expect(stored.endsWith("x".repeat(1000))).toBe(true);
 });
 
+it("bounds the child text cache so a long session cannot accumulate child output", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-bound");
+  const current = start(sessions, "claude-cache-bound-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-bound",
+    },
+    current.emit,
+  ) as any;
+  // Enough 64,000-byte entries to exceed the 4 MiB budget, so the oldest
+  // ids are evicted and the cache stays bounded for the adapter's lifetime.
+  for (let i = 0; i < 70; i++)
+    adapter.rememberChildText("bound-" + i, "x".repeat(64000));
+  expect(adapter.childText.has("bound-0")).toBe(false);
+  expect(adapter.childText.size).toBeLessThanOrEqual(66);
+  expect(adapter.childTextBytes).toBeLessThanOrEqual(4 * 1024 * 1024 + 64000);
+});
+
 it("still establishes a commentary item when a post-prompt delta's recall seed was lost", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-seed-lost");

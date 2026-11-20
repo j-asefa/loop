@@ -77,13 +77,15 @@ export class Claude extends DirectAdapter implements Adapter {
   // re-established item in a fresh window carries the known text instead of
   // replacing it with empty — a delayed delta for an earlier message id must
   // append, not overwrite its stored text. Each entry is capped at the
-  // projector's display-preview limit. Never evicted: dropping a seed would
-  // make a later re-established item empty and erase the projector's
-  // retained text, while keeping the id and skipping the item would let a
-  // delta create a phase-less item that could be selected as the answer.
-  // Memory is bounded per entry; the entry count tracks the session's
-  // distinct child message ids (live volume unverified).
+  // projector's display-preview limit and the total is byte-capped at the
+  // projector's own display-window scale, evicting the oldest ids, so a
+  // long session that repeatedly uses subagents cannot grow adapter memory
+  // with copies of child output. Eviction only ever drops the oldest ids
+  // (the least likely to still receive a delayed delta); a re-established
+  // item for an evicted id starts from the fragment, while its earlier text
+  // stays in that id's own run's progress rows.
   private childText = new Map<string, string>();
+  private childTextBytes = 0;
   private rememberChildText(id: string, text: string) {
     // Keep only a display-sized tail, mirroring the projector's own preview
     // bound, so one long-lived stream cannot grow its entry without limit.
@@ -97,7 +99,15 @@ export class Claude extends DirectAdapter implements Adapter {
       }
       text = text.slice(-low);
     }
+    const previous = this.childText.get(id);
+    const previousBytes = previous ? Buffer.byteLength(previous) : 0;
+    this.childTextBytes += Buffer.byteLength(text) - previousBytes;
     this.childText.set(id, text);
+    while (this.childTextBytes > 4 * 1024 * 1024 && this.childText.size > 1) {
+      const oldest = this.childText.keys().next().value!;
+      this.childTextBytes -= Buffer.byteLength(this.childText.get(oldest)!);
+      this.childText.delete(oldest);
+    }
   }
   private interrupted = false;
   private active = false;
