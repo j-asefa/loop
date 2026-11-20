@@ -403,6 +403,9 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call("````spec\n" + valid + "\n````")).toContain(
     "Display valid.",
   );
+  expect(await call("  ~~~spec\r\n" + valid + "\r\n  ~~~\r\n")).toContain(
+    "Display valid.",
+  );
   expect(await call(root)).toContain("/root points to a missing element");
   expect(await call("[]")).toContain("Line 1:");
   expect(await call("!\n".repeat(DISPLAY_LIMITS.skippedDetail + 1))).toContain(
@@ -417,6 +420,24 @@ it("validates display blocks through the native binding without recording a disp
   expect(invalid).toContain("Line 4:");
   for (const component of DISPLAY_COMPONENTS)
     expect(invalid).toContain("- " + component + ":");
+  const manyInvalid = await call("!\n".repeat(2000));
+  expect(manyInvalid.length).toBeLessThan(10_000);
+  expect(manyInvalid).toContain("Block has no applicable lines.");
+  expect(manyInvalid).toContain("additional diagnostics omitted");
+  expect(manyInvalid).toContain("Component reference");
+  const longKey = "unterminated\n" + "k".repeat(512);
+  const repeatedMissing = await call(
+    root +
+      "\n" +
+      JSON.stringify({
+        op: "add",
+        path: "/elements/card",
+        value: { type: "Card", children: Array(80).fill(longKey) },
+      }),
+  );
+  expect(repeatedMissing.length).toBeLessThan(10_000);
+  expect(repeatedMissing).toContain("additional diagnostics omitted");
+  expect(repeatedMissing).not.toContain(longKey);
   const atLimit = valid + " ".repeat(DISPLAY_LIMITS.source - valid.length);
   expect(await call(atLimit)).toContain("Display valid.");
   expect(await call(atLimit + " ")).toContain("Block exceeds");

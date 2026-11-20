@@ -55,39 +55,66 @@ const failures: Record<DisplayFailure, string> = {
 };
 
 function displaySource(input: string) {
-  const wrapped = input.trim().split(/\r\n?|\n/);
-  const opener = /^(\x60{3,}|~{3,})[ \t]*(?:spec)?[ \t]*$/.exec(wrapped[0]);
-  const closer = /^([\x60~]+)[ \t]*$/.exec(wrapped.at(-1) ?? "");
+  const lines = input.split(/\r\n?|\n/);
+  const first = lines.findIndex((line) => line.trim() !== "");
+  const last = lines.findLastIndex((line) => line.trim() !== "");
+  const opener = /^ {0,3}(\x60{3,}|~{3,})[ \t]*(?:spec)?[ \t]*$/.exec(
+    lines[first] ?? "",
+  );
+  const closer = /^ {0,3}(\x60{3,}|~{3,})[ \t]*$/.exec(lines[last] ?? "");
   if (
     opener &&
     closer &&
-    wrapped.length > 1 &&
+    last > first &&
     closer[1].length >= opener[1].length &&
-    [...closer[1]].every((character) => character === opener[1][0])
+    closer[1][0] === opener[1][0]
   )
-    return wrapped.slice(1, -1).join("\n");
-  return input.replace(/\r\n?/g, "\n");
+    return lines.slice(first + 1, last).join("\n");
+  return lines.join("\n");
 }
+
+// Leave room for the failure summary and reference within the API runtime's
+// ordinary tool result limit, including when diagnostics reflect caller text.
+const DIAGNOSTIC_BUDGET = 8_000;
+const quotedDiagnostic = (value: string) =>
+  JSON.stringify(value.length > 160 ? value.slice(0, 159) + "…" : value);
 
 export function checkDisplay(input: string): string {
   const display = readDisplaySpec(displaySource(input), {
     allSkippedLines: true,
   });
-  const issues = display.skipped.map(
-    ({ line, reason }) => `Line ${line}: ${reason}.`,
-  );
+  const issues: string[] = [];
+  let remaining = DIAGNOSTIC_BUDGET;
+  let omitted = 0;
+  const add = (issue: string) => {
+    if (issue.length + 1 > remaining) {
+      omitted++;
+      return;
+    }
+    remaining -= issue.length + 1;
+    issues.push(issue);
+  };
+  for (const { line, reason } of display.skipped)
+    add(`Line ${line}: ${reason}.`);
   if (display.ok) {
     for (const problem of displayProblems(display.root)) {
       if (problem.type !== "Placeholder") continue;
       const form = Object.hasOwn(forms, problem.name)
         ? forms[problem.name as keyof typeof forms]
         : `Choose a component from ${components}`;
-      issues.push(
-        `Element ${JSON.stringify(problem.key)}: ${problem.detail}. ${elementForm} ${form}.`,
+      add(
+        `Element ${quotedDiagnostic(problem.key)}: ${quotedDiagnostic(problem.detail)}. ${elementForm} ${form}.`,
       );
     }
     if (!issues.length)
       return `Display valid. Elements: ${display.count}. To show it, write it in a fenced spec block in your answer or loop_reply body.`;
-  } else issues.push(failures[display.reason]);
-  return ["Display has problems.", ...issues, "", reference].join("\n");
+  }
+  const summary = display.ok
+    ? "Display has problems."
+    : failures[display.reason];
+  if (omitted)
+    issues.push(
+      `${omitted} additional diagnostics omitted. Fix the listed issues and check the block again.`,
+    );
+  return [summary, ...issues, "", reference].join("\n");
 }
