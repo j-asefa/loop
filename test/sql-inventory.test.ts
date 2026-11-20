@@ -718,8 +718,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       const target = declaration ? node.id : node.left;
       if (!declaration && node.type !== "AssignmentExpression") continue;
       const name = receiver(target);
+      const targets = name
+        ? [{ name, key: "" }]
+        : !declaration && node.operator === "="
+          ? bindings(target)
+          : [];
       if (!declaration && node.operator === "=") {
-        const targets = name ? [{ name, key: "" }] : bindings(target);
         for (const target of targets) {
           if (target.name.startsWith("this.")) continue;
           const writes = assignmentsByName.get(target.name) ?? [];
@@ -727,8 +731,9 @@ function sqlCallLines(file: string, text: string, script = false) {
           assignmentsByName.set(target.name, writes);
         }
       }
-      if (!name || name.startsWith("this.")) continue;
-      const statement = parents.get(node);
+      let statement = parents.get(node);
+      while (statement?.type === "ParenthesizedExpression")
+        statement = parents.get(statement);
       const block = parents.get(statement);
       if (
         statement?.type !==
@@ -738,9 +743,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         continue;
       const scope = scopeOf(node);
       const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
-      const writes = byName.get(name) ?? [];
-      writes.push(node);
-      byName.set(name, writes);
+      for (const { name } of targets) {
+        if (name.startsWith("this.")) continue;
+        const writes = byName.get(name) ?? [];
+        writes.push(node);
+        byName.set(name, writes);
+      }
       straightLineWrites.set(scope, byName);
     }
   }
@@ -1018,10 +1026,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (property.binding) return property.binding;
       }
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
-        const value = unwrap(
-          write.type === "VariableDeclarator" ? write.init : write.right,
-        );
-        const kind = connectionKind(value);
+        const source = writtenSource(write, name);
+        const value = source.value;
+        const kind = source.binding ?? connectionKind(value);
         const opaqueImport =
           kind === "other" &&
           value?.type === "Identifier" &&
@@ -1234,6 +1241,24 @@ function sqlCallLines(file: string, text: string, script = false) {
       ? { value: fallback, binding: connectionKind(fallback) }
       : member;
   };
+  const writtenSource = (
+    write: any,
+    name: string,
+  ): ReturnType<typeof propertySource> => {
+    const value = unwrap(
+      write.type === "VariableDeclarator" ? write.init : write.right,
+    );
+    if (
+      write.left?.type === "ObjectPattern" ||
+      write.left?.type === "ArrayPattern"
+    ) {
+      const target = bindings(write.left).find(
+        (binding) => binding.name === name,
+      );
+      if (target) return destructuredSource(value, target.key, target.fallback);
+    }
+    return { value };
+  };
   const methods = new Set(["prepare", "exec"]);
   if (script) methods.add("pragma");
   const destructuredMethod = (source: any, path: string) => {
@@ -1269,7 +1294,18 @@ function sqlCallLines(file: string, text: string, script = false) {
             ))
         );
       }
-      if (write?.operator === "=") return sqliteMethod(unwrap(write.right));
+      if (write?.operator === "=") {
+        const source = writtenSource(write, name);
+        return (
+          sqliteMethod(source.value) ??
+          (source.origin &&
+            receiverProperty(
+              source.origin.scope,
+              source.origin.name,
+              (scope, key) => scope.sqliteMethods?.get(key),
+            ))
+        );
+      }
     }
     if (expression?.type === "MemberExpression") {
       const method = property(expression);
@@ -1562,6 +1598,21 @@ function sqlCallLines(file: string, text: string, script = false) {
           explicitReceiverScopes.set(fn, { bindings: new Map() });
           changed = true;
         }
+      }
+      if (
+        script &&
+        node.type === "ForOfStatement" &&
+        node.left.type === "VariableDeclaration"
+      ) {
+        const array = staticArray(node.right);
+        const declaration = node.left.declarations[0];
+        if (array)
+          for (const item of staticArguments(array).values)
+            trackParameter(
+              declarationScope(declaration),
+              declaration.id,
+              unwrap(item),
+            );
       }
       if (script && functionKinds.has(node.type))
         for (const parameter of node.params)
@@ -2799,6 +2850,20 @@ it("uses class fields and the latest writes when destructuring a receiver", () =
     adapter.exec(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8, 11]);
+});
+
+it("follows iterated SQLite handles and ignores a method replaced by destructuring", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    for (const connection of [db]) connection.exec("BEGIN");
+    const stores = [{ connection: db }];
+    for (const { connection } of stores) connection.exec(migrationText);
+    let execute = db.exec.bind(db);
+    execute(migrationText);
+    ({ execute } = { execute: runCommand });
+    execute(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5, 7]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
