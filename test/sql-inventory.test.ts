@@ -143,7 +143,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     boundCalls?: Map<string, { fn: object; items: any[] }>;
     sqliteMethods?: Map<string, string>;
     strings?: Map<string, string>;
-    arrays?: Map<string, any>;
+    iterableSources?: Map<string, any>;
     sqliteTypes?: Set<string>;
     imports?: Set<string>;
     fixtureFactories?: Set<string>;
@@ -442,13 +442,28 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
+  const iterableSource = (node: any): any => {
+    let source = unwrap(node);
+    const seen = new Set<object>();
+    while (source?.type === "Identifier" && !seen.has(source)) {
+      seen.add(source);
+      source = declaringScope(source.name, source)?.iterableSources?.get(
+        source.name,
+      );
+    }
+    return source;
+  };
   const staticArray = (node: any): any[] | undefined => {
-    const source = unwrap(node);
-    const array =
-      source?.type === "Identifier"
-        ? declaringScope(source.name, source)?.arrays?.get(source.name)
-        : source;
+    const array = iterableSource(node);
     return array?.type === "ArrayExpression" ? array.elements : undefined;
+  };
+  const staticSet = (node: any): any => {
+    const source = iterableSource(node);
+    return source?.type === "NewExpression" &&
+      source.callee.name === "Set" &&
+      !declaringScope("Set", source.callee)
+      ? source.arguments[0]
+      : undefined;
   };
   const staticArguments = (
     items: any[],
@@ -684,9 +699,11 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (
           key === "" &&
           parents.get(node)?.kind === "const" &&
-          value?.type === "ArrayExpression"
+          (value?.type === "ArrayExpression" ||
+            value?.type === "Identifier" ||
+            (value?.type === "NewExpression" && value.callee.name === "Set"))
         )
-          (scope.arrays ??= new Map()).set(name, value);
+          (scope.iterableSources ??= new Map()).set(name, value);
         if (key === "" && parents.get(node)?.kind === "const") {
           const string = literalKey(value);
           if (typeof string === "string")
@@ -1113,7 +1130,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         const target = unwrap(node.callee.object);
         if (target?.type !== "Identifier") continue;
         const owner = declaringScope(target.name, target);
-        if (!owner?.arrays?.has(target.name)) continue;
+        if (!owner || !staticArray(target)) continue;
         const names = arrayPushes.get(owner) ?? new Map<string, any[]>();
         const pushes = names.get(target.name) ?? [];
         pushes.push(node);
@@ -1136,9 +1153,10 @@ function sqlCallLines(file: string, text: string, script = false) {
       .map((push) => push.arguments);
   };
   const iteratedItems = (node: any): any[] => {
-    const array = staticArray(node);
+    const source = staticSet(node) ?? node;
+    const array = staticArray(source);
     return array
-      ? [array, ...precedingPushes(node)].flatMap(
+      ? [array, ...precedingPushes(source)].flatMap(
           (items) => staticArguments(items).values,
         )
       : [];
@@ -1330,9 +1348,15 @@ function sqlCallLines(file: string, text: string, script = false) {
           ? undefined
           : propertySource(object, String(key)).binding;
       }
-      const result = returnedObject(object);
-      if (result)
-        return receiverBinding(result, `result.${property(expression)}`);
+      const keys = [property(expression)];
+      let root = object;
+      while (root?.type === "MemberExpression") {
+        keys.unshift(property(root));
+        root = unwrap(root.object);
+      }
+      const result = returnedObject(root);
+      if (result && keys.every((key) => key !== undefined))
+        return receiverBinding(result, `result.${keys.join(".")}`);
     }
     const callee =
       expression?.type === "NewExpression" && unwrap(expression.callee);
@@ -1905,12 +1929,16 @@ function sqlCallLines(file: string, text: string, script = false) {
           node.callee.type === "MemberExpression" &&
           arrayElementCallbacks.has(property(node.callee))
         ) {
-          const array = staticArray(node.callee.object);
-          const callback =
-            array && functionReference(unwrap(node.arguments[0]));
+          const source = node.callee.object;
+          const iterable =
+            staticArray(source) ||
+            (property(node.callee) === "forEach" && staticSet(source));
+          const callback = iterable
+            ? functionReference(unwrap(node.arguments[0]))
+            : undefined;
           const parameter = callback?.params[0];
-          if (array && parameter)
-            for (const item of iteratedItems(node.callee.object))
+          if (parameter)
+            for (const item of iteratedItems(source))
               trackParameter(scopeOf(callback), parameter, unwrap(item));
         }
         const { fn, items } = invocation(node);
@@ -3427,6 +3455,21 @@ it("resolves computed fields after indexing writes and honors fixed array index 
     existing.at(0).exec(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 8]);
+});
+
+it("follows known iterable aliases, sets and nested fields on inline factory results", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const handles = [db];
+    const targets = handles;
+    targets.forEach(handle => handle.exec("BEGIN"));
+    const unique = new Set(targets);
+    for (const handle of unique) handle.exec(migrationText);
+    unique.forEach(handle => handle.exec("BEGIN"));
+    function open() { return { storage: { connection: db } }; }
+    open().storage.connection.exec("BEGIN");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 8, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
