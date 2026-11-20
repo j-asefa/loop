@@ -4,10 +4,10 @@ import { unified } from "unified";
 import {
   DISPLAY_COMPONENTS,
   DISPLAY_LIMITS,
-  displayProblems,
   isDisplayFenceLanguage,
   readDisplaySpec,
   type DisplayFailure,
+  type DisplayNode,
 } from "../shared/display-spec.js";
 import { PUBLISHED_REPLY_BODY_LIMIT } from "../shared/steering-replies.js";
 
@@ -33,7 +33,7 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Table:
     'nonempty string[] headers, (string | number)[][] rows; optional caption and align array of "left", "center" or "right"',
   Chart:
-    'nonempty title and chart; pie uses {type:"pie",segments:[{label,value}]} with positive values; bar, line, or area uses {type,categories,series:[{name,values}],xLabel?,yLabel?} with string categories and numeric values',
+    'nonempty title and chart; pie uses {type:"pie",segments:[{label,value}]} with positive values; bar, line, or area uses {type,categories,series:[{name,values}],xLabel?,yLabel?} with string categories and at most one numeric value per category in each series',
   Divider: "no props",
   Actions: "no props; child LinkButton keys",
   LinkButton: "nonempty label and an HTTP(S) url",
@@ -109,15 +109,26 @@ export function checkDisplay(input: string): string {
   for (const { line, reason } of display.skipped)
     add(`Line ${line}: ${reason}.`);
   if (display.ok) {
-    for (const problem of displayProblems(display.root)) {
-      if (problem.type !== "Placeholder") continue;
-      const form = Object.hasOwn(forms, problem.name)
-        ? forms[problem.name as keyof typeof forms]
-        : `Choose a component from ${components}`;
-      add(
-        `Element ${quotedDiagnostic(problem.key)}: ${quotedDiagnostic(problem.detail)}. ${elementForm} ${form}.`,
-      );
-    }
+    const visit = (node: DisplayNode) => {
+      if (node.type === "Placeholder") {
+        const form = Object.hasOwn(forms, node.name)
+          ? forms[node.name as keyof typeof forms]
+          : `Choose a component from ${components}`;
+        add(
+          `Element ${quotedDiagnostic(node.key)}: ${quotedDiagnostic(node.detail)}. ${elementForm} ${form}.`,
+        );
+      } else if (node.type === "Chart" && node.chart.type !== "pie") {
+        const { categories, series } = node.chart;
+        for (const { name, values } of series)
+          if (values.length > categories.length)
+            add(
+              `Element ${quotedDiagnostic(node.key)}: Chart series ${quotedDiagnostic(name)} has more values (${values.length}) than categories (${categories.length}). Add categories or remove the extra values before publishing.`,
+            );
+      } else if ("children" in node) {
+        node.children.forEach(visit);
+      }
+    };
+    visit(display.root);
     if (!issues.length)
       return `Display valid. Elements: ${display.count}. Put it in a fenced spec block in your answer. You can also use a loop_reply body if the entire reply, including the fence, fits within ${PUBLISHED_REPLY_BODY_LIMIT} characters.`;
   }

@@ -392,25 +392,30 @@ export async function invokeNative(
       return unavailable();
     throw new Problem(403, "Native tool is unavailable to this agent");
   }
+  // A display check is pure and can be repeated without a dispatch record.
+  if (tool === "loop_check_display") {
+    const parsed = checkDisplaySchema.safeParse(input);
+    return {
+      artifactId: "",
+      result: {
+        ...(parsed.success ? {} : { isError: true }),
+        content: [
+          {
+            type: "text",
+            text: parsed.success
+              ? checkDisplay(parsed.data.spec)
+              : "Pass a single spec field containing the display source as a string.",
+          },
+        ],
+      },
+    };
+  }
   const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
   if (!parsed.success && tool !== "loop_reply" && tool !== "loop_memory_search")
     throw parsed.error;
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
-  // A display check is pure and can be repeated without a dispatch record.
-  if (tool === "loop_check_display")
-    return {
-      artifactId: "",
-      result: {
-        content: [
-          {
-            type: "text",
-            text: checkDisplay(checkDisplaySchema.parse(args).spec),
-          },
-        ],
-      },
-    };
   const encoded =
     tool === "loop_install_mcp"
       ? createHash("sha256").update(JSON.stringify(args)).digest("hex")

@@ -454,6 +454,12 @@ it.each([
         expect(
           (await requestPi({ ...display, name: "loop_message" })).status,
         ).toBe(413);
+        const malformed = await fetch(endpoint.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + endpoint.token },
+          body: " ".repeat(128_001) + "{",
+        });
+        expect(malformed.status).toBe(413);
         const client = new Client({ name: "display-fixture", version: "1" });
         try {
           await client.connect(

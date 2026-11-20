@@ -288,7 +288,13 @@ export class NativeToolBridge {
           }
           chunks.push(chunk);
         }
-        body = JSON.parse(Buffer.concat(chunks).toString());
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString());
+        } catch (error) {
+          if (size <= TOOL_BODY_LIMIT) throw error;
+          res.writeHead(413).end();
+          return;
+        }
         if (
           size > TOOL_BODY_LIMIT &&
           (body?.method !== "tools/call" ||

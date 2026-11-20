@@ -46,46 +46,54 @@ function agent(owner = "alice") {
 const steps = (statuses: string[]) =>
   statuses.map((status, i) => ({ id: "s" + i, title: "Step " + i, status }));
 
-it("returns an oversized display diagnostic to the API provider and continues the run", async () => {
-  const a = agent();
-  submit("alice", {
-    agentId: a.id,
-    input: "Check my display",
-    idempotencyKey: id(),
-  });
-  const run = claim("display-check-worker")!;
-  const restore = withTestAdapter("openai", {
-    async models() {
-      return [];
-    },
-    async *stream(_secret, input) {
-      const result = input.messages.find((message) => message.role === "tool");
-      if (!result) {
-        yield {
-          toolCall: {
-            id: "oversized-display",
-            name: "loop_check_display",
-            arguments: { spec: " ".repeat(6 * DISPLAY_LIMITS.source) },
-          },
-        };
-        return;
-      }
-      expect(result.content).toContain("Block exceeds");
-      yield { text: "I can shorten the display." };
-    },
-  });
-  try {
-    await expect(executeAgent(run)).resolves.toMatchObject({
-      kind: "finished",
+it.each([
+  ["oversized source", " ".repeat(6 * DISPLAY_LIMITS.source), "Block exceeds"],
+  ["invalid arguments", 42, "source as a string"],
+])(
+  "returns a checker diagnostic to the API provider for %s and continues the run",
+  async (_case, spec, diagnostic) => {
+    const a = agent();
+    submit("alice", {
+      agentId: a.id,
+      input: "Check my display",
+      idempotencyKey: id(),
     });
-    transition(run, "completed");
-    expect(
-      db.prepare("SELECT result FROM runs WHERE id = ?").get(run.id),
-    ).toEqual({ result: "I can shorten the display." });
-  } finally {
-    restore();
-  }
-});
+    const run = claim("display-check-worker")!;
+    const restore = withTestAdapter("openai", {
+      async models() {
+        return [];
+      },
+      async *stream(_secret, input) {
+        const result = input.messages.find(
+          (message) => message.role === "tool",
+        );
+        if (!result) {
+          yield {
+            toolCall: {
+              id: "check-display",
+              name: "loop_check_display",
+              arguments: { spec },
+            },
+          };
+          return;
+        }
+        expect(result.content).toContain(diagnostic);
+        yield { text: "I can fix the display." };
+      },
+    });
+    try {
+      await expect(executeAgent(run)).resolves.toMatchObject({
+        kind: "finished",
+      });
+      transition(run, "completed");
+      expect(
+        db.prepare("SELECT result FROM runs WHERE id = ?").get(run.id),
+      ).toEqual({ result: "I can fix the display." });
+    } finally {
+      restore();
+    }
+  },
+);
 
 it("API-provider runs publish structured plans, tool lifecycle and confirmed settings", async () => {
   const a = agent();

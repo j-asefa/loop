@@ -468,9 +468,37 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call("  ~~~spec\r\n" + indented + "\r\n  ~~~")).toContain(
     "Block exceeds",
   );
+  const chart = (values: number[]) =>
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: {
+        type: "Chart",
+        props: {
+          title: "Week",
+          chart: {
+            type: "bar",
+            categories: ["Monday"],
+            series: [{ name: "Visits", values }],
+          },
+        },
+      },
+    });
+  expect(await call(chart([10]))).toContain("Display valid.");
+  expect(await call(chart([10, 20]))).toContain(
+    'Element "card": Chart series "Visits" has more values (2) than categories (1).',
+  );
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),
-  ).rejects.toThrow();
+  ).resolves.toMatchObject({
+    artifactId: "",
+    result: {
+      isError: true,
+      content: [{ text: expect.stringContaining("source as a string") }],
+    },
+  });
   expect(changes()).toBe(before);
 });
 
