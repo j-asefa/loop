@@ -42,7 +42,7 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
   WHERE sender.conversation_id IS NOT NULL
-    AND (delivery.state<>'cancelled'
+    AND (copy.rowid=c.seq OR delivery.state<>'cancelled'
       OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
       OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
     AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
@@ -330,9 +330,10 @@ export function forkPosition(
 }
 
 const forkHistoryStatement =
-  statement(`SELECT * FROM messages WHERE owner_id=@owner AND conversation_id=@conversation
-          AND COALESCE(json_extract(metadata,'$.progress'),0)=0 AND length(trim(content))>0
-          AND (created_at<@at OR (created_at=@at AND rowid<=@seq)) ORDER BY created_at,rowid`);
+  statement(`SELECT m.* FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=@conversation
+          AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND length(trim(m.content))>0
+          AND ${READABLE_MAIL_SQL}
+          AND (m.created_at<@at OR (m.created_at=@at AND m.rowid<=@seq)) ORDER BY m.created_at,m.rowid`);
 
 export function forkHistory(
   db: Database.Database,

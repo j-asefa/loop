@@ -828,6 +828,36 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
   const cancelledMail = row(unread.messageId);
   const queued = ownedRun(cancelledMail.run_id!, owner);
   expect(transition(queued, "cancelled")).toBe(true);
+  const unreadMessage = db
+    .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
+    .get(queued.id) as { id: string };
+  const fork = forkConversation(owner, queued.conversation_id!, {
+    messageId: unreadMessage.id,
+  });
+  expect(
+    db.prepare("SELECT id FROM messages WHERE conversation_id=?").all(fork.id),
+  ).toEqual([]);
+  const selected = continueConversation(
+    owner,
+    queued.conversation_id!,
+    ContinueInput.parse({
+      agentId: cancelledRecipient.id,
+      messageIds: [unreadMessage.id],
+      start: { input: "Use the selected context", idempotencyKey: id() },
+    }),
+  );
+  const selectedMail = envelope(cancelledRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...selectedMail,
+        thread: {
+          ...selectedMail.thread,
+          recipientConversationId: selected.id,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
   const fresh = envelope(cancelledRecipient.id);
   expect(
     (

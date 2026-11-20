@@ -59,6 +59,7 @@ Remote participants use a generic label.
 A Fleet mail conversation refuses local mail or a background result from a conversation with saved-memory evidence.
 A copied answer can inherit restrictions from later activity on its originating run because Loop updates the answer in place.
 A relayed grant without a delivery position in the source conversation is treated as present for that run.
+Relay and delegation inherit all durable constraints on a qualifying source run. A later grant on that run can therefore restrict work originating from an older fork.
 Persisted Fleet grants can also restrict a conversation after cancellation.
 Blocking workers retain the manager conversation link after completion, so later Fleet mail in the manager conversation can restrict subsequent turns in the worker thread.
 Start a new conversation to use saved memory again.
