@@ -397,7 +397,7 @@ before the provider is called, and its id is the caller's idempotency key.
 | **`succeeded`** | — | Terminal |
 | **`failed`** | — | Terminal |
 
-An uncertain operation is never sent again automatically. Whichever settles the receipt first wins; a later answer that disagrees returns the stored outcome. A reconcile writes the receipt and the VM's observed state in one transaction, as does a settled create with the VM's provider id. An observation that the effect did not happen settles nothing until the longest provider call has passed since the receipt was written, because the original call may still be in flight. A create whose VM boots into a failed state fails its receipt and keeps the VM's id, so the owner can destroy it. A retry is a new
+An uncertain operation is never sent again automatically. Whichever settles the receipt first wins; a later answer that disagrees returns the stored outcome. `vmOperationEffects` in [vm/operations.ts](../src/server/vm/operations.ts) holds each kind's local writes (provider id, VM state, preview rows), and both an answer and a reconcile apply them in the transaction that settles the receipt. An observation that the effect did not happen settles nothing unless the lookup began after the longest provider call had passed since the receipt was written, because the original call may still be in flight. A create stays uncertain while its VM is still starting. A create whose VM boots into a failed state fails its receipt and keeps the VM's id, so the owner can destroy it. A retry is a new
 operation with a new id, and is refused while an earlier one for the same
 experiment is unsettled. Creates and forks send the provider an idempotency
 key scoped to the experiment, so a retry after an "absent" reconcile reaches

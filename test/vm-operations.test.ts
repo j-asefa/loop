@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { beforeEach, expect, it } from "vitest";
 import { applyMigrations } from "../src/server/migrations.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
+import * as experimentPreviewsQueries from "../src/server/sql/experiment-previews.js";
 import * as experimentVmsQueries from "../src/server/sql/experiment-vms.js";
 import * as vmOperationsQueries from "../src/server/sql/vm-operations.js";
 import {
@@ -10,7 +11,7 @@ import {
   transitionVm,
 } from "../src/server/vm/machine.js";
 import {
-  createdVmEffects,
+  vmOperationEffects,
   reconcileVmOperation,
   runVmOperation,
 } from "../src/server/vm/operations.js";
@@ -63,6 +64,13 @@ const create = (
     call,
     clock,
     effects,
+  );
+
+const createEffects = (experimentId: string, id: string) =>
+  vmOperationEffects(
+    db,
+    { owner: "alice", experimentId, id, kind: "create", request: {} },
+    clock,
   );
 
 // A read-only provider for reconcile: VMs by name, statuses by id and
@@ -268,14 +276,17 @@ it("adopts the one VM that carries the experiment's name", async () => {
   await uncertainCreate();
   expect(
     await reconcile(found({ remoteId: "sb-7", status: "running" })),
-  ).toEqual({ outcome: "succeeded", result: { remoteId: "sb-7" } });
+  ).toEqual({
+    outcome: "succeeded",
+    result: { remoteId: "sb-7", status: "running" },
+  });
   expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
     remote_id: "sb-7",
     state: "running",
   });
   expect(vmOperationsQueries.byId(db, "alice", "op1")).toMatchObject({
     state: "succeeded",
-    result_json: '{"remoteId":"sb-7"}',
+    result_json: '{"remoteId":"sb-7","status":"running"}',
   });
 });
 
@@ -472,13 +483,12 @@ it("reports an uncertain sleep that did not happen as failed, so it can be asked
 });
 
 it("records a created VM's id and state in the same transaction as its receipt", async () => {
-  const vm = { owner: "alice", id: "exp1" };
   expect(
     await create(
       "op1",
       async () => ({ remoteId: "sb-1", status: "running" }),
       {},
-      createdVmEffects(db, vm, clock),
+      createEffects("exp1", "op1"),
     ),
   ).toMatchObject({ state: "succeeded" });
   expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
@@ -495,7 +505,7 @@ it("records a created VM's id and state in the same transaction as its receipt",
       "op2",
       async () => ({ remoteId: "sb-2", status: "running" }),
       { experimentId: "exp2" },
-      createdVmEffects(db, { owner: "alice", id: "exp2" }, clock),
+      createEffects("exp2", "op2"),
     ),
   ).rejects.toThrow("disk full");
   // Nothing committed: the sweep and a reconcile take it from here.
@@ -513,7 +523,7 @@ it("fails a create whose VM booted into failed, keeping its id so it can be dest
         errorMessage: "image pull failed",
       }),
       {},
-      createdVmEffects(db, { owner: "alice", id: "exp1" }, clock),
+      createEffects("exp1", "op1"),
     ),
   ).toEqual({
     state: "failed",
@@ -625,6 +635,148 @@ it("refuses an experiment on another owner's folder or forked from another owner
     }),
   ).toBe(false);
   expect(experimentVmsQueries.byId(db, "bob", "x2")).toBeUndefined();
+});
+
+it("counts a lookup as too early when it started inside the in-flight window", async () => {
+  await uncertainCreate();
+  const created = time;
+  const slow = {
+    ...found(),
+    async findByName() {
+      // The answer arrives after the window, but the lookup began inside it.
+      time = created + VM_OPERATION_MAX_CALL_MS + 10;
+      return [];
+    },
+  };
+  expect(await reconcileSoon(slow)).toEqual({
+    outcome: "still_uncertain",
+    reason: "the original call may still be in flight",
+  });
+  expect(vmOperationsQueries.byId(db, "alice", "op1")?.state).toBe("uncertain");
+});
+
+it("leaves a create uncertain while its VM is still starting", async () => {
+  await uncertainCreate();
+  for (const status of ["provisioning", "unknown", "terminating"] as const)
+    expect(await reconcile(found({ remoteId: "sb-7", status }))).toMatchObject({
+      outcome: "still_uncertain",
+    });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.remote_id).toBeNull();
+});
+
+async function uncertain(
+  id: string,
+  kind: "expose" | "unexpose" | "destroy",
+  request: unknown,
+) {
+  const operation = { id, owner: "alice", experimentId: "exp1", kind, request };
+  await runVmOperation(
+    db,
+    operation,
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+    vmOperationEffects(db, operation, clock),
+  );
+}
+
+it("keeps preview rows in step when expose, unexpose and destroy are reconciled", async () => {
+  await runningVm();
+  await uncertain("op1", "expose", { port: 3000, label: "Demo" });
+  const provider = found();
+  provider.ports.set(3000, "https://p.example");
+  provider.statuses.set("sb-1", "running");
+  await reconcile(provider);
+  expect(
+    experimentPreviewsQueries.byPort(db, "alice", "exp1", 3000),
+  ).toMatchObject({ url: "https://p.example", label: "Demo", active: 1 });
+
+  await uncertain("op2", "unexpose", { port: 3000 });
+  provider.ports.delete(3000);
+  expect(await reconcile(provider, "alice", "op2")).toMatchObject({
+    outcome: "succeeded",
+  });
+  expect(
+    experimentPreviewsQueries.byPort(db, "alice", "exp1", 3000)?.active,
+  ).toBe(0);
+
+  experimentPreviewsQueries.upsert(db, {
+    id: "pv2",
+    owner: "alice",
+    experimentId: "exp1",
+    port: 4000,
+    label: null,
+    path: "/",
+    url: "https://q.example",
+    now: clock(),
+  });
+  transitionVm(db, { owner: "alice", id: "exp1" }, "destroying", {
+    now: clock(),
+  });
+  await uncertain("op3", "destroy", {});
+  provider.statuses.delete("sb-1");
+  expect(await reconcile(provider, "alice", "op3")).toMatchObject({
+    outcome: "succeeded",
+  });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe(
+    "destroyed",
+  );
+  expect(
+    experimentPreviewsQueries
+      .byExperiment(db, "alice", "exp1")
+      .filter((preview) => preview.active === 1),
+  ).toEqual([]);
+});
+
+it("fails a destroying VM when the provider refuses the destroy", async () => {
+  await runningVm();
+  transitionVm(db, { owner: "alice", id: "exp1" }, "destroying", {
+    now: clock(),
+  });
+  const operation = {
+    id: "op1",
+    owner: "alice",
+    experimentId: "exp1",
+    kind: "destroy" as const,
+    request: {},
+  };
+  expect(
+    await runVmOperation(
+      db,
+      operation,
+      async () => {
+        throw new VmProviderError("refused", "Sailbox is locked", 409);
+      },
+      clock,
+      vmOperationEffects(db, operation, clock),
+    ),
+  ).toMatchObject({ state: "failed" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    state: "failed",
+    last_error: "Sailbox is locked",
+  });
+});
+
+it("refuses a preview on another owner's experiment", () => {
+  const preview = {
+    id: "pv1",
+    owner: "bob",
+    experimentId: "exp1",
+    port: 3000,
+    label: null,
+    path: "/",
+    url: "https://evil.example",
+    now: clock(),
+  };
+  expect(experimentPreviewsQueries.upsert(db, preview)).toBe(false);
+  expect(
+    experimentPreviewsQueries.upsert(db, { ...preview, owner: "alice" }),
+  ).toBe(true);
+  expect(experimentPreviewsQueries.byPort(db, "alice", "exp1", 3000)?.url).toBe(
+    "https://evil.example",
+  );
+  expect(experimentPreviewsQueries.byExperiment(db, "bob", "exp1")).toEqual([]);
 });
 
 it("refuses illegal and stale VM transitions", () => {

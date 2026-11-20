@@ -8,10 +8,13 @@ import { statement } from "./statement.js";
 const parse = (row: unknown) =>
   parseRecord(QueryRecords.experiment_previews, row, "experiment_previews");
 
+// INSERT … SELECT needs a WHERE before ON CONFLICT so SQLite does not read
+// the upsert clause as a join constraint.
 const upsertStatement = statement(
-  "INSERT INTO experiment_previews(id,owner_id,experiment_id,port,label,path,url,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,?,?) ON CONFLICT(experiment_id,port) DO UPDATE SET label=excluded.label,path=excluded.path,url=excluded.url,active=1,updated_at=excluded.updated_at WHERE owner_id=excluded.owner_id",
+  "INSERT INTO experiment_previews(id,owner_id,experiment_id,port,label,path,url,active,created_at,updated_at) SELECT ?,?,?,?,?,?,?,1,?,? WHERE EXISTS(SELECT 1 FROM experiment_vms WHERE id=? AND owner_id=?) ON CONFLICT(experiment_id,port) DO UPDATE SET label=excluded.label,path=excluded.path,url=excluded.url,active=1,updated_at=excluded.updated_at WHERE experiment_previews.owner_id=excluded.owner_id",
 );
-/** One preview per experiment port; exposing the port again reactivates it. */
+/** One preview per experiment port; exposing the port again reactivates it.
+ * Returns false, writing nothing, when the experiment is not the owner's. */
 export function upsert(
   db: Database.Database,
   preview: {
@@ -25,16 +28,20 @@ export function upsert(
     now: number;
   },
 ) {
-  upsertStatement(db).run(
-    preview.id,
-    preview.owner,
-    preview.experimentId,
-    preview.port,
-    preview.label,
-    preview.path,
-    preview.url,
-    preview.now,
-    preview.now,
+  return (
+    upsertStatement(db).run(
+      preview.id,
+      preview.owner,
+      preview.experimentId,
+      preview.port,
+      preview.label,
+      preview.path,
+      preview.url,
+      preview.now,
+      preview.now,
+      preview.experimentId,
+      preview.owner,
+    ).changes === 1
   );
 }
 

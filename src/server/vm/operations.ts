@@ -5,6 +5,7 @@ import {
   type VmOperationKind,
   type VmState,
 } from "../../shared/vm-state.js";
+import * as experimentPreviewsQueries from "../sql/experiment-previews.js";
 import * as experimentVmsQueries from "../sql/experiment-vms.js";
 import * as vmOperationsQueries from "../sql/vm-operations.js";
 import {
@@ -156,8 +157,20 @@ export async function runVmOperation(
       error instanceof VmProviderError && error.outcome === "refused"
         ? "failed"
         : "uncertain";
-    if (!transitionVmOperation(db, receipt, to, { errorMessage, now: clock() }))
-      return current();
+    const settled = db
+      .transaction(() => {
+        if (
+          !transitionVmOperation(db, receipt, to, {
+            errorMessage,
+            now: clock(),
+          })
+        )
+          return false;
+        if (to === "failed") effects.refused?.(errorMessage);
+        return true;
+      })
+      .immediate();
+    if (!settled) return current();
     return to === "failed"
       ? { state: "failed", errorMessage, replayed: false }
       : { state: "uncertain", errorMessage };
@@ -187,46 +200,134 @@ export async function runVmOperation(
     : { state: "failed", errorMessage, replayed: false };
 }
 
-/** What a resolved call means locally. */
+/** The local record cannot take what the provider answered. */
+export class VmRecordConflict extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VmRecordConflict";
+  }
+}
+
+/** What a call's answer means locally. Each hook runs inside the
+ * transaction that settles the receipt, so the local record and the receipt
+ * commit together or not at all. */
 export type VmOperationEffects = {
   /** A failure the answer itself reports, such as a VM that booted into
    * "failed"; null when the call did what was asked. */
   failure?(result: unknown): string | null;
-  /** Local writes that must commit with the settled receipt. Runs inside
-   * its transaction. */
+  /** Local writes for a resolved call, including one `failure` failed. */
   apply?(result: unknown): void;
+  /** Local writes for a provider refusal. */
+  refused?(errorMessage: string): void;
 };
 
 type CreatedVm = { remoteId: string; status: VmStatus; errorMessage?: string };
 
-/** Effects for a create or fork: the VM's provider id and observed state
- * commit with the receipt, and a VM that booted into "failed" fails it. */
-export function createdVmEffects(
+const kindStatus: Partial<Record<VmOperationKind, VmStatus>> = {
+  sleep: "sleeping",
+  resume: "running",
+  destroy: "terminated",
+};
+
+/** The local writes for each operation kind. runVmOperation and
+ * reconcileVmOperation both use them, so an answer and a reconcile leave the
+ * same record: a create or fork adopts the provider id and observed state,
+ * sleep/resume/destroy move the VM, expose and unexpose keep the preview
+ * rows in step, and a destroy disables every preview link. */
+export function vmOperationEffects(
   db: Database.Database,
-  vm: { owner: string; id: string },
+  operation: {
+    owner: string;
+    experimentId: string;
+    id: string;
+    kind: VmOperationKind;
+    request: unknown;
+  },
   clock: () => number,
 ): VmOperationEffects {
+  const vm = { owner: operation.owner, id: operation.experimentId };
+  const current = () => {
+    const row = experimentVmsQueries.byId(db, vm.owner, vm.id);
+    if (!row) throw new VmRecordConflict("The experiment no longer exists");
+    return { ...vm, state: row.state };
+  };
+  const created = operation.kind === "create" || operation.kind === "fork";
   return {
     failure: (result) =>
-      (result as CreatedVm).status === "failed"
+      created && (result as CreatedVm).status === "failed"
         ? ((result as CreatedVm).errorMessage ??
           "The provider reports the VM failed")
         : null,
     apply: (result) => {
-      const created = result as CreatedVm;
-      if (
-        !experimentVmsQueries.adoptRemote(db, vm.owner, vm.id, created.remoteId)
-      )
-        throw new Error("The experiment already records another provider VM");
-      const row = experimentVmsQueries.byId(db, vm.owner, vm.id);
-      if (row)
+      if (created) {
+        const vmResult = result as CreatedVm;
+        if (
+          !experimentVmsQueries.adoptRemote(
+            db,
+            vm.owner,
+            vm.id,
+            vmResult.remoteId,
+          )
+        )
+          throw new VmRecordConflict(
+            "The experiment already records another provider VM",
+          );
         applyObservedStatus(
           db,
-          { ...vm, state: row.state },
-          created.status,
+          current(),
+          vmResult.status,
           clock(),
-          created.errorMessage,
+          vmResult.errorMessage,
         );
+        return;
+      }
+      const status = kindStatus[operation.kind];
+      if (status) applyObservedStatus(db, current(), status, clock());
+      if (operation.kind === "destroy")
+        experimentPreviewsQueries.deactivateAll(db, vm.owner, vm.id, clock());
+      if (operation.kind === "expose" || operation.kind === "unexpose") {
+        const request = (operation.request ?? {}) as {
+          port?: unknown;
+          label?: unknown;
+          path?: unknown;
+        };
+        if (typeof request.port !== "number")
+          throw new VmRecordConflict("The operation names no port");
+        if (operation.kind === "unexpose") {
+          experimentPreviewsQueries.deactivate(
+            db,
+            vm.owner,
+            vm.id,
+            request.port,
+            clock(),
+          );
+          return;
+        }
+        const { url } = result as { url: string };
+        if (
+          !experimentPreviewsQueries.upsert(db, {
+            id: operation.id,
+            owner: vm.owner,
+            experimentId: vm.id,
+            port: request.port,
+            label: typeof request.label === "string" ? request.label : null,
+            path: typeof request.path === "string" ? request.path : "/",
+            url,
+            now: clock(),
+          })
+        )
+          throw new VmRecordConflict("The experiment is not the owner's");
+      }
+    },
+    refused: (errorMessage) => {
+      if (operation.kind !== "destroy") return;
+      const row = current();
+      if (row.state === "destroying")
+        transitionVm(db, row, "failed", {
+          expected: "destroying",
+          lastError: errorMessage,
+          now: clock(),
+        });
     },
   };
 }
@@ -315,6 +416,10 @@ export async function reconcileVmOperation(
   );
   if (!vm) return { outcome: "still_uncertain", reason: "experiment missing" };
 
+  // The age is taken before the provider is asked: an observation counts as
+  // "did not happen" only if it was made after the original call could have
+  // finished.
+  const observedAt = clock();
   let observation: Observation;
   try {
     observation = await observe(provider, operation, vm, target.appId);
@@ -328,7 +433,7 @@ export async function reconcileVmOperation(
   if (
     observation.settle === "failed" &&
     observation.notYet &&
-    clock() - operation.created_at <= VM_OPERATION_MAX_CALL_MS
+    observedAt - operation.created_at <= VM_OPERATION_MAX_CALL_MS
   )
     return {
       outcome: "still_uncertain",
@@ -353,20 +458,34 @@ export async function reconcileVmOperation(
               now: clock(),
             });
       if (!settled) throw new SettledConcurrently();
-      const adopted =
-        (operation.kind === "create" || operation.kind === "fork") &&
-        (seen.result as { remoteId?: unknown } | undefined)?.remoteId;
-      if (typeof adopted === "string") {
-        if (!experimentVmsQueries.adoptRemote(db, target.owner, vm.id, adopted))
-          throw new SettledConcurrently();
+      const effects = vmOperationEffects(
+        db,
+        {
+          owner: target.owner,
+          experimentId: vm.id,
+          id: operation.id,
+          kind: operation.kind,
+          request: JSON.parse(operation.request_json),
+        },
+        clock,
+      );
+      try {
+        if (seen.settle === "succeeded" || seen.result !== undefined)
+          effects.apply?.(seen.result);
+        else if (seen.status)
+          applyObservedStatus(
+            db,
+            { owner: target.owner, id: vm.id, state: fresh.state },
+            seen.status,
+            clock(),
+          );
+      } catch (error) {
+        // The local record no longer matches what was observed (another
+        // writer got there first): keep the receipt uncertain. Any other
+        // error, such as a failed write, propagates and rolls back.
+        if (error instanceof VmRecordConflict) throw new SettledConcurrently();
+        throw error;
       }
-      if (seen.status)
-        applyObservedStatus(
-          db,
-          { owner: target.owner, id: vm.id, state: fresh.state },
-          seen.status,
-          clock(),
-        );
     }).immediate();
   } catch (error) {
     if (error instanceof SettledConcurrently)
@@ -400,13 +519,18 @@ async function observe(
       return {
         settle: "failed",
         errorMessage: "The provider reports the VM failed",
-        result: { remoteId: match.remoteId },
-        status: "failed",
+        result: { remoteId: match.remoteId, status: "failed" },
       };
+    // Only a VM that finished starting shows the create succeeded.
+    if (
+      match.status !== "running" &&
+      match.status !== "sleeping" &&
+      match.status !== "paused"
+    )
+      return unsure(`the VM is ${match.status}`);
     return {
       settle: "succeeded",
-      result: { remoteId: match.remoteId },
-      status: match.status,
+      result: { remoteId: match.remoteId, status: match.status },
     };
   }
   if (!vm.remote_id) return unsure("the VM has no provider id");

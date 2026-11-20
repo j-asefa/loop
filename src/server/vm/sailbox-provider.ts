@@ -52,11 +52,12 @@ function message(body: unknown, fallback: string) {
   return typeof error?.message === "string" ? error.message : fallback;
 }
 
-// A 4xx answer, including 429 (Sail documents that the request never ran),
-// means nothing happened. 501 is a definite refusal too. Any other 5xx, a
+// A 4xx answer other than 408, including 429 (Sail documents that the
+// request never ran), means nothing happened. 501 is a definite refusal too. Any other 5xx, a
 // timeout or a dropped connection may follow a change Sail already made.
 function refusedStatus(status: number) {
-  return (status >= 400 && status < 500) || status === 501;
+  // 408 is a timeout, which proves nothing about the mutation.
+  return (status >= 400 && status < 500 && status !== 408) || status === 501;
 }
 
 export function createSailboxProvider(options: {
