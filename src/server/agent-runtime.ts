@@ -653,6 +653,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             kind: "tool" as const,
             title: invocation.binding.tool,
           };
+          const memorySearch =
+            invocation.binding.connectionId === "__loop__" &&
+            invocation.binding.tool === "loop_memory_search";
           recordTrace(run, traceKey, {
             ...trace,
             metadata: { state: "running" },
@@ -748,7 +751,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             content:
               outcome.result.isError === true
                 ? toolErrorMessage(outcome.result)
-                : outcome.artifactId
+                : outcome.artifactId || memorySearch
                   ? ""
                   : JSON.stringify(outcome.result.content || []).slice(
                       0,
@@ -774,7 +777,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
                     },
                   ]
                 : []),
-              ...(outcome.result.content || [])
+              ...(memorySearch ? [] : outcome.result.content || [])
                 .filter(
                   (c: any) => c?.type === "text" && typeof c.text === "string",
                 )

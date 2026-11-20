@@ -486,6 +486,13 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
       .prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
       .get(run.id) as { history: string };
     expect(checkpoint.history).toContain("papaya evidence slated for removal");
+    expect(
+      db
+        .prepare(
+          "SELECT content FROM run_traces WHERE run_id=? AND title='loop_memory_search'",
+        )
+        .get(run.id),
+    ).toEqual({ content: "" });
     const before = (await request(`/runs/${run.id}/memory`)).data;
     expect(
       (
@@ -505,6 +512,71 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
     expect((await request(`/runs/${run.id}/memory`)).data).toEqual(before);
   } finally {
     pause.mockRestore();
+    restore();
+  }
+});
+
+it("keeps an API-key turn running when Fleet context changes after tool advertisement", async () => {
+  const agent = agentFor("alice");
+  const earlier = submit("alice", {
+    agentId: agent.id,
+    input: "Earlier turn",
+    idempotencyKey: id(),
+  });
+  const previous = claim(
+    "before-fleet-grant",
+    (candidate) => candidate.id === earlier.id,
+  )!;
+  expect(transition(previous, "completed")).toBe(true);
+  const run = submit("alice", {
+    agentId: agent.id,
+    conversationId: earlier.conversation_id!,
+    input: "Continue",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "during-fleet-grant",
+    (candidate) => candidate.id === run.id,
+  )!;
+  let rounds = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      if (rounds++ === 0) {
+        expect(
+          input.tools?.some((tool) => tool.name === "loop_memory_search"),
+        ).toBe(true);
+        fleetEffectsQueries.insert(
+          db,
+          run.owner_id,
+          "run",
+          earlier.id,
+          id(),
+          JSON.stringify({ operation: "mail" }),
+        );
+        yield {
+          toolCall: {
+            id: "late-search",
+            name: "loop_memory_search",
+            arguments: { query: "notes" },
+          },
+        };
+      } else {
+        const result = input.messages.find(
+          (message) => message.toolCallId === "late-search",
+        )!;
+        expect(JSON.parse(result.content)).toMatchObject({ isError: true });
+        yield { text: "Finished despite the unavailable tool." };
+      }
+    },
+  });
+  try {
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(rounds).toBe(2);
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
     restore();
   }
 });

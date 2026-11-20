@@ -359,8 +359,24 @@ export async function invokeNative(
   if (ownedRun(run.id, run.owner_id).state !== "running")
     throw new Problem(409, "Run is no longer executing");
   const tool = binding.tool;
-  if (!nativeBindings(run, options).some((t) => t.tool === tool))
+  const unavailable = () => ({
+    artifactId: "",
+    result: {
+      isError: true,
+      content: [
+        { type: "text", text: "Native tool is unavailable to this agent" },
+      ],
+    },
+  });
+  if (!nativeBindings(run, options).some((t) => t.tool === tool)) {
+    if (
+      options.plans &&
+      (tool === "loop_memory_search" || tool === "loop_message_status") &&
+      !canSearchSavedMemory(run)
+    )
+      return unavailable();
     throw new Problem(403, "Native tool is unavailable to this agent");
+  }
   const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
   if (!parsed.success && tool !== "loop_reply" && tool !== "loop_memory_search")
     throw parsed.error;
@@ -409,8 +425,10 @@ export async function invokeNative(
     assertEffect(run.owner_id, "run", run.id);
     return db
       .transaction(() => {
-        if (!canSearchSavedMemory(run))
+        if (!canSearchSavedMemory(run)) {
+          if (options.plans) return unavailable();
           throw new Problem(403, "Memory search is unavailable to this agent");
+        }
         const saved = nativeCallsQueries.get(db, run.id, callId);
         if (saved?.result)
           return { result: savedResult(saved.result), artifactId: "" };
