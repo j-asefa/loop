@@ -145,6 +145,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     strings?: Map<string, string>;
     arrays?: Map<string, any>;
     sqliteTypes?: Set<string>;
+    imports?: Set<string>;
     fixtureFactories?: Set<string>;
     objectAliases?: Map<string, ObjectAlias[]>;
   };
@@ -620,6 +621,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           scope.bindings.set(`${specifier.local.name}.db`, "connection");
         }
         scope.bindings.set(specifier.local.name, binding);
+        (scope.imports ??= new Set()).add(specifier.local.name);
       }
     }
     if (node.type === "VariableDeclarator") {
@@ -705,12 +707,19 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!fn) continue;
     const argument = unwrap(node.arguments[0]);
     if (argument?.type !== "ThisExpression") {
-      if (
-        argument?.type === "Identifier" &&
-        declaringScope(argument.name, argument) &&
-        !explicitReceiverScopes.has(fn)
-      )
-        explicitReceiverScopes.set(fn, { bindings: new Map() });
+      if (argument?.type === "Identifier") {
+        const origin = declaringScope(argument.name, argument);
+        if (origin) {
+          const target: Scope = explicitReceiverScopes.get(fn) ?? {
+            bindings: new Map(),
+          };
+          const paths = (target.objectAliases ??= new Map());
+          const aliases = paths.get("this") ?? [];
+          aliases.push({ scope: origin, name: argument.name });
+          paths.set("this", aliases);
+          explicitReceiverScopes.set(fn, target);
+        }
+      }
       continue;
     }
     const receivers = boundReceivers.get(fn) ?? [];
@@ -999,7 +1008,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         const value = unwrap(
           write.type === "VariableDeclarator" ? write.init : write.right,
         );
-        if (isAggregate(value) || connectionKind(value) === "object") {
+        const kind = connectionKind(value);
+        const opaqueImport =
+          kind === "other" &&
+          value?.type === "Identifier" &&
+          declaringScope(value.name, value)?.imports?.has(value.name);
+        if (isAggregate(value) || kind === "object" || opaqueImport) {
           const fn = boundaryScope(expression, "function");
           const mayReach = assignmentsByName
             .get(name)
@@ -1012,7 +1026,7 @@ function sqlCallLines(file: string, text: string, script = false) {
                 connectionKind(assignment.right) === "connection",
             );
           if (mayReach) return "connection";
-          return "object";
+          return opaqueImport ? "other" : "object";
         }
       }
     }
@@ -1039,6 +1053,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return binding;
   };
+  const conditionalOrigins = new Map<object, Map<string, Scope>>();
   function propertySource(
     source: any,
     key: string,
@@ -1050,6 +1065,22 @@ function sqlCallLines(file: string, text: string, script = false) {
       const first = propertySource(object.consequent, key);
       const second = propertySource(object.alternate, key);
       if (!first.value && !first.binding) return second;
+      if (
+        first.binding === "object" &&
+        second.binding === "object" &&
+        first.origin &&
+        second.origin
+      ) {
+        const byKey =
+          conditionalOrigins.get(object) ?? new Map<string, Scope>();
+        const scope: Scope = byKey.get(key) ?? { bindings: new Map() };
+        scope.objectAliases = new Map([
+          ["value", [first.origin, second.origin]],
+        ]);
+        byKey.set(key, scope);
+        conditionalOrigins.set(object, byKey);
+        return { binding: "object", origin: { scope, name: "value" } };
+      }
       return bindingRank[second.binding ?? "other"] >
         bindingRank[first.binding ?? "other"]
         ? second
@@ -1093,6 +1124,16 @@ function sqlCallLines(file: string, text: string, script = false) {
   }
   const methods = new Set(["prepare", "exec"]);
   if (script) methods.add("pragma");
+  const destructuredMethod = (source: any, path: string) => {
+    const separator = path.lastIndexOf(".");
+    const method = path.slice(separator + 1);
+    if (!methods.has(method)) return undefined;
+    const binding =
+      separator < 0
+        ? connectionKind(source)
+        : propertySource(source, path.slice(0, separator)).binding;
+    return binding === "connection" ? method : undefined;
+  };
   const sqliteMethod = (expression: any): string | undefined => {
     if (expression?.type === "MemberExpression") {
       const method = property(expression);
@@ -1271,10 +1312,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         const member = propertySource(argument, key);
         const value =
           member.value ?? (member.binding === undefined ? fallback : undefined);
-        const method =
-          methods.has(key) && connectionKind(argument) === "connection"
-            ? key
-            : sqliteMethod(value);
+        const method = destructuredMethod(argument, key) ?? sqliteMethod(value);
         trackMethod(scope, name, method);
         trackBinding(
           scope,
@@ -1465,9 +1503,10 @@ function sqlCallLines(file: string, text: string, script = false) {
               scope.sqliteMethods?.get(property),
             );
           const method =
-            methods.has(key) && connectionKind(value) === "connection"
-              ? key
-              : (sqliteMethod(extracted) ?? stored ?? undefined);
+            destructuredMethod(value, key) ??
+            sqliteMethod(extracted) ??
+            stored ??
+            undefined;
           if (binding || method)
             assigned.push({ name, binding, method, extracted, origin });
         }
@@ -2492,6 +2531,27 @@ it("follows wrapped design fixtures and stops classifying handles replaced by re
     handle.exec("SELECT 1");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8]);
+});
+
+it("retains receiver and nested method evidence and respects opaque import replacements", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import commandAdapter from "./commands.mjs";
+    const receiver = { connection: db };
+    function migrate() { this.connection.exec("BEGIN"); }
+    migrate.call(receiver);
+    const empty = { store: {} };
+    const populated = { store: { connection: db } };
+    const { store } = flag ? empty : populated;
+    store.connection.exec("BEGIN");
+    const { connection: { exec } } = receiver;
+    exec.call(db, migrationText);
+    let handle = db;
+    handle.exec(migrationText);
+    handle = commandAdapter;
+    handle.exec(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 10, 12, 14]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
