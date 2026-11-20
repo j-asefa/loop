@@ -166,11 +166,15 @@ export function runDetails(
         const closer = sameCloser.exec(suffix);
         detail.live_preview_fence_cut =
           !closer || (suffixClipped && !/[\r\n]$/.test(closer[0]));
-        const token = /^[ \t]*([^ \t]+)(?:[ \t]|$)/.exec(info)?.[1];
+        // The cutoff may split the delimiter before it reaches the info string.
+        const fenceInfo = fence[2]
+          ? info
+          : info.replace(fence[1][0] === "`" ? /^`+/ : /^~+/, "");
+        const token = /^[ \t]*([^ \t]+)(?:[ \t]|$)/.exec(fenceInfo)?.[1];
         if (
           token &&
           (lineEnd >= 0 || !suffixClipped) &&
-          (fence[1][0] !== "`" || !invalidBacktickInfo) &&
+          (fence[1][0] !== "`" || !fenceInfo.includes("`")) &&
           isDisplayFenceToken(token)
         )
           detail.live_preview_fence_spec = true;

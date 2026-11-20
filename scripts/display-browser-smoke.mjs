@@ -601,6 +601,8 @@ for (const engine of selectedEngines()) {
         ["```spec", "\u00a0extra"],
         ["```sp", "ec"],
         ["```", "spec"],
+        ["```", "`spec"],
+        ["~~~", "~spec"],
       ]) {
         update(
           working,
