@@ -149,6 +149,7 @@ export function runDetails(
       // the same line. A fence whose line cannot be verified stays provisional.
       const lookaheadEnd = preview.length + LIVE_PREVIEW_LIMIT;
       const suffix = source.slice(preview.length, lookaheadEnd);
+      detail.live_preview_ends_at_line = /^[ \t]*[\r\n]/.test(suffix);
       const suffixClipped = source.length > lookaheadEnd;
       const fence = /^[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(lastLine);
       if (fence) {

@@ -85,6 +85,7 @@ export type FeedCardDetail = {
   }[];
   live_preview: string | null;
   live_preview_truncated?: boolean;
+  live_preview_ends_at_line?: boolean;
   live_preview_fence_cut: boolean;
 };
 export function feedCardTitle(
@@ -227,7 +228,10 @@ export function displayFeedCard(
     ...(run &&
     STARTED_RUN_DISPLAY_STATES.includes(run.state) &&
     detail.live_preview_truncated !== undefined
-      ? { live_preview_truncated: detail.live_preview_truncated }
+      ? {
+          live_preview_truncated: detail.live_preview_truncated,
+          live_preview_ends_at_line: detail.live_preview_ends_at_line,
+        }
       : {}),
     ...(run &&
     STARTED_RUN_DISPLAY_STATES.includes(run.state) &&

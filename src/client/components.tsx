@@ -216,6 +216,7 @@ export const RichText = memo(function RichText({
   compact = false,
   writing = false,
   previewFenceCut,
+  previewEndsAtLine,
   cappedPreview = false,
 }: {
   content: string;
@@ -225,6 +226,7 @@ export const RichText = memo(function RichText({
   // unclosed display grows as lines arrive instead of being final.
   writing?: boolean;
   previewFenceCut?: boolean;
+  previewEndsAtLine?: boolean;
   cappedPreview?: boolean;
 }) {
   const sourceId = useSourceId();
@@ -323,9 +325,12 @@ export const RichText = memo(function RichText({
             remarkGfm,
             ...(diagrams
               ? [
-                  [markOpenSpecFences, { previewFenceCut, cappedPreview }] as [
+                  [
+                    markOpenSpecFences,
+                    { previewFenceCut, cappedPreview, previewEndsAtLine },
+                  ] as [
                     typeof markOpenSpecFences,
-                    { previewFenceCut?: boolean; cappedPreview: boolean },
+                    Parameters<typeof markOpenSpecFences>[0],
                   ],
                 ]
               : []),

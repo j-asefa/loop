@@ -423,12 +423,17 @@ export type DisplayReadOptions = {
   // The block is still being written: children whose elements have not
   // arrived are left out instead of drawn as placeholders.
   writing?: boolean;
+  finalLineIncomplete?: boolean;
 };
 
 // Reads the text inside a `spec` fence; by default the block is complete.
 export function readDisplaySpec(
   source: string,
-  { open = false, writing = false }: DisplayReadOptions = {},
+  {
+    open = false,
+    writing = false,
+    finalLineIncomplete = false,
+  }: DisplayReadOptions = {},
 ): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
   const skip = (line: number, reason: string) => {
@@ -443,6 +448,7 @@ export function readDisplaySpec(
   let applied = 0;
   const all = source.split("\n");
   all.forEach((raw, index) => {
+    if (finalLineIncomplete && index === all.length - 1) return;
     const line = index + 1;
     const trimmed = raw.trim();
     if (!trimmed) return;

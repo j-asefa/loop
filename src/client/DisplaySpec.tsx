@@ -26,8 +26,13 @@ type Context = {
 // block. Only an unclosed block at the end of the answer can still grow.
 export function markOpenSpecFences({
   previewFenceCut,
+  previewEndsAtLine,
   cappedPreview = false,
-}: { previewFenceCut?: boolean; cappedPreview?: boolean } = {}) {
+}: {
+  previewFenceCut?: boolean;
+  previewEndsAtLine?: boolean;
+  cappedPreview?: boolean;
+} = {}) {
   return (tree: MdNode, file: { value: unknown }) => {
     const source = String(file.value);
     let lastContent = source.length;
@@ -76,7 +81,11 @@ export function markOpenSpecFences({
               dataSpecCanGrow: open && atEnd,
               dataSpecAtPreviewEnd: atPreviewEnd,
               dataSpecLineMayContinue:
-                atPreviewEnd && !hasCloser && !/[\r\n][ \t]*$/.test(source),
+                (open || atPreviewEnd) &&
+                atEnd &&
+                !hasCloser &&
+                !previewEndsAtLine &&
+                !/[\r\n][ \t]*$/.test(source),
             },
           };
       }
@@ -135,15 +144,11 @@ export function DisplaySpec({
   const incomplete = live || omitSource;
   const read = useMemo(
     () =>
-      readDisplaySpec(
-        lineMayContinue
-          ? source.slice(0, source.lastIndexOf("\n") + 1)
-          : source,
-        {
-          open: open || omitSource,
-          writing: incomplete,
-        },
-      ),
+      readDisplaySpec(source, {
+        open: open || omitSource,
+        writing: incomplete,
+        finalLineIncomplete: incomplete && lineMayContinue,
+      }),
     [source, open, omitSource, incomplete, lineMayContinue],
   );
   // While written, a block with no root element yet shows a short line, not

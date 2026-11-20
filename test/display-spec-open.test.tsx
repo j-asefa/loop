@@ -354,7 +354,8 @@ it("counts pending references against the element limit while writing", () => {
     ok: false,
     reason: "too_many_elements",
   });
-  expect(render(fence + source, true)).toContain(
+  expect(render(fence + source, true)).toContain("Display loading…");
+  expect(render(fence + source + "\n", true)).toContain(
     "This display could not be drawn yet.",
   );
 });
@@ -488,6 +489,9 @@ it("waits for the final patch line ending in a capped preview", () => {
   expect(preview(source)).toContain("Earlier value");
   expect(preview(source)).not.toContain("Replacement value");
   expect(preview(source + "\n")).toContain("Replacement value");
+  expect(render(source, true)).toContain("Earlier value");
+  expect(render(source, true)).not.toContain("Replacement value");
+  expect(render(source + "\n", true)).toContain("Replacement value");
   expect(render(source + " invalid suffix\n```", false)).toContain(
     "Earlier value",
   );

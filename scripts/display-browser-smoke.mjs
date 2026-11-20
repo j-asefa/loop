@@ -583,6 +583,17 @@ for (const engine of selectedEngines()) {
       await expect(cutSheet.locator(".display-title")).toHaveText(
         "Earlier title",
       );
+      update(working, padded + "\n```");
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().locator(".display-title")).toHaveText(
+        "Clipped title",
+      );
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator(".display-title")).toHaveText(
+        "Clipped title",
+      );
 
       // The renderer recognizes both forms of whitespace in the language token.
       const encodedOpener = "```spec";
