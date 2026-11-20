@@ -33,7 +33,9 @@ export type VmOperationRefusal =
   /** An earlier operation on this experiment is pending or uncertain. */
   | "unsettled_operation"
   /** A create or fork for an experiment that already has its VM. */
-  | "vm_exists";
+  | "vm_exists"
+  /** Any other operation on an experiment with no recorded VM. */
+  | "no_vm";
 
 export class VmOperationRefused extends Error {
   constructor(readonly reason: VmOperationRefusal) {
@@ -97,7 +99,9 @@ export async function runVmOperation(
   },
   call: () => Promise<unknown>,
   clock: () => number,
-  effects: VmOperationEffects = {},
+  // The kind's own local writes unless a caller passes others (tests of the
+  // receipt alone pass {}), so a create cannot settle without its VM id.
+  effects: VmOperationEffects = vmOperationEffects(db, operation, clock),
 ): Promise<VmOperationOutcome> {
   const requestJson = canonicalVmRequest(operation.request);
   const requestDigest = vmRequestDigest({
@@ -131,6 +135,14 @@ export async function runVmOperation(
         vm.remote_id !== null
       )
         throw new VmOperationRefused("vm_exists");
+      // Anything else acts on the recorded VM; without one, an uncertain
+      // outcome could never be reconciled.
+      if (
+        operation.kind !== "create" &&
+        operation.kind !== "fork" &&
+        vm.remote_id === null
+      )
+        throw new VmOperationRefused("no_vm");
       if (
         vmOperationsQueries.unsettledByExperiment(
           db,

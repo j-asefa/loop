@@ -31,6 +31,8 @@ function run(home: string, auth: string, workspace: string) {
       HOME: home,
       LOOP_AUTH_MOUNT: auth,
       LOOP_WORKSPACE: workspace,
+      // The fixture's auth directory is not a mount point.
+      LOOP_AUTH_SKIP_MOUNT_CHECK: "1",
       GIT_CONFIG_GLOBAL: "/dev/null",
     },
   });
@@ -98,4 +100,47 @@ it("keeps a credential the harness refreshed by replacing its link", () => {
   expect(readFileSync(join(auth, "codex/auth.json"), "utf8")).toBe(
     "refreshed token",
   );
+});
+
+it("refuses to place credentials when the auth volume is not mounted", () => {
+  const root = mkdtempSync(join(tmpdir(), "loop-vm-unmounted-"));
+  const [home, auth, workspace] = ["home", "auth", "workspace"].map((name) =>
+    join(root, name),
+  );
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  mkdirSync(auth);
+  writeFileSync(join(home, ".codex/auth.json"), "token");
+  const script = join(root, "loop-vm-init");
+  writeFileSync(script, initScript(), { mode: 0o755 });
+  expect(() =>
+    execFileSync("bash", [script], {
+      stdio: "pipe",
+      env: {
+        PATH: process.env.PATH,
+        HOME: home,
+        LOOP_AUTH_MOUNT: auth,
+        LOOP_WORKSPACE: workspace,
+      },
+    }),
+  ).toThrow(/is not mounted/);
+  expect(readFileSync(join(home, ".codex/auth.json"), "utf8")).toBe("token");
+  expect(existsSync(join(auth, "codex"))).toBe(false);
+});
+
+it("finishes the initial commit when an earlier run stopped after git init", () => {
+  const root = mkdtempSync(join(tmpdir(), "loop-vm-unborn-"));
+  const [home, auth, workspace] = ["home", "auth", "workspace"].map((name) =>
+    join(root, name),
+  );
+  mkdirSync(home);
+  mkdirSync(auth);
+  mkdirSync(workspace);
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: workspace });
+  run(home, auth, workspace);
+  expect(
+    execFileSync("git", ["log", "--format=%s"], {
+      cwd: workspace,
+      encoding: "utf8",
+    }).trim(),
+  ).toBe("Initial experiment workspace");
 });

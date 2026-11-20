@@ -86,6 +86,12 @@ export function initScript() {
 set -euo pipefail
 auth="\${LOOP_AUTH_MOUNT:-${AUTH_MOUNT_PATH}}"
 workspace="\${LOOP_WORKSPACE:-${WORKSPACE_PATH}}"
+# Without the volume, credentials would land on the VM's own disk, be hidden
+# by a later mount, and could be captured by a checkpoint.
+if [ "\${LOOP_AUTH_SKIP_MOUNT_CHECK:-0}" != 1 ] && ! mountpoint -q "$auth"; then
+  echo "loop-vm-init: $auth is not mounted" >&2
+  exit 1
+fi
 link() {
   local target="$auth/$1/$(basename "$2")" path="$HOME/$2"
   mkdir -p "$auth/$1" "$(dirname "$path")"
@@ -101,8 +107,10 @@ link() {
 ${links}
 mkdir -p "$workspace"
 cd "$workspace"
-if [ ! -d .git ]; then
-  git init -q -b main
+# Checked by commit, not by .git, so a run stopped after git init finishes
+# the job next time.
+[ -d .git ] || git init -q -b main
+if ! git rev-parse -q --verify HEAD >/dev/null; then
   git -c user.name=Loop -c user.email=loop@localhost commit -q --allow-empty -m "Initial experiment workspace"
 fi`;
 }

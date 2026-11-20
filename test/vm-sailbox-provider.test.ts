@@ -518,3 +518,30 @@ it("stops reading an exec stream whose event never ends", async () => {
   expect(await handle.exit).toEqual({ exitCode: null, signal: null });
   expect(pulls).toBeLessThan(40);
 });
+
+it("keeps every event of a large chunk made of small events", async () => {
+  const line = (event: unknown) => JSON.stringify(event) + "\n";
+  const data = Buffer.alloc(1024, 65).toString("base64");
+  let text = line({ type: "started", exec_request_id: "e" });
+  // ~20 MB in one chunk, every event well under the per-event limit.
+  for (let seq = 1; seq <= 15_000; seq += 1)
+    text += line({ type: "stdout", data, seq });
+  text += line({ type: "exit", status: "succeeded", return_code: 0 });
+  const { provider } = fake(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(text));
+            controller.close();
+          },
+        }),
+      ),
+  );
+  const handle = await provider.exec("sb_1", ["cat", "big"], {});
+  let bytes = 0;
+  handle.stdout.on("data", (chunk: Buffer) => (bytes += chunk.length));
+  handle.stderr.resume();
+  expect(await handle.exit).toEqual({ exitCode: 0, signal: null });
+  expect(bytes).toBe(15_000 * 1024);
+});

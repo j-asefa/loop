@@ -65,7 +65,8 @@ const create = (
     },
     call,
     clock,
-    effects,
+    // Receipt-only tests opt out of the create's local writes.
+    effects ?? {},
   );
 
 const createEffects = (experimentId: string, id: string) =>
@@ -934,6 +935,42 @@ it("records a destroy sent while the VM was running as destroyed, not failed", a
   expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe(
     "destroyed",
   );
+});
+
+it("refuses an operation on an experiment with no recorded VM", async () => {
+  await expect(
+    runVmOperation(
+      db,
+      {
+        id: "op1",
+        owner: "alice",
+        experimentId: "exp1",
+        kind: "sleep",
+        request: {},
+      },
+      async () => null,
+      clock,
+    ),
+  ).rejects.toMatchObject({ reason: "no_vm" });
+});
+
+it("records a create's VM by default, without the caller passing effects", async () => {
+  await runVmOperation(
+    db,
+    {
+      id: "op1",
+      owner: "alice",
+      experimentId: "exp1",
+      kind: "create",
+      request: {},
+    },
+    async () => ({ remoteId: "sb-1", status: "running" }),
+    clock,
+  );
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-1",
+    state: "running",
+  });
 });
 
 it("refuses illegal and stale VM transitions", () => {

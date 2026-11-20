@@ -546,17 +546,18 @@ async function startExec(
     try {
       for await (const chunk of body) {
         buffered += decoder.decode(chunk, { stream: true });
-        // Sail's output events are small; a line this long is not one.
-        if (buffered.length > MAX_EXEC_EVENT_CHARS) {
-          corrupt = true;
-          await body.cancel().catch(() => undefined);
-          break;
-        }
         let newline = buffered.indexOf("\n");
         while (newline >= 0) {
           handle(buffered.slice(0, newline));
           buffered = buffered.slice(newline + 1);
           newline = buffered.indexOf("\n");
+        }
+        // Only the unfinished event is bounded: Sail's output events are
+        // small, and one this long is not one of them.
+        if (buffered.length > MAX_EXEC_EVENT_CHARS) {
+          corrupt = true;
+          await body.cancel().catch(() => undefined);
+          break;
         }
         // Output is read from the provider only as fast as Loop's consumer
         // reads it: a full stream pauses the event stream until it drains.
