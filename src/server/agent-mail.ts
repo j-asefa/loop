@@ -652,7 +652,7 @@ function dispatch(
   if (mailQueries.hasEarlierPending(db, thread.id, mail.id))
     throw new Problem(409, "Waiting for earlier accepted mail in this thread.");
   if (parseFleetAgentAddress(mail.recipient_agent_id)) {
-    enqueueFleetMail(mail, thread.subject);
+    enqueueFleetMail(mail);
     return;
   }
   const sender = mailSender(mail);

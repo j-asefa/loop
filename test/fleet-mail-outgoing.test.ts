@@ -1070,9 +1070,10 @@ it("keeps backoff after local thread deletion and never replays a lost accepted 
 });
 
 it("refuses outbound Fleet mail from a conversation with saved evidence at dispatch", async () => {
-  const { run } = source();
+  const { agent, run } = source();
+  const peer = remote();
   const queued = sendMail(run, "before-memory", {
-    to: remote(),
+    to: peer,
     body: "Earlier queued message",
   });
   db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
@@ -1083,7 +1084,7 @@ it("refuses outbound Fleet mail from a conversation with saved evidence at dispa
     now(),
   );
   const refused = sendMail(run, "after-memory", {
-    to: remote(),
+    to: peer,
     body: "Saved evidence",
   });
   expect(refused.delivery).toBe("not_delivered");
@@ -1091,6 +1092,25 @@ it("refuses outbound Fleet mail from a conversation with saved evidence at dispa
   await drainer().drain();
   expect(received).toHaveLength(0);
   expect(journal.outgoing(queued.messageId)?.settled).toBe(true);
+  expect(transition(run, "completed")).toBe(true);
+  const fresh = submit(owner, {
+    agentId: agent.id,
+    input: "Send a clean follow-up",
+    idempotencyKey: id(),
+  });
+  const sender = claim(
+    "clean-fleet-reply",
+    (candidate) => candidate.id === fresh.id,
+  )!;
+  const clean = sendMail(sender, "retry-thread-from-clean-context", {
+    to: peer,
+    threadId: refused.threadId,
+    body: "Safe follow-up",
+  });
+  expect(journal.pendingEnvelope(clean.messageId)).toMatchObject({
+    thread: { subject: "Agent message" },
+    body: "Safe follow-up",
+  });
 });
 
 it("keeps an unsent message pending after peer authentication refusal and retries its same identity", async () => {

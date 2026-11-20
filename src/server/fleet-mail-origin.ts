@@ -239,7 +239,7 @@ export function authorizeFleetMailSender(
 }
 
 /** Durable local dispatch only. The owning gateway's drainer performs IO. */
-export function enqueueFleetMail(mail: OriginMail, subject: string) {
+export function enqueueFleetMail(mail: OriginMail) {
   assertFleetMailTools(mail.owner_id);
   const journal = fleetMailJournal(mail.owner_id);
   if (journal.outgoing(mail.id)) return;
@@ -282,7 +282,8 @@ export function enqueueFleetMail(mail: OriginMail, subject: string) {
     thread: {
       origin: binding.origin_id,
       id: binding.wire_thread_id,
-      subject,
+      // A local thread label can come from an earlier, refused delivery.
+      subject: "Agent message",
       recipientConversationId: mail.recipient_conversation_id,
     },
     body: mail.body,
