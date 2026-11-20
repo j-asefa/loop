@@ -6,6 +6,8 @@ import {
   readDisplaySpec,
   type DisplayFailure,
 } from "../shared/display-spec.js";
+import { PUBLISHED_REPLY_BODY_LIMIT } from "../shared/steering-replies.js";
+import { isDisplayFenceToken } from "../shared/text.js";
 
 const components = DISPLAY_COMPONENTS.join(", ");
 export const CHECK_DISPLAY_DESCRIPTION =
@@ -58,9 +60,7 @@ function displaySource(input: string) {
   const lines = input.split(/\r\n?|\n/);
   const first = lines.findIndex((line) => line.trim() !== "");
   const last = lines.findLastIndex((line) => line.trim() !== "");
-  const opener = /^ {0,3}(\x60{3,}|~{3,})[ \t]*(?:spec)?[ \t]*$/.exec(
-    lines[first] ?? "",
-  );
+  const opener = /^ {0,3}(\x60{3,}|~{3,})([^\r\n]*)$/.exec(lines[first] ?? "");
   const closer = /^ {0,3}(\x60{3,}|~{3,})[ \t]*$/.exec(lines[last] ?? "");
   if (
     opener &&
@@ -68,9 +68,19 @@ function displaySource(input: string) {
     last > first &&
     closer[1].length >= opener[1].length &&
     closer[1][0] === opener[1][0]
-  )
-    return lines.slice(first + 1, last).join("\n");
-  return lines.join("\n");
+  ) {
+    const info = opener[2];
+    const token = info.replace(/^[ \t]+/, "").split(/[ \t]/, 1)[0];
+    if (
+      !isDisplayFenceToken(token) ||
+      (opener[1][0] === "`" && info.includes("`"))
+    )
+      return {
+        issue: `Line ${first + 1}: Use spec as the fenced block's language.`,
+      };
+    return { source: lines.slice(first + 1, last).join("\n") };
+  }
+  return { source: lines.join("\n") };
 }
 
 // Leave room for the failure summary and reference within the API runtime's
@@ -80,7 +90,10 @@ const quotedDiagnostic = (value: string) =>
   JSON.stringify(value.length > 160 ? value.slice(0, 159) + "…" : value);
 
 export function checkDisplay(input: string): string {
-  const display = readDisplaySpec(displaySource(input), {
+  const source = displaySource(input);
+  if (source.issue !== undefined)
+    return [source.issue, "", reference].join("\n");
+  const display = readDisplaySpec(source.source, {
     allSkippedLines: true,
   });
   const issues: string[] = [];
@@ -107,7 +120,7 @@ export function checkDisplay(input: string): string {
       );
     }
     if (!issues.length)
-      return `Display valid. Elements: ${display.count}. To show it, write it in a fenced spec block in your answer or loop_reply body.`;
+      return `Display valid. Elements: ${display.count}. Put it in a fenced spec block in your answer. You can also use a loop_reply body if the entire reply, including the fence, fits within ${PUBLISHED_REPLY_BODY_LIMIT} characters.`;
   }
   const summary = display.ok
     ? "Display has problems."

@@ -1,6 +1,8 @@
 import { MessageId, requestId } from "./contract-ids.js";
 import { z } from "zod";
 
+export const PUBLISHED_REPLY_BODY_LIMIT = 30_000;
+
 export const PublishReply = z.strictObject({
   replyTo: requestId(MessageId)
     .min(1)
@@ -10,7 +12,7 @@ export const PublishReply = z.strictObject({
     .string()
     .trim()
     .min(1)
-    .max(30000)
+    .max(PUBLISHED_REPLY_BODY_LIMIT)
     .describe("Your complete reply to that message."),
 });
 

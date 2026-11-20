@@ -406,6 +406,15 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call("  ~~~spec\r\n" + valid + "\r\n  ~~~\r\n")).toContain(
     "Display valid.",
   );
+  expect(await call("```spec example\n" + valid + "\n```")).toContain(
+    "Display valid.",
+  );
+  expect(await call("~~~spec&#32;example\n" + valid + "\n~~~")).toContain(
+    "Display valid.",
+  );
+  expect(await call("```\n" + valid + "\n```")).toContain(
+    "Line 1: Use spec as the fenced block's language.",
+  );
   expect(await call(root)).toContain("/root points to a missing element");
   expect(await call("[]")).toContain("Line 1:");
   expect(await call("!\n".repeat(DISPLAY_LIMITS.skippedDetail + 1))).toContain(
@@ -439,7 +448,11 @@ it("validates display blocks through the native binding without recording a disp
   expect(repeatedMissing).toContain("additional diagnostics omitted");
   expect(repeatedMissing).not.toContain(longKey);
   const atLimit = valid + " ".repeat(DISPLAY_LIMITS.source - valid.length);
-  expect(await call(atLimit)).toContain("Display valid.");
+  const largeDisplay = await call(atLimit);
+  expect(largeDisplay).toContain("Display valid.");
+  expect(largeDisplay).toContain(
+    "if the entire reply, including the fence, fits within 30000 characters.",
+  );
   expect(await call(atLimit + " ")).toContain("Block exceeds");
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),
