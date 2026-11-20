@@ -739,6 +739,76 @@ it.each([
   },
 );
 
+it("keeps receipts from blocking delegation and earlier turns visible through local mail relays", async () => {
+  const sender = agent(owner);
+  const firstRelay = agent(owner);
+  const secondRelay = agent(owner);
+  const worker = agent(owner);
+  const original = submit(owner, {
+    agentId: sender.id,
+    input: "Delegate work",
+    idempotencyKey: id(),
+  });
+  const child = submit(owner, {
+    agentId: worker.id,
+    input: "Retrieve saved evidence",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,0)",
+  ).run(original.id, "blocking:0", child.id, "{}");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    child.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  for (const id of [child.id, original.id]) {
+    const run = claim(
+      "finished-blocking-work",
+      (candidate) => candidate.id === id,
+    )!;
+    expect(transition(run, "completed")).toBe(true);
+  }
+  const followUp = submit(owner, {
+    agentId: sender.id,
+    conversationId: original.conversation_id!,
+    input: "Pass along the earlier work",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  let source = claim(
+    "first-memory-relay",
+    (candidate) => candidate.id === followUp.id,
+  )!;
+  for (const recipient of [firstRelay, secondRelay]) {
+    const sent = sendMail(source, id(), {
+      to: recipient.id,
+      scope: "direct",
+      body: "Earlier work summary",
+    });
+    expect(sent.delivery).toBe("new_turn");
+    const delivery = row(sent.messageId);
+    source = claim(
+      "memory-relay",
+      (candidate) => candidate.id === delivery.run_id,
+    )!;
+  }
+  const incoming = envelope(secondRelay.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: {
+          ...incoming.thread,
+          recipientConversationId: source.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "refused" });
+});
+
 it("refuses a background result with saved memory after Fleet mail reaches its manager", async () => {
   const manager = agent(owner);
   const worker = agent(owner);
