@@ -653,6 +653,12 @@ function ConversationView({
           ? {
               ...fresh,
               messages: fresh.messages,
+              // A recovery page repairs retained rows. Its anchor describes
+              // that page only, so keep the loaded view's progress metadata.
+              latest_progress_message_ids:
+                recovery && !replacedProjection
+                  ? old.latest_progress_message_ids
+                  : fresh.latest_progress_message_ids,
               next: replacedProjection
                 ? fresh.next
                 : recovery

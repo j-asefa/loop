@@ -557,6 +557,16 @@ for (const engine of selectedEngines()) {
         2,
         working.run,
       );
+      // Move an older fixture prompt into this conversation while retaining
+      // its earlier transcript sequence, independent of the active run.
+      const priorPrompt = fixture.db
+        .prepare("SELECT id FROM messages WHERE run_id=? AND role='user'")
+        .get(done.run).id;
+      fixture.db
+        .prepare(
+          "UPDATE messages SET conversation_id=?,run_id=NULL,content=? WHERE id=?",
+        )
+        .run(working.id, "Earlier fixture prompt.", priorPrompt);
       await page.goto(`${fixture.base}/?filter=working`, {
         waitUntil: "networkidle",
       });
@@ -572,6 +582,31 @@ for (const engine of selectedEngines()) {
         updates.filter({ hasText: "Current update." }),
       ).toContainText("Display loading…");
       const transcriptPath = `/api/conversations/${working.id}`;
+      const recoveryRead = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          url.pathname === transcriptPath &&
+          url.searchParams.get("message") === priorPrompt
+        );
+      });
+      // A non-append replacement beyond the event budget forces a recovery
+      // read of this older message while the live progress row is retained.
+      fixture.db
+        .prepare("UPDATE messages SET content=? WHERE id=?")
+        .run("Recovered earlier prompt. " + "x".repeat(70_000), priorPrompt);
+      const recoveryPage = await (await recoveryRead).json();
+      assert.deepEqual(recoveryPage.latest_progress_message_ids, []);
+      await expect(
+        workingThread.getByText(/Recovered earlier prompt/),
+      ).toBeVisible();
+      await expect(
+        updates.filter({ hasText: "Current update." }),
+      ).toContainText("Display loading…");
+      fixture.db
+        .prepare(
+          "UPDATE messages SET conversation_id=?,run_id=?,content=? WHERE id=?",
+        )
+        .run(done.id, done.run, done.title, priorPrompt);
       for (const [anchor, label, displayState] of [
         [earlierUpdate, "Earlier update.", "This display could not be drawn."],
         [currentUpdate, "Current update.", "Display loading…"],
