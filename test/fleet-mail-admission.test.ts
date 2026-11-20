@@ -812,6 +812,37 @@ it("keeps a remote interrupt out of an active conversation with recorded memory"
   transition(queued, "cancelled");
 });
 
+it("refuses unread Fleet steering recovery when its conversation has saved memory", async () => {
+  const local = agent(owner, "codex");
+  const busy = submit(owner, {
+    agentId: local.id,
+    input: "Busy fixture task",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "requeue-memory",
+    (candidate) => candidate.id === busy.id,
+  )!;
+  const incoming = await deliver(envelope(local.id, { interrupt: true }));
+  if (incoming.admission.state !== "accepted")
+    throw new Error("Expected accepted steering");
+  const mail = row(incoming.admission.mailId);
+  expect(mail.delivery).toBe("steered");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    busy.id,
+    "lexical",
+    JSON.stringify([{ id: "saved", via: "push" }]),
+    15,
+    now(),
+  );
+  transition(active, "completed");
+  sweepAgentMail(now() + 60_000);
+  expect(row(mail.id)).toMatchObject({
+    state: "refused",
+    requeued_run_id: null,
+  });
+});
+
 it("enforces the shared per-run quota across new remote threads", async () => {
   const local = agent(),
     original = envelope(local.id);

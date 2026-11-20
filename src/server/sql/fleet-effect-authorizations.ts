@@ -84,10 +84,10 @@ export function firstCommand(
 
 const mailAuthorityStatement = statement(
   `SELECT 1 FROM fleet_effect_authorizations
-   WHERE owner_id=@owner AND effect_kind='run' AND effect_id=@run
+   WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effect
      AND json_extract(grant_context,'$.operation')='mail'
    UNION ALL SELECT 1 FROM fleet_effect_edit_authorizations
-   WHERE owner_id=@owner AND effect_kind='run' AND effect_id=@run
+   WHERE owner_id=@owner AND effect_kind=@kind AND effect_id=@effect
      AND json_extract(grant_context,'$.operation')='mail'
    LIMIT 1`,
 );
@@ -95,7 +95,8 @@ const mailAuthorityStatement = statement(
 export function hasMailAuthority(
   db: Database.Database,
   owner: string,
-  run: string,
+  effect: string,
+  kind: "run" | "steering" = "run",
 ) {
-  return mailAuthorityStatement(db).get({ owner, run }) !== undefined;
+  return mailAuthorityStatement(db).get({ owner, effect, kind }) !== undefined;
 }

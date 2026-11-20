@@ -166,6 +166,12 @@ export const recallTimeSql = `CASE s.kind
   WHEN 'message' THEN s.created_at
   ELSE s.updated_at END`;
 
+/** Conversation sources require a current explicit opt-in. */
+export const conversationRecallEnabledSql = `(s.conversation_id IS NULL OR EXISTS (
+  SELECT 1 FROM memory_policy mp
+  WHERE mp.owner_id=s.owner_id AND mp.scope='conversation:' || s.conversation_id AND mp.enabled=1
+))`;
+
 export const recallWindowSql = `(@from IS NULL OR ${recallTimeSql} >= @from)
   AND (@to IS NULL OR ${recallTimeSql} < @to)`;
 

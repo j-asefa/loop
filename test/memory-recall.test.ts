@@ -683,6 +683,7 @@ it("recalls only finished, unarchived results from conversations still in memory
     Date.parse("2026-02-02"),
     inside.data.id,
   );
+  const otherConversation = run.conversation_id;
   const answerRunId = run.id;
   const { prompt: first } = await nativePrompt(
     "kepler orbit period",
@@ -772,6 +773,19 @@ it("recalls only finished, unarchived results from conversations still in memory
       });
       if (!("result" in across)) throw new Error("Expected a completed search");
       expect(JSON.parse(across.result.content[0].text).hits).toMatchObject([
+        { id: inside.data.id },
+      ]);
+      for (const id of competitors)
+        db.prepare(
+          "UPDATE memory_sources SET conversation_id=? WHERE id=?",
+        ).run(otherConversation, id);
+      const optedIn = await invokeNative(run, tool, "policy", {
+        query: "period",
+        kind: "note",
+      });
+      if (!("result" in optedIn))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(optedIn.result.content[0].text).hits).toMatchObject([
         { id: inside.data.id },
       ]);
     },

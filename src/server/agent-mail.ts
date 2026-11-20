@@ -689,19 +689,7 @@ function dispatch(
         mail.owner_id,
         mail.sender_run_id,
       ));
-  if (
-    fleetMail &&
-    routed.conversationId &&
-    memoryReceiptsQueries.conversationHasEvidence(
-      db,
-      mail.owner_id,
-      routed.conversationId,
-    )
-  )
-    throw new MailRefusal(
-      403,
-      "Choose a fresh conversation for this Fleet mail.",
-    );
+  assertFleetMailDestination(mail.owner_id, routed.conversationId, !!fleetMail);
   const steer =
     mail.interrupt === 1 &&
     routed.active &&
@@ -1541,6 +1529,21 @@ function deliverResult(row: {
   }).immediate();
 }
 
+function assertFleetMailDestination(
+  owner: string,
+  conversation: string | null | undefined,
+  fleetMail: boolean,
+) {
+  if (
+    fleetMail &&
+    conversation &&
+    memoryReceiptsQueries.conversationHasEvidence(db, owner, conversation)
+  )
+    throw new MailRefusal(
+      403,
+      "Choose a fresh conversation for this Fleet mail.",
+    );
+}
 const REQUEUED =
   "The task ended before this message was read. Loop queued it as a new turn instead.";
 const CANCELLED =
@@ -1573,15 +1576,31 @@ function requeue(mail: Mail) {
         mail.kind === "result" ? mail.sender_run_id : undefined,
       );
       const run = db.transaction(() => {
+        // Prefer the active team conversation, otherwise use the original destination.
+        const conversationId =
+          (thread.scope === "team" &&
+            team &&
+            workingIn(team, mail.recipient_agent_id)) ||
+          message.conversation_id;
+        assertFleetMailDestination(
+          mail.owner_id,
+          conversationId,
+          fleetEffectsQueries.hasMailAuthority(
+            db,
+            mail.owner_id,
+            mail.steering_id!,
+            "steering",
+          ) ||
+            (!!mail.sender_run_id &&
+              fleetEffectsQueries.hasMailAuthority(
+                db,
+                mail.owner_id,
+                mail.sender_run_id,
+              )),
+        );
         const run = submit(mail.owner_id, {
           agentId: mail.recipient_agent_id,
-          // Where the recipient is working now, so this never opens a second
-          // session beside it; otherwise the conversation it was meant for.
-          conversationId:
-            (thread.scope === "team" &&
-              team &&
-              workingIn(team, mail.recipient_agent_id)) ||
-            message.conversation_id,
+          conversationId,
           mailScope: thread.scope,
           input: message.content,
           idempotencyKey: mail.idempotency_key + ":requeue",

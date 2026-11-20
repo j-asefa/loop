@@ -390,6 +390,7 @@ export async function searchMemory(
       kind,
       filterBeforeRanking ? window : undefined,
       filterBeforeRanking ? conversation : null,
+      filterBeforeRanking,
     )) {
       candidates.push({ id, revision, passage: { start, end } });
     }
@@ -408,6 +409,7 @@ export async function searchMemory(
             kind,
             filterBeforeRanking ? window : undefined,
             filterBeforeRanking ? conversation : null,
+            filterBeforeRanking,
           ),
         );
       }
