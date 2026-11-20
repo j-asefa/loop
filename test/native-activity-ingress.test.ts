@@ -678,6 +678,28 @@ it("bounds the child text cache so a long session cannot accumulate child output
   expect(adapter.childTextBytes).toBeLessThanOrEqual(4 * 1024 * 1024 + 64000);
 });
 
+it("bounds the child text cache by entry count even for empty-text streams", () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-cache-count");
+  const current = start(sessions, "claude-cache-count-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-cache-count",
+    },
+    current.emit,
+  ) as any;
+  // Many distinct ids whose text is empty or near-empty: the byte counter
+  // never moves, so eviction must also bound the entry count.
+  for (let i = 0; i < 600; i++) adapter.rememberChildText("empty-" + i, "");
+  expect(adapter.childText.size).toBeLessThanOrEqual(512);
+});
+
 it("still establishes a commentary item when a post-prompt delta's recall seed was lost", async () => {
   const sessions = new NativeSessions();
   const run = turn("conv", "claude-seed-lost");

@@ -80,10 +80,12 @@ export class Claude extends DirectAdapter implements Adapter {
   // projector's display-preview limit and the total is byte-capped at the
   // projector's own display-window scale, evicting the oldest ids, so a
   // long session that repeatedly uses subagents cannot grow adapter memory
-  // with copies of child output. Eviction only ever drops the oldest ids
-  // (the least likely to still receive a delayed delta); a re-established
-  // item for an evicted id starts from the fragment, while its earlier text
-  // stays in that id's own run's progress rows.
+  // with copies of child output. The map is bounded by both bytes and entry
+  // count: empty or tiny deltas would otherwise add entries without moving
+  // the byte counter. Eviction only ever drops the oldest ids (the least
+  // likely to still receive a delayed delta); a re-established item for an
+  // evicted id starts from the fragment, while its earlier text stays in
+  // that id's own run's progress rows.
   private childText = new Map<string, string>();
   private childTextBytes = 0;
   private rememberChildText(id: string, text: string) {
@@ -103,7 +105,10 @@ export class Claude extends DirectAdapter implements Adapter {
     const previousBytes = previous ? Buffer.byteLength(previous) : 0;
     this.childTextBytes += Buffer.byteLength(text) - previousBytes;
     this.childText.set(id, text);
-    while (this.childTextBytes > 4 * 1024 * 1024 && this.childText.size > 1) {
+    while (
+      (this.childTextBytes > 4 * 1024 * 1024 || this.childText.size > 512) &&
+      this.childText.size > 1
+    ) {
       const oldest = this.childText.keys().next().value!;
       this.childTextBytes -= Buffer.byteLength(this.childText.get(oldest)!);
       this.childText.delete(oldest);
@@ -607,7 +612,8 @@ export class Claude extends DirectAdapter implements Adapter {
         // Keep the seed current with every delta, open turn or not, so a
         // later re-established item carries everything the stream has said
         // so far and a subsequent delta appends instead of overwriting it.
-        if (m.parent_tool_use_id)
+        // Empty deltas contribute nothing, so they do not add a cache entry.
+        if (m.parent_tool_use_id && e.delta.text)
           this.rememberChildText(
             id,
             (this.childText.get(id) ?? "") + e.delta.text,
