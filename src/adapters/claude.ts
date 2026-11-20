@@ -71,11 +71,28 @@ export class Claude extends DirectAdapter implements Adapter {
   // again at the next new user turn, so a delayed delta re-establishes its
   // commentary item in the fresh projector window.
   private childItems = new Set<string>();
-  // Last-known full text per child item id, from the child assistant message.
-  // Kept across prompt() (unlike childItems) so a re-established item in the
-  // fresh window carries the known text instead of replacing it with empty;
-  // cleared with childItems at the result, so it stays bounded per turn.
+  // Last-known text per child item id for the recall window (while no turn
+  // is open: the full assistant message plus any deltas seen before the next
+  // prompt). Kept across prompt() (unlike childItems) so a re-established
+  // item in the fresh window carries the known text instead of replacing it
+  // with empty; cleared with childItems at the result. Entries are written
+  // only while no turn is open (mid-turn writes are never read back), and
+  // the total is byte-capped to keep recall memory bounded.
   private childText = new Map<string, string>();
+  private childTextBytes = 0;
+  private rememberChildText(id: string, text: string) {
+    const previous = this.childText.get(id);
+    const bytes = Buffer.byteLength(text);
+    this.childTextBytes += bytes - (previous ? Buffer.byteLength(previous) : 0);
+    this.childText.set(id, text);
+    // The projector truncates its own display window at a similar scale;
+    // beyond the budget the seed for an evicted id degrades to the fragment.
+    while (this.childTextBytes > 4 * 1024 * 1024 && this.childText.size > 1) {
+      const oldest = this.childText.keys().next().value!;
+      this.childTextBytes -= Buffer.byteLength(this.childText.get(oldest)!);
+      this.childText.delete(oldest);
+    }
+  }
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
@@ -554,6 +571,14 @@ export class Claude extends DirectAdapter implements Adapter {
         // while a user turn is open: after the result the projector drops
         // deltas, so an empty item emitted then could only clobber saved
         // native history.
+        if (m.parent_tool_use_id && !this.active)
+          // Keep the recall seed current: the projector may merge or drop
+          // these deltas, but the next turn's re-established item must carry
+          // them so a later delta appends instead of overwriting them.
+          this.rememberChildText(
+            id,
+            (this.childText.get(id) ?? "") + e.delta.text,
+          );
         if (m.parent_tool_use_id && this.active && !this.childItems.has(id)) {
           this.childItems.add(id);
           this.emit({
@@ -598,11 +623,13 @@ export class Claude extends DirectAdapter implements Adapter {
         .map((b: any) => b.text)
         .join("\n");
       if (text) {
-        // Remember the emitted id and its text so a later delta merges into
-        // this item instead of establishing an empty one that replaces it.
+        // Remember the emitted id (and its recall-window text) so a later
+        // delta merges into this item instead of establishing an empty one
+        // that replaces it. Mid-turn writes are never read back, so only
+        // the no-turn (recall/between-turns) text is cached.
         if (m.parent_tool_use_id) {
           this.childItems.add(m.message.id);
-          this.childText.set(m.message.id, text);
+          if (!this.active) this.rememberChildText(m.message.id, text);
         }
         this.emit({
           type: "item",
@@ -661,6 +688,7 @@ export class Claude extends DirectAdapter implements Adapter {
       this.messageIds.clear();
       this.childItems.clear();
       this.childText.clear();
+      this.childTextBytes = 0;
       for (const id of this.requests.keys())
         this.emit({ type: "resolved", id });
       this.requests.clear();

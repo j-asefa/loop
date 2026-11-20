@@ -574,8 +574,7 @@ it("does not overwrite a recall-window child message with a later delta's empty 
       content: [{ type: "text", text: "Full recall text" }],
     },
   });
-  await adapter.prompt("next");
-  // The child stream's delta arrives after the new prompt.
+  // A first delta also arrives during recall, before the prompt is sent.
   send({
     type: "stream_event",
     parent_tool_use_id: "task-1",
@@ -586,15 +585,25 @@ it("does not overwrite a recall-window child message with a later delta's empty 
     parent_tool_use_id: "task-1",
     event: {
       type: "content_block_delta",
-      delta: { type: "text_delta", text: " and more" },
+      delta: { type: "text_delta", text: " A" },
     },
   });
-  // The re-established item carried the known text, so the delta appended
-  // instead of replacing the recall message's text with the empty fragment.
+  await adapter.prompt("next");
+  // The child stream's second delta arrives after the new prompt.
+  send({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: " B" },
+    },
+  });
+  // The re-established item carried the recall text including its first
+  // delta, so the second delta appended instead of overwriting either.
   expect(current.live.items.get("child-recall")).toEqual({
     id: "child-recall",
     kind: "assistant",
-    text: "Full recall text and more",
+    text: "Full recall text A B",
     phase: "commentary",
   });
   expect(retainedAnswer(current.live)).toBeUndefined();
