@@ -410,15 +410,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (node.type === "ClassDeclaration" && scope.parent && node.id)
         (scope.parent.classes ??= new Map()).set(node.id.name, scope);
     }
-    if (
-      node.type === "MethodDefinition" &&
-      !node.static &&
-      node.kind !== "constructor"
-    ) {
+    if (node.type === "MethodDefinition" && node.kind !== "constructor") {
       const key = objectKey(node);
       const owner = boundaryScope(node, "receiver");
       if (owner && typeof key === "string")
-        (owner.functions ??= new Map()).set(`this.${key}`, node.value);
+        (owner.functions ??= new Map()).set(
+          `${node.static ? "static" : "this"}.${key}`,
+          node.value,
+        );
     }
     if (
       node.id &&
@@ -635,7 +634,15 @@ function sqlCallLines(file: string, text: string, script = false) {
   const functionReference = (expression: any): any => {
     if (functionKinds.has(expression?.type)) return expression;
     if (expression?.type === "MemberExpression") {
-      const instance = instanceReference(unwrap(expression.object));
+      const object = unwrap(expression.object);
+      const cls = classReference(object);
+      if (cls)
+        return receiverProperty(
+          cls,
+          `static.${property(expression)}`,
+          (scope, key) => scope.functions?.get(key),
+        );
+      const instance = instanceReference(object);
       if (instance)
         return receiverProperty(
           instance,
@@ -712,9 +719,17 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
-    if (expression?.type === "ConditionalExpression") {
-      const first = connectionKind(expression.consequent);
-      const second = connectionKind(expression.alternate);
+    const conditional = expression?.type === "ConditionalExpression";
+    const fallback =
+      expression?.type === "LogicalExpression" &&
+      (expression.operator === "??" || expression.operator === "||");
+    if (conditional || fallback) {
+      const first = connectionKind(
+        conditional ? expression.consequent : expression.left,
+      );
+      const second = connectionKind(
+        conditional ? expression.alternate : expression.right,
+      );
       return bindingRank[first ?? "other"] >= bindingRank[second ?? "other"]
         ? (first ?? second)
         : second;
@@ -738,6 +753,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "connection";
     const name = receiver(expression);
     if (!name) return undefined;
+    if (expression.type === "MemberExpression") {
+      const cls = classReference(unwrap(expression.object));
+      const known =
+        cls && receiverBinding(cls, `static.${property(expression)}`);
+      if (known) return known;
+    }
     const [root] = name.split(".");
     const owner =
       root === "this" ? thisScope(node) : declaringScope(root, node);
@@ -819,15 +840,14 @@ function sqlCallLines(file: string, text: string, script = false) {
   for (const { scope, parameter, annotation } of typedParameters) {
     if (annotation.type !== "TSTypeLiteral") continue;
     for (const member of annotation.members) {
-      if (
-        member.type !== "TSPropertySignature" ||
-        !isDatabaseType(member.typeAnnotation?.typeAnnotation?.typeName, member)
-      )
-        continue;
+      if (member.type !== "TSPropertySignature") continue;
+      const type = member.typeAnnotation?.typeAnnotation?.typeName;
+      if (!type) continue;
+      const binding = isDatabaseType(type, member) ? "connection" : "object";
       const property = objectKey(member);
       for (const { key, name } of bindings(parameter)) {
-        if (!key) scope.bindings.set(`${name}.${property}`, "connection");
-        else if (key === property) scope.bindings.set(name, "connection");
+        if (!key) scope.bindings.set(`${name}.${property}`, binding);
+        else if (key === property) scope.bindings.set(name, binding);
       }
     }
   }
@@ -1025,7 +1045,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       }
       const declaration = node.type === "VariableDeclarator";
-      const field = node.type === "PropertyDefinition" && !node.static;
+      const field = node.type === "PropertyDefinition";
       if (!declaration && !field && node.type !== "AssignmentExpression")
         continue;
       const target = declaration ? node.id : node.left;
@@ -1068,7 +1088,7 @@ function sqlCallLines(file: string, text: string, script = false) {
           : (node.key.name ?? node.key.value);
         if (typeof key === "string")
           assigned.push({
-            name: `this.${key}`,
+            name: `${node.static ? "static" : "this"}.${key}`,
             binding: connectionKind(value),
           });
       } else {
@@ -1078,7 +1098,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       for (const { name, binding, method } of assigned) {
         const owner = declaration
           ? declarationScope(node)
-          : name.startsWith("this.")
+          : field || name.startsWith("this.")
             ? thisScope(node)
             : (declaringScope(name.split(".")[0], node) ?? scopeOf(node));
         if (!owner) continue;
@@ -1113,21 +1133,13 @@ function sqlCallLines(file: string, text: string, script = false) {
         (!binding || binding === "other") &&
         node.callee.object.type === "MemberExpression";
       if (binding !== "inferred" && !opaqueMember) return false;
-      // Script fixtures can prepare a query held in a variable. An inferred
-      // exec caller still needs a recognizable SQL statement.
+      // Inferred receivers need recognizable SQL text or a statement variable.
       const statement = node.arguments[0];
       if (
         script &&
         binding === "inferred" &&
         statement?.type === "Identifier" &&
         /^(?:sql|query|statement)(?:$|[A-Z_])/.test(statement.name)
-      )
-        return true;
-      if (
-        script &&
-        binding === "inferred" &&
-        method === "prepare" &&
-        statement?.type === "Identifier"
       )
         return true;
       const text =
@@ -1711,6 +1723,26 @@ it("follows conditional and fixture-factory handles without classifying adapter 
     fixture.db.prepare(query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([9, 11, 13]);
+});
+
+it("follows static fields and fallback handles without reporting typed adapters", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    class Store {
+      static connection = new SQLite(":memory:");
+      static write(handle, query) { handle.exec(query); }
+    }
+    Store.connection.exec(query);
+    Store.write(Store.connection, query);
+    const selected = primary ?? Store.connection;
+    selected.exec(query);
+    const fallback = primary || Store.connection;
+    fallback.exec(query);
+    function dispatch({ db }: { db: CommandAdapter }, options: Options) {
+      db.prepare(options);
+    }
+  `;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 7, 10, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
