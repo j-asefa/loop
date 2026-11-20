@@ -31,7 +31,9 @@ export type VmOperationRefusal =
   /** The experiment does not exist for this owner. */
   | "missing_experiment"
   /** An earlier operation on this experiment is pending or uncertain. */
-  | "unsettled_operation";
+  | "unsettled_operation"
+  /** A create or fork for an experiment that already has its VM. */
+  | "vm_exists";
 
 export class VmOperationRefused extends Error {
   constructor(readonly reason: VmOperationRefusal) {
@@ -115,10 +117,20 @@ export async function runVmOperation(
           throw new VmOperationRefused("key_conflict");
         return existing;
       }
+      const vm = experimentVmsQueries.byId(
+        db,
+        operation.owner,
+        operation.experimentId,
+      );
+      if (!vm) throw new VmOperationRefused("missing_experiment");
+      // One experiment has one provider VM. Once it is recorded, a failed VM
+      // is destroyed, not created again: the provider key is scoped to the
+      // experiment, so another create would only return the same VM.
       if (
-        !experimentVmsQueries.byId(db, operation.owner, operation.experimentId)
+        (operation.kind === "create" || operation.kind === "fork") &&
+        vm.remote_id !== null
       )
-        throw new VmOperationRefused("missing_experiment");
+        throw new VmOperationRefused("vm_exists");
       if (
         vmOperationsQueries.unsettledByExperiment(
           db,
@@ -183,7 +195,9 @@ export async function runVmOperation(
         : "failed";
   // The receipt and the local record of what the call did commit together.
   // If apply throws, both roll back and the receipt stays pending until the
-  // sweep marks it uncertain for a reconcile.
+  // sweep marks it uncertain for a reconcile. An incomplete answer writes
+  // nothing locally: its provider id is provisional until a reconcile sees
+  // the VM, and lives only in the receipt.
   const settled = db
     .transaction(() => {
       if (
@@ -194,7 +208,7 @@ export async function runVmOperation(
         })
       )
         return false;
-      effects.apply?.(result);
+      if (to !== "uncertain") effects.apply?.(result);
       return true;
     })
     .immediate();

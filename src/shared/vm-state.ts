@@ -6,8 +6,11 @@ export const VM_TRANSITIONS = {
   // sleeping/paused: a reconcile adopted a VM the provider reports asleep.
   provisioning: ["running", "sleeping", "paused", "failed", "destroying"],
   running: ["sleeping", "paused", "destroying", "failed"],
-  sleeping: ["running", "destroying", "failed"],
-  paused: ["running", "destroying", "failed"],
+  // sleeping <-> paused: what the provider reports when one becomes the
+  // other (Sail maps an interrupted, restorable VM to paused). Every live
+  // state reaches every other, so an observed status is never dropped.
+  sleeping: ["running", "paused", "destroying", "failed"],
+  paused: ["running", "sleeping", "destroying", "failed"],
   // Only the owner's explicit reconcile, retry or destroy leaves failed.
   // sleeping/paused: a reconcile or retry adopted a VM found asleep.
   failed: ["provisioning", "running", "sleeping", "paused", "destroying"],

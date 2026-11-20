@@ -17,6 +17,7 @@ import {
 } from "../src/server/vm/operations.js";
 import { VmProviderError, type VmStatus } from "../src/server/vm/provider.js";
 import { authVolumeName } from "../src/server/vm/sailbox-image.js";
+import { legalVmTransition } from "../src/shared/vm-state.js";
 
 // Fixture coverage: an in-memory database with the production migrations and
 // a scripted provider. No Sailbox is contacted.
@@ -806,10 +807,14 @@ it("keeps a create answered while its VM is still starting uncertain, then settl
       createEffects("exp1", "op1"),
     ),
   ).toEqual({ state: "uncertain", errorMessage: "The VM is provisioning" });
+  // The id is provisional: it stays in the receipt, not on the VM.
   expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
-    remote_id: "sb-1",
+    remote_id: null,
     state: "provisioning",
   });
+  expect(vmOperationsQueries.byId(db, "alice", "op1")?.result_json).toContain(
+    "sb-1",
+  );
   expect(
     await reconcileSoon(found({ remoteId: "sb-1", status: "running" })),
   ).toMatchObject({ outcome: "succeeded" });
@@ -838,6 +843,76 @@ it("gives each owner a separate auth volume", () => {
   expect(authVolumeName("alice")).toMatch(/^loop-auth-[0-9a-f]{16}$/);
   expect(authVolumeName("alice")).toBe(authVolumeName("alice"));
   expect(authVolumeName("alice")).not.toBe(authVolumeName("bob"));
+});
+
+it("lets a retry create a VM after a still-starting VM turned out absent", async () => {
+  await create(
+    "op1",
+    async () => ({ remoteId: "sb-1", status: "provisioning" }),
+    {},
+    createEffects("exp1", "op1"),
+  );
+  expect(await reconcile(found())).toMatchObject({ outcome: "failed" });
+  expect(
+    await create(
+      "op2",
+      async () => ({ remoteId: "sb-2", status: "running" }),
+      {},
+      createEffects("exp1", "op2"),
+    ),
+  ).toMatchObject({ state: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-2",
+    state: "running",
+  });
+});
+
+it("refuses another create once the experiment has its VM, without calling the provider", async () => {
+  await create(
+    "op1",
+    async () => ({ remoteId: "sb-1", status: "failed", errorMessage: "boom" }),
+    {},
+    createEffects("exp1", "op1"),
+  );
+  let called = false;
+  await expect(
+    create("op2", async () => {
+      called = true;
+      return {};
+    }),
+  ).rejects.toMatchObject({ reason: "vm_exists" });
+  expect(called).toBe(false);
+});
+
+it("records every live status the provider reports, such as a sleeping VM found paused", async () => {
+  await runningVm();
+  transitionVm(db, { owner: "alice", id: "exp1" }, "sleeping", {
+    now: clock(),
+  });
+  const operation = {
+    id: "op1",
+    owner: "alice",
+    experimentId: "exp1",
+    kind: "resume" as const,
+    request: {},
+  };
+  await runVmOperation(
+    db,
+    operation,
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+    vmOperationEffects(db, operation, clock),
+  );
+  const provider = found();
+  provider.statuses.set("sb-1", "paused");
+  expect(await reconcile(provider)).toMatchObject({ outcome: "failed" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("paused");
+  const live = ["running", "sleeping", "paused"] as const;
+  for (const from of live)
+    for (const to of live)
+      if (from !== to) expect(legalVmTransition(from, to)).toBe(true);
 });
 
 it("refuses illegal and stale VM transitions", () => {

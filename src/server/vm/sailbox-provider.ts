@@ -100,6 +100,9 @@ export function createSailboxProvider(options: {
         headers,
         body,
         signal: AbortSignal.timeout(init.timeoutMs ?? CONTROL_TIMEOUT_MS),
+        // A redirect would resend the API key, a request body or a command's
+        // environment to another address; Sail's API does not redirect.
+        redirect: "error",
       });
     } catch (error) {
       throw new VmProviderError(
@@ -488,6 +491,9 @@ async function startExec(
     };
     let buffered = "";
     const blocked = new Set<PassThrough>();
+    // An event Loop could not read means the output it passed on may be
+    // incomplete, so the exit code is not reported as if it were whole.
+    let corrupt = false;
     const decoder = new TextDecoder();
     const handle = (line: string) => {
       if (!line.trim()) return;
@@ -495,6 +501,11 @@ async function startExec(
       try {
         event = JSON.parse(line) as Record<string, unknown>;
       } catch {
+        corrupt = true;
+        return;
+      }
+      if (!event || typeof event !== "object") {
+        corrupt = true;
         return;
       }
       if (
@@ -510,7 +521,9 @@ async function startExec(
         const stream = event.type === "stdout" ? stdout : stderr;
         if (!stream.write(Buffer.from(event.data, "base64")))
           blocked.add(stream);
-      } else if (event.type === "exit")
+      } else if (event.type === "stdout" || event.type === "stderr")
+        corrupt = true;
+      else if (event.type === "exit")
         result = {
           exitCode:
             typeof event.return_code === "number" ? event.return_code : null,
@@ -550,7 +563,7 @@ async function startExec(
       stdout.end();
       stderr.end();
     }
-    return result;
+    return corrupt ? { exitCode: null, signal: null } : result;
   })();
 
   let offset = 0;

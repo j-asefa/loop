@@ -10,7 +10,13 @@ import {
 // request and response shapes taken from Sail's published OpenAPI document.
 // No Sailbox is contacted.
 
-type Call = { method: string; url: URL; headers: Headers; body: unknown };
+type Call = {
+  method: string;
+  url: URL;
+  headers: Headers;
+  body: unknown;
+  redirect?: RequestRedirect;
+};
 
 function fake(answer: (call: Call) => Response | Promise<Response> | Error) {
   const calls: Call[] = [];
@@ -20,6 +26,7 @@ function fake(answer: (call: Call) => Response | Promise<Response> | Error) {
       method: init?.method ?? "GET",
       url: new URL(String(input)),
       headers: new Headers(init?.headers),
+      redirect: init?.redirect,
       body:
         typeof raw === "string"
           ? JSON.parse(raw)
@@ -417,4 +424,56 @@ it("reports a VM that booted into failed with Sail's reason, and mounts volumes 
     mount_path: "/mnt/loop-auth",
     read_only: false,
   });
+});
+
+it("never follows a redirect with the API key", async () => {
+  const { calls, provider } = fake(() => ok({ org_id: "org_1" }));
+  await provider.whoami();
+  expect(calls[0].redirect).toBe("error");
+});
+
+it("reports no exit code when an exec event could not be read", async () => {
+  const encoder = new TextEncoder();
+  const { provider } = fake(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const line of [
+              JSON.stringify({ type: "started", exec_request_id: "e" }),
+              "{not json",
+              JSON.stringify({ type: "stdout", data: 7, seq: 2 }),
+              JSON.stringify({ type: "progress", note: "new event kind" }),
+              JSON.stringify({
+                type: "exit",
+                status: "succeeded",
+                return_code: 0,
+              }),
+            ])
+              controller.enqueue(encoder.encode(line + "\n"));
+            controller.close();
+          },
+        }),
+      ),
+  );
+  const handle = await provider.exec("sb_1", ["true"], {});
+  handle.stdout.resume();
+  handle.stderr.resume();
+  expect(await handle.exit).toEqual({ exitCode: null, signal: null });
+
+  // An event type Loop does not know is not corruption.
+  const clean = fake(
+    () =>
+      new Response(
+        [
+          JSON.stringify({ type: "started", exec_request_id: "e" }),
+          JSON.stringify({ type: "progress" }),
+          JSON.stringify({ type: "exit", status: "succeeded", return_code: 0 }),
+        ].join("\n") + "\n",
+      ),
+  );
+  const ok2 = await clean.provider.exec("sb_1", ["true"], {});
+  ok2.stdout.resume();
+  ok2.stderr.resume();
+  expect(await ok2.exit).toEqual({ exitCode: 0, signal: null });
 });
