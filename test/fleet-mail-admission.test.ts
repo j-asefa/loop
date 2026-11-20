@@ -809,6 +809,62 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
   ).toMatchObject({ state: "refused" });
 });
 
+it.each([0, 1])(
+  "keeps manager memory out of Fleet mail after copying a worker answer (background=%i)",
+  async (background) => {
+    const manager = agent(owner);
+    const worker = agent(owner);
+    const parent = submit(owner, {
+      agentId: manager.id,
+      input: "Delegate work",
+      idempotencyKey: id(),
+    });
+    db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+      parent.id,
+      "lexical",
+      '[{"id":"saved","via":"tool"}]',
+      15,
+      now(),
+    );
+    const child = submit(owner, {
+      agentId: worker.id,
+      input: "Evaluate saved evidence",
+      idempotencyKey: id(),
+    });
+    db.prepare(
+      "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,?)",
+    ).run(parent.id, "task:0", child.id, "{}", background);
+    const answerId = id();
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+    ).run(
+      answerId,
+      owner,
+      child.conversation_id,
+      child.id,
+      "Summary of saved evidence",
+      now(),
+    );
+    const fork = forkConversation(owner, child.conversation_id!, {
+      messageId: answerId,
+    });
+    for (const conversationId of [child.conversation_id!, fork.id]) {
+      const incoming = envelope(worker.id);
+      expect(
+        (
+          await deliver({
+            ...incoming,
+            thread: {
+              ...incoming.thread,
+              recipientConversationId: conversationId,
+            },
+          })
+        ).admission,
+      ).toMatchObject({ state: "refused" });
+    }
+  },
+);
+
 it("refuses a background result with saved memory after Fleet mail reaches its manager", async () => {
   const manager = agent(owner);
   const worker = agent(owner);
@@ -1091,6 +1147,16 @@ it("withholds memory search from a local follow-up after Fleet mail", async () =
   ).toBe(false);
   await expect(
     invokeNative(running, tool, "search", { query: "notes" }),
+  ).rejects.toMatchObject({ status: 403 });
+
+  const statusTool = nativeBindings(running, { nativeCatalog: true }).find(
+    (entry) => entry.tool === "loop_message_status",
+  )!;
+  expect(
+    nativeBindings(running).some((entry) => entry.tool === statusTool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(running, statusTool, "mail-previews", {}),
   ).rejects.toMatchObject({ status: 403 });
 
   const delegate = nativeBindings(running).find(

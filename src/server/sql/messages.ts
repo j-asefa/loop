@@ -49,12 +49,15 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN runs child ON child.id=d.child_run_id AND child.owner_id=r.owner_id
   WHERE child.conversation_id IS NOT NULL AND ${runInConversationContextSql}
   UNION
-  SELECT parent.conversation_id, NULL, NULL, NULL
+  SELECT parent.conversation_id,
+    CASE WHEN c.at IS NULL AND d.background=0 THEN NULL ELSE r.created_at END,
+    CASE WHEN c.at IS NULL AND d.background=0 THEN NULL ELSE 9223372036854775807 END,
+    NULL
   FROM context c
   JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
-  JOIN delegations d ON d.child_run_id=r.id AND d.background=0
+  JOIN delegations d ON d.child_run_id=r.id
   JOIN runs parent ON parent.id=d.parent_run_id AND parent.owner_id=r.owner_id
-  WHERE c.at IS NULL AND parent.conversation_id IS NOT NULL
+  WHERE parent.conversation_id IS NOT NULL AND ${runInConversationContextSql}
 )`;
 
 // Use with the messages alias `m` at model-context and attachment boundaries.

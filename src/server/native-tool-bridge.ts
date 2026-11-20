@@ -19,6 +19,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { nativeSessions } from "./native-sessions.js";
 import { nativeBindings, invokeNative } from "./native-tools.js";
+import { canSearchSavedMemory } from "./memory.js";
 import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
@@ -122,6 +123,11 @@ export class NativeToolBridge {
     if (!binding)
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
+      );
+    if (binding.tool === "loop_message_status" && !canSearchSavedMemory(run))
+      throw new Problem(
+        403,
+        "Mail previews are unavailable in Fleet mail context",
       );
     const key = run.id + ":" + requestId,
       digest = JSON.stringify([name, args]);

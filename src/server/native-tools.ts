@@ -284,8 +284,9 @@ export function nativeBindings(
         : "");
     descriptions.loop_handoff =
       "Hand a task and context summary to an agent from loop_agents in its own harness. Stop editing first; does not transfer sessions, local files, or approvals. Finish your turn for replies; check loop_message_status.";
-    descriptions.loop_message_status =
-      "Inspect delivery of direct and active-team threads. Pass threadId for messages or omit for recent threads. Finish your turn to wait for replies.";
+    if (options.nativeCatalog || canSearchSavedMemory(run))
+      descriptions.loop_message_status =
+        "Inspect delivery of direct and active-team threads. Pass threadId for messages or omit for recent threads. Finish your turn to wait for replies.";
   }
   return Object.entries(descriptions).map(([name, description]) => ({
     name,
@@ -304,6 +305,12 @@ export function memorySearchProviderHistory(
     if (message.role !== "tool" || !message.toolCallId || message.isError)
       return message;
     const call = nativeCallsQueries.get(db, run.id, message.toolCallId);
+    if (call?.tool === "loop_message_status" && !canSearchSavedMemory(run))
+      return {
+        ...message,
+        isError: true,
+        content: "Mail previews are unavailable in Fleet mail context",
+      };
     if (call?.tool !== "loop_memory_search" || !call.result) return message;
     const result = JSON.parse(call.result);
     if (result.isError) return message;
