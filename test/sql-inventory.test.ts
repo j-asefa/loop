@@ -1189,11 +1189,20 @@ function sqlCallLines(file: string, text: string, script = false) {
         const source = writtenSource(write, name);
         const value = source.value;
         const kind = source.binding ?? connectionKind(value);
+        if (kind === "connection") return "connection";
         const opaqueImport =
           kind === "other" &&
           value?.type === "Identifier" &&
           declaringScope(value.name, value)?.imports?.has(value.name);
-        if (isAggregate(value) || kind === "object" || opaqueImport) {
+        const cleared =
+          (value?.type === "Literal" && value.value === null) ||
+          Boolean(value && isMissing(value));
+        if (
+          isAggregate(value) ||
+          kind === "object" ||
+          opaqueImport ||
+          cleared
+        ) {
           const mayReach = assignmentsByName
             .get(name)
             ?.some(
@@ -3354,6 +3363,24 @@ it("honors destructured initializers and recognizes SQLite VALUES and transactio
     commandAdapter.transaction(write);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 7, 8]);
+});
+
+it("prefers SQLite field writes over class initializers and clears optional receivers", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    class Store { connection = /adapter/; }
+    const store = new Store();
+    store.connection.exec("SELECT 1");
+    store.connection = db;
+    store.connection.exec("BEGIN");
+    let handle = db;
+    handle.exec(migrationText);
+    handle = null;
+    handle?.exec("BEGIN");
+    handle = undefined;
+    handle?.exec("BEGIN");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
