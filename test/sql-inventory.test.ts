@@ -227,36 +227,6 @@ function sqlCallLines(file: string, text: string, script = false) {
     declaringScope(name, node)?.bindings.get(name);
   const straightLineWrites = new Map<Scope, Map<string, any[]>>();
   const assignmentsByName = new Map<string, any[]>();
-  if (script) {
-    for (const node of nodes) {
-      const declaration = node.type === "VariableDeclarator";
-      const target = declaration ? node.id : node.left;
-      if (
-        (!declaration && node.type !== "AssignmentExpression") ||
-        target?.type !== "Identifier"
-      )
-        continue;
-      if (!declaration && node.operator === "=") {
-        const writes = assignmentsByName.get(target.name) ?? [];
-        writes.push(node);
-        assignmentsByName.set(target.name, writes);
-      }
-      const statement = parents.get(node);
-      const block = parents.get(statement);
-      if (
-        statement?.type !==
-          (declaration ? "VariableDeclaration" : "ExpressionStatement") ||
-        (block?.type !== "BlockStatement" && block?.type !== "Program")
-      )
-        continue;
-      const scope = scopeOf(node);
-      const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
-      const writes = byName.get(target.name) ?? [];
-      writes.push(node);
-      byName.set(target.name, writes);
-      straightLineWrites.set(scope, byName);
-    }
-  }
   const receiverClass = new Map<Scope, any>();
   const boundReceivers = new Map<object, object[]>();
   const explicitReceiverScopes = new Map<object, Scope>();
@@ -682,6 +652,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         parameter.type === "AssignmentPattern" ? parameter.left : parameter;
       const annotation = pattern.typeAnnotation?.typeAnnotation;
       if (annotation) typedParameters.push({ scope, parameter, annotation });
+      const rest = objectRest(pattern);
+      if (rest) scope.bindings.set(rest.argument.name, "object");
       for (const { key, name } of bindings(parameter)) {
         const binding =
           key === "db" || (key === "" && name === "database")
@@ -725,6 +697,34 @@ function sqlCallLines(file: string, text: string, script = false) {
     const receivers = boundReceivers.get(fn) ?? [];
     receivers.push(argument);
     boundReceivers.set(fn, receivers);
+  }
+  if (script) {
+    for (const node of nodes) {
+      const declaration = node.type === "VariableDeclarator";
+      const target = declaration ? node.id : node.left;
+      if (!declaration && node.type !== "AssignmentExpression") continue;
+      const name = receiver(target);
+      if (!name || name.startsWith("this.")) continue;
+      if (!declaration && node.operator === "=") {
+        const writes = assignmentsByName.get(name) ?? [];
+        writes.push(node);
+        assignmentsByName.set(name, writes);
+      }
+      const statement = parents.get(node);
+      const block = parents.get(statement);
+      if (
+        statement?.type !==
+          (declaration ? "VariableDeclaration" : "ExpressionStatement") ||
+        (block?.type !== "BlockStatement" && block?.type !== "Program")
+      )
+        continue;
+      const scope = scopeOf(node);
+      const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
+      const writes = byName.get(name) ?? [];
+      writes.push(node);
+      byName.set(name, writes);
+      straightLineWrites.set(scope, byName);
+    }
   }
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
@@ -928,7 +928,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         ?.findLast(
           (assignment) =>
             assignment.end <= expression.start &&
-            declaringScope(name, assignment) === owner,
+            declaringScope(name.split(".")[0], assignment) === owner,
         );
       if (candidate && (!write || candidate.end > write.end)) write = candidate;
       if (scope === owner || scope.boundary === "function") break;
@@ -1008,8 +1008,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!name) return undefined;
     const databaseName = name === "db" || name.endsWith(".db");
     if (databaseName && !script) return "connection";
-    if (expression.type === "Identifier") {
-      const owner = declaringScope(name, expression);
+    if (!name.startsWith("this.")) {
+      const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const value = unwrap(
@@ -1028,7 +1028,7 @@ function sqlCallLines(file: string, text: string, script = false) {
               (assignment) =>
                 assignment.start >= write.end &&
                 assignment.end <= expression.start &&
-                declaringScope(name, assignment) === owner &&
+                declaringScope(name.split(".")[0], assignment) === owner &&
                 boundaryScope(assignment, "function") === fn &&
                 connectionKind(assignment.right) === "connection",
             );
@@ -1319,7 +1319,30 @@ function sqlCallLines(file: string, text: string, script = false) {
     recordObject(scope, name, argument, excluded);
     changed = true;
   };
+  const restCopies = new Map<object, Set<object>>();
+  const trackRestCopy = (scope: Scope, pattern: any, rest: any, value: any) => {
+    if (!value) return;
+    const copies = restCopies.get(rest) ?? new Set<object>();
+    if (copies.has(value)) return;
+    const copy = {
+      type: "ObjectExpression",
+      properties: [{ type: "SpreadElement", argument: value }],
+    };
+    copies.add(value);
+    restCopies.set(rest, copies);
+    const excluded = new Set<string>();
+    for (const member of pattern.properties) {
+      if (member.type !== "Property") continue;
+      const key = objectKey(member);
+      if (typeof key === "string") excluded.add(key);
+    }
+    recordArgument(scope, rest.argument.name, copy, excluded);
+  };
   const trackParameter = (scope: Scope, parameter: any, argument: any) => {
+    const pattern =
+      parameter.type === "AssignmentPattern" ? parameter.left : parameter;
+    const rest = objectRest(pattern);
+    if (rest) trackRestCopy(scope, pattern, rest, argument);
     for (const { key, name, fallback } of bindings(parameter)) {
       if (key) {
         const member = propertySource(argument, key);
@@ -1342,7 +1365,6 @@ function sqlCallLines(file: string, text: string, script = false) {
       recordArgument(scope, name, argument);
     }
   };
-  const restCopies = new Set<object>();
   const returnExpressions: { fn: object; value: any }[] = [];
   const addReturn = (fn: object, node: any): void => {
     const value = unwrap(node);
@@ -1475,23 +1497,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         declaration ? node.init : field ? node.value : node.right,
       );
       const rest = script && objectRest(target);
-      if (rest && !restCopies.has(rest)) {
-        restCopies.add(rest);
+      if (rest) {
         const name = rest.argument.name;
         const owner = declaration
           ? declarationScope(node)
           : (declaringScope(name, node) ?? scopeOf(node));
-        const copy = {
-          type: "ObjectExpression",
-          properties: [{ type: "SpreadElement", argument: value }],
-        };
-        const excluded = new Set<string>();
-        for (const member of target.properties) {
-          if (member.type !== "Property") continue;
-          const key = objectKey(member);
-          if (typeof key === "string") excluded.add(key);
-        }
-        recordArgument(owner, name, copy, excluded);
+        trackRestCopy(owner, target, rest, value);
       }
       const assigned: {
         name: string;
@@ -1595,7 +1606,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         script &&
         binding === "inferred" &&
         statement?.type === "Identifier" &&
-        /^(?:sql|query|statement)(?:$|[A-Z_])/.test(statement.name)
+        /^(?:sql|query|statement|migrationText)(?:$|[A-Z_])/.test(
+          statement.name,
+        )
       )
         return true;
       const text =
@@ -2589,6 +2602,20 @@ it("honors method reassignment and follows conditional fixture returns", () => {
     execute(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 6, 10]);
+});
+
+it("follows parameter rest fields and migration text and honors object field replacements", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    function migrate({ ...store }, text) { store.connection.exec(text); }
+    migrate({ connection: db }, migrationText);
+    export function inject(fixture, migrationText) { fixture.db.exec(migrationText); }
+    const store = { connection: db };
+    store.connection.exec(migrationText);
+    store.connection = { exec: runCommand };
+    store.connection.exec(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5, 7]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
