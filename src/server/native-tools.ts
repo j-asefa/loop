@@ -291,6 +291,33 @@ export function nativeBindings(
     inputSchema: toolSchema(schemas[name as keyof typeof schemas]),
   }));
 }
+/** Refresh saved search outputs at the API provider boundary, without appending receipts. */
+export function memorySearchProviderHistory(
+  run: Run,
+  messages: import("./providers.js").ChatMessage[],
+) {
+  return messages.map((message) => {
+    if (message.role !== "tool" || !message.toolCallId || message.isError)
+      return message;
+    const call = nativeCallsQueries.get(db, run.id, message.toolCallId);
+    if (call?.tool !== "loop_memory_search" || !call.result) return message;
+    const result = JSON.parse(call.result);
+    if (result.isError) return message;
+    const search = recheckMemoryToolSearch(
+      run,
+      JSON.parse(result.content[0].text),
+      memorySearchInput.parse(JSON.parse(call.arguments)),
+    );
+    return {
+      ...message,
+      content: JSON.stringify({
+        isError: false,
+        content: [{ type: "text", text: JSON.stringify(search) }],
+      }),
+    };
+  });
+}
+
 export async function invokeNative(
   run: Run,
   binding: ToolBinding,

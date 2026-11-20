@@ -1,3 +1,4 @@
+import { settleRun } from "./helpers/run-outcome.js";
 import type { Provider } from "../src/shared/types.js";
 import { seedConnection } from "./helpers/seed.js";
 import { productionApp } from "./helpers/app.js";
@@ -403,6 +404,82 @@ it("adds nothing when the workspace turns memory off", async () => {
   }
   const { prompt } = await nativePrompt("pulsar rollout");
   expect(prompt).toContain("pulsar rollout must wait for the canary");
+});
+
+it("removes revoked search evidence from an API checkpoint before resuming the provider", async () => {
+  const own = await note(
+    "Papaya checkpoint",
+    "papaya evidence slated for removal",
+  );
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Continue the task",
+    idempotencyKey: id(),
+  });
+  const claimed = claim("memory-checkpoint")!;
+  expect(claimed.id).toBe(run.id);
+  const calls = await import("../src/server/sql/native-calls");
+  const persistResult = calls.result;
+  const pause = vi.spyOn(calls, "result").mockImplementation((...args) => {
+    const saved = persistResult(...args);
+    if (args[4] === "papaya-search") transition(claimed, "pausing");
+    return saved;
+  });
+  let rounds = 0;
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, input) {
+      if (rounds++ === 0) {
+        yield {
+          toolCall: {
+            id: "papaya-search",
+            name: "loop_memory_search",
+            arguments: { query: "papaya" },
+          },
+        };
+      } else {
+        const tool = input.messages.find(
+          (message) => message.toolCallId === "papaya-search",
+        )!;
+        expect(
+          JSON.parse(JSON.parse(tool.content).content[0].text).hits,
+        ).toEqual([]);
+        yield { text: "Finished after resuming." };
+      }
+    },
+  });
+  try {
+    expect(await settleRun(executeAgent, claimed)).toMatchObject({
+      kind: "paused",
+    });
+    expect(rounds).toBe(1);
+    const checkpoint = db
+      .prepare("SELECT history FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id) as { history: string };
+    expect(checkpoint.history).toContain("papaya evidence slated for removal");
+    const before = (await request(`/runs/${run.id}/memory`)).data;
+    expect(
+      (
+        await request(
+          `/memory/sources/${own.data.id}`,
+          undefined,
+          "alice",
+          "DELETE",
+        )
+      ).status,
+    ).toBe(200);
+    transition(claimed, "queued");
+    const resumed = claim("resume-memory-checkpoint")!;
+    expect(await executeAgent(resumed)).toMatchObject({ kind: "finished" });
+    transition(resumed, "completed");
+    expect(rounds).toBe(2);
+    expect((await request(`/runs/${run.id}/memory`)).data).toEqual(before);
+  } finally {
+    pause.mockRestore();
+    restore();
+  }
 });
 
 it("appends recall to the current turn of an API-key run once", async () => {

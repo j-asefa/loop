@@ -47,6 +47,7 @@ import {
   nativeBindings,
   invokeNative,
   runtimeInstructions,
+  memorySearchProviderHistory,
 } from "./native-tools.js";
 import type { ChatMessage, ToolCall } from "./providers.js";
 import { db, emit, id, now } from "./db.js";
@@ -908,7 +909,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             // links in it must not become the latest message's context.
             withoutRecall(history.findLast((m) => m.role === "user")?.content),
           ),
-          messages: structuredClone(history),
+          messages: structuredClone(memorySearchProviderHistory(run, history)),
           signal: AbortSignal.any([signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,
