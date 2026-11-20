@@ -1346,10 +1346,11 @@ routes.on(workspaceApi.runMemory, (req, res) => {
               .map(
                 ({
                   suppliedText: _private,
-                  providerCallId: _call,
+                  providerCallId,
                   excerptTruncated: _truncated,
                   ...source
-                }) => source,
+                }) =>
+                  providerCallId ? { ...source, delivered: false } : source,
               ),
           ),
         }

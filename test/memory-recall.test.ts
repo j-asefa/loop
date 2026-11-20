@@ -511,6 +511,9 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
         .get(run.id),
     ).toEqual({ content: "" });
     const before = (await request(`/runs/${run.id}/memory`)).data;
+    expect(JSON.parse(before.sources)).toContainEqual(
+      expect.objectContaining({ id: own.id, delivered: false }),
+    );
     expect(
       (await request(`/memory/sources/${own.id}`, undefined, "alice", "DELETE"))
         .status,
@@ -1145,13 +1148,14 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
       { id: "long", revision: 1, link: "/?memory=abc123" },
       { id: "external", revision: 1, link: "/?memory=external" },
       { id: "suffix", revision: 1, link: "/?memory=suffix" },
+      { id: "punctuation", revision: 1, link: "/?memory=punctuation" },
     ]),
     0,
     now(),
   );
   await answerNext(
     "revision-citation",
-    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123), [a different destination](/?memory=suffix(extra)) and https://outside.example/a(/?memory=external).`,
+    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123), [a different destination](/?memory=suffix(extra)), [the punctuated destination](/?memory=punctuation!) and https://outside.example/a(/?memory=external).`,
   );
   const data = (await request(`/runs/${run.id}/memory`)).data;
   expect(JSON.parse(data.sources)).toEqual([
@@ -1161,6 +1165,7 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
     { id: "long", revision: 1, link: "/?memory=abc123", cited: true },
     { id: "external", revision: 1, link: "/?memory=external" },
     { id: "suffix", revision: 1, link: "/?memory=suffix" },
+    { id: "punctuation", revision: 1, link: "/?memory=punctuation" },
   ]);
 });
 

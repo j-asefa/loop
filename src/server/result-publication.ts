@@ -606,9 +606,10 @@ function suppliesFromMemory(
   const citedLinks = new Set(
     Array.from(
       answer.matchAll(
-        /(?:(?:^|[\s<"'\x60])\(?|\]\()(\/(?!\/)[^\s<>"'\x60)[\]{}]+)/g,
+        /(?:(?:^|[\s<"'\x60])\(?|(\]\())(\/(?!\/)[^\s<>"'\x60)[\]{}]+)/g,
       ),
-      ([, link]) => link.replace(/[.,;:!?]+$/, ""),
+      ([, markdown, link]) =>
+        markdown ? link : link.replace(/[.,;:!?]+$/, ""),
     ),
   );
   const linkTargets = new Map<string, Set<string>>();
