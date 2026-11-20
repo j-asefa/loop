@@ -52,6 +52,7 @@ import { ActivityView } from "./ActivityRecords";
 import { SessionActivityControls } from "./SessionActivityControls";
 import type { ActivityRecord } from "../shared/agent-activities";
 import {
+  conversationLatestProgress,
   conversationRefreshCursor,
   type ConversationMessage,
 } from "./conversationMessages";
@@ -95,7 +96,6 @@ import { performStoredEffect } from "./pendingCommands";
 import {
   TranscriptHandoff,
   ProjectedMessage,
-  comparePosition,
   type TranscriptEvent,
 } from "../shared/transcript-projection";
 import { eventScopes } from "../shared/workspace-events";
@@ -603,18 +603,17 @@ function ConversationView({
         }, delay);
         return;
       }
-      const reportedProgress = fresh.latest_progress_messages;
-      const latestProgress = reportedProgress?.filter(
-        (message) =>
-          !projection.projection.removedAfter(
+      // A removal cannot tell us which progress row is now latest. Keep the
+      // snapshot cursor until the refresh resolves any unseen predecessor.
+      request.queued ||=
+        fresh.latest_progress_messages?.some((message) =>
+          projection.projection.removedAfter(
             message.id,
             fresh.projection.cursor,
           ),
-      );
-      request.queued ||= latestProgress?.length !== reportedProgress?.length;
+        ) ?? false;
       fresh = {
         ...fresh,
-        latest_progress_messages: latestProgress,
         messages: workspaceApi.conversation.response.shape.messages.parse(
           projection.projection.rows(),
         ),
@@ -1088,30 +1087,14 @@ function ConversationView({
       setError((e as Error).message);
     }
   }
-  const latestProgressByRun = useMemo(() => {
-    const byRun = new Map(
-      data?.latest_progress_messages?.map((message) => [
-        message.run_id,
-        message,
-      ]),
-    );
-    for (const message of data?.messages ?? []) {
-      if (
-        message.role === "assistant" &&
-        message.run_id &&
-        readMessageMetadata(message.metadata, "fallback").progress
-      ) {
-        const latest = byRun.get(message.run_id);
-        if (!latest || comparePosition(message.cursor, latest.cursor) > 0)
-          byRun.set(message.run_id, {
-            id: message.id,
-            run_id: message.run_id,
-            cursor: message.cursor,
-          });
-      }
-    }
-    return byRun;
-  }, [data?.messages, data?.latest_progress_messages]);
+  const latestProgressByRun = useMemo(
+    () =>
+      conversationLatestProgress(
+        data?.messages,
+        data?.latest_progress_messages,
+      ),
+    [data?.messages, data?.latest_progress_messages],
+  );
   const latestRun = [...(data?.messages || [])]
     .reverse()
     .find((m) => m.run_id && m.run_state);

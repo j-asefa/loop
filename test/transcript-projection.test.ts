@@ -9,6 +9,7 @@ import {
   type TranscriptEvent,
 } from "../src/shared/transcript-projection";
 import { historicalEvent } from "../src/shared/workspace-events";
+import { conversationLatestProgress } from "../src/client/conversationMessages";
 import { seedConversation, seedRun } from "./helpers/seed.js";
 const dir = testDirectory();
 
@@ -561,6 +562,9 @@ it("tracks an off-page progress removal that races an anchored snapshot", async 
   const { workspaceClock } = await import("../src/server/db");
   const run = seed("anchored-removed-progress");
   const prior = recordConversationUpdate(run, "prior", { content: "Prior" })!;
+  const intermediate = recordConversationUpdate(run, "intermediate", {
+    content: "Intermediate",
+  })!;
   const current = recordConversationUpdate(run, "current", {
     content: "Current",
   })!;
@@ -585,6 +589,16 @@ it("tracks an off-page progress removal that races an anchored snapshot", async 
   ).toBe(true);
   expect(handoff.projection.removedAfter(current.id, clock.cursor)).toBe(true);
   expect(handoff.projection.removedAfter(prior.id, clock.cursor)).toBe(false);
+  const retained = handoff.projection.rows();
+  expect(
+    conversationLatestProgress(retained, page.latest_progress_messages).get(
+      run.id,
+    )?.id,
+  ).not.toBe(prior.id);
+  const refreshed = conversationMessages("owner", run.id);
+  expect(conversationLatestProgress(refreshed.messages).get(run.id)?.id).toBe(
+    intermediate.id,
+  );
 });
 
 it("installs an anchored page while an unloaded newer message streams during its snapshot", async () => {
