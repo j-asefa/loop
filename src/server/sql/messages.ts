@@ -40,7 +40,8 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN agent_mail mail ON mail.owner_id=copy.owner_id AND mail.state='sent'
     AND mail.id=json_extract(copy.metadata,'$.automation.mailId')
   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=mail.owner_id
-  WHERE sender.conversation_id IS NOT NULL AND ${contextMessagePositionSql}
+  WHERE sender.conversation_id IS NOT NULL
+    AND (${contextMessagePositionSql} OR copy.run_id=c.answer_run)
   UNION
   SELECT child.conversation_id, c.at, c.seq, child.id
   FROM context c

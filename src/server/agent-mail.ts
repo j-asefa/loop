@@ -1384,15 +1384,30 @@ function mailContentReadable(mail: Mail, agentId: string | null) {
   );
 }
 
+function fleetStatusText(mail: Mail) {
+  return !!(
+    parseFleetAgentAddress(mail.sender_agent_id) ||
+    parseFleetAgentAddress(mail.recipient_agent_id) ||
+    (mail.sender_conversation_id &&
+      fleetEffectsQueries.conversationHasMailAuthority(
+        db,
+        mail.owner_id,
+        mail.sender_conversation_id,
+      ))
+  );
+}
+
 function statusSubject(thread: Thread, agentId: string | null) {
-  if (thread.created_by === agentId) return thread.subject;
   const first = mailQueries.firstInThread(db, thread.id) as Mail | undefined;
-  return first && mailContentReadable(first, agentId)
+  return first &&
+    !fleetStatusText(first) &&
+    (thread.created_by === agentId || mailContentReadable(first, agentId))
     ? thread.subject
     : "Agent message";
 }
 
 function describe(mail: Mail, agentId: string | null) {
+  const hideText = fleetStatusText(mail);
   const name = (agent: string) => {
     const remote = parseFleetAgentAddress(agent);
     if (!remote) return agentRow(mail.owner_id, agent)?.name ?? "former agent";
@@ -1418,10 +1433,11 @@ function describe(mail: Mail, agentId: string | null) {
     to: `@${name(mail.recipient_agent_id)}`,
     sentAt: new Date(mail.sent_at ?? mail.created_at).toISOString(),
     status: statusOf(mail),
-    ...(mail.error ? { error: mail.error } : {}),
-    preview: mailContentReadable(mail, agentId)
-      ? mail.body.slice(0, 200)
-      : null,
+    ...(!hideText && mail.error ? { error: mail.error } : {}),
+    preview:
+      !hideText && mailContentReadable(mail, agentId)
+        ? mail.body.slice(0, 200)
+        : null,
   };
 }
 

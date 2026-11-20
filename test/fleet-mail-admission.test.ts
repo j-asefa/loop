@@ -559,6 +559,34 @@ it("atomically queues one attributed direct message and returns its original tar
     status: "reading",
     conversationId: first.admission.conversationId,
   });
+  expect(transition(ownedRun(mail.run_id!, owner), "completed")).toBe(true);
+  const clean = submit(owner, {
+    agentId: local.id,
+    input: "Check mail delivery",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const cleanRun = claim(
+    "clean-mail-status",
+    (candidate) => candidate.id === clean.id,
+  )!;
+  const statusTool = nativeBindings(cleanRun).find(
+    (binding) => binding.tool === "loop_message_status",
+  )!;
+  const statusResult = await invokeNative(
+    cleanRun,
+    statusTool,
+    "status-redaction",
+    {
+      threadId: mail.thread_id,
+    },
+  );
+  if (!("result" in statusResult))
+    throw new Error("Expected mail delivery status");
+  expect(JSON.parse(statusResult.result.content[0].text)).toMatchObject({
+    subject: "Agent message",
+    messages: [{ preview: null }],
+  });
 });
 
 it.each(["foreign", "retired", "conversation"])(
@@ -986,7 +1014,11 @@ it("keeps copied memory evidence out of Fleet context and later mail out of clea
   ).toBe(true);
 });
 
-it.each(["memory tool", "Fleet steering"] as const)(
+it.each([
+  "memory tool",
+  "Fleet steering",
+  "memory-bearing local steering",
+] as const)(
   "preserves the restriction when a copied answer incorporated later %s",
   async (kind) => {
     const local = agent(owner, "pi");
@@ -1013,19 +1045,46 @@ it.each(["memory tool", "Fleet steering"] as const)(
         15,
         now(),
       );
-    } else {
+    } else if (kind === "Fleet steering") {
       const mail = await deliver(envelope(local.id, { interrupt: true }));
       expect(mail.admission).toMatchObject({
         state: "accepted",
         status: "steering",
       });
+    } else {
+      const sender = agent(owner);
+      const task = submit(owner, {
+        agentId: sender.id,
+        input: "Read saved notes",
+        idempotencyKey: id(),
+      });
+      const source = claim(
+        "memory-steering-sender",
+        (candidate) => candidate.id === task.id,
+      )!;
+      db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+        source.id,
+        "lexical",
+        '[{"id":"saved","via":"tool"}]',
+        15,
+        now(),
+      );
+      expect(
+        sendMail(source, "steering-from-memory", {
+          to: local.id,
+          scope: "direct",
+          body: "Saved notes summary",
+          conversationId: run.conversation_id,
+          interrupt: true,
+        }),
+      ).toMatchObject({ delivery: "steered" });
     }
     db.prepare("UPDATE messages SET content=? WHERE id=?").run(
       "Final answer based on the new input.",
       messageId,
     );
     const fork = forkConversation(owner, run.conversation_id!, { messageId });
-    if (kind === "memory tool") {
+    if (kind !== "Fleet steering") {
       const mail = envelope(local.id);
       expect(
         (
