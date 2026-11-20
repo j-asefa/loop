@@ -169,6 +169,9 @@ export class TranscriptProjection {
       )
     );
   }
+  removedAfter(messageId: string, cursor: number) {
+    return (this.removed.get(messageId) ?? -1) > cursor;
+  }
   rows() {
     return [...this.messages.values()]
       .filter(

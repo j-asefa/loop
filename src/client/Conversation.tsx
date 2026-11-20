@@ -603,8 +603,18 @@ function ConversationView({
         }, delay);
         return;
       }
+      const reportedProgress = fresh.latest_progress_messages;
+      const latestProgress = reportedProgress?.filter(
+        (message) =>
+          !projection.projection.removedAfter(
+            message.id,
+            fresh.projection.cursor,
+          ),
+      );
+      request.queued ||= latestProgress?.length !== reportedProgress?.length;
       fresh = {
         ...fresh,
+        latest_progress_messages: latestProgress,
         messages: workspaceApi.conversation.response.shape.messages.parse(
           projection.projection.rows(),
         ),

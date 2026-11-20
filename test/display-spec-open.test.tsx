@@ -434,11 +434,13 @@ it("hides missing children at the cutoff but shows them in the full answer", () 
         children: ["child"],
       }),
     );
-  const preview = renderToStaticMarkup(
-    <RichText content={source} compact cappedPreview />,
-  );
-  expect(preview).toContain("Visible card");
-  expect(preview).not.toContain("display-placeholder");
+  for (const clipped of [source, source + "\n```"]) {
+    const preview = renderToStaticMarkup(
+      <RichText content={clipped} compact cappedPreview />,
+    );
+    expect(preview).toContain("Visible card");
+    expect(preview).not.toContain("display-placeholder");
+  }
   expect(render(source, false)).toContain("display-placeholder");
 });
 

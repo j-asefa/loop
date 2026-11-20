@@ -555,6 +555,38 @@ it("discovers a live tail after an anchored snapshot without exposing unloaded o
   );
 });
 
+it("tracks an off-page progress removal that races an anchored snapshot", async () => {
+  const { TranscriptHandoff } =
+    await import("../src/shared/transcript-projection");
+  const { workspaceClock } = await import("../src/server/db");
+  const run = seed("anchored-removed-progress");
+  const prior = recordConversationUpdate(run, "prior", { content: "Prior" })!;
+  const current = recordConversationUpdate(run, "current", {
+    content: "Current",
+  })!;
+  const handoff = new TranscriptHandoff();
+  const ticket = handoff.begin();
+  const page = conversationMessages("owner", run.id, undefined, prior.id);
+  const clock = workspaceClock("owner");
+  expect(page.latest_progress_messages?.map(({ id }) => id)).toEqual([
+    current.id,
+  ]);
+  expect(page.messages.map(({ id }) => id)).toEqual([prior.id]);
+  db.prepare("DELETE FROM messages WHERE id=?").run(current.id);
+  for (const event of events(run.id).filter(({ id }) => id > clock.cursor))
+    handoff.receive(event.id, event.event);
+  expect(
+    handoff.install(
+      ticket,
+      clock,
+      page.messages as ProjectedMessage[],
+      page.range,
+    ),
+  ).toBe(true);
+  expect(handoff.projection.removedAfter(current.id, clock.cursor)).toBe(true);
+  expect(handoff.projection.removedAfter(prior.id, clock.cursor)).toBe(false);
+});
+
 it("installs an anchored page while an unloaded newer message streams during its snapshot", async () => {
   const { TranscriptHandoff } =
     await import("../src/shared/transcript-projection");

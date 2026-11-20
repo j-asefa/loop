@@ -114,8 +114,12 @@ export function DisplaySpec({
   const live = open && canGrow && writing;
   const incomplete = live || omitSource;
   const read = useMemo(
-    () => readDisplaySpec(source, { open, writing: incomplete }),
-    [source, open, incomplete],
+    () =>
+      readDisplaySpec(source, {
+        open: open || omitSource,
+        writing: incomplete,
+      }),
+    [source, open, omitSource, incomplete],
   );
   // While written, a block with no root element yet shows a short line, not
   // its source; a finished answer never does.
