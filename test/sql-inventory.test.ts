@@ -463,6 +463,22 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
       return;
     }
+    const receiverScope = scopes.get(value);
+    if (receiverScope?.boundary === "receiver" && receiverScope !== scope) {
+      const aliases = (receiverScope.objectAliases ??= new Map<
+        string,
+        ObjectAlias[]
+      >());
+      const sources = aliases.get("this") ?? [];
+      if (
+        !sources.some(
+          (source) => source.scope === scope && source.name === name,
+        )
+      ) {
+        sources.push({ scope, name });
+        aliases.set("this", sources);
+      }
+    }
     const later = new Set(excluded);
     let earlierFields: Scope | undefined;
     const rememberSource = (
@@ -612,13 +628,11 @@ function sqlCallLines(file: string, text: string, script = false) {
           value?.type === "ArrayExpression"
         )
           (scope.arrays ??= new Map()).set(name, value);
-        if (
-          key === "" &&
-          parents.get(node)?.kind === "const" &&
-          value?.type === "Literal" &&
-          typeof value.value === "string"
-        )
-          (scope.strings ??= new Map()).set(name, value.value);
+        if (key === "" && parents.get(node)?.kind === "const") {
+          const string = literalKey(value);
+          if (typeof string === "string")
+            (scope.strings ??= new Map()).set(name, string);
+        }
         if (key === "" && functionKinds.has(value?.type))
           (scope.functions ??= new Map()).set(name, value);
         if (key === "" && classKinds.has(value?.type))
@@ -1011,6 +1025,24 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!name.startsWith("this.")) {
       const owner = declaringScope(name.split(".")[0], expression);
       const write = latestWrite(expression, name, owner);
+      let prefix = name;
+      let replacement: any;
+      let suffix: string | undefined;
+      while (prefix.includes(".")) {
+        prefix = prefix.slice(0, prefix.lastIndexOf("."));
+        const candidate = latestWrite(expression, prefix, owner);
+        if (
+          candidate?.operator === "=" &&
+          candidate.end > (replacement?.end ?? write?.end ?? -1)
+        ) {
+          replacement = candidate;
+          suffix = name.slice(prefix.length + 1);
+        }
+      }
+      if (suffix) {
+        const property = propertySource(replacement.right, suffix);
+        if (property.binding) return property.binding;
+      }
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const value = unwrap(
           write.type === "VariableDeclarator" ? write.init : write.right,
@@ -2616,6 +2648,21 @@ it("follows parameter rest fields and migration text and honors object field rep
     store.connection.exec(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 5, 7]);
+});
+
+it("follows object-method receivers and computed constants and honors object replacement", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const repository = { connection: db, migrate() { this.connection.exec("BEGIN"); } };
+    repository.migrate();
+    const method = "ex" + "ec";
+    db[method](migrationText);
+    let store = { connection: db };
+    store.connection.exec(migrationText);
+    store = { connection: /^SELECT/ };
+    store.connection.exec("SELECT 1");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 6, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
