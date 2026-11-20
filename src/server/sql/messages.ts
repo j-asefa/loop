@@ -12,13 +12,14 @@ import { incomingMailFilesSql } from "./fleet-mail-records.js";
 
 const contextMessagePositionSql = `(c.at IS NULL OR copy.created_at<c.at OR
   (copy.created_at=c.at AND copy.rowid<=c.seq))`;
+const undispatchedTerminalSql = `delivery.state IN ('cancelled','failed','interrupted')
+  AND NOT EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
+  AND NOT EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id)`;
 
 // Live destinations reserve pending mail. Copied answers omit known unread
 // steering, unless the owner selected the steering message itself.
 const contextMailPositionSql = `
-    AND (copy.rowid=c.seq OR delivery.state NOT IN ('cancelled','failed','interrupted')
-      OR EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
-      OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
+    AND (copy.rowid=c.seq OR NOT (${undispatchedTerminalSql}))
     AND (c.at IS NULL OR copy.rowid=c.seq OR NOT EXISTS (
       SELECT 1 FROM run_steering st WHERE st.message_id=copy.id
         AND (st.state='pending' OR st.failure_reason='run-ended-unread' OR EXISTS (
@@ -125,7 +126,12 @@ const READABLE_MAIL_SQL = `(json_extract(m.metadata,'$.automation.mailId') IS NU
   SELECT 1 FROM review_continuations rc JOIN runs delivery ON delivery.id=rc.run_id AND delivery.owner_id=rc.owner_id
   WHERE rc.run_id=m.run_id AND rc.owner_id=m.owner_id AND delivery.conversation_id=m.conversation_id
     AND delivery.state IN ('running','pausing','awaiting_approval','completed')
-))`;
+)) AND NOT EXISTS (
+  SELECT 1 FROM runs delivery
+  WHERE delivery.id=m.run_id AND delivery.owner_id=m.owner_id
+    AND m.role='user' AND json_array_length(m.metadata,'$.attachments')>0
+    AND ${undispatchedTerminalSql}
+)`;
 
 const insertStatement = statement(
   "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,?,?,?,?)",

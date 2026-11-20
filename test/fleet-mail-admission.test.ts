@@ -40,6 +40,7 @@ const { forkConversation } =
 const { continueConversation } =
   await import("../src/server/conversation-continuations.js");
 const { executeAgent, submit } = await import("../src/server/agent-runtime.js");
+const { agentHistory } = await import("../src/server/sql/messages.js");
 const { storePublishedFile } = await import("../src/server/published-files.js");
 const { claim, transition } = await import("../src/server/queue.js");
 const {
@@ -435,6 +436,12 @@ it("keeps peer file chunks private until one atomic production mail admission", 
       (binding) => binding.tool === "loop_memory_search",
     ),
   ).toBe(true);
+  expect(agentHistory(db, clean.conversation_id, owner, clean.id)).not.toEqual(
+    expect.arrayContaining([expect.objectContaining({ run_id: reuse.id })]),
+  );
+  expect(() => readRunFile(clean, fileId, 0, 128, "base64")).toThrow(
+    /not attached/,
+  );
   const steeringAgent = agent(owner, "pi");
   const starting = submit(owner, {
     agentId: steeringAgent.id,
