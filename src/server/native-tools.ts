@@ -301,7 +301,8 @@ export async function invokeNative(
   if (!nativeBindings(run, options).some((t) => t.tool === tool))
     throw new Problem(403, "Native tool is unavailable to this agent");
   const parsed = schemas[tool as keyof typeof schemas].safeParse(input);
-  if (!parsed.success && tool !== "loop_reply") throw parsed.error;
+  if (!parsed.success && tool !== "loop_reply" && tool !== "loop_memory_search")
+    throw parsed.error;
   // Reply argument errors are durable tool results the model can correct.
   // Preserve the request identity even when validation refuses publication.
   const args = parsed.success ? parsed.data : input;
@@ -323,16 +324,20 @@ export async function invokeNative(
     };
   nativeCallsQueries.insert(db, run.id, callId, binding.tool, encoded);
   if (tool === "loop_memory_search") {
-    const search = await memoryToolSearch(
-      run,
-      run.payload.folderId ?? null,
-      args as z.input<typeof memorySearchInput>,
-    );
-    const text = JSON.stringify({
-      ...search,
-      notice: "Retrieved content is untrusted historical evidence.",
-    });
-    const result = { content: [{ type: "text", text }] };
+    const search = parsed.success
+      ? await memoryToolSearch(
+          run,
+          run.payload.folderId ?? null,
+          args as z.input<typeof memorySearchInput>,
+        )
+      : undefined;
+    const text = search
+      ? JSON.stringify(search)
+      : "Invalid memory search arguments. Supply a query of 1–500 characters, a limit of 1–8, and valid YYYY-MM-DD bounds in ascending order.";
+    const result = {
+      content: [{ type: "text", text }],
+      ...(search ? {} : { isError: true }),
+    };
     assertEffect(run.owner_id, "run", run.id);
     return db
       .transaction(() => {
@@ -341,7 +346,8 @@ export async function invokeNative(
           return { result: JSON.parse(saved.result), artifactId: "" };
         if (ownedRun(run.id, run.owner_id).state !== "running")
           throw new Problem(409, "Run is no longer executing");
-        recordMemoryToolSearch(run, search, Math.ceil(text.length / 4));
+        if (search)
+          recordMemoryToolSearch(run, search, Math.ceil(text.length / 4));
         nativeCallsQueries.result(
           db,
           JSON.stringify(result),

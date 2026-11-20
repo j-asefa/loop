@@ -1,3 +1,4 @@
+import { publishedResultSql } from "./artifacts.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { personalRunSql, resultOutputSql } from "./artifacts.js";
@@ -225,3 +226,11 @@ export function promptsWithoutSources(db: Database.Database) {
     .all()
     .map((row) => parseRecord(promptsWithoutSourcesRow, row, "runs"));
 }
+
+// The source stores artifacts separately from notes; result status is live.
+export const evidenceKindSql = `CASE s.kind
+  WHEN 'artifact' THEN CASE WHEN EXISTS (
+    SELECT 1 FROM artifacts a LEFT JOIN runs r ON r.id=a.run_id AND r.owner_id=a.owner_id
+    WHERE a.id=s.source_id AND a.owner_id=s.owner_id AND ${publishedResultSql}
+  ) THEN 'result' ELSE 'note' END
+  ELSE s.kind END`;

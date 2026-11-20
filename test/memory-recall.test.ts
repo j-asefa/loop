@@ -183,13 +183,13 @@ it("offers pull search for native and mail turns, and appends a receipt once per
     ).not.toContain("loop_memory_search");
     await expect(
       invokeNative(run, tool, "bad-limit", { query: "cerulean", limit: 9 }),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ result: { isError: true } });
     await expect(
       invokeNative(run, tool, "bad-date", {
         query: "cerulean",
         since: "2026-02-30",
       }),
-    ).rejects.toThrow();
+    ).resolves.toMatchObject({ result: { isError: true } });
     const args = { query: "cerulean", kind: "note", limit: 1 };
     const response = await invokeNative(run, tool, "memory-1", args);
     expect(response).toHaveProperty("result.content.0.text");
@@ -222,6 +222,37 @@ it("offers pull search for native and mail turns, and appends a receipt once per
   expect(
     JSON.parse(pulled.sources).map((entry: { via: string }) => entry.via),
   ).toEqual(["tool"]);
+});
+
+it("bounds the serialized tool response before recording the returned hits", async () => {
+  for (let i = 0; i < 8; i++)
+    await note("Wisteria", "wisteria " + "\u0001".repeat(1060));
+  const { run } = await nativePrompt(
+    "continue",
+    undefined,
+    false,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "escape", {
+        query: "wisteria",
+        limit: 8,
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      expect(
+        JSON.stringify({ isError: false, content: response.result.content })
+          .length,
+      ).toBeLessThanOrEqual(30_000);
+      const { hits } = JSON.parse(response.result.content[0].text);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.length).toBeLessThan(8);
+      const { data } = await request(`/runs/${run.id}/memory`);
+      expect(JSON.parse(data.sources)).toHaveLength(hits.length);
+    },
+  );
+  expect(run.id).toBeDefined();
 });
 
 it("bounds recalled text and adds nothing when no saved memory matches", async () => {
@@ -304,16 +335,32 @@ it("appends recall to the current turn of an API-key run once", async () => {
     idempotencyKey: id(),
     personal: true,
   });
+  let round = 0;
   let history: { role: string; content: string }[] = [];
   const restore = withTestAdapter("openai", {
     async models() {
       return [];
     },
     async *stream(_secret, input) {
-      if (!history.length) {
+      if (round++ === 0) {
         history = [...input.messages];
         expect(
           input.tools?.some((tool) => tool.name === "loop_memory_search"),
+        ).toBe(true);
+        yield {
+          toolCall: {
+            id: "comet-invalid",
+            name: "loop_memory_search",
+            arguments: { query: "comet build", limit: 9 },
+          },
+        };
+      } else if (round === 2) {
+        expect(
+          input.messages.some(
+            (message) =>
+              message.role === "tool" &&
+              message.content.includes("Invalid memory search arguments"),
+          ),
         ).toBe(true);
         yield {
           toolCall: {
@@ -462,6 +509,7 @@ it("recalls only finished, unarchived results from conversations still in memory
   captureMemory();
   const recalled = async () =>
     (await nativePrompt("kepler orbit period")).prompt;
+  for (let i = 0; i < 76; i++) await note("period", "period period period");
   const { prompt: first } = await nativePrompt(
     "kepler orbit period",
     undefined,
@@ -471,7 +519,7 @@ it("recalls only finished, unarchived results from conversations still in memory
         (entry) => entry.tool === "loop_memory_search",
       )!;
       const response = await invokeNative(run, tool, "result", {
-        query: "kepler orbit period",
+        query: "period",
         kind: "result",
       });
       if (!("result" in response))
