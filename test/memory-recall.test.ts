@@ -12,6 +12,8 @@ const { db, id, now } = await import("../src/server/db");
 const { seal } = await import("../src/server/secrets");
 const { createAgent, ownedRun } = await import("../src/server/domain");
 const { submit, executeAgent } = await import("../src/server/agent-runtime");
+const { nativeBindings, invokeNative } =
+  await import("../src/server/native-tools");
 const { claim, transition } = await import("../src/server/queue");
 const { withTestAdapter } = await import("../src/server/providers");
 const { nativeSessions } = await import("../src/server/native-sessions");
@@ -78,6 +80,7 @@ async function nativePrompt(
   input: string,
   followUp?: { agentId: string; conversationId: string },
   personal = true,
+  duringPrompt?: (run: NonNullable<ReturnType<typeof claim>>) => Promise<void>,
 ) {
   // Personal is what the owner's own send route records; mail does not.
   const run = submit("alice", {
@@ -104,6 +107,7 @@ async function nativePrompt(
       async prompt(text: string, beforeDispatch?: () => void) {
         beforeDispatch?.();
         prompt = text;
+        await duringPrompt?.(claimed);
         live.finish!("completed");
       },
     }),
@@ -156,10 +160,94 @@ it("adds matching saved memory to a native turn as untrusted evidence and record
   ).toBe(404);
 });
 
+it("offers pull search for native and mail turns, and appends a receipt once per call", async () => {
+  const own = await note(
+    "Cerulean",
+    "cerulean deployment history and migration.",
+  );
+  await note(
+    "Private cerulean",
+    "cerulean deployment history is private",
+    "bob",
+  );
+  const search = async (run: NonNullable<ReturnType<typeof claim>>) => {
+    const tool = nativeBindings(run).find(
+      (entry) => entry.tool === "loop_memory_search",
+    )!;
+    expect(tool).toBeDefined();
+    expect(
+      nativeBindings({
+        ...run,
+        payload: { ...run.payload, reviewId: id() },
+      }).map((entry) => entry.tool),
+    ).not.toContain("loop_memory_search");
+    await expect(
+      invokeNative(run, tool, "bad-limit", { query: "cerulean", limit: 9 }),
+    ).rejects.toThrow();
+    await expect(
+      invokeNative(run, tool, "bad-date", {
+        query: "cerulean",
+        since: "2026-02-30",
+      }),
+    ).rejects.toThrow();
+    const args = { query: "cerulean", kind: "note", limit: 1 };
+    const response = await invokeNative(run, tool, "memory-1", args);
+    expect(response).toHaveProperty("result.content.0.text");
+    if (!("result" in response)) throw new Error("Expected a completed search");
+    expect(JSON.parse(response.result.content[0].text)).toMatchObject({
+      hits: [
+        expect.objectContaining({
+          id: own.data.id,
+          kind: "note",
+          excerpt: "cerulean deployment history and migration.",
+        }),
+      ],
+    });
+    expect(await invokeNative(run, tool, "memory-1", args)).toEqual(response);
+  };
+  const { run } = await nativePrompt(
+    "cerulean deployment history",
+    undefined,
+    true,
+    search,
+  );
+  const combined = (await request(`/runs/${run.id}/memory`)).data;
+  expect(
+    JSON.parse(combined.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["push", "tool"]);
+  expect(combined.tokens).toBeGreaterThan(0);
+  const mail = await nativePrompt("automated mail", undefined, false, search);
+  expect(mail.prompt).not.toContain("loop-historical-evidence");
+  const pulled = (await request(`/runs/${mail.run.id}/memory`)).data;
+  expect(
+    JSON.parse(pulled.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["tool"]);
+});
+
 it("bounds recalled text and adds nothing when no saved memory matches", async () => {
   for (let index = 0; index < 8; index++)
     await note(`Quasar ${index}`, `quasar checklist ${index} `.repeat(400));
-  const bounded = await nativePrompt("quasar checklist");
+  const bounded = await nativePrompt(
+    "quasar checklist",
+    undefined,
+    true,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "eight", {
+        query: "quasar checklist",
+        limit: 8,
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      const { hits } = JSON.parse(response.result.content[0].text);
+      expect(hits).toHaveLength(8);
+      expect(
+        hits.every((hit: { excerpt: string }) => hit.excerpt.length <= 1100),
+      ).toBe(true);
+    },
+  );
   const added = bounded.prompt.slice("quasar checklist".length);
   expect(added.length).toBeGreaterThan(0);
   expect(added.length).toBeLessThanOrEqual(RECALL_CHARACTERS);
@@ -222,8 +310,23 @@ it("appends recall to the current turn of an API-key run once", async () => {
       return [];
     },
     async *stream(_secret, input) {
-      history = input.messages;
-      yield { text: "The comet build ran on the x64 runner instead of arm64." };
+      if (!history.length) {
+        history = [...input.messages];
+        expect(
+          input.tools?.some((tool) => tool.name === "loop_memory_search"),
+        ).toBe(true);
+        yield {
+          toolCall: {
+            id: "comet-pull",
+            name: "loop_memory_search",
+            arguments: { query: "comet build", kind: "note" },
+          },
+        };
+      } else {
+        yield {
+          text: "The comet build ran on the x64 runner instead of arm64.",
+        };
+      }
     },
   });
   try {
@@ -234,6 +337,10 @@ it("appends recall to the current turn of an API-key run once", async () => {
   } finally {
     restore();
   }
+  const savedMemory = (await request(`/runs/${run.id}/memory`)).data;
+  expect(
+    JSON.parse(savedMemory.sources).map((entry: { via: string }) => entry.via),
+  ).toEqual(["push", "tool"]);
   const turn = history.at(-1)!;
   expect(turn.role).toBe("user");
   expect(turn.content).toContain("Why did the comet build fail?");
@@ -355,7 +462,25 @@ it("recalls only finished, unarchived results from conversations still in memory
   captureMemory();
   const recalled = async () =>
     (await nativePrompt("kepler orbit period")).prompt;
-  const first = await recalled();
+  const { prompt: first } = await nativePrompt(
+    "kepler orbit period",
+    undefined,
+    true,
+    async (run) => {
+      const tool = nativeBindings(run).find(
+        (entry) => entry.tool === "loop_memory_search",
+      )!;
+      const response = await invokeNative(run, tool, "result", {
+        query: "kepler orbit period",
+        kind: "result",
+      });
+      if (!("result" in response))
+        throw new Error("Expected a completed search");
+      expect(JSON.parse(response.result.content[0].text).hits).toMatchObject([
+        { kind: "result", excerpt: "The kepler orbit period is 42 days." },
+      ]);
+    },
+  );
   expect(first).toContain("orbit period is 42 days");
   expect(first).not.toContain("telemetry dump");
 

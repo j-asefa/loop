@@ -35,7 +35,10 @@ const recalledIntoSessionStatement = statement(
   `SELECT 1 AS found FROM memory_receipts m
     JOIN runs r ON r.id=m.run_id AND r.owner_id=?
     JOIN native_dispatch d ON d.run_id=m.run_id
-    WHERE r.conversation_id=? AND m.run_id<>? LIMIT 1`,
+    WHERE r.conversation_id=? AND m.run_id<>?
+      AND EXISTS (SELECT 1 FROM json_each(m.sources)
+        WHERE json_extract(value,'$.via') IS NOT 'tool')
+    LIMIT 1`,
 );
 /** Whether another run of the conversation sent recall into its native session. */
 export function recalledIntoSession(

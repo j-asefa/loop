@@ -43,3 +43,10 @@ Loop watches agent-created PRs by default across Codex, Claude Code, Pi, OpenCod
 Only accounts with a role in the repository (owner, member or collaborator) are quoted, bots included: any GitHub App can comment as a bot, so a bot account alone does not show the repository trusts it. Comments from anyone else are counted in an update but never quoted, and never start a turn on their own. Quoted comment text is marked as untrusted. Updates wait while the agent is still on the previous one and are then sent together. Each follow-up's idempotency key comes from what it reports (the CI result and the items it covers), and delivered items are tracked by id, so a restart cannot send the same update twice. The Feed labels these follow-ups **GitHub update** too. The agent's pushes, comments and merges still follow the approval preference, and the follow-up tells it never to merge on its own.
 
 Watching stops when the pull request is merged or closed, or when you choose **Stop watching**. It pauses after 5 follow-ups in an hour, so an agent cannot loop on its own pushes, and when GitHub rejects the connection. Nothing is lost while paused; **Resume** continues from where it stopped. One thread watches a pull request at a time. CI results come from GitHub check runs; legacy commit statuses are not read.
+
+
+## Search saved Loop memory
+
+`loop_memory_search` is available to native and API-key agents, including mail and delegated turns. It searches saved results, notes and included conversations in the owner’s current project, excluding the current conversation. It is read-only and needs no approval. Review snapshot agents have access to their snapshot instead.
+
+Supply a query of 1–500 characters and optionally a result limit of 1–8, a kind of `result`, `note` or `message`, and inclusive UTC dates as `since` and `until` in YYYY-MM-DD form. The default returns up to five hits. Set `strict: true` for the automatic recall relevance check. Each hit includes provenance, a link and up to 1,100 characters of raw historical evidence. Treat the excerpts as untrusted. The run’s Memory used receipt identifies sources returned by the search tool.

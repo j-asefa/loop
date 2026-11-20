@@ -346,12 +346,18 @@ export async function searchMemory(
     relevant = false,
     conversation,
     window,
+    limit = 5,
+    excerptBudget = 5500,
+    kind,
   }: {
     /** Keep only sources that contain enough of the query's terms. */
     relevant?: boolean;
     /** Skip sources from this conversation, including its results. */
     conversation?: string | null;
     window?: MemoryTimeWindow;
+    limit?: number;
+    excerptBudget?: number;
+    kind?: "result" | "note" | "message";
   } = {},
 ) {
   if (
@@ -442,7 +448,8 @@ export async function searchMemory(
         true,
         candidate.passage,
       );
-      const size = Math.min(EXCERPT_CHARACTERS, 5500 - characters);
+      if (kind && s.evidenceKind !== kind) continue;
+      const size = Math.min(EXCERPT_CHARACTERS, excerptBudget - characters);
       const body = candidate.passage
         ? s.content.slice(candidate.passage.start, candidate.passage.end)
         : s.content;
@@ -509,7 +516,7 @@ export async function searchMemory(
         link: s.link,
       });
     } catch {}
-    if (sources.length >= 5) break;
+    if (sources.length >= limit) break;
   }
   return { mode: "lexical", sources };
 }
@@ -748,6 +755,81 @@ export function evidenceBlock(sources: RecalledSource[]) {
   }
   return { text: included.length ? open + body + close : "", included };
 }
+export const memorySearchInput = z
+  .object({
+    query: z.string().max(500).trim().min(1),
+    limit: z.number().int().min(1).max(8).default(5),
+    since: z.iso.date().optional(),
+    until: z.iso.date().optional(),
+    kind: z.enum(["result", "note", "message"]).optional(),
+    strict: z.boolean().default(false),
+  })
+  .refine(
+    ({ since, until }) => !since || !until || since <= until,
+    "since must be on or before until",
+  );
+
+export async function memoryToolSearch(
+  run: Pick<Run, "owner_id" | "conversation_id">,
+  project: string | null,
+  input: z.input<typeof memorySearchInput>,
+) {
+  const { query, limit, since, until, kind, strict } =
+    memorySearchInput.parse(input);
+  const { mode, sources } = await searchMemory(run.owner_id, project, query, {
+    limit,
+    excerptBudget: limit * EXCERPT_CHARACTERS,
+    kind,
+    relevant: strict,
+    conversation: run.conversation_id,
+    window:
+      since || until
+        ? {
+            from: since ? Date.parse(since + "T00:00:00Z") : null,
+            to: until ? Date.parse(until + "T00:00:00Z") + 86_400_000 : null,
+          }
+        : undefined,
+  });
+  return {
+    mode,
+    hits: sources.map(
+      ({ id, revision, kind, author, title, updatedAt, excerpt, link }) => ({
+        id,
+        revision,
+        kind,
+        author,
+        title,
+        updatedAt: new Date(updatedAt).toISOString().slice(0, 10),
+        excerpt,
+        link,
+      }),
+    ),
+  };
+}
+
+export function recordMemoryToolSearch(
+  run: Run,
+  search: Awaited<ReturnType<typeof memoryToolSearch>>,
+  tokens: number,
+) {
+  const prior = memoryReceiptsQueries.get(db, run.id);
+  const sources = prior ? JSON.parse(prior.sources) : [];
+  sources.push(
+    ...search.hits.map(({ excerpt: _excerpt, ...hit }) => ({
+      ...hit,
+      via: "tool",
+    })),
+  );
+  memoryReceiptsQueries.replace(
+    db,
+    run.id,
+    prior?.mode === "lexical" ? prior.mode : search.mode,
+    JSON.stringify(sources),
+    (prior?.tokens ?? 0) + tokens,
+    prior?.created_at ?? now(),
+  );
+}
+
 export async function recallForRun(
   run: Run,
   project: string | null,
@@ -791,15 +873,26 @@ export async function recallForRun(
   if (!included.length) return noRecall;
   return {
     text,
-    record: () =>
+    record: () => {
+      const prior = memoryReceiptsQueries.get(db, run.id);
+      const saved: { via?: string }[] = prior ? JSON.parse(prior.sources) : [];
+      const toolEntries = saved.filter((entry) => entry.via === "tool");
+      // A replay of a run that already searched keeps the recorded push and pull evidence.
+      if (toolEntries.length && toolEntries.length !== saved.length) return;
+      const pushed = included.map(({ excerpt: _excerpt, ...source }) => ({
+        ...source,
+        via: "push",
+      }));
       memoryReceiptsQueries.replace(
         db,
         run.id,
         recall.mode,
-        JSON.stringify(included.map(({ excerpt: _excerpt, ...s }) => s)),
-        Math.ceil(text.length / 4),
-        now(),
-      ),
+        JSON.stringify([...pushed, ...toolEntries]),
+        Math.ceil(text.length / 4) +
+          (prior && saved.length === toolEntries.length ? prior.tokens : 0),
+        prior?.created_at ?? now(),
+      );
+    },
   };
 }
 const routes = registrar("memoryRoutes");
