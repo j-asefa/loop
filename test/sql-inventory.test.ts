@@ -439,6 +439,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       : (member.key.name ?? member.key.value);
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
+  const staticArray = (node: any): any[] | undefined => {
+    const source = unwrap(node);
+    const array =
+      source?.type === "Identifier"
+        ? declaringScope(source.name, source)?.arrays?.get(source.name)
+        : source;
+    return array?.type === "ArrayExpression" ? array.elements : undefined;
+  };
   const staticArguments = (
     items: any[],
     seen = new Set<object>(),
@@ -451,13 +459,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         values.push(item);
         continue;
       }
-      const source = unwrap(item.argument);
-      const array =
-        source?.type === "Identifier"
-          ? declaringScope(source.name, source)?.arrays?.get(source.name)
-          : source;
-      if (array?.type !== "ArrayExpression") return { values, complete: false };
-      const expanded = staticArguments(array.elements, visited);
+      const array = staticArray(item.argument);
+      if (!array) return { values, complete: false };
+      const expanded = staticArguments(array, visited);
       values.push(...expanded.values);
       if (!expanded.complete) return { values, complete: false };
     }
@@ -896,11 +900,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (method !== "call" && method !== "apply") return {};
     const fn = functionReference(unwrap(callee.object));
     if (method === "call") return { fn, items: node.arguments.slice(1) };
-    const array = unwrap(node.arguments[1]);
-    return {
-      fn,
-      items: array?.type === "ArrayExpression" ? array.elements : undefined,
-    };
+    return { fn, items: staticArray(node.arguments[1]) };
   };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
@@ -1299,7 +1299,10 @@ function sqlCallLines(file: string, text: string, script = false) {
       trackBinding(scope, name, connectionKind(value), value, spread);
     for (const { fn, value } of returnExpressions) {
       const kind = connectionKind(value);
-      if (value.type === "Identifier" && kind === "object") {
+      if (
+        kind === "object" &&
+        (value.type === "Identifier" || returnedObject(value))
+      ) {
         let result = returnedObjects.get(fn);
         if (!result) {
           result = { bindings: new Map() };
@@ -2422,6 +2425,19 @@ it("identifies inline and named factory results and adapter factory replacements
     function makeAdapter() { return { exec: runCommand }; }
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 9, 11, 13]);
+});
+
+it("follows forwarded factory results and named arrays passed through apply", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    function open() { return { connection: db }; }
+    function relay() { return open(); }
+    relay().connection.exec(migrationText);
+    function execute(handle, migrationText) { handle.exec(migrationText); }
+    const args = [db, migrationText];
+    execute.apply(null, args);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
