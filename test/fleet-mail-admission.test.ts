@@ -799,6 +799,72 @@ it("keeps copied memory evidence out of Fleet context and later mail out of clea
   ).toBe(true);
 });
 
+it.each(["memory tool", "Fleet steering"] as const)(
+  "preserves the restriction when a copied answer incorporated later %s",
+  async (kind) => {
+    const local = agent(owner, "pi");
+    const original = submit(owner, {
+      agentId: local.id,
+      input: "Start a task",
+      idempotencyKey: id(),
+      personal: true,
+    });
+    const run = claim(
+      "mutable-answer",
+      (candidate) => candidate.id === original.id,
+    )!;
+    const messageId = id();
+    const openedAt = now() - 1000;
+    db.prepare(
+      "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant','','{}',?)",
+    ).run(messageId, owner, run.conversation_id, run.id, openedAt);
+    if (kind === "memory tool") {
+      db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+        run.id,
+        "lexical",
+        '[{"id":"saved","via":"tool"}]',
+        15,
+        now(),
+      );
+    } else {
+      const mail = await deliver(envelope(local.id, { interrupt: true }));
+      expect(mail.admission).toMatchObject({
+        state: "accepted",
+        status: "steering",
+      });
+    }
+    db.prepare("UPDATE messages SET content=? WHERE id=?").run(
+      "Final answer based on the new input.",
+      messageId,
+    );
+    const fork = forkConversation(owner, run.conversation_id!, { messageId });
+    if (kind === "memory tool") {
+      const mail = envelope(local.id);
+      expect(
+        (
+          await deliver({
+            ...mail,
+            thread: { ...mail.thread, recipientConversationId: fork.id },
+          })
+        ).admission,
+      ).toMatchObject({ state: "refused" });
+    } else {
+      const followUp = submit(owner, {
+        agentId: local.id,
+        conversationId: fork.id,
+        input: "Find saved notes",
+        idempotencyKey: id(),
+        personal: true,
+      });
+      expect(
+        nativeBindings(ownedRun(followUp.id, owner)).some(
+          (entry) => entry.tool === "loop_memory_search",
+        ),
+      ).toBe(false);
+    }
+  },
+);
+
 it("preserves Fleet memory restrictions when mail context is copied", async () => {
   const local = agent(owner);
   const received = await deliver(envelope(local.id));

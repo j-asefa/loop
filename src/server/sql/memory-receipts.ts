@@ -77,7 +77,7 @@ const conversationHasEvidenceStatement = statement(
    JOIN runs r ON r.conversation_id=c.id AND r.owner_id=@owner
    JOIN memory_receipts m ON m.run_id=r.id
    WHERE ${runInConversationContextSql}
-     AND (c.at IS NULL OR m.created_at<=c.at)
+     AND (c.at IS NULL OR r.id=c.answer_run OR m.created_at<=c.at)
      AND EXISTS (SELECT 1 FROM json_each(m.sources))
    LIMIT 1`,
 );

@@ -115,7 +115,7 @@ const conversationMailAuthoritySql = `FROM context c
      SELECT 1 FROM fleet_effect_edit_authorizations g
      WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
        AND json_extract(g.grant_context,'$.operation')='mail'
-       AND (c.at IS NULL OR NOT EXISTS (
+       AND (c.at IS NULL OR r.id=c.answer_run OR NOT EXISTS (
          SELECT 1 FROM agent_mail delivery
          WHERE delivery.owner_id=g.owner_id AND delivery.id=g.command_id
            AND delivery.recipient_conversation_id=c.id

@@ -10,10 +10,11 @@ import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
 
 /** Current context plus the history available to each copied source message. */
-export const conversationContextSql = `WITH RECURSIVE context(id, at, seq) AS (
-  SELECT @conversation, NULL, NULL
+export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answer_run) AS (
+  SELECT @conversation, NULL, NULL, NULL
   UNION
-  SELECT origin.conversation_id, origin.created_at, origin.rowid
+  SELECT origin.conversation_id, origin.created_at, origin.rowid,
+    CASE WHEN origin.role='assistant' THEN origin.run_id END
   FROM context c
   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
   JOIN messages origin ON origin.owner_id=copy.owner_id
@@ -23,8 +24,8 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq) AS (
     AND (c.at IS NULL OR copy.created_at<c.at OR (copy.created_at=c.at AND copy.rowid<=c.seq))
 )`;
 
-// A queued run does not enter copied history until its prompt has a position.
-export const runInConversationContextSql = `(c.at IS NULL OR EXISTS (
+// An answer is updated in place and can include evidence from later in its own run.
+export const runInConversationContextSql = `(c.at IS NULL OR r.id=c.answer_run OR EXISTS (
   SELECT 1 FROM messages prompt
   WHERE prompt.run_id=r.id AND prompt.owner_id=r.owner_id AND prompt.conversation_id=c.id
     AND (prompt.created_at<c.at OR (prompt.created_at=c.at AND prompt.rowid<=c.seq))
