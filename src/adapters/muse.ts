@@ -1,4 +1,5 @@
 import { normalizeItemStatus } from "../shared/native-item-state.js";
+import { isExternalMcpTool } from "../shared/workspace-tools.js";
 import { workspaceMcp } from "./workspace-mcp.js";
 import { museHost } from "../muse-host.js";
 import { supportsBilling } from "../shared/harnesses.js";
@@ -496,13 +497,13 @@ export class Muse extends DirectAdapter implements Adapter {
           id: item.itemId,
           kind: "tool",
           title:
-            item.kind === "webSearch"
-              ? item.kind
-              : (completed
-                  ? item.displayLabel?.done
-                  : item.displayLabel?.active) ||
-                item.tool ||
-                item.kind,
+            (completed ? item.displayLabel?.done : item.displayLabel?.active) ||
+            item.tool ||
+            item.kind,
+          ...((item.kind === "webSearch" ||
+            (item.kind === "toolCall" && isExternalMcpTool(item.tool))) && {
+            externalContent: true,
+          }),
           status: normalizeItemStatus(item.status, completed),
           text: JSON.stringify(item, null, 2),
         },

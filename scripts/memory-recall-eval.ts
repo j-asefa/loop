@@ -446,7 +446,8 @@ const evidenceCopy: Record<
     redacted: {
       content: `CASE WHEN title='mcpToolCall' AND json_valid(content)
         THEN json_object('server', json_extract(content, '$.server')) ELSE '' END`,
-      metadata: "'{}'",
+      metadata: `CASE WHEN json_valid(metadata)
+        THEN json_object('externalContent', json_extract(metadata, '$.externalContent')) ELSE '{}' END`,
     },
   },
 };

@@ -1583,8 +1583,8 @@ it("excludes recorded external answers from push and labels them in pull", async
     {
       kind: "tool",
       title: "mcpToolCall",
-      content: '{"server":"other"}',
-      metadata: { native: true, status: "completed" },
+      content: "Truncated non-JSON preview",
+      metadata: { native: true, status: "completed", externalContent: true },
     },
   );
   captureMemory();

@@ -373,7 +373,12 @@ export class NativeProjector {
       kind: "tool",
       title: item.title || "Native tool",
       content: item.text,
-      metadata: { native: true, itemId: item.id, status: item.status },
+      metadata: {
+        native: true,
+        itemId: item.id,
+        status: item.status,
+        ...(item.externalContent && { externalContent: true }),
+      },
     });
     const status = item.status;
     this.activity(live, {
