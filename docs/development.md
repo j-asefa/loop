@@ -143,6 +143,10 @@ node --import tsx scripts/memory-recall-eval.ts --compare "$eval_dir/base.json" 
 
 To establish the initial baseline before the evaluator exists on the base branch, use the evaluator checkout for both runs. Its extraction of search and evidence formatting preserves the base recall behavior. For later changes, use each checkout’s own implementation.
 
+When the base predates the temporal cohort, copy the head’s `scripts/memory-recall-eval.ts`, `src/shared/memory-time.ts`, and `src/server/sql/memory-sources.ts` into the disposable base checkout before running the commands. Leave the base production search in place so it ignores the new window parameter.
+
+The known-item and null cohorts measure undated search. The temporal cohort adds a date phrase derived from each target’s update timestamp to known-item prompts that have no time constraint of their own. Relative phrases use a fixed UTC reference for each query. The table reports retrieval and the share of queries that received any out-of-window evidence, using expected windows calculated independently of the parser. The owner copy supplies historical candidates across dates, and the temporal fixture places otherwise identical decoys outside the requested window.
+
 Capture stops when a pass leaves the memory index unchanged. A production message-capture batch filled with blank or oversized messages can prevent later messages from reaching the index, since those rejected rows remain candidates. The proxy captures with that same production limit.
 
 ## Command supervision

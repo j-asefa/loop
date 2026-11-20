@@ -167,6 +167,26 @@ it("selects a result's own prompt as a known item and prompts that left nothing 
       deep: false,
     }),
   ]);
+  const temporal = async () =>
+    (
+      await sampleQueries({ seed: 1, limit: 100, temporal: true })
+    ).queries.filter((query) => query.set === "temporal");
+  expect(await temporal()).toHaveLength(1);
+  const editInput = db.prepare("UPDATE runs SET input=? WHERE id=?");
+  editInput.run(
+    "Why did the borealis build fail before 2026-10-12?",
+    answered.id,
+  );
+  try {
+    expect(await temporal()).toEqual([]);
+    editInput.run(
+      "Why did the borealis build fail yesterday or today?",
+      answered.id,
+    );
+    expect(await temporal()).toEqual([]);
+  } finally {
+    editInput.run("Why did the borealis build fail?", answered.id);
+  }
   const nulls = queries.filter((q) => q.set === "null");
   expect(nulls.map((q) => q.query)).toContain("Draft the aurora rollout plan");
   expect(nulls.map((q) => q.query)).toContain("Retry the eclipse report");
@@ -369,4 +389,46 @@ it("scores only the sources the evidence block delivers", async () => {
     { warmup: 0 },
   );
   expect(metrics).toMatchObject({ hit5: 0, misses5: 1, abstainKnown: 0 });
+});
+
+it("scores the temporal target inside the window instead of matching decoys", async () => {
+  const target = await note(
+    "Tamarind inventory",
+    "tamarind inspection scheduled",
+  );
+  const decoy = await note(
+    "Tamarind inventory",
+    "tamarind inspection scheduled",
+  );
+  const update = db.prepare(
+    "UPDATE memory_sources SET updated_at=? WHERE id=?",
+  );
+  update.run(Date.parse("2026-10-12T12:00:00Z"), target);
+  update.run(Date.parse("2026-10-13T12:00:00Z"), decoy);
+  const queries = [
+    {
+      set: "temporal" as const,
+      owner: "alice",
+      project: null,
+      query: "on 2026-10-12 tamarind inspection",
+      target,
+      referenceAt: Date.parse("2026-10-19T00:00:00Z"),
+      expectedWindow: {
+        from: Date.parse("2026-10-12"),
+        to: Date.parse("2026-10-13"),
+      },
+    },
+  ];
+  const metrics = await evaluate(queries);
+  expect(metrics).toMatchObject({
+    temporal: 1,
+    temporalHit5: 1,
+    temporalOutside: 0,
+    known: 0,
+    null: 0,
+  });
+  const unparsed = await evaluate([
+    { ...queries[0], query: "tamarind inspection" },
+  ]);
+  expect(unparsed.temporalOutside).toBe(1);
 });

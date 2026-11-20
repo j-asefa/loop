@@ -122,14 +122,10 @@ export function forOwner(db: Database.Database, owner: string) {
 }
 
 const advanceRevisionStatement = statement(
-  "UPDATE memory_sources SET revision=revision+1,updated_at=? WHERE id=?",
+  "UPDATE memory_sources SET revision=revision+1 WHERE id=?",
 );
-export function advanceRevision(
-  db: Database.Database,
-  updated: number,
-  id: string,
-) {
-  return advanceRevisionStatement(db).run(updated, id);
+export function advanceRevision(db: Database.Database, id: string) {
+  return advanceRevisionStatement(db).run(id);
 }
 
 const tombstoneStatement = statement(
@@ -153,6 +149,25 @@ export function captureProgress(db: Database.Database) {
     captureProgressStatement(db).get(),
     "memory_sources",
   );
+}
+
+// Captured records written before time-aware recall stored the capture time.
+export const recallTimeSql = `CASE s.kind
+  WHEN 'artifact' THEN COALESCE((SELECT a.updated_at FROM artifacts a
+    WHERE a.id=s.source_id AND a.owner_id=s.owner_id), s.created_at)
+  WHEN 'message' THEN s.created_at
+  ELSE s.updated_at END`;
+
+const recallTimeStatement = statement(
+  `SELECT ${recallTimeSql} AS updated_at FROM memory_sources s WHERE s.id=? AND s.owner_id=?`,
+);
+const recallTimeRow = QueryRecords.memory_sources.pick({ updated_at: true });
+/** Source content timestamp, including records saved before date-aware recall. */
+export function recallTime(db: Database.Database, id: string, owner: string) {
+  const row = recallTimeStatement(db).get(id, owner);
+  return row === undefined
+    ? undefined
+    : parseRecord(recallTimeRow, row, "memory_sources").updated_at;
 }
 
 // Replay evaluation (scripts/memory-recall-eval.ts) reads these on a copy of

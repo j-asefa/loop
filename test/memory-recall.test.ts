@@ -1332,3 +1332,90 @@ it("cuts excerpts at the best window within the size", () => {
   expect(cut).not.toMatch(/^…[\udc00-\udfff]|[\ud800-\udbff]…$/u);
   expect(matchedExcerpt(head, terms, 0)).toBe("");
 });
+
+it("supplies only the requested date window and never widens it", async () => {
+  const older = await note("Time ledger", "amethyst harvest older evidence");
+  const inside = await note(
+    "Time ledger",
+    "amethyst harvest in-window evidence",
+  );
+  const other = await note(
+    "Time ledger",
+    "amethyst harvest private evidence",
+    "bob",
+  );
+  const setDate = db.prepare(
+    "UPDATE memory_sources SET updated_at=? WHERE id=?",
+  );
+  setDate.run(Date.parse("2026-10-11T23:59:59.999Z"), older.data.id);
+  setDate.run(Date.parse("2026-10-12T00:00:00.000Z"), inside.data.id);
+  setDate.run(Date.parse("2026-10-12T12:00:00.000Z"), other.data.id);
+  const result = await nativePrompt("amethyst harvest on 2026-10-12");
+  expect(result.prompt).toContain("in-window evidence");
+  expect(result.prompt).not.toContain("older evidence");
+  expect(result.prompt).not.toContain("private evidence");
+  for (const enabled of [false, true]) {
+    expect(
+      (
+        await request(
+          "/memory/policy",
+          { scope: "workspace", enabled },
+          "alice",
+          "PUT",
+        )
+      ).status,
+    ).toBe(200);
+  }
+  const range = "amethyst harvest since 2026-10-12 and before 2026-10-13";
+  const bounded = await nativePrompt(range);
+  expect(bounded.prompt).toContain("in-window evidence");
+  expect(bounded.prompt).not.toContain("older evidence");
+
+  db.prepare("DELETE FROM memory_passages WHERE source_id=?").run(
+    inside.data.id,
+  );
+  db.prepare("DELETE FROM memory_passage_backfill").run();
+  const pending = await nativePrompt(range);
+  expect(pending.prompt).toContain("in-window evidence");
+  expect(pending.prompt).not.toContain("older evidence");
+  expect(pending.prompt).not.toContain("private evidence");
+  captureMemory();
+  const absent = "amethyst harvest on 2026-10-13";
+  expect((await nativePrompt(absent)).prompt).toBe(absent);
+});
+
+it("uses the original update date for an artifact first captured later", async () => {
+  const artifact = saveArtifact("alice", {
+    title: "Historical lab notebook",
+    content: "alexandrite inspection passed",
+    role: "trace",
+  });
+  const updated = Date.parse("2026-10-02T11:00:00Z");
+  db.prepare("UPDATE artifacts SET updated_at=? WHERE id=?").run(
+    updated,
+    artifact,
+  );
+  const inclusion = await request(
+    "/memory/policy",
+    { scope: "artifact:" + artifact, enabled: true },
+    "alice",
+    "PUT",
+  );
+  expect(inclusion.status).toBe(200);
+  const lookup = db.prepare(
+    "SELECT id,updated_at FROM memory_sources WHERE source_id=?",
+  );
+  expect(lookup.get(artifact)).toMatchObject({ updated_at: updated });
+  const source = lookup.get(artifact) as { id: string };
+
+  // A legacy saved copy used indexing time in the stored update field.
+  db.prepare("UPDATE memory_sources SET updated_at=? WHERE id=?").run(
+    Date.parse("2026-11-02T11:00:00Z"),
+    source.id,
+  );
+  const october = await nativePrompt("alexandrite inspection in October 2026");
+  expect(october.prompt).toContain("alexandrite inspection passed");
+  expect(october.prompt).toContain("2026-10-02");
+  const november = "alexandrite inspection in November 2026";
+  expect((await nativePrompt(november)).prompt).toBe(november);
+});

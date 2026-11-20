@@ -1,3 +1,8 @@
+import {
+  parseMemoryTime,
+  withoutMemoryTime,
+  type MemoryTimeWindow,
+} from "../shared/memory-time.js";
 import { readMessageMetadata } from "../shared/message-metadata.js";
 import { z } from "zod";
 import { ftsQuery, searchTerms } from "../shared/search-excerpt.js";
@@ -136,7 +141,7 @@ function putSource(s: any) {
     s.title,
     s.eligible ? 1 : 0,
     s.created_at,
-    now(),
+    s.kind === "note" ? now() : (s.updated_at ?? s.created_at),
   );
   passageQueries.replace(
     db,
@@ -188,6 +193,7 @@ function artifactSource(
     | "title"
     | "content"
     | "created_at"
+    | "updated_at"
   >,
 ) {
   return {
@@ -197,6 +203,7 @@ function artifactSource(
     title: a.title,
     content: a.content,
     created_at: a.created_at,
+    updated_at: a.updated_at,
     kind: "artifact",
     source_id: a.id,
     project_id: a.folder_id,
@@ -338,11 +345,13 @@ export async function searchMemory(
   {
     relevant = false,
     conversation,
+    window,
   }: {
     /** Keep only sources that contain enough of the query's terms. */
     relevant?: boolean;
     /** Skip sources from this conversation, including its results. */
     conversation?: string | null;
+    window?: MemoryTimeWindow;
   } = {},
 ) {
   if (
@@ -356,11 +365,13 @@ export async function searchMemory(
     passage?: MemoryPassage;
   }[] = [];
   // Bound the FTS OR expansion; relevance still sees the full query.
-  const match = ftsQuery(query, {
-    limit: relevant ? 8 : 24,
+  const searchable = withoutMemoryTime(query, window);
+  const nominationLimit = relevant ? (window ? 6 : 8) : 24;
+  const match = ftsQuery(searchable, {
+    limit: nominationLimit,
     exclude: STOP_WORDS,
   });
-  const terms = recallTerms(query);
+  const terms = recallTerms(searchable);
   if (match) {
     for (const { id, revision, start, end } of passageQueries.search(
       db,
@@ -371,7 +382,10 @@ export async function searchMemory(
       candidates.push({ id, revision, passage: { start, end } });
     }
     if (!passageQueries.backfillComplete(db)) {
-      const documentMatch = ftsQuery(query, { limit: 24, exclude: STOP_WORDS });
+      const documentMatch = ftsQuery(searchable, {
+        limit: 24,
+        exclude: STOP_WORDS,
+      });
       if (documentMatch) {
         candidates.push(
           ...memoryFtsQueries.searchPending(
@@ -408,6 +422,18 @@ export async function searchMemory(
         memorySourcesQueries.inConversation(db, candidate.id, conversation)
       )
         continue;
+      const updatedAt = window
+        ? memorySourcesQueries.recallTime(db, candidate.id, owner)
+        : undefined;
+      if (
+        window &&
+        (updatedAt === undefined ||
+          (window.from !== null && updatedAt < window.from) ||
+          (window.to !== null && updatedAt >= window.to))
+      ) {
+        seen.add(candidate.id);
+        continue;
+      }
       const s = readMemory(
         owner,
         candidate.id,
@@ -472,7 +498,12 @@ export async function searchMemory(
         author: sourceAuthor(s),
         title: s.title,
         origin: s.origin,
-        updatedAt: s.updated_at,
+        updatedAt:
+          updatedAt ??
+          (s.kind === "note"
+            ? s.updated_at
+            : (memorySourcesQueries.recallTime(db, s.id, owner) ??
+              s.updated_at)),
         complete: !!s.complete,
         excerpt,
         link: s.link,
@@ -749,6 +780,7 @@ export async function recallForRun(
     recall = await searchMemory(run.owner_id, project, run.input, {
       relevant: true,
       conversation: run.conversation_id,
+      window: parseMemoryTime(run.input, run.created_at),
     });
   } catch (error) {
     // Recall is optional context: a failed search sends the turn without it.
@@ -812,7 +844,7 @@ routes.on(workspaceApi.memoryPolicy, (req, res) => {
         !(kind === "artifact" && s.source_id === key)
       )
         continue;
-      memorySourcesQueries.advanceRevision(db, now(), s.id);
+      memorySourcesQueries.advanceRevision(db, s.id);
     }
     // An included artifact may have no saved copy yet, and the worker's
     // incremental capture only sees changed rows: capture it here.
