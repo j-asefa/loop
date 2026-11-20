@@ -83,12 +83,14 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   SELECT source.conversation_id, copy.created_at, copy.rowid, NULL
   FROM context c
   JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN runs delivery ON delivery.id=copy.run_id AND delivery.owner_id=copy.owner_id
   JOIN json_each(copy.metadata,'$.attachments') file
   JOIN (
     SELECT incoming.recipient_conversation_id AS conversation_id, received.value AS file_id
     ${incomingMailFilesSql}
   ) source ON source.file_id=json_extract(file.value,'$.id')
-  WHERE source.conversation_id IS NOT NULL AND ${contextMessagePositionSql}
+  WHERE source.conversation_id IS NOT NULL
+    ${contextMailPositionSql}
   UNION
   SELECT child.conversation_id, c.at, c.seq,
     CASE WHEN r.id=c.answer_run THEN child.id END

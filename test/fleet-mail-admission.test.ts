@@ -422,6 +422,68 @@ it("keeps peer file chunks private until one atomic production mail admission", 
       (binding) => binding.tool === "loop_memory_search",
     ),
   ).toBe(false);
+  expect(transition(ownedRun(reuse.id, owner), "cancelled")).toBe(true);
+  const clean = submit(owner, {
+    agentId: memoryAgent.id,
+    conversationId: reuse.conversation_id!,
+    input: "Continue without the file",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(clean.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(true);
+  const steeringAgent = agent(owner, "pi");
+  const starting = submit(owner, {
+    agentId: steeringAgent.id,
+    input: "Start an answer",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "received-file-steering",
+    (candidate) => candidate.id === starting.id,
+  )!;
+  const answer = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+  ).run(
+    answer,
+    owner,
+    active.conversation_id,
+    active.id,
+    "Summary of the attached file",
+    now() - 1000,
+  );
+  expect(
+    submit(owner, {
+      agentId: steeringAgent.id,
+      conversationId: active.conversation_id!,
+      input: "Read the file before finishing",
+      idempotencyKey: id(),
+      personal: true,
+      attachmentIds: [fileId],
+      steer: true,
+    }),
+  ).toHaveProperty("steeringId");
+  const stop = new SteeringInbox(active).listen(async () => {});
+  await stop();
+  const fork = forkConversation(owner, active.conversation_id!, {
+    messageId: answer,
+  });
+  const continuation = submit(owner, {
+    agentId: steeringAgent.id,
+    conversationId: fork.id,
+    input: "Find saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(continuation.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(false);
   const objectCount = db
     .prepare("SELECT count(*) n FROM objects WHERE owner_id=?")
     .get(owner);
