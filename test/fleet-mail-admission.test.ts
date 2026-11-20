@@ -868,6 +868,36 @@ it("refuses a local attachment from a saved-memory conversation when the recipie
       })
     ).admission,
   ).toMatchObject({ state: "refused" });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    fleetRelay.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const untouched = agent(owner, "pi");
+  const cleanTask = submit(owner, {
+    agentId: untouched.id,
+    input: "Keep working",
+    idempotencyKey: id(),
+  });
+  const active = claim(
+    "clean-before-mixed-mail",
+    (candidate) => candidate.id === cleanTask.id,
+  )!;
+  expect(
+    sendMail(fleetRelay, "mixed-attachment-and-sender", {
+      to: untouched.id,
+      scope: "direct",
+      body: "Read this file",
+      fileIds: [fleetFile.artifactId],
+      interrupt: true,
+      conversationId: active.conversation_id,
+    }),
+  ).toMatchObject({ delivery: "not_delivered" });
+  expect(
+    db.prepare("SELECT 1 FROM run_steering WHERE run_id=?").get(active.id),
+  ).toBeUndefined();
 });
 
 it("refreshes cached mail status after the sender uses saved memory", async () => {

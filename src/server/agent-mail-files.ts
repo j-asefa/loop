@@ -13,7 +13,7 @@ import type { Run } from "./queue.js";
 
 export class MailFileRefusal extends MailRefusal {}
 
-export function authorizeFleetFileOrigin(owner: string, fileId: string) {
+function authorizeFleetFileOrigin(owner: string, fileId: string) {
   const artifact = ownedArtifact(fileId, owner);
   if (
     artifact.conversation_id &&

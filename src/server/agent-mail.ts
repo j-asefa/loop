@@ -37,10 +37,7 @@ import {
   type RunNotice,
 } from "./row-schemas.js";
 
-import {
-  authorizeFleetFileOrigin,
-  sharedMailFiles,
-} from "./agent-mail-files.js";
+import { sharedMailFiles } from "./agent-mail-files.js";
 import { uploadFile } from "./uploads.js";
 
 import {
@@ -1568,44 +1565,30 @@ function assertFleetMailDestination(
   senderConversation?: string | null,
   fileIds: string[] = [],
 ) {
-  if (!conversation) return;
-  const fleetAttachment = fileIds.some((id) => {
-    const source = artifactsQueries.owned(db, id, owner);
-    return (
-      !!source?.conversation_id &&
-      fleetEffectsQueries.conversationHasMailAuthority(
-        db,
-        owner,
-        source.conversation_id,
-      )
+  const origins = new Set(
+    [
+      conversation,
+      senderConversation,
+      ...fileIds.map(
+        (id) => artifactsQueries.owned(db, id, owner)?.conversation_id,
+      ),
+    ].filter((candidate): candidate is string => !!candidate),
+  );
+  const fleetContext =
+    fleetMail ||
+    [...origins].some((id) =>
+      fleetEffectsQueries.conversationHasMailAuthority(db, owner, id),
     );
-  });
   if (
-    (fleetMail || fleetAttachment) &&
-    memoryReceiptsQueries.conversationHasEvidence(db, owner, conversation)
+    fleetContext &&
+    [...origins].some((id) =>
+      memoryReceiptsQueries.conversationHasEvidence(db, owner, id),
+    )
   )
     throw new MailRefusal(
       403,
-      "Choose a fresh conversation for this Fleet mail.",
+      "Fleet mail and saved memory cannot share conversation context.",
     );
-  if (
-    conversation &&
-    fleetEffectsQueries.conversationHasMailAuthority(db, owner, conversation)
-  ) {
-    if (
-      senderConversation &&
-      memoryReceiptsQueries.conversationHasEvidence(
-        db,
-        owner,
-        senderConversation,
-      )
-    )
-      throw new MailRefusal(
-        403,
-        "Saved-memory context cannot be sent to this Fleet mail conversation.",
-      );
-    for (const id of fileIds) authorizeFleetFileOrigin(owner, id);
-  }
 }
 const REQUEUED =
   "The task ended before this message was read. Loop queued it as a new turn instead.";
