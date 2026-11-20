@@ -893,6 +893,11 @@ it("links recalled passages to a sealed result and records deterministic citatio
         (message) => message.toolCallId === "hemlock-search-2",
       );
       if (!tool) {
+        if (calls.length === 1) {
+          db.prepare(
+            "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
+          ).run(saved.id);
+        }
         yield {
           toolCall: {
             id: "hemlock-search-" + (calls.length + 1),
@@ -902,16 +907,17 @@ it("links recalled passages to a sealed result and records deterministic citatio
         };
         return;
       }
-      expect(
-        JSON.parse(JSON.parse(tool.content).content[0].text).hits,
-      ).toContainEqual(
-        expect.objectContaining({
+      for (const reply of calls) {
+        const hit = JSON.parse(
+          JSON.parse(reply.content).content[0].text,
+        ).hits.find((hit: { resultId?: string }) => hit.resultId === source.id);
+        expect(hit).toMatchObject({
           resultId: source.id,
           contentDigest: source.contentDigest,
           excerpt,
-          checkout: { repository: "monorepo", branch: "topic", commit },
-        }),
-      );
+        });
+        expect(hit).not.toHaveProperty("checkout");
+      }
       yield { text: "I found the saved value." };
     },
   });
@@ -942,6 +948,9 @@ it("links recalled passages to a sealed result and records deterministic citatio
   );
   expect(pulled).toMatchObject({ via: "tool" });
   expect(pulled).not.toHaveProperty("cited");
+  db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(
+    saved.id,
+  );
   expect(
     (
       await request(
@@ -1135,13 +1144,14 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
       { id: "short", revision: 1, link: "/?memory=abc" },
       { id: "long", revision: 1, link: "/?memory=abc123" },
       { id: "external", revision: 1, link: "/?memory=external" },
+      { id: "suffix", revision: 1, link: "/?memory=suffix" },
     ]),
     0,
     now(),
   );
   await answerNext(
     "revision-citation",
-    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123) and https://outside.example/a(/?memory=external).`,
+    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123), [a different destination](/?memory=suffix(extra)) and https://outside.example/a(/?memory=external).`,
   );
   const data = (await request(`/runs/${run.id}/memory`)).data;
   expect(JSON.parse(data.sources)).toEqual([
@@ -1150,6 +1160,7 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
     { id: "short", revision: 1, link: "/?memory=abc" },
     { id: "long", revision: 1, link: "/?memory=abc123", cited: true },
     { id: "external", revision: 1, link: "/?memory=external" },
+    { id: "suffix", revision: 1, link: "/?memory=suffix" },
   ]);
 });
 

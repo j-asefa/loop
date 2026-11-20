@@ -409,6 +409,22 @@ function readMemory(
         : workspaceLink({ memory: s.id }),
   };
 }
+
+function sealedSourceEvidence(
+  owner: string,
+  source: ReturnType<typeof readMemory>,
+): {
+  resultId?: string;
+  contentDigest?: string;
+  editedAfterPublication?: boolean;
+  checkout?: { repository: string; branch: string; commit: string };
+} {
+  if (source.kind === "artifact")
+    return sealedMemoryEvidence(owner, source.source_id, source.savedContent);
+  if (source.kind === "message" && source.role === "assistant")
+    return sealedMessageEvidence(owner, source);
+  return {};
+}
 const STOP_WORDS = new Set(
   "a an the is are was were do does did in on at to of for and or it this that what which who how we our my earlier".split(
     " ",
@@ -605,11 +621,7 @@ export async function searchMemory(
         excerpt,
         excerptTruncated: excerpt !== s.savedContent,
         link: s.link,
-        ...(s.kind === "artifact"
-          ? sealedMemoryEvidence(owner, s.source_id, s.savedContent)
-          : s.kind === "message" && s.role === "assistant"
-            ? sealedMessageEvidence(owner, s)
-            : {}),
+        ...sealedSourceEvidence(owner, s),
       });
     } catch {}
     if (sources.length >= limit) break;
@@ -961,9 +973,9 @@ export function recheckMemoryToolSearch(
     ...search,
     hits: search.hits.flatMap((hit) => {
       try {
+        const source = readMemory(run.owner_id, hit.id, hit.revision, project);
         if (
-          readMemory(run.owner_id, hit.id, hit.revision, project)
-            .evidenceKind !== hit.kind ||
+          source.evidenceKind !== hit.kind ||
           memorySourcesQueries.inConversation(db, hit.id, run.conversation_id)
         )
           return [];
@@ -979,8 +991,16 @@ export function recheckMemoryToolSearch(
               (window.to !== null && updated >= window.to)))
         )
           return [];
+        const { checkout: _priorCheckout, ...saved } = hit;
+        const checkout = hit.resultId
+          ? sealedSourceEvidence(run.owner_id, source).checkout
+          : undefined;
         return [
-          { ...hit, updatedAt: new Date(updated).toISOString().slice(0, 10) },
+          {
+            ...saved,
+            updatedAt: new Date(updated).toISOString().slice(0, 10),
+            ...(checkout && { checkout }),
+          },
         ];
       } catch (error) {
         if (error instanceof Problem && error.status === 404) return [];
@@ -1038,6 +1058,8 @@ export function recordMemoryProviderDelivery(
         );
       if (!hit) continue;
       if (hit.resultId) source.suppliedText = hit.excerpt;
+      if (hit.checkout) source.checkout = hit.checkout;
+      else delete source.checkout;
       delete source.providerCallId;
       changed = true;
     }
