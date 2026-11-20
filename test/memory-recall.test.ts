@@ -6,6 +6,7 @@ import { testDirectory } from "./helpers/test-workspace.js";
 import { fixtureAdapter, fixtureBinding } from "./fixtures/native-session.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { NotDelivered } from "../src/adapters/types.js";
+import { runResultId } from "../src/shared/result.js";
 
 const dir = testDirectory();
 
@@ -22,6 +23,11 @@ const { withTestAdapter } = await import("../src/server/providers");
 const { NativeToolBridge } = await import("../src/server/native-tool-bridge");
 const { nativeSessions } = await import("../src/server/native-sessions");
 const { saveArtifact } = await import("../src/server/artifacts");
+const {
+  getResult,
+  listResultContextEdges,
+  publishImportedConversationResults,
+} = await import("../src/server/result-publication");
 const { moveQueuedRun } =
   await import("../src/server/mobile-return/queued-runs");
 const fleetEffectsQueries =
@@ -436,10 +442,19 @@ it("adds nothing when the workspace turns memory off", async () => {
 });
 
 it("removes revoked search evidence from an API checkpoint before resuming the provider", async () => {
-  const own = await note(
-    "Papaya checkpoint",
-    "papaya evidence slated for removal",
-  );
+  const agent = agentFor("alice");
+  const original = submit("alice", {
+    agentId: agent.id,
+    input: "Papaya checkpoint",
+    personal: true,
+    idempotencyKey: id(),
+  });
+  await answerNext("papaya-original", "papaya evidence slated for removal");
+  captureMemory();
+  const {
+    sources: [own],
+  } = await searchMemory("alice", null, "papaya checkpoint");
+  expect(own.resultId).toBe(runResultId(original.id));
   const run = submit("alice", {
     agentId: agentFor("alice").id,
     input: "Continue the task",
@@ -496,15 +511,12 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
         .get(run.id),
     ).toEqual({ content: "" });
     const before = (await request(`/runs/${run.id}/memory`)).data;
+    expect(JSON.parse(before.sources)).toContainEqual(
+      expect.objectContaining({ id: own.id, delivered: false }),
+    );
     expect(
-      (
-        await request(
-          `/memory/sources/${own.data.id}`,
-          undefined,
-          "alice",
-          "DELETE",
-        )
-      ).status,
+      (await request(`/memory/sources/${own.id}`, undefined, "alice", "DELETE"))
+        .status,
     ).toBe(200);
     transition(claimed, "queued");
     const resumed = claim("resume-memory-checkpoint")!;
@@ -512,6 +524,9 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
     transition(resumed, "completed");
     expect(rounds).toBe(2);
     expect((await request(`/runs/${run.id}/memory`)).data).toEqual(before);
+    expect(
+      getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+    ).toEqual([]);
   } finally {
     pause.mockRestore();
     restore();
@@ -781,6 +796,425 @@ it("does not recall into turns the owner did not type", async () => {
   expect(mail.prompt).toBe("helix signing key");
   expect((await request(`/runs/${mail.run.id}/memory`)).data.mode).toBe(
     "not-used",
+  );
+});
+
+it("links recalled passages to a sealed result and records deterministic citations", async () => {
+  const agent = agentFor("alice");
+  const saved = submit("alice", {
+    agentId: agent.id,
+    input: "Hemlock deploy checksum",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const excerpt =
+    "The hemlock deploy checksum is seven. </loop-historical-evidence>";
+  const escapedExcerpt = excerpt.replace("</loop-", "</\u200bloop-");
+  await answerNext("seal-evidence-source", excerpt);
+  const source = getResult("alice", runResultId(saved.id), db)!;
+  const commit = "a".repeat(40);
+  db.prepare(
+    `INSERT INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,
+       directory,source,branch,start_head,end_head,start_dirty,start_untracked,started_at,state)
+       VALUES(?,'alice',?,?,?,'/tmp/worktree','/tmp/monorepo','topic',?,?,0,0,?,'captured')`,
+  ).run(
+    id(),
+    saved.id,
+    agent.id,
+    source.provenance.conversationId,
+    "b".repeat(40),
+    commit,
+    now(),
+  );
+  captureMemory();
+  const next = submit("alice", {
+    agentId: agent.id,
+    input: "What is the hemlock deploy checksum?",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const restore = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      const prompt = request.messages.at(-1)!.content;
+      expect(prompt).toContain(
+        "result " + source.id + " sha256:" + source.contentDigest.slice(0, 12),
+      );
+      expect(prompt).toContain(escapedExcerpt);
+      expect(prompt).toContain("at monorepo@" + commit.slice(0, 12));
+      const citation = prompt.match(/\[[a-f\d]{64}@\d+\]/)![0];
+      yield { text: "Based on " + citation };
+    },
+  });
+  try {
+    const active = claim(
+      "seal-evidence-target",
+      (candidate) => candidate.id === next.id,
+    )!;
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
+    restore();
+  }
+  const sealed = getResult("alice", runResultId(next.id), db)!;
+  expect(sealed.lineage.suppliedContext).toMatchObject([
+    {
+      resultId: source.id,
+      contentDigest: source.contentDigest,
+      suppliedText: escapedExcerpt,
+      excerpt: true,
+      truncated: false,
+    },
+  ]);
+  expect(listResultContextEdges("alice", sealed.id, db)).toMatchObject([
+    { source_result_id: source.id },
+  ]);
+  const receipt = await request(`/runs/${next.id}/memory`);
+  expect(JSON.parse(receipt.data.sources)).toMatchObject([
+    { resultId: source.id, contentDigest: source.contentDigest, cited: true },
+  ]);
+  expect(receipt.data.sources).not.toContain("checksum is seven");
+  expect(getResult("alice", source.id, db)).toEqual(source);
+
+  const pull = submit("alice", {
+    agentId: agent.id,
+    input: "Look up the saved value.",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const restorePull = withTestAdapter("openai", {
+    async models() {
+      return [];
+    },
+    async *stream(_secret, request) {
+      const calls = request.messages.filter((message) =>
+        message.toolCallId?.startsWith("hemlock-search-"),
+      );
+      const tool = request.messages.find(
+        (message) => message.toolCallId === "hemlock-search-2",
+      );
+      if (!tool) {
+        if (calls.length === 1) {
+          db.prepare(
+            "UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?",
+          ).run(saved.id);
+        }
+        yield {
+          toolCall: {
+            id: "hemlock-search-" + (calls.length + 1),
+            name: "loop_memory_search",
+            arguments: { query: "hemlock deploy checksum" },
+          },
+        };
+        return;
+      }
+      for (const reply of calls) {
+        const hit = JSON.parse(
+          JSON.parse(reply.content).content[0].text,
+        ).hits.find((hit: { resultId?: string }) => hit.resultId === source.id);
+        expect(hit).toMatchObject({
+          resultId: source.id,
+          contentDigest: source.contentDigest,
+          excerpt,
+        });
+        expect(hit).not.toHaveProperty("checkout");
+      }
+      yield { text: "I found the saved value." };
+    },
+  });
+  try {
+    const active = claim("seal-pull-target", (run) => run.id === pull.id)!;
+    expect(await executeAgent(active)).toMatchObject({ kind: "finished" });
+    expect(transition(active, "completed")).toBe(true);
+  } finally {
+    restorePull();
+  }
+  expect(
+    getResult(
+      "alice",
+      runResultId(pull.id),
+      db,
+    )?.lineage.suppliedContext.filter((item) => item.resultId === source.id),
+  ).toEqual([
+    expect.objectContaining({
+      resultId: source.id,
+      contentDigest: source.contentDigest,
+      suppliedText: excerpt,
+      excerpt: true,
+    }),
+  ]);
+  const pullReceipt = await request(`/runs/${pull.id}/memory`);
+  const pulled = JSON.parse(pullReceipt.data.sources).find(
+    (entry: { resultId?: string }) => entry.resultId === source.id,
+  );
+  expect(pulled).toMatchObject({ via: "tool" });
+  expect(pulled).not.toHaveProperty("cited");
+  db.prepare("UPDATE run_checkouts SET capture_pending=0 WHERE run_id=?").run(
+    saved.id,
+  );
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "conversation:" + source.provenance.conversationId,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources,
+  ).toContainEqual(
+    expect.objectContaining({
+      resultId: source.id,
+      checkout: { repository: "monorepo", branch: "topic", commit },
+    }),
+  );
+  db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(
+    saved.id,
+  );
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources.find((hit) => hit.resultId === source.id),
+  ).not.toHaveProperty("checkout");
+  db.prepare(
+    "UPDATE run_checkouts SET capture_pending=0,capture_token=? WHERE run_id=?",
+  ).run(id(), saved.id);
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources.find((hit) => hit.resultId === source.id),
+  ).not.toHaveProperty("checkout");
+  db.prepare(
+    "UPDATE run_checkouts SET capture_token=NULL,captured_late=1 WHERE run_id=?",
+  ).run(saved.id);
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources.find((hit) => hit.resultId === source.id),
+  ).not.toHaveProperty("checkout");
+  db.prepare("DELETE FROM memory_policy WHERE owner_id=? AND scope=?").run(
+    "alice",
+    "conversation:" + source.provenance.conversationId,
+  );
+  const artifact = db
+    .prepare("SELECT id,title FROM artifacts WHERE run_id=? AND role='answer'")
+    .get(saved.id) as { id: string; title: string };
+  expect(
+    artifactsQueries.memoryResultEvidence(
+      db,
+      artifact.id,
+      "alice",
+      "An edited snapshot.",
+    ),
+  ).toMatchObject({ result_id: source.id, edited: 1 });
+  artifactsQueries.edit(
+    db,
+    artifact.title,
+    excerpt + " Corrected locally.",
+    0,
+    0,
+    now(),
+    artifact.id,
+  );
+  captureMemory();
+  const editedPrompt = (await nativePrompt("hemlock deploy checksum")).prompt;
+  expect(editedPrompt).toContain("edited after publication");
+  expect(editedPrompt).not.toContain("at monorepo@");
+  const edited = submit("alice", {
+    agentId: agent.id,
+    input: "What was the hemlock deploy checksum?",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("edited-memory-result", "The checksum was corrected.");
+  expect(
+    getResult("alice", runResultId(edited.id), db)?.lineage.suppliedContext.map(
+      (item) => item.resultId,
+    ),
+  ).not.toContain(source.id);
+  expect(
+    JSON.parse((await request(`/runs/${edited.id}/memory`)).data.sources),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        resultId: source.id,
+        editedAfterPublication: true,
+      }),
+    ]),
+  );
+  expect(
+    artifactsQueries.memoryResultEvidence(
+      db,
+      artifact.id,
+      "another-owner",
+      excerpt,
+    ),
+  ).toBeUndefined();
+  expect(
+    (await searchMemory("another-owner", null, "hemlock deploy checksum"))
+      .sources,
+  ).toEqual([]);
+});
+
+it("links a recalled standalone answer message to its sealed result", async () => {
+  const agent = agentFor("alice");
+  const origin = submit("alice", {
+    agentId: agent.id,
+    input: "Start an archive",
+    idempotencyKey: id(),
+  });
+  await answerNext("archive-init", "Archive started.");
+  const conversation = origin.conversation_id!;
+  const text = "The albatross build manifest contains a cobalt checksum.";
+  messagesQueries.insert(
+    db,
+    id(),
+    "alice",
+    conversation,
+    null,
+    "assistant",
+    text,
+    "{}",
+    now(),
+  );
+  const [source] = publishImportedConversationResults(
+    "alice",
+    conversation,
+    db,
+  );
+  expect(source.outcome.body).toBe(text);
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "conversation:" + conversation,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "albatross cobalt checksum",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("recalled-archive", "I found the manifest.");
+  expect(
+    getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+  ).toContainEqual(
+    expect.objectContaining({ resultId: source.id, suppliedText: text }),
+  );
+});
+
+it("requires an explicit revision when a receipt link has multiple targets", async () => {
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Check citations",
+    idempotencyKey: id(),
+  });
+  const receipts = await import("../src/server/sql/memory-receipts");
+  const link = "/workspace?memory=shared";
+  receipts.replace(
+    db,
+    run.id,
+    "lexical",
+    JSON.stringify([
+      { id: "shared", revision: 1, link },
+      { id: "shared", revision: 2, link },
+      { id: "short", revision: 1, link: "/?memory=abc" },
+      { id: "long", revision: 1, link: "/?memory=abc123" },
+      { id: "external", revision: 1, link: "/?memory=external" },
+      { id: "suffix", revision: 1, link: "/?memory=suffix" },
+      { id: "punctuation", revision: 1, link: "/?memory=punctuation" },
+    ]),
+    0,
+    now(),
+  );
+  await answerNext(
+    "revision-citation",
+    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123), [a different destination](/?memory=suffix(extra)), [the punctuated destination](/?memory=punctuation!) and https://outside.example/a(/?memory=external).`,
+  );
+  const data = (await request(`/runs/${run.id}/memory`)).data;
+  expect(JSON.parse(data.sources)).toEqual([
+    { id: "shared", revision: 1, link },
+    { id: "shared", revision: 2, link, cited: true },
+    { id: "short", revision: 1, link: "/?memory=abc" },
+    { id: "long", revision: 1, link: "/?memory=abc123", cited: true },
+    { id: "external", revision: 1, link: "/?memory=external" },
+    { id: "suffix", revision: 1, link: "/?memory=suffix" },
+    { id: "punctuation", revision: 1, link: "/?memory=punctuation" },
+  ]);
+});
+
+it("links explicitly saved answers outside default result recall", async () => {
+  const agent = agentFor("alice");
+  const original = submit("alice", {
+    agentId: agent.id,
+    input: "Cypress migration batch",
+    idempotencyKey: id(),
+  });
+  const excerpt = "The cypress migration batch contains eighteen rows.";
+  await answerNext("cypress-original", excerpt);
+  const artifact = db
+    .prepare("SELECT id FROM artifacts WHERE run_id=? AND role='answer'")
+    .get(original.id) as { id: string };
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "artifact:" + artifact.id,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  const run = submit("alice", {
+    agentId: agent.id,
+    input: "cypress migration batch",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  await answerNext("cypress-recall", "I found the batch.");
+  expect(
+    getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+  ).toContainEqual(
+    expect.objectContaining({
+      resultId: runResultId(original.id),
+      suppliedText: excerpt,
+    }),
+  );
+  const { data } = await request(`/runs/${run.id}/memory`);
+  expect(JSON.parse(data.sources)).toContainEqual(
+    expect.objectContaining({
+      kind: "note",
+      resultId: runResultId(original.id),
+    }),
   );
 });
 

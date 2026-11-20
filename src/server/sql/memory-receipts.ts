@@ -71,6 +71,21 @@ export function get(db: Database.Database, run: string) {
     : parseRecord(QueryRecords.memory_receipts, row, "memory_receipts");
 }
 
+/** Read old receipt entries without requiring newly added provenance fields. */
+export function parseSources(value: string): Record<string, unknown>[] {
+  try {
+    const sources: unknown = JSON.parse(value);
+    return Array.isArray(sources)
+      ? sources.filter(
+          (source): source is Record<string, unknown> =>
+            !!source && typeof source === "object" && !Array.isArray(source),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 const conversationHasEvidenceStatement = statement(
   `${conversationContextSql}
    SELECT 1 FROM context c

@@ -38,6 +38,7 @@ import {
   canUseMemorySearch,
   memorySearchInput,
   memoryToolSearch,
+  recordMemoryProviderDelivery,
   recordMemoryToolSearch,
   recheckMemoryToolSearch,
 } from "./memory.js";
@@ -318,7 +319,8 @@ export function memorySearchProviderHistory(
   run: Run,
   messages: import("./providers.js").ChatMessage[],
 ) {
-  return messages.map((message) => {
+  const calls = new Map<string, Awaited<ReturnType<typeof memoryToolSearch>>>();
+  const filtered = messages.map((message) => {
     if (message.role !== "tool" || !message.toolCallId || message.isError)
       return message;
     const call = nativeCallsQueries.get(db, run.id, message.toolCallId);
@@ -338,6 +340,7 @@ export function memorySearchProviderHistory(
       JSON.parse(result.content[0].text),
       memorySearchInput.parse(JSON.parse(call.arguments)),
     );
+    if (search.hits.length) calls.set(message.toolCallId, search);
     return {
       ...message,
       content: JSON.stringify({
@@ -346,6 +349,10 @@ export function memorySearchProviderHistory(
       }),
     };
   });
+  return {
+    messages: filtered,
+    record: () => recordMemoryProviderDelivery(run, calls),
+  };
 }
 
 export async function invokeNative(
@@ -450,7 +457,12 @@ export async function invokeNative(
           ...(eligible ? {} : { isError: true }),
         };
         if (eligible?.hits.length)
-          recordMemoryToolSearch(run, eligible, Math.ceil(text.length / 4));
+          recordMemoryToolSearch(
+            run,
+            eligible,
+            Math.ceil(text.length / 4),
+            options.plans ? callId : undefined,
+          );
         nativeCallsQueries.result(
           db,
           JSON.stringify(result),

@@ -25,6 +25,7 @@ import { sealAttachments } from "./result-attachments.js";
 import { computeResultContentDigest } from "./result-digest.js";
 import { parseCanonicalResult } from "./row-schemas.js";
 import * as foldersQueries from "./sql/folders.js";
+import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as resultsQueries from "./sql/results.js";
 import * as resultContextEdgesQueries from "./sql/result-context-edges.js";
 
@@ -593,6 +594,99 @@ export function resolveSuppliedResultSnapshots(
   return items;
 }
 
+function suppliesFromMemory(
+  database: Database.Database,
+  owner: string,
+  run: string,
+  answer: string,
+): ResultSupplyItem[] {
+  const receipt = memoryReceiptsQueries.get(database, run);
+  if (!receipt) return [];
+  const sources = memoryReceiptsQueries.parseSources(receipt.sources);
+  const citedLinks = new Set(
+    Array.from(
+      answer.matchAll(
+        /(?:(?:^|[\s<"'\x60])\(?|(\]\())(\/(?!\/)[^\s<>"'\x60)[\]{}]+)/g,
+      ),
+      ([, markdown, link]) =>
+        markdown ? link : link.replace(/[.,;:!?]+$/, ""),
+    ),
+  );
+  const linkTargets = new Map<string, Set<string>>();
+  for (const source of sources) {
+    if (source.providerCallId || typeof source.link !== "string") continue;
+    const targets = linkTargets.get(source.link) ?? new Set<string>();
+    targets.add(JSON.stringify([source.id, source.revision]));
+    linkTargets.set(source.link, targets);
+  }
+  let marked = false;
+  const supplied: ResultSupplyItem[] = [];
+  const recorded = new Set<string>();
+  let totalChars = 0;
+  for (const source of sources) {
+    if (source.providerCallId) continue;
+    if (
+      (typeof source.link === "string" &&
+        source.link &&
+        linkTargets.get(source.link)?.size === 1 &&
+        citedLinks.has(source.link)) ||
+      (typeof source.id === "string" &&
+        typeof source.revision === "number" &&
+        answer.includes(`[${source.id}@${source.revision}]`))
+    ) {
+      source.cited = true;
+      marked = true;
+    }
+    if (
+      typeof source.resultId !== "string" ||
+      typeof source.suppliedText !== "string" ||
+      source.editedAfterPublication === true ||
+      recorded.has(source.resultId) ||
+      supplied.length >= MAX_RESULT_SUPPLY_ITEMS ||
+      source.suppliedText.length > MAX_RESULT_SUPPLY_CHARS ||
+      totalChars + source.suppliedText.length > MAX_TOTAL_RESULT_SUPPLY_CHARS
+    )
+      continue;
+    const result = resultsQueries.canonicalById(
+      database,
+      owner,
+      source.resultId,
+    );
+    if (
+      !result ||
+      result.contentDigest !== source.contentDigest ||
+      result.provenance.runId === run
+    )
+      continue;
+    recorded.add(result.id);
+    totalChars += source.suppliedText.length;
+    supplied.push({
+      resultId: result.id,
+      contentDigest: result.contentDigest,
+      title: result.outcome.title,
+      agentId: result.provenance.agentId,
+      agentName: result.provenance.agentName,
+      conversationId: result.provenance.conversationId,
+      suppliedText: source.suppliedText,
+      excerpt: true,
+      truncated:
+        typeof source.excerptTruncated === "boolean"
+          ? source.excerptTruncated
+          : source.suppliedText !== result.outcome.body,
+    });
+  }
+  if (marked)
+    memoryReceiptsQueries.replace(
+      database,
+      run,
+      receipt.mode,
+      JSON.stringify(sources),
+      receipt.tokens,
+      receipt.created_at,
+    );
+  return supplied;
+}
+
 export function publishCompletedRunResult(
   runId: string,
   ownerId: string,
@@ -686,62 +780,72 @@ export function publishCompletedRunResult(
     database,
   );
 
-  return publishResult(
-    {
-      id,
-      ownerId,
-      kind: "run_answer",
-      createdAt,
-      stimulus: {
-        kind: stimulusKind,
-        text: run.input,
-        sourceMessageId: triggerMessageId,
-        authorKind,
-        automationKind,
-        automationFrom,
-      },
-      outcome: {
-        title: collapseResultTitle(
-          run.input.trim() ? run.input : answer.content,
-          conversation.title || "Result",
-          200,
-        ),
-        body: answer.content,
-        format: "markdown",
-      },
-      attachments: sealAttachments(
-        ownerId,
-        answer.metadata.attachments,
-        database,
-      ),
-      provenance: {
-        agentId,
-        agentName,
-        provider: executionProvider(run, agent),
-        model,
-        resolvedModel,
-        connectionId,
-        conversationId: run.conversation_id,
-        runId: run.id,
-        messageId: answer.id,
-        // Sealed late, only the folder the run recorded is evidence of where
-        // it ran; the conversation's folder now is not.
-        placement:
-          completeness === "migrated_backfill" &&
-          run.payload.folderId === undefined
-            ? UNKNOWN_RESULT_PLACEMENT
-            : placementSnapshot(ownerId, conversation, run, database),
-        origin: { kind: "produced" },
-      },
-      lineage: {
-        parentResultId,
-        triggerMessageId,
-        suppliedContext: [],
-      },
+  const publication: PublishResultInput = {
+    id,
+    ownerId,
+    kind: "run_answer",
+    createdAt,
+    stimulus: {
+      kind: stimulusKind,
+      text: run.input,
+      sourceMessageId: triggerMessageId,
+      authorKind,
+      automationKind,
+      automationFrom,
     },
-    database,
-    completeness,
-  );
+    outcome: {
+      title: collapseResultTitle(
+        run.input.trim() ? run.input : answer.content,
+        conversation.title || "Result",
+        200,
+      ),
+      body: answer.content,
+      format: "markdown",
+    },
+    attachments: sealAttachments(
+      ownerId,
+      answer.metadata.attachments,
+      database,
+    ),
+    provenance: {
+      agentId,
+      agentName,
+      provider: executionProvider(run, agent),
+      model,
+      resolvedModel,
+      connectionId,
+      conversationId: conversation.id,
+      runId: run.id,
+      messageId: answer.id,
+      // Sealed late, only the folder the run recorded is evidence of where
+      // it ran; the conversation's folder now is not.
+      placement:
+        completeness === "migrated_backfill" &&
+        run.payload.folderId === undefined
+          ? UNKNOWN_RESULT_PLACEMENT
+          : placementSnapshot(ownerId, conversation, run, database),
+      origin: { kind: "produced" },
+    },
+    lineage: {
+      parentResultId,
+      triggerMessageId,
+      suppliedContext: [],
+    },
+  };
+  if (completeness !== "sealed_at_publication")
+    return publishResult(publication, database, completeness);
+
+  return database
+    .transaction(() => {
+      publication.lineage.suppliedContext = suppliesFromMemory(
+        database,
+        ownerId,
+        run.id,
+        answer.content,
+      );
+      return publishResult(publication, database, completeness);
+    })
+    .immediate();
 }
 
 export function publishSteeringReplyResult(

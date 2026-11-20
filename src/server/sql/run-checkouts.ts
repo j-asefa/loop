@@ -77,6 +77,30 @@ export function select(db: Database.Database, runId: string, owner?: string) {
     ? undefined
     : parseRecord(QueryRecords.run_checkouts, row, "run_checkouts");
 }
+
+export const settledCheckoutSql =
+  "k.state='captured' AND k.captured_late=0 AND k.capture_pending=0 AND k.capture_token IS NULL";
+
+const recallCitationStatement = statement(
+  `SELECT k.source,k.branch,k.end_head FROM run_checkouts k
+    WHERE k.owner_id=? AND k.run_id=? AND ${settledCheckoutSql}`,
+);
+const recallCitationRow = QueryRecords.run_checkouts.pick({
+  source: true,
+  branch: true,
+  end_head: true,
+});
+/** Read a checkout citation only after the end capture has settled. */
+export function recallCitation(
+  db: Database.Database,
+  owner: string,
+  run: string,
+) {
+  const row = recallCitationStatement(db).get(owner, run);
+  return row === undefined
+    ? undefined
+    : parseRecord(recallCitationRow, row, "run_checkouts");
+}
 const insertStatement =
   statement(`INSERT OR IGNORE INTO run_checkouts(id,owner_id,run_id,agent_id,conversation_id,generation,directory,source,branch,base_ref,base_sha,start_head,start_patch,start_untracked_paths,start_dirty,start_untracked,started_at,state,error,summary)
    VALUES(@id,@owner_id,@run_id,@agent_id,@conversation_id,@generation,@directory,@source,@branch,@base_ref,@base_sha,@start_head,@start_patch,@start_untracked_paths,@start_dirty,@start_untracked,@started_at,@state,@error,@summary)`);
