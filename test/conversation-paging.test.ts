@@ -207,7 +207,7 @@ it("keeps queued prompts, tied progress timestamps, steering and final answers i
     "UPDATE runs SET state='failed',error='updated state' WHERE id=?",
   ).run(first);
   expect(
-    conversationMessages("alice", c).messages.find(
+    conversationMessages("alice", c, undefined, answer).messages.find(
       (entry) => entry.id === answer,
     ),
   ).toMatchObject({ run_state: "failed", run_error: "updated state" });
