@@ -496,9 +496,13 @@ export class Muse extends DirectAdapter implements Adapter {
           id: item.itemId,
           kind: "tool",
           title:
-            (completed ? item.displayLabel?.done : item.displayLabel?.active) ||
-            item.tool ||
-            item.kind,
+            item.kind === "webSearch"
+              ? item.kind
+              : (completed
+                  ? item.displayLabel?.done
+                  : item.displayLabel?.active) ||
+                item.tool ||
+                item.kind,
           status: normalizeItemStatus(item.status, completed),
           text: JSON.stringify(item, null, 2),
         },

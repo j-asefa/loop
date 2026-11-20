@@ -564,7 +564,8 @@ export class Claude extends DirectAdapter implements Adapter {
           item: { id: m.message.id, kind: "assistant", text },
         });
       for (const b of content)
-        if (b.type === "tool_use")
+        if (b.type === "tool_use") {
+          this.activityInputs.set(b.id, { name: b.name, input: b.input });
           this.emit({
             type: "item",
             item: {
@@ -575,20 +576,20 @@ export class Claude extends DirectAdapter implements Adapter {
               status: "running",
             },
           });
+        }
     }
     if (m.type === "user" && Array.isArray(m.message?.content))
       for (const b of m.message.content)
         if (b.type === "tool_result") {
-          const memorySearch = isWorkspaceMemorySearch(
-            this.activityInputs.get(b.tool_use_id)?.name,
-          );
+          const tool = this.activityInputs.get(b.tool_use_id)?.name;
+          const memorySearch = isWorkspaceMemorySearch(tool);
           this.activityInputs.delete(b.tool_use_id);
           this.emit({
             type: "item",
             item: {
               id: b.tool_use_id,
               kind: "tool",
-              title: "Tool result",
+              title: tool || "Tool result",
               text: memorySearch
                 ? ""
                 : typeof b.content === "string"
