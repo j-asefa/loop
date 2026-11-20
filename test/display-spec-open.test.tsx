@@ -412,3 +412,21 @@ it("keeps partial source out of a capped thread preview", () => {
   expect(preview).not.toContain("&quot;op&quot;");
   expect(render(source, false)).toContain("&quot;op&quot;");
 });
+
+it("keeps a partial replacement from looking like a failed update in a capped preview", () => {
+  const source =
+    fence +
+    patch(
+      { op: "add", path: "/root", value: "card" },
+      add("card", { type: "Card", props: { title: "Earlier value" } }),
+    ) +
+    '\n{"op":"replace","path":"/elements/card"';
+  const preview = renderToStaticMarkup(
+    <RichText content={source} compact cappedPreview />,
+  );
+  expect(preview).toContain("Earlier value");
+  expect(preview).not.toContain("Some display updates could not be applied.");
+  expect(render(source, false)).toContain(
+    "Some display updates could not be applied.",
+  );
+});

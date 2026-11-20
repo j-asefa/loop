@@ -145,7 +145,7 @@ export function DisplaySpec({
   }
   return (
     <div className="display-spec">
-      {open && !live && read.skippedCount > 0 && (
+      {open && !live && !omitSource && read.skippedCount > 0 && (
         <p className="note">Some display updates could not be applied.</p>
       )}
       <DisplayNodeView
