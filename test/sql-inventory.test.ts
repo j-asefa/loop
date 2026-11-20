@@ -268,10 +268,18 @@ function sqlCallLines(file: string, text: string, script = false) {
     receiverContext(node)?.static
       ? `static${path.slice(4)}`
       : path;
-  const literalKey = (node: any) =>
-    node?.type === "Identifier"
+  const literalKey = (node: any): any => {
+    if (node?.type === "BinaryExpression" && node.operator === "+") {
+      const left = literalKey(node.left);
+      const right = literalKey(node.right);
+      return typeof left === "string" && typeof right === "string"
+        ? left + right
+        : undefined;
+    }
+    return node?.type === "Identifier"
       ? declaringScope(node.name, node)?.strings?.get(node.name)
       : node?.value;
+  };
   const property = (node: any) =>
     node?.computed ? literalKey(node.property) : node?.property?.name;
   const receiver = (node: any): string | undefined => {
@@ -802,10 +810,10 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     if (script && fixtureCall(expression)) return "object";
     if (
-      script &&
       expression?.type === "MemberExpression" &&
       property(expression) === "db" &&
-      fixtureCall(unwrap(expression.object))
+      (loadsDatabaseModule(unwrap(expression.object)) ||
+        (script && fixtureCall(unwrap(expression.object))))
     )
       return "connection";
     if (
@@ -1241,12 +1249,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (!methods.has(method)) return false;
       const binding = connectionKind(node.callee.object);
       if (binding === "connection") return true;
-      const opaqueMember =
+      const opaqueReceiver =
         script &&
         (!binding || binding === "other") &&
         (node.callee.object.type === "MemberExpression" ||
           node.callee.object.type === "Identifier");
-      if (binding !== "inferred" && !opaqueMember) return false;
+      if (binding !== "inferred" && !opaqueReceiver) return false;
       // Inferred receivers need recognizable SQL text or a statement variable.
       const statement = node.arguments[0];
       if (
@@ -1260,12 +1268,16 @@ function sqlCallLines(file: string, text: string, script = false) {
         statement?.type === "TemplateLiteral"
           ? statement.quasis[0]?.value.cooked
           : literalKey(statement);
-      return (
-        typeof text === "string" &&
-        ((method === "pragma" && binding === "inferred") ||
-          /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.test(
-            text,
-          ))
+      if (typeof text !== "string") return false;
+      if (method === "pragma" && binding === "inferred") return true;
+      const keyword =
+        /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.exec(
+          text,
+        );
+      // For an opaque receiver, a standalone keyword is also a plausible command.
+      return Boolean(
+        keyword &&
+        (!opaqueReceiver || /[^\s;]/.test(text.slice(keyword[0].length))),
       );
     })
     .map((node) => text.slice(0, node.start).split("\n").length);
@@ -1957,6 +1969,19 @@ it("resolves inline fixture arguments and gives later spreads precedence over ex
     retained.connection.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 11]);
+});
+
+it("recognizes inline imports and computed methods while excluding opaque standalone commands", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    shell.exec("BEGIN");
+    shell.exec("BEGIN;");
+    db.exec("BEGIN");
+    (await import("../src/server/db.js")).db.exec(query);
+    db["ex" + "ec"](query);
+    connection.prepare("SELECT 1");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6, 7, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
