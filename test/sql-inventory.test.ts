@@ -314,6 +314,10 @@ function sqlCallLines(file: string, text: string, script = false) {
       expression.source.value === "better-sqlite3"
     );
   };
+  const requiresSqlite = (node: any) =>
+    node?.type === "CallExpression" &&
+    node.callee.name === "require" &&
+    node.arguments[0]?.value === "better-sqlite3";
   const bindings = (
     pattern: any,
   ): { key: string; name: string; fallback?: any }[] => {
@@ -533,9 +537,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         (value?.type === "MemberExpression" &&
           property(value) === "default" &&
           importsSqlite(value.object)) ||
-        (value?.type === "CallExpression" &&
-          value.callee.name === "require" &&
-          value.arguments[0]?.value === "better-sqlite3");
+        requiresSqlite(value);
       for (const { key, name } of bindings(node.id)) {
         let binding: Binding = "other";
         if (
@@ -696,6 +698,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       : undefined;
   };
   const returnsDatabase = new Set<object>();
+  const returnedObjects = new Map<object, Scope>();
+  const recordedReturns = new Set<object>();
+  const returnedObject = (expression: any) =>
+    expression?.type === "CallExpression"
+      ? returnedObjects.get(invocation(expression).fn)
+      : undefined;
   const classReference = (expression: any): Scope | undefined =>
     classKinds.has(expression?.type)
       ? scopeOf(expression)
@@ -827,8 +835,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       return "object";
     if (
       callee &&
-      (memberReference(callee, (scope, key) => scope.bindings.get(key)) ===
-        "constructor" ||
+      (requiresSqlite(callee) ||
+        memberReference(callee, (scope, key) => scope.bindings.get(key)) ===
+          "constructor" ||
         (callee.type === "MemberExpression" &&
           property(callee) === "default" &&
           importsSqlite(callee.object)))
@@ -886,10 +895,17 @@ function sqlCallLines(file: string, text: string, script = false) {
         if (member.type === "SpreadElement") {
           const next = propertySource(member.argument, key);
           if (next.value || next.binding) return next;
+          if (tail) {
+            const parent = propertySource(member.argument, head);
+            if (parent.value || parent.binding) return {};
+          }
         }
       }
     }
-    const origin = propertyOrigin(object, key);
+    const returned = returnedObject(object);
+    const origin = returned
+      ? { scope: returned, name: `result.${key}` }
+      : propertyOrigin(object, key);
     return {
       origin,
       binding: origin ? receiverBinding(origin.scope, origin.name) : undefined,
@@ -1084,31 +1100,36 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const { scope, name, value, spread } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value, spread);
     for (const node of nodes) {
-      if (script && functionKinds.has(node.type))
-        for (const parameter of node.params)
-          if (parameter.type === "AssignmentPattern")
-            trackParameter(scopeOf(node), parameter, unwrap(parameter.right));
       if (
         script &&
-        node.type === "ReturnStatement" &&
-        connectionKind(node.argument) === "connection"
+        (node.type === "ReturnStatement" ||
+          node.type === "ArrowFunctionExpression")
       ) {
-        let fn = parents.get(node);
+        const value = unwrap(
+          node.type === "ReturnStatement" ? node.argument : node.body,
+        );
+        let fn = node;
         while (fn && !functionKinds.has(fn.type)) fn = parents.get(fn);
-        if (fn && !returnsDatabase.has(fn)) {
+        if (fn && isAggregate(value) && !recordedReturns.has(node)) {
+          const result = returnedObjects.get(fn) ?? { bindings: new Map() };
+          returnedObjects.set(fn, result);
+          recordObject(result, "result", value);
+          recordedReturns.add(node);
+          changed = true;
+        }
+        if (
+          fn &&
+          !returnsDatabase.has(fn) &&
+          connectionKind(value) === "connection"
+        ) {
           returnsDatabase.add(fn);
           changed = true;
         }
       }
-      if (
-        script &&
-        node.type === "ArrowFunctionExpression" &&
-        !returnsDatabase.has(node) &&
-        connectionKind(node.body) === "connection"
-      ) {
-        returnsDatabase.add(node);
-        changed = true;
-      }
+      if (script && functionKinds.has(node.type))
+        for (const parameter of node.params)
+          if (parameter.type === "AssignmentPattern")
+            trackParameter(scopeOf(node), parameter, unwrap(parameter.right));
       if (
         script &&
         (node.type === "CallExpression" || node.type === "NewExpression")
@@ -1982,6 +2003,21 @@ it("recognizes inline imports and computed methods while excluding opaque standa
     connection.prepare("SELECT 1");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6, 7, 8]);
+});
+
+it("tracks returned connection objects and CommonJS constructors and honors nested defaults", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    function open() { return { connection: new SQLite(":memory:") }; }
+    const { connection } = open();
+    connection.exec(migrationText);
+    const base = { storage: { connection: new SQLite(":memory:") } };
+    const override = { storage: {} };
+    const { storage: { connection: pattern = /./ } } = { ...base, ...override };
+    pattern.exec("SELECT 1");
+    new (require("better-sqlite3"))(":memory:").exec(migrationText);
+`;
+  expect(sqlCallLines("probe.cjs", text, true)).toEqual([5, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
