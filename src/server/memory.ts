@@ -434,7 +434,7 @@ const STOP_WORDS = new Set(
 export const recallTerms = (query: string) =>
   searchTerms(query, { limit: 24, exclude: STOP_WORDS });
 // Recall is untrusted historical evidence, never current authorization.
-export async function searchMemory(
+function searchMemorySnapshot(
   owner: string,
   project: string | null,
   query: string,
@@ -607,10 +607,10 @@ export async function searchMemory(
       if (!excerpt) break;
       seen.add(candidate.id);
       const external =
+        includeExternal &&
         (s.kind === "artifact" ||
           (s.kind === "message" && s.role === "assistant")) &&
         memorySourcesQueries.hasExternalEvidence(db, owner, s.id);
-      if (external && !includeExternal) continue;
       characters += excerpt.length;
       sources.push({
         id: s.id,
@@ -637,6 +637,15 @@ export async function searchMemory(
     if (sources.length >= limit) break;
   }
   return { mode: "lexical", sources };
+}
+
+// Use one read snapshot for nomination and live eligibility checks. Automatic
+// recall already applied external-source exclusion in both nomination queries.
+const searchSnapshot = db.transaction(searchMemorySnapshot);
+export async function searchMemory(
+  ...args: Parameters<typeof searchMemorySnapshot>
+) {
+  return searchSnapshot(...args);
 }
 /** Characters of one source's excerpt. */
 export const EXCERPT_CHARACTERS = 1100;
