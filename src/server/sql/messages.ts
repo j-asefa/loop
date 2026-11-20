@@ -352,14 +352,14 @@ export function forkPosition(
 const forkHistoryStatement =
   statement(`SELECT m.* FROM messages m WHERE m.owner_id=@owner AND m.conversation_id=@conversation
           AND COALESCE(json_extract(m.metadata,'$.progress'),0)=0 AND length(trim(m.content))>0
-          AND (${READABLE_MAIL_SQL} OR (m.rowid=@seq AND EXISTS (
+          AND (${READABLE_MAIL_SQL} OR EXISTS (
             SELECT 1 FROM agent_mail mail JOIN runs delivery ON delivery.id=m.run_id AND delivery.owner_id=m.owner_id
             WHERE mail.id=json_extract(m.metadata,'$.automation.mailId') AND mail.owner_id=m.owner_id
               AND mail.state='sent' AND delivery.state IN ('failed','interrupted')
               AND NOT EXISTS (SELECT 1 FROM run_steering s WHERE s.message_id=m.id AND s.state<>'delivered')
               AND (EXISTS (SELECT 1 FROM native_dispatch nd WHERE nd.run_id=delivery.id)
                 OR EXISTS (SELECT 1 FROM agent_checkpoints ac WHERE ac.run_id=delivery.id))
-          )))
+          ))
           AND (m.created_at<@at OR (m.created_at=@at AND m.rowid<=@seq)) ORDER BY m.created_at,m.rowid`);
 
 export function forkHistory(

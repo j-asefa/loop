@@ -1,4 +1,5 @@
 import { workspaceMcp } from "./workspace-mcp.js";
+import { isWorkspaceMemorySearch } from "../shared/workspace-tools.js";
 import { runHarnessCommand } from "../harness-command.js";
 import { tokenCount, type Tokens } from "./usage.js";
 import { DirectAdapter } from "./direct-adapter.js";
@@ -401,8 +402,6 @@ export class Claude extends DirectAdapter implements Adapter {
           claudeActivities(block, this.activityInputs.get(block.tool_use_id)),
         ))
           this.emit({ type: "activity", activity });
-        if (block.type === "tool_result")
-          this.activityInputs.delete(block.tool_use_id);
       }
     }
     if (m.type === "result") this.activityInputs.clear();
@@ -536,7 +535,11 @@ export class Claude extends DirectAdapter implements Adapter {
       if (
         e.type === "content_block_start" &&
         e.content_block.type === "tool_use"
-      )
+      ) {
+        this.activityInputs.set(e.content_block.id, {
+          name: e.content_block.name,
+          input: e.content_block.input,
+        });
         this.emit({
           type: "item",
           item: {
@@ -547,6 +550,7 @@ export class Claude extends DirectAdapter implements Adapter {
             status: "running",
           },
         });
+      }
     }
     if (m.type === "assistant") {
       const content = m.message?.content ?? [];
@@ -574,20 +578,26 @@ export class Claude extends DirectAdapter implements Adapter {
     }
     if (m.type === "user" && Array.isArray(m.message?.content))
       for (const b of m.message.content)
-        if (b.type === "tool_result")
+        if (b.type === "tool_result") {
+          const memorySearch = isWorkspaceMemorySearch(
+            this.activityInputs.get(b.tool_use_id)?.name,
+          );
+          this.activityInputs.delete(b.tool_use_id);
           this.emit({
             type: "item",
             item: {
               id: b.tool_use_id,
               kind: "tool",
               title: "Tool result",
-              text:
-                typeof b.content === "string"
+              text: memorySearch
+                ? ""
+                : typeof b.content === "string"
                   ? b.content
                   : JSON.stringify(b.content),
               status: b.is_error ? "failed" : "completed",
             },
           });
+        }
     if (m.type === "result") {
       const usage = claudeTokens(m.usage);
       if (usage) this.emit({ type: "usage", usage });

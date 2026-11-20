@@ -1431,18 +1431,23 @@ it("preserves Fleet memory restrictions when mail context is copied", async () =
       .get(owner, incoming.conversation_id),
   ).toBeDefined();
   expect((await searchMemory(owner, null, "cinnabar")).sources).toEqual([]);
-  const userMessage = db.prepare(
-    "SELECT id FROM messages WHERE conversation_id=? AND run_id=? AND role='user'",
-  );
-  const original = userMessage.get(incoming.conversation_id, incoming.id) as {
-    id: string;
-  };
   db.prepare(
     "INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,?,?,'accepted',?)",
   ).run(incoming.id, id(), "fixture-dispatch", now());
   db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(incoming.id);
+  const laterAnswer = id();
+  db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,metadata,created_at) VALUES(?,?,?,?,'assistant',?,'{}',?)",
+  ).run(
+    laterAnswer,
+    owner,
+    incoming.conversation_id,
+    incoming.id,
+    "Reply before failure",
+    now(),
+  );
   const fork = forkConversation(owner, incoming.conversation_id!, {
-    messageId: original.id,
+    messageId: laterAnswer,
   });
   const copied = db
     .prepare(

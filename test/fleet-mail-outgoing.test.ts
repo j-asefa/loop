@@ -1108,7 +1108,7 @@ it("refuses outbound Fleet mail from a conversation with saved evidence at dispa
     body: "Safe follow-up",
   });
   expect(journal.pendingEnvelope(clean.messageId)).toMatchObject({
-    thread: { subject: "Agent message" },
+    thread: { subject: "Safe follow-up" },
     body: "Safe follow-up",
   });
 });

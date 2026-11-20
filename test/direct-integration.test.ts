@@ -156,6 +156,48 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
       item: { text: "", status: "completed" },
     });
   });
+  it("Claude and OpenCode omit managed memory search results from projections", () => {
+    const claude = capture(Claude, "claude");
+    claude.adapter.message({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "m",
+            name: "mcp__loop_workspace__loop_memory_search",
+            input: { query: "notes" },
+          },
+        ],
+      },
+    });
+    claude.adapter.message({
+      type: "user",
+      message: {
+        content: [
+          { type: "tool_result", tool_use_id: "m", content: "Private excerpt" },
+        ],
+      },
+    });
+    const open = capture(OpenCode, "opencode");
+    open.adapter.session = "test";
+    open.adapter.activeTurn = true;
+    open.adapter.part({
+      type: "tool",
+      id: "m",
+      sessionID: "test",
+      messageID: "run",
+      tool: "loop_workspace_loop_memory_search",
+      state: { status: "completed", output: "Private excerpt" },
+    });
+    for (const { events } of [claude, open]) {
+      expect(JSON.stringify(events)).not.toContain("Private excerpt");
+      expect(events.at(-1)).toMatchObject({
+        type: "item",
+        item: { text: "", status: "completed" },
+      });
+    }
+  });
   it("OpenCode rejects another session and previous turns", () => {
     const { adapter, updates } = capture(OpenCode, "opencode");
     adapter.session = "s";

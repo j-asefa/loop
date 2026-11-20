@@ -1,5 +1,6 @@
 import { normalizeItemStatus } from "../shared/native-item-state.js";
 import { workspaceMcp } from "./workspace-mcp.js";
+import { isWorkspaceMemorySearch } from "../shared/workspace-tools.js";
 import { supportsBilling } from "../shared/harnesses.js";
 import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
@@ -410,7 +411,9 @@ export class OpenCode extends DirectAdapter implements Adapter {
           kind: "tool",
           title: p.tool,
           status: normalizeItemStatus(p.state.status),
-          text: JSON.stringify(p.state, null, 2),
+          text: isWorkspaceMemorySearch(p.tool)
+            ? ""
+            : JSON.stringify(p.state, null, 2),
         },
       });
   }
