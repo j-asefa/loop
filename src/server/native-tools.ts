@@ -327,7 +327,7 @@ export function memorySearchProviderHistory(
       return {
         ...message,
         isError: status.isError ?? false,
-        content: JSON.stringify(status),
+        content: JSON.stringify(status).slice(0, 30000),
       };
     }
     if (call?.tool !== "loop_memory_search" || !call.result) return message;

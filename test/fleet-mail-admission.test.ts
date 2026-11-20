@@ -388,6 +388,40 @@ it("keeps peer file chunks private until one atomic production mail admission", 
   expect(() =>
     readRunFile({ ...run, owner_id: "other-owner" }, fileId, 0, 128, "base64"),
   ).toThrow(/not attached/);
+  const memoryAgent = agent(owner);
+  const memoryTurn = submit(owner, {
+    agentId: memoryAgent.id,
+    input: "Use saved evidence",
+    idempotencyKey: id(),
+  });
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    memoryTurn.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  expect(() =>
+    submit(owner, {
+      agentId: memoryAgent.id,
+      conversationId: memoryTurn.conversation_id!,
+      input: "Read this received file",
+      idempotencyKey: id(),
+      attachmentIds: [fileId],
+    }),
+  ).toThrow(/Fleet mail and saved memory/);
+  const reuse = submit(owner, {
+    agentId: memoryAgent.id,
+    input: "Read the Fleet file in a fresh conversation",
+    idempotencyKey: id(),
+    attachmentIds: [fileId],
+    personal: true,
+  });
+  expect(
+    nativeBindings(ownedRun(reuse.id, owner)).some(
+      (binding) => binding.tool === "loop_memory_search",
+    ),
+  ).toBe(false);
   const objectCount = db
     .prepare("SELECT count(*) n FROM objects WHERE owner_id=?")
     .get(owner);

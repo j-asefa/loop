@@ -8,6 +8,7 @@ import { z } from "zod";
 import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement, statementVariants } from "./statement.js";
+import { incomingMailFilesSql } from "./fleet-mail-records.js";
 
 const contextMessagePositionSql = `(c.at IS NULL OR copy.created_at<c.at OR
   (copy.created_at=c.at AND copy.rowid<=c.seq))`;
@@ -78,6 +79,16 @@ export const conversationContextSql = `WITH RECURSIVE context(id, at, seq, answe
   JOIN artifacts a ON a.id=json_extract(file.value,'$.id') AND a.owner_id=copy.owner_id
   WHERE a.conversation_id IS NOT NULL AND json_extract(copy.metadata,'$.automation.mailId') IS NULL
     ${contextMailPositionSql}
+  UNION
+  SELECT source.conversation_id, copy.created_at, copy.rowid, NULL
+  FROM context c
+  JOIN messages copy ON copy.conversation_id=c.id AND copy.owner_id=@owner
+  JOIN json_each(copy.metadata,'$.attachments') file
+  JOIN (
+    SELECT incoming.recipient_conversation_id AS conversation_id, received.value AS file_id
+    ${incomingMailFilesSql}
+  ) source ON source.file_id=json_extract(file.value,'$.id')
+  WHERE source.conversation_id IS NOT NULL AND ${contextMessagePositionSql}
   UNION
   SELECT child.conversation_id, c.at, c.seq,
     CASE WHEN r.id=c.answer_run THEN child.id END

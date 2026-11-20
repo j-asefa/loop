@@ -59,6 +59,7 @@ A conversation that has used saved memory cannot send mail to a Fleet peer, incl
 Published files from a saved-memory conversation are also excluded from Fleet mail attachments. Messages and artifacts from Fleet-linked conversations are excluded from recall even when the owner includes them. They can still occupy candidate slots before their Fleet provenance is checked.
 Local mail also checks attached file origins before delivery into a Fleet-linked conversation.
 Ordinary prompt attachments retain their published origin for the same Fleet and saved-memory checks.
+Reusing a received Fleet file retains its Fleet provenance.
 Other runs can inspect delivery state for Fleet mail and mail from saved-memory contexts with the subject and preview hidden.
 Remote participants use a generic label.
 A Fleet mail conversation refuses local mail or a background result from a conversation with saved-memory evidence.

@@ -3,6 +3,22 @@ import { QueryRecords } from "../query-records.js";
 import { parseRecord } from "../row-schemas.js";
 import { statement } from "./statement.js";
 
+export const incomingMailFilesSql = `FROM fleet_mail_records record
+  JOIN agent_mail incoming ON incoming.id=record.mail_id AND incoming.owner_id=record.owner_id
+  JOIN json_each(incoming.file_ids) received
+  WHERE record.owner_id=@owner AND record.direction='incoming'`;
+const incomingFileStatement = statement(
+  `SELECT 1 ${incomingMailFilesSql} AND received.value=@file LIMIT 1`,
+);
+/** The persisted incoming message owns the IDs assigned to its received files. */
+export function isIncomingFile(
+  db: Database.Database,
+  owner: string,
+  file: string,
+) {
+  return incomingFileStatement(db).get({ owner, file }) !== undefined;
+}
+
 const insertOutgoingStatement = statement(
   "INSERT INTO fleet_mail_records\n      (mail_id,owner_id,peer_id,message_id,direction,sender_name) VALUES(?,?,?,?,'outgoing',?)",
 );

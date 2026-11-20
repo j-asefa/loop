@@ -15,6 +15,7 @@ import * as memoryFtsQueries from "./sql/memory-fts.js";
 import * as passageQueries from "./sql/memory-passages.js";
 import { memoryPassages, type MemoryPassage } from "./memory-passages.js";
 import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
+import * as fleetMailRecordsQueries from "./sql/fleet-mail-records.js";
 import * as memoryReceiptsQueries from "./sql/memory-receipts.js";
 import * as messagesQueries from "./sql/messages.js";
 import * as agentsQueries from "./sql/agents.js";
@@ -973,6 +974,9 @@ export function assertCompatibleMemoryContext(
   );
   const fleetContext =
     fleetMail ||
+    fileIds.some((id) =>
+      fleetMailRecordsQueries.isIncomingFile(db, owner, id),
+    ) ||
     [...origins].some((id) =>
       fleetEffectsQueries.conversationHasMailAuthority(db, owner, id),
     );
