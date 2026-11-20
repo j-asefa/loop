@@ -1,5 +1,6 @@
 import type { CardSelection } from "../../shared/cards.js";
 import { FOLDER_PROJECT } from "./folders.js";
+import { settledCheckoutSql } from "./run-checkouts.js";
 import {
   ArtifactKindSchema,
   type ArtifactKind,
@@ -459,6 +460,7 @@ const memoryResultEvidenceStatement = statement(
        AND r.sealed=1 AND r.conversation_id=a.conversation_id
      LEFT JOIN agent_checkpoints cp ON cp.run_id=a.run_id
      LEFT JOIN run_checkouts k ON k.owner_id=a.owner_id AND k.run_id=a.run_id
+       AND ${settledCheckoutSql}
      WHERE a.id=@id AND a.owner_id=@owner AND a.role='answer'
        AND (json_extract(a.metadata,'$.messageId')=r.message_id OR
          (json_extract(a.metadata,'$.messageId') IS NULL AND

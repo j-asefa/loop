@@ -965,6 +965,19 @@ it("links recalled passages to a sealed result and records deterministic citatio
       checkout: { repository: "monorepo", branch: "topic", commit },
     }),
   );
+  db.prepare("UPDATE run_checkouts SET capture_pending=1 WHERE run_id=?").run(
+    saved.id,
+  );
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources.find((hit) => hit.resultId === source.id),
+  ).not.toHaveProperty("checkout");
+  db.prepare(
+    "UPDATE run_checkouts SET capture_pending=0,capture_token=? WHERE run_id=?",
+  ).run(id(), saved.id);
   db.prepare("DELETE FROM memory_policy WHERE owner_id=? AND scope=?").run(
     "alice",
     "conversation:" + source.provenance.conversationId,
@@ -990,9 +1003,6 @@ it("links recalled passages to a sealed result and records deterministic citatio
     artifact.id,
   );
   captureMemory();
-  db.prepare("UPDATE run_checkouts SET end_head=NULL WHERE run_id=?").run(
-    saved.id,
-  );
   const editedPrompt = (await nativePrompt("hemlock deploy checksum")).prompt;
   expect(editedPrompt).toContain("edited after publication");
   expect(editedPrompt).not.toContain("at monorepo@");

@@ -355,7 +355,7 @@ function sealedMessageEvidence(
   if (!result || result.provenance.conversationId !== source.conversation_id)
     return {};
   const checkout = result.provenance.runId
-    ? checkoutsQueries.select(db, result.provenance.runId, owner)
+    ? checkoutsQueries.recallCitation(db, owner, result.provenance.runId)
     : undefined;
   return {
     resultId: result.id,
