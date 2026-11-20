@@ -129,7 +129,11 @@ export class NativeToolBridge {
     const previous = t.calls.get(key);
     if (previous && previous.digest !== digest)
       throw new Error("Tool request identity was reused");
-    if (binding.tool === "loop_message_status" && !canSearchSavedMemory(run))
+    if (
+      binding.connectionId === "__loop__" &&
+      binding.tool === "loop_message_status" &&
+      !canSearchSavedMemory(run)
+    )
       return Promise.resolve({
         isError: true,
         content: [

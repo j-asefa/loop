@@ -819,6 +819,27 @@ it("keeps receipts from blocking delegation and earlier turns visible through lo
     "first-memory-relay",
     (candidate) => candidate.id === followUp.id,
   )!;
+  const cancelledRecipient = agent(owner);
+  const unread = sendMail(source, id(), {
+    to: cancelledRecipient.id,
+    scope: "direct",
+    body: "Earlier work summary",
+  });
+  const cancelledMail = row(unread.messageId);
+  const queued = ownedRun(cancelledMail.run_id!, owner);
+  expect(transition(queued, "cancelled")).toBe(true);
+  const fresh = envelope(cancelledRecipient.id);
+  expect(
+    (
+      await deliver({
+        ...fresh,
+        thread: {
+          ...fresh.thread,
+          recipientConversationId: queued.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
   for (const recipient of [firstRelay, secondRelay]) {
     const sent = sendMail(source, id(), {
       to: recipient.id,
