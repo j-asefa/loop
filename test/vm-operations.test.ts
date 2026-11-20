@@ -10,6 +10,7 @@ import {
   transitionVm,
 } from "../src/server/vm/machine.js";
 import {
+  createdVmEffects,
   reconcileVmOperation,
   runVmOperation,
 } from "../src/server/vm/operations.js";
@@ -48,6 +49,7 @@ const create = (
   id: string,
   call: () => Promise<unknown>,
   overrides: { owner?: string; experimentId?: string; request?: unknown } = {},
+  effects?: Parameters<typeof runVmOperation>[4],
 ) =>
   runVmOperation(
     db,
@@ -60,6 +62,7 @@ const create = (
     },
     call,
     clock,
+    effects,
   );
 
 // A read-only provider for reconcile: VMs by name, statuses by id and
@@ -239,7 +242,17 @@ async function uncertainCreate() {
     throw new VmProviderError("uncertain", "timed out");
   });
 }
+// Reconciles once the original call can no longer be in flight; see
+// reconcileSoon for the window before that.
 const reconcile = (
+  provider: Parameters<typeof reconcileVmOperation>[1],
+  owner = "alice",
+  operationId = "op1",
+) => {
+  time += VM_OPERATION_MAX_CALL_MS + 1;
+  return reconcileSoon(provider, owner, operationId);
+};
+const reconcileSoon = (
   provider: Parameters<typeof reconcileVmOperation>[1],
   owner = "alice",
   operationId = "op1",
@@ -456,6 +469,162 @@ it("reports an uncertain sleep that did not happen as failed, so it can be asked
   provider.statuses.set("sb-1", "running");
   expect(await reconcile(provider)).toMatchObject({ outcome: "failed" });
   expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("running");
+});
+
+it("records a created VM's id and state in the same transaction as its receipt", async () => {
+  const vm = { owner: "alice", id: "exp1" };
+  expect(
+    await create(
+      "op1",
+      async () => ({ remoteId: "sb-1", status: "running" }),
+      {},
+      createdVmEffects(db, vm, clock),
+    ),
+  ).toMatchObject({ state: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-1",
+    state: "running",
+  });
+
+  experiment("alice", "exp2");
+  db.exec(
+    "CREATE TRIGGER refuse_vm_state BEFORE UPDATE OF state ON experiment_vms BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+  );
+  await expect(
+    create(
+      "op2",
+      async () => ({ remoteId: "sb-2", status: "running" }),
+      { experimentId: "exp2" },
+      createdVmEffects(db, { owner: "alice", id: "exp2" }, clock),
+    ),
+  ).rejects.toThrow("disk full");
+  // Nothing committed: the sweep and a reconcile take it from here.
+  expect(vmOperationsQueries.byId(db, "alice", "op2")?.state).toBe("pending");
+  expect(experimentVmsQueries.byId(db, "alice", "exp2")?.remote_id).toBeNull();
+});
+
+it("fails a create whose VM booted into failed, keeping its id so it can be destroyed", async () => {
+  expect(
+    await create(
+      "op1",
+      async () => ({
+        remoteId: "sb-1",
+        status: "failed",
+        errorMessage: "image pull failed",
+      }),
+      {},
+      createdVmEffects(db, { owner: "alice", id: "exp1" }, clock),
+    ),
+  ).toEqual({
+    state: "failed",
+    errorMessage: "image pull failed",
+    replayed: false,
+  });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-1",
+    state: "failed",
+    last_error: "image pull failed",
+  });
+  expect(vmOperationsQueries.byId(db, "alice", "op1")).toMatchObject({
+    state: "failed",
+    result_json: expect.stringContaining("sb-1"),
+  });
+});
+
+it("reconciles a create whose only match failed as failed, adopting the VM", async () => {
+  await uncertainCreate();
+  expect(
+    await reconcile(found({ remoteId: "sb-7", status: "failed" })),
+  ).toMatchObject({ outcome: "failed" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-7",
+    state: "failed",
+  });
+});
+
+it("does not settle on an absent effect while the original call may still be in flight", async () => {
+  await uncertainCreate();
+  expect(await reconcileSoon(found())).toEqual({
+    outcome: "still_uncertain",
+    reason: "the original call may still be in flight",
+  });
+  expect(vmOperationsQueries.byId(db, "alice", "op1")?.state).toBe("uncertain");
+  // A VM that is already there settles at once.
+  expect(
+    await reconcileSoon(found({ remoteId: "sb-7", status: "running" })),
+  ).toMatchObject({ outcome: "succeeded" });
+});
+
+it("fails the VM, not leaving it destroying, when an uncertain destroy did not happen", async () => {
+  await runningVm();
+  transitionVm(db, { owner: "alice", id: "exp1" }, "destroying", {
+    now: clock(),
+  });
+  await runVmOperation(
+    db,
+    {
+      id: "op1",
+      owner: "alice",
+      experimentId: "exp1",
+      kind: "destroy",
+      request: {},
+    },
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+  );
+  const provider = found();
+  provider.statuses.set("sb-1", "running");
+  expect(await reconcile(provider)).toMatchObject({ outcome: "failed" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    state: "failed",
+    last_error:
+      "The destroy did not finish; the provider reports the VM running",
+  });
+  expect(
+    transitionVm(db, { owner: "alice", id: "exp1" }, "destroying", {
+      now: clock(),
+    }).changed,
+  ).toBe(true);
+});
+
+it("refuses an experiment on another owner's folder or forked from another owner's experiment", () => {
+  db.prepare(
+    "INSERT INTO folders(id,owner_id,kind,name,created_at) VALUES('folder-bob','bob','project','b',1)",
+  ).run();
+  const base = {
+    provider: "sailbox",
+    autoApproveLocal: true,
+    vcpuLimit: 4,
+    memoryLimitGib: 16,
+    diskLimitGib: 64,
+    autoSleepSeconds: 900,
+    sourceCheckpointId: null,
+    cloneUrl: null,
+    now: clock(),
+  };
+  expect(
+    experimentVmsQueries.insert(db, {
+      ...base,
+      id: "x1",
+      owner: "alice",
+      folderId: "folder-bob",
+      remoteName: "loop-exp-x1",
+      sourceExperimentId: null,
+    }),
+  ).toBe(false);
+  expect(
+    experimentVmsQueries.insert(db, {
+      ...base,
+      id: "x2",
+      owner: "bob",
+      folderId: "folder-bob",
+      remoteName: "loop-exp-x2",
+      sourceExperimentId: "exp1",
+    }),
+  ).toBe(false);
+  expect(experimentVmsQueries.byId(db, "bob", "x2")).toBeUndefined();
 });
 
 it("refuses illegal and stale VM transitions", () => {

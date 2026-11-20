@@ -344,3 +344,76 @@ it("stops reading exec events while nobody reads the output", async () => {
   await handle.exit;
   expect(pulls).toBe(500);
 });
+
+it("waits for every full output stream before reading more events", async () => {
+  let pulls = 0;
+  const encoder = new TextEncoder();
+  const chunk = Buffer.alloc(64 * 1024, 1).toString("base64");
+  const { provider } = fake(
+    () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            pulls += 1;
+            // stdout and stderr fill within one chunk.
+            controller.enqueue(
+              encoder.encode(
+                (pulls === 1
+                  ? JSON.stringify({ type: "started", exec_request_id: "e" }) +
+                    "\n"
+                  : "") +
+                  JSON.stringify({ type: "stdout", data: chunk, seq: pulls }) +
+                  "\n" +
+                  JSON.stringify({ type: "stderr", data: chunk, seq: pulls }) +
+                  "\n",
+              ),
+            );
+            if (pulls === 200) controller.close();
+          },
+        }),
+      ),
+  );
+  const handle = await provider.exec("sb_1", ["yes"], {});
+  // Only stderr is read; stdout stays full.
+  handle.stderr.resume();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(pulls).toBeLessThan(10);
+  handle.stdout.resume();
+  await handle.exit;
+  expect(pulls).toBe(200);
+});
+
+it("reports a VM that booted into failed with Sail's reason, and mounts volumes on a running VM", async () => {
+  const { calls, provider } = fake((call) =>
+    call.url.pathname.endsWith("/from_checkpoint")
+      ? ok({
+          sailbox_id: "sb_2",
+          status: "create_failed",
+          error_message: "no capacity",
+        })
+      : ok({}),
+  );
+  expect(
+    await provider.createFromCheckpoint({
+      idempotencyKey: "exp-1",
+      checkpointId: "ckpt_1",
+      name: "loop-exp-1",
+    }),
+  ).toEqual({
+    remoteId: "sb_2",
+    status: "failed",
+    errorMessage: "no capacity",
+  });
+  await provider.mountVolume("sb_2", {
+    volumeId: "vol_1",
+    mountPath: "/mnt/loop-auth",
+  });
+  const mount = calls[1];
+  expect(mount.method).toBe("PUT");
+  expect(mount.url.pathname).toBe("/v1/sailboxes/sb_2/volume-mounts");
+  expect(mount.body).toEqual({
+    volume_id: "vol_1",
+    mount_path: "/mnt/loop-auth",
+    read_only: false,
+  });
+});

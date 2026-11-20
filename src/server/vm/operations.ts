@@ -7,7 +7,11 @@ import {
 } from "../../shared/vm-state.js";
 import * as experimentVmsQueries from "../sql/experiment-vms.js";
 import * as vmOperationsQueries from "../sql/vm-operations.js";
-import { transitionVm, transitionVmOperation } from "./machine.js";
+import {
+  VM_OPERATION_MAX_CALL_MS,
+  transitionVm,
+  transitionVmOperation,
+} from "./machine.js";
 import { VmProviderError, type VmProvider, type VmStatus } from "./provider.js";
 
 // Every provider call that changes something runs through runVmOperation: a
@@ -90,6 +94,7 @@ export async function runVmOperation(
   },
   call: () => Promise<unknown>,
   clock: () => number,
+  effects: VmOperationEffects = {},
 ): Promise<VmOperationOutcome> {
   const requestJson = canonicalVmRequest(operation.request);
   const requestDigest = vmRequestDigest({
@@ -157,11 +162,73 @@ export async function runVmOperation(
       ? { state: "failed", errorMessage, replayed: false }
       : { state: "uncertain", errorMessage };
   }
-  if (
-    !transitionVmOperation(db, receipt, "succeeded", { result, now: clock() })
-  )
-    return current();
-  return { state: "succeeded", result, replayed: false };
+  const errorMessage = effects.failure?.(result) ?? null;
+  const to = errorMessage === null ? "succeeded" : "failed";
+  // The receipt and the local record of what the call did commit together.
+  // If apply throws, both roll back and the receipt stays pending until the
+  // sweep marks it uncertain for a reconcile.
+  const settled = db
+    .transaction(() => {
+      if (
+        !transitionVmOperation(db, receipt, to, {
+          result,
+          errorMessage,
+          now: clock(),
+        })
+      )
+        return false;
+      effects.apply?.(result);
+      return true;
+    })
+    .immediate();
+  if (!settled) return current();
+  return errorMessage === null
+    ? { state: "succeeded", result, replayed: false }
+    : { state: "failed", errorMessage, replayed: false };
+}
+
+/** What a resolved call means locally. */
+export type VmOperationEffects = {
+  /** A failure the answer itself reports, such as a VM that booted into
+   * "failed"; null when the call did what was asked. */
+  failure?(result: unknown): string | null;
+  /** Local writes that must commit with the settled receipt. Runs inside
+   * its transaction. */
+  apply?(result: unknown): void;
+};
+
+type CreatedVm = { remoteId: string; status: VmStatus; errorMessage?: string };
+
+/** Effects for a create or fork: the VM's provider id and observed state
+ * commit with the receipt, and a VM that booted into "failed" fails it. */
+export function createdVmEffects(
+  db: Database.Database,
+  vm: { owner: string; id: string },
+  clock: () => number,
+): VmOperationEffects {
+  return {
+    failure: (result) =>
+      (result as CreatedVm).status === "failed"
+        ? ((result as CreatedVm).errorMessage ??
+          "The provider reports the VM failed")
+        : null,
+    apply: (result) => {
+      const created = result as CreatedVm;
+      if (
+        !experimentVmsQueries.adoptRemote(db, vm.owner, vm.id, created.remoteId)
+      )
+        throw new Error("The experiment already records another provider VM");
+      const row = experimentVmsQueries.byId(db, vm.owner, vm.id);
+      if (row)
+        applyObservedStatus(
+          db,
+          { ...vm, state: row.state },
+          created.status,
+          clock(),
+          created.errorMessage,
+        );
+    },
+  };
 }
 
 /** Moves the VM to the state the provider reports, when that edge is legal
@@ -171,6 +238,7 @@ function applyObservedStatus(
   vm: { owner: string; id: string; state: VmState },
   status: VmStatus,
   now: number,
+  reason?: string,
 ) {
   const observed: Record<VmStatus, VmState | undefined> = {
     provisioning: undefined,
@@ -182,11 +250,20 @@ function applyObservedStatus(
     terminated: vm.state === "destroying" ? "destroyed" : "failed",
     unknown: undefined,
   };
-  const to = observed[status];
+  let to = observed[status];
+  // A destroy that did not finish leaves a VM the owner must destroy again;
+  // failed is the state that allows it.
+  if (to && vm.state === "destroying" && to !== "destroyed") to = "failed";
   if (!to || to === vm.state || !legalVmTransition(vm.state, to)) return;
   transitionVm(db, vm, to, {
     expected: vm.state,
-    lastError: to === "failed" ? `The provider reports the VM ${status}` : null,
+    lastError:
+      to === "failed"
+        ? (reason ??
+          (vm.state === "destroying"
+            ? `The destroy did not finish; the provider reports the VM ${status}`
+            : `The provider reports the VM ${status}`))
+        : null,
     now,
   });
 }
@@ -196,9 +273,18 @@ export type VmReconciliation =
   | { outcome: "failed"; errorMessage: string }
   | { outcome: "still_uncertain"; reason: string };
 
+// `notYet`: the provider shows the effect did not happen. The original call
+// may still be in flight until the longest provider call has passed, so such
+// an observation settles nothing before then.
 type Observation =
   | { settle: "succeeded"; result: unknown; status?: VmStatus }
-  | { settle: "failed"; errorMessage: string; status?: VmStatus }
+  | {
+      settle: "failed";
+      errorMessage: string;
+      status?: VmStatus;
+      result?: unknown;
+      notYet?: true;
+    }
   | { settle: "unknown"; reason: string };
 
 class SettledConcurrently extends Error {}
@@ -239,6 +325,15 @@ export async function reconcileVmOperation(
   }
   if (observation.settle === "unknown")
     return { outcome: "still_uncertain", reason: observation.reason };
+  if (
+    observation.settle === "failed" &&
+    observation.notYet &&
+    clock() - operation.created_at <= VM_OPERATION_MAX_CALL_MS
+  )
+    return {
+      outcome: "still_uncertain",
+      reason: "the original call may still be in flight",
+    };
   const seen = observation;
 
   const receipt = { owner: target.owner, id: operation.id };
@@ -246,16 +341,6 @@ export async function reconcileVmOperation(
     db.transaction(() => {
       const fresh = experimentVmsQueries.byId(db, target.owner, vm.id);
       if (!fresh) throw new SettledConcurrently();
-      if (
-        seen.settle === "succeeded" &&
-        (operation.kind === "create" || operation.kind === "fork")
-      ) {
-        const { remoteId } = seen.result as { remoteId: string };
-        if (
-          !experimentVmsQueries.adoptRemote(db, target.owner, vm.id, remoteId)
-        )
-          throw new SettledConcurrently();
-      }
       const settled =
         seen.settle === "succeeded"
           ? transitionVmOperation(db, receipt, "succeeded", {
@@ -263,10 +348,18 @@ export async function reconcileVmOperation(
               now: clock(),
             })
           : transitionVmOperation(db, receipt, "failed", {
+              result: seen.result,
               errorMessage: seen.errorMessage,
               now: clock(),
             });
       if (!settled) throw new SettledConcurrently();
+      const adopted =
+        (operation.kind === "create" || operation.kind === "fork") &&
+        (seen.result as { remoteId?: unknown } | undefined)?.remoteId;
+      if (typeof adopted === "string") {
+        if (!experimentVmsQueries.adoptRemote(db, target.owner, vm.id, adopted))
+          throw new SettledConcurrently();
+      }
       if (seen.status)
         applyObservedStatus(
           db,
@@ -301,6 +394,14 @@ async function observe(
         settle: "failed",
         errorMessage: "The provider has no VM with this name",
         status: "terminated",
+        notYet: true,
+      };
+    if (match.status === "failed")
+      return {
+        settle: "failed",
+        errorMessage: "The provider reports the VM failed",
+        result: { remoteId: match.remoteId },
+        status: "failed",
       };
     return {
       settle: "succeeded",
@@ -317,9 +418,17 @@ async function observe(
     if (operation.kind === "expose")
       return published
         ? { settle: "succeeded", result: published }
-        : { settle: "failed", errorMessage: "The port is not published" };
+        : {
+            settle: "failed",
+            errorMessage: "The port is not published",
+            notYet: true,
+          };
     return published
-      ? { settle: "failed", errorMessage: "The port is still published" }
+      ? {
+          settle: "failed",
+          errorMessage: "The port is still published",
+          notYet: true,
+        }
       : { settle: "succeeded", result: null };
   }
   const status = (await provider.get(vm.remote_id))?.status ?? "terminated";
@@ -337,5 +446,6 @@ async function observe(
     settle: "failed",
     errorMessage: `The provider reports the VM ${status}`,
     status,
+    notYet: true,
   };
 }

@@ -159,7 +159,10 @@ export function createSailboxProvider(options: {
   // can run; Sail reports the reason in error_message.
   function created(value: Record<string, unknown>) {
     const remoteId = field(value, "sailbox_id");
-    return { remoteId, status: sailboxStatus(value.status) };
+    const status = sailboxStatus(value.status);
+    return typeof value.error_message === "string" && value.error_message
+      ? { remoteId, status, errorMessage: value.error_message }
+      : { remoteId, status };
   }
 
   return {
@@ -312,6 +315,16 @@ export function createSailboxProvider(options: {
           body: { checkpoint_id: input.checkpointId, name: input.name },
         }),
       );
+    },
+
+    async mountVolume(remoteId, mount) {
+      await request("PUT", `${box(remoteId)}/volume-mounts`, {
+        body: {
+          volume_id: mount.volumeId,
+          mount_path: mount.mountPath,
+          read_only: mount.readOnly ?? false,
+        },
+      });
     },
 
     async configure(
@@ -469,7 +482,7 @@ async function startExec(
       signal: null,
     };
     let buffered = "";
-    let blocked: PassThrough | undefined;
+    const blocked = new Set<PassThrough>();
     const decoder = new TextDecoder();
     const handle = (line: string) => {
       if (!line.trim()) return;
@@ -490,7 +503,8 @@ async function startExec(
         typeof event.data === "string"
       ) {
         const stream = event.type === "stdout" ? stdout : stderr;
-        if (!stream.write(Buffer.from(event.data, "base64"))) blocked = stream;
+        if (!stream.write(Buffer.from(event.data, "base64")))
+          blocked.add(stream);
       } else if (event.type === "exit")
         result = {
           exitCode:
@@ -509,19 +523,19 @@ async function startExec(
         }
         // Output is read from the provider only as fast as Loop's consumer
         // reads it: a full stream pauses the event stream until it drains.
-        if (blocked) {
-          const waiting: PassThrough = blocked;
-          blocked = undefined;
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              waiting.off("drain", done);
-              waiting.off("close", done);
-              resolve();
-            };
-            waiting.on("drain", done);
-            waiting.on("close", done);
-          });
-        }
+        // Every full stream must drain, not only the last one that filled.
+        for (const waiting of blocked)
+          if (waiting.writableNeedDrain && !waiting.destroyed)
+            await new Promise<void>((resolve) => {
+              const done = () => {
+                waiting.off("drain", done);
+                waiting.off("close", done);
+                resolve();
+              };
+              waiting.on("drain", done);
+              waiting.on("close", done);
+            });
+        blocked.clear();
       }
       handle(buffered);
     } catch {

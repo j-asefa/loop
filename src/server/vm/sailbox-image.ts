@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 
 // The experiment image. Sail builds custom images only through its SDK, which
 // Loop does not bundle, so Loop builds a "golden" Sailbox instead: boot
-// SAILBOX_BASE_IMAGE with the auth volume mounted, run INSTALL_SCRIPT over
-// exec, take a filesystem-only checkpoint, and start every experiment from
-// that checkpoint. Volume contents are not part of a checkpoint, so the
-// golden image never holds credentials. The checkpoint id is saved as
+// SAILBOX_BASE_IMAGE with no volume mounted, run INSTALL_SCRIPT over exec,
+// take a filesystem-only checkpoint, and start every experiment from that
+// checkpoint. The third-party installers therefore never run beside the
+// harness credentials. Each experiment mounts the auth volume after it starts
+// (VmProvider.mountVolume); a fork's checkpoint reattaches it, and volume
+// contents are never part of a checkpoint. The checkpoint id is saved as
 // vm_provider_configs.base_image_ref with SAILBOX_IMAGE_VERSION, and a
 // version change means the image is rebuilt.
 //

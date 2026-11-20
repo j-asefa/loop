@@ -21,12 +21,22 @@ export type VmLimits = {
   diskLimitGib: number;
 };
 
+/** A VM can exist and still have failed to start; `status` is "failed" and
+ * `errorMessage` carries the provider's reason. */
+export type VmCreated = {
+  remoteId: string;
+  status: VmStatus;
+  errorMessage?: string;
+};
+
 export type VmVolumeMount = {
   volumeId: string;
   mountPath: string;
   readOnly?: boolean;
 };
 
+/** stdout and stderr are paced by their reader: an unread stream stops the
+ * provider's event stream, including the exit event, so callers read both. */
 export interface VmProcessHandle {
   stdin: NodeJS.WritableStream;
   stdout: NodeJS.ReadableStream;
@@ -67,7 +77,7 @@ export interface VmProvider {
     limits: VmLimits;
     autoSleepSeconds: number;
     volumes: VmVolumeMount[];
-  }): Promise<{ remoteId: string; status: VmStatus }>;
+  }): Promise<VmCreated>;
   get(remoteId: string): Promise<{ status: VmStatus } | null>;
   /** Live VMs with exactly this name. More than one means Loop cannot tell
    * which to adopt, and the caller must leave the operation uncertain. */
@@ -98,7 +108,9 @@ export interface VmProvider {
     idempotencyKey: string;
     checkpointId: string;
     name: string;
-  }): Promise<{ remoteId: string; status: VmStatus }>;
+  }): Promise<VmCreated>;
+  /** Mounts a volume on a running VM. Repeating the same mount is safe. */
+  mountVolume(remoteId: string, mount: VmVolumeMount): Promise<void>;
   /** Sets limits and the idle window. Repeating it with the same values is
    * harmless, so it needs no receipt of its own. */
   configure(

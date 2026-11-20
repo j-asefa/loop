@@ -11,8 +11,10 @@ const parse = (row: unknown) =>
   parseRecord(QueryRecords.experiment_vms, row, "experiment_vms");
 
 const insertStatement = statement(
-  "INSERT INTO experiment_vms(id,owner_id,folder_id,provider,remote_name,state,auto_approve_local,vcpu_limit,memory_limit_gib,disk_limit_gib,auto_sleep_seconds,source_experiment_id,source_checkpoint_id,clone_url,last_active_at,created_at) VALUES(?,?,?,?,?,'provisioning',?,?,?,?,?,?,?,?,?,?)",
+  "INSERT INTO experiment_vms(id,owner_id,folder_id,provider,remote_name,state,auto_approve_local,vcpu_limit,memory_limit_gib,disk_limit_gib,auto_sleep_seconds,source_experiment_id,source_checkpoint_id,clone_url,last_active_at,created_at) SELECT ?,?,?,?,?,'provisioning',?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM folders WHERE id=? AND owner_id=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM experiment_vms WHERE id=? AND owner_id=?))",
 );
+/** Inserts the owner's experiment. Returns false, writing nothing, when the
+ * folder or the source experiment is not the owner's. */
 export function insert(
   db: Database.Database,
   vm: {
@@ -32,22 +34,29 @@ export function insert(
     now: number;
   },
 ) {
-  insertStatement(db).run(
-    vm.id,
-    vm.owner,
-    vm.folderId,
-    vm.provider,
-    vm.remoteName,
-    vm.autoApproveLocal ? 1 : 0,
-    vm.vcpuLimit,
-    vm.memoryLimitGib,
-    vm.diskLimitGib,
-    vm.autoSleepSeconds,
-    vm.sourceExperimentId,
-    vm.sourceCheckpointId,
-    vm.cloneUrl,
-    vm.now,
-    vm.now,
+  return (
+    insertStatement(db).run(
+      vm.id,
+      vm.owner,
+      vm.folderId,
+      vm.provider,
+      vm.remoteName,
+      vm.autoApproveLocal ? 1 : 0,
+      vm.vcpuLimit,
+      vm.memoryLimitGib,
+      vm.diskLimitGib,
+      vm.autoSleepSeconds,
+      vm.sourceExperimentId,
+      vm.sourceCheckpointId,
+      vm.cloneUrl,
+      vm.now,
+      vm.now,
+      vm.folderId,
+      vm.owner,
+      vm.sourceExperimentId,
+      vm.sourceExperimentId,
+      vm.owner,
+    ).changes === 1
   );
 }
 
