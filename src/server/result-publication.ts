@@ -668,7 +668,10 @@ function suppliesFromMemory(
       conversationId: result.provenance.conversationId,
       suppliedText: source.suppliedText,
       excerpt: true,
-      truncated: source.suppliedText !== result.outcome.body,
+      truncated:
+        typeof source.excerptTruncated === "boolean"
+          ? source.excerptTruncated
+          : source.suppliedText !== result.outcome.body,
     });
   }
   if (marked)

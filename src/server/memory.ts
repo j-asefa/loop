@@ -603,6 +603,7 @@ export async function searchMemory(
               s.updated_at)),
         complete: !!s.complete,
         excerpt,
+        excerptTruncated: excerpt !== s.savedContent,
         link: s.link,
         ...(s.kind === "artifact"
           ? sealedMemoryEvidence(owner, s.source_id, s.savedContent)
@@ -1324,6 +1325,7 @@ routes.on(workspaceApi.runMemory, (req, res) => {
                 ({
                   suppliedText: _private,
                   providerCallId: _call,
+                  excerptTruncated: _truncated,
                   ...source
                 }) => source,
               ),

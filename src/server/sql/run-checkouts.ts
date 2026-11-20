@@ -79,7 +79,7 @@ export function select(db: Database.Database, runId: string, owner?: string) {
 }
 
 export const settledCheckoutSql =
-  "k.state='captured' AND k.capture_pending=0 AND k.capture_token IS NULL";
+  "k.state='captured' AND k.captured_late=0 AND k.capture_pending=0 AND k.capture_token IS NULL";
 
 const recallCitationStatement = statement(
   `SELECT k.source,k.branch,k.end_head FROM run_checkouts k
