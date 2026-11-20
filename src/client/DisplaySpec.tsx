@@ -112,9 +112,10 @@ export function DisplaySpec({
 }) {
   const writing = useContext(DisplayWritingContext);
   const live = open && canGrow && writing;
+  const incomplete = live || omitSource;
   const read = useMemo(
-    () => readDisplaySpec(source, { open, writing: live }),
-    [source, open, live],
+    () => readDisplaySpec(source, { open, writing: incomplete }),
+    [source, open, incomplete],
   );
   // While written, a block with no root element yet shows a short line, not
   // its source; a finished answer never does.

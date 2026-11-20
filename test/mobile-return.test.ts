@@ -1319,6 +1319,21 @@ it("marks full Done-card display content as complete at the feed cap", async () 
   });
 });
 
+it("marks an exact-length Done feed preview as complete", async () => {
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Exact Done preview");
+  const completed = run(w.owner, a.id, cid, "completed");
+  const body = "🧪".repeat(1000);
+  message(w.owner, cid, "assistant", body, completed);
+  const response = await api(w.owner, "/feed?filter=done");
+  expect(
+    response.data.items.find(
+      (item: { conversation_id: string }) => item.conversation_id === cid,
+    )?.last_message,
+  ).toMatchObject({ content: body, content_truncated: false });
+});
+
 it("counts unread Done results and marks only the opened result read", async () => {
   const { doneCards } = await import("../src/server/done-cards");
   const w = workspaceFor(),

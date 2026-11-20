@@ -423,6 +423,25 @@ it("shows failure source when a capped preview contains the entire closing line"
   );
 });
 
+it("hides missing children at the cutoff but shows them in the full answer", () => {
+  const source =
+    fence +
+    patch(
+      { op: "add", path: "/root", value: "card" },
+      add("card", {
+        type: "Card",
+        props: { title: "Visible card" },
+        children: ["child"],
+      }),
+    );
+  const preview = renderToStaticMarkup(
+    <RichText content={source} compact cappedPreview />,
+  );
+  expect(preview).toContain("Visible card");
+  expect(preview).not.toContain("display-placeholder");
+  expect(render(source, false)).toContain("display-placeholder");
+});
+
 it("keeps a partial replacement from looking like a failed update in a capped preview", () => {
   const source =
     fence +

@@ -80,10 +80,12 @@ function display(
   if (!full && row.message_content !== null) {
     const prefix = feedMessagePrefix(row.message_content);
     row.message_content = prefix.message_content;
-    // A stored row may already have been clipped before this read.
+    // Older thread rows may already have been clipped at the prefix limit.
+    // Done rows use a larger storage limit, so exact prefixes are known.
     if (
       row.message_content_truncated !== undefined ||
-      prefix.message_content_truncated
+      prefix.message_content_truncated ||
+      (mode === "done" && prefix.message_content_truncated === false)
     )
       row.message_content_truncated =
         row.message_content_truncated === true ||
