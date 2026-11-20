@@ -1063,16 +1063,50 @@ function sqlCallLines(file: string, text: string, script = false) {
     return { parentPaths, replacement, suffix };
   };
   const localCalls = new Map<Scope | undefined, any[]>();
+  const arrayPushes = new Map<Scope, Map<string, any[]>>();
   if (script) {
     for (const node of nodes) {
-      if (node.type !== "CallExpression" || node.callee.type !== "Identifier")
-        continue;
-      const scope = boundaryScope(node, "function");
-      const calls = localCalls.get(scope) ?? [];
-      calls.push(node);
-      localCalls.set(scope, calls);
+      if (node.type !== "CallExpression") continue;
+      if (node.callee.type === "Identifier") {
+        const scope = boundaryScope(node, "function");
+        const calls = localCalls.get(scope) ?? [];
+        calls.push(node);
+        localCalls.set(scope, calls);
+      }
+      if (
+        node.callee.type === "MemberExpression" &&
+        property(node.callee) === "push"
+      ) {
+        const target = unwrap(node.callee.object);
+        if (target?.type !== "Identifier") continue;
+        const owner = declaringScope(target.name, target);
+        if (!owner?.arrays?.has(target.name)) continue;
+        const names = arrayPushes.get(owner) ?? new Map<string, any[]>();
+        const pushes = names.get(target.name) ?? [];
+        pushes.push(node);
+        names.set(target.name, pushes);
+        arrayPushes.set(owner, names);
+      }
     }
   }
+  const iteratedItems = (node: any): any[] => {
+    const source = unwrap(node);
+    const array = staticArray(source);
+    if (!array) return [];
+    const items = staticArguments(array).values;
+    if (source.type === "Identifier") {
+      const owner = declaringScope(source.name, source);
+      const pushes = owner && arrayPushes.get(owner)?.get(source.name);
+      for (const push of pushes ?? []) {
+        if (
+          push.end <= source.start &&
+          boundaryScope(push, "function") === boundaryScope(source, "function")
+        )
+          items.push(...staticArguments(push.arguments).values);
+      }
+    }
+    return items;
+  };
   const reachesRead = (
     node: any,
     expression: any,
@@ -1518,6 +1552,9 @@ function sqlCallLines(file: string, text: string, script = false) {
   // Resolve aliases in their own bindings and preserve weaker inference for
   // untyped parameters as it passes through an alias.
   let changed = true;
+  const fixtureShape: Scope = {
+    bindings: new Map([["fixture.db", "connection"]]),
+  };
   const trackMethod = (
     scope: Scope,
     name: string,
@@ -1540,14 +1577,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       (scope.fixtureFactories ??= new Set()).add(name);
       changed = true;
     }
-    if (
-      script &&
-      fixtureCall(value) &&
-      scope.bindings.get(`${name}.db`) !== "connection"
-    ) {
-      scope.bindings.set(`${name}.db`, "connection");
-      changed = true;
-    }
+    if (script && fixtureCall(value))
+      propertyAlias ??= { scope: fixtureShape, name: "fixture" };
     const instance = instanceReference(value);
     if (instance && !scope.instances?.has(name)) {
       (scope.instances ??= new Map()).set(name, instance);
@@ -1742,6 +1773,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (
         kind === "object" &&
         (value.type === "Identifier" ||
+          value.type === "MemberExpression" ||
           fixtureCall(value) ||
           returnedObject(value))
       ) {
@@ -1778,7 +1810,6 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       }
       if (script && node.type === "ForOfStatement") {
-        const array = staticArray(node.right);
         const declaration =
           node.left.type === "VariableDeclaration"
             ? node.left.declarations[0]
@@ -1787,8 +1818,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         const owner = declaration
           ? declarationScope(declaration)
           : target.type === "Identifier" && declaringScope(target.name, target);
-        if (array && owner)
-          for (const item of staticArguments(array).values)
+        if (owner)
+          for (const item of iteratedItems(node.right))
             trackParameter(owner, target, unwrap(item));
       }
       if (script && functionKinds.has(node.type))
@@ -3230,6 +3261,23 @@ it("tracks writes made by local initializers and through shared object aliases",
     fixture.connection.exec("BEGIN");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 11]);
+});
+
+it("respects fixture spread overrides and follows nested returns and array pushes", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import { designFixture } from "./helpers/design-fixture.mjs";
+    const commandAdapter = { exec: runCommand };
+    const target = { ...await designFixture(), db: commandAdapter };
+    target.db.exec(command);
+    const fixture = { storage: { connection: db } };
+    function getStorage() { return fixture.storage; }
+    getStorage().connection.exec("BEGIN");
+    const handles = [];
+    handles.push(db);
+    for (const handle of handles) handle.exec(text);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([9, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
