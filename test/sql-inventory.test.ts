@@ -356,7 +356,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       }));
     if (pattern.type === "ArrayPattern") {
       return pattern.elements.flatMap((element: any, index: number) =>
-        within(element, String(index)),
+        script && element?.type === "RestElement"
+          ? []
+          : within(element, String(index)),
       );
     }
     if (pattern.type !== "ObjectPattern") return [];
@@ -539,14 +541,18 @@ function sqlCallLines(file: string, text: string, script = false) {
       recordField(key, child, earlierFields);
     }
   };
-  const objectRest = (pattern: any) =>
-    pattern?.type === "ObjectPattern"
-      ? pattern.properties.find(
-          (member: any) =>
-            member.type === "RestElement" &&
-            member.argument.type === "Identifier",
-        )
-      : undefined;
+  const restElement = (pattern: any) => {
+    const members =
+      pattern?.type === "ObjectPattern"
+        ? pattern.properties
+        : script && pattern?.type === "ArrayPattern"
+          ? pattern.elements
+          : [];
+    return members.find(
+      (member: any) =>
+        member?.type === "RestElement" && member.argument.type === "Identifier",
+    );
+  };
   for (const node of nodes) {
     const scope = declarationScope(node);
     if (node.type === "FunctionDeclaration" && scope.parent && node.id)
@@ -625,7 +631,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     if (node.type === "VariableDeclarator") {
       declarationScopes.set(node.id, scope);
-      const rest = objectRest(node.id);
+      const rest = restElement(node.id);
       if (rest) scope.bindings.set(rest.argument.name, "object");
       const value = unwrap(node.init);
       const sqliteConstructor =
@@ -687,7 +693,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         parameter.type === "AssignmentPattern" ? parameter.left : parameter;
       const annotation = pattern.typeAnnotation?.typeAnnotation;
       if (annotation) typedParameters.push({ scope, parameter, annotation });
-      const rest = objectRest(pattern);
+      const rest = restElement(pattern);
       if (rest) scope.bindings.set(rest.argument.name, "object");
       for (const { key, name } of bindings(parameter)) {
         const binding =
@@ -1574,6 +1580,19 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (!value) return;
     const copies = restCopies.get(rest) ?? new Set<object>();
     if (copies.has(value)) return;
+    if (pattern.type === "ArrayPattern") {
+      const array = staticArray(value);
+      if (!array) return;
+      copies.add(value);
+      restCopies.set(rest, copies);
+      recordArgument(scope, rest.argument.name, {
+        type: "ArrayExpression",
+        elements: staticArguments(array).values.slice(
+          pattern.elements.indexOf(rest),
+        ),
+      });
+      return;
+    }
     const copy = {
       type: "ObjectExpression",
       properties: [{ type: "SpreadElement", argument: value }],
@@ -1591,7 +1610,7 @@ function sqlCallLines(file: string, text: string, script = false) {
   const trackParameter = (scope: Scope, parameter: any, argument: any) => {
     const pattern =
       parameter.type === "AssignmentPattern" ? parameter.left : parameter;
-    const rest = objectRest(pattern);
+    const rest = restElement(pattern);
     if (rest) trackRestCopy(scope, pattern, rest, argument);
     for (const { key, name, fallback } of bindings(parameter)) {
       if (key) {
@@ -1768,7 +1787,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const value = unwrap(
         declaration ? node.init : field ? node.value : node.right,
       );
-      const rest = script && objectRest(target);
+      const rest = script && restElement(target);
       if (rest) {
         const name = rest.argument.name;
         const owner = declaration
@@ -1856,6 +1875,16 @@ function sqlCallLines(file: string, text: string, script = false) {
       if (sqliteMethod(unwrap(node.callee))) return true;
       if (node.callee.type !== "MemberExpression") return false;
       const method = property(node.callee);
+      const target = unwrap(node.callee.object);
+      if (
+        script &&
+        method === "apply" &&
+        target?.type === "Identifier" &&
+        target.name === "Reflect" &&
+        !declaringScope(target.name, target) &&
+        sqliteMethod(unwrap(node.arguments[0]))
+      )
+        return true;
       if (
         ["call", "apply"].includes(method) &&
         sqliteMethod(unwrap(node.callee.object))
@@ -3031,6 +3060,18 @@ it("recognizes dynamic fixture imports, fixed array at calls and conditional rep
     store.connection.exec("BEGIN");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 8, 12]);
+});
+
+it("tracks array rest elements and SQLite methods invoked through Reflect.apply", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    const handles = [adapter, db];
+    const [, ...copy] = handles;
+    copy[0].exec("BEGIN");
+    Reflect.apply(db.exec, db, [migrationText]);
+    function dispatch(Reflect) { Reflect.apply(db.exec, db, [migrationText]); }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 6]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
