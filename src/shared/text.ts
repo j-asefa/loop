@@ -13,7 +13,7 @@ type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
 /** Plain-text, row-sized preview of markdown: drops syntax, keeps words. */
 export function plainPreview(text: string, length = 140) {
   const flat = dropFencedBlocks(text, true)
-    .replace(/```+[\s\S]*?```+/g, " ")
+    .replace(/```[\s\S]*?```/g, " ")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/(^|\s)#{1,6}\s+/g, "$1")

@@ -1,3 +1,4 @@
+import { FEED_MESSAGE_PREFIX_LIMIT } from "../shared/cards.js";
 import * as feedCardsQueries from "./sql/feed-cards.js";
 import * as feedCardDirtyQueries from "./sql/feed-card-dirty.js";
 import type Database from "better-sqlite3";
@@ -96,7 +97,11 @@ function display(
   const item = displayFeedCard(detail, row, mode);
   if (full && item.last_message) {
     item.last_message.content = row.message_content!;
-    item.last_message.content_truncated = row.message_content_truncated;
+    item.last_message.content_truncated =
+      row.message_content_truncated ??
+      (item.last_message.content.length >= FEED_MESSAGE_PREFIX_LIMIT
+        ? false
+        : undefined);
   }
   return { row, display: item };
 }

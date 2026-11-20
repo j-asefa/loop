@@ -1296,6 +1296,29 @@ it("dismisses only the selected Done card, with exact-card retry and Undo", asyn
   ).toEqual({ feed_hidden: 0 });
 });
 
+it("marks full Done-card display content as complete at the feed cap", async () => {
+  const { doneCards } = await import("../src/server/done-cards");
+  const w = workspaceFor();
+  const a = w.agent();
+  const cid = conversation(w.owner, a.id, "Full display");
+  const completed = run(w.owner, a.id, cid, "completed");
+  const body =
+    "x".repeat(1000) + "\n\n```spec\n" + '{"op":"add","path":"/root"';
+  message(w.owner, cid, "assistant", body, completed);
+  await api(w.owner, "/feed?filter=done");
+  const entry = doneCards(w.owner, {
+    folders: null,
+    teamIds: [],
+    limit: 10,
+  }).find(
+    ({ card }) => card.type === "done" && card.display.conversation_id === cid,
+  );
+  expect(entry?.card).toMatchObject({
+    type: "done",
+    display: { last_message: { content: body, content_truncated: false } },
+  });
+});
+
 it("counts unread Done results and marks only the opened result read", async () => {
   const { doneCards } = await import("../src/server/done-cards");
   const w = workspaceFor(),

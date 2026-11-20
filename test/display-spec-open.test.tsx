@@ -195,6 +195,7 @@ it("keeps plain previews identical for text with no open fence", () => {
     "- one\n- two\n\n| a | b |\n|---|---|\n| 1 | 2 |",
     "Before\n```spec\n{}\n```\nAfter",
     "Before\n```ts\nconst a = 1;\n```\nAfter ```inline``` end",
+    "Marker ``````. Deployment succeeded. Another marker ``` here.",
     "[link](https://example.com) and ![img](x.png)",
     "A".repeat(300),
     "",
