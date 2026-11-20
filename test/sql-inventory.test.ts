@@ -422,7 +422,12 @@ function sqlCallLines(file: string, text: string, script = false) {
       : (member.key.name ?? member.key.value);
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
-  const recordObject = (scope: Scope, name: string, value: any): void => {
+  const recordObject = (
+    scope: Scope,
+    name: string,
+    value: any,
+    excluded?: Set<string>,
+  ): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
     const recordField = (key: string, child: any, owner = scope) => {
@@ -441,7 +446,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
       return;
     }
-    const later = new Set<string>();
+    const later = new Set(excluded);
     let earlierFields: Scope | undefined;
     const rememberSource = (
       source: Scope,
@@ -488,6 +493,14 @@ function sqlCallLines(file: string, text: string, script = false) {
       recordField(key, child, earlierFields);
     }
   };
+  const objectRest = (pattern: any) =>
+    pattern?.type === "ObjectPattern"
+      ? pattern.properties.find(
+          (member: any) =>
+            member.type === "RestElement" &&
+            member.argument.type === "Identifier",
+        )
+      : undefined;
   for (const node of nodes) {
     const scope = declarationScope(node);
     if (node.type === "FunctionDeclaration" && scope.parent && node.id)
@@ -538,11 +551,16 @@ function sqlCallLines(file: string, text: string, script = false) {
           dbModule.test(node.source.value)
         )
           binding = "connection";
-        if (
-          specifier.imported?.name === "designFixture" &&
-          /(?:^|\/)design-fixture(?:\.mjs)?$/.test(node.source.value)
-        )
-          (scope.fixtureFactories ??= new Set()).add(specifier.local.name);
+        if (/(?:^|\/)design-fixture(?:\.mjs)?$/.test(node.source.value)) {
+          if (specifier.type === "ImportNamespaceSpecifier") {
+            binding = "object";
+            (scope.fixtureFactories ??= new Set()).add(
+              `${specifier.local.name}.designFixture`,
+            );
+          } else if (specifier.imported?.name === "designFixture") {
+            (scope.fixtureFactories ??= new Set()).add(specifier.local.name);
+          }
+        }
         if (
           specifier.type === "ImportNamespaceSpecifier" &&
           dbModule.test(node.source.value)
@@ -555,6 +573,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     if (node.type === "VariableDeclarator") {
       declarationScopes.set(node.id, scope);
+      const rest = objectRest(node.id);
+      if (rest) scope.bindings.set(rest.argument.name, "object");
       const value = unwrap(node.init);
       const sqliteConstructor =
         (value?.type === "MemberExpression" &&
@@ -1081,7 +1101,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     changed = true;
   };
   const recordedArguments = new Map<object, Map<Scope, Set<string>>>();
-  const recordArgument = (scope: Scope, name: string, argument: any) => {
+  const recordArgument = (
+    scope: Scope,
+    name: string,
+    argument: any,
+    excluded?: Set<string>,
+  ) => {
     if (!isAggregate(argument)) return;
     const destinations =
       recordedArguments.get(argument) ?? new Map<Scope, Set<string>>();
@@ -1090,7 +1115,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     names.add(name);
     destinations.set(scope, names);
     recordedArguments.set(argument, destinations);
-    recordObject(scope, name, argument);
+    recordObject(scope, name, argument, excluded);
     changed = true;
   };
   const trackParameter = (scope: Scope, parameter: any, argument: any) => {
@@ -1130,6 +1155,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return { values, complete: true };
   };
+  const restCopies = new Set<object>();
   while (changed) {
     changed = false;
     for (const { scope, name, value, spread } of propertyInitializers)
@@ -1216,6 +1242,25 @@ function sqlCallLines(file: string, text: string, script = false) {
       const value = unwrap(
         declaration ? node.init : field ? node.value : node.right,
       );
+      const rest = script && objectRest(target);
+      if (rest && !restCopies.has(rest)) {
+        restCopies.add(rest);
+        const name = rest.argument.name;
+        const owner = declaration
+          ? declarationScope(node)
+          : (declaringScope(name, node) ?? scopeOf(node));
+        const copy = {
+          type: "ObjectExpression",
+          properties: [{ type: "SpreadElement", argument: value }],
+        };
+        const excluded = new Set<string>();
+        for (const member of target.properties) {
+          if (member.type !== "Property") continue;
+          const key = objectKey(member);
+          if (typeof key === "string") excluded.add(key);
+        }
+        recordArgument(owner, name, copy, excluded);
+      }
       const assigned: {
         name: string;
         binding: Binding | undefined;
@@ -2078,6 +2123,23 @@ it("follows assigned factory results, local reassignments and leading SQL interp
     }
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 7, 11, 13, 16]);
+});
+
+it("preserves copied SQLite fields and resolves design-fixture namespace imports", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import * as fixtures from "./helpers/design-fixture.mjs";
+    const sqlite = new SQLite(":memory:");
+    const holder = { connection: sqlite, other: sqlite };
+    const { other, ...copy } = holder;
+    copy.connection.exec(migrationText);
+    copy.other?.exec(migrationText);
+    const { ...inline } = { connection: sqlite };
+    inline.connection.exec(migrationText);
+    const { db } = await fixtures.designFixture();
+    db.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
