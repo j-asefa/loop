@@ -724,8 +724,10 @@ const promptFlagsStatement = statement(
   "SELECT COALESCE(json_extract(m.metadata,'$.personal'),0)=1 AS personal,COALESCE(json_extract(m.metadata,'$.shared'),0)=1 AS shared FROM messages m WHERE m.owner_id=? AND m.run_id=? AND m.role='user' ORDER BY m.rowid LIMIT 1",
 );
 const promptFlagsRow = z.object({ personal: z.number(), shared: z.number() });
+export const unwrittenMessageSql = `m.role='user' AND
+  (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1)`;
 const unwrittenMessageStatement = statement(
-  "SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.role='user' AND m.created_at<=? AND (COALESCE(json_extract(m.metadata,'$.personal'),0)<>1 OR COALESCE(json_extract(m.metadata,'$.shared'),0)=1) LIMIT 1",
+  `SELECT 1 AS found FROM messages m WHERE m.conversation_id=? AND m.owner_id=? AND m.created_at<=? AND ${unwrittenMessageSql} LIMIT 1`,
 );
 /**
  * Whether any user message in a conversation, up to `before`, was not written

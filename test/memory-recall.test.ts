@@ -865,6 +865,27 @@ it("recalls only finished, unarchived results from conversations still in memory
   expect(inclusion.status).toBe(200);
   captureMemory();
   expect(resultCandidates().length).toBeGreaterThan(0);
+
+  await request(
+    "/memory/policy",
+    { scope: "conversation:" + run.conversation_id, enabled: true },
+    "alice",
+    "PUT",
+  );
+  // Keep the existing passage revision to exercise live candidate filtering.
+  db.prepare(
+    "UPDATE memory_policy SET enabled=0 WHERE owner_id=? AND scope=?",
+  ).run("alice", "artifact:" + answer.id);
+  expect(resultCandidates()).toHaveLength(0);
+  db.prepare("DELETE FROM memory_policy WHERE owner_id=? AND scope=?").run(
+    "alice",
+    "artifact:" + answer.id,
+  );
+  expect(resultCandidates().length).toBeGreaterThan(0);
+  db.prepare(
+    "UPDATE messages SET metadata=json_set(metadata,'$.shared',1) WHERE run_id=? AND role='user'",
+  ).run(run.id);
+  expect(resultCandidates()).toHaveLength(0);
 });
 
 it("keeps quoted sources inside the evidence block and the receipt within the budget", async () => {

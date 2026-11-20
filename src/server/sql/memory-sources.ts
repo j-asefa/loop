@@ -1,4 +1,5 @@
 import { publishedResultSql } from "./artifacts.js";
+import { unwrittenMessageSql } from "./messages.js";
 import type Database from "better-sqlite3";
 import { z } from "zod";
 import { personalRunSql, resultOutputSql } from "./artifacts.js";
@@ -166,18 +167,24 @@ export const recallTimeSql = `CASE s.kind
   WHEN 'message' THEN s.created_at
   ELSE s.updated_at END`;
 
-/** Messages require opt-in. Artifact defaults honor conversation opt-out unless pinned or explicitly included. */
+/** Filter live policies and conversation authorship before ranking pull candidates. */
 export const conversationRecallEnabledSql = `(s.conversation_id IS NULL OR EXISTS (
   SELECT 1 FROM memory_policy mp
   WHERE mp.owner_id=s.owner_id AND mp.scope='conversation:' || s.conversation_id AND mp.enabled=1
 )) AND (s.kind<>'artifact' OR NOT EXISTS (
   SELECT 1 FROM artifacts a
-  JOIN memory_policy cp ON cp.owner_id=a.owner_id
+  LEFT JOIN memory_policy cp ON cp.owner_id=a.owner_id
     AND cp.scope='conversation:' || a.conversation_id AND cp.enabled=0
   LEFT JOIN memory_policy ap ON ap.owner_id=a.owner_id
     AND ap.scope='artifact:' || a.id
   WHERE a.id=s.source_id AND a.owner_id=s.owner_id
-    AND COALESCE(ap.enabled, a.pinned, 0)=0
+    AND (ap.enabled=0 OR (ap.enabled IS NULL AND a.pinned=0 AND (
+      cp.enabled=0 OR EXISTS (
+        SELECT 1 FROM messages m WHERE m.conversation_id=a.conversation_id
+          AND m.owner_id=a.owner_id AND m.created_at<=a.created_at
+          AND ${unwrittenMessageSql}
+      )
+    )))
 ))`;
 
 export const recallWindowSql = `(@from IS NULL OR ${recallTimeSql} >= @from)

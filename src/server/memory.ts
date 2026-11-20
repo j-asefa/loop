@@ -842,6 +842,7 @@ export function recheckMemoryToolSearch(
 ) {
   const project = run.payload.folderId ?? null;
   if (
+    !canSearchSavedMemory(run) ||
     !enabled(run.owner_id, "workspace") ||
     (project && !enabled(run.owner_id, "project:" + project))
   )
@@ -903,21 +904,38 @@ export function recordMemoryToolSearch(
   );
 }
 
-/** Fleet mail cannot run with memory recorded for an owner-local conversation. */
-export function assertMemoryContext(run: Run, addingEvidence = false) {
-  if (
-    run.conversation_id &&
-    fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) &&
-    (addingEvidence ||
-      memoryReceiptsQueries.conversationHasEvidence(
+/** A reused conversation may retain earlier Fleet mail in its model context. */
+export function canSearchSavedMemory(
+  run: Pick<Run, "id" | "owner_id" | "conversation_id">,
+) {
+  return (
+    !fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) &&
+    !(
+      run.conversation_id &&
+      fleetEffectsQueries.conversationHasMailAuthority(
         db,
         run.owner_id,
         run.conversation_id,
-      ))
+      )
+    )
+  );
+}
+
+/** Fleet mail and saved memory cannot share a conversation's model context. */
+export function assertMemoryContext(run: Run, addingEvidence = false) {
+  if (
+    run.conversation_id &&
+    ((addingEvidence && !canSearchSavedMemory(run)) ||
+      (fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) &&
+        memoryReceiptsQueries.conversationHasEvidence(
+          db,
+          run.owner_id,
+          run.conversation_id,
+        )))
   )
     throw new Problem(
       403,
-      "Fleet mail cannot continue a conversation that used saved memory",
+      "Fleet mail and saved memory cannot share conversation context",
     );
 }
 
@@ -929,7 +947,7 @@ export async function recallForRun(
 ): Promise<Recall> {
   if (
     !run.conversation_id ||
-    fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id) ||
+    !canSearchSavedMemory(run) ||
     !messagesQueries.hasPersonalPrompt(db, run.id, run.owner_id) ||
     runsQueries.hasEarlierCompletedConversationRun(
       db,

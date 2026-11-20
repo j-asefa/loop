@@ -48,7 +48,8 @@ const { readAgentThread } = await import("../src/server/agent-thread-feed.js");
 const { AgentThreadMessagesQuery, AgentThreadDetail } =
   await import("../src/shared/agent-thread-feed.js");
 const { nativeSessions } = await import("../src/server/native-sessions.js");
-const { nativeBindings } = await import("../src/server/native-tools.js");
+const { invokeNative, nativeBindings } =
+  await import("../src/server/native-tools.js");
 const { SteeringInbox } = await import("../src/server/steering.js");
 const { createFleetPeerHttp } =
   await import("../src/server/fleet-peer-http.js");
@@ -732,6 +733,39 @@ it.each([
   },
 );
 
+it("withholds memory search from a local follow-up after Fleet mail", async () => {
+  const local = agent(owner);
+  const received = await deliver(envelope(local.id));
+  if (received.admission.state !== "accepted")
+    throw new Error("Expected accepted mail");
+  const mail = row(received.admission.mailId);
+  const incoming = claim(
+    "fleet-before-memory",
+    (candidate) => candidate.id === mail.run_id,
+  )!;
+  transition(incoming, "completed");
+  const followUp = submit(owner, {
+    agentId: local.id,
+    conversationId: incoming.conversation_id!,
+    input: "Find my saved notes",
+    idempotencyKey: id(),
+    personal: true,
+  });
+  const running = claim(
+    "local-after-fleet",
+    (candidate) => candidate.id === followUp.id,
+  )!;
+  const tool = nativeBindings(running, { nativeCatalog: true }).find(
+    (entry) => entry.tool === "loop_memory_search",
+  )!;
+  expect(
+    nativeBindings(running).some((entry) => entry.tool === tool.tool),
+  ).toBe(false);
+  await expect(
+    invokeNative(running, tool, "search", { query: "notes" }),
+  ).rejects.toMatchObject({ status: 403 });
+});
+
 it("keeps a remote interrupt out of an active conversation with recorded memory", async () => {
   const local = agent(owner, "pi");
   const busy = submit(owner, {
@@ -804,10 +838,10 @@ it("keeps a remote interrupt out of an active conversation with recorded memory"
     ),
   ).toBe(true);
   await expect(executeAgent(queued)).rejects.toThrow(
-    /cannot continue a conversation that used saved memory/,
+    /Fleet mail and saved memory cannot share conversation context/,
   );
   await expect(nativeSessions.execute(queued)).rejects.toThrow(
-    /cannot continue a conversation that used saved memory/,
+    /Fleet mail and saved memory cannot share conversation context/,
   );
   transition(queued, "cancelled");
 });

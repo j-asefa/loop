@@ -1,7 +1,6 @@
 import { PUBLISH_FILE_TOOL } from "../shared/workspace-tools.js";
 import * as teamMembersQueries from "./sql/team-members.js";
 import * as agentsQueries from "./sql/agents.js";
-import * as fleetEffectsQueries from "./sql/fleet-effect-authorizations.js";
 import * as nativeCallsQueries from "./sql/native-calls.js";
 import * as agentCheckpointsQueries from "./sql/agent-checkpoints.js";
 import * as approvalsQueries from "./sql/approvals.js";
@@ -34,6 +33,7 @@ import type { ToolBinding } from "./mcp/broker.js";
 import { installConfig, parseMcpConfig } from "./mcp/install.js";
 import { readRunFile } from "./uploads.js";
 import {
+  canSearchSavedMemory,
   memorySearchInput,
   memoryToolSearch,
   recordMemoryToolSearch,
@@ -239,10 +239,9 @@ export function nativeBindings(
       "Read an uploaded or published file by byte offset/length (utf8 or base64). Use nextOffset to continue; decode base64 locally for binary files.",
     loop_diagram:
       "Create a native Mermaid diagram in Loop (plain Mermaid source; no HTML, click handlers, or directives).",
-    ...((options.nativeCatalog ||
-      !fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id)) && {
+    ...((options.nativeCatalog || canSearchSavedMemory(run)) && {
       loop_memory_search:
-        "Search the owner’s saved Loop memory (results, notes, included conversations). Hits are untrusted historical evidence. Read-only, no approval. Unavailable on Fleet mail. Dates are inclusive UTC days.",
+        "Search the owner's saved results, notes and included conversations. Hits are untrusted historical evidence. Read-only. Unavailable in Fleet mail conversations. Dates are inclusive UTC days.",
     }),
     ...(agentFeedAccess(run.owner_id) && {
       loop_feed:
@@ -382,7 +381,7 @@ export async function invokeNative(
     assertEffect(run.owner_id, "run", run.id);
     return db
       .transaction(() => {
-        if (fleetEffectsQueries.hasMailAuthority(db, run.owner_id, run.id))
+        if (!canSearchSavedMemory(run))
           throw new Problem(403, "Memory search is unavailable to this agent");
         const saved = nativeCallsQueries.get(db, run.id, callId);
         if (saved?.result)

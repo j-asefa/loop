@@ -100,3 +100,26 @@ export function hasMailAuthority(
 ) {
   return mailAuthorityStatement(db).get({ owner, effect, kind }) !== undefined;
 }
+
+const conversationMailAuthorityStatement = statement(
+  `SELECT 1 FROM runs r
+   WHERE r.owner_id=@owner AND r.conversation_id=@conversation AND EXISTS (
+     SELECT 1 FROM fleet_effect_authorizations g
+     WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
+       AND json_extract(g.grant_context,'$.operation')='mail'
+     UNION ALL
+     SELECT 1 FROM fleet_effect_edit_authorizations g
+     WHERE g.owner_id=r.owner_id AND g.effect_kind='run' AND g.effect_id=r.id
+       AND json_extract(g.grant_context,'$.operation')='mail'
+   ) LIMIT 1`,
+);
+export function conversationHasMailAuthority(
+  db: Database.Database,
+  owner: string,
+  conversation: string,
+) {
+  return (
+    conversationMailAuthorityStatement(db).get({ owner, conversation }) !==
+    undefined
+  );
+}
