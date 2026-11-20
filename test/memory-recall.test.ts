@@ -318,6 +318,33 @@ it("rechecks cached memory hits and blocks runs with a remote mail grant", async
       expect((await request(`/runs/${run.id}/memory`)).data).toEqual(
         historical,
       );
+      const statusCall = {
+        method: "tools/call",
+        id: "mail-status",
+        name: "loop_message_status",
+        arguments: {},
+      };
+      expect(await call(statusCall)).not.toMatchObject({ isError: true });
+      fleetEffectsQueries.insert(
+        db,
+        run.owner_id,
+        "run",
+        run.id,
+        id(),
+        JSON.stringify({ operation: "mail" }),
+      );
+      try {
+        expect(await call(statusCall)).toMatchObject({
+          isError: true,
+          content: [
+            { text: "Mail previews are unavailable in Fleet mail context" },
+          ],
+        });
+      } finally {
+        db.prepare(
+          "DELETE FROM fleet_effect_authorizations WHERE owner_id=? AND effect_kind='run' AND effect_id=?",
+        ).run(run.owner_id, run.id);
+      }
     } finally {
       await bridge.close();
     }

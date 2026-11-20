@@ -124,17 +124,22 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
-    if (binding.tool === "loop_message_status" && !canSearchSavedMemory(run))
-      throw new Problem(
-        403,
-        "Mail previews are unavailable in Fleet mail context",
-      );
     const key = run.id + ":" + requestId,
       digest = JSON.stringify([name, args]);
     const previous = t.calls.get(key);
+    if (previous && previous.digest !== digest)
+      throw new Error("Tool request identity was reused");
+    if (binding.tool === "loop_message_status" && !canSearchSavedMemory(run))
+      return Promise.resolve({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Mail previews are unavailable in Fleet mail context",
+          },
+        ],
+      });
     if (previous) {
-      if (previous.digest !== digest)
-        throw new Error("Tool request identity was reused");
       if (binding.tool !== "loop_memory_search") return previous.result;
     }
     if (!previous && t.calls.size >= 2000)
