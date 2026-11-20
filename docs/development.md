@@ -124,6 +124,8 @@ Browser and package scripts seed valid records through existing SQL writers or t
 
 Standalone keywords such as `BEGIN` require a known or inferred SQLite receiver. A keyword alone can also be an argument to an unrelated command API.
 
+For an opaque receiver, recognizable SQL text is a heuristic. A call to a different SQL adapter can have the same syntax. Check the receiver's import or local caller to establish which database the script uses.
+
 Native async tests use bounded waits from `test/helpers/wait.ts`. Regressions should exercise the production caller and observable behavior, not keep an unused helper alive. Harness fixtures make no model requests and cannot certify authenticated upstream compatibility.
 
 ### Memory recall replay evaluation

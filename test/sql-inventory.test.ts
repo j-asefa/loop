@@ -225,23 +225,26 @@ function sqlCallLines(file: string, text: string, script = false) {
   const straightLineWrites = new Map<Scope, Map<string, any[]>>();
   if (script) {
     for (const node of nodes) {
+      const declaration = node.type === "VariableDeclarator";
+      const target = declaration ? node.id : node.left;
       if (
-        node.type !== "AssignmentExpression" ||
-        node.left.type !== "Identifier"
+        (!declaration && node.type !== "AssignmentExpression") ||
+        target?.type !== "Identifier"
       )
         continue;
       const statement = parents.get(node);
       const block = parents.get(statement);
       if (
-        statement?.type !== "ExpressionStatement" ||
+        statement?.type !==
+          (declaration ? "VariableDeclaration" : "ExpressionStatement") ||
         (block?.type !== "BlockStatement" && block?.type !== "Program")
       )
         continue;
       const scope = scopeOf(node);
       const byName = straightLineWrites.get(scope) ?? new Map<string, any[]>();
-      const writes = byName.get(node.left.name) ?? [];
+      const writes = byName.get(target.name) ?? [];
       writes.push(node);
-      byName.set(node.left.name, writes);
+      byName.set(target.name, writes);
       straightLineWrites.set(scope, byName);
     }
   }
@@ -294,6 +297,8 @@ function sqlCallLines(file: string, text: string, script = false) {
       ? `static${path.slice(4)}`
       : path;
   const literalKey = (node: any): any => {
+    if (node?.type === "TemplateLiteral" && !node.expressions.length)
+      return node.quasis[0]?.value.cooked;
     if (node?.type === "BinaryExpression" && node.operator === "+") {
       const left = literalKey(node.left);
       const right = literalKey(node.right);
@@ -906,8 +911,10 @@ function sqlCallLines(file: string, text: string, script = false) {
         .get(scopeOf(expression))
         ?.get(name)
         ?.findLast((assignment) => assignment.end <= expression.start);
-      if (write?.operator === "=") {
-        const value = unwrap(write.right);
+      if (write?.operator === "=" || write?.type === "VariableDeclarator") {
+        const value = unwrap(
+          write.type === "VariableDeclarator" ? write.init : write.right,
+        );
         if (
           isAggregate(value) ||
           (value?.type === "Identifier" && connectionKind(value) === "object")
@@ -1231,6 +1238,20 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
     for (const node of nodes) {
+      if (
+        node.type === "CallExpression" &&
+        node.callee.type === "MemberExpression"
+      ) {
+        const fn = functionReference(node.callee);
+        if (
+          fn &&
+          fn.type !== "ArrowFunctionExpression" &&
+          !explicitReceiverScopes.has(fn)
+        ) {
+          explicitReceiverScopes.set(fn, { bindings: new Map() });
+          changed = true;
+        }
+      }
       if (script && functionKinds.has(node.type))
         for (const parameter of node.params)
           if (parameter.type === "AssignmentPattern")
@@ -1345,7 +1366,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         }
       } else if (field) {
         const key = node.computed
-          ? node.key.value
+          ? literalKey(node.key)
           : (node.key.name ?? node.key.value);
         if (typeof key === "string")
           assigned.push({
@@ -2242,6 +2263,27 @@ it("preserves server receiver detection and follows method destructuring in scri
 `;
   expect(sqlCallLines("probe.ts", text)).toEqual([5, 8]);
   expect(sqlCallLines("probe.ts", text, true)).toEqual([5, 8, 12]);
+});
+
+it("detects ordinary method receivers and computed keys without using later writes for earlier calls", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import SQLite from "better-sqlite3";
+    function migrate(sql) { this.connection = db; this.connection.exec(sql); }
+    const holder = { migrate };
+    holder.migrate(migrationText);
+    const key = "connection";
+    class Store {
+      [key] = new SQLite(":memory:");
+      seed() { this.connection.exec(migrationText); }
+    }
+    let handle = { exec: runCommand };
+    handle.exec(command);
+    handle = new SQLite(":memory:");
+    handle[\`exec\`](migrationText);
+`;
+  expect(sqlCallLines("probe.ts", text)).toContain(4);
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 10, 15]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
