@@ -470,6 +470,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return { values, complete: true };
   };
+  const deferredObjects: {
+    scope: Scope;
+    name: string;
+    value: any;
+    excluded?: Set<string>;
+  }[] = [];
+  let writesIndexed = false;
   const recordObject = (
     scope: Scope,
     name: string,
@@ -478,6 +485,19 @@ function sqlCallLines(file: string, text: string, script = false) {
   ): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
+    if (
+      !writesIndexed &&
+      value.type === "ObjectExpression" &&
+      value.properties.some(
+        (member: any) =>
+          member.type === "Property" &&
+          member.computed &&
+          objectKey(member) === undefined,
+      )
+    ) {
+      deferredObjects.push({ scope, name, value, excluded });
+      return;
+    }
     const recordField = (key: string, child: any, owner = scope) => {
       const path = `${name}.${key}`;
       if (!owner.bindings.has(path)) owner.bindings.set(path, "other");
@@ -809,6 +829,9 @@ function sqlCallLines(file: string, text: string, script = false) {
       }
     }
   }
+  writesIndexed = true;
+  for (const { scope, name, value, excluded } of deferredObjects)
+    recordObject(scope, name, value, excluded);
   const isConstructor = (name: string, node: any) =>
     bindingOf(name, node) === "constructor";
   function receiverProperty<T>(
@@ -1127,6 +1150,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     const { values, complete } = staticArguments(
       pushes.length ? array.concat(...pushes) : array,
     );
+    const target = unwrap(source);
+    const position = index < 0 && complete ? values.length + index : index;
+    if (target.type === "Identifier" && position >= 0) {
+      const owner = declaringScope(target.name, target);
+      const write = latestWrite(target, `${target.name}.${position}`, owner);
+      if (write?.operator === "=") return unwrap(write.right);
+    }
     return index >= 0 || complete ? values.at(index) : undefined;
   };
   const reachesRead = (
@@ -3381,6 +3411,22 @@ it("prefers SQLite field writes over class initializers and clears optional rece
     handle?.exec("BEGIN");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 9]);
+});
+
+it("resolves computed fields after indexing writes and honors fixed array index assignments", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let key = "connection";
+    const store = { [key]: db };
+    store.connection.exec("BEGIN");
+    const handles = [];
+    handles[0] = db;
+    handles.at(0).exec("BEGIN");
+    const existing = [db];
+    existing[0] = { exec: runCommand };
+    existing.at(0).exec(command);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 8]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
