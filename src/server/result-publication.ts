@@ -605,9 +605,7 @@ function suppliesFromMemory(
   const sources = memoryReceiptsQueries.parseSources(receipt.sources);
   const citedLinks = new Set(
     Array.from(
-      answer.matchAll(
-        /(?:^|[\s<("'\x60\[])(?:https?:\/\/[^\s<>"'\x60()[\]{}\/]+)?(\/[^\s<>"'\x60()[\]{}]+)/g,
-      ),
+      answer.matchAll(/(?:^|[\s<("'\x60\[])(\/(?!\/)[^\s<>"'\x60()[\]{}]+)/g),
       ([, link]) => link.replace(/[.,;:!?]+$/, ""),
     ),
   );
