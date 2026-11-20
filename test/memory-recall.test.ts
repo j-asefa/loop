@@ -939,6 +939,36 @@ it("links recalled passages to a sealed result and records deterministic citatio
   );
   expect(pulled).toMatchObject({ via: "tool" });
   expect(pulled).not.toHaveProperty("cited");
+  expect(
+    (
+      await request(
+        "/memory/policy",
+        {
+          scope: "conversation:" + source.provenance.conversationId,
+          enabled: true,
+        },
+        "alice",
+        "PUT",
+      )
+    ).status,
+  ).toBe(200);
+  captureMemory();
+  expect(
+    (
+      await searchMemory("alice", null, "hemlock deploy checksum", {
+        kind: "message",
+      })
+    ).sources,
+  ).toContainEqual(
+    expect.objectContaining({
+      resultId: source.id,
+      checkout: { repository: "monorepo", branch: "topic", commit },
+    }),
+  );
+  db.prepare("DELETE FROM memory_policy WHERE owner_id=? AND scope=?").run(
+    "alice",
+    "conversation:" + source.provenance.conversationId,
+  );
   const artifact = db
     .prepare("SELECT id,title FROM artifacts WHERE run_id=? AND role='answer'")
     .get(saved.id) as { id: string; title: string };
@@ -1081,7 +1111,7 @@ it("requires an explicit revision when a receipt link has multiple targets", asy
   );
   await answerNext(
     "revision-citation",
-    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123) and [an external page](https://outside.example/?memory=external).`,
+    `See ${link} and [shared@2]. Also see [the other source](/?memory=abc123) and https://outside.example/a(/?memory=external).`,
   );
   const data = (await request(`/runs/${run.id}/memory`)).data;
   expect(JSON.parse(data.sources)).toEqual([

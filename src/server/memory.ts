@@ -11,6 +11,7 @@ import { workspaceLink } from "../shared/workspace-links.js";
 import * as memoryPolicyQueries from "./sql/memory-policy.js";
 import * as artifactsQueries from "./sql/artifacts.js";
 import * as resultsQueries from "./sql/results.js";
+import * as checkoutsQueries from "./sql/run-checkouts.js";
 import * as memorySourcesQueries from "./sql/memory-sources.js";
 import * as memoryNoteVersionsQueries from "./sql/memory-note-versions.js";
 import * as memoryFtsQueries from "./sql/memory-fts.js";
@@ -308,6 +309,21 @@ export function recallable(owner: string, sourceId: string) {
     return false;
   }
 }
+function checkoutEvidence(
+  repository: string | null,
+  branch: string | null,
+  commit: string | null,
+) {
+  if (
+    !repository ||
+    branch === null ||
+    !commit ||
+    !/^[0-9a-f]{40,64}$/.test(commit)
+  )
+    return {};
+  return { checkout: { repository: basename(repository), branch, commit } };
+}
+
 function sealedMemoryEvidence(
   owner: string,
   artifactId: string,
@@ -325,16 +341,7 @@ function sealedMemoryEvidence(
     resultId: evidence.result_id,
     contentDigest: evidence.content_digest,
     editedAfterPublication: !!evidence.edited,
-    ...(checkout_source &&
-      checkout_branch !== null &&
-      checkout_commit &&
-      /^[0-9a-f]{40,64}$/.test(checkout_commit) && {
-        checkout: {
-          repository: basename(checkout_source),
-          branch: checkout_branch,
-          commit: checkout_commit,
-        },
-      }),
+    ...checkoutEvidence(checkout_source, checkout_branch, checkout_commit),
   };
 }
 
@@ -347,10 +354,15 @@ function sealedMessageEvidence(
   const result = resultsQueries.canonicalByMessage(db, owner, source.source_id);
   if (!result || result.provenance.conversationId !== source.conversation_id)
     return {};
+  const checkout = result.provenance.runId
+    ? checkoutsQueries.select(db, result.provenance.runId, owner)
+    : undefined;
   return {
     resultId: result.id,
     contentDigest: result.contentDigest,
     editedAfterPublication: source.savedContent !== result.outcome.body,
+    ...(checkout &&
+      checkoutEvidence(checkout.source, checkout.branch, checkout.end_head)),
   };
 }
 
