@@ -24,6 +24,7 @@ const CONTROL_TIMEOUT_MS = 60_000;
 // Create and start-from-checkpoint wait for the VM to boot.
 const BOOT_TIMEOUT_MS = 10 * 60_000;
 const MAX_LIST_PAGES = 20;
+const MAX_EXEC_EVENT_CHARS = 16 * 1024 * 1024;
 
 type Fetch = typeof fetch;
 
@@ -295,11 +296,23 @@ export function createSailboxProvider(options: {
         idempotencyKey,
         timeoutMs: BOOT_TIMEOUT_MS,
       });
+      if (
+        value.resume_state === "running" ||
+        value.resume_state === "already_running"
+      )
+        return;
       if (value.resume_state === "terminal_unavailable")
         throw new VmProviderError(
           "refused",
-          message(value, "The Sailbox can no longer be resumed"),
+          typeof value.error_message === "string" && value.error_message
+            ? value.error_message
+            : "The Sailbox can no longer be resumed",
         );
+      // Any other answer does not show the VM running.
+      throw new VmProviderError(
+        "uncertain",
+        "Sailboxes answered a resume without a recognised outcome",
+      );
     },
 
     async checkpointFilesystem(input) {
@@ -533,6 +546,12 @@ async function startExec(
     try {
       for await (const chunk of body) {
         buffered += decoder.decode(chunk, { stream: true });
+        // Sail's output events are small; a line this long is not one.
+        if (buffered.length > MAX_EXEC_EVENT_CHARS) {
+          corrupt = true;
+          await body.cancel().catch(() => undefined);
+          break;
+        }
         let newline = buffered.indexOf("\n");
         while (newline >= 0) {
           handle(buffered.slice(0, newline));

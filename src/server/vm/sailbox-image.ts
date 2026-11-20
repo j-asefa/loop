@@ -90,9 +90,11 @@ link() {
   local target="$auth/$1/$(basename "$2")" path="$HOME/$2"
   mkdir -p "$auth/$1" "$(dirname "$path")"
   chmod 700 "$auth/$1"
-  # A harness that wrote a credential before the link existed keeps it.
-  if [ -f "$path" ] && [ ! -L "$path" ] && [ ! -e "$target" ]; then
-    mv "$path" "$target"
+  # A regular file here is newer than the volume's copy: either the harness
+  # signed in before the link existed, or it refreshed the credential by
+  # replacing the link with a file. Either way it is kept, on the volume.
+  if [ -f "$path" ] && [ ! -L "$path" ]; then
+    mv -f "$path" "$target"
   fi
   ln -sfn "$target" "$path"
 }

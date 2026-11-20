@@ -915,6 +915,27 @@ it("records every live status the provider reports, such as a sleeping VM found 
       if (from !== to) expect(legalVmTransition(from, to)).toBe(true);
 });
 
+it("records a destroy sent while the VM was running as destroyed, not failed", async () => {
+  await runningVm();
+  const operation = {
+    id: "op1",
+    owner: "alice",
+    experimentId: "exp1",
+    kind: "destroy" as const,
+    request: {},
+  };
+  await runVmOperation(
+    db,
+    operation,
+    async () => null,
+    clock,
+    vmOperationEffects(db, operation, clock),
+  );
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe(
+    "destroyed",
+  );
+});
+
 it("refuses illegal and stale VM transitions", () => {
   const vm = { owner: "alice", id: "exp1" };
   expect(transitionVm(db, vm, "destroyed", { now: clock() })).toEqual({

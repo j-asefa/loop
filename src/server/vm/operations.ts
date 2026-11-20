@@ -314,6 +314,16 @@ export function vmOperationEffects(
         );
         return;
       }
+      // A destroy the caller sent without first marking the VM destroying
+      // still ends destroyed, through destroying, rather than failed.
+      if (operation.kind === "destroy") {
+        const row = current();
+        if (row.state !== "destroying" && row.state !== "destroyed")
+          transitionVm(db, row, "destroying", {
+            expected: row.state,
+            now: clock(),
+          });
+      }
       const status = kindStatus[operation.kind];
       if (status) applyObservedStatus(db, current(), status, clock());
       if (operation.kind === "destroy")

@@ -477,3 +477,44 @@ it("reports no exit code when an exec event could not be read", async () => {
   ok2.stderr.resume();
   expect(await ok2.exit).toEqual({ exitCode: 0, signal: null });
 });
+
+it("treats a resume answer without a recognised outcome as uncertain", async () => {
+  for (const answer of [{}, { resume_state: "warming" }]) {
+    const { provider } = fake(() => ok(answer));
+    await expect(provider.resume("sb_1", "op-4")).rejects.toMatchObject({
+      outcome: "uncertain",
+    });
+  }
+  for (const resume_state of ["running", "already_running"]) {
+    const { provider } = fake(() => ok({ resume_state }));
+    await expect(provider.resume("sb_1", "op-5")).resolves.toBeUndefined();
+  }
+});
+
+it("stops reading an exec stream whose event never ends", async () => {
+  const encoder = new TextEncoder();
+  let pulls = 0;
+  const { provider } = fake(
+    () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(
+              encoder.encode(
+                pulls === 1
+                  ? JSON.stringify({ type: "started", exec_request_id: "e" }) +
+                      '\n{"type":"stdout","data":"'
+                  : "A".repeat(1024 * 1024),
+              ),
+            );
+          },
+        }),
+      ),
+  );
+  const handle = await provider.exec("sb_1", ["yes"], {});
+  handle.stdout.resume();
+  handle.stderr.resume();
+  expect(await handle.exit).toEqual({ exitCode: null, signal: null });
+  expect(pulls).toBeLessThan(40);
+});

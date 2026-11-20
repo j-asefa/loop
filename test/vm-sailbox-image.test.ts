@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,4 +74,28 @@ it("produces an install script bash accepts", () => {
   const dir = mkdtempSync(join(tmpdir(), "loop-vm-install-"));
   writeFileSync(join(dir, "install.sh"), INSTALL_SCRIPT);
   execFileSync("bash", ["-n", join(dir, "install.sh")]);
+});
+
+it("keeps a credential the harness refreshed by replacing its link", () => {
+  const root = mkdtempSync(join(tmpdir(), "loop-vm-refresh-"));
+  const [home, auth, workspace] = ["home", "auth", "workspace"].map((name) =>
+    join(root, name),
+  );
+  mkdirSync(home);
+  mkdirSync(auth);
+  run(home, auth, workspace);
+  writeFileSync(join(auth, "codex/auth.json"), "old token");
+  // The harness writes a new file in place of the link, as an atomic
+  // rename-based refresh does.
+  const path = join(home, ".codex/auth.json");
+  rmSync(path);
+  writeFileSync(path, "refreshed token");
+
+  run(home, auth, workspace);
+
+  expect(lstatSync(path).isSymbolicLink()).toBe(true);
+  expect(readFileSync(path, "utf8")).toBe("refreshed token");
+  expect(readFileSync(join(auth, "codex/auth.json"), "utf8")).toBe(
+    "refreshed token",
+  );
 });
