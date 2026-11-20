@@ -275,6 +275,9 @@ export const RichText = memo(function RichText({
               open={code.properties?.dataSpecOpen === true}
               canGrow={code.properties?.dataSpecCanGrow === true}
               omitSource={code.properties?.dataSpecAtPreviewEnd === true}
+              lineMayContinue={
+                code.properties?.dataSpecLineMayContinue === true
+              }
               markdown={(content) => (
                 <RichText
                   content={content}

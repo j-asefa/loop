@@ -50,7 +50,8 @@ export function markOpenSpecFences({
           node.lang = "text";
           return;
         }
-        const open = cut || !closedFence(raw, node.value ?? "");
+        const hasCloser = closedFence(raw, node.value ?? "");
+        const open = cut || !hasCloser;
         const atEnd = (node.position.end.offset ?? 0) >= lastContent;
         // A newline after a parsed closer proves its line was fully captured.
         // A closer at the exact cutoff may still be a prefix of a longer line.
@@ -67,6 +68,8 @@ export function markOpenSpecFences({
               dataSpecOpen: open,
               dataSpecCanGrow: open && atEnd,
               dataSpecAtPreviewEnd: atPreviewEnd,
+              dataSpecLineMayContinue:
+                atPreviewEnd && !hasCloser && !/[\r\n][ \t]*$/.test(source),
             },
           };
       }
@@ -108,6 +111,7 @@ export function DisplaySpec({
   open = false,
   canGrow = false,
   omitSource = false,
+  lineMayContinue = false,
   markdown,
 }: {
   source: string;
@@ -116,6 +120,7 @@ export function DisplaySpec({
   open?: boolean;
   canGrow?: boolean;
   omitSource?: boolean;
+  lineMayContinue?: boolean;
   markdown: (content: string) => ReactNode;
 }) {
   const writing = useContext(DisplayWritingContext);
@@ -123,11 +128,16 @@ export function DisplaySpec({
   const incomplete = live || omitSource;
   const read = useMemo(
     () =>
-      readDisplaySpec(source, {
-        open: open || omitSource,
-        writing: incomplete,
-      }),
-    [source, open, omitSource, incomplete],
+      readDisplaySpec(
+        lineMayContinue
+          ? source.slice(0, source.lastIndexOf("\n") + 1)
+          : source,
+        {
+          open: open || omitSource,
+          writing: incomplete,
+        },
+      ),
+    [source, open, omitSource, incomplete, lineMayContinue],
   );
   // While written, a block with no root element yet shows a short line, not
   // its source; a finished answer never does.

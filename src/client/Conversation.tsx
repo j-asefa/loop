@@ -442,6 +442,8 @@ function ConversationView({
   const positionSent = useRef("");
   const dataRef = useRef(data);
   dataRef.current = data;
+  const reportedProgressRef =
+    useRef<ConversationPage["latest_progress_messages"]>(undefined);
   const agent = agents.find((a) => a.id === data?.conversation.agent_id),
     imported = data?.conversation.origin?.endsWith("-import");
   const project = folders.find(
@@ -658,6 +660,8 @@ function ConversationView({
         setOrigin({ messageId: fresh.position_message_id || null });
       setLoadError("");
       if (fresh.saved) setSavedIds(new Set(fresh.saved));
+      // Socket handlers can run before React renders this accepted snapshot.
+      reportedProgressRef.current = fresh.latest_progress_messages;
       setData((old) =>
         !initial && old
           ? {
@@ -797,7 +801,7 @@ function ConversationView({
             outcome === "applied" &&
             (event.payload.messageId ===
               dataRef.current?.latest_agent_message?.id ||
-              dataRef.current?.latest_progress_messages?.some(
+              reportedProgressRef.current?.some(
                 (message) => message.id === event.payload.messageId,
               ) === true);
           if (outcome === "gap")

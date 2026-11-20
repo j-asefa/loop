@@ -434,7 +434,7 @@ it("hides missing children at the cutoff but shows them in the full answer", () 
         children: ["child"],
       }),
     );
-  for (const clipped of [source, source + "\n```"]) {
+  for (const clipped of [source + "\n", source + "\n```"]) {
     const preview = renderToStaticMarkup(
       <RichText content={clipped} compact cappedPreview />,
     );
@@ -468,5 +468,27 @@ it("keeps a partial replacement from looking like a failed update in a capped pr
   expect(preview).not.toContain("Some display updates could not be applied.");
   expect(render(source, false)).toContain(
     "Some display updates could not be applied.",
+  );
+});
+
+it("waits for the final patch line ending in a capped preview", () => {
+  const source =
+    fence +
+    patch(
+      { op: "add", path: "/root", value: "card" },
+      add("card", { type: "Card", props: { title: "Earlier value" } }),
+      {
+        op: "replace",
+        path: "/elements/card",
+        value: { type: "Card", props: { title: "Replacement value" } },
+      },
+    );
+  const preview = (content: string) =>
+    renderToStaticMarkup(<RichText content={content} compact cappedPreview />);
+  expect(preview(source)).toContain("Earlier value");
+  expect(preview(source)).not.toContain("Replacement value");
+  expect(preview(source + "\n")).toContain("Replacement value");
+  expect(render(source + " invalid suffix\n```", false)).toContain(
+    "Earlier value",
   );
 });
