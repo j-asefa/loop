@@ -1,3 +1,5 @@
+import { memoryKeys } from "./memory-keys.js";
+
 export type MemoryPassage = { start: number; end: number };
 
 const MAX_PASSAGE = 1600;
@@ -118,4 +120,11 @@ export function memoryPassages(
     passages.sort((a, b) => a.start - b.start || a.end - b.end);
   }
   return passages.length ? passages : [{ start: 0, end: 0 }];
+}
+
+export function indexedMemoryPassages(content: string, kind: string) {
+  return memoryPassages(content, kind).map((passage) => ({
+    ...passage,
+    keys: memoryKeys(content.slice(passage.start, passage.end)).join("\n"),
+  }));
 }

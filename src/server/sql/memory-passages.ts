@@ -21,14 +21,14 @@ const insertStatement = statement(
   "INSERT INTO memory_passages(source_id,revision,ordinal,start,end) VALUES(?,?,?,?,?)",
 );
 const indexStatement = statement(
-  "INSERT INTO memory_passage_fts(rowid,source_id,owner_id,ordinal,title,body) VALUES(?,?,?,?,?,?)",
+  "INSERT INTO memory_passage_fts(rowid,source_id,owner_id,ordinal,title,body,keys) VALUES(?,?,?,?,?,?,?)",
 );
 
 /** Replace one source revision's derived offsets and FTS rows in the caller's transaction. */
 export function replace(
   db: Database.Database,
   source: SourceFields,
-  passages: { start: number; end: number }[],
+  passages: { start: number; end: number; keys: string }[],
 ) {
   deleteStatement(db).run(source.id);
   for (const [ordinal, passage] of passages.entries()) {
@@ -39,13 +39,15 @@ export function replace(
       passage.start,
       passage.end,
     );
+    const body = source.content.slice(passage.start, passage.end);
     indexStatement(db).run(
       lastInsertRowid,
       source.id,
       source.owner_id,
       ordinal,
       source.title,
-      source.content.slice(passage.start, passage.end),
+      body,
+      passage.keys,
     );
   }
 }

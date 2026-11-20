@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { memoryKeys } from "../src/server/memory-keys.js";
 import { memoryPassages } from "../src/server/memory-passages.js";
 import { applyMigrationsThrough } from "./helpers/migrations.js";
 import { createTestWorkspace } from "./helpers/test-workspace.js";
@@ -42,13 +43,40 @@ it.each(["artifact", "note"])(
   },
 );
 
+it("extracts structural keys and identifiers from a passage", () => {
+  const raw = [
+    "# Release #781",
+    "**Decision:** Keep the raw excerpt.",
+    "Outcome: shipped",
+    "src/server/memory.ts and 67b9efd",
+    "npm install zod and @scope/tool",
+    'const x = require("react");',
+    "https://example.com/project/run?token=private#fragment",
+  ].join("\n");
+  expect(memoryKeys(raw)).toEqual(
+    expect.arrayContaining([
+      "Release #781",
+      "#781",
+      "Decision",
+      "Outcome: shipped",
+      "src/server/memory.ts",
+      "67b9efd",
+      "zod",
+      "react",
+      "@scope/tool",
+      "example.com/project/run",
+    ]),
+  );
+  expect(memoryKeys(raw).join(" ")).not.toMatch(/private|fragment/);
+});
+
 it("upgrades captured notes and resumes a bounded backfill without interrupting search", () => {
   const workspace = createTestWorkspace();
   try {
     const old = new Database(join(workspace.directory, "loop.db"));
     old
       .transaction(() => {
-        applyMigrationsThrough(old, 165);
+        applyMigrationsThrough(old, 166);
         const add = old.prepare(`INSERT INTO memory_sources
         (id,owner_id,kind,source_id,origin,role,revision,content_hash,content,title,eligible,created_at,updated_at)
         VALUES (?,?,'note',?,'loop','user-note',1,'fixture',?,?,1,1,1)`);
@@ -60,16 +88,25 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
           "z-owner",
           "owner",
           "z-owner",
-          "sapphire revision proof",
+          "# Release #781\n\nsapphire revision proof",
           "Upgrade proof",
         );
         add.run(
           "z-other",
           "other",
           "z-other",
-          "sapphire revision private",
+          "# Release #781\n\nsapphire revision private",
           "Upgrade proof",
         );
+        old
+          .prepare("INSERT INTO memory_passages VALUES (1,'z-owner',1,0,0,42)")
+          .run();
+        old
+          .prepare(
+            "INSERT INTO memory_passage_fts(rowid,source_id,owner_id,ordinal,title,body) VALUES(1,'z-owner','owner',0,'Upgrade proof','sapphire')",
+          )
+          .run();
+        old.prepare("INSERT INTO memory_passage_backfill VALUES(1)").run();
       })
       .immediate();
     old.close();
@@ -90,6 +127,8 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
       const before = await recall();
       const counts = [captureMemory(), captureMemory(), captureMemory()];
       const after = await recall();
+      const heading = (await searchMemory('owner', null, '#781', { relevant: true })).sources.map(s => s.excerpt);
+      const keyHits = passages.search(db, 'keys:781', 'owner', null).map(s => s.id);
       sources.tombstone(db, 'a-000');
       const { default: Database } = await import('better-sqlite3');
       const maintenance = new Database(db.name);
@@ -100,7 +139,7 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
       const indexed = passages.search(db, 'sapphire', 'owner', null).map(s => s.revision);
       sources.tombstone(db, 'z-owner');
       const deleted = passages.search(db, 'sapphire', 'owner', null).length;
-      console.log(JSON.stringify({ before, counts, after, compacted, revision: saved.revision, indexed, deleted }));
+      console.log(JSON.stringify({ before, counts, after, heading, keyHits, compacted, revision: saved.revision, indexed, deleted }));
       db.close();
     `,
       ],
@@ -111,10 +150,12 @@ it("upgrades captured notes and resumes a bounded backfill without interrupting 
     );
     expect(run.status, run.stderr).toBe(0);
     expect(JSON.parse(run.stdout)).toEqual({
-      before: ["sapphire revision proof"],
+      before: ["# Release #781\n\nsapphire revision proof"],
       counts: [100, 7, 0],
-      after: ["sapphire revision proof"],
-      compacted: ["sapphire revision proof"],
+      after: ["# Release #781\n\nsapphire revision proof"],
+      compacted: ["# Release #781\n\nsapphire revision proof"],
+      heading: ["# Release #781\n\nsapphire revision proof"],
+      keyHits: ["z-owner"],
       revision: 1,
       indexed: [1],
       deleted: 0,
