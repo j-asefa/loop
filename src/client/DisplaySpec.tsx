@@ -45,7 +45,8 @@ export function markOpenSpecFences({
         previewFenceIsSpec &&
         node.type === "code" &&
         node.position?.end.offset === source.length &&
-        node.value === ""
+        node.value === "" &&
+        !/[\r\n]/.test(source.slice(node.position.start.offset))
       )
         node.lang = "spec";
       if (

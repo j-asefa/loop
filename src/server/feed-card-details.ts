@@ -155,7 +155,10 @@ export function runDetails(
       const info = lineEnd < 0 ? suffix : suffix.slice(0, lineEnd);
       const invalidBacktickInfo =
         info.includes("`") || (suffixClipped && lineEnd < 0);
-      const fence = /^[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(lastLine);
+      const fence =
+        /^[ \t>]*(?:(?:[-+*]|[0-9]{1,9}[.)])[ \t>]+)*(`{3,}|~{3,})([ \t]*)$/.exec(
+          lastLine,
+        );
       if (fence) {
         // A longer run of the same delimiter can still be a real closer.
         const sameCloser = fence[2]

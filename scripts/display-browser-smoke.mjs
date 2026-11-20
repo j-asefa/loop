@@ -603,6 +603,7 @@ for (const engine of selectedEngines()) {
         ["```", "spec"],
         ["```", "`spec"],
         ["~~~", "~spec"],
+        ["- ```", "spec"],
       ]) {
         update(
           working,
@@ -620,6 +621,25 @@ for (const engine of selectedEngines()) {
         await workingCard().locator(".feed-row").click();
         await expect(cutSheet.getByText("Display loading…")).toBeVisible();
       }
+      const ordinaryFenceAtCut = "```javascript\n```";
+      update(
+        working,
+        "Text. " +
+          "x".repeat(4000 - 8 - ordinaryFenceAtCut.length) +
+          "\n\n" +
+          ordinaryFenceAtCut +
+          "spec\nordinary code\n```",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(
+        workingCard().locator(".live-preview code.language-javascript"),
+      ).toHaveCount(1);
+      await expect(workingCard().locator(".display-loading")).toHaveCount(0);
+      await workingCard().locator(".feed-row").click();
+      await expect(cutSheet.locator("code.language-javascript")).toHaveCount(1);
+      await expect(cutSheet.locator(".display-loading")).toHaveCount(0);
 
       // Earlier progress messages are final while the latest is still growing.
       const progress = fixture.db.prepare(
