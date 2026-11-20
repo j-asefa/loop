@@ -782,6 +782,12 @@ function ConversationView({
             event.type === "message.remove" ||
             (event.type === "message.delta" && "revision" in event.payload))
         ) {
+          const removed =
+            event.type === "message.remove"
+              ? transcriptHandoff.current.projection.messages.get(
+                  event.payload.messageId,
+                )
+              : undefined;
           const outcome = transcriptHandoff.current.receive(
             entry.id,
             event as TranscriptEvent,
@@ -803,7 +809,10 @@ function ConversationView({
               dataRef.current?.latest_agent_message?.id ||
               reportedProgressRef.current?.some(
                 (message) => message.id === event.payload.messageId,
-              ) === true);
+              ) === true ||
+              (!!removed &&
+                readMessageMetadata(removed.metadata, "fallback").progress ===
+                  true));
           if (outcome === "gap")
             markMissing(
               event.type === "message.upsert"
@@ -1088,7 +1097,9 @@ function ConversationView({
   const latestProgressByRun = useMemo(
     () =>
       conversationLatestProgress(
-        data?.messages,
+        transcriptHandoff.current.ready
+          ? transcriptHandoff.current.projection.messages.values()
+          : data?.messages,
         data?.latest_progress_messages,
       ),
     [data?.messages, data?.latest_progress_messages],

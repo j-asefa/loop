@@ -556,6 +556,44 @@ it("discovers a live tail after an anchored snapshot without exposing unloaded o
   );
 });
 
+it("selects new progress in an unloaded gap without exposing its row", async () => {
+  const { workspaceClock } = await import("../src/server/db");
+  const run = seed("gap-progress");
+  const insert = db.prepare(
+    "INSERT INTO messages(id,owner_id,conversation_id,run_id,role,content,created_at) VALUES(?,'owner',?,?,'user','Prompt',?)",
+  );
+  insert.run("gap-prompt", run.id, run.id, 1);
+  const prior = recordConversationUpdate(run, "prior", { content: "Prior" })!;
+  for (let i = 0; i < 55; i++) insert.run(`gap-tail-${i}`, run.id, null, i + 2);
+  const anchored = conversationMessages("owner", run.id, undefined, prior.id);
+  const tail = conversationMessages("owner", run.id);
+  const clock = workspaceClock("owner");
+  const projection = new TranscriptProjection();
+  projection.install(
+    anchored.messages as ProjectedMessage[],
+    clock.cursor,
+    anchored.range,
+  );
+  projection.install(
+    tail.messages as ProjectedMessage[],
+    clock.cursor,
+    tail.range,
+  );
+  const current = recordConversationUpdate(run, "current", {
+    content: "Current",
+  })!;
+  for (const event of events(run.id).filter(({ id }) => id > clock.cursor))
+    projection.apply(event.id, event.event);
+  expect(projection.rows().some(({ id }) => id === current.id)).toBe(false);
+  expect(projection.needsLatest()).toBe(false);
+  expect(
+    conversationLatestProgress(
+      projection.messages.values(),
+      tail.latest_progress_messages,
+    ).get(run.id)?.id,
+  ).toBe(current.id);
+});
+
 it("tracks an off-page progress removal that races an anchored snapshot", async () => {
   const { TranscriptHandoff } =
     await import("../src/shared/transcript-projection");

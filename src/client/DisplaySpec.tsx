@@ -60,7 +60,7 @@ export function markOpenSpecFences({
         const cut =
           previewFenceCut && node.position.end.offset === source.length;
         if (
-          (cut ||
+          ((cut && !previewFenceIsSpec) ||
             (cappedPreview &&
               previewFenceCut === undefined &&
               node.position.end.offset === source.length)) &&

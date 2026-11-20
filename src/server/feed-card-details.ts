@@ -151,6 +151,10 @@ export function runDetails(
       const suffix = source.slice(preview.length, lookaheadEnd);
       detail.live_preview_ends_at_line = /^[ \t]*[\r\n]/.test(suffix);
       const suffixClipped = source.length > lookaheadEnd;
+      const lineEnd = suffix.search(/[\r\n]/);
+      const info = lineEnd < 0 ? suffix : suffix.slice(0, lineEnd);
+      const invalidBacktickInfo =
+        info.includes("`") || (suffixClipped && lineEnd < 0);
       const fence = /^[ \t>]*(`{3,}|~{3,})([ \t]*)$/.exec(lastLine);
       if (fence) {
         // A longer run of the same delimiter can still be a real closer.
@@ -162,6 +166,14 @@ export function runDetails(
         const closer = sameCloser.exec(suffix);
         detail.live_preview_fence_cut =
           !closer || (suffixClipped && !/[\r\n]$/.test(closer[0]));
+        const token = /^[ \t]*([^ \t]+)(?:[ \t]|$)/.exec(info)?.[1];
+        if (
+          token &&
+          (lineEnd >= 0 || !suffixClipped) &&
+          (fence[1][0] !== "`" || !invalidBacktickInfo) &&
+          isDisplayFenceToken(token)
+        )
+          detail.live_preview_fence_spec = true;
       } else {
         const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*([^`~ \t]+)([^\r\n]*)$/.exec(
           lastLine,
@@ -174,9 +186,7 @@ export function runDetails(
           // that makes a backtick opener's info string invalid.
           detail.live_preview_fence_cut =
             (!!continuation && !continuesAsDisplay) ||
-            (opener[1][0] === "`" &&
-              (/^[^\r\n]*`/.test(suffix) ||
-                (suffixClipped && !/[\r\n]/.test(suffix))));
+            (opener[1][0] === "`" && invalidBacktickInfo);
           if (continuesAsDisplay && !detail.live_preview_fence_cut)
             detail.live_preview_fence_spec = !isDisplayFenceToken(opener[2]);
         }

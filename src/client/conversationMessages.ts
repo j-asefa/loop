@@ -45,10 +45,9 @@ type ProgressPosition = {
   cursor: ConversationMessage["cursor"];
 };
 export function conversationLatestProgress(
-  messages: readonly Pick<
-    ProjectedMessage,
-    "id" | "run_id" | "cursor" | "role" | "metadata"
-  >[] = [],
+  messages: Iterable<
+    Pick<ProjectedMessage, "id" | "run_id" | "cursor" | "role" | "metadata">
+  > = [],
   reported: readonly ProgressPosition[] = [],
 ) {
   const byRun = new Map(reported.map((message) => [message.run_id, message]));

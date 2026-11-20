@@ -600,6 +600,7 @@ for (const engine of selectedEngines()) {
         ["```spec", "&#32;extra"],
         ["```spec", "\u00a0extra"],
         ["```sp", "ec"],
+        ["```", "spec"],
       ]) {
         update(
           working,
