@@ -451,7 +451,7 @@ export function memoryDefault(
 
 const memoryResultEvidenceStatement = statement(
   `SELECT r.id AS result_id, r.content_digest,
-          a.content IS NOT json_extract(r.outcome,'$.body') AS edited,
+          @content IS NOT json_extract(r.outcome,'$.body') AS edited,
           k.source AS checkout_source, k.branch AS checkout_branch,
           k.end_head AS checkout_commit
      FROM artifacts a
@@ -459,11 +459,11 @@ const memoryResultEvidenceStatement = statement(
        AND r.sealed=1 AND r.conversation_id=a.conversation_id
      LEFT JOIN agent_checkpoints cp ON cp.run_id=a.run_id
      LEFT JOIN run_checkouts k ON k.owner_id=a.owner_id AND k.run_id=a.run_id
-     WHERE a.id=? AND a.owner_id=? AND a.role='answer'
+     WHERE a.id=@id AND a.owner_id=@owner AND a.role='answer'
        AND (json_extract(a.metadata,'$.messageId')=r.message_id OR
          (json_extract(a.metadata,'$.messageId') IS NULL AND
            ((cp.artifact_id=a.id AND cp.message_id=r.message_id) OR
-             a.content=json_extract(r.outcome,'$.body'))))`,
+             @content=json_extract(r.outcome,'$.body'))))`,
 );
 const memoryResultEvidenceRow = z.object({
   result_id: z.string(),
@@ -478,8 +478,9 @@ export function memoryResultEvidence(
   db: Database.Database,
   id: string,
   owner: string,
+  content: string,
 ) {
-  const row = memoryResultEvidenceStatement(db).get(id, owner);
+  const row = memoryResultEvidenceStatement(db).get({ id, owner, content });
   return row === undefined
     ? undefined
     : parseRecord(memoryResultEvidenceRow, row, "artifacts");

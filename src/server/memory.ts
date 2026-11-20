@@ -308,8 +308,17 @@ export function recallable(owner: string, sourceId: string) {
     return false;
   }
 }
-function sealedMemoryEvidence(owner: string, artifactId: string) {
-  const evidence = artifactsQueries.memoryResultEvidence(db, artifactId, owner);
+function sealedMemoryEvidence(
+  owner: string,
+  artifactId: string,
+  content: string,
+) {
+  const evidence = artifactsQueries.memoryResultEvidence(
+    db,
+    artifactId,
+    owner,
+    content,
+  );
   if (!evidence) return {};
   const { checkout_source, checkout_branch, checkout_commit } = evidence;
   return {
@@ -331,10 +340,9 @@ function sealedMemoryEvidence(owner: string, artifactId: string) {
 
 function sealedMessageEvidence(
   owner: string,
-  source: Pick<
-    QueryRow<"memory_sources">,
-    "source_id" | "conversation_id" | "content"
-  > & { truncated: boolean },
+  source: Pick<QueryRow<"memory_sources">, "source_id" | "conversation_id"> & {
+    savedContent: string;
+  },
 ) {
   const result = resultsQueries.canonicalByMessage(db, owner, source.source_id);
   if (!result || result.provenance.conversationId !== source.conversation_id)
@@ -342,9 +350,7 @@ function sealedMessageEvidence(
   return {
     resultId: result.id,
     contentDigest: result.contentDigest,
-    editedAfterPublication: source.truncated
-      ? !result.outcome.body.startsWith(source.content)
-      : source.content !== result.outcome.body,
+    editedAfterPublication: source.savedContent !== result.outcome.body,
   };
 }
 
@@ -379,6 +385,7 @@ function readMemory(
     ...s,
     evidenceKind,
     content: passage ? s.content : s.content.slice(0, end),
+    savedContent: s.content,
     truncated,
     link: s.conversation_id
       ? workspaceLink({
@@ -586,7 +593,7 @@ export async function searchMemory(
         excerpt,
         link: s.link,
         ...(s.kind === "artifact" && s.evidenceKind === "result"
-          ? sealedMemoryEvidence(owner, s.source_id)
+          ? sealedMemoryEvidence(owner, s.source_id, s.savedContent)
           : s.kind === "message" && s.role === "assistant"
             ? sealedMessageEvidence(owner, s)
             : {}),
@@ -831,7 +838,7 @@ export function evidenceBlock(sources: RecalledSource[]) {
       ? " (edited after publication)"
       : "";
     const checkout = s.checkout
-      ? ` at ${quoted(s.checkout.repository).replace(/[\r\n]/g, " ")}@${s.checkout.commit.slice(0, 12)}`
+      ? ` at ${quoted(s.checkout.repository).replace(/[\r\n\u2028\u2029]+/g, " ")}@${s.checkout.commit.slice(0, 12)}`
       : "";
     const block = `\n[${s.id}@${s.revision}] ${s.kind} by ${author}, ${date}, ${title}, ${s.link}${sealed}${edited}${checkout}\n${quoted(s.excerpt)}\n`;
     if ((open + body + block + close).length > RECALL_CHARACTERS) break;
@@ -974,6 +981,7 @@ export function recordMemoryToolSearch(
   run: Run,
   search: Awaited<ReturnType<typeof memoryToolSearch>>,
   tokens: number,
+  providerCallId?: string,
 ) {
   const prior = memoryReceiptsQueries.get(db, run.id);
   const sources = prior
@@ -982,7 +990,9 @@ export function recordMemoryToolSearch(
   sources.push(
     ...search.hits.map(({ excerpt, ...hit }) => ({
       ...hit,
-      ...(hit.resultId && { suppliedText: excerpt }),
+      ...(providerCallId
+        ? { providerCallId }
+        : hit.resultId && { suppliedText: excerpt }),
       via: "tool",
     })),
   );
@@ -994,6 +1004,40 @@ export function recordMemoryToolSearch(
     (prior?.tokens ?? 0) + tokens,
     prior?.created_at ?? now(),
   );
+}
+
+export function recordMemoryProviderDelivery(
+  run: Run,
+  calls: Map<string, Awaited<ReturnType<typeof memoryToolSearch>>>,
+) {
+  if (!calls.size) return;
+  db.transaction(() => {
+    const receipt = memoryReceiptsQueries.get(db, run.id);
+    if (!receipt) return;
+    const sources = memoryReceiptsQueries.parseSources(receipt.sources);
+    let changed = false;
+    for (const source of sources) {
+      if (typeof source.providerCallId !== "string") continue;
+      const hit = calls
+        .get(source.providerCallId)
+        ?.hits.find(
+          (hit) => hit.id === source.id && hit.revision === source.revision,
+        );
+      if (!hit) continue;
+      if (hit.resultId) source.suppliedText = hit.excerpt;
+      delete source.providerCallId;
+      changed = true;
+    }
+    if (changed)
+      memoryReceiptsQueries.replace(
+        db,
+        run.id,
+        receipt.mode,
+        JSON.stringify(sources),
+        receipt.tokens,
+        receipt.created_at,
+      );
+  }).immediate();
 }
 
 /** A reused conversation may retain earlier Fleet mail in its model context. */
@@ -1219,10 +1263,11 @@ routes.on(workspaceApi.memorySource, (req, res) => {
       kind: s.kind,
       truncated: false,
     } as z.input<typeof workspaceApi.memorySource.response>);
-  const { evidenceKind: _evidenceKind, ...source } = readMemory(
-    res.locals.owner,
-    req.params.id,
-  );
+  const {
+    evidenceKind: _evidenceKind,
+    savedContent: _savedContent,
+    ...source
+  } = readMemory(res.locals.owner, req.params.id);
   res.json(source as z.input<typeof workspaceApi.memorySource.response>);
   return undefined;
 });
@@ -1263,7 +1308,13 @@ routes.on(workspaceApi.runMemory, (req, res) => {
           sources: JSON.stringify(
             memoryReceiptsQueries
               .parseSources(receipt.sources)
-              .map(({ suppliedText: _private, ...source }) => source),
+              .map(
+                ({
+                  suppliedText: _private,
+                  providerCallId: _call,
+                  ...source
+                }) => source,
+              ),
           ),
         }
       : {

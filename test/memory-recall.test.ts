@@ -442,10 +442,19 @@ it("adds nothing when the workspace turns memory off", async () => {
 });
 
 it("removes revoked search evidence from an API checkpoint before resuming the provider", async () => {
-  const own = await note(
-    "Papaya checkpoint",
-    "papaya evidence slated for removal",
-  );
+  const agent = agentFor("alice");
+  const original = submit("alice", {
+    agentId: agent.id,
+    input: "Papaya checkpoint",
+    personal: true,
+    idempotencyKey: id(),
+  });
+  await answerNext("papaya-original", "papaya evidence slated for removal");
+  captureMemory();
+  const {
+    sources: [own],
+  } = await searchMemory("alice", null, "papaya checkpoint");
+  expect(own.resultId).toBe(runResultId(original.id));
   const run = submit("alice", {
     agentId: agentFor("alice").id,
     input: "Continue the task",
@@ -503,14 +512,8 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
     ).toEqual({ content: "" });
     const before = (await request(`/runs/${run.id}/memory`)).data;
     expect(
-      (
-        await request(
-          `/memory/sources/${own.data.id}`,
-          undefined,
-          "alice",
-          "DELETE",
-        )
-      ).status,
+      (await request(`/memory/sources/${own.id}`, undefined, "alice", "DELETE"))
+        .status,
     ).toBe(200);
     transition(claimed, "queued");
     const resumed = claim("resume-memory-checkpoint")!;
@@ -518,6 +521,9 @@ it("removes revoked search evidence from an API checkpoint before resuming the p
     transition(resumed, "completed");
     expect(rounds).toBe(2);
     expect((await request(`/runs/${run.id}/memory`)).data).toEqual(before);
+    expect(
+      getResult("alice", runResultId(run.id), db)?.lineage.suppliedContext,
+    ).toEqual([]);
   } finally {
     pause.mockRestore();
     restore();
@@ -936,6 +942,14 @@ it("links recalled passages to a sealed result and records deterministic citatio
   const artifact = db
     .prepare("SELECT id,title FROM artifacts WHERE run_id=? AND role='answer'")
     .get(saved.id) as { id: string; title: string };
+  expect(
+    artifactsQueries.memoryResultEvidence(
+      db,
+      artifact.id,
+      "alice",
+      "An edited snapshot.",
+    ),
+  ).toMatchObject({ result_id: source.id, edited: 1 });
   artifactsQueries.edit(
     db,
     artifact.title,
@@ -975,7 +989,12 @@ it("links recalled passages to a sealed result and records deterministic citatio
     ]),
   );
   expect(
-    artifactsQueries.memoryResultEvidence(db, artifact.id, "another-owner"),
+    artifactsQueries.memoryResultEvidence(
+      db,
+      artifact.id,
+      "another-owner",
+      excerpt,
+    ),
   ).toBeUndefined();
   expect(
     (await searchMemory("another-owner", null, "hemlock deploy checksum"))
@@ -1036,6 +1055,33 @@ it("links a recalled standalone answer message to its sealed result", async () =
   ).toContainEqual(
     expect.objectContaining({ resultId: source.id, suppliedText: text }),
   );
+});
+
+it("requires an explicit revision when a receipt link has multiple targets", async () => {
+  const run = submit("alice", {
+    agentId: agentFor("alice").id,
+    input: "Check citations",
+    idempotencyKey: id(),
+  });
+  const receipts = await import("../src/server/sql/memory-receipts");
+  const link = "/workspace?memory=shared";
+  receipts.replace(
+    db,
+    run.id,
+    "lexical",
+    JSON.stringify([
+      { id: "shared", revision: 1, link },
+      { id: "shared", revision: 2, link },
+    ]),
+    0,
+    now(),
+  );
+  await answerNext("revision-citation", `See ${link} and [shared@2].`);
+  const data = (await request(`/runs/${run.id}/memory`)).data;
+  expect(JSON.parse(data.sources)).toEqual([
+    { id: "shared", revision: 1, link },
+    { id: "shared", revision: 2, link, cited: true },
+  ]);
 });
 
 it("recalls only finished, unarchived results from conversations still in memory", async () => {

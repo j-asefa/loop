@@ -603,14 +603,23 @@ function suppliesFromMemory(
   const receipt = memoryReceiptsQueries.get(database, run);
   if (!receipt) return [];
   const sources = memoryReceiptsQueries.parseSources(receipt.sources);
+  const linkTargets = new Map<string, Set<string>>();
+  for (const source of sources) {
+    if (source.providerCallId || typeof source.link !== "string") continue;
+    const targets = linkTargets.get(source.link) ?? new Set<string>();
+    targets.add(JSON.stringify([source.id, source.revision]));
+    linkTargets.set(source.link, targets);
+  }
   let marked = false;
   const supplied: ResultSupplyItem[] = [];
   const recorded = new Set<string>();
   let totalChars = 0;
   for (const source of sources) {
+    if (source.providerCallId) continue;
     if (
       (typeof source.link === "string" &&
         source.link &&
+        linkTargets.get(source.link)?.size === 1 &&
         answer.includes(source.link)) ||
       (typeof source.id === "string" &&
         typeof source.revision === "number" &&

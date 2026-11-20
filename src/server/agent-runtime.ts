@@ -911,6 +911,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
         : undefined;
       try {
         assertEffect(run.owner_id, "run", run.id);
+        const providerHistory = memorySearchProviderHistory(run, history);
+        let recordMemoryDelivery: (() => void) | undefined =
+          providerHistory.record;
         for await (const chunk of streamConnection(currentConnection, {
           model: snapshot.model,
           effort: snapshot.effort || undefined,
@@ -921,7 +924,7 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
             // links in it must not become the latest message's context.
             withoutRecall(history.findLast((m) => m.role === "user")?.content),
           ),
-          messages: structuredClone(memorySearchProviderHistory(run, history)),
+          messages: structuredClone(providerHistory.messages),
           signal: AbortSignal.any([signal, generation.signal]),
           steering,
           maxTokens: snapshot.maxTokens,
@@ -937,6 +940,9 @@ export async function executeAgent(run: Run): Promise<RunOutcome> {
               }))
             : undefined,
         })) {
+          // The response confirms this filtered history reached the provider.
+          recordMemoryDelivery?.();
+          recordMemoryDelivery = undefined;
           if (chunk.text) {
             turnText += chunk.text;
             output += chunk.text;
