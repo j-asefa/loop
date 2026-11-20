@@ -153,7 +153,7 @@ export function runDetails(
             : /^~*[ \t]*(?:[\r\n]|$)/;
         detail.live_preview_fence_cut = !sameCloser.test(suffix);
       } else {
-        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*[^`~ \t]+(.*)$/.exec(
+        const opener = /^[^`~]*(`{3,}|~{3,})[ \t]*[^`~ \t]+([^\r\n]*)$/.exec(
           lastLine,
         );
         if (opener) {

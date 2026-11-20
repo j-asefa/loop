@@ -516,12 +516,13 @@ for (const engine of selectedEngines()) {
       );
       await expect(workingCard().locator(".display-loading")).toHaveCount(0);
 
-      const prose = "Text. " + "x".repeat(3985) + "\n\n";
-      for (const example of [
-        "```specimen\nordinary example",
-        "```spec example `invalid",
+      for (const [clipped, remainder] of [
+        ["```spec", "imen\nordinary example"],
+        ["```spec", " example `invalid"],
+        ["```spec note\u2028", "`invalid"],
       ]) {
-        update(working, prose + example);
+        const prose = "Text. " + "x".repeat(4000 - 8 - clipped.length) + "\n\n";
+        update(working, prose + clipped + remainder);
         await page.goto(`${fixture.base}/?filter=working`, {
           waitUntil: "networkidle",
         });

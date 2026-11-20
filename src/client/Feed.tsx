@@ -65,6 +65,7 @@ import {
 import type { CardWindow } from "./card-pager";
 import {
   LIVE_PREVIEW_LIMIT,
+  FEED_MESSAGE_PREFIX_LIMIT,
   compareCardOrder,
   type Card,
   type CardEntry,
@@ -578,8 +579,8 @@ function FeedCard({
                       item.last_message!.content ?? item.last_message!.preview
                     }
                     cappedPreview={
-                      (item.last_message!.content?.length ?? 0) >=
-                      LIVE_PREVIEW_LIMIT
+                      Array.from(item.last_message!.content ?? "").length >=
+                      FEED_MESSAGE_PREFIX_LIMIT
                     }
                     compact
                   />

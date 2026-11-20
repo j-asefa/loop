@@ -1,3 +1,4 @@
+import { FEED_MESSAGE_PREFIX_LIMIT } from "../shared/cards.js";
 import { z } from "zod";
 import { collapse } from "./collapse.js";
 import { ResultDefectKindSchema } from "../shared/result.js";
@@ -100,7 +101,7 @@ export function feedMessagePrefix(text: string) {
   let value = "",
     count = 0;
   for (const point of text) {
-    if (count++ === 1000) break;
+    if (count++ === FEED_MESSAGE_PREFIX_LIMIT) break;
     value += point;
   }
   return value;
