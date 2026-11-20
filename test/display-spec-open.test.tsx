@@ -413,6 +413,16 @@ it("keeps partial source out of a capped thread preview", () => {
   expect(render(source, false)).toContain("&quot;op&quot;");
 });
 
+it("shows failure source when a capped preview contains the entire closing line", () => {
+  const source = fence + '{"op":"add","path":"/root","value":"pending"}\n```';
+  const preview = (content: string) =>
+    renderToStaticMarkup(<RichText content={content} compact cappedPreview />);
+  expect(preview(source + "\n\n  ")).toContain("&quot;op&quot;");
+  expect(preview(source)).toContain(
+    "Open the conversation to see this display.",
+  );
+});
+
 it("keeps a partial replacement from looking like a failed update in a capped preview", () => {
   const source =
     fence +

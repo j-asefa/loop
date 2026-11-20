@@ -464,6 +464,24 @@ for (const engine of selectedEngines()) {
         );
       }
 
+      // The preview cap can keep only three of a four-backtick closer.
+      // The Working preview stays open until the full answer is opened.
+      const fourBacktickRoot = "`" + rootOnly;
+      update(
+        working,
+        fourBacktickRoot +
+          " ".repeat(4000 - fourBacktickRoot.length - 4) +
+          "\n````",
+      );
+      await page.goto(`${fixture.base}/?filter=working`, {
+        waitUntil: "networkidle",
+      });
+      await expect(workingCard().getByText("Display loading…")).toBeVisible();
+      await workingCard().locator(".feed-row").click();
+      await expect(
+        cutSheet.getByText("Continue reading in conversation"),
+      ).toBeVisible();
+
       // A nonbreaking space keeps a delimiter-like line inside the fence.
       update(working, rootOnly + "```\u00a0");
       await page.goto(`${fixture.base}/?filter=working`, {

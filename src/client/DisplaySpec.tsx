@@ -44,14 +44,21 @@ export function markOpenSpecFences({
         }
         const open = cut || !closedFence(raw, node.value ?? "");
         const atEnd = (node.position.end.offset ?? 0) >= lastContent;
-        if (open || (cappedPreview && atEnd))
+        // A newline after a parsed closer proves its line was fully captured.
+        // A closer at the exact cutoff may still be a prefix of a longer line.
+        const atPreviewEnd =
+          cappedPreview &&
+          atEnd &&
+          (open ||
+            !/^[ \t]*[\r\n]/.test(source.slice(node.position.end.offset)));
+        if (open || atPreviewEnd)
           node.data = {
             ...node.data,
             hProperties: {
               ...node.data?.hProperties,
               dataSpecOpen: open,
               dataSpecCanGrow: open && atEnd,
-              dataSpecAtPreviewEnd: cappedPreview && atEnd,
+              dataSpecAtPreviewEnd: atPreviewEnd,
             },
           };
       }
