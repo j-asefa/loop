@@ -390,13 +390,14 @@ function sqlCallLines(file: string, text: string, script = false) {
   const recordObject = (scope: Scope, name: string, value: any): void => {
     if (!["connection", "constructor"].includes(scope.bindings.get(name) ?? ""))
       scope.bindings.set(name, "object");
-    const recordField = (key: string, child: any) => {
+    const recordField = (key: string, child: any, owner = scope) => {
       const path = `${name}.${key}`;
-      if (!scope.bindings.has(path)) scope.bindings.set(path, "other");
+      if (!owner.bindings.has(path)) owner.bindings.set(path, "other");
       if (functionKinds.has(child?.type))
-        (scope.functions ??= new Map()).set(path, child);
-      if (isAggregate(child)) recordObject(scope, path, child);
-      else propertyInitializers.push({ scope, name: path, value: child });
+        (owner.functions ??= new Map()).set(path, child);
+      if (isAggregate(child)) recordObject(owner, path, child);
+      else
+        propertyInitializers.push({ scope: owner, name: path, value: child });
     };
     if (value.type === "ArrayExpression") {
       for (const [index, element] of value.elements.entries()) {
@@ -406,18 +407,35 @@ function sqlCallLines(file: string, text: string, script = false) {
       return;
     }
     const later = new Set<string>();
+    let earlierFields: Scope | undefined;
+    const rememberSource = (
+      source: Scope,
+      path: string,
+      spread: SpreadSource,
+    ) => {
+      const aliases = (scope.objectAliases ??= new Map());
+      const sources = aliases.get(name) ?? [];
+      sources.push({ scope: source, name: path, spread });
+      aliases.set(name, sources);
+    };
     for (let index = value.properties.length - 1; index >= 0; index--) {
       const member = value.properties[index];
       if (member.type === "SpreadElement") {
         const source = unwrap(member.argument);
         const spread = { object: value, index, excluded: new Set(later) };
+        // A later spread can replace an earlier explicit field.
+        if (!earlierFields) {
+          earlierFields = { bindings: new Map() };
+          rememberSource(earlierFields, name, {
+            object: value,
+            index: -1,
+            excluded: new Set(),
+          });
+        }
         if (source?.type === "ObjectExpression") {
           const literal: Scope = { bindings: new Map() };
           recordObject(literal, "object", source);
-          const aliases = (scope.objectAliases ??= new Map());
-          const sources = aliases.get(name) ?? [];
-          sources.push({ scope: literal, name: "object", spread });
-          aliases.set(name, sources);
+          rememberSource(literal, "object", spread);
         } else
           propertyInitializers.push({
             scope,
@@ -432,7 +450,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       const child = unwrap(member.value);
       if (typeof key !== "string" || later.has(key)) continue;
       later.add(key);
-      recordField(key, child);
+      recordField(key, child, earlierFields);
     }
   };
   for (const node of nodes) {
@@ -838,6 +856,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     key: string,
   ): { value?: any; binding?: Binding; origin?: ObjectAlias } {
     const object = unwrap(source);
+    if (script && key === "db" && fixtureCall(object))
+      return { binding: "connection" };
     const separator = key.indexOf(".");
     const head = separator < 0 ? key : key.slice(0, separator);
     const tail = separator < 0 ? undefined : key.slice(separator + 1);
@@ -1921,6 +1941,22 @@ it("follows default handles and SQL constants while excluding constructed regexe
     adapter.exec(migration);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 8]);
+});
+
+it("resolves inline fixture arguments and gives later spreads precedence over explicit fields", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    import { designFixture } from "./helpers/design-fixture.mjs";
+    function seed({ db: handle }, migrationText) { handle.exec(migrationText); }
+    async function run() { seed(await designFixture(), migrationText); }
+    const sqlite = new SQLite(":memory:");
+    const override = { connection: { exec: runCommand } };
+    const target = { connection: sqlite, ...override };
+    target.connection.exec(command);
+    const retained = { connection: sqlite, ...{ other: 1 } };
+    retained.connection.exec(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
