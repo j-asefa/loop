@@ -143,6 +143,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     boundCalls?: Map<string, { fn: object; items: any[] }>;
     sqliteMethods?: Map<string, string>;
     strings?: Map<string, string>;
+    arrays?: Map<string, any>;
+    sqliteTypes?: Set<string>;
     fixtureFactories?: Set<string>;
     objectAliases?: Map<string, ObjectAlias[]>;
   };
@@ -437,6 +439,30 @@ function sqlCallLines(file: string, text: string, script = false) {
       : (member.key.name ?? member.key.value);
   const isAggregate = (node: any) =>
     node?.type === "ObjectExpression" || node?.type === "ArrayExpression";
+  const staticArguments = (
+    items: any[],
+    seen = new Set<object>(),
+  ): { values: any[]; complete: boolean } => {
+    if (seen.has(items)) return { values: [], complete: false };
+    const visited = new Set(seen).add(items);
+    const values: any[] = [];
+    for (const item of items) {
+      if (item?.type !== "SpreadElement") {
+        values.push(item);
+        continue;
+      }
+      const source = unwrap(item.argument);
+      const array =
+        source?.type === "Identifier"
+          ? declaringScope(source.name, source)?.arrays?.get(source.name)
+          : source;
+      if (array?.type !== "ArrayExpression") return { values, complete: false };
+      const expanded = staticArguments(array.elements, visited);
+      values.push(...expanded.values);
+      if (!expanded.complete) return { values, complete: false };
+    }
+    return { values, complete: true };
+  };
   const recordObject = (
     scope: Scope,
     name: string,
@@ -455,8 +481,9 @@ function sqlCallLines(file: string, text: string, script = false) {
         propertyInitializers.push({ scope: owner, name: path, value: child });
     };
     if (value.type === "ArrayExpression") {
-      for (const [index, element] of value.elements.entries()) {
-        if (element?.type === "SpreadElement") break;
+      for (const [index, element] of staticArguments(
+        value.elements,
+      ).values.entries()) {
         recordField(String(index), unwrap(element));
       }
       return;
@@ -566,6 +593,11 @@ function sqlCallLines(file: string, text: string, script = false) {
           dbModule.test(node.source.value)
         )
           binding = "connection";
+        if (
+          node.source.value === "better-sqlite3" &&
+          specifier.imported?.name === "Database"
+        )
+          (scope.sqliteTypes ??= new Set()).add(specifier.local.name);
         if (/(?:^|\/)design-fixture(?:\.mjs)?$/.test(node.source.value)) {
           if (specifier.type === "ImportNamespaceSpecifier") {
             binding = "object";
@@ -598,6 +630,12 @@ function sqlCallLines(file: string, text: string, script = false) {
         requiresSqlite(value);
       for (const { key, name } of bindings(node.id)) {
         let binding: Binding = "other";
+        if (
+          key === "" &&
+          parents.get(node)?.kind === "const" &&
+          value?.type === "ArrayExpression"
+        )
+          (scope.arrays ??= new Map()).set(name, value);
         if (
           key === "" &&
           parents.get(node)?.kind === "const" &&
@@ -999,7 +1037,7 @@ function sqlCallLines(file: string, text: string, script = false) {
         : { value, binding: connectionKind(value) };
     };
     if (object?.type === "ArrayExpression" && /^(?:0|[1-9]\d*)$/.test(head)) {
-      return resolve(object.elements[Number(head)]);
+      return resolve(staticArguments(object.elements).values[Number(head)]);
     }
     if (object?.type === "ObjectExpression") {
       for (let index = object.properties.length - 1; index >= 0; index--) {
@@ -1048,8 +1086,13 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   // Explicitly typed SQLite parameters also cover dynamic SQL statements.
   const isDatabaseType = (type: any, node: any) => {
-    if (type?.type !== "TSQualifiedName")
-      return isConstructor(type?.name, node);
+    if (type?.type !== "TSQualifiedName") {
+      const name = type?.name;
+      return (
+        isConstructor(name, node) ||
+        declaringScope(name, node)?.sqliteTypes?.has(name)
+      );
+    }
     if (type.right?.name !== "Database") return false;
     const name = type.left?.name;
     const owner = declaringScope(name, node);
@@ -1220,24 +1263,6 @@ function sqlCallLines(file: string, text: string, script = false) {
       recordArgument(scope, name, argument);
     }
   };
-  const staticArguments = (
-    items: any[],
-  ): { values: any[]; complete: boolean } => {
-    const values: any[] = [];
-    for (const item of items) {
-      if (item?.type !== "SpreadElement") {
-        values.push(item);
-        continue;
-      }
-      const source = unwrap(item.argument);
-      if (source?.type !== "ArrayExpression")
-        return { values, complete: false };
-      const expanded = staticArguments(source.elements);
-      values.push(...expanded.values);
-      if (!expanded.complete) return { values, complete: false };
-    }
-    return { values, complete: true };
-  };
   const restCopies = new Set<object>();
   const returnExpressions: { fn: object; value: any }[] = [];
   if (script) {
@@ -1274,10 +1299,14 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     for (const node of nodes) {
       if (
-        node.type === "CallExpression" &&
-        node.callee.type === "MemberExpression"
+        node.type === "NewExpression" ||
+        (node.type === "CallExpression" &&
+          node.callee.type === "MemberExpression")
       ) {
-        const fn = functionReference(node.callee);
+        const fn =
+          node.type === "NewExpression"
+            ? constructorReference(unwrap(node.callee))
+            : functionReference(node.callee);
         if (
           fn &&
           fn.type !== "ArrowFunctionExpression" &&
@@ -2341,7 +2370,21 @@ it("detects constructor receivers and conditional SQLite bindings while excludin
     pattern.exec("SELECT 1");
 `;
   expect(sqlCallLines("probe.ts", text)).toContain(3);
-  expect(sqlCallLines("probe.ts", text, true)).toEqual([8, 12, 15]);
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([3, 8, 12, 15]);
+});
+
+it("follows known array spreads and named SQLite database types", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import type { Database as Handle } from "better-sqlite3";
+    function execute(handle, migrationText) { handle.exec(migrationText); }
+    const args = [db, migrationText];
+    execute(...args);
+    function seed(connection: Handle) { connection.exec(migrationText); }
+    const handles = [...[], db];
+    handles[0].exec("BEGIN");
+`;
+  expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 7, 9]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
