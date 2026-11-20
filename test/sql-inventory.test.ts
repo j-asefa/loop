@@ -295,9 +295,15 @@ function sqlCallLines(file: string, text: string, script = false) {
         ? declaringScope(name.split(".")[0], node)?.strings?.get(name)
         : undefined;
     }
-    return node?.type === "Identifier"
-      ? declaringScope(node.name, node)?.strings?.get(node.name)
-      : node?.value;
+    if (node?.type !== "Identifier") return node?.value;
+    const owner = declaringScope(node.name, node);
+    const write = latestWrite(node, node.name, owner);
+    if (write?.type === "VariableDeclarator")
+      return literalKey(unwrap(write.init));
+    if (write?.operator === "=" && write.left.type === "Identifier")
+      return literalKey(unwrap(write.right));
+    if (write?.type === "AssignmentExpression") return undefined;
+    return owner?.strings?.get(node.name);
   };
   const property = (node: any) =>
     node?.computed ? literalKey(node.property) : node?.property?.name;
@@ -988,12 +994,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (method === "call") return { fn, items: node.arguments.slice(1) };
     return { fn, items: staticArray(node.arguments[1]) };
   };
-  const latestWrite = (
+  function latestWrite(
     expression: any,
     name: string,
     owner: Scope | undefined,
     captured = false,
-  ) => {
+  ) {
     let write: any;
     let before = expression.start;
     for (
@@ -1031,7 +1037,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     )
       return undefined;
     return write;
-  };
+  }
   const latestParentWrite = (
     expression: any,
     name: string,
@@ -1408,7 +1414,7 @@ function sqlCallLines(file: string, text: string, script = false) {
             ))
         );
       }
-      if (write?.operator === "=") {
+      if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const source = writtenSource(write, name);
         const target = bindings(write.left).find(
           (binding) => binding.name === name,
@@ -1933,7 +1939,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         script &&
         (!binding || binding === "other") &&
         (node.callee.object.type === "MemberExpression" ||
-          node.callee.object.type === "Identifier");
+          node.callee.object.type === "Identifier" ||
+          node.callee.object.type === "CallExpression");
       if (binding !== "inferred" && !opaqueReceiver) return false;
       // Inferred receivers need recognizable SQL text or a statement variable.
       const statement = node.arguments[0];
@@ -3142,6 +3149,23 @@ it("terminates recursive array analysis and handles named defaults and numeric f
     handle.exec(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 7, 9, 12]);
+});
+
+it("resolves mutable keys and factory calls while honoring method initializers", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    import { openDatabase } from "./external.mjs";
+    let execute = runCommand;
+    execute(command);
+    execute = db.exec.bind(db);
+    execute(migrationText);
+    let method = "exec";
+    db[method]("BEGIN");
+    method = "close";
+    db[method]();
+    openDatabase().exec("SELECT 1");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 9, 12]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
