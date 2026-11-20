@@ -132,6 +132,30 @@ describe("actual direct adapter event handlers (deterministic protocol fixtures)
       },
     });
   });
+  it("Pi emits memory search status without projecting the retrieved excerpt", () => {
+    const { adapter, events } = capture(Pi, "pi");
+    adapter.message({
+      type: "tool_execution_start",
+      toolCallId: "memory",
+      toolName: "loop_memory_search",
+      args: { query: "test" },
+    });
+    adapter.message({
+      type: "tool_execution_update",
+      toolCallId: "memory",
+      partialResult: { content: [{ type: "text", text: "Private excerpt" }] },
+    });
+    adapter.message({
+      type: "tool_execution_end",
+      toolCallId: "memory",
+      result: { content: [{ type: "text", text: "Private excerpt" }] },
+    });
+    expect(JSON.stringify(events)).not.toContain("Private excerpt");
+    expect(events.at(-1)).toMatchObject({
+      type: "item",
+      item: { text: "", status: "completed" },
+    });
+  });
   it("OpenCode rejects another session and previous turns", () => {
     const { adapter, updates } = capture(OpenCode, "opencode");
     adapter.session = "s";

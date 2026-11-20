@@ -533,9 +533,12 @@ export class Pi extends DirectAdapter implements Adapter {
         toolName: m.toolName,
         args: m.args,
       });
+    const toolInput = this.activityInputs.get(m.toolCallId);
+    const memorySearch =
+      (m.toolName ?? toolInput?.toolName) === "loop_memory_search";
     for (const activity of directUpdates(
       "pi",
-      piActivities(m, this.activityInputs.get(m.toolCallId)),
+      memorySearch ? [] : piActivities(m, toolInput),
     ))
       this.emit({ type: "activity", activity });
     if (m.type === "tool_execution_end")
@@ -610,11 +613,13 @@ export class Pi extends DirectAdapter implements Adapter {
                 ? "failed"
                 : "completed"
               : "running",
-          text: JSON.stringify(
-            m.result ?? m.partialResult ?? m.args ?? {},
-            null,
-            2,
-          ),
+          text: memorySearch
+            ? ""
+            : JSON.stringify(
+                m.result ?? m.partialResult ?? m.args ?? {},
+                null,
+                2,
+              ),
         },
       });
     if (m.type === "extension_ui_request") {

@@ -1437,6 +1437,10 @@ it("preserves Fleet memory restrictions when mail context is copied", async () =
   const original = userMessage.get(incoming.conversation_id, incoming.id) as {
     id: string;
   };
+  db.prepare(
+    "INSERT INTO native_dispatch(run_id,generation,digest,state,created_at) VALUES(?,?,?,'accepted',?)",
+  ).run(incoming.id, id(), "fixture-dispatch", now());
+  db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(incoming.id);
   const fork = forkConversation(owner, incoming.conversation_id!, {
     messageId: original.id,
   });
