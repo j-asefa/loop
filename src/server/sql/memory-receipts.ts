@@ -79,6 +79,15 @@ const conversationHasEvidenceStatement = statement(
    WHERE ${runInConversationContextSql}
      AND (c.at IS NULL OR r.id=c.answer_run OR m.created_at<=c.at)
      AND EXISTS (SELECT 1 FROM json_each(m.sources))
+   UNION ALL
+   SELECT 1 FROM context c
+   JOIN messages copied ON copied.conversation_id=c.id AND copied.owner_id=@owner
+   JOIN agent_mail mail ON mail.owner_id=@owner AND mail.state='sent'
+     AND mail.id=json_extract(copied.metadata,'$.automation.mailId')
+   JOIN runs sender ON sender.id=mail.sender_run_id AND sender.owner_id=@owner
+   JOIN memory_receipts m ON m.run_id=sender.id
+   WHERE (c.at IS NULL OR copied.created_at<c.at OR (copied.created_at=c.at AND copied.rowid<=c.seq))
+     AND EXISTS (SELECT 1 FROM json_each(m.sources))
    LIMIT 1`,
 );
 /** Whether this owner’s conversation or copied history contains saved evidence. */

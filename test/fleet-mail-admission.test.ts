@@ -739,6 +739,67 @@ it.each([
   },
 );
 
+it("refuses a background result with saved memory after Fleet mail reaches its manager", async () => {
+  const manager = agent(owner);
+  const worker = agent(owner);
+  const team = createTeam(owner, {
+    name: "Background result boundary",
+    managerId: manager.id,
+    members: [worker.id],
+  });
+  const parent = submit(owner, {
+    agentId: manager.id,
+    conversationId: team.conversation_id!,
+    input: "Delegate a task",
+    idempotencyKey: id(),
+  });
+  const child = submit(owner, {
+    agentId: worker.id,
+    teamId: team.id,
+    input: "Background work",
+    idempotencyKey: id(),
+  });
+  db.prepare(
+    "INSERT INTO delegations(parent_run_id,call_id,child_run_id,arguments,background) VALUES(?,?,?,?,1)",
+  ).run(parent.id, "result:0", child.id, "{}");
+  db.prepare("INSERT INTO memory_receipts VALUES(?,?,?,?,?)").run(
+    child.id,
+    "lexical",
+    '[{"id":"saved","via":"tool"}]',
+    15,
+    now(),
+  );
+  const incoming = envelope(manager.id);
+  expect(
+    (
+      await deliver({
+        ...incoming,
+        thread: {
+          ...incoming.thread,
+          recipientConversationId: parent.conversation_id!,
+        },
+      })
+    ).admission,
+  ).toMatchObject({ state: "accepted" });
+  const finished = claim(
+    "background-memory-result",
+    (candidate) => candidate.id === child.id,
+  )!;
+  db.prepare("UPDATE runs SET result=? WHERE id=?").run(
+    "Saved evidence",
+    child.id,
+  );
+  expect(transition(finished, "completed")).toBe(true);
+  sweepAgentMail();
+  expect(
+    db
+      .prepare(
+        "SELECT state,run_id FROM agent_mail WHERE owner_id=? AND sender_run_id=? AND kind='result'",
+      )
+      .get(owner, child.id),
+  ).toEqual({ state: "refused", run_id: null });
+});
+
 it("keeps copied memory evidence out of Fleet context and later mail out of clean forks", async () => {
   const local = agent(owner);
   const original = submit(owner, {

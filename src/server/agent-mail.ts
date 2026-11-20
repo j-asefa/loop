@@ -697,7 +697,12 @@ function dispatch(
         mail.owner_id,
         mail.sender_run_id,
       ));
-  assertFleetMailDestination(mail.owner_id, routed.conversationId, fleetMail);
+  assertFleetMailDestination(
+    mail.owner_id,
+    routed.conversationId,
+    fleetMail,
+    senderRun?.conversation_id,
+  );
   const steer =
     mail.interrupt === 1 &&
     routed.active &&
@@ -1547,6 +1552,7 @@ function assertFleetMailDestination(
   owner: string,
   conversation: string | null | undefined,
   fleetMail: boolean,
+  senderConversation?: string | null,
 ) {
   if (
     fleetMail &&
@@ -1556,6 +1562,16 @@ function assertFleetMailDestination(
     throw new MailRefusal(
       403,
       "Choose a fresh conversation for this Fleet mail.",
+    );
+  if (
+    conversation &&
+    senderConversation &&
+    fleetEffectsQueries.conversationHasMailAuthority(db, owner, conversation) &&
+    memoryReceiptsQueries.conversationHasEvidence(db, owner, senderConversation)
+  )
+    throw new MailRefusal(
+      403,
+      "Saved-memory context cannot be sent to this Fleet mail conversation.",
     );
 }
 const REQUEUED =
@@ -1611,6 +1627,11 @@ function requeue(mail: Mail) {
                 mail.owner_id,
                 mail.sender_run_id,
               )),
+          mail.sender_run_id
+            ? maybeRunNotice(
+                runsQueries.owned(db, mail.sender_run_id, mail.owner_id),
+              )?.conversation_id
+            : undefined,
         );
         const run = submit(mail.owner_id, {
           agentId: mail.recipient_agent_id,
