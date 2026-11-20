@@ -894,8 +894,14 @@ function sqlCallLines(file: string, text: string, script = false) {
         .get(scopeOf(expression))
         ?.get(name)
         ?.findLast((assignment) => assignment.end <= expression.start);
-      if (write?.operator === "=" && isAggregate(unwrap(write.right)))
-        return "object";
+      if (write?.operator === "=") {
+        const value = unwrap(write.right);
+        if (
+          isAggregate(value) ||
+          (value?.type === "Identifier" && connectionKind(value) === "object")
+        )
+          return "object";
+      }
     }
     if (expression.type === "MemberExpression") {
       const object = unwrap(expression.object);
@@ -927,6 +933,15 @@ function sqlCallLines(file: string, text: string, script = false) {
     const object = unwrap(source);
     if (script && key === "db" && fixtureCall(object))
       return { binding: "connection" };
+    if (object?.type === "ConditionalExpression") {
+      const first = propertySource(object.consequent, key);
+      const second = propertySource(object.alternate, key);
+      if (!first.value && !first.binding) return second;
+      return bindingRank[second.binding ?? "other"] >
+        bindingRank[first.binding ?? "other"]
+        ? second
+        : first;
+    }
     const separator = key.indexOf(".");
     const head = separator < 0 ? key : key.slice(0, separator);
     const tail = separator < 0 ? undefined : key.slice(separator + 1);
@@ -1374,14 +1389,18 @@ function sqlCallLines(file: string, text: string, script = false) {
           : literalKey(statement);
       if (typeof text !== "string") return false;
       if (method === "pragma" && binding === "inferred") return true;
+      const sql = text.replace(
+        /^(?:\s+|\/\*[\s\S]*?\*\/|--[^\r\n]*(?:\r\n|[\r\n]|$))+/,
+        "",
+      );
       const keyword =
         /^\s*(?:SELECT|WITH|INSERT|REPLACE|UPDATE|DELETE|CREATE|ALTER|DROP|PRAGMA|ATTACH|DETACH|BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|VACUUM|REINDEX|ANALYZE|EXPLAIN)\b/i.exec(
-          text,
+          sql,
         );
       // For an opaque receiver, a standalone keyword is also a plausible command.
       return Boolean(
         keyword &&
-        (!opaqueReceiver || /[^\s;]/.test(text.slice(keyword[0].length))),
+        (!opaqueReceiver || /[^\s;]/.test(sql.slice(keyword[0].length))),
       );
     })
     .map((node) => text.slice(0, node.start).split("\n").length);
@@ -2140,6 +2159,26 @@ it("preserves copied SQLite fields and resolves design-fixture namespace imports
     db.exec(migrationText);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 10, 12]);
+});
+
+it("follows conditional fixture fields and named replacements and skips leading SQL comments", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const scratchFixture = { db: new SQLite(":memory:") };
+    const primaryFixture = { db: new SQLite(":memory:") };
+    const { db: selected } = flag ? scratchFixture : primaryFixture;
+    selected.exec(migrationText);
+    let handle = new SQLite(":memory:");
+    handle.exec(migrationText);
+    const adapter = { exec: runCommand };
+    handle = adapter;
+    handle.exec(command);
+    function run(context) {
+      const { db } = context;
+      db.exec("/* migration */ -- query\\n SELECT 1");
+    }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([6, 8, 14]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
