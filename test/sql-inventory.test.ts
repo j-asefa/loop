@@ -1062,17 +1062,42 @@ function sqlCallLines(file: string, text: string, script = false) {
     }
     return { parentPaths, replacement, suffix };
   };
+  const localCalls = new Map<Scope | undefined, any[]>();
+  if (script) {
+    for (const node of nodes) {
+      if (node.type !== "CallExpression" || node.callee.type !== "Identifier")
+        continue;
+      const scope = boundaryScope(node, "function");
+      const calls = localCalls.get(scope) ?? [];
+      calls.push(node);
+      localCalls.set(scope, calls);
+    }
+  }
   const reachesRead = (
     node: any,
     expression: any,
     name: string,
     owner: Scope | undefined,
     after: number,
-  ) =>
-    node.start >= after &&
-    node.end <= expression.start &&
-    declaringScope(name.split(".")[0], node) === owner &&
-    boundaryScope(node, "function") === boundaryScope(expression, "function");
+  ) => {
+    if (declaringScope(name.split(".")[0], node) !== owner) return false;
+    const writer = boundaryScope(node, "function");
+    const reader = boundaryScope(expression, "function");
+    if (writer === reader)
+      return node.start >= after && node.end <= expression.start;
+    const fn = writer && functionNodes.get(writer);
+    return (
+      fn &&
+      localCalls
+        .get(reader)
+        ?.some(
+          (call) =>
+            call.start >= after &&
+            call.end <= expression.start &&
+            invocation(call).fn === fn,
+        )
+    );
+  };
   const writtenBinding = (
     expression: any,
     name: string,
@@ -1897,6 +1922,29 @@ function sqlCallLines(file: string, text: string, script = false) {
         const path = receiverPath(node, name);
         if (node.type === "AssignmentExpression" && receiver(target))
           recordArgument(owner, path, value);
+        if (
+          script &&
+          node.type === "AssignmentExpression" &&
+          !name.startsWith("this.") &&
+          name.includes(".")
+        ) {
+          const separator = name.indexOf(".");
+          const alias = latestWrite(node, name.slice(0, separator), owner);
+          const source = unwrap(alias?.init);
+          if (
+            alias?.type === "VariableDeclarator" &&
+            source?.type === "Identifier"
+          ) {
+            const original = declaringScope(source.name, source);
+            const originalWrite =
+              original && latestWrite(node, source.name, original);
+            if (original && !(originalWrite?.start > alias.end)) {
+              const property = source.name + name.slice(separator);
+              recordArgument(original, property, value);
+              trackBinding(original, property, binding, value);
+            }
+          }
+        }
         trackMethod(owner, path, method);
         trackBinding(
           owner,
@@ -3166,6 +3214,22 @@ it("resolves mutable keys and factory calls while honoring method initializers",
     openDatabase().exec("SELECT 1");
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 9, 12]);
+});
+
+it("tracks writes made by local initializers and through shared object aliases", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    let handle = { exec: runCommand };
+    function initialize() { handle = db; }
+    handle.exec(command);
+    initialize();
+    handle.exec("BEGIN");
+    const fixture = {};
+    const alias = fixture;
+    alias.connection = db;
+    fixture.connection.exec("BEGIN");
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([7, 11]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
