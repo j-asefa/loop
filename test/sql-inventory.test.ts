@@ -131,13 +131,15 @@ function sqlCallLines(file: string, text: string, script = false) {
     connection: 4,
   };
   type Boundary = "function" | "receiver";
-  type ObjectAlias = { scope: Scope; name: string; excluded?: Set<string> };
+  type SpreadSource = { object: object; index: number; excluded: Set<string> };
+  type ObjectAlias = { scope: Scope; name: string; spread?: SpreadSource };
   type Scope = {
     parent?: Scope;
     boundary?: Boundary;
     bindings: Map<string, Binding>;
     parameters?: Set<string>;
     classes?: Map<string, Scope>;
+    instances?: Map<string, Scope>;
     functions?: Map<string, object>;
     boundCalls?: Map<string, { fn: object; items: any[] }>;
     sqliteMethods?: Map<string, string>;
@@ -350,7 +352,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     scope: Scope;
     name: string;
     value: any;
-    excluded?: Set<string>;
+    spread?: SpreadSource;
   }[] = [];
   const typedParameters: { scope: Scope; parameter: any; annotation: any }[] =
     [];
@@ -370,6 +372,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       scope.bindings.set(name, "object");
     const recordField = (key: string, child: any) => {
       const path = `${name}.${key}`;
+      if (!scope.bindings.has(path)) scope.bindings.set(path, "other");
       if (functionKinds.has(child?.type))
         (scope.functions ??= new Map()).set(path, child);
       if (isAggregate(child)) recordObject(scope, path, child);
@@ -394,7 +397,7 @@ function sqlCallLines(file: string, text: string, script = false) {
             scope,
             name,
             value: source,
-            excluded: new Set(later),
+            spread: { object: value, index, excluded: new Set(later) },
           });
         continue;
       }
@@ -414,6 +417,16 @@ function sqlCallLines(file: string, text: string, script = false) {
       receiverClass.set(scope, node);
       if (node.type === "ClassDeclaration" && scope.parent && node.id)
         (scope.parent.classes ??= new Map()).set(node.id.name, scope);
+    }
+    if (
+      node.type === "MethodDefinition" &&
+      !node.static &&
+      node.kind !== "constructor"
+    ) {
+      const key = objectKey(node);
+      const owner = boundaryScope(node, "receiver");
+      if (owner && typeof key === "string")
+        (owner.functions ??= new Map()).set(`this.${key}`, node.value);
     }
     if (
       node.id &&
@@ -609,9 +622,18 @@ function sqlCallLines(file: string, text: string, script = false) {
       let binding = select(current, name);
       for (const [path, sources] of current.objectAliases ?? []) {
         if (!name.startsWith(path + ".")) continue;
-        for (const alias of sources) {
+        const groups = new Set<object>();
+        const ordered = [...sources].sort(
+          (a, b) => (b.spread?.index ?? -1) - (a.spread?.index ?? -1),
+        );
+        for (const alias of ordered) {
           const suffix = name.slice(path.length + 1);
-          if (aliases.has(alias) || alias.excluded?.has(suffix.split(".")[0]))
+          if (
+            aliases.has(alias) ||
+            (alias.spread &&
+              (groups.has(alias.spread.object) ||
+                alias.spread.excluded.has(suffix.split(".")[0])))
+          )
             continue;
           const property = receiverProperty(
             alias.scope,
@@ -621,6 +643,8 @@ function sqlCallLines(file: string, text: string, script = false) {
             new Set(aliases).add(alias),
           );
           binding = combine(binding, property);
+          if (property !== undefined && alias.spread)
+            groups.add(alias.spread.object);
         }
       }
       if (binding) return binding;
@@ -655,15 +679,30 @@ function sqlCallLines(file: string, text: string, script = false) {
       : declaringScope(name.split(".")[0], expression);
     return owner ? receiverProperty(owner, name, select) : undefined;
   };
-  const functionReference = (expression: any): any =>
-    functionKinds.has(expression?.type)
-      ? expression
-      : memberReference(expression, (scope, key) => scope.functions?.get(key));
   const returnsDatabase = new Set<object>();
   const classReference = (expression: any): Scope | undefined =>
     classKinds.has(expression?.type)
       ? scopeOf(expression)
       : memberReference(expression, (scope, key) => scope.classes?.get(key));
+  const instanceReference = (expression: any): Scope | undefined =>
+    expression?.type === "NewExpression"
+      ? classReference(unwrap(expression.callee))
+      : memberReference(expression, (scope, key) => scope.instances?.get(key));
+  const functionReference = (expression: any): any => {
+    if (functionKinds.has(expression?.type)) return expression;
+    if (expression?.type === "MemberExpression") {
+      const instance = instanceReference(unwrap(expression.object));
+      if (instance)
+        return receiverProperty(
+          instance,
+          `this.${property(expression)}`,
+          (scope, key) => scope.functions?.get(key),
+        );
+    }
+    return memberReference(expression, (scope, key) =>
+      scope.functions?.get(key),
+    );
+  };
   const constructorReference = (expression: any): any => {
     const seen = new Set<Scope>();
     let scope = classReference(expression);
@@ -855,8 +894,13 @@ function sqlCallLines(file: string, text: string, script = false) {
     name: string,
     binding: Binding | undefined,
     value?: any,
-    excluded?: Set<string>,
+    spread?: SpreadSource,
   ) => {
+    const instance = instanceReference(value);
+    if (instance && !scope.instances?.has(name)) {
+      (scope.instances ??= new Map()).set(name, instance);
+      changed = true;
+    }
     const cls = classReference(value);
     if (cls && !scope.classes?.has(name)) {
       (scope.classes ??= new Map()).set(name, cls);
@@ -892,10 +936,10 @@ function sqlCallLines(file: string, text: string, script = false) {
           (entry) =>
             entry.scope === origin &&
             entry.name === path &&
-            entry.excluded === excluded,
+            entry.spread === spread,
         )
       ) {
-        sources.push({ scope: origin, name: path, excluded });
+        sources.push({ scope: origin, name: path, spread });
         (scope.objectAliases ??= new Map()).set(name, sources);
         changed = true;
       }
@@ -948,8 +992,8 @@ function sqlCallLines(file: string, text: string, script = false) {
     changed = false;
     for (const reference of exportedReferences)
       if (markExported(functionReference(reference))) changed = true;
-    for (const { scope, name, value, excluded } of propertyInitializers)
-      trackBinding(scope, name, connectionKind(value), value, excluded);
+    for (const { scope, name, value, spread } of propertyInitializers)
+      trackBinding(scope, name, connectionKind(value), value, spread);
     for (const node of nodes) {
       if (script && functionKinds.has(node.type))
         for (const parameter of node.params)
@@ -1048,14 +1092,27 @@ function sqlCallLines(file: string, text: string, script = false) {
       }[] = [];
       if (target?.type === "ObjectPattern" || target?.type === "ArrayPattern") {
         for (const { key, name } of bindings(target)) {
-          const { binding: property } = propertySource(value, key);
+          const { binding: property, value: extracted } = propertySource(
+            value,
+            key,
+          );
           const binding =
             property ??
             (key === "db" ? destructuredDatabase(value) : undefined);
+          const path = receiver(value);
+          const owner =
+            path === "this" || path?.startsWith("this.")
+              ? thisScope(value)
+              : path && declaringScope(path.split(".")[0], value);
+          const stored =
+            owner &&
+            receiverProperty(owner, `${path}.${key}`, (scope, property) =>
+              scope.sqliteMethods?.get(property),
+            );
           const method =
             methods.has(key) && connectionKind(value) === "connection"
               ? key
-              : undefined;
+              : (sqliteMethod(extracted) ?? stored ?? undefined);
           if (binding || method) assigned.push({ name, binding, method });
         }
       } else if (field) {
@@ -1668,6 +1725,34 @@ it("uses known defaults and computed methods while respecting spread overrides",
     db[method](query);
   `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([3, 10]);
+});
+
+it("preserves named spread order, stored method destructuring and instance arguments", () => {
+  const text = `
+    import SQLite from "better-sqlite3";
+    const db = new SQLite(":memory:");
+    const adapter = { exec: runCommand };
+    const source = { connection: db };
+    const override = { connection: adapter };
+    const merged = { ...source, ...override };
+    merged.connection.exec(command);
+    const ops = { execute: db.exec.bind(db) };
+    const { execute } = ops;
+    execute(query);
+    class Reader {
+      run(handle, statement) { handle.exec(statement); }
+    }
+    const reader = new Reader();
+    reader.run(db, query);
+  `;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([11, 13]);
+  expect(
+    sqlCallLines(
+      "probe.mjs",
+      text.replace("...source, ...override", "...override, ...source"),
+      true,
+    ),
+  ).toEqual([8, 11, 13]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
