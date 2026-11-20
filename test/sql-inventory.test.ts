@@ -940,6 +940,11 @@ function sqlCallLines(file: string, text: string, script = false) {
     )
       return "connection";
     if (returnedObject(expression)) return "object";
+    if (expression?.type === "MemberExpression") {
+      const result = returnedObject(unwrap(expression.object));
+      if (result)
+        return receiverBinding(result, `result.${property(expression)}`);
+    }
     const callee =
       expression?.type === "NewExpression" && unwrap(expression.callee);
     if (callee?.name === "RegExp" && !declaringScope("RegExp", callee))
@@ -969,7 +974,8 @@ function sqlCallLines(file: string, text: string, script = false) {
         );
         if (
           isAggregate(value) ||
-          (value?.type === "Identifier" && connectionKind(value) === "object")
+          ((value?.type === "Identifier" || value?.type === "CallExpression") &&
+            connectionKind(value) === "object")
         ) {
           const owner = declaringScope(name, expression);
           const fn = boundaryScope(expression, "function");
@@ -1292,7 +1298,17 @@ function sqlCallLines(file: string, text: string, script = false) {
     for (const { scope, name, value, spread } of propertyInitializers)
       trackBinding(scope, name, connectionKind(value), value, spread);
     for (const { fn, value } of returnExpressions) {
-      if (!returnsDatabase.has(fn) && connectionKind(value) === "connection") {
+      const kind = connectionKind(value);
+      if (value.type === "Identifier" && kind === "object") {
+        let result = returnedObjects.get(fn);
+        if (!result) {
+          result = { bindings: new Map() };
+          returnedObjects.set(fn, result);
+          changed = true;
+        }
+        trackBinding(result, "result", kind, value);
+      }
+      if (!returnsDatabase.has(fn) && kind === "connection") {
         returnsDatabase.add(fn);
         changed = true;
       }
@@ -2385,6 +2401,27 @@ it("follows known array spreads and named SQLite database types", () => {
     handles[0].exec("BEGIN");
 `;
   expect(sqlCallLines("probe.ts", text, true)).toEqual([4, 7, 9]);
+});
+
+it("identifies inline and named factory results and adapter factory replacements", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    function open() { return { connection: db }; }
+    open().connection.exec(migrationText);
+    function openNamed() {
+      const store = { connection: db };
+      return store;
+    }
+    openNamed().connection.exec(migrationText);
+    const { connection } = openNamed();
+    connection.exec(migrationText);
+    let handle = db;
+    handle.exec(migrationText);
+    handle = makeAdapter();
+    handle.exec(command);
+    function makeAdapter() { return { exec: runCommand }; }
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 9, 11, 13]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
