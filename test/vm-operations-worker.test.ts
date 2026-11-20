@@ -42,6 +42,7 @@ it("marks a VM operation receipt left pending by a dead caller uncertain on the 
       experimentId: "exp-w",
       kind: "create",
       requestDigest: "d",
+      requestJson: "{}",
       now: now() - age,
     });
 

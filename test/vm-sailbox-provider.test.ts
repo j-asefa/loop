@@ -296,3 +296,51 @@ it("resolves exit with no code when the event stream drops", async () => {
   const handle = await provider.exec("sb_1", ["sleep", "100"], {});
   expect(await handle.exit).toEqual({ exitCode: null, signal: null });
 });
+
+it("treats a listing it cannot read as uncertain, not as proof of absence", async () => {
+  for (const page of [
+    {},
+    { data: [] },
+    { data: "none", has_more: false },
+    { data: [null], has_more: false },
+  ]) {
+    const { provider } = fake(() => ok(page));
+    await expect(
+      provider.findByName("app_1", "loop-exp-abc"),
+    ).rejects.toMatchObject({ outcome: "uncertain" });
+  }
+});
+
+it("stops reading exec events while nobody reads the output", async () => {
+  let pulls = 0;
+  const encoder = new TextEncoder();
+  const chunk = Buffer.alloc(64 * 1024, 1).toString("base64");
+  const { provider } = fake(
+    () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(
+              encoder.encode(
+                (pulls === 1
+                  ? JSON.stringify({ type: "started", exec_request_id: "e" }) +
+                    "\n"
+                  : "") +
+                  JSON.stringify({ type: "stdout", data: chunk, seq: pulls }) +
+                  "\n",
+              ),
+            );
+            if (pulls === 500) controller.close();
+          },
+        }),
+      ),
+  );
+  const handle = await provider.exec("sb_1", ["yes"], {});
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(pulls).toBeLessThan(10);
+  handle.stdout.resume();
+  handle.stderr.resume();
+  await handle.exit;
+  expect(pulls).toBe(500);
+});

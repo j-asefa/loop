@@ -239,14 +239,26 @@ export function createSailboxProvider(options: {
           offset: String(page * 100),
         });
         const value = await json("GET", `${api}/sailboxes?${query}`);
-        const data = Array.isArray(value.data) ? value.data : [];
-        for (const item of data as Record<string, unknown>[])
-          if (item.name === name)
+        // Absence is only proven by a well-formed final page.
+        if (!Array.isArray(value.data) || typeof value.has_more !== "boolean")
+          throw new VmProviderError(
+            "uncertain",
+            "Sailboxes listed Sailboxes in a shape Loop could not read",
+          );
+        for (const item of value.data as unknown[]) {
+          if (!item || typeof item !== "object")
+            throw new VmProviderError(
+              "uncertain",
+              "Sailboxes listed an entry Loop could not read",
+            );
+          const entry = item as Record<string, unknown>;
+          if (entry.name === name)
             matches.push({
-              remoteId: field(item, "sailbox_id"),
-              status: sailboxStatus(item.status),
+              remoteId: field(entry, "sailbox_id"),
+              status: sailboxStatus(entry.status),
             });
-        if (value.has_more !== true) return matches;
+        }
+        if (!value.has_more) return matches;
       }
       // An incomplete list cannot prove a VM is absent.
       throw new VmProviderError(
@@ -327,6 +339,22 @@ export function createSailboxProvider(options: {
         body: { guest_port: port, protocol: "http" },
       });
       return { url: field(value, "public_url") };
+    },
+
+    async getHttpPort(remoteId, port) {
+      const response = await request(
+        "GET",
+        `${box(remoteId)}/listeners/${port}`,
+        { accept404: true },
+      );
+      if (!response) return null;
+      const value: unknown = await response.json().catch(() => undefined);
+      if (!value || typeof value !== "object")
+        throw new VmProviderError(
+          "uncertain",
+          "Sailboxes listener answered with a body Loop could not read",
+        );
+      return { url: field(value as Record<string, unknown>, "public_url") };
     },
 
     async unexposePort(remoteId, port) {
@@ -441,6 +469,7 @@ async function startExec(
       signal: null,
     };
     let buffered = "";
+    let blocked: PassThrough | undefined;
     const decoder = new TextDecoder();
     const handle = (line: string) => {
       if (!line.trim()) return;
@@ -459,11 +488,10 @@ async function startExec(
       } else if (
         (event.type === "stdout" || event.type === "stderr") &&
         typeof event.data === "string"
-      )
-        (event.type === "stdout" ? stdout : stderr).write(
-          Buffer.from(event.data, "base64"),
-        );
-      else if (event.type === "exit")
+      ) {
+        const stream = event.type === "stdout" ? stdout : stderr;
+        if (!stream.write(Buffer.from(event.data, "base64"))) blocked = stream;
+      } else if (event.type === "exit")
         result = {
           exitCode:
             typeof event.return_code === "number" ? event.return_code : null,
@@ -478,6 +506,21 @@ async function startExec(
           handle(buffered.slice(0, newline));
           buffered = buffered.slice(newline + 1);
           newline = buffered.indexOf("\n");
+        }
+        // Output is read from the provider only as fast as Loop's consumer
+        // reads it: a full stream pauses the event stream until it drains.
+        if (blocked) {
+          const waiting: PassThrough = blocked;
+          blocked = undefined;
+          await new Promise<void>((resolve) => {
+            const done = () => {
+              waiting.off("drain", done);
+              waiting.off("close", done);
+              resolve();
+            };
+            waiting.on("drain", done);
+            waiting.on("close", done);
+          });
         }
       }
       handle(buffered);

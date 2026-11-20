@@ -1459,6 +1459,7 @@ export const QueryRecords = {
     kind: VmOperationKind,
     state: VmOperationState,
     request_digest: z.string(),
+    request_json: z.string(),
     result_json: z.string().nullable(),
     error_message: z.string().nullable(),
     created_at: z.number(),

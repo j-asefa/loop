@@ -376,7 +376,7 @@ leaves its project, threads, results and published files readable.
 
 | From | To | Trigger and guard |
 | ---- | -- | ----------------- |
-| `provisioning` | `running` / `failed` / `destroying` | The provider reported the VM up, refused the create, or the owner destroyed it; **tx** |
+| `provisioning` | `running` / `sleeping` / `paused` / `failed` / `destroying` | The provider reported the VM up (a reconcile can find it already asleep or paused), refused the create, or the owner destroyed it; **tx** |
 | `running` | `sleeping` / `paused` / `destroying` / `failed` | Sleep observed or requested, pause, owner destroy, or a provider failure observed; **tx** |
 | `sleeping` | `running` / `destroying` / `failed` | Wake for a turn or a preview, owner destroy, or a failed wake; **tx** |
 | `paused` | `running` / `destroying` / `failed` | Resume, owner destroy, or a failed resume; **tx** |
@@ -393,11 +393,11 @@ before the provider is called, and its id is the caller's idempotency key.
 | From | To | Trigger and guard |
 | ---- | -- | ----------------- |
 | `pending` | `succeeded` / `failed` / `uncertain` | The provider answered, refused, or gave no observed answer (timeout, disconnect, server error, or the worker's sweep found the row still pending after the longest provider call); **tx** |
-| `uncertain` | `succeeded` / `failed` | A late answer arrived, the owner's reconcile found the VM by its `remote_name`, or the provider confirmed it does not exist; **tx** |
+| `uncertain` | `succeeded` / `failed` | A late answer arrived, or the owner's reconcile observed the outcome: a create or fork by the VM's `remote_name`, any other kind by the VM's status or published port; **tx** |
 | **`succeeded`** | — | Terminal |
 | **`failed`** | — | Terminal |
 
-An uncertain operation is never sent again automatically. A retry is a new
+An uncertain operation is never sent again automatically. Whichever settles the receipt first wins; a later answer that disagrees returns the stored outcome. A reconcile writes the receipt and the VM's observed state in one transaction. A retry is a new
 operation with a new id, and is refused while an earlier one for the same
 experiment is unsettled. Creates and forks send the provider an idempotency
 key scoped to the experiment, so a retry after an "absent" reconcile reaches

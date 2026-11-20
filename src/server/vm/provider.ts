@@ -111,6 +111,8 @@ export interface VmProvider {
     idempotencyKey: string,
   ): Promise<{ url: string }>;
   unexposePort(remoteId: string, port: number): Promise<void>;
+  /** The published HTTP port, or null when the port is not published. */
+  getHttpPort(remoteId: string, port: number): Promise<{ url: string } | null>;
   readFile(remoteId: string, path: string, maxBytes: number): Promise<Buffer>;
   writeFile(remoteId: string, path: string, bytes: Buffer): Promise<void>;
   /** Succeeds when the VM is already gone. */

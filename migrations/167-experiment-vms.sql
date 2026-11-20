@@ -58,7 +58,8 @@ CREATE TABLE experiment_previews (
 
 -- A receipt written before every provider call. id is the caller's
 -- idempotency key; request_digest refuses the same key for a different
--- request. An operation left pending by a crash becomes uncertain and is
+-- request, and request_json keeps the request so a reconcile can check what
+-- was asked. An operation left pending by a crash becomes uncertain and is
 -- never sent again without the owner asking.
 CREATE TABLE vm_operations (
   id TEXT PRIMARY KEY,
@@ -67,6 +68,7 @@ CREATE TABLE vm_operations (
   kind TEXT NOT NULL,
   state TEXT NOT NULL,
   request_digest TEXT NOT NULL,
+  request_json TEXT NOT NULL,
   result_json TEXT,
   error_message TEXT,
   created_at INTEGER NOT NULL,

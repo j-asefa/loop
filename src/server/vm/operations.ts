@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { VmOperationKind } from "../../shared/vm-state.js";
+import {
+  legalVmTransition,
+  type VmOperationKind,
+  type VmState,
+} from "../../shared/vm-state.js";
 import * as experimentVmsQueries from "../sql/experiment-vms.js";
 import * as vmOperationsQueries from "../sql/vm-operations.js";
 import { transitionVm, transitionVmOperation } from "./machine.js";
@@ -31,26 +35,30 @@ export class VmOperationRefused extends Error {
   }
 }
 
-/** SHA-256 of the request with object keys sorted, so the same request
- * always has the same digest whatever order its fields were written in. */
-export function vmRequestDigest(request: unknown) {
-  return createHash("sha256").update(canonical(request)).digest("hex");
-}
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+/** The request with object keys sorted, so the same request always has the
+ * same text, and so the same digest, whatever order its fields were in. */
+export function canonicalVmRequest(value: unknown): string {
+  if (Array.isArray(value))
+    return `[${value.map(canonicalVmRequest).join(",")}]`;
   if (value !== null && typeof value === "object")
     return `{${Object.entries(value)
       .filter(([, item]) => item !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+      .map(
+        ([key, item]) => `${JSON.stringify(key)}:${canonicalVmRequest(item)}`,
+      )
       .join(",")}}`;
   return JSON.stringify(value ?? null);
 }
 
-function stored(
-  row: NonNullable<ReturnType<typeof vmOperationsQueries.byId>>,
-): VmOperationOutcome {
+/** SHA-256 of the canonical request. */
+export function vmRequestDigest(request: unknown) {
+  return createHash("sha256").update(canonicalVmRequest(request)).digest("hex");
+}
+
+type OperationRow = NonNullable<ReturnType<typeof vmOperationsQueries.byId>>;
+
+function stored(row: OperationRow): VmOperationOutcome {
   if (row.state === "succeeded")
     return {
       state: "succeeded",
@@ -68,7 +76,9 @@ function stored(
 
 /** Runs `call` at most once for `operation.id`. A repeat of the same id and
  * request returns the stored outcome without calling the provider; the same
- * id with a different request is refused. */
+ * id with a different request is refused. The receipt is the record: when a
+ * reconcile settled it while the call was still out, the stored outcome is
+ * returned, not the late answer. */
 export async function runVmOperation(
   db: Database.Database,
   operation: {
@@ -81,6 +91,7 @@ export async function runVmOperation(
   call: () => Promise<unknown>,
   clock: () => number,
 ): Promise<VmOperationOutcome> {
+  const requestJson = canonicalVmRequest(operation.request);
   const requestDigest = vmRequestDigest({
     kind: operation.kind,
     experimentId: operation.experimentId,
@@ -118,6 +129,7 @@ export async function runVmOperation(
         experimentId: operation.experimentId,
         kind: operation.kind,
         requestDigest,
+        requestJson,
         now: clock(),
       });
       return undefined;
@@ -126,69 +138,90 @@ export async function runVmOperation(
   if (prior) return stored(prior);
 
   const receipt = { owner: operation.owner, id: operation.id };
+  const current = () =>
+    stored(vmOperationsQueries.byId(db, receipt.owner, receipt.id)!);
+  let result: unknown;
   try {
-    const result = await call();
-    transitionVmOperation(db, receipt, "succeeded", { result, now: clock() });
-    return { state: "succeeded", result, replayed: false };
+    result = await call();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Only an answer from the provider proves the call did nothing. Anything
     // else, including a bug in the adapter, leaves the outcome unknown.
-    if (error instanceof VmProviderError && error.outcome === "refused") {
-      transitionVmOperation(db, receipt, "failed", {
-        errorMessage,
-        now: clock(),
-      });
-      return { state: "failed", errorMessage, replayed: false };
-    }
-    transitionVmOperation(db, receipt, "uncertain", {
-      errorMessage,
-      now: clock(),
-    });
-    return { state: "uncertain", errorMessage };
+    const to =
+      error instanceof VmProviderError && error.outcome === "refused"
+        ? "failed"
+        : "uncertain";
+    if (!transitionVmOperation(db, receipt, to, { errorMessage, now: clock() }))
+      return current();
+    return to === "failed"
+      ? { state: "failed", errorMessage, replayed: false }
+      : { state: "uncertain", errorMessage };
   }
+  if (
+    !transitionVmOperation(db, receipt, "succeeded", { result, now: clock() })
+  )
+    return current();
+  return { state: "succeeded", result, replayed: false };
 }
 
-const liveState = {
-  provisioning: undefined,
-  running: "running",
-  sleeping: "sleeping",
-  paused: "paused",
-  failed: "failed",
-  terminating: undefined,
-  terminated: "failed",
-  unknown: undefined,
-} as const satisfies Record<
-  VmStatus,
-  "running" | "sleeping" | "paused" | "failed" | undefined
->;
+/** Moves the VM to the state the provider reports, when that edge is legal
+ * from where it is. Call inside the transaction that settles the receipt. */
+function applyObservedStatus(
+  db: Database.Database,
+  vm: { owner: string; id: string; state: VmState },
+  status: VmStatus,
+  now: number,
+) {
+  const observed: Record<VmStatus, VmState | undefined> = {
+    provisioning: undefined,
+    running: "running",
+    sleeping: "sleeping",
+    paused: "paused",
+    failed: "failed",
+    terminating: undefined,
+    terminated: vm.state === "destroying" ? "destroyed" : "failed",
+    unknown: undefined,
+  };
+  const to = observed[status];
+  if (!to || to === vm.state || !legalVmTransition(vm.state, to)) return;
+  transitionVm(db, vm, to, {
+    expected: vm.state,
+    lastError: to === "failed" ? `The provider reports the VM ${status}` : null,
+    now,
+  });
+}
 
-export type VmCreateReconciliation =
-  | { outcome: "adopted"; remoteId: string }
-  | { outcome: "absent" }
+export type VmReconciliation =
+  | { outcome: "succeeded"; result: unknown }
+  | { outcome: "failed"; errorMessage: string }
   | { outcome: "still_uncertain"; reason: string };
 
-/** Settles an uncertain create or fork by looking for the VM's name. This
- * reads from the provider and never creates: one match is adopted, no match
- * fails the operation so the owner can start a new one, and anything else
- * leaves it uncertain. */
-export async function reconcileVmCreate(
+type Observation =
+  | { settle: "succeeded"; result: unknown; status?: VmStatus }
+  | { settle: "failed"; errorMessage: string; status?: VmStatus }
+  | { settle: "unknown"; reason: string };
+
+class SettledConcurrently extends Error {}
+
+const unsure = (reason: string): Observation => ({ settle: "unknown", reason });
+
+/** Observes the outcome of the owner's uncertain operation and settles it.
+ * This only reads from the provider: nothing is created, sent or retried.
+ * The receipt and the VM's observed state are written in one transaction,
+ * and only while the receipt is still uncertain. */
+export async function reconcileVmOperation(
   db: Database.Database,
-  provider: Pick<VmProvider, "findByName">,
+  provider: Pick<VmProvider, "findByName" | "get" | "getHttpPort">,
   target: { owner: string; operationId: string; appId: string },
   clock: () => number,
-): Promise<VmCreateReconciliation> {
+): Promise<VmReconciliation> {
   const operation = vmOperationsQueries.byId(
     db,
     target.owner,
     target.operationId,
   );
-  if (
-    !operation ||
-    operation.state !== "uncertain" ||
-    (operation.kind !== "create" && operation.kind !== "fork")
-  )
-    return { outcome: "still_uncertain", reason: "not an uncertain create" };
+  if (!operation || operation.state !== "uncertain")
+    return { outcome: "still_uncertain", reason: "not an uncertain operation" };
   const vm = experimentVmsQueries.byId(
     db,
     target.owner,
@@ -196,65 +229,113 @@ export async function reconcileVmCreate(
   );
   if (!vm) return { outcome: "still_uncertain", reason: "experiment missing" };
 
-  let matches: Awaited<ReturnType<VmProvider["findByName"]>>;
+  let observation: Observation;
   try {
-    matches = await provider.findByName(target.appId, vm.remote_name);
+    observation = await observe(provider, operation, vm, target.appId);
   } catch (error) {
-    return {
-      outcome: "still_uncertain",
-      reason: error instanceof Error ? error.message : String(error),
-    };
+    observation = unsure(
+      error instanceof Error ? error.message : String(error),
+    );
   }
-  if (matches.length > 1)
-    return {
-      outcome: "still_uncertain",
-      reason: `${matches.length} VMs are named ${vm.remote_name}`,
-    };
+  if (observation.settle === "unknown")
+    return { outcome: "still_uncertain", reason: observation.reason };
+  const seen = observation;
 
   const receipt = { owner: target.owner, id: operation.id };
-  const subject = { owner: target.owner, id: vm.id };
-  const [match] = matches;
-  if (!match) {
-    if (
-      !transitionVmOperation(db, receipt, "failed", {
-        errorMessage: "The provider has no VM with this name",
-        now: clock(),
-      })
-    )
-      return { outcome: "still_uncertain", reason: "settled concurrently" };
-    transitionVm(db, subject, "failed", {
-      expected: "provisioning",
-      lastError: "The VM was not created",
-      now: clock(),
-    });
-    return { outcome: "absent" };
-  }
-  const adopted = db
-    .transaction(() => {
+  try {
+    db.transaction(() => {
+      const fresh = experimentVmsQueries.byId(db, target.owner, vm.id);
+      if (!fresh) throw new SettledConcurrently();
       if (
-        !experimentVmsQueries.adoptRemote(
-          db,
-          target.owner,
-          vm.id,
-          match.remoteId,
+        seen.settle === "succeeded" &&
+        (operation.kind === "create" || operation.kind === "fork")
+      ) {
+        const { remoteId } = seen.result as { remoteId: string };
+        if (
+          !experimentVmsQueries.adoptRemote(db, target.owner, vm.id, remoteId)
         )
-      )
-        return false;
-      return transitionVmOperation(db, receipt, "succeeded", {
-        result: { remoteId: match.remoteId },
-        now: clock(),
-      });
-    })
-    .immediate();
-  if (!adopted)
-    return { outcome: "still_uncertain", reason: "settled concurrently" };
-  const state = liveState[match.status];
-  if (state)
-    transitionVm(db, subject, state, {
-      expected: "provisioning",
-      lastError:
-        state === "failed" ? "The provider reports the VM failed" : null,
-      now: clock(),
-    });
-  return { outcome: "adopted", remoteId: match.remoteId };
+          throw new SettledConcurrently();
+      }
+      const settled =
+        seen.settle === "succeeded"
+          ? transitionVmOperation(db, receipt, "succeeded", {
+              result: seen.result,
+              now: clock(),
+            })
+          : transitionVmOperation(db, receipt, "failed", {
+              errorMessage: seen.errorMessage,
+              now: clock(),
+            });
+      if (!settled) throw new SettledConcurrently();
+      if (seen.status)
+        applyObservedStatus(
+          db,
+          { owner: target.owner, id: vm.id, state: fresh.state },
+          seen.status,
+          clock(),
+        );
+    }).immediate();
+  } catch (error) {
+    if (error instanceof SettledConcurrently)
+      return { outcome: "still_uncertain", reason: "settled concurrently" };
+    throw error;
+  }
+  return seen.settle === "succeeded"
+    ? { outcome: "succeeded", result: seen.result }
+    : { outcome: "failed", errorMessage: seen.errorMessage };
+}
+
+async function observe(
+  provider: Pick<VmProvider, "findByName" | "get" | "getHttpPort">,
+  operation: OperationRow,
+  vm: NonNullable<ReturnType<typeof experimentVmsQueries.byId>>,
+  appId: string,
+): Promise<Observation> {
+  if (operation.kind === "create" || operation.kind === "fork") {
+    const matches = await provider.findByName(appId, vm.remote_name);
+    if (matches.length > 1)
+      return unsure(`${matches.length} VMs are named ${vm.remote_name}`);
+    const [match] = matches;
+    if (!match)
+      return {
+        settle: "failed",
+        errorMessage: "The provider has no VM with this name",
+        status: "terminated",
+      };
+    return {
+      settle: "succeeded",
+      result: { remoteId: match.remoteId },
+      status: match.status,
+    };
+  }
+  if (!vm.remote_id) return unsure("the VM has no provider id");
+  if (operation.kind === "expose" || operation.kind === "unexpose") {
+    const request: unknown = JSON.parse(operation.request_json);
+    const port = (request as { port?: unknown } | null)?.port;
+    if (typeof port !== "number") return unsure("the receipt names no port");
+    const published = await provider.getHttpPort(vm.remote_id, port);
+    if (operation.kind === "expose")
+      return published
+        ? { settle: "succeeded", result: published }
+        : { settle: "failed", errorMessage: "The port is not published" };
+    return published
+      ? { settle: "failed", errorMessage: "The port is still published" }
+      : { settle: "succeeded", result: null };
+  }
+  const status = (await provider.get(vm.remote_id))?.status ?? "terminated";
+  if (status === "unknown" || status === "provisioning")
+    return unsure(`the provider reports the VM ${status}`);
+  const reached = {
+    sleep: status === "sleeping",
+    resume: status === "running",
+    destroy: status === "terminated",
+  }[operation.kind];
+  if (reached) return { settle: "succeeded", result: null, status };
+  if (operation.kind === "destroy" && status === "terminating")
+    return unsure("the VM is still shutting down");
+  return {
+    settle: "failed",
+    errorMessage: `The provider reports the VM ${status}`,
+    status,
+  };
 }

@@ -3,7 +3,8 @@ import { z } from "zod";
 // The single owner of the experiment_vms.state vocabulary and its edges.
 // transitionVm() in src/server/vm/machine.ts is the only writer.
 export const VM_TRANSITIONS = {
-  provisioning: ["running", "failed", "destroying"],
+  // sleeping/paused: a reconcile adopted a VM the provider reports asleep.
+  provisioning: ["running", "sleeping", "paused", "failed", "destroying"],
   running: ["sleeping", "paused", "destroying", "failed"],
   sleeping: ["running", "destroying", "failed"],
   paused: ["running", "destroying", "failed"],

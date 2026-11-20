@@ -11,7 +11,7 @@ const parse = (row: unknown) =>
   parseRecord(QueryRecords.vm_operations, row, "vm_operations");
 
 const insertPendingStatement = statement(
-  "INSERT INTO vm_operations(id,owner_id,experiment_id,kind,state,request_digest,created_at,updated_at) VALUES(?,?,?,?,'pending',?,?,?)",
+  "INSERT INTO vm_operations(id,owner_id,experiment_id,kind,state,request_digest,request_json,created_at,updated_at) VALUES(?,?,?,?,'pending',?,?,?,?)",
 );
 export function insertPending(
   db: Database.Database,
@@ -21,6 +21,7 @@ export function insertPending(
     experimentId: string;
     kind: string;
     requestDigest: string;
+    requestJson: string;
     now: number;
   },
 ) {
@@ -30,6 +31,7 @@ export function insertPending(
     operation.experimentId,
     operation.kind,
     operation.requestDigest,
+    operation.requestJson,
     operation.now,
     operation.now,
   );

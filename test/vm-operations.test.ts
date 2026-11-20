@@ -10,7 +10,7 @@ import {
   transitionVm,
 } from "../src/server/vm/machine.js";
 import {
-  reconcileVmCreate,
+  reconcileVmOperation,
   runVmOperation,
 } from "../src/server/vm/operations.js";
 import { VmProviderError, type VmStatus } from "../src/server/vm/provider.js";
@@ -62,11 +62,25 @@ const create = (
     clock,
   );
 
+// A read-only provider for reconcile: VMs by name, statuses by id and
+// published ports. Every lookup is counted.
 const found = (...matches: { remoteId: string; status: VmStatus }[]) => ({
   calls: 0,
+  statuses: new Map<string, VmStatus>(),
+  ports: new Map<number, string>(),
   async findByName() {
     this.calls += 1;
     return matches;
+  },
+  async get(remoteId: string) {
+    this.calls += 1;
+    const status = this.statuses.get(remoteId);
+    return status ? { status } : null;
+  },
+  async getHttpPort(_remoteId: string, port: number) {
+    this.calls += 1;
+    const url = this.ports.get(port);
+    return url ? { url } : null;
   },
 });
 
@@ -193,6 +207,7 @@ it("marks a receipt uncertain only once no live call could still be waiting on i
     experimentId: "exp1",
     kind: "create",
     requestDigest: "d",
+    requestJson: "{}",
     now: time,
   });
   const created = time;
@@ -224,11 +239,15 @@ async function uncertainCreate() {
     throw new VmProviderError("uncertain", "timed out");
   });
 }
-const reconcile = (provider: ReturnType<typeof found>, owner = "alice") =>
-  reconcileVmCreate(
+const reconcile = (
+  provider: Parameters<typeof reconcileVmOperation>[1],
+  owner = "alice",
+  operationId = "op1",
+) =>
+  reconcileVmOperation(
     db,
     provider,
-    { owner, operationId: "op1", appId: "app" },
+    { owner, operationId, appId: "app" },
     clock,
   );
 
@@ -236,7 +255,7 @@ it("adopts the one VM that carries the experiment's name", async () => {
   await uncertainCreate();
   expect(
     await reconcile(found({ remoteId: "sb-7", status: "running" })),
-  ).toEqual({ outcome: "adopted", remoteId: "sb-7" });
+  ).toEqual({ outcome: "succeeded", result: { remoteId: "sb-7" } });
   expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
     remote_id: "sb-7",
     state: "running",
@@ -249,7 +268,7 @@ it("adopts the one VM that carries the experiment's name", async () => {
 
 it("fails the operation when the provider has no such VM, allowing a new one", async () => {
   await uncertainCreate();
-  expect(await reconcile(found())).toEqual({ outcome: "absent" });
+  expect(await reconcile(found())).toMatchObject({ outcome: "failed" });
   expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("failed");
   expect(await create("op2", async () => ({ remoteId: "sb-8" }))).toMatchObject(
     { state: "succeeded" },
@@ -259,16 +278,12 @@ it("fails the operation when the provider has no such VM, allowing a new one", a
 it("stays uncertain when the lookup fails, is ambiguous, or comes from another owner", async () => {
   await uncertainCreate();
   expect(
-    await reconcileVmCreate(
-      db,
-      {
-        async findByName() {
-          throw new VmProviderError("uncertain", "list timed out");
-        },
+    await reconcile({
+      ...found(),
+      async findByName() {
+        throw new VmProviderError("uncertain", "list timed out");
       },
-      { owner: "alice", operationId: "op1", appId: "app" },
-      clock,
-    ),
+    }),
   ).toEqual({ outcome: "still_uncertain", reason: "list timed out" });
   expect(
     await reconcile(
@@ -287,9 +302,165 @@ it("stays uncertain when the lookup fails, is ambiguous, or comes from another o
   expect(experimentVmsQueries.byId(db, "alice", "exp1")?.remote_id).toBeNull();
 });
 
+it("does not adopt a VM when another reconcile settled the receipt during the lookup", async () => {
+  await uncertainCreate();
+  const racing = {
+    ...found(),
+    async findByName() {
+      // The other reconcile wins while this lookup is out.
+      await reconcile(found());
+      return [{ remoteId: "sb-9", status: "running" as const }];
+    },
+  };
+  expect(await reconcile(racing)).toEqual({
+    outcome: "still_uncertain",
+    reason: "settled concurrently",
+  });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: null,
+    state: "failed",
+  });
+  expect(vmOperationsQueries.byId(db, "alice", "op1")?.state).toBe("failed");
+});
+
+it("returns the stored outcome when a late answer contradicts a reconciled receipt", async () => {
+  let answer!: (value: unknown) => void;
+  const outcome = create(
+    "op1",
+    () => new Promise((resolve) => (answer = resolve)),
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  markStaleVmOperationsUncertain(db, time + VM_OPERATION_MAX_CALL_MS + 1);
+  expect(await reconcile(found())).toMatchObject({ outcome: "failed" });
+  answer({ remoteId: "sb-late" });
+  const late = await outcome;
+  expect(late).toMatchObject({ state: "failed", replayed: true });
+  expect(await create("op1", async () => ({}))).toEqual(late);
+});
+
+it("adopts a VM found asleep, and settles its receipt and state together", async () => {
+  await uncertainCreate();
+  expect(
+    await reconcile(found({ remoteId: "sb-7", status: "sleeping" })),
+  ).toMatchObject({ outcome: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")).toMatchObject({
+    remote_id: "sb-7",
+    state: "sleeping",
+  });
+});
+
+it("rolls the adoption back when the VM state cannot be written", async () => {
+  await uncertainCreate();
+  db.exec(
+    "CREATE TRIGGER refuse_vm_state BEFORE UPDATE OF state ON experiment_vms BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+  );
+  await expect(
+    reconcile(found({ remoteId: "sb-7", status: "running" })),
+  ).rejects.toThrow("disk full");
+  expect(vmOperationsQueries.byId(db, "alice", "op1")?.state).toBe("uncertain");
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.remote_id).toBeNull();
+});
+
+async function runningVm(remoteId = "sb-1") {
+  await create("op0", async () => ({ remoteId }));
+  experimentVmsQueries.adoptRemote(db, "alice", "exp1", remoteId);
+  transitionVm(db, { owner: "alice", id: "exp1" }, "running", { now: clock() });
+}
+
+it("reconciles an uncertain expose from the published port, unblocking the next operation", async () => {
+  await runningVm();
+  await runVmOperation(
+    db,
+    {
+      id: "op1",
+      owner: "alice",
+      experimentId: "exp1",
+      kind: "expose",
+      request: { port: 3000 },
+    },
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+  );
+  const provider = found();
+  provider.ports.set(3000, "https://p.example");
+  expect(await reconcile(provider)).toEqual({
+    outcome: "succeeded",
+    result: { url: "https://p.example" },
+  });
+  expect(
+    await runVmOperation(
+      db,
+      {
+        id: "op2",
+        owner: "alice",
+        experimentId: "exp1",
+        kind: "destroy",
+        request: {},
+      },
+      async () => null,
+      clock,
+    ),
+  ).toMatchObject({ state: "succeeded" });
+});
+
+it("reconciles an uncertain destroy from the VM's status", async () => {
+  await runningVm();
+  transitionVm(db, { owner: "alice", id: "exp1" }, "destroying", {
+    now: clock(),
+  });
+  await runVmOperation(
+    db,
+    {
+      id: "op1",
+      owner: "alice",
+      experimentId: "exp1",
+      kind: "destroy",
+      request: {},
+    },
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+  );
+  const provider = found();
+  provider.statuses.set("sb-1", "terminating");
+  expect(await reconcile(provider)).toMatchObject({
+    outcome: "still_uncertain",
+  });
+  provider.statuses.delete("sb-1");
+  expect(await reconcile(provider)).toMatchObject({ outcome: "succeeded" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe(
+    "destroyed",
+  );
+});
+
+it("reports an uncertain sleep that did not happen as failed, so it can be asked for again", async () => {
+  await runningVm();
+  await runVmOperation(
+    db,
+    {
+      id: "op1",
+      owner: "alice",
+      experimentId: "exp1",
+      kind: "sleep",
+      request: {},
+    },
+    async () => {
+      throw new VmProviderError("uncertain", "timed out");
+    },
+    clock,
+  );
+  const provider = found();
+  provider.statuses.set("sb-1", "running");
+  expect(await reconcile(provider)).toMatchObject({ outcome: "failed" });
+  expect(experimentVmsQueries.byId(db, "alice", "exp1")?.state).toBe("running");
+});
+
 it("refuses illegal and stale VM transitions", () => {
   const vm = { owner: "alice", id: "exp1" };
-  expect(transitionVm(db, vm, "sleeping", { now: clock() })).toEqual({
+  expect(transitionVm(db, vm, "destroyed", { now: clock() })).toEqual({
     changed: false,
     reason: "illegal",
     from: "provisioning",
