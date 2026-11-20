@@ -911,6 +911,30 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (method === "call") return { fn, items: node.arguments.slice(1) };
     return { fn, items: staticArray(node.arguments[1]) };
   };
+  const latestWrite = (
+    expression: any,
+    name: string,
+    owner: Scope | undefined,
+  ) => {
+    let write: any;
+    for (
+      let scope: Scope | undefined = scopeOf(expression);
+      scope;
+      scope = scope.parent
+    ) {
+      const candidate = straightLineWrites
+        .get(scope)
+        ?.get(name)
+        ?.findLast(
+          (assignment) =>
+            assignment.end <= expression.start &&
+            declaringScope(name, assignment) === owner,
+        );
+      if (candidate && (!write || candidate.end > write.end)) write = candidate;
+      if (scope === owner || scope.boundary === "function") break;
+    }
+    return write;
+  };
   const connectionKind = (node: any): Binding | undefined => {
     const expression = unwrap(node);
     if (expression?.type === "Literal" && expression.regex) return "object";
@@ -986,24 +1010,7 @@ function sqlCallLines(file: string, text: string, script = false) {
     if (databaseName && !script) return "connection";
     if (expression.type === "Identifier") {
       const owner = declaringScope(name, expression);
-      let write: any;
-      for (
-        let scope: Scope | undefined = scopeOf(expression);
-        scope;
-        scope = scope.parent
-      ) {
-        const candidate = straightLineWrites
-          .get(scope)
-          ?.get(name)
-          ?.findLast(
-            (assignment) =>
-              assignment.end <= expression.start &&
-              declaringScope(name, assignment) === owner,
-          );
-        if (candidate && (!write || candidate.end > write.end))
-          write = candidate;
-        if (scope === owner || scope.boundary === "function") break;
-      }
+      const write = latestWrite(expression, name, owner);
       if (write?.operator === "=" || write?.type === "VariableDeclarator") {
         const value = unwrap(
           write.type === "VariableDeclarator" ? write.init : write.right,
@@ -1135,6 +1142,12 @@ function sqlCallLines(file: string, text: string, script = false) {
     return binding === "connection" ? method : undefined;
   };
   const sqliteMethod = (expression: any): string | undefined => {
+    if (script && expression?.type === "Identifier") {
+      const name = expression.name;
+      const owner = declaringScope(name, expression);
+      const write = latestWrite(expression, name, owner);
+      if (write?.operator === "=") return sqliteMethod(unwrap(write.right));
+    }
     if (expression?.type === "MemberExpression") {
       const method = property(expression);
       if (
@@ -1331,6 +1344,21 @@ function sqlCallLines(file: string, text: string, script = false) {
   };
   const restCopies = new Set<object>();
   const returnExpressions: { fn: object; value: any }[] = [];
+  const addReturn = (fn: object, node: any): void => {
+    const value = unwrap(node);
+    if (value?.type === "ConditionalExpression") {
+      addReturn(fn, value.consequent);
+      addReturn(fn, value.alternate);
+      return;
+    }
+    returnExpressions.push({ fn, value });
+    // Register literal fields before resolving any spread that uses the result.
+    if (isAggregate(value)) {
+      const result = returnedObjects.get(fn) ?? { bindings: new Map() };
+      returnedObjects.set(fn, result);
+      recordObject(result, "result", value);
+    }
+  };
   if (script) {
     for (const node of nodes) {
       if (
@@ -1344,13 +1372,7 @@ function sqlCallLines(file: string, text: string, script = false) {
       let fn = node;
       while (fn && !functionKinds.has(fn.type)) fn = parents.get(fn);
       if (!fn || !value) continue;
-      returnExpressions.push({ fn, value });
-      // Register literal fields before resolving any spread that uses the result.
-      if (isAggregate(value)) {
-        const result = returnedObjects.get(fn) ?? { bindings: new Map() };
-        returnedObjects.set(fn, result);
-        recordObject(result, "result", value);
-      }
+      addReturn(fn, value);
     }
   }
   while (changed) {
@@ -2552,6 +2574,21 @@ it("retains receiver and nested method evidence and respects opaque import repla
     handle.exec(command);
 `;
   expect(sqlCallLines("probe.mjs", text, true)).toEqual([5, 10, 12, 14]);
+});
+
+it("honors method reassignment and follows conditional fixture returns", () => {
+  const text = `
+    import { db } from "../src/server/db.js";
+    function openFixture() { return flag ? { db: undefined } : { db }; }
+    openFixture().db.exec(migrationText);
+    let execute = db.exec.bind(db);
+    execute(migrationText);
+    execute = runCommand;
+    { execute(command); }
+    execute = db.exec.bind(db);
+    execute(migrationText);
+`;
+  expect(sqlCallLines("probe.mjs", text, true)).toEqual([4, 6, 10]);
 });
 
 it("names the line and the SQL recipe for a direct call", () => {
