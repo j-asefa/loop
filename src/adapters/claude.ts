@@ -585,16 +585,29 @@ export class Claude extends DirectAdapter implements Adapter {
       }
       if (e.type === "content_block_delta" && e.delta.type === "text_delta") {
         const id = this.messageIds.get(stream) ?? m.uuid;
-        // A child stream's deltas must never leave a phase-less assistant
-        // item the projector could pick as the run's answer. Establish the
-        // commentary item before the first delta so the projector merges the
-        // deltas into it and keeps the child's text as progress only — even
-        // during recall, when the next run is already attached but active is
-        // still false: a delta alone there would create a phase-less item
-        // the projector could select as the answer. When no run is attached
-        // the projector drops the delta and only upserts this seeded
-        // commentary item, which cannot be selected.
-        if (m.parent_tool_use_id && !this.childItems.has(id)) {
+        if (m.parent_tool_use_id && !this.active) {
+          // Between turns the projector may drop a bare delta (no run) or
+          // attach the next run during recall before active flips true. In
+          // both cases a bare delta could leave a phase-less item that is
+          // selectable as the answer, so fold the delta into a single
+          // commentary item carrying the accumulated seed: the item is
+          // never phase-less and its text preserves the stream (including
+          // an evicted seed's id — the item then carries the fragment, not
+          // an empty seed). No separate delta is emitted here.
+          this.rememberChildText(
+            id,
+            (this.childText.get(id) ?? "") + e.delta.text,
+          );
+          this.emit({
+            type: "item",
+            item: {
+              id,
+              kind: "assistant",
+              text: this.childText.get(id) ?? "",
+              phase: "commentary",
+            },
+          });
+        } else if (m.parent_tool_use_id && !this.childItems.has(id)) {
           this.childItems.add(id);
           this.emit({
             type: "item",
@@ -602,25 +615,28 @@ export class Claude extends DirectAdapter implements Adapter {
               id,
               kind: "assistant",
               // Seed with any text already known for this id (a full child
-              // assistant message or deltas seen earlier, possibly before
-              // prompt()); the projector replaces by id, so an empty item
-              // would drop it. Never skipped: a delta alone could create a
-              // phase-less item that becomes the run's answer.
+              // assistant message or deltas seen earlier); the projector
+              // replaces by id, so an empty item would drop it.
               text: this.childText.get(id) ?? "",
               phase: "commentary",
             },
           });
         }
-        // Keep the seed current with every delta, open turn or not, so a
-        // later re-established item carries everything the stream has said
-        // so far and a subsequent delta appends instead of overwriting it.
-        // Empty deltas contribute nothing, so they do not add a cache entry.
-        if (m.parent_tool_use_id && e.delta.text)
+        // Keep the seed current with every active delta (the inactive fold
+        // above already accumulated its delta), so a later re-established
+        // item carries everything the stream has said so far and a
+        // subsequent delta appends instead of overwriting it. Empty deltas
+        // contribute nothing, so they do not add a cache entry.
+        if (m.parent_tool_use_id && this.active && e.delta.text)
           this.rememberChildText(
             id,
             (this.childText.get(id) ?? "") + e.delta.text,
           );
-        this.emit({ type: "delta", id, text: e.delta.text });
+        // Root (parent) streams always emit deltas; child streams emit them
+        // only while a turn is open (while inactive their delta was folded
+        // into the commentary item above).
+        if (!m.parent_tool_use_id || this.active)
+          this.emit({ type: "delta", id, text: e.delta.text });
       }
       if (
         e.type === "content_block_start" &&

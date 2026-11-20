@@ -963,6 +963,69 @@ it("marks a delta-only child stream commentary when it arrives during recall", a
   expect(retainedAnswer(current.live)).toBeUndefined();
 });
 
+it("keeps between-run child deltas commentary even across a window reset", async () => {
+  const sessions = new NativeSessions();
+  const run = turn("conv", "claude-between-2");
+  const current = start(sessions, "claude-between-2-generation", run);
+  sessions.state.startTurn(current.live, run);
+  const adapter = new Claude(
+    {
+      harness: "claude",
+      executable: "",
+      project: dir,
+      version: "fixture",
+      billing: "existing",
+      resume: "claude-between-2",
+    },
+    current.emit,
+  ) as any;
+  adapter.active = true;
+  // Turn 1 ends; the first child delta arrives between runs.
+  adapter.message({
+    type: "result",
+    session_id: "claude-between-2",
+    is_error: false,
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-2" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "A" },
+    },
+  });
+  // The next run attaches, resetting the projector's item window, and the
+  // second child delta arrives pre-prompt.
+  sessions.state.startTurn(current.live, turn("conv", "claude-between-2b"));
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: { type: "message_start", message: { id: "between-2" } },
+  });
+  adapter.message({
+    type: "stream_event",
+    parent_tool_use_id: "task-1",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "text_delta", text: "B" },
+    },
+  });
+  // Each between-run delta produced a commentary item; the fragment joined
+  // and is never phase-less, so it cannot become the run's answer.
+  expect(current.live.items.get("between-2")).toEqual({
+    id: "between-2",
+    kind: "assistant",
+    text: "AB",
+    phase: "commentary",
+  });
+  expect(retainedAnswer(current.live)).toBeUndefined();
+});
+
 const option = (id: string, confirmed: string) => ({
   id,
   label: id,
