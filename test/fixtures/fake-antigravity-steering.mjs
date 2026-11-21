@@ -153,16 +153,31 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
-  if (mode === "reactive-late-daemon") {
+  if (["reactive-late-daemon", "reactive-steer-daemon"].includes(mode)) {
     tool("daemon", undefined, "sleep 90");
     message("Daemon started.");
+    const identifyDaemon = () => {
+      finish(sessionId);
+      update(sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "daemon",
+        status: "in_progress",
+        rawInput: { CommandLine: "sleep 90", IsDaemon: true },
+      });
+    };
+    if (mode === "reactive-steer-daemon")
+      endReactiveSteer = (request) => {
+        identifyDaemon();
+        reply(request.id, { stopReason: "end_turn" });
+      };
+    else identifyDaemon();
+    return;
+  }
+  if (mode === "reactive-sync-subagent") {
+    tool("subagent", {}, "invoke_subagent");
+    complete("subagent");
+    message("Done.");
     finish(sessionId);
-    update(sessionId, {
-      sessionUpdate: "tool_call_update",
-      toolCallId: "daemon",
-      status: "in_progress",
-      rawInput: { CommandLine: "sleep 90", IsDaemon: true },
-    });
     return;
   }
   tool("daemon", { CommandLine: "sleep 90", IsDaemon: true }, "sleep 90");

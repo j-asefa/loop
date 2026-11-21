@@ -652,6 +652,12 @@ export class Acp implements Adapter {
           if (this.closed || this.terminalReported) return;
           if (result.stopReason === "end_turn") {
             if (!last) this.earlierEnd = true;
+            if (
+              this.canResolveAsDaemonOnly &&
+              !this.reactiveTools.size &&
+              !this.permissions.size
+            )
+              this.reactiveEnd = false;
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
@@ -665,7 +671,7 @@ export class Acp implements Adapter {
             ) {
               if (!this.reactiveEnd)
                 this.canResolveAsDaemonOnly =
-                  last && !this.pendingWakeup && !this.permissions.size;
+                  !this.pendingWakeup && !this.permissions.size;
               this.reactiveEnd = true;
               this.finishReactiveTurn();
               return;
@@ -748,7 +754,7 @@ export class Acp implements Adapter {
     // The reactive wait stays bounded even if a concurrent steer never
     // answers. Human approval time does not count against the watchdog.
     if (!this.reactiveWatchdog) {
-      this.reactiveWatchdogStarted = Date.now();
+      this.reactiveWatchdogStarted = performance.now();
       this.reactiveWatchdog = setTimeout(
         () =>
           this.interruptReactiveTurn(
@@ -1248,7 +1254,7 @@ export class Acp implements Adapter {
       this.reactiveBudget = Math.max(
         0,
         this.reactiveBudget -
-          Math.max(0, Date.now() - this.reactiveWatchdogStarted),
+          (performance.now() - this.reactiveWatchdogStarted),
       );
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
@@ -1379,12 +1385,6 @@ export class Acp implements Adapter {
             input.WaitMsBeforeAsync >= 0
           )
             this.backgroundTools.set(u.toolCallId, input.WaitMsBeforeAsync);
-          else if (
-            title === "invoke_subagent" ||
-            title === "schedule" ||
-            title === "run_workflow"
-          )
-            this.backgroundTools.set(u.toolCallId, 0);
         }
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);

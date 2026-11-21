@@ -72,7 +72,11 @@ test("Antigravity waits through successive reactive passes and approvals", async
   await assert.rejects(adapter.prompt("Next turn"), /busy/);
 });
 
-for (const mode of ["daemon-only", "reactive-late-daemon"])
+for (const mode of [
+  "daemon-only",
+  "reactive-late-daemon",
+  "reactive-steer-daemon",
+])
   test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
     fixture(t);
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -83,6 +87,7 @@ for (const mode of ["daemon-only", "reactive-late-daemon"])
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Start a daemon");
+    if (mode === "reactive-steer-daemon") await adapter.steer!("Keep going");
     await until(() => complete(events).length === 1);
     assert.deepEqual(statuses(events), ["ready", "completed"]);
   });
@@ -110,7 +115,11 @@ test("Antigravity keeps accepting reactive output after overlapping prompts end"
   assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
 });
 
-for (const mode of ["reactive-before-end", "reactive-sync-answer"])
+for (const mode of [
+  "reactive-before-end",
+  "reactive-sync-answer",
+  "reactive-sync-subagent",
+])
   test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
     fixture(t);
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -124,14 +133,16 @@ for (const mode of ["reactive-before-end", "reactive-sync-answer"])
     await until(() =>
       events.some((e) => e.type === "delta" && e.text === "Done."),
     );
-    if (mode === "reactive-sync-answer")
+    if (mode !== "reactive-before-end")
       await until(() => complete(events).length === 1);
     else assert.deepEqual(statuses(events), ["ready"]);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
       mode === "reactive-before-end"
         ? ["Waiting.", "Waiting for the wakeup.", "Done."]
-        : ["Waiting.", "Done."],
+        : mode === "reactive-sync-subagent"
+          ? ["Done."]
+          : ["Waiting.", "Done."],
     );
   });
 
@@ -295,6 +306,7 @@ test(
     t.after(() => adapter.dispose());
     await adapter.start();
     t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    t.mock.method(performance, "now", () => Date.now());
     try {
       await adapter.prompt("Run background work");
       await promptEnded;
