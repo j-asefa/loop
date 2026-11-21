@@ -96,6 +96,7 @@ import {
   Bookmark,
   BookmarkCheck,
   ArrowUpRight,
+  Check,
   MoreHorizontal,
   ArrowUp,
   FileText,
@@ -312,6 +313,14 @@ function FeedCard({
             ? item.run.error
             : "";
   const name = item.agent_name || agent?.name;
+  const canQuickDismiss =
+    !!onDismiss && !groupCount && dismissLabel !== "Dismiss from Needs you";
+  const quickDismissLabel = item.reply ? "Archive" : "Done";
+  const quickDismissIcon = item.reply ? (
+    <Archive size={16} aria-hidden="true" />
+  ) : (
+    <Check size={16} aria-hidden="true" />
+  );
   const awaitingUpdate =
     item.run &&
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -631,6 +640,17 @@ function FeedCard({
                   {next.label}
                 </button>
               )}
+              {canQuickDismiss && (
+                <button
+                  type="button"
+                  className="card-action-done"
+                  title={dismissLabel ?? "Remove from Done"}
+                  onClick={onDismiss}
+                >
+                  {quickDismissIcon}
+                  {quickDismissLabel}
+                </button>
+              )}
               {next?.kind !== "draft" && (
                 <button onClick={onReply}>
                   <MessageSquare size={16} />
@@ -795,6 +815,17 @@ function FeedCard({
                 )}
               </div>
               <div className="result-edit-actions">
+                {canQuickDismiss && (
+                  <button
+                    type="button"
+                    className="secondary card-action-done"
+                    title={dismissLabel ?? "Remove from Done"}
+                    onClick={() => leaveReading(onDismiss!)}
+                  >
+                    {quickDismissIcon}
+                    {quickDismissLabel}
+                  </button>
+                )}
                 <button
                   className="primary"
                   onClick={() => leaveReading(onReply)}
