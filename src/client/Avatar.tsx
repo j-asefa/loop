@@ -57,7 +57,7 @@ export function Avatar({
         <img
           key={character}
           ref={image}
-          src={visible ? `/avatars/robots/${character}.webp` : undefined}
+          src={visible ? `/avatars/animals/${character}.svg` : undefined}
           alt=""
           aria-hidden="true"
           width="384"
@@ -71,7 +71,7 @@ export function Avatar({
       </Tag>
       {open && (
         <ProfilePhoto
-          src={`/avatars/robots/${character}.webp`}
+          src={`/avatars/animals/${character}.svg`}
           label={`${name} avatar`}
           onClose={() => setOpen(false)}
         />

@@ -32,8 +32,8 @@ test("companion assets compress, cache and revalidate without caching entrypoint
       packages: "external",
       logLevel: "silent",
     });
-    const artwork = resolve("public/avatars/robots");
-    await cp(artwork, join(dir, "web/avatars/robots"), { recursive: true });
+    const artwork = resolve("public/avatars/animals");
+    await cp(artwork, join(dir, "web/avatars/animals"), { recursive: true });
     await mkdir(join(dir, "web/assets"));
     const script =
       "export const data = " + JSON.stringify("fixture ".repeat(2000));
@@ -59,16 +59,16 @@ test("companion assets compress, cache and revalidate without caching entrypoint
     };
     await host.listen();
     const names = (await readdir(artwork)).filter((name) =>
-      name.endsWith(".webp"),
+      name.endsWith(".svg"),
     );
     assert.equal(names.length, 100);
     for (const name of names) {
       const expected = await readFile(join(artwork, name));
       const response: Response = await fetch(
-        host.origin + "/avatars/robots/" + name,
+        host.origin + "/avatars/animals/" + name,
       );
-      assert.equal(response.status, 200, "/avatars/robots/" + name);
-      assert.equal(response.headers.get("content-type"), "image/webp");
+      assert.equal(response.status, 200, "/avatars/animals/" + name);
+      assert.equal(response.headers.get("content-type"), "image/svg+xml");
       assert.equal(
         response.headers.get("cache-control"),
         "public, max-age=0, must-revalidate",
@@ -101,7 +101,7 @@ test("companion assets compress, cache and revalidate without caching entrypoint
       (await rawGet(host.origin + "/avatars/atlas.webp")).status,
       400,
     );
-    const avatarPath = "/avatars/robots/atlas.webp";
+    const avatarPath = "/avatars/animals/atlas.svg";
     const avatar = await rawGet(host.origin + avatarPath);
     const cachedAvatar = await rawGet(host.origin + avatarPath, {
       "if-none-match": `"unrelated", ${String(avatar.headers.etag).slice(2)}`,
@@ -109,9 +109,9 @@ test("companion assets compress, cache and revalidate without caching entrypoint
     assert.equal(cachedAvatar.status, 304);
     assert.equal(cachedAvatar.body.length, 0);
     // Stable URLs must pick up replacement artwork after a deployment.
-    await writeFile(join(dir, "web/avatars/robots/atlas.webp"), "new artwork");
+    await writeFile(join(dir, "web/avatars/animals/atlas.svg"), "new artwork");
     await utimes(
-      join(dir, "web/avatars/robots/atlas.webp"),
+      join(dir, "web/avatars/animals/atlas.svg"),
       new Date(),
       new Date(Date.now() + 2000),
     );

@@ -19,9 +19,9 @@ for (const engine of selectedEngines()) {
     const insert = fixture.db.prepare(
       "INSERT INTO agents(id,owner_id,name,normalized_name,provider,model,created_at) VALUES(?,?,?,?,'openai','fixture',1)",
     );
-    for (const file of readdirSync("public/avatars/robots")) {
-      if (!file.endsWith(".webp")) continue;
-      const name = file.slice(0, -5);
+    for (const file of readdirSync("public/avatars/animals")) {
+      if (!file.endsWith(".svg")) continue;
+      const name = file.slice(0, -4);
       insert.run(`transfer-${name}`, fixture.owner, name, name);
     }
     const browser = await engine.launch({

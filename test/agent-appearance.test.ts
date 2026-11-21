@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { agentAppearance } from "../src/client/agentAppearance";
 
 const publicDirectory = new URL("../public/", import.meta.url);
-const robotDirectory = new URL("avatars/robots/", publicDirectory);
-const names = readdirSync(robotDirectory)
-  .filter((file) => file.endsWith(".webp"))
-  .map((file) => file.slice(0, -5));
+const animalDirectory = new URL("avatars/animals/", publicDirectory);
+const names = readdirSync(animalDirectory)
+  .filter((file) => file.endsWith(".svg"))
+  .map((file) => file.slice(0, -4));
 const covers = new Set([
   ...readdirSync(new URL("profile-covers/", publicDirectory))
     .filter((file) => file.endsWith(".webp"))
@@ -15,8 +15,9 @@ const covers = new Set([
 ]);
 
 describe("agent appearance", () => {
-  it("ships 100 distinct robot avatars and retires the old artwork", () => {
+  it("ships 100 distinct geometric animal SVG avatars and retires robot artwork", () => {
     expect(names).toHaveLength(100);
+    expect(existsSync(new URL("avatars/robots/", publicDirectory))).toBe(false);
     expect(
       readdirSync(new URL("avatars/", publicDirectory)).filter((file) =>
         file.endsWith(".webp"),
@@ -24,7 +25,7 @@ describe("agent appearance", () => {
     ).toHaveLength(0);
     const artwork = names.map((name) =>
       createHash("sha256")
-        .update(readFileSync(new URL(`${name}.webp`, robotDirectory)))
+        .update(readFileSync(new URL(`${name}.svg`, animalDirectory)))
         .digest("hex"),
     );
     expect(new Set(artwork).size).toBe(100);

@@ -103,12 +103,12 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await page.route("**/api/social/unread", (route) =>
     route.fulfill({ json: { unread: 99 } }),
   );
-  assert(accountArtwork.avatar.startsWith("/avatars/robots/"));
+  assert(accountArtwork.avatar.startsWith("/avatars/animals/"));
   const currentImage = await page.request.get(
     fixture.base + accountArtwork.avatar,
   );
   assert.equal(currentImage.status(), 200);
-  assert.match(currentImage.headers()["content-type"], /^image\/webp/);
+  assert.match(currentImage.headers()["content-type"], /^image\/svg\+xml/);
   assert.deepEqual(
     await page.evaluate(async (source) => {
       const image = new Image();
@@ -186,7 +186,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       await shortcut.scrollIntoViewIfNeeded();
       await expect(shortcut.locator(".avatar img")).toHaveAttribute(
         "src",
-        /^\/avatars\/robots\//,
+        /^\/avatars\/animals\//,
       );
       const avatarSource = await shortcut
         .locator(".avatar img")
@@ -413,7 +413,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await editName("Iris");
   await expect(personal.locator("h1")).toHaveText("Iris");
   const savedArtwork = {
-    avatar: "/avatars/robots/iris.webp",
+    avatar: "/avatars/animals/iris.svg",
     cover: "/profile-covers/iris-scene.webp",
   };
   assert.deepEqual(await personalArtwork(), savedArtwork);
@@ -463,7 +463,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
     }
   }
   // A missing image leaves a readable local fallback, without an external request.
-  await page.route("**/avatars/robots/*.webp", (route) => route.abort());
+  await page.route("**/avatars/animals/*.svg", (route) => route.abort());
   await page.goto(fixture.base);
   await expect(page.locator(".your-agents .avatar-3d").first()).toBeVisible();
   await expect(
