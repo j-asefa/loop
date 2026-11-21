@@ -157,12 +157,14 @@ function reactiveTurn(sessionId, mode) {
     [
       "reactive-rejected-steer-late-tool",
       "reactive-rejected-steer-settled-tool",
-      "reactive-echoed-steer-settled-tool",
+      "reactive-echoed-steer-open-tool",
+      "reactive-steered-sync-tool",
     ].includes(mode)
   ) {
     message("Waiting.");
     endReactiveSteer = (request) => {
-      const joined = mode === "reactive-echoed-steer-settled-tool";
+      const synchronous = mode === "reactive-steered-sync-tool";
+      const joined = synchronous || mode === "reactive-echoed-steer-open-tool";
       if (joined)
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
@@ -170,8 +172,9 @@ function reactiveTurn(sessionId, mode) {
         });
       finish(sessionId);
       tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
-      if (mode !== "reactive-rejected-steer-late-tool")
+      if (synchronous || mode === "reactive-rejected-steer-settled-tool")
         complete("late-background");
+      if (synchronous) message("Done.");
       if (joined) reply(request.id, { stopReason: "end_turn" });
       else
         send({
@@ -179,7 +182,8 @@ function reactiveTurn(sessionId, mode) {
           error: { code: -32603, message: "Steer rejected" },
         });
       setTimeout(() => {
-        if (mode === "reactive-rejected-steer-late-tool")
+        if (synchronous) return;
+        if (mode !== "reactive-rejected-steer-settled-tool")
           complete("late-background");
         message("Done.");
         reportUsage();
