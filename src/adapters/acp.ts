@@ -151,6 +151,8 @@ export class Acp implements Adapter {
   private reactiveEnd = false;
   private reactiveIdle?: NodeJS.Timeout;
   private reactiveWatchdog?: NodeJS.Timeout;
+  private reactiveWatchdogStarted = 0;
+  private reactiveBudget = REACTIVE_WATCHDOG_MS;
   private retireReactiveSession = false;
   get reusable() {
     return !this.retireReactiveSession;
@@ -615,6 +617,7 @@ export class Acp implements Adapter {
     this.backgroundTools.clear();
     this.pendingWakeup = false;
     this.reactiveEnd = false;
+    this.reactiveBudget = REACTIVE_WATCHDOG_MS;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
     this.promptEchoed = expected
@@ -733,13 +736,16 @@ export class Acp implements Adapter {
     if (this.permissions.size) return;
     // The reactive wait stays bounded even if a concurrent steer never
     // answers. Human approval time does not count against the watchdog.
-    this.reactiveWatchdog ??= setTimeout(
-      () =>
-        this.timeoutReactiveTurn(
-          "Antigravity did not finish its reactive turn within an hour.",
-        ),
-      REACTIVE_WATCHDOG_MS,
-    ).unref();
+    if (!this.reactiveWatchdog) {
+      this.reactiveWatchdogStarted = Date.now();
+      this.reactiveWatchdog = setTimeout(
+        () =>
+          this.timeoutReactiveTurn(
+            "Antigravity did not finish its reactive turn within an hour.",
+          ),
+        this.reactiveBudget,
+      ).unref();
+    }
     if (this.openPrompts || this.reactiveTools.size) return;
     if (!confirmed) {
       // Usage sent while work is still open can mark a yield to another
@@ -1218,6 +1224,12 @@ export class Acp implements Adapter {
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
     clearTimeout(this.reactiveIdle);
+    if (this.reactiveWatchdog)
+      this.reactiveBudget = Math.max(
+        0,
+        this.reactiveBudget -
+          Math.max(0, Date.now() - this.reactiveWatchdogStarted),
+      );
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
     return new Promise((resolve) => {
@@ -1313,7 +1325,8 @@ export class Acp implements Adapter {
       // prompt response. A pass that leaves more work open can wake again.
       // A usage update that arrived during an open request cannot certify a
       // later steering response. Evaluate it at arrival and never latch it.
-      if (!this.cancelling) this.finishReactiveTurn(true);
+      if (!this.cancelling && !this.pendingWakeup)
+        this.finishReactiveTurn(true);
       return;
     }
     if (

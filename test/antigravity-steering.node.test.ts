@@ -214,6 +214,46 @@ test("Antigravity cancels a reactive turn with an outstanding steering request",
 });
 
 test(
+  "Antigravity pauses the reactive budget during approval and resumes with the remaining time",
+  { timeout: 5000 },
+  async (t) => {
+    fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "reactive-budget";
+    const events: AdapterEvent[] = [];
+    let endPrompt!: () => void;
+    const promptEnded = new Promise<void>((resolve) => {
+      endPrompt = resolve;
+    });
+    let requestApproval!: (id: string) => void;
+    const approval = new Promise<string>((resolve) => {
+      requestApproval = resolve;
+    });
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) => {
+      events.push(e);
+      if (e.type === "usage") endPrompt();
+      if (e.type === "request") requestApproval(e.request.id);
+    });
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    try {
+      await adapter.prompt("Run background work");
+      await promptEnded;
+      t.mock.timers.tick(59 * 60_000);
+      await adapter.steer!("Keep going");
+      const decisionId = await approval;
+      t.mock.timers.tick(60 * 60_000);
+      assert.deepEqual(statuses(events), ["ready"]);
+      await adapter.answer(decisionId, { choice: "allow" });
+      t.mock.timers.tick(60_000);
+      assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+    } finally {
+      t.mock.timers.reset();
+    }
+  },
+);
+
+test(
   "Antigravity interrupts a settled reactive pass without a final usage update",
   { timeout: 5000 },
   async (t) => {

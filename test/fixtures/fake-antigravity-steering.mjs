@@ -172,6 +172,7 @@ function reactiveTurn(sessionId, mode) {
       finish(sessionId);
     } else {
       finish(sessionId);
+      reportUsage(); // A settled tool still has a pending wakeup.
       setTimeout(() => {
         message("Done.");
         reportUsage();
@@ -303,11 +304,29 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return finish(sessionId, "cancelled");
     case "session/prompt": {
       const text = req.params.prompt[0].text;
-      if (turn === 1 && mode === "reactive-stalled-steer") {
+      if (
+        turn === 1 &&
+        ["reactive-stalled-steer", "reactive-budget"].includes(mode)
+      ) {
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
           content: { type: "text", text },
         });
+        if (mode === "reactive-budget")
+          send({
+            id: `perm-${++permission}`,
+            method: "session/request_permission",
+            params: {
+              sessionId,
+              toolCall: {
+                toolCallId: "background",
+                title: "Reactive approval",
+              },
+              options: [
+                { optionId: "allow", name: "Allow once", kind: "allow_once" },
+              ],
+            },
+          });
         return;
       }
       if (open.length) {
