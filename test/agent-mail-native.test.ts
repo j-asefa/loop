@@ -410,11 +410,12 @@ it.each([
           )?.state === "accepted",
       );
       const endpoint = { ...ticket };
-      const requestPi = (body: object) =>
+      const requestPi = (body: object, signal?: AbortSignal) =>
         fetch(endpoint.url + "/pi", {
           method: "POST",
           headers: { authorization: "Bearer " + endpoint.token },
           body: JSON.stringify(body),
+          signal,
         });
       const call = async (body: object) => (await requestPi(body)).json();
       await call({ method: "tools/list" });
@@ -544,6 +545,37 @@ it.each([
               .prepare("SELECT id FROM approvals WHERE run_id=?")
               .get(run.id) as { id: string } | undefined),
       );
+      if (cause === "approval") {
+        await until(
+          () =>
+            db
+              .prepare("SELECT state FROM runs WHERE id=?")
+              .pluck()
+              .get(run.id) === "awaiting_approval",
+        );
+        const check = await requestPi(
+          {
+            method: "tools/call",
+            id: "check-during-approval",
+            name: "loop_check_display",
+            arguments: { spec: "語".repeat(50_000) },
+          },
+          AbortSignal.timeout(1500),
+        );
+        expect(await check.json()).toMatchObject({
+          isError: true,
+          content: [
+            {
+              text: expect.stringContaining(
+                "Start a new display check after it resumes.",
+              ),
+            },
+          ],
+        });
+        expect(
+          db.prepare("SELECT state FROM runs WHERE id=?").pluck().get(run.id),
+        ).toBe("awaiting_approval");
+      }
       const at = Date.now();
       if (concurrentExpiry) {
         // Another request's approval must not permanently cache an expiry error

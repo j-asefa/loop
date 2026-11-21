@@ -211,6 +211,15 @@ export class NativeToolBridge {
           // Wait only on known pending approvals/delegations. Uncertain external
           // calls throw from the broker and are never repeated.
           if (state === "awaiting_approval") {
+            // Display checks are read-only and may have large arguments.
+            // Return promptly instead of retaining them during the wait.
+            if (
+              binding.connectionId === "__loop__" &&
+              binding.tool === "loop_check_display"
+            )
+              throw new Error(
+                "The run is waiting for approval. Start a new display check after it resumes.",
+              );
             await wait(revision);
             continue;
           }

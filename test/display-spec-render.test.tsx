@@ -354,6 +354,28 @@ it("checks and draws a text explanation alongside a link in Actions", () => {
   expect(html).toContain('href="https://example.com/report"');
 });
 
+it("checks and draws a standalone display nested in a quote or list item", () => {
+  const source = fence(
+    patch(
+      { op: "add", path: "/root", value: "details" },
+      {
+        op: "add",
+        path: "/elements/details",
+        value: { type: "Text", props: { content: "Nested display." } },
+      },
+    ),
+  );
+  const lines = source.split("\n");
+  const quoted = lines.map((line) => "> " + line).join("\n");
+  const listed = lines
+    .map((line, index) => (index === 0 ? "- " : "  ") + line)
+    .join("\n");
+  for (const nested of [quoted, listed]) {
+    expect(checkDisplay(nested)).toContain("Display valid. Elements: 1.");
+    expect(render(nested)).toContain('class="display-spec"');
+  }
+});
+
 it("cuts a spec fence to ten lines in a compact preview with displays off", () => {
   const lines = Array.from({ length: 40 }, (_, i) => ({
     op: "add",

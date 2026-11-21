@@ -64,21 +64,32 @@ function displaySource(input: string) {
   // Remark strips a leading BOM before identifying Markdown blocks.
   const lines = input.replace(/^\uFEFF/, "").split(/\r\n?|\n/);
   const first = lines.findIndex((line) => /[^ \t]/.test(line));
-  if (/^ {0,3}(\x60{3,}|~{3,})/.test(lines[first] ?? "")) {
+  const opening = lines[first] ?? "";
+  if (
+    /^ {0,3}(\x60{3,}|~{3,})/.test(opening) ||
+    (/^ {0,3}(>|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))/.test(opening) &&
+      (input.includes("```") || input.includes("~~~")))
+  ) {
     // Markdown preserves internal line endings and removes fence indentation.
     const { children } = markdown.parse(input);
-    const node = children[0];
-    if (
-      children.length !== 1 ||
-      node?.type !== "code" ||
-      !isDisplayFenceLanguage(node.lang)
+    let node = children.length === 1 ? children[0] : undefined;
+    // A single block can be pasted inside quotes or a single list item.
+    while (
+      node?.type === "blockquote" ||
+      node?.type === "list" ||
+      node?.type === "listItem"
     )
+      node = node.children.length === 1 ? node.children[0] : undefined;
+    if (node?.type !== "code" || !isDisplayFenceLanguage(node.lang))
       return {
         issue: `Line ${first + 1}: Use a single fenced block with spec as the fenced block's language.`,
       };
-    return { source: node.value };
+    return {
+      source: node.value,
+      lineOffset: node.position?.start.line ?? first + 1,
+    };
   }
-  return { source: input };
+  return { source: input, lineOffset: 0 };
 }
 
 // Leave room for the failure summary and reference within the API runtime's
@@ -116,7 +127,7 @@ export function checkDisplay(input: string): string {
     },
   });
   for (const { line, reason } of display.skipped)
-    add(`Line ${line}: ${reason}.`);
+    add(`Line ${source.lineOffset + line}: ${reason}.`);
   if (display.ok) {
     const visit = (node: DisplayNode) => {
       if (node.type === "Placeholder") {

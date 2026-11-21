@@ -418,6 +418,12 @@ it("validates display blocks through the native binding without recording a disp
   );
   expect(await call(root)).toContain("/root points to a missing element");
   expect(await call("[]")).toContain("Line 1:");
+  expect(await call("\n\n```spec\nnot JSON\n" + valid + "\n```")).toContain(
+    "Line 4: Not valid JSON.",
+  );
+  expect(await call("> ```spec\n> not JSON\n> ```")).toContain(
+    "Line 2: Not valid JSON.",
+  );
   expect(await call("!\n".repeat(DISPLAY_LIMITS.skippedDetail + 1))).toContain(
     `Line ${DISPLAY_LIMITS.skippedDetail + 1}: Not valid JSON.`,
   );
