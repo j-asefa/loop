@@ -97,13 +97,53 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   const dismissedToast = page
     .getByRole("status")
     .filter({ hasText: "Removed from Done" });
-  await doneCard.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(doneCard).toHaveCount(0);
-  await expect(dismissedToast).toBeVisible();
-  await dismissedToast
-    .getByRole("button", { name: "Undo", exact: true })
-    .click();
-  await expect(doneCard).toHaveCount(1);
+  // Repeated rapid Done taps while dismissal is in flight issue only one PATCH
+  // so Undo cannot be overridden by a duplicate dismissal request.
+  let releaseFirstDismiss;
+  const firstDismissHeld = new Promise((resolve) => {
+    releaseFirstDismiss = resolve;
+  });
+  let hidePatchCount = 0;
+  const holdHideDismiss = async (route) => {
+    if (
+      route.request().method() === "PATCH" &&
+      route.request().postDataJSON()?.hidden === true
+    ) {
+      hidePatchCount += 1;
+      if (hidePatchCount === 1) await firstDismissHeld;
+    }
+    await route.continue();
+  };
+  await page.route("**/api/feed/*", holdHideDismiss);
+  try {
+    const doneButton = doneCard.getByRole("button", {
+      name: "Done",
+      exact: true,
+    });
+    await doneButton.click();
+    await expect(doneButton).toBeDisabled();
+    await doneButton.click({ force: true });
+    assert.equal(
+      hidePatchCount,
+      1,
+      "Repeated Done clicks while pending must issue only one hide request",
+    );
+    releaseFirstDismiss();
+    await expect(doneCard).toHaveCount(0);
+    await expect(dismissedToast).toBeVisible();
+    await dismissedToast
+      .getByRole("button", { name: "Undo", exact: true })
+      .click();
+    await expect(doneCard).toHaveCount(1);
+    assert.equal(
+      hidePatchCount,
+      1,
+      "Undo must not be raced by a second pending hide request",
+    );
+  } finally {
+    releaseFirstDismiss();
+    await page.unroute("**/api/feed/*", holdHideDismiss);
+  }
   await doneCard.getByRole("button", { name: title }).click();
   await expect(reading).toBeVisible();
   // A dismissal failure after closing the reading sheet surfaces an alert
