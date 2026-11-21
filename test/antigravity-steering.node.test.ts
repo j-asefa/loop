@@ -60,15 +60,16 @@ test("Antigravity waits through successive reactive passes and approvals", async
     ["Waiting.", "Waiting again."],
   );
   await adapter.answer(approval.request.id, { choice: "allow" });
-  await until(() => complete(events).length === 1);
-  assert.deepEqual(statuses(events), ["ready", "completed"]);
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Done."),
+  );
+  assert.deepEqual(statuses(events), ["ready"]);
   assert.deepEqual(
     events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
     ["Waiting.", "Waiting again.", "Done."],
   );
   assert.deepEqual(prompts(requests), ["Run background work"]);
-  await adapter.prompt("Next turn");
-  await until(() => complete(events).length === 2);
+  await assert.rejects(adapter.prompt("Next turn"), /busy/);
 });
 
 test("Antigravity completes normally with only a daemon still running", async (t) => {
@@ -97,7 +98,10 @@ test("Antigravity keeps accepting reactive output after overlapping prompts end"
   await adapter.prompt("Run background work");
   await until(() => events.some((e) => e.type === "delta"));
   await adapter.steer!("Keep going");
-  await until(() => complete(events).length === 1);
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Done."),
+  );
+  assert.deepEqual(statuses(events), ["ready"]);
   assert.deepEqual(
     events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
     ["Waiting.", "Done."],
@@ -116,7 +120,12 @@ for (const mode of ["reactive-before-end", "reactive-sync-answer"])
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Run background work");
-    await until(() => complete(events).length === 1, 8000);
+    await until(() =>
+      events.some((e) => e.type === "delta" && e.text === "Done."),
+    );
+    if (mode === "reactive-sync-answer")
+      await until(() => complete(events).length === 1);
+    else assert.deepEqual(statuses(events), ["ready"]);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
       ["Waiting.", "Done."],
@@ -163,8 +172,10 @@ test("Antigravity keeps accepting reactive output after echoing and acknowledgin
   await adapter.start();
   await adapter.prompt("Run background work");
   await adapter.steer!("Keep going");
-  await until(() => complete(events).length === 1, 8000);
-  assert.deepEqual(statuses(events), ["ready", "completed"]);
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Done."),
+  );
+  assert.deepEqual(statuses(events), ["ready"]);
   assert.deepEqual(
     events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
     ["Waiting.", "Acknowledged.", "Done."],
@@ -289,7 +300,9 @@ test(
       t.mock.timers.tick(60 * 60_000);
       assert.deepEqual(statuses(events), ["ready"]);
       await adapter.answer(decisionId, { choice: "allow" });
-      t.mock.timers.tick(60_000);
+      t.mock.timers.tick(5_000);
+      assert.deepEqual(statuses(events), ["ready"]);
+      t.mock.timers.tick(55_000);
       assert.deepEqual(statuses(events), ["ready", "interrupted"]);
     } finally {
       t.mock.timers.reset();
@@ -297,42 +310,48 @@ test(
   },
 );
 
-test(
-  "Antigravity interrupts a settled reactive pass without a final usage update",
-  { timeout: 5000 },
-  async (t) => {
-    fixture(t);
-    process.env.LOOP_TEST_AGY_MODE = "reactive-reordered";
-    const events: AdapterEvent[] = [];
-    let settle!: () => void;
-    const settled = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) => {
-      events.push(e);
-      if (
-        e.type === "activity" &&
-        e.activity.kind === "tool" &&
-        e.activity.id === "background" &&
-        e.activity.patch.status === "completed"
-      )
-        settle();
-    });
-    t.after(() => adapter.dispose());
-    await adapter.start();
-    t.mock.timers.enable({ apis: ["setTimeout"] });
-    try {
-      await adapter.prompt("Run background work");
-      await settled;
-      assert.deepEqual(statuses(events), ["ready"]);
-      t.mock.timers.tick(60_000);
-      assert.deepEqual(statuses(events), ["ready", "interrupted"]);
-      assert.equal(adapter.reusable, false);
-    } finally {
-      t.mock.timers.reset();
-    }
-  },
-);
+for (const mode of ["reactive-reordered", "reactive-final-usage"])
+  test(
+    `Antigravity preserves partial output and interrupts in ${mode}`,
+    { timeout: 5000 },
+    async (t) => {
+      fixture(t);
+      process.env.LOOP_TEST_AGY_MODE = mode;
+      const events: AdapterEvent[] = [];
+      let settle!: () => void;
+      const settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const adapter = new Antigravity(
+        { ...options, version: "1.5.14" },
+        (e) => {
+          events.push(e);
+          if (
+            e.type === "activity" &&
+            e.activity.kind === "tool" &&
+            e.activity.id === "background" &&
+            e.activity.patch.status === "completed"
+          )
+            settle();
+        },
+      );
+      t.after(() => adapter.dispose());
+      await adapter.start();
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await adapter.prompt("Run background work");
+        await settled;
+        assert.deepEqual(statuses(events), ["ready"]);
+        t.mock.timers.tick(5_000);
+        assert.deepEqual(statuses(events), ["ready"]);
+        t.mock.timers.tick(55_000);
+        assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+        assert.equal(adapter.reusable, false);
+      } finally {
+        t.mock.timers.reset();
+      }
+    },
+  );
 
 for (const stop of ["cancel", "dispose"] as const)
   test(`Antigravity ${stop} can stop a turn waiting for a reactive wakeup`, async (t) => {

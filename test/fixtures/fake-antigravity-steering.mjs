@@ -221,11 +221,12 @@ function reactiveTurn(sessionId, mode) {
     return;
   }
   finish(sessionId);
-  if (mode === "reactive-reordered") {
+  if (mode === "reactive-reordered" || mode === "reactive-final-usage") {
     setTimeout(() => {
       message("Done.");
-      reportUsage();
+      if (mode === "reactive-reordered") reportUsage();
       complete("background");
+      if (mode === "reactive-final-usage") reportUsage();
     }, 30);
     return;
   }

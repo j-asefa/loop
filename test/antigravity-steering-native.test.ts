@@ -404,7 +404,7 @@ it("steers a running turn through agy acp without a restart or replaying the tas
   ]);
 });
 
-it("publishes the result only after Antigravity's reactive work and approval finish", async () => {
+it("preserves unconfirmed Antigravity reactive output without publishing a Result", async () => {
   process.env.LOOP_TEST_AGY_MODE = "reactive";
   const { run } = task("agy-reactive");
   const before = prompts().length;
@@ -429,11 +429,21 @@ it("publishes the result only after Antigravity's reactive work and approval fin
     await sessions.decisions.answer(decision()!.id, "reactive-approval", {
       choice: "allow",
     });
-    expect(await execution).toMatchObject({ kind: "finished" });
-    expect(checkpoint()).toMatchObject({
-      stage: "done",
-      output: expect.stringContaining("Done."),
+    const reactiveOutput = () =>
+      db
+        .prepare("SELECT item FROM native_items WHERE run_id=?")
+        .all(run.id)
+        .some((row) =>
+          JSON.parse((row as { item: string }).item).text?.includes("Done."),
+        );
+    await until(reactiveOutput, 5000);
+    await sessions.interrupt(run.id);
+    expect(await execution).toMatchObject({
+      kind: "already-moved",
+      reason: "native-interrupted",
     });
+    expect(checkpoint()).toMatchObject({ stage: "native", output: "" });
+    expect(reactiveOutput()).toBe(true);
     expect(prompts().slice(before)).toEqual([
       "Saved fixture instructions\n\nExplicit task",
     ]);

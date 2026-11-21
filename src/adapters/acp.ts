@@ -75,7 +75,6 @@ function matchEcho(echo: Echo, chunk: string) {
 const ECHO_WAIT = 5000;
 const REACTIVE_IDLE_MS = 60_000;
 const REACTIVE_WATCHDOG_MS = 60 * 60_000;
-const REACTIVE_SETTLE_MS = 5_000;
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 const text = (value: unknown) =>
@@ -672,7 +671,10 @@ export class Acp implements Adapter {
             result.stopReason,
           );
           const interrupted =
-            this.cancelling || limited || result.stopReason === "cancelled";
+            this.cancelling ||
+            this.reactiveEnd ||
+            limited ||
+            result.stopReason === "cancelled";
           if (
             interrupted &&
             (this.reactiveEnd || this.pendingWakeup || this.reactiveTools.size)
@@ -729,11 +731,11 @@ export class Acp implements Adapter {
       });
     return request;
   }
-  private finishReactiveTurn(confirmed = false) {
+  private finishReactiveTurn() {
     clearTimeout(this.reactiveIdle);
     if (this.closed || this.terminalReported || !this.reactiveEnd) return;
     if (this.cancelling) {
-      this.reportReactiveEnd("interrupted");
+      this.interruptReactiveTurn();
       return;
     }
     if (this.permissions.size) return;
@@ -743,51 +745,35 @@ export class Acp implements Adapter {
       this.reactiveWatchdogStarted = Date.now();
       this.reactiveWatchdog = setTimeout(
         () =>
-          this.timeoutReactiveTurn(
+          this.interruptReactiveTurn(
             "Antigravity did not finish its reactive turn within an hour.",
           ),
         this.reactiveBudget,
       ).unref();
     }
     if (this.openPrompts || this.reactiveTools.size) return;
-    if (!confirmed) {
-      // Usage sent while work is still open can mark a yield to another
-      // wakeup. Give agy time to acknowledge the settled pass before
-      // retiring it with partial output.
-      this.reactiveIdle = setTimeout(
-        () =>
-          this.timeoutReactiveTurn(
-            "Antigravity did not confirm the end of its reactive turn.",
-          ),
-        REACTIVE_IDLE_MS,
-      ).unref();
-      return;
-    }
-    // agy also emits usage during a pass, including just before announcing
-    // another tool. Wait for a quiet interval and invalidate it on work.
+    // ACP usage updates also occur mid-pass. A quiet reactive wait can
+    // preserve partial output, but cannot certify a completed Result.
     this.reactiveIdle = setTimeout(
-      () => this.reportReactiveEnd("completed"),
-      REACTIVE_SETTLE_MS,
+      () =>
+        this.interruptReactiveTurn(
+          "Antigravity did not confirm the end of its reactive turn.",
+        ),
+      REACTIVE_IDLE_MS,
     ).unref();
   }
-  private timeoutReactiveTurn(detail: string) {
-    this.reportReactiveEnd("interrupted", detail);
-  }
-  private reportReactiveEnd(
-    status: "interrupted" | "completed",
-    detail?: string,
-  ) {
+  private interruptReactiveTurn(detail?: string) {
     clearTimeout(this.reactiveIdle);
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
-    if (status === "interrupted") this.retireReactiveSession = true;
+    this.retireReactiveSession = true;
     this.terminalReported = true;
     this.active = false;
     this.emit({
       type: "status",
-      status,
+      status: "interrupted",
       detail,
-      recoverable: status === "completed",
+      recoverable: false,
     });
   }
   private addUsage(result: unknown) {
@@ -1325,15 +1311,6 @@ export class Acp implements Adapter {
       !this.cancelling
     ) {
       this.finishReactiveTurn();
-      return;
-    }
-    if (u.sessionUpdate === "usage_update" && this.reactiveEnd) {
-      // agy 1.5.14 sends this after a reactive pass but sends no second
-      // prompt response. A pass that leaves more work open can wake again.
-      // A usage update that arrived during an open request cannot certify a
-      // later steering response. Evaluate it at arrival and never latch it.
-      if (!this.cancelling && !this.pendingWakeup)
-        this.finishReactiveTurn(true);
       return;
     }
     if (
