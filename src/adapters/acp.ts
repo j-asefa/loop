@@ -654,7 +654,9 @@ export class Acp implements Adapter {
               ...(this.toolsAtFirstSteerDispatch ?? []),
             ].some((id) => this.reactiveTools.has(id));
             if (
-              (last || inheritedWork || this.permissions.size) &&
+              (last ||
+                inheritedWork ||
+                (!this.steerJoined && this.permissions.size)) &&
               this.waitForReactiveTurn()
             )
               return;
@@ -703,7 +705,11 @@ export class Acp implements Adapter {
           }
           if (
             steer &&
-            (this.reactiveEnd || (!this.steerJoined && this.earlierEnd)) &&
+            (this.reactiveEnd ||
+              (this.earlierEnd &&
+                (!this.steerJoined ||
+                  this.reactiveTools.size ||
+                  this.permissions.size))) &&
             this.waitForReactiveTurn(this.workWhileSteerUnconfirmed)
           )
             return;

@@ -177,7 +177,8 @@ function reactiveTurn(sessionId, mode) {
   }
   if (
     mode === "reactive-cancel-unjoined-steer" ||
-    mode === "reactive-approval-at-first-end"
+    mode === "reactive-approval-at-first-end" ||
+    mode === "reactive-steer-owned-approval"
   ) {
     message("Waiting.");
     endReactiveSteer = (request) => {
@@ -192,9 +193,19 @@ function reactiveTurn(sessionId, mode) {
       }
       const id = `perm-${++permission}`;
       permissions.set(id, () => {
+        if (mode === "reactive-steer-owned-approval") {
+          message("Done.");
+          reply(request.id, { stopReason: "end_turn" });
+          return;
+        }
         reply(request.id, { stopReason: "end_turn" });
         setTimeout(() => message("Done."), 30);
       });
+      if (mode === "reactive-steer-owned-approval")
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: request.params.prompt[0].text },
+        });
       send({
         id,
         method: "session/request_permission",

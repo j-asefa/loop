@@ -376,26 +376,37 @@ test("Antigravity interrupts an unanswered acknowledged steer on cancellation", 
   assert.equal(adapter.reusable, false);
 });
 
-test("Antigravity keeps an approval spanning the original end_turn in the reactive wait", async (t) => {
-  fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "reactive-approval-at-first-end";
-  const events: AdapterEvent[] = [];
-  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
-    events.push(e),
-  );
-  t.after(() => adapter.dispose());
-  await adapter.start();
-  await adapter.prompt("Start work");
-  const steer = adapter.steer!("Keep going");
-  await until(() => events.some((e) => e.type === "usage"));
-  const approval = events.find((e) => e.type === "request")!;
-  await adapter.answer(approval.request.id, { choice: "allow" });
-  await steer;
-  await until(() =>
-    events.some((e) => e.type === "delta" && e.text === "Done."),
-  );
-  assert.deepEqual(statuses(events), ["ready"]);
-});
+for (const mode of [
+  "reactive-approval-at-first-end",
+  "reactive-steer-owned-approval",
+])
+  test(`Antigravity handles an approval spanning the original end_turn in ${mode}`, async (t) => {
+    fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+      events.push(e),
+    );
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    await adapter.prompt("Start work");
+    const steer = adapter.steer!("Keep going");
+    await until(() => events.some((e) => e.type === "usage"));
+    const approval = events.find((e) => e.type === "request")!;
+    await adapter.answer(approval.request.id, { choice: "allow" });
+    await steer;
+    await until(() =>
+      events.some((e) => e.type === "delta" && e.text === "Done."),
+    );
+    if (mode === "reactive-steer-owned-approval")
+      await until(() => complete(events).length === 1, 2000);
+    assert.deepEqual(
+      statuses(events),
+      mode === "reactive-steer-owned-approval"
+        ? ["ready", "completed"]
+        : ["ready"],
+    );
+  });
 
 test("Antigravity reports interruption before a blocked cancel notification settles", async (t) => {
   fixture(t);
