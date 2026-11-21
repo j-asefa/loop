@@ -1239,7 +1239,7 @@ export class Acp implements Adapter {
         choices: new Set(choices.map((choice) => choice.optionId)),
         resolve,
       });
-      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+      if (this.earlierEnd && !this.reactiveEnd && this.echo)
         this.waitForReactiveTurn();
       this.emit({
         type: "request",
@@ -1311,7 +1311,7 @@ export class Acp implements Adapter {
           text: text(u.content.text),
         });
       }
-      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+      if (this.earlierEnd && !this.reactiveEnd && this.echo)
         this.waitForReactiveTurn(true);
       if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
       return;
@@ -1321,7 +1321,7 @@ export class Acp implements Adapter {
       (this.earlierEnd || this.reactiveEnd) &&
       !this.cancelling
     ) {
-      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+      if (this.earlierEnd && !this.reactiveEnd && this.echo)
         this.waitForReactiveTurn(true);
       else this.finishReactiveTurn();
       return;
@@ -1351,7 +1351,7 @@ export class Acp implements Adapter {
           this.reactiveTools.add(u.toolCallId);
           // After the steer is echoed, its normal tool calls belong to an
           // open prompt. Check for outstanding work when that prompt ends.
-          if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+          if (this.earlierEnd && !this.reactiveEnd && this.echo)
             this.waitForReactiveTurn();
           reactiveWorkChanged = true;
         }
