@@ -647,7 +647,8 @@ export class Acp implements Adapter {
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
-            if (this.waitForReactiveTurn()) return;
+            if ((last || !this.steerJoined) && this.waitForReactiveTurn())
+              return;
           }
           if (!last) return;
           this.terminalReported = true;
@@ -716,11 +717,16 @@ export class Acp implements Adapter {
       });
     return request;
   }
-  private waitForReactiveTurn() {
+  private waitForReactiveTurn(observedContinuation = false) {
     if (
       this.cancelling ||
       !this.waitsForReactiveTurns ||
-      !(this.reactiveEnd || this.reactiveTools.size || this.permissions.size)
+      !(
+        observedContinuation ||
+        this.reactiveEnd ||
+        this.reactiveTools.size ||
+        this.permissions.size
+      )
     )
       return false;
     this.reactiveEnd = true;
@@ -1305,6 +1311,8 @@ export class Acp implements Adapter {
           text: text(u.content.text),
         });
       }
+      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+        this.waitForReactiveTurn(true);
       if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
       return;
     }
@@ -1313,7 +1321,9 @@ export class Acp implements Adapter {
       (this.earlierEnd || this.reactiveEnd) &&
       !this.cancelling
     ) {
-      this.finishReactiveTurn();
+      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
+        this.waitForReactiveTurn(true);
+      else this.finishReactiveTurn();
       return;
     }
     if (

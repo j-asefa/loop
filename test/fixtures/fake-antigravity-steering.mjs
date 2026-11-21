@@ -159,19 +159,26 @@ function reactiveTurn(sessionId, mode) {
       "reactive-rejected-steer-settled-tool",
       "reactive-echoed-steer-open-tool",
       "reactive-steered-sync-tool",
+      "reactive-steered-sync-open-at-first-end",
+      "reactive-rejected-steer-text-before-tool",
     ].includes(mode)
   ) {
     message("Waiting.");
     endReactiveSteer = (request) => {
-      const synchronous = mode === "reactive-steered-sync-tool";
+      const synchronous = mode.startsWith("reactive-steered-sync");
       const joined = synchronous || mode === "reactive-echoed-steer-open-tool";
       if (joined)
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
           content: { type: "text", text: request.params.prompt[0].text },
         });
+      const startTool = () =>
+        tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+      if (mode === "reactive-steered-sync-open-at-first-end") startTool();
       finish(sessionId);
-      tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+      if (mode === "reactive-rejected-steer-text-before-tool")
+        message("Still waiting.");
+      else if (mode !== "reactive-steered-sync-open-at-first-end") startTool();
       if (synchronous || mode === "reactive-rejected-steer-settled-tool")
         complete("late-background");
       if (synchronous) message("Done.");
@@ -183,6 +190,7 @@ function reactiveTurn(sessionId, mode) {
         });
       setTimeout(() => {
         if (synchronous) return;
+        if (mode === "reactive-rejected-steer-text-before-tool") startTool();
         if (mode !== "reactive-rejected-steer-settled-tool")
           complete("late-background");
         message("Done.");

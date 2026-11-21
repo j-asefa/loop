@@ -110,6 +110,7 @@ for (const mode of [
   "reactive-steering",
   "reactive-rejected-steer-late-tool",
   "reactive-rejected-steer-settled-tool",
+  "reactive-rejected-steer-text-before-tool",
   "reactive-echoed-steer-open-tool",
   "reactive-daemon-unechoed-steer-output",
   "reactive-steer-daemon",
@@ -147,7 +148,9 @@ for (const mode of [
         : mode === "reactive-steer-daemon" ||
             mode === "reactive-daemon-failed-after-identification"
           ? ["Daemon started.", "Done."]
-          : ["Waiting.", "Done."],
+          : mode === "reactive-rejected-steer-text-before-tool"
+            ? ["Waiting.", "Still waiting.", "Done."]
+            : ["Waiting.", "Done."],
     );
     assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
   });
@@ -156,6 +159,7 @@ for (const mode of [
   "reactive-sync-answer",
   "reactive-sync-subagent",
   "reactive-steered-sync-tool",
+  "reactive-steered-sync-open-at-first-end",
 ])
   test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
     fixture(t);
@@ -167,7 +171,7 @@ for (const mode of [
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Run background work");
-    if (mode === "reactive-steered-sync-tool")
+    if (mode.startsWith("reactive-steered-sync"))
       await adapter.steer!("Keep going");
     await until(() =>
       events.some((e) => e.type === "delta" && e.text === "Done."),
