@@ -161,6 +161,7 @@ for (const mode of [
   "reactive-sync-subagent",
   "reactive-steered-sync-tool",
   "reactive-steered-sync-open-at-first-end",
+  "reactive-steered-sync-before-echo",
   "reactive-steered-sync-without-echo",
 ])
   test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
@@ -225,6 +226,9 @@ test("Antigravity keeps accepting reactive output after echoing and acknowledgin
   t.after(() => adapter.dispose());
   await adapter.start();
   await adapter.prompt("Run background work");
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Waiting."),
+  );
   await adapter.steer!("Keep going");
   await until(() =>
     events.some((e) => e.type === "delta" && e.text === "Done."),

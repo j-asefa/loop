@@ -168,8 +168,8 @@ export class Acp implements Adapter {
   private steering = false;
   /** The steering input's echo arrived, so it joined the running turn. */
   private steerJoined = false;
-  private toolsAtSteerEcho = new Set<string>();
-  private outputWhileSteerUnconfirmed = false;
+  private toolsAtSteerDispatch = new Set<string>();
+  private workWhileSteerUnconfirmed = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
   private end!: () => void;
@@ -649,15 +649,18 @@ export class Acp implements Adapter {
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
-            const inheritedWork = [...this.toolsAtSteerEcho].some((id) =>
+            const inheritedWork = [...this.toolsAtSteerDispatch].some((id) =>
               this.reactiveTools.has(id),
             );
-            if (
-              (last || !this.steerJoined || inheritedWork) &&
-              this.waitForReactiveTurn()
-            )
-              return;
-            if (!last && this.waitsForReactiveTurns) this.refreshReactiveWait();
+            if ((last || inheritedWork) && this.waitForReactiveTurn()) return;
+            if (!last && this.waitsForReactiveTurns) {
+              if (
+                this.echo &&
+                (this.reactiveTools.size || this.permissions.size)
+              )
+                this.workWhileSteerUnconfirmed = true;
+              this.refreshReactiveWait();
+            }
           }
           if (!last) return;
           this.terminalReported = true;
@@ -693,7 +696,7 @@ export class Acp implements Adapter {
             steer &&
             !this.steerJoined &&
             (this.earlierEnd || this.reactiveEnd) &&
-            this.waitForReactiveTurn(this.outputWhileSteerUnconfirmed)
+            this.waitForReactiveTurn(this.workWhileSteerUnconfirmed)
           )
             return;
           this.terminalReported = true;
@@ -778,22 +781,6 @@ export class Acp implements Adapter {
         ),
       REACTIVE_IDLE_MS,
     ).unref();
-  }
-  private noteReactiveActivity() {
-    if (!this.waitsForReactiveTurns || this.cancelling) return;
-    if (
-      !this.reactiveEnd &&
-      this.earlierEnd &&
-      this.openPrompts &&
-      !this.permissions.size
-    ) {
-      // An ordinary steer can keep making progress after the original
-      // request ends. Only the latched reactive wait has a total budget.
-      clearTimeout(this.reactiveWatchdog);
-      this.reactiveWatchdog = undefined;
-      this.reactiveBudget = REACTIVE_WATCHDOG_MS;
-    }
-    this.refreshReactiveWait();
   }
   private interruptReactiveTurn(detail?: string) {
     if (!this.cancelling && this.session && this.connection) {
@@ -894,8 +881,8 @@ export class Acp implements Adapter {
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     this.steerJoined = false;
-    this.toolsAtSteerEcho.clear();
-    this.outputWhileSteerUnconfirmed = false;
+    this.toolsAtSteerDispatch = new Set(this.reactiveTools);
+    this.workWhileSteerUnconfirmed = false;
     const echoed = new Promise<void>((resolve) => {
       if (expected)
         this.echo = {
@@ -903,7 +890,6 @@ export class Acp implements Adapter {
           seen: "",
           resolve: () => {
             this.steerJoined = true;
-            this.toolsAtSteerEcho = new Set(this.reactiveTools);
             resolve();
           },
         };
@@ -1274,8 +1260,7 @@ export class Acp implements Adapter {
         choices: new Set(choices.map((choice) => choice.optionId)),
         resolve,
       });
-      if (this.earlierEnd && !this.reactiveEnd && this.echo)
-        this.waitForReactiveTurn();
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
       this.emit({
         type: "request",
         request: {
@@ -1346,8 +1331,8 @@ export class Acp implements Adapter {
           text: text(u.content.text),
         });
       }
-      if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
-      this.noteReactiveActivity();
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
       return;
     }
     if (
@@ -1355,8 +1340,8 @@ export class Acp implements Adapter {
       (this.earlierEnd || this.reactiveEnd) &&
       !this.cancelling
     ) {
-      if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
-      this.noteReactiveActivity();
+      if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
       return;
     }
     if (
@@ -1382,10 +1367,10 @@ export class Acp implements Adapter {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
-          // After the steer is echoed, its normal tool calls belong to an
-          // open prompt. Check for outstanding work when that prompt ends.
-          if (this.earlierEnd && !this.reactiveEnd && this.echo)
-            this.waitForReactiveTurn();
+          // A pending steer might own this tool. Its successful response
+          // decides whether work remains; a rejection retains the evidence.
+          if (this.earlierEnd && this.echo)
+            this.workWhileSteerUnconfirmed = true;
           reactiveWorkChanged = true;
         }
       }
@@ -1404,7 +1389,7 @@ export class Acp implements Adapter {
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
         if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
-          this.noteReactiveActivity();
+          this.refreshReactiveWait();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1624,7 +1609,7 @@ export class Acp implements Adapter {
         this.loading,
       );
       if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
-        this.noteReactiveActivity();
+        this.refreshReactiveWait();
       return;
     }
     if (u.sessionUpdate === "plan") {
