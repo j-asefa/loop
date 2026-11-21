@@ -153,17 +153,23 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
-  if (mode === "reactive-rejected-steer-late-tool") {
+  if (
+    mode === "reactive-rejected-steer-late-tool" ||
+    mode === "reactive-rejected-steer-settled-tool"
+  ) {
     message("Waiting.");
     endReactiveSteer = (request) => {
       finish(sessionId);
       tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+      if (mode === "reactive-rejected-steer-settled-tool")
+        complete("late-background");
       send({
         id: request.id,
         error: { code: -32603, message: "Steer rejected" },
       });
       setTimeout(() => {
-        complete("late-background");
+        if (mode === "reactive-rejected-steer-late-tool")
+          complete("late-background");
         message("Done.");
         reportUsage();
       }, 30);
@@ -175,6 +181,7 @@ function reactiveTurn(sessionId, mode) {
       "reactive-late-daemon",
       "reactive-steer-daemon",
       "reactive-rejected-steer-daemon",
+      "reactive-daemon-unechoed-steer-output",
     ].includes(mode)
   ) {
     tool("daemon", undefined, "sleep 90");
@@ -191,12 +198,20 @@ function reactiveTurn(sessionId, mode) {
     if (mode !== "reactive-late-daemon")
       endReactiveSteer = (request) => {
         identifyDaemon();
-        if (mode === "reactive-rejected-steer-daemon")
+        if (mode === "reactive-daemon-unechoed-steer-output") {
+          message("Waiting.");
+          setTimeout(() => message("Done."), 30);
+        }
+        if (mode !== "reactive-steer-daemon")
           send({
             id: request.id,
             error: { code: -32603, message: "Steer rejected" },
           });
         else {
+          update(sessionId, {
+            sessionUpdate: "user_message_chunk",
+            content: { type: "text", text: request.params.prompt[0].text },
+          });
           message("Done.");
           reply(request.id, { stopReason: "end_turn" });
         }

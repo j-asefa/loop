@@ -97,7 +97,12 @@ for (const mode of [
       assert(events.some((e) => e.type === "delta" && e.text === "Done."));
   });
 
-for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
+for (const mode of [
+  "reactive-steering",
+  "reactive-rejected-steer-late-tool",
+  "reactive-rejected-steer-settled-tool",
+  "reactive-daemon-unechoed-steer-output",
+])
   test(`Antigravity keeps accepting output after overlapping prompts in ${mode}`, async (t) => {
     const requests = fixture(t);
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -109,7 +114,7 @@ for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
     await adapter.start();
     await adapter.prompt("Run background work");
     await until(() => events.some((e) => e.type === "delta"));
-    if (mode === "reactive-rejected-steer-late-tool")
+    if (mode !== "reactive-steering")
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     else await adapter.steer!("Keep going");
     await until(() =>
@@ -118,7 +123,9 @@ for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
     assert.deepEqual(statuses(events), ["ready"]);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
-      ["Waiting.", "Done."],
+      mode === "reactive-daemon-unechoed-steer-output"
+        ? ["Daemon started.", "Waiting.", "Done."]
+        : ["Waiting.", "Done."],
     );
     assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
   });
