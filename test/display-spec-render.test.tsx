@@ -324,6 +324,36 @@ it("draws or falls back at the source size limit as the reader does", () => {
   expect(overHtml).toContain("This display could not be drawn");
 });
 
+it("checks and draws a text explanation alongside a link in Actions", () => {
+  const source = fence(
+    patch(
+      { op: "add", path: "/root", value: "actions" },
+      {
+        op: "add",
+        path: "/elements/actions",
+        value: { type: "Actions", children: ["details", "link"] },
+      },
+      {
+        op: "add",
+        path: "/elements/details",
+        value: { type: "Text", props: { content: "Read the full report." } },
+      },
+      {
+        op: "add",
+        path: "/elements/link",
+        value: {
+          type: "LinkButton",
+          props: { label: "Open report", url: "https://example.com/report" },
+        },
+      },
+    ),
+  );
+  expect(checkDisplay(source)).toContain("Display valid. Elements: 3.");
+  const html = render(source);
+  expect(html).toContain("Read the full report.");
+  expect(html).toContain('href="https://example.com/report"');
+});
+
 it("cuts a spec fence to ten lines in a compact preview with displays off", () => {
   const lines = Array.from({ length: 40 }, (_, i) => ({
     op: "add",

@@ -35,7 +35,7 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Chart:
     'nonempty title and chart; pie uses {type:"pie",segments:[{label,value}]} with positive values; bar, line, or area uses {type,categories,series:[{name,values}],xLabel?,yLabel?} with string categories and at most one numeric value per category in each series',
   Divider: "no props",
-  Actions: "no props; child LinkButton keys",
+  Actions: "no props; children allowed, typically LinkButton elements",
   LinkButton: "nonempty label and an HTTP(S) url",
 };
 const patchForm =
@@ -134,20 +134,14 @@ export function checkDisplay(input: string): string {
               `Element ${quotedDiagnostic(node.key)}: Chart series ${quotedDiagnostic(name)} has more values (${values.length}) than categories (${categories.length}). Add categories or remove the extra values before publishing.`,
             );
       } else if ("children" in node) {
-        const childType =
-          node.type === "Fields"
-            ? "Field"
-            : node.type === "Actions"
-              ? "LinkButton"
-              : undefined;
         for (const child of node.children) {
           if (
-            childType &&
-            child.type !== childType &&
+            node.type === "Fields" &&
+            child.type !== "Field" &&
             child.type !== "Placeholder"
           )
             add(
-              `Element ${quotedDiagnostic(node.key)}: ${node.type} expects ${childType} children. Move ${quotedDiagnostic(child.key)} (${child.type}) to a Card or Section, or use a ${childType} here.`,
+              `Element ${quotedDiagnostic(node.key)}: Fields expects Field children. Move ${quotedDiagnostic(child.key)} (${child.type}) to a Card or Section, or use a Field here.`,
             );
           visit(child);
         }

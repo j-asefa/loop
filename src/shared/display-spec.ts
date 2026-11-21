@@ -305,7 +305,7 @@ function draw(
     drawn: number;
     omitMissing: boolean;
     onWarning?: DisplayWarning;
-    tables?: Map<string, DisplayNode | string>;
+    tablesAndCharts?: Map<string, DisplayNode | string>;
   },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
@@ -355,12 +355,13 @@ function draw(
     );
   // Props are checked before children are visited, so an invalid container
   // is one placeholder and its children count toward no limit.
-  // The checker can reuse validated tables. Every visit still charges the
-  // display budgets, and each table is a leaf with no per-visit children.
-  let built = state.tables?.get(key);
+  // The checker can reuse validated tables and charts, which have no
+  // per-visit children. Every visit still charges the display budgets.
+  let built = state.tablesAndCharts?.get(key);
   if (built === undefined) {
     built = build(key, type, element.props ?? {}, [], state.onWarning);
-    if (type === "Table") state.tables?.set(key, built);
+    if (type === "Table" || type === "Chart")
+      state.tablesAndCharts?.set(key, built);
   }
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
@@ -528,7 +529,9 @@ export function readDisplaySpec(
     drawn: 0,
     omitMissing: open && writing,
     onWarning,
-    tables: onWarning ? new Map<string, DisplayNode | string>() : undefined,
+    tablesAndCharts: onWarning
+      ? new Map<string, DisplayNode | string>()
+      : undefined,
   };
   try {
     return {
