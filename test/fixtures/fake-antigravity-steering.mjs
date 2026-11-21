@@ -154,6 +154,27 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
+  if (mode === "reactive-overlapping-steers") {
+    const echoSteer = (request) =>
+      update(sessionId, {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: request.params.prompt[0].text },
+      });
+    message("Waiting.");
+    endReactiveSteer = (first) => {
+      echoSteer(first);
+      tool("steer-tool", {}, "Synchronous tool");
+      endReactiveSteer = (second) => {
+        echoSteer(second);
+        finish(sessionId);
+        complete("steer-tool");
+        reply(first.id, { stopReason: "end_turn" });
+        message("Done.");
+        reply(second.id, { stopReason: "end_turn" });
+      };
+    };
+    return;
+  }
   if (
     mode === "reactive-cancel-unjoined-steer" ||
     mode === "reactive-approval-at-first-end"

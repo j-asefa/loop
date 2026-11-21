@@ -168,7 +168,7 @@ export class Acp implements Adapter {
   private steering = false;
   /** The steering input's echo arrived, so it joined the running turn. */
   private steerJoined = false;
-  private toolsAtSteerDispatch = new Set<string>();
+  private toolsAtFirstSteerDispatch?: Set<string>;
   private workWhileSteerUnconfirmed = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
@@ -613,6 +613,7 @@ export class Acp implements Adapter {
     this.messageId = randomUUID();
     this.turnUsage = undefined;
     this.earlierEnd = false;
+    this.toolsAtFirstSteerDispatch = undefined;
     this.reactiveTools.clear();
     this.reactiveEnd = false;
     this.reactiveBudget = REACTIVE_WATCHDOG_MS;
@@ -649,9 +650,9 @@ export class Acp implements Adapter {
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
-            const inheritedWork = [...this.toolsAtSteerDispatch].some((id) =>
-              this.reactiveTools.has(id),
-            );
+            const inheritedWork = [
+              ...(this.toolsAtFirstSteerDispatch ?? []),
+            ].some((id) => this.reactiveTools.has(id));
             if (
               (last || inheritedWork || this.permissions.size) &&
               this.waitForReactiveTurn()
@@ -889,7 +890,7 @@ export class Acp implements Adapter {
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     this.steerJoined = false;
-    this.toolsAtSteerDispatch = new Set(this.reactiveTools);
+    this.toolsAtFirstSteerDispatch ??= new Set(this.reactiveTools);
     this.workWhileSteerUnconfirmed = false;
     const echoed = new Promise<void>((resolve) => {
       if (expected)

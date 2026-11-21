@@ -199,6 +199,25 @@ test("Antigravity completes a synchronous tool-only turn at end_turn", async (t)
   await until(() => complete(events).length === 1, 2000);
 });
 
+test("Antigravity keeps the first steer baseline across a second overlapping steer", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-overlapping-steers";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Start work");
+  await adapter.steer!("First steer");
+  await until(() =>
+    events.some((e) => e.type === "activity" && e.activity.id === "steer-tool"),
+  );
+  await adapter.steer!("Second steer");
+  await until(() => complete(events).length === 1, 2000);
+  assert.deepEqual(statuses(events), ["ready", "completed"]);
+});
+
 test("Antigravity retires the live session when a steering limit interrupts reactive work", async (t) => {
   fixture(t);
   process.env.LOOP_TEST_AGY_MODE = "reactive-steer-limit";
