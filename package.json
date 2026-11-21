@@ -1,6 +1,6 @@
 {
   "name": "@j-asefa/loop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A durable, phone-first agent workspace",
   "scripts": {
     "setup": "node scripts/setup.mjs",
