@@ -15,6 +15,7 @@ const tests = [
   "test/json-column-boundaries.test.ts",
   "test/discriminating-fields.test.ts",
   "test/run-state-documentation.test.ts",
+  "test/vm-state-documentation.test.ts",
   "test/guidance-links.test.ts",
   "test/migration-policy.test.ts",
   "test/row-schema-columns.test.ts",

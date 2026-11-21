@@ -34,6 +34,7 @@ import {
 } from "./queue.js";
 import { RunDeferred } from "./run-deferred.js";
 import { recoverStuckRuns, sweepLeftoverToolCalls } from "./recover-stuck.js";
+import { markStaleVmOperationsUncertain } from "./vm/machine.js";
 import { harnessHolds } from "./harness-holds.js";
 import { nativeSessions } from "./native-sessions.js";
 import { observeProcess } from "./deployments.js";
@@ -62,6 +63,7 @@ export async function tick(
   assertExecutionGeneration(workerId);
   recoverStale();
   recoverStuckRuns();
+  markStaleVmOperationsUncertain(db, now());
   reconcileWorkerCheckouts();
   const run = claim(workerId, (candidate) => {
     if (!accepting()) return false;

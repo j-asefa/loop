@@ -365,6 +365,44 @@ rolls back local work before recording either a refusal or another attempt. This
 an uncertain harness delivery. Retry records cascade with their source run or
 mail; ineligible results retain their metadata until source deletion.
 
+## Cloud VM experiments
+
+### `experiment_vms.state`
+
+Owner: `VM_TRANSITIONS` in [vm-state.ts](../src/shared/vm-state.ts), applied
+only by `transitionVm()` in [vm/machine.ts](../src/server/vm/machine.ts), which
+re-reads the owner's row inside one immediate transaction. A destroyed VM
+leaves its project, threads, results and published files readable.
+
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| `provisioning` | `running` / `sleeping` / `paused` / `failed` / `destroying` | The provider reported the VM up (a reconcile can find it already asleep or paused), refused the create, or the owner destroyed it; **tx** |
+| `running` | `sleeping` / `paused` / `destroying` / `failed` | Sleep observed or requested, pause, owner destroy, or a provider failure observed; **tx** |
+| `sleeping` | `running` / `paused` / `destroying` / `failed` | Wake for a turn or a preview, the provider reporting it paused, owner destroy, or a failed wake; **tx** |
+| `paused` | `running` / `sleeping` / `destroying` / `failed` | Resume, the provider reporting it asleep, owner destroy, or a failed resume; **tx** |
+| `failed` | `provisioning` / `running` / `sleeping` / `paused` / `destroying` | The owner's reconcile or retry (which can adopt a VM found asleep or paused), or owner destroy; **tx** |
+| `destroying` | `destroyed` / `failed` | The provider confirmed the VM is gone (a missing VM counts), refused, or a reconcile found the destroy did not finish; **tx** |
+| **`destroyed`** | — | Terminal |
+
+### `vm_operations.state`
+
+Owner: `VM_OPERATION_TRANSITIONS` in the same file, applied only by
+`transitionVmOperation()`. The row is a receipt: it is inserted `pending`
+before the provider is called, and its id is the caller's idempotency key.
+
+| From | To | Trigger and guard |
+| ---- | -- | ----------------- |
+| `pending` | `succeeded` / `failed` / `uncertain` | The provider answered, refused, or gave no observed answer (timeout, disconnect, server error, or the worker's sweep found the row still pending after the longest provider call); **tx** |
+| `uncertain` | `succeeded` / `failed` | A late answer arrived, or the owner's reconcile observed the outcome: a create or fork by the VM's `remote_name`, any other kind by the VM's status or published port; **tx** |
+| **`succeeded`** | — | Terminal |
+| **`failed`** | — | Terminal |
+
+An uncertain operation is never sent again automatically. Whichever settles the receipt first wins; a later answer that disagrees returns the stored outcome. `vmOperationEffects` in [vm/operations.ts](../src/server/vm/operations.ts) holds each kind's local writes (provider id, VM state, preview rows), and both an answer and a reconcile apply them in the transaction that settles the receipt. A reconcile settles only from a lookup that began after the longest provider call had passed since the receipt was written, because the original call may still land and change what the lookup saw. The exception is a create or fork whose VM exists, which settles at once: the original create reaches the same VM through its experiment-scoped provider key. A create answered while its VM is still starting stays uncertain and records nothing on the VM; once the VM's provider id is recorded, a create or fork for that experiment is refused, so a failed VM is destroyed rather than created again. The window is Loop's own call timeout; Sail does not document a deadline for applying a request it accepted. A create whose VM boots into a failed state fails its receipt and keeps the VM's id, so the owner can destroy it. A retry is a new
+operation with a new id, and is refused while an earlier one for the same
+experiment is unsettled. Creates and forks send the provider an idempotency
+key scoped to the experiment, so a retry after an "absent" reconcile reaches
+the VM a still-running first attempt made instead of starting a second one.
+
 ## Fleets (experimental)
 
 | Record | States and edges | Guards |
