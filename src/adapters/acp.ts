@@ -1246,8 +1246,7 @@ export class Acp implements Adapter {
         choices: new Set(choices.map((choice) => choice.optionId)),
         resolve,
       });
-      if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined)
-        this.waitForReactiveTurn();
+      if (this.earlierEnd && !this.reactiveEnd) this.waitForReactiveTurn();
       this.emit({
         type: "request",
         request: {
@@ -1312,8 +1311,7 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
-        if (!this.openPrompts || !this.steerJoined)
-          this.canResolveAsDaemonOnly = false;
+        this.canResolveAsDaemonOnly = false;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1328,8 +1326,7 @@ export class Acp implements Adapter {
       this.reactiveEnd &&
       !this.cancelling
     ) {
-      if (!this.openPrompts || !this.steerJoined)
-        this.canResolveAsDaemonOnly = false;
+      this.canResolveAsDaemonOnly = false;
       this.finishReactiveTurn();
       return;
     }
@@ -1359,7 +1356,7 @@ export class Acp implements Adapter {
         } else if (u.sessionUpdate === "tool_call") {
           this.canResolveAsDaemonOnly = false;
           this.reactiveTools.add(u.toolCallId);
-          if (this.earlierEnd && !this.reactiveEnd && !this.steerJoined) {
+          if (this.earlierEnd && !this.reactiveEnd) {
             this.waitForReactiveTurn();
             this.canResolveAsDaemonOnly = false;
           }

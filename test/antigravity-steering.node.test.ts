@@ -23,7 +23,7 @@ function fixture(t: { after(fn: () => void): void }) {
   t.after(() => {
     delete process.env.LOOP_TEST_AGY_LOG;
     delete process.env.LOOP_TEST_AGY_MODE;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
   return () =>
     existsSync(path)
@@ -75,7 +75,6 @@ test("Antigravity waits through successive reactive passes and approvals", async
 for (const mode of [
   "daemon-only",
   "reactive-late-daemon",
-  "reactive-steer-daemon",
   "reactive-rejected-steer-daemon",
 ])
   test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
@@ -88,20 +87,19 @@ for (const mode of [
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Start a daemon");
-    if (mode === "reactive-steer-daemon") await adapter.steer!("Keep going");
     if (mode === "reactive-rejected-steer-daemon")
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     await until(() => complete(events).length === 1);
     assert.deepEqual(statuses(events), ["ready", "completed"]);
-    if (mode === "reactive-steer-daemon")
-      assert(events.some((e) => e.type === "delta" && e.text === "Done."));
   });
 
 for (const mode of [
   "reactive-steering",
   "reactive-rejected-steer-late-tool",
   "reactive-rejected-steer-settled-tool",
+  "reactive-echoed-steer-settled-tool",
   "reactive-daemon-unechoed-steer-output",
+  "reactive-steer-daemon",
 ])
   test(`Antigravity keeps accepting output after overlapping prompts in ${mode}`, async (t) => {
     const requests = fixture(t);
@@ -114,7 +112,7 @@ for (const mode of [
     await adapter.start();
     await adapter.prompt("Run background work");
     await until(() => events.some((e) => e.type === "delta"));
-    if (mode !== "reactive-steering")
+    if (mode.includes("rejected") || mode.includes("unechoed"))
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     else await adapter.steer!("Keep going");
     await until(() =>
@@ -125,7 +123,9 @@ for (const mode of [
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
       mode === "reactive-daemon-unechoed-steer-output"
         ? ["Daemon started.", "Waiting.", "Done."]
-        : ["Waiting.", "Done."],
+        : mode === "reactive-steer-daemon"
+          ? ["Daemon started.", "Done."]
+          : ["Waiting.", "Done."],
     );
     assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
   });
