@@ -153,7 +153,7 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
-  tool("daemon", { IsDaemon: true }, "run_command");
+  tool("daemon", { CommandLine: "sleep 90", IsDaemon: true }, "sleep 90");
   if (mode !== "daemon-only")
     tool(
       "background",
@@ -168,10 +168,19 @@ function reactiveTurn(sessionId, mode) {
     );
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
-  if (mode === "reactive-before-end" || mode === "reactive-sync-answer") {
-    complete("background", "completed", { WaitMsBeforeAsync: 500 });
-    if (mode === "reactive-sync-answer") {
-      message("Done.");
+  if (
+    [
+      "reactive-before-end",
+      "reactive-sync-answer",
+      "reactive-tool-only",
+    ].includes(mode)
+  ) {
+    complete("background", "completed", {
+      CommandLine: "sleep 5",
+      WaitMsBeforeAsync: mode === "reactive-before-end" ? 0 : 500,
+    });
+    if (mode !== "reactive-before-end") {
+      if (mode === "reactive-sync-answer") message("Done.");
       finish(sessionId);
     } else {
       finish(sessionId);
@@ -203,6 +212,7 @@ function reactiveTurn(sessionId, mode) {
         reportUsage(); // This usage precedes the still-open steering response.
       }
       reply(request.id, { stopReason: "end_turn" });
+      if (mode === "reactive-steer-ack") reportUsage();
       setTimeout(() => {
         message("Done.");
         reportUsage();

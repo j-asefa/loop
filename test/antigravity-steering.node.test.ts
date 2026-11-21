@@ -116,12 +116,25 @@ for (const mode of ["reactive-before-end", "reactive-sync-answer"])
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Run background work");
-    await until(() => complete(events).length === 1, 3000);
+    await until(() => complete(events).length === 1, 8000);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
       ["Waiting.", "Done."],
     );
   });
+
+test("Antigravity completes a synchronous tool-only turn at end_turn", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-tool-only";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run the tool");
+  await until(() => complete(events).length === 1, 2000);
+});
 
 test("Antigravity retires the live session when a steering limit interrupts reactive work", async (t) => {
   fixture(t);
@@ -150,7 +163,7 @@ test("Antigravity keeps accepting reactive output after echoing and acknowledgin
   await adapter.start();
   await adapter.prompt("Run background work");
   await adapter.steer!("Keep going");
-  await until(() => complete(events).length === 1, 3000);
+  await until(() => complete(events).length === 1, 8000);
   assert.deepEqual(statuses(events), ["ready", "completed"]);
   assert.deepEqual(
     events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),

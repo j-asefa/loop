@@ -442,7 +442,7 @@ it("publishes the result only after Antigravity's reactive work and approval fin
     await sessions.interrupt(run.id);
     await execution;
   }
-});
+}, 10_000);
 
 it("replaces an idle ACP session after refreshing workspace-tool support while retaining native context", async () => {
   const { run } = task("agy-acp-upgrade");

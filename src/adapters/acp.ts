@@ -75,6 +75,7 @@ function matchEcho(echo: Echo, chunk: string) {
 const ECHO_WAIT = 5000;
 const REACTIVE_IDLE_MS = 60_000;
 const REACTIVE_WATCHDOG_MS = 60 * 60_000;
+const REACTIVE_SETTLE_MS = 5_000;
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 const text = (value: unknown) =>
@@ -146,7 +147,8 @@ export class Acp implements Adapter {
   /** agy can return end_turn before its background work wakes the model. */
   protected waitsForReactiveTurns = false;
   private reactiveTools = new Set<string>();
-  private backgroundTools = new Set<string>();
+  private backgroundTools = new Map<string, number>();
+  private toolStartedAt = new Map<string, number>();
   private pendingWakeup = false;
   private reactiveEnd = false;
   private reactiveIdle?: NodeJS.Timeout;
@@ -615,6 +617,7 @@ export class Acp implements Adapter {
     this.earlierEnd = false;
     this.reactiveTools.clear();
     this.backgroundTools.clear();
+    this.toolStartedAt.clear();
     this.pendingWakeup = false;
     this.reactiveEnd = false;
     this.reactiveBudget = REACTIVE_WATCHDOG_MS;
@@ -760,7 +763,12 @@ export class Acp implements Adapter {
       ).unref();
       return;
     }
-    this.reportReactiveEnd("completed");
+    // agy also emits usage during a pass, including just before announcing
+    // another tool. Wait for a quiet interval and invalidate it on work.
+    this.reactiveIdle = setTimeout(
+      () => this.reportReactiveEnd("completed"),
+      REACTIVE_SETTLE_MS,
+    ).unref();
   }
   private timeoutReactiveTurn(detail: string) {
     this.reportReactiveEnd("interrupted", detail);
@@ -1336,32 +1344,59 @@ export class Acp implements Adapter {
       if (this.waitsForReactiveTurns && !this.loading) {
         const input = u.rawInput;
         const title = u.title ?? this.toolItems.get(u.toolCallId)?.title;
+        const command =
+          input &&
+          typeof input === "object" &&
+          "CommandLine" in input &&
+          typeof input.CommandLine === "string";
         const daemon =
-          (title === "run_command" || title === "schedule") &&
+          (command || title === "run_command" || title === "schedule") &&
           input &&
           typeof input === "object" &&
           "IsDaemon" in input &&
           input.IsDaemon === true;
-        if (
-          !daemon &&
-          (u.sessionUpdate === "tool_call" ||
-            this.reactiveTools.has(u.toolCallId)) &&
-          ((title === "run_command" &&
+        const knownTool =
+          u.sessionUpdate === "tool_call" ||
+          this.reactiveTools.has(u.toolCallId);
+        if (knownTool && !daemon) {
+          if (u.status === "pending") this.toolStartedAt.delete(u.toolCallId);
+          if (
+            u.status === "in_progress" &&
+            !this.toolStartedAt.has(u.toolCallId)
+          )
+            this.toolStartedAt.set(u.toolCallId, performance.now());
+          if (
+            (command || title === "run_command") &&
             input &&
             typeof input === "object" &&
             "WaitMsBeforeAsync" in input &&
             typeof input.WaitMsBeforeAsync === "number" &&
-            input.WaitMsBeforeAsync >= 0) ||
+            Number.isFinite(input.WaitMsBeforeAsync) &&
+            input.WaitMsBeforeAsync >= 0
+          )
+            this.backgroundTools.set(u.toolCallId, input.WaitMsBeforeAsync);
+          else if (
             title === "invoke_subagent" ||
             title === "schedule" ||
-            title === "run_workflow")
-        )
-          this.backgroundTools.add(u.toolCallId);
+            title === "run_workflow"
+          )
+            this.backgroundTools.set(u.toolCallId, 0);
+        }
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
           // A background-capable call can settle just before the response
           // that yielded to it. Keep watching until the model answers again.
-          if (this.backgroundTools.delete(u.toolCallId) && !daemon)
+          const delay = this.backgroundTools.get(u.toolCallId);
+          const startedAt = this.toolStartedAt.get(u.toolCallId);
+          this.backgroundTools.delete(u.toolCallId);
+          this.toolStartedAt.delete(u.toolCallId);
+          if (
+            !daemon &&
+            delay !== undefined &&
+            (delay === 0 ||
+              (startedAt !== undefined &&
+                performance.now() - startedAt >= delay))
+          )
             this.pendingWakeup = true;
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
