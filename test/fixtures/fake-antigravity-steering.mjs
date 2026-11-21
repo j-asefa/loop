@@ -161,10 +161,19 @@ function reactiveTurn(sessionId, mode) {
     });
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
-  if (mode === "reactive-steering") {
+  if (mode === "reactive-steering" || mode === "reactive-steered-answer") {
     endReactiveSteer = (request) => {
       finish(sessionId);
       complete("background");
+      if (mode === "reactive-steered-answer") {
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: request.params.prompt[0].text },
+        });
+        message("Done.");
+        reply(request.id, { stopReason: "end_turn" });
+        return;
+      }
       reply(request.id, { stopReason: "end_turn" });
       setTimeout(() => {
         message("Done.");
