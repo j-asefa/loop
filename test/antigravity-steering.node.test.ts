@@ -104,9 +104,9 @@ test("Antigravity keeps accepting reactive output after overlapping prompts end"
   assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
 });
 
-test("Antigravity completes an answered steering prompt without waiting for a reactive usage update", async (t) => {
+test("Antigravity keeps accepting reactive output after echoing and acknowledging a steer", async (t) => {
   fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "reactive-steered-answer";
+  process.env.LOOP_TEST_AGY_MODE = "reactive-steer-ack";
   const events: AdapterEvent[] = [];
   const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
     events.push(e),
@@ -117,40 +117,49 @@ test("Antigravity completes an answered steering prompt without waiting for a re
   await adapter.steer!("Keep going");
   await until(() => complete(events).length === 1, 3000);
   assert.deepEqual(statuses(events), ["ready", "completed"]);
-  assert.equal(adapter.reusable, true);
+  assert.deepEqual(
+    events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+    ["Waiting.", "Acknowledged.", "Done."],
+  );
 });
 
-test(
-  "Antigravity interrupts an unattended reactive tool that never settles",
-  { timeout: 5000 },
-  async (t) => {
-    fixture(t);
-    process.env.LOOP_TEST_AGY_MODE = "reactive-stalled";
-    const events: AdapterEvent[] = [];
-    let endPrompt!: () => void;
-    const promptEnded = new Promise<void>((resolve) => {
-      endPrompt = resolve;
-    });
-    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) => {
-      events.push(e);
-      if (e.type === "usage") endPrompt();
-    });
-    t.after(() => adapter.dispose());
-    await adapter.start();
-    t.mock.timers.enable({ apis: ["setTimeout"] });
-    try {
-      await adapter.prompt("Run background work");
-      await promptEnded;
-      t.mock.timers.tick(60_000);
-      assert.deepEqual(statuses(events), ["ready"]);
-      t.mock.timers.tick(59 * 60_000);
-      assert.deepEqual(statuses(events), ["ready", "interrupted"]);
-      assert.equal(adapter.reusable, false);
-    } finally {
-      t.mock.timers.reset();
-    }
-  },
-);
+for (const mode of ["reactive-stalled", "reactive-stalled-steer"])
+  test(
+    `Antigravity bounds the wait for ${mode}`,
+    { timeout: 5000 },
+    async (t) => {
+      fixture(t);
+      process.env.LOOP_TEST_AGY_MODE = mode;
+      const events: AdapterEvent[] = [];
+      let endPrompt!: () => void;
+      const promptEnded = new Promise<void>((resolve) => {
+        endPrompt = resolve;
+      });
+      const adapter = new Antigravity(
+        { ...options, version: "1.5.14" },
+        (e) => {
+          events.push(e);
+          if (e.type === "usage") endPrompt();
+        },
+      );
+      t.after(() => adapter.dispose());
+      await adapter.start();
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await adapter.prompt("Run background work");
+        await promptEnded;
+        if (mode === "reactive-stalled-steer")
+          await adapter.steer!("Keep going");
+        t.mock.timers.tick(60_000);
+        assert.deepEqual(statuses(events), ["ready"]);
+        t.mock.timers.tick(59 * 60_000);
+        assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+        assert.equal(adapter.reusable, false);
+      } finally {
+        t.mock.timers.reset();
+      }
+    },
+  );
 
 test(
   "Antigravity interrupts a settled reactive pass without a final usage update",

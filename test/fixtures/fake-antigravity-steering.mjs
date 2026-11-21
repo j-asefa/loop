@@ -161,18 +161,16 @@ function reactiveTurn(sessionId, mode) {
     });
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
-  if (mode === "reactive-steering" || mode === "reactive-steered-answer") {
+  if (mode === "reactive-steering" || mode === "reactive-steer-ack") {
     endReactiveSteer = (request) => {
       finish(sessionId);
       complete("background");
-      if (mode === "reactive-steered-answer") {
+      if (mode === "reactive-steer-ack") {
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
           content: { type: "text", text: request.params.prompt[0].text },
         });
-        message("Done.");
-        reply(request.id, { stopReason: "end_turn" });
-        return;
+        message("Acknowledged.");
       }
       reply(request.id, { stopReason: "end_turn" });
       setTimeout(() => {
@@ -279,6 +277,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return finish(sessionId, "cancelled");
     case "session/prompt": {
       const text = req.params.prompt[0].text;
+      if (turn === 1 && mode === "reactive-stalled-steer") {
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text },
+        });
+        return;
+      }
       if (open.length) {
         if (endReactiveSteer) {
           const finishSteering = endReactiveSteer;
