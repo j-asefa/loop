@@ -294,7 +294,7 @@ export function Approvals({
           {notice}
         </p>
       )}
-      {(readPending || !!failure) && (
+      {((readPending && snapshot?.key !== readKey) || !!failure) && (
         <p
           className={readError ? "error" : "field-hint"}
           role={readError ? "alert" : "status"}
