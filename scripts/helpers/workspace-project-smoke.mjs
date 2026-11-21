@@ -97,8 +97,8 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   const dismissedToast = page
     .getByRole("status")
     .filter({ hasText: "Removed from Done" });
-  // Repeated rapid Done taps while dismissal is in flight issue only one PATCH
-  // so Undo cannot be overridden by a duplicate dismissal request.
+  // The menu can still invoke dismissal while the quick action is disabled.
+  // Only one hide request may proceed while the first is pending.
   let releaseFirstDismiss;
   const firstDismissHeld = new Promise((resolve) => {
     releaseFirstDismiss = resolve;
@@ -121,13 +121,12 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
       exact: true,
     });
     await doneButton.click();
+    await expect.poll(() => hidePatchCount).toBe(1);
     await expect(doneButton).toBeDisabled();
-    await doneButton.click({ force: true });
-    assert.equal(
-      hidePatchCount,
-      1,
-      "Repeated Done clicks while pending must issue only one hide request",
-    );
+    await doneCard.getByRole("button", { name: "Thread actions" }).click();
+    await page
+      .getByRole("menuitem", { name: "Remove from Done", exact: true })
+      .click();
     releaseFirstDismiss();
     await expect(doneCard).toHaveCount(0);
     await expect(dismissedToast).toBeVisible();
