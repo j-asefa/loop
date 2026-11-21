@@ -169,26 +169,35 @@ function reactiveTurn(sessionId, mode) {
       "reactive-echoed-steer-open-tool",
       "reactive-steered-sync-tool",
       "reactive-steered-sync-open-at-first-end",
+      "reactive-inherited-steer-settled-tool",
       "reactive-rejected-steer-text-before-tool",
     ].includes(mode)
   ) {
     message("Waiting.");
     endReactiveSteer = (request) => {
       const synchronous = mode.startsWith("reactive-steered-sync");
-      const joined = synchronous || mode === "reactive-echoed-steer-open-tool";
+      const inherited = mode === "reactive-inherited-steer-settled-tool";
+      const joined =
+        synchronous || inherited || mode === "reactive-echoed-steer-open-tool";
+      const startTool = () =>
+        tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+      if (inherited) startTool();
       if (joined)
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
           content: { type: "text", text: request.params.prompt[0].text },
         });
-      const startTool = () =>
-        tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
       if (mode === "reactive-steered-sync-open-at-first-end") startTool();
       finish(sessionId);
       if (mode === "reactive-rejected-steer-text-before-tool")
         message("Still waiting.");
-      else if (mode !== "reactive-steered-sync-open-at-first-end") startTool();
-      if (synchronous || mode === "reactive-rejected-steer-settled-tool")
+      else if (!inherited && mode !== "reactive-steered-sync-open-at-first-end")
+        startTool();
+      if (
+        synchronous ||
+        inherited ||
+        mode === "reactive-rejected-steer-settled-tool"
+      )
         complete("late-background");
       if (synchronous) message("Done.");
       if (joined) reply(request.id, { stopReason: "end_turn" });
@@ -200,7 +209,7 @@ function reactiveTurn(sessionId, mode) {
       setTimeout(() => {
         if (synchronous) return;
         if (mode === "reactive-rejected-steer-text-before-tool") startTool();
-        if (mode !== "reactive-rejected-steer-settled-tool")
+        if (!inherited && mode !== "reactive-rejected-steer-settled-tool")
           complete("late-background");
         message("Done.");
         reportUsage();
@@ -280,7 +289,7 @@ function reactiveTurn(sessionId, mode) {
     return;
   }
   tool("daemon", { CommandLine: "sleep 90", IsDaemon: true }, "sleep 90");
-  if (mode !== "daemon-only")
+  if (mode !== "daemon-only" && mode !== "reactive-stalled-joined-steer")
     tool(
       "background",
       {
@@ -314,6 +323,7 @@ function reactiveTurn(sessionId, mode) {
         sessionUpdate: "user_message_chunk",
         content: { type: "text", text: request.params.prompt[0].text },
       });
+      tool("background", { CommandLine: "sleep 5" }, "sleep 5");
       finish(sessionId);
     };
     return;

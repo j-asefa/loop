@@ -112,6 +112,7 @@ for (const mode of [
   "reactive-rejected-steer-settled-tool",
   "reactive-rejected-steer-text-before-tool",
   "reactive-echoed-steer-open-tool",
+  "reactive-inherited-steer-settled-tool",
   "reactive-daemon-unechoed-steer-output",
   "reactive-steer-daemon",
   "reactive-daemon-failed-after-identification",

@@ -168,6 +168,7 @@ export class Acp implements Adapter {
   private steering = false;
   /** The steering input's echo arrived, so it joined the running turn. */
   private steerJoined = false;
+  private toolsAtSteerEcho = new Set<string>();
   private outputWhileSteerUnconfirmed = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
@@ -648,7 +649,13 @@ export class Acp implements Adapter {
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
-            if ((last || !this.steerJoined) && this.waitForReactiveTurn())
+            const inheritedWork = [...this.toolsAtSteerEcho].some((id) =>
+              this.reactiveTools.has(id),
+            );
+            if (
+              (last || !this.steerJoined || inheritedWork) &&
+              this.waitForReactiveTurn()
+            )
               return;
             if (!last && this.waitsForReactiveTurns) this.refreshReactiveWait();
           }
@@ -772,6 +779,22 @@ export class Acp implements Adapter {
       REACTIVE_IDLE_MS,
     ).unref();
   }
+  private noteReactiveActivity() {
+    if (!this.waitsForReactiveTurns || this.cancelling) return;
+    if (
+      !this.reactiveEnd &&
+      this.earlierEnd &&
+      this.openPrompts &&
+      !this.permissions.size
+    ) {
+      // An ordinary steer can keep making progress after the original
+      // request ends. Only the latched reactive wait has a total budget.
+      clearTimeout(this.reactiveWatchdog);
+      this.reactiveWatchdog = undefined;
+      this.reactiveBudget = REACTIVE_WATCHDOG_MS;
+    }
+    this.refreshReactiveWait();
+  }
   private interruptReactiveTurn(detail?: string) {
     if (!this.cancelling && this.session && this.connection) {
       this.cancelling = true;
@@ -871,6 +894,7 @@ export class Acp implements Adapter {
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     this.steerJoined = false;
+    this.toolsAtSteerEcho.clear();
     this.outputWhileSteerUnconfirmed = false;
     const echoed = new Promise<void>((resolve) => {
       if (expected)
@@ -879,6 +903,7 @@ export class Acp implements Adapter {
           seen: "",
           resolve: () => {
             this.steerJoined = true;
+            this.toolsAtSteerEcho = new Set(this.reactiveTools);
             resolve();
           },
         };
@@ -1322,7 +1347,7 @@ export class Acp implements Adapter {
         });
       }
       if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
-      if (this.reactiveEnd && !this.cancelling) this.refreshReactiveWait();
+      this.noteReactiveActivity();
       return;
     }
     if (
@@ -1331,7 +1356,7 @@ export class Acp implements Adapter {
       !this.cancelling
     ) {
       if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
-      this.refreshReactiveWait();
+      this.noteReactiveActivity();
       return;
     }
     if (
@@ -1378,8 +1403,8 @@ export class Acp implements Adapter {
         };
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
-        if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-          this.refreshReactiveWait();
+        if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
+          this.noteReactiveActivity();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1598,8 +1623,8 @@ export class Acp implements Adapter {
         },
         this.loading,
       );
-      if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-        this.refreshReactiveWait();
+      if (reactiveWorkChanged || this.reactiveTools.has(u.toolCallId))
+        this.noteReactiveActivity();
       return;
     }
     if (u.sessionUpdate === "plan") {
