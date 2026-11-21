@@ -655,21 +655,7 @@ export class Acp implements Adapter {
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
-            if (
-              !this.cancelling &&
-              this.waitsForReactiveTurns &&
-              (this.reactiveEnd ||
-                this.pendingWakeup ||
-                this.reactiveTools.size ||
-                this.permissions.size)
-            ) {
-              if (!this.reactiveEnd)
-                this.canResolveAsDaemonOnly =
-                  !this.pendingWakeup && !this.permissions.size;
-              this.reactiveEnd = true;
-              this.finishReactiveTurn();
-              return;
-            }
+            if (this.waitForReactiveTurn()) return;
           }
           if (!last) return;
           this.terminalReported = true;
@@ -700,13 +686,17 @@ export class Acp implements Adapter {
           if (!last || this.closed || this.terminalReported) return;
           // A rejected steering input that never joined the turn does not
           // undo the turn's own normal end.
-          if (
-            this.reactiveEnd &&
-            (this.cancelling || (steer && !this.steerJoined))
-          ) {
+          if (this.reactiveEnd && this.cancelling) {
             this.finishReactiveTurn();
             return;
           }
+          if (
+            steer &&
+            !this.steerJoined &&
+            (this.earlierEnd || this.reactiveEnd) &&
+            this.waitForReactiveTurn()
+          )
+            return;
           this.terminalReported = true;
           if (steer && !this.steerJoined && this.earlierEnd) {
             this.emit({
@@ -736,6 +726,25 @@ export class Acp implements Adapter {
         this.cancelPermissions();
       });
     return request;
+  }
+  private waitForReactiveTurn() {
+    if (
+      this.cancelling ||
+      !this.waitsForReactiveTurns ||
+      !(
+        this.reactiveEnd ||
+        this.pendingWakeup ||
+        this.reactiveTools.size ||
+        this.permissions.size
+      )
+    )
+      return false;
+    if (!this.reactiveEnd)
+      this.canResolveAsDaemonOnly =
+        !this.pendingWakeup && !this.permissions.size;
+    this.reactiveEnd = true;
+    this.finishReactiveTurn();
+    return true;
   }
   private finishReactiveTurn() {
     clearTimeout(this.reactiveIdle);

@@ -95,28 +95,31 @@ for (const mode of [
     assert.deepEqual(statuses(events), ["ready", "completed"]);
   });
 
-test("Antigravity keeps accepting reactive output after overlapping prompts end", async (t) => {
-  const requests = fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "reactive-steering";
-  const events: AdapterEvent[] = [];
-  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
-    events.push(e),
-  );
-  t.after(() => adapter.dispose());
-  await adapter.start();
-  await adapter.prompt("Run background work");
-  await until(() => events.some((e) => e.type === "delta"));
-  await adapter.steer!("Keep going");
-  await until(() =>
-    events.some((e) => e.type === "delta" && e.text === "Done."),
-  );
-  assert.deepEqual(statuses(events), ["ready"]);
-  assert.deepEqual(
-    events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
-    ["Waiting.", "Done."],
-  );
-  assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
-});
+for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
+  test(`Antigravity keeps accepting output after overlapping prompts in ${mode}`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+      events.push(e),
+    );
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    await adapter.prompt("Run background work");
+    await until(() => events.some((e) => e.type === "delta"));
+    if (mode === "reactive-rejected-steer-late-tool")
+      await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
+    else await adapter.steer!("Keep going");
+    await until(() =>
+      events.some((e) => e.type === "delta" && e.text === "Done."),
+    );
+    assert.deepEqual(statuses(events), ["ready"]);
+    assert.deepEqual(
+      events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+      ["Waiting.", "Done."],
+    );
+    assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
+  });
 
 for (const mode of [
   "reactive-before-end",

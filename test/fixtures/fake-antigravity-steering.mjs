@@ -153,6 +153,23 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
+  if (mode === "reactive-rejected-steer-late-tool") {
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+      send({
+        id: request.id,
+        error: { code: -32603, message: "Steer rejected" },
+      });
+      setTimeout(() => {
+        complete("late-background");
+        message("Done.");
+        reportUsage();
+      }, 30);
+    };
+    return;
+  }
   if (
     [
       "reactive-late-daemon",
