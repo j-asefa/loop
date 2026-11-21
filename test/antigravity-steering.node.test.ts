@@ -84,6 +84,63 @@ test("Antigravity completes normally with only a daemon still running", async (t
   assert.deepEqual(statuses(events), ["ready", "completed"]);
 });
 
+test("Antigravity keeps accepting reactive output after overlapping prompts end", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-steering";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run background work");
+  await until(() => events.some((e) => e.type === "delta"));
+  await adapter.steer!("Keep going");
+  await until(() => complete(events).length === 1);
+  assert.deepEqual(
+    events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+    ["Waiting.", "Done."],
+  );
+  assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
+});
+
+test(
+  "Antigravity interrupts a settled reactive pass without a final usage update",
+  { timeout: 5000 },
+  async (t) => {
+    fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "reactive-reordered";
+    const events: AdapterEvent[] = [];
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) => {
+      events.push(e);
+      if (
+        e.type === "activity" &&
+        e.activity.kind === "tool" &&
+        e.activity.id === "background" &&
+        e.activity.patch.status === "completed"
+      )
+        settle();
+    });
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    try {
+      await adapter.prompt("Run background work");
+      await settled;
+      assert.deepEqual(statuses(events), ["ready"]);
+      t.mock.timers.tick(60_000);
+      assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+      assert.equal(adapter.reusable, false);
+    } finally {
+      t.mock.timers.reset();
+    }
+  },
+);
+
 for (const stop of ["cancel", "dispose"] as const)
   test(`Antigravity ${stop} can stop a turn waiting for a reactive wakeup`, async (t) => {
     const requests = fixture(t);

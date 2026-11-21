@@ -127,13 +127,14 @@ const finish = (sessionId, stopReason = "end_turn") => {
 };
 let permission = 0;
 const permissions = new Map();
+let endReactiveSteer;
 
 function reactiveTurn(sessionId, mode) {
-  const tool = (toolCallId, rawInput) =>
+  const tool = (toolCallId, rawInput, title = toolCallId) =>
     update(sessionId, {
       sessionUpdate: "tool_call",
       toolCallId,
-      title: toolCallId,
+      title,
       status: "in_progress",
       rawInput,
     });
@@ -151,7 +152,7 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
-  tool("daemon", { IsDaemon: true });
+  tool("daemon", { IsDaemon: true }, "run_command");
   if (mode !== "daemon-only")
     tool("background", {
       CommandLine: "sleep 5",
@@ -160,7 +161,27 @@ function reactiveTurn(sessionId, mode) {
     });
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
+  if (mode === "reactive-steering") {
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      complete("background");
+      reply(request.id, { stopReason: "end_turn" });
+      setTimeout(() => {
+        message("Done.");
+        reportUsage();
+      }, 30);
+    };
+    return;
+  }
   finish(sessionId);
+  if (mode === "reactive-reordered") {
+    setTimeout(() => {
+      message("Done.");
+      reportUsage();
+      complete("background");
+    }, 30);
+    return;
+  }
   if (mode !== "reactive") return;
 
   reportUsage(); // Even a usage update following end_turn leaves open work.
@@ -250,6 +271,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/prompt": {
       const text = req.params.prompt[0].text;
       if (open.length) {
+        if (endReactiveSteer) {
+          const finishSteering = endReactiveSteer;
+          endReactiveSteer = undefined;
+          return finishSteering(req);
+        }
         // A prompt during a running turn steers it.
         if (mode === "steer-limit") {
           // No echo, and the turn stops at a limit.
@@ -346,7 +372,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           300,
         );
       } else echo();
-      if (["reactive", "reactive-stalled", "daemon-only"].includes(outcome()))
+      if (outcome()?.startsWith("reactive") || outcome() === "daemon-only")
         return reactiveTurn(sessionId, outcome());
       if (outcome() === "hang") return;
       if (text.includes("[slow]")) {

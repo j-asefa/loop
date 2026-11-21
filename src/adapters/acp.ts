@@ -73,6 +73,7 @@ function matchEcho(echo: Echo, chunk: string) {
 }
 // agy echoes a prompt within a second of receiving it.
 const ECHO_WAIT = 5000;
+const REACTIVE_IDLE_MS = 60_000;
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
 const text = (value: unknown) =>
@@ -146,8 +147,10 @@ export class Acp implements Adapter {
   private reactiveTools = new Set<string>();
   private reactiveEnd = false;
   private reactiveUsage = false;
+  private reactiveIdle?: NodeJS.Timeout;
+  private reactiveTimedOut = false;
   get reusable() {
-    return !(this.reactiveEnd && this.cancelling);
+    return !this.reactiveTimedOut && !(this.reactiveEnd && this.cancelling);
   }
   /** Prompt requests open in the current turn. A steering agent answers an
    * earlier request when it folds a later one into the same turn; the turn
@@ -249,6 +252,7 @@ export class Acp implements Adapter {
     );
     this.child = child;
     child.once("error", () => {
+      clearTimeout(this.reactiveIdle);
       this.end();
       this.cancelPermissions();
       if (!this.closed && !this.terminalReported) {
@@ -266,6 +270,7 @@ export class Acp implements Adapter {
     });
     child.stderr.resume();
     child.once("exit", () => {
+      clearTimeout(this.reactiveIdle);
       this.end();
       const memory = nativeMemoryFailure(child);
       this.modeConfirmation?.reject(memory || new Error("ACP agent exited"));
@@ -589,6 +594,7 @@ export class Acp implements Adapter {
       !this.connection ||
       !this.session ||
       this.active ||
+      !this.reusable ||
       this.pendingSettingWrites
     )
       throw new Error("ACP session is unavailable or busy");
@@ -619,6 +625,7 @@ export class Acp implements Adapter {
   /** Sends one prompt request in the current turn. Only the last open request
    * to settle reports the turn's terminal status. */
   private send(value: string, steer = false) {
+    clearTimeout(this.reactiveIdle);
     this.openPrompts++;
     const request = this.connection!.prompt({
       sessionId: this.session!,
@@ -635,10 +642,12 @@ export class Acp implements Adapter {
             if (
               !this.cancelling &&
               this.waitsForReactiveTurns &&
-              (this.reactiveTools.size || this.permissions.size)
+              (this.reactiveEnd ||
+                this.reactiveTools.size ||
+                this.permissions.size)
             ) {
               this.reactiveEnd = true;
-              this.reactiveUsage = false;
+              this.finishReactiveTurn();
               return;
             }
           }
@@ -696,29 +705,48 @@ export class Acp implements Adapter {
       )
       .finally(() => {
         if (this.openPrompts || !this.terminalReported) return;
+        clearTimeout(this.reactiveIdle);
         this.active = false;
         this.cancelPermissions();
       });
     return request;
   }
   private finishReactiveTurn() {
+    clearTimeout(this.reactiveIdle);
     if (
       this.closed ||
       this.terminalReported ||
       !this.reactiveEnd ||
       this.openPrompts ||
-      (!this.cancelling &&
-        (!this.reactiveUsage ||
-          this.reactiveTools.size ||
-          this.permissions.size))
+      (!this.cancelling && (this.reactiveTools.size || this.permissions.size))
     )
       return;
+    if (!this.cancelling && !this.reactiveUsage) {
+      // Usage sent while work is still open can mark a yield to another
+      // wakeup. Give agy time to acknowledge the settled pass before
+      // retiring it with partial output.
+      this.reactiveIdle = setTimeout(() => {
+        this.reactiveTimedOut = true;
+        this.reportReactiveEnd(
+          "interrupted",
+          "Antigravity did not confirm the end of its reactive turn.",
+        );
+      }, REACTIVE_IDLE_MS).unref();
+      return;
+    }
+    this.reportReactiveEnd(this.cancelling ? "interrupted" : "completed");
+  }
+  private reportReactiveEnd(
+    status: "interrupted" | "completed",
+    detail?: string,
+  ) {
     this.terminalReported = true;
     this.active = false;
     this.emit({
       type: "status",
-      status: this.cancelling ? "interrupted" : "completed",
-      recoverable: !this.cancelling,
+      status,
+      detail,
+      recoverable: status === "completed",
     });
   }
   private addUsage(result: unknown) {
@@ -832,6 +860,7 @@ export class Acp implements Adapter {
   }
   async cancel() {
     this.cancelling = true;
+    clearTimeout(this.reactiveIdle);
     this.finishCommandDiscovery(false);
     this.cancelPermissions();
     if (!this.closed && this.session && this.connection && this.active)
@@ -856,9 +885,11 @@ export class Acp implements Adapter {
       outcome: { outcome: "selected", optionId: answer.choice },
     });
     this.emit({ type: "resolved", id });
+    if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
   }
   async dispose() {
     this.closed = true;
+    clearTimeout(this.reactiveIdle);
     this.creatingSession = false;
     this.startupCommands = undefined;
     this.finishCommandDiscovery(false);
@@ -1154,6 +1185,7 @@ export class Acp implements Adapter {
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
     this.reactiveUsage = false;
+    clearTimeout(this.reactiveIdle);
     return new Promise((resolve) => {
       this.permissions.set(id, {
         choices: new Set(choices.map((choice) => choice.optionId)),
@@ -1229,6 +1261,16 @@ export class Acp implements Adapter {
           id: this.messageId,
           text: text(u.content.text),
         });
+      if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
+      return;
+    }
+    if (
+      u.sessionUpdate === "agent_thought_chunk" &&
+      this.reactiveEnd &&
+      !this.cancelling
+    ) {
+      this.reactiveUsage = false;
+      this.finishReactiveTurn();
       return;
     }
     if (u.sessionUpdate === "usage_update" && this.reactiveEnd) {
@@ -1242,18 +1284,22 @@ export class Acp implements Adapter {
       u.sessionUpdate === "tool_call" ||
       u.sessionUpdate === "tool_call_update"
     ) {
+      let reactiveWorkChanged = false;
       if (this.waitsForReactiveTurns && !this.loading) {
         const input = u.rawInput;
+        const title = u.title ?? this.toolItems.get(u.toolCallId)?.title;
         const daemon =
+          (title === "run_command" || title === "schedule") &&
           input &&
           typeof input === "object" &&
           "IsDaemon" in input &&
           input.IsDaemon === true;
         if (daemon || u.status === "completed" || u.status === "failed") {
-          this.reactiveTools.delete(u.toolCallId);
+          reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
           this.reactiveUsage = false;
+          reactiveWorkChanged = true;
         }
       }
       const old = this.toolItems.get(u.toolCallId);
@@ -1270,6 +1316,8 @@ export class Acp implements Adapter {
         };
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
+        if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
+          this.finishReactiveTurn();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1488,6 +1536,8 @@ export class Acp implements Adapter {
         },
         this.loading,
       );
+      if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
+        this.finishReactiveTurn();
       return;
     }
     if (u.sessionUpdate === "plan") {
