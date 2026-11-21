@@ -128,6 +128,7 @@ const finish = (sessionId, stopReason = "end_turn") => {
 let permission = 0;
 const permissions = new Map();
 let endReactiveSteer;
+let rejectSteerOnCancel;
 
 function reactiveTurn(sessionId, mode) {
   const tool = (toolCallId, rawInput, title = toolCallId) =>
@@ -153,6 +154,41 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
+  if (
+    mode === "reactive-cancel-unjoined-steer" ||
+    mode === "reactive-approval-at-first-end"
+  ) {
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      if (mode === "reactive-cancel-unjoined-steer") {
+        finish(sessionId);
+        rejectSteerOnCancel = () =>
+          send({
+            id: request.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+        return;
+      }
+      const id = `perm-${++permission}`;
+      permissions.set(id, () => {
+        reply(request.id, { stopReason: "end_turn" });
+        setTimeout(() => message("Done."), 30);
+      });
+      send({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId,
+          toolCall: { toolCallId: "approval-only", title: "Reactive approval" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          ],
+        },
+      });
+      finish(sessionId);
+    };
+    return;
+  }
   if (mode === "reactive-steered-sync-without-echo") {
     message("Waiting.");
     endReactiveSteer = (request) => {
@@ -454,6 +490,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/close":
       return reply(req.id, {});
     case "session/cancel":
+      if (rejectSteerOnCancel) {
+        const reject = rejectSteerOnCancel;
+        rejectSteerOnCancel = undefined;
+        return reject();
+      }
       return finish(sessionId, "cancelled");
     case "session/prompt": {
       const text = req.params.prompt[0].text;

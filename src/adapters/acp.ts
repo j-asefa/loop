@@ -652,7 +652,11 @@ export class Acp implements Adapter {
             const inheritedWork = [...this.toolsAtSteerDispatch].some((id) =>
               this.reactiveTools.has(id),
             );
-            if ((last || inheritedWork) && this.waitForReactiveTurn()) return;
+            if (
+              (last || inheritedWork || this.permissions.size) &&
+              this.waitForReactiveTurn()
+            )
+              return;
             if (!last && this.waitsForReactiveTurns) {
               if (
                 this.echo &&
@@ -688,8 +692,12 @@ export class Acp implements Adapter {
           if (!last || this.closed || this.terminalReported) return;
           // A rejected steering input that never joined the turn does not
           // undo the turn's own normal end.
-          if (this.reactiveEnd && this.cancelling) {
-            this.refreshReactiveWait();
+          if (
+            this.cancelling &&
+            (this.reactiveEnd ||
+              (this.waitsForReactiveTurns && this.earlierEnd))
+          ) {
+            this.interruptReactiveTurn();
             return;
           }
           if (
