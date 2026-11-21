@@ -193,27 +193,37 @@ function reactiveTurn(sessionId, mode) {
       "reactive-steer-daemon",
       "reactive-rejected-steer-daemon",
       "reactive-daemon-unechoed-steer-output",
+      "reactive-late-tool-steer-daemon",
+      "reactive-daemon-failed",
     ].includes(mode)
   ) {
-    tool("daemon", undefined, "sleep 90");
+    if (mode !== "reactive-late-tool-steer-daemon")
+      tool("daemon", undefined, "sleep 90");
     message("Daemon started.");
     const identifyDaemon = () => {
       finish(sessionId);
+      if (mode === "reactive-late-tool-steer-daemon")
+        tool("daemon", undefined, "sleep 90");
       update(sessionId, {
         sessionUpdate: "tool_call_update",
         toolCallId: "daemon",
-        status: "in_progress",
+        status: mode === "reactive-daemon-failed" ? "failed" : "in_progress",
         rawInput: { CommandLine: "sleep 90", IsDaemon: true },
       });
     };
-    if (mode !== "reactive-late-daemon")
+    if (mode === "reactive-daemon-failed") {
+      identifyDaemon();
+      setTimeout(() => message("Daemon failed."), 30);
+    } else if (mode !== "reactive-late-daemon")
       endReactiveSteer = (request) => {
         identifyDaemon();
         if (mode === "reactive-daemon-unechoed-steer-output") {
           message("Waiting.");
           setTimeout(() => message("Done."), 30);
         }
-        if (mode !== "reactive-steer-daemon")
+        if (mode === "reactive-late-tool-steer-daemon")
+          reply(request.id, { stopReason: "end_turn" });
+        else if (mode !== "reactive-steer-daemon")
           send({
             id: request.id,
             error: { code: -32603, message: "Steer rejected" },

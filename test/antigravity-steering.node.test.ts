@@ -76,6 +76,7 @@ for (const mode of [
   "daemon-only",
   "reactive-late-daemon",
   "reactive-rejected-steer-daemon",
+  "reactive-late-tool-steer-daemon",
 ])
   test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
     fixture(t);
@@ -87,11 +88,29 @@ for (const mode of [
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Start a daemon");
+    if (mode === "reactive-late-tool-steer-daemon")
+      await adapter.steer!("Keep going");
     if (mode === "reactive-rejected-steer-daemon")
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     await until(() => complete(events).length === 1);
     assert.deepEqual(statuses(events), ["ready", "completed"]);
   });
+
+test("Antigravity keeps a failed daemon launch open for recovery output", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-daemon-failed";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Start a daemon");
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Daemon failed."),
+  );
+  assert.deepEqual(statuses(events), ["ready"]);
+});
 
 for (const mode of [
   "reactive-steering",

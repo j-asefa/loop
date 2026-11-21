@@ -1351,15 +1351,12 @@ export class Acp implements Adapter {
           input.IsDaemon === true;
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
-          if (reactiveWorkChanged && !daemon)
+          if (reactiveWorkChanged && (!daemon || u.status === "failed"))
             this.canResolveAsDaemonOnly = false;
         } else if (u.sessionUpdate === "tool_call") {
           this.canResolveAsDaemonOnly = false;
           this.reactiveTools.add(u.toolCallId);
-          if (this.earlierEnd && !this.reactiveEnd) {
-            this.waitForReactiveTurn();
-            this.canResolveAsDaemonOnly = false;
-          }
+          if (this.earlierEnd && !this.reactiveEnd) this.waitForReactiveTurn();
           reactiveWorkChanged = true;
         }
       }
