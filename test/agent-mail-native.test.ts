@@ -3,6 +3,8 @@ import { productionApp } from "./helpers/app.js";
 import { testDirectory } from "./helpers/test-workspace.js";
 import { until } from "./helpers/wait.js";
 import { createHash } from "node:crypto";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterAll, expect, it, vi } from "vitest";
 import { realpathSync } from "node:fs";
 
@@ -408,15 +410,143 @@ it.each([
           )?.state === "accepted",
       );
       const endpoint = { ...ticket };
-      const call = async (body: object) =>
-        (
-          await fetch(endpoint.url + "/pi", {
-            method: "POST",
-            headers: { authorization: "Bearer " + endpoint.token },
-            body: JSON.stringify(body),
-          })
-        ).json();
+      const requestPi = (body: object, signal?: AbortSignal) =>
+        fetch(endpoint.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + endpoint.token },
+          body: JSON.stringify(body),
+          signal,
+        });
+      const call = async (body: object) => (await requestPi(body)).json();
       await call({ method: "tools/list" });
+      if (cause === "cancel") {
+        const children = Array.from(
+          { length: 16 },
+          (_, index) => "text" + index,
+        );
+        const spec = [
+          { path: "/root", value: "card" },
+          { path: "/elements/card", value: { type: "Card", children } },
+          ...children.map((key) => ({
+            path: "/elements/" + key,
+            value: { type: "Text", props: { content: "語".repeat(3000) } },
+          })),
+        ]
+          .map((patch) => JSON.stringify({ op: "add", ...patch }))
+          .join("\n");
+        expect(Buffer.byteLength(spec)).toBeGreaterThan(128_000);
+        const display = {
+          method: "tools/call",
+          id: "display",
+          name: "loop_check_display",
+          arguments: { spec },
+        };
+        const validResult = {
+          content: [
+            { text: expect.stringContaining("Display valid. Elements: 17.") },
+          ],
+        };
+        expect(await call(display)).toMatchObject(validResult);
+        expect(await call(display)).toMatchObject(validResult);
+        expect(await call({ ...display, id: "\uD800" })).toMatchObject(
+          validResult,
+        );
+        expect(
+          await call({ ...display, id: "\uD801", arguments: { spec: "" } }),
+        ).toMatchObject({
+          content: [
+            { text: expect.stringContaining("Block has no applicable lines") },
+          ],
+        });
+        expect(
+          (await requestPi({ ...display, arguments: { spec: spec + "\n" } }))
+            .status,
+        ).toBe(409);
+        expect(
+          (await requestPi({ ...display, name: "loop_message" })).status,
+        ).toBe(413);
+        const malformed = await fetch(endpoint.url + "/pi", {
+          method: "POST",
+          headers: { authorization: "Bearer " + endpoint.token },
+          body: " ".repeat(128_001) + "{",
+        });
+        expect(malformed.status).toBe(413);
+        const client = new Client({ name: "display-fixture", version: "1" });
+        const transport = new StreamableHTTPClientTransport(
+          new URL(endpoint.url),
+          {
+            requestInit: {
+              headers: { Authorization: "Bearer " + endpoint.token },
+            },
+          },
+        );
+        try {
+          await client.connect(transport);
+          expect((await client.listTools()).tools).toContainEqual(
+            expect.objectContaining({ name: display.name }),
+          );
+          expect(
+            await client.callTool({
+              name: display.name,
+              arguments: display.arguments,
+            }),
+          ).toMatchObject(validResult);
+          const longId = await fetch(endpoint.url, {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + endpoint.token,
+              Accept: "application/json, text/event-stream",
+              "Content-Type": "application/json",
+              "Mcp-Session-Id": transport.sessionId!,
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: "x".repeat(200),
+              method: "tools/call",
+              params: { name: display.name, arguments: display.arguments },
+            }),
+          });
+          expect(await longId.json()).toMatchObject({ result: validResult });
+          expect(
+            (await requestPi({ ...display, id: "x".repeat(200) })).status,
+          ).toBe(400);
+        } finally {
+          await client.close();
+        }
+        for (let start = 0; start < 2000; start += 50) {
+          await Promise.all(
+            Array.from({ length: 50 }, async (_, offset) => {
+              const response = await requestPi({
+                ...display,
+                id: "check-quota-" + (start + offset),
+                arguments: { spec: "" },
+              });
+              await response.text();
+              if (start === 0) expect(response.status).toBe(200);
+            }),
+          );
+        }
+        expect(
+          (
+            await requestPi({
+              ...display,
+              id: "check-quota-exhausted",
+              arguments: { spec: "" },
+            })
+          ).status,
+        ).toBe(409);
+        expect(
+          (
+            await requestPi({
+              ...display,
+              name: "loop_diagram",
+              id: "check-quota-0",
+              arguments: {},
+            })
+          ).status,
+        ).toBe(409);
+        // The separate tool call below can still reach its approval path.
+      }
       const concurrentExpiry = cause === "concurrent-expiry";
       if (cause === "expiry" || concurrentExpiry)
         db.exec(
@@ -448,6 +578,37 @@ it.each([
               .prepare("SELECT id FROM approvals WHERE run_id=?")
               .get(run.id) as { id: string } | undefined),
       );
+      if (cause === "approval") {
+        await until(
+          () =>
+            db
+              .prepare("SELECT state FROM runs WHERE id=?")
+              .pluck()
+              .get(run.id) === "awaiting_approval",
+        );
+        const check = await requestPi(
+          {
+            method: "tools/call",
+            id: "check-during-approval",
+            name: "loop_check_display",
+            arguments: { spec: "語".repeat(50_000) },
+          },
+          AbortSignal.timeout(1500),
+        );
+        expect(await check.json()).toMatchObject({
+          isError: true,
+          content: [
+            {
+              text: expect.stringContaining(
+                "Start a new display check after it resumes.",
+              ),
+            },
+          ],
+        });
+        expect(
+          db.prepare("SELECT state FROM runs WHERE id=?").pluck().get(run.id),
+        ).toBe("awaiting_approval");
+      }
       const at = Date.now();
       if (concurrentExpiry) {
         // Another request's approval must not permanently cache an expiry error

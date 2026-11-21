@@ -114,6 +114,9 @@ const propSchemas = {
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);
+export const DISPLAY_COMPONENTS = Object.keys(
+  propSchemas,
+) as (keyof typeof propSchemas)[];
 
 export type DisplayAlign = z.infer<typeof alignment>;
 export type DisplayNode =
@@ -169,6 +172,7 @@ export type DisplayRead =
   | ({ ok: false; reason: DisplayFailure } & Skips);
 
 type RawElement = Record<string, unknown>;
+type DisplayWarning = (key: string, detail: string) => void;
 
 class DisplayLimit extends Error {
   constructor(readonly reason: DisplayFailure) {
@@ -200,6 +204,7 @@ function build(
   type: string,
   props: unknown,
   children: DisplayNode[],
+  onWarning?: DisplayWarning,
 ): DisplayNode | string {
   switch (type) {
     case "Card": {
@@ -236,6 +241,14 @@ function build(
       const p = propSchemas.Table.safeParse(props);
       if (!p.success) return problem(p.error);
       const width = p.data.headers.length;
+      if (onWarning)
+        p.data.rows.forEach((row, index) => {
+          if (row.length > width)
+            onWarning(
+              key,
+              `Table row ${index + 1} has more cells (${row.length}) than headers (${width}). Add headers or remove the extra cells before publishing.`,
+            );
+        });
       return {
         type,
         key,
@@ -291,6 +304,8 @@ function draw(
     text: number;
     drawn: number;
     omitMissing: boolean;
+    onWarning?: DisplayWarning;
+    tablesAndCharts?: Map<string, DisplayNode | string>;
   },
 ): DisplayNode {
   if (depth > DISPLAY_LIMITS.depth) throw new DisplayLimit("too_deep");
@@ -323,7 +338,14 @@ function draw(
       "unsupported",
       "visible and repeat are not supported",
     );
-  const list = takesChildren.has(type) ? (element.children ?? []) : [];
+  const hasChildren = takesChildren.has(type);
+  const children = element.children ?? [];
+  const list = hasChildren ? children : [];
+  if (!hasChildren && (!Array.isArray(children) || children.length > 0))
+    state.onWarning?.(
+      key,
+      `${type} does not draw children. Move them into a component that accepts children, such as Card or Section.`,
+    );
   if (!Array.isArray(list) || !list.every((k) => typeof k === "string"))
     return placeholder(
       key,
@@ -333,7 +355,14 @@ function draw(
     );
   // Props are checked before children are visited, so an invalid container
   // is one placeholder and its children count toward no limit.
-  const built = build(key, type, element.props ?? {}, []);
+  // The checker can reuse validated tables and charts, which have no
+  // per-visit children. Every visit still charges the display budgets.
+  let built = state.tablesAndCharts?.get(key);
+  if (built === undefined) {
+    built = build(key, type, element.props ?? {}, [], state.onWarning);
+    if (type === "Table" || type === "Chart")
+      state.tablesAndCharts?.set(key, built);
+  }
   if (typeof built === "string")
     return placeholder(key, type, "invalid", built);
   // An element drawn as a placeholder charges none of the budgets.
@@ -424,6 +453,8 @@ export type DisplayReadOptions = {
   // arrived are left out instead of drawn as placeholders.
   writing?: boolean;
   finalLineIncomplete?: boolean;
+  allSkippedLines?: boolean;
+  onWarning?: DisplayWarning;
 };
 
 // Reads the text inside a `spec` fence; by default the block is complete.
@@ -433,12 +464,14 @@ export function readDisplaySpec(
     open = false,
     writing = false,
     finalLineIncomplete = false,
+    allSkippedLines = false,
+    onWarning,
   }: DisplayReadOptions = {},
 ): DisplayRead {
   const skips: Skips = { skipped: [], skippedCount: 0 };
   const skip = (line: number, reason: string) => {
     skips.skippedCount++;
-    if (skips.skipped.length < DISPLAY_LIMITS.skippedDetail)
+    if (allSkippedLines || skips.skipped.length < DISPLAY_LIMITS.skippedDetail)
       skips.skipped.push({ line, reason });
   };
   if (source.length > DISPLAY_LIMITS.source)
@@ -495,6 +528,10 @@ export function readDisplaySpec(
     text: 0,
     drawn: 0,
     omitMissing: open && writing,
+    onWarning,
+    tablesAndCharts: onWarning
+      ? new Map<string, DisplayNode | string>()
+      : undefined,
   };
   try {
     return {

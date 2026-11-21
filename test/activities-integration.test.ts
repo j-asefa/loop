@@ -21,13 +21,15 @@ import {
   type ActivityItem,
 } from "../src/client/activityView";
 import { seedConversation } from "./helpers/seed.js";
+import { DISPLAY_COMPONENTS, DISPLAY_LIMITS } from "../src/shared/display-spec";
 testDirectory();
 
 const { db } = await import("../src/server/db");
 const { enqueue, claim } = await import("../src/server/queue");
 const { applyActivity, listActivities, ingestNativeActivity } =
   await import("../src/server/activities");
-const { nativeBindings } = await import("../src/server/native-tools");
+const { invokeNative, nativeBindings } =
+  await import("../src/server/native-tools");
 const { historyActivities, historyProjection } =
   await import("../src/server/native-history");
 afterAll(() => {
@@ -356,6 +358,196 @@ it("offers loop_plan with a provider-compatible, validated schema and agent-faci
     validate({ steps: [{ id: "has space", title: "Do", status: "pending" }] }),
   ).toBe(false);
   expect(plan.description).toMatch(/never infers a plan/);
+});
+
+it("validates display blocks through the native binding without recording a dispatch", async () => {
+  conversation("check-display");
+  enqueue("owner", "t", "check-display", { conversation: "check-display" });
+  const run = claim("w")!;
+  const find = (options: Parameters<typeof nativeBindings>[1]) =>
+    nativeBindings(run, options).find(
+      (tool) => tool.tool === "loop_check_display",
+    )!;
+  const binding = find({ plans: true });
+  expect(find({ nativeCatalog: true })).toEqual(binding);
+  expect(binding.description.length).toBeLessThan(700);
+  expect(
+    nativeBindings({
+      ...run,
+      payload: { ...run.payload, reviewId: "fixture" },
+    }).map(({ tool }) => tool),
+  ).toEqual(["loop_review_read"]);
+  const validate = new Ajv2020({ strict: false }).compile(binding.inputSchema);
+  expect(validate({ spec: "" })).toBe(true);
+  expect(validate({ spec: 42 })).toBe(false);
+  expect(validate({})).toBe(false);
+  const root = JSON.stringify({ op: "add", path: "/root", value: "card" });
+  const card = JSON.stringify({
+    op: "add",
+    path: "/elements/card",
+    value: { type: "Card" },
+  });
+  const valid = root + "\n" + card;
+  const changes = () =>
+    db.prepare("SELECT total_changes() AS count").pluck().get();
+  const before = changes();
+  const call = async (spec: string) => {
+    const outcome = await invokeNative(run, binding, "check-fixture", { spec });
+    expect(outcome).toMatchObject({ artifactId: "" });
+    if (!("result" in outcome))
+      throw new Error("Display check requested approval");
+    expect(outcome.result.isError).toBeUndefined();
+    return outcome.result.content[0].text as string;
+  };
+  expect(await call(valid)).toContain("Display valid. Elements: 1.");
+  expect(await call("````spec\n" + valid + "\n````")).toContain(
+    "Display valid.",
+  );
+  expect(await call("  ~~~spec\r\n" + valid + "\r\n  ~~~\r\n")).toContain(
+    "Display valid.",
+  );
+  expect(await call("```spec example\n" + valid + "\n```")).toContain(
+    "Display valid.",
+  );
+  expect(await call("```spec\n" + valid)).toContain("Display valid.");
+  expect(await call("~~~spec&#32;example\n" + valid + "\n~~~")).toContain(
+    "Display valid.",
+  );
+  expect(await call("```\n" + valid + "\n```")).toContain(
+    "Line 1: Use a single fenced block with spec as the fenced block's language.",
+  );
+  expect(await call(root)).toContain("/root points to a missing element");
+  expect(await call("[]")).toContain("Line 1:");
+  expect(await call("\n\n```spec\nnot JSON\n" + valid + "\n```")).toContain(
+    "Line 4: Not valid JSON.",
+  );
+  expect(await call("> ```spec\n> not JSON\n> ```")).toContain(
+    "Line 2: Not valid JSON.",
+  );
+  expect(await call("!\n".repeat(DISPLAY_LIMITS.skippedDetail + 1))).toContain(
+    `Line ${DISPLAY_LIMITS.skippedDetail + 1}: Not valid JSON.`,
+  );
+  const invalid = await call(
+    valid.replace('"type":"Card"', '"type":"Card","children":["bad"]') +
+      '\n{"op":"add","path":"/elements/bad","value":{"type":"LinkButton","props":{"label":"Bad","url":"file:///file"}}}\nno json',
+  );
+  expect(invalid).toContain('Element "bad"');
+  expect(invalid).toContain("HTTP(S) url");
+  expect(invalid).toContain("Line 4:");
+  for (const component of DISPLAY_COMPONENTS)
+    expect(invalid).toContain("- " + component + ":");
+  const manyInvalid = await call("!\n".repeat(2000));
+  expect(manyInvalid.length).toBeLessThan(10_000);
+  expect(manyInvalid).toContain("Block has no applicable lines.");
+  expect(manyInvalid).toContain("additional diagnostics omitted");
+  expect(manyInvalid).toContain("Component reference");
+  const longKey = "unterminated\n" + "k".repeat(512);
+  const repeatedMissing = await call(
+    root +
+      "\n" +
+      JSON.stringify({
+        op: "add",
+        path: "/elements/card",
+        value: { type: "Card", children: Array(80).fill(longKey) },
+      }),
+  );
+  expect(repeatedMissing.length).toBeLessThan(10_000);
+  expect(repeatedMissing).toContain("additional diagnostics omitted");
+  expect(repeatedMissing).not.toContain(longKey);
+  const atLimit = valid + " ".repeat(DISPLAY_LIMITS.source - valid.length);
+  const largeDisplay = await call(atLimit);
+  expect(largeDisplay).toContain("Display valid.");
+  expect(largeDisplay).toContain(
+    "if the entire reply, including the fence, fits within 30000 characters.",
+  );
+  expect(await call(atLimit + " ")).toContain("Block exceeds");
+  expect(await call(" ".repeat(DISPLAY_LIMITS.source * 6))).toContain(
+    "Block exceeds",
+  );
+  const indented = atLimit
+    .split("\n")
+    .map((line) => "  " + line)
+    .join("\r\n");
+  expect(
+    await call("  ~~~spec\r\n" + indented.slice(0, -1) + "\r\n  ~~~"),
+  ).toContain("Display valid.");
+  expect(await call("  ~~~spec\r\n" + indented + "\r\n  ~~~")).toContain(
+    "Block exceeds",
+  );
+  const chart = (values: number[]) =>
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: {
+        type: "Chart",
+        props: {
+          title: "Week",
+          chart: {
+            type: "bar",
+            categories: ["Monday"],
+            series: [{ name: "Visits", values }],
+          },
+        },
+      },
+    });
+  expect(await call(chart([10]))).toContain("Display valid.");
+  expect(await call(chart([10, 20]))).toContain(
+    'Element "card": Chart series "Visits" has more values (2) than categories (1).',
+  );
+  const table = (rows: number[][]) =>
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: { type: "Table", props: { headers: ["Amount"], rows } },
+    });
+  expect(await call(table([[], [10]]))).toContain("Display valid.");
+  expect(await call(table([[10], [20, 30]]))).toContain(
+    'Element "card": Table row 2 has more cells (2) than headers (1).',
+  );
+  const leaf =
+    root +
+    "\n" +
+    JSON.stringify({
+      op: "add",
+      path: "/elements/card",
+      value: {
+        type: "Text",
+        props: { content: "Summary" },
+        children: ["details"],
+      },
+    }) +
+    '\n{"op":"add","path":"/elements/details","value":{"type":"Divider"}}';
+  expect(await call(leaf)).toContain(
+    'Element "card": Text does not draw children.',
+  );
+  const group = (type: "Fields" | "Actions") =>
+    [
+      root,
+      JSON.stringify({
+        op: "add",
+        path: "/elements/card",
+        value: { type, children: ["details"] },
+      }),
+      '{"op":"add","path":"/elements/details","value":{"type":"Text","props":{"content":"Details"}}}',
+    ].join("\n");
+  expect(await call(group("Fields"))).toContain(
+    'Element "card": Fields expects Field children.',
+  );
+  expect(await call(group("Actions"))).toContain("Display valid. Elements: 2.");
+  await expect(
+    invokeNative(run, binding, "bad-shape", { spec: 3 }),
+  ).resolves.toMatchObject({
+    artifactId: "",
+    result: {
+      isError: true,
+      content: [{ text: expect.stringContaining("source as a string") }],
+    },
+  });
+  expect(changes()).toBe(before);
 });
 
 it("migration 030 is additive and preserves conversations and native bindings", () => {

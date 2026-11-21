@@ -24,12 +24,19 @@ import { toolBindings, invokeTool, type ToolBinding } from "./mcp/broker.js";
 import { db, now } from "./db.js";
 import { Problem } from "../shared/problem.js";
 
+const TOOL_BODY_LIMIT = 128_000;
+const TOOL_REQUEST_ID_LIMIT = 200;
+const TOOL_CALL_LIMIT = 2000;
+// A display's character budget can produce a much larger UTF-8 JSON request.
+const DISPLAY_CHECK_BODY_LIMIT = 512 * 1024;
+
 type Ticket = {
   conversation: string;
   generation: string;
   token: string;
   bindings: Map<string, ToolBinding>;
   calls: Map<string, { digest: string; result: Promise<any> }>;
+  displayChecks: Ticket["calls"];
   server?: Server;
   transport?: StreamableHTTPServerTransport;
 };
@@ -65,6 +72,7 @@ export class NativeToolBridge {
       token,
       bindings: new Map(),
       calls: new Map(),
+      displayChecks: new Map(),
     });
     return { url: `http://127.0.0.1:${this.port}/${key}`, token };
   }
@@ -124,9 +132,19 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
-    const key = run.id + ":" + requestId,
-      digest = JSON.stringify([name, args]);
-    const previous = t.calls.get(key);
+    const isDisplayCheck =
+      binding.connectionId === "__loop__" &&
+      binding.tool === "loop_check_display";
+    const calls = isDisplayCheck ? t.displayChecks : t.calls;
+    // Hash the original JS code units, including unpaired surrogates.
+    // Keep the original call ID at dispatch.
+    const callId = run.id + ":" + requestId,
+      key = createHash("sha256").update(callId, "utf16le").digest("hex"),
+      digest = createHash("sha256")
+        .update(JSON.stringify([name, args]))
+        .digest("hex");
+    // Request IDs still belong to the whole run, even across the two quotas.
+    const previous = t.calls.get(key) ?? t.displayChecks.get(key);
     if (previous && previous.digest !== digest)
       throw new Error("Tool request identity was reused");
     if (
@@ -151,9 +169,11 @@ export class NativeToolBridge {
       )
         return previous.result;
     }
-    if (!previous && t.calls.size >= 2000)
+    if (!previous && calls.size >= TOOL_CALL_LIMIT)
       throw new Error(
-        "Native tool request limit reached; start a new conversation.",
+        isDisplayCheck
+          ? "Display check request limit reached; start a new conversation to check more drafts."
+          : "Native tool request limit reached; start a new conversation.",
       );
     const result = (async () => {
       let waiting = false;
@@ -201,12 +221,18 @@ export class NativeToolBridge {
           // Wait only on known pending approvals/delegations. Uncertain external
           // calls throw from the broker and are never repeated.
           if (state === "awaiting_approval") {
+            // Display checks are read-only and may have large arguments.
+            // Return promptly instead of retaining them during the wait.
+            if (isDisplayCheck)
+              throw new Error(
+                "The run is waiting for approval. Start a new display check after it resumes.",
+              );
             await wait(revision);
             continue;
           }
           const response = await (
             binding.connectionId === "__loop__" ? invokeNative : invokeTool
-          )(run, binding, key, args);
+          )(run, binding, callId, args);
           if ("result" in response) {
             if (binding.tool === "loop_install_mcp") {
               this.list(t);
@@ -241,7 +267,7 @@ export class NativeToolBridge {
         if (waiting) nativeSessions.state.bridgeWait(live, false);
       }
     })();
-    t.calls.set(key, { digest, result });
+    calls.set(key, { digest, result });
     return result;
   }
   private async handle(req: IncomingMessage, res: ServerResponse) {
@@ -275,13 +301,28 @@ export class NativeToolBridge {
         const chunks: Buffer[] = [];
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > 128000) {
+          if (size > DISPLAY_CHECK_BODY_LIMIT) {
             res.writeHead(413).end();
             return;
           }
           chunks.push(chunk);
         }
-        body = JSON.parse(Buffer.concat(chunks).toString());
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString());
+        } catch (error) {
+          if (size <= TOOL_BODY_LIMIT) throw error;
+          res.writeHead(413).end();
+          return;
+        }
+        if (
+          size > TOOL_BODY_LIMIT &&
+          (body?.method !== "tools/call" ||
+            (match![2] ? body.name : body.params?.name) !==
+              "loop_check_display")
+        ) {
+          res.writeHead(413).end();
+          return;
+        }
       }
       if (match![2]) {
         if (req.method !== "POST" || !body || typeof body !== "object") {
@@ -293,7 +334,7 @@ export class NativeToolBridge {
             ? this.list(t)
             : body.method === "tools/call" &&
                 typeof body.id === "string" &&
-                body.id.length < 200 &&
+                body.id.length < TOOL_REQUEST_ID_LIMIT &&
                 typeof body.name === "string"
               ? await this.call(t, body.id, body.name, body.arguments || {})
               : null;
