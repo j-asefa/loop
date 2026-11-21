@@ -129,9 +129,10 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
-    // Bound cached data without changing the call ID used at dispatch.
+    // Hash the original JS code units, including unpaired surrogates.
+    // Keep the original call ID at dispatch.
     const callId = run.id + ":" + requestId,
-      key = createHash("sha256").update(callId).digest("hex"),
+      key = createHash("sha256").update(callId, "utf16le").digest("hex"),
       digest = createHash("sha256")
         .update(JSON.stringify([name, args]))
         .digest("hex");

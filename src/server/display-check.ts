@@ -133,7 +133,23 @@ export function checkDisplay(input: string): string {
               `Element ${quotedDiagnostic(node.key)}: Chart series ${quotedDiagnostic(name)} has more values (${values.length}) than categories (${categories.length}). Add categories or remove the extra values before publishing.`,
             );
       } else if ("children" in node) {
-        node.children.forEach(visit);
+        const childType =
+          node.type === "Fields"
+            ? "Field"
+            : node.type === "Actions"
+              ? "LinkButton"
+              : undefined;
+        for (const child of node.children) {
+          if (
+            childType &&
+            child.type !== childType &&
+            child.type !== "Placeholder"
+          )
+            add(
+              `Element ${quotedDiagnostic(node.key)}: ${node.type} expects ${childType} children. Move ${quotedDiagnostic(child.key)} (${child.type}) to a Card or Section, or use a ${childType} here.`,
+            );
+          visit(child);
+        }
       }
     };
     visit(display.root);

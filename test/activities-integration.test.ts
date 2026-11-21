@@ -518,6 +518,23 @@ it("validates display blocks through the native binding without recording a disp
   expect(await call(leaf)).toContain(
     'Element "card": Text does not draw children.',
   );
+  for (const [type, childType] of [
+    ["Fields", "Field"],
+    ["Actions", "LinkButton"],
+  ]) {
+    const group = [
+      root,
+      JSON.stringify({
+        op: "add",
+        path: "/elements/card",
+        value: { type, children: ["details"] },
+      }),
+      '{"op":"add","path":"/elements/details","value":{"type":"Text","props":{"content":"Details"}}}',
+    ].join("\n");
+    expect(await call(group)).toContain(
+      `Element "card": ${type} expects ${childType} children.`,
+    );
+  }
   await expect(
     invokeNative(run, binding, "bad-shape", { spec: 3 }),
   ).resolves.toMatchObject({

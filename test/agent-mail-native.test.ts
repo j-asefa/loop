@@ -447,6 +447,16 @@ it.each([
         };
         expect(await call(display)).toMatchObject(validResult);
         expect(await call(display)).toMatchObject(validResult);
+        expect(await call({ ...display, id: "\uD800" })).toMatchObject(
+          validResult,
+        );
+        expect(
+          await call({ ...display, id: "\uD801", arguments: { spec: "" } }),
+        ).toMatchObject({
+          content: [
+            { text: expect.stringContaining("Block has no applicable lines") },
+          ],
+        });
         expect(
           (await requestPi({ ...display, arguments: { spec: spec + "\n" } }))
             .status,
