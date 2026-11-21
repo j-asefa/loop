@@ -374,6 +374,20 @@ it("checks and draws a standalone display nested in a quote or list item", () =>
     expect(checkDisplay(nested)).toContain("Display valid. Elements: 1.");
     expect(render(nested)).toContain('class="display-spec"');
   }
+  const quotePrefix = "> ".repeat(32);
+  const padded = [
+    ...lines.slice(0, -1),
+    ...Array<string>(5_500).fill(""),
+    lines.at(-1)!,
+  ]
+    .map((line) => quotePrefix + line)
+    .join("\n");
+  expect(padded.length).toBeGreaterThan(5 * 65_536 + 256);
+  expect(checkDisplay(padded)).toContain("Display valid. Elements: 1.");
+  expect(render(padded)).toContain('class="display-spec"');
+  expect(checkDisplay(" ".repeat(512 * 1024 + 1))).toContain(
+    "Submit the patch lines directly without Markdown wrappers.",
+  );
 });
 
 it("cuts a spec fence to ten lines in a compact preview with displays off", () => {

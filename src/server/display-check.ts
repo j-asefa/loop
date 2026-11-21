@@ -21,8 +21,8 @@ export const checkDisplaySchema = z.strictObject({
   spec: z.string(),
 });
 const markdown = unified().use(remarkParse).freeze();
-// Allow three spaces of fence indentation per line, CRLF and the wrapper.
-const MAX_DISPLAY_INPUT = 5 * DISPLAY_LIMITS.source + 256;
+// Bound Markdown parsing separately from the extracted display source.
+const MAX_DISPLAY_INPUT = 512 * 1024;
 
 const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Card: "optional title and subtitle strings; children allowed",
@@ -100,7 +100,11 @@ const quotedDiagnostic = (value: string) =>
 
 export function checkDisplay(input: string): string {
   if (input.length > MAX_DISPLAY_INPUT)
-    return [failures.too_large, "", reference].join("\n");
+    return [
+      `Input exceeds ${MAX_DISPLAY_INPUT} characters. Submit the patch lines directly without Markdown wrappers.`,
+      "",
+      reference,
+    ].join("\n");
   const source = displaySource(input);
   if (source.issue !== undefined)
     return [source.issue, "", reference].join("\n");

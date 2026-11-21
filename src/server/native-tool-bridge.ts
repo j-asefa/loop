@@ -26,6 +26,7 @@ import { Problem } from "../shared/problem.js";
 
 const TOOL_BODY_LIMIT = 128_000;
 const TOOL_REQUEST_ID_LIMIT = 200;
+const TOOL_CALL_LIMIT = 2000;
 // A display's character budget can produce a much larger UTF-8 JSON request.
 const DISPLAY_CHECK_BODY_LIMIT = 512 * 1024;
 
@@ -35,6 +36,7 @@ type Ticket = {
   token: string;
   bindings: Map<string, ToolBinding>;
   calls: Map<string, { digest: string; result: Promise<any> }>;
+  displayChecks: Ticket["calls"];
   server?: Server;
   transport?: StreamableHTTPServerTransport;
 };
@@ -70,6 +72,7 @@ export class NativeToolBridge {
       token,
       bindings: new Map(),
       calls: new Map(),
+      displayChecks: new Map(),
     });
     return { url: `http://127.0.0.1:${this.port}/${key}`, token };
   }
@@ -129,6 +132,10 @@ export class NativeToolBridge {
       throw new Error(
         "Tool was not advertised in this native session. Reopen the conversation to refresh tools.",
       );
+    const isDisplayCheck =
+      binding.connectionId === "__loop__" &&
+      binding.tool === "loop_check_display";
+    const calls = isDisplayCheck ? t.displayChecks : t.calls;
     // Hash the original JS code units, including unpaired surrogates.
     // Keep the original call ID at dispatch.
     const callId = run.id + ":" + requestId,
@@ -136,7 +143,8 @@ export class NativeToolBridge {
       digest = createHash("sha256")
         .update(JSON.stringify([name, args]))
         .digest("hex");
-    const previous = t.calls.get(key);
+    // Request IDs still belong to the whole run, even across the two quotas.
+    const previous = t.calls.get(key) ?? t.displayChecks.get(key);
     if (previous && previous.digest !== digest)
       throw new Error("Tool request identity was reused");
     if (
@@ -161,9 +169,11 @@ export class NativeToolBridge {
       )
         return previous.result;
     }
-    if (!previous && t.calls.size >= 2000)
+    if (!previous && calls.size >= TOOL_CALL_LIMIT)
       throw new Error(
-        "Native tool request limit reached; start a new conversation.",
+        isDisplayCheck
+          ? "Display check request limit reached; start a new conversation to check more drafts."
+          : "Native tool request limit reached; start a new conversation.",
       );
     const result = (async () => {
       let waiting = false;
@@ -213,10 +223,7 @@ export class NativeToolBridge {
           if (state === "awaiting_approval") {
             // Display checks are read-only and may have large arguments.
             // Return promptly instead of retaining them during the wait.
-            if (
-              binding.connectionId === "__loop__" &&
-              binding.tool === "loop_check_display"
-            )
+            if (isDisplayCheck)
               throw new Error(
                 "The run is waiting for approval. Start a new display check after it resumes.",
               );
@@ -260,7 +267,7 @@ export class NativeToolBridge {
         if (waiting) nativeSessions.state.bridgeWait(live, false);
       }
     })();
-    t.calls.set(key, { digest, result });
+    calls.set(key, { digest, result });
     return result;
   }
   private async handle(req: IncomingMessage, res: ServerResponse) {

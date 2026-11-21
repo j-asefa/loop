@@ -513,6 +513,39 @@ it.each([
         } finally {
           await client.close();
         }
+        for (let start = 0; start < 2000; start += 50) {
+          await Promise.all(
+            Array.from({ length: 50 }, async (_, offset) => {
+              const response = await requestPi({
+                ...display,
+                id: "check-quota-" + (start + offset),
+                arguments: { spec: "" },
+              });
+              await response.text();
+              if (start === 0) expect(response.status).toBe(200);
+            }),
+          );
+        }
+        expect(
+          (
+            await requestPi({
+              ...display,
+              id: "check-quota-exhausted",
+              arguments: { spec: "" },
+            })
+          ).status,
+        ).toBe(409);
+        expect(
+          (
+            await requestPi({
+              ...display,
+              name: "loop_diagram",
+              id: "check-quota-0",
+              arguments: {},
+            })
+          ).status,
+        ).toBe(409);
+        // The separate tool call below can still reach its approval path.
       }
       const concurrentExpiry = cause === "concurrent-expiry";
       if (cause === "expiry" || concurrentExpiry)
