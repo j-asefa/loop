@@ -443,6 +443,16 @@ a:focus-visible {
   background: transparent;
   color: var(--brass-text);
 }
+.workspace-content .feed-card .card-actions .card-action-done {
+  margin-left: auto;
+  color: var(--green);
+  font-weight: 600;
+}
+.result-edit-actions .card-action-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .workspace-content .feed-card .preview-open {
   font-size: 12px;
   font-weight: 500;
@@ -863,6 +873,57 @@ label.catalog-search {
 .composer-launch:hover {
   filter: brightness(1.05);
 }
+.composer-agent-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 8px 14px 2px;
+}
+.composer-agent-pills::-webkit-scrollbar {
+  display: none;
+}
+.composer-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 4px 11px 4px 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.composer-agent-pill:first-child:has(svg) {
+  padding-left: 10px;
+}
+.composer-agent-pill .avatar {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  flex-shrink: 0;
+}
+.composer-agent-pill.selected {
+  border-color: color-mix(in srgb, var(--brass) 55%, var(--line));
+  background: color-mix(in srgb, var(--brass) 14%, var(--surface));
+  color: var(--text);
+  font-weight: 650;
+}
+[data-keyboard="open"] .composer-agent-pills {
+  padding: 4px 14px 0;
+}
+[data-keyboard="open"] .composer-agent-pill {
+  min-height: 32px;
+  padding-block: 3px;
+}
 
 @media (min-width: 1100px) {
   .app-shell {
@@ -973,6 +1034,16 @@ label.catalog-search {
     width: 58px;
     height: 58px;
   }
+  .agent-portrait:has(.agent-status-dot[data-status="Working"]) .avatar {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 3.5px color-mix(in srgb, var(--green) 72%, transparent);
+  }
+  .agent-portrait:has(.agent-status-dot[data-status="Needs you"]) .avatar {
+    box-shadow:
+      0 0 0 2px var(--surface),
+      0 0 0 3.5px color-mix(in srgb, var(--orange) 78%, transparent);
+  }
   .agent-shortcut-name {
     font-size: 12px;
   }
@@ -1063,25 +1134,56 @@ label.catalog-search {
     gap: 10px;
   }
   .workspace-content .feed-card > .card-content {
-    margin-left: 48px;
-    width: calc(100% - 48px);
+    margin-left: 0;
+    width: 100%;
   }
   .workspace-content .feed-card > .card-actions,
   .workspace-content .feed-item-details {
-    margin-left: 48px;
+    margin-left: 0;
   }
   .workspace-content .feed-card .card-content h2 {
-    font-size: 15px;
+    font-size: 16px;
+    line-height: 1.42;
   }
   .workspace-content .feed-card .card-content .markdown {
     font-size: 14px;
   }
   .workspace-content .feed-card > .card-actions {
-    gap: 4px 14px;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .workspace-content .feed-card .card-actions button {
+    min-height: 44px;
+    padding: 0 10px;
+    gap: 5px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .workspace-content .feed-card .card-actions .next-action {
+    padding-inline: 10px;
+    border: 1px solid color-mix(in srgb, var(--brass) 38%, var(--line));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--brass) 10%, var(--surface));
+    color: var(--brass-text);
+    font-weight: 600;
+  }
+  .workspace-content .feed-card .card-actions .card-action-done {
+    margin-left: 0;
+    border-color: color-mix(in srgb, var(--green) 32%, var(--line));
+    background: color-mix(in srgb, var(--green) 8%, var(--surface));
+    color: var(--green);
+    font-weight: 600;
   }
   .needs-stack {
     margin-block: 14px 4px;
     padding-inline: 12px;
+    border-color: color-mix(in srgb, var(--brass) 35%, var(--attention-line));
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--brass) 10%, transparent);
   }
   .needs-stack .feed-card > .card-content,
   .needs-stack .feed-card > .card-actions {

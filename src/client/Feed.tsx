@@ -96,6 +96,7 @@ import {
   Bookmark,
   BookmarkCheck,
   ArrowUpRight,
+  Check,
   MoreHorizontal,
   ArrowUp,
   FileText,
@@ -241,6 +242,7 @@ function FeedCard({
   onAgent,
   onMenu,
   onDismiss,
+  dismissing = false,
   dismissLabel = "Remove from Done",
   onLater,
   readAsCard,
@@ -267,6 +269,7 @@ function FeedCard({
   onAgent?: () => void;
   onMenu: () => void;
   onDismiss?: () => void;
+  dismissing?: boolean;
   dismissLabel?: string;
   onLater: () => void;
   readAsCard: boolean;
@@ -312,6 +315,14 @@ function FeedCard({
             ? item.run.error
             : "";
   const name = item.agent_name || agent?.name;
+  const canQuickDismiss =
+    !!onDismiss && !groupCount && dismissLabel !== "Dismiss from Needs you";
+  const quickDismissLabel = item.reply ? "Archive" : "Done";
+  const quickDismissIcon = item.reply ? (
+    <Archive size={16} aria-hidden="true" />
+  ) : (
+    <Check size={16} aria-hidden="true" />
+  );
   const awaitingUpdate =
     item.run &&
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -631,6 +642,18 @@ function FeedCard({
                   {next.label}
                 </button>
               )}
+              {canQuickDismiss && (
+                <button
+                  type="button"
+                  className="card-action-done"
+                  title={dismissLabel ?? "Remove from Done"}
+                  disabled={dismissing}
+                  onClick={onDismiss}
+                >
+                  {quickDismissIcon}
+                  {quickDismissLabel}
+                </button>
+              )}
               {next?.kind !== "draft" && (
                 <button onClick={onReply}>
                   <MessageSquare size={16} />
@@ -795,6 +818,18 @@ function FeedCard({
                 )}
               </div>
               <div className="result-edit-actions">
+                {canQuickDismiss && (
+                  <button
+                    type="button"
+                    className="secondary card-action-done"
+                    title={dismissLabel ?? "Remove from Done"}
+                    disabled={dismissing}
+                    onClick={() => leaveReading(onDismiss!)}
+                  >
+                    {quickDismissIcon}
+                    {quickDismissLabel}
+                  </button>
+                )}
                 <button
                   className="primary"
                   onClick={() => leaveReading(onReply)}
@@ -1300,6 +1335,23 @@ export function Feed({
   const agent = doneAgent?.id ?? scopedAgent;
   const doneRead = filter === "done" ? selection.read : "all";
   const doneFiltered = filter === "done" && (doneRead !== "all" || !!doneAgent);
+  const dismissingRef = useRef(new Set<string>());
+  const [dismissingCards, setDismissingCards] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const feedDismissKey = (item: FeedItem, owner = viewOwner()) =>
+    JSON.stringify([owner, feedItemKey(item, item.sourceId ?? scopedSource)]);
+  const markDismissing = (key: string, pending: boolean) => {
+    if (pending) dismissingRef.current.add(key);
+    else dismissingRef.current.delete(key);
+    setDismissingCards((prev) => {
+      if (pending ? prev.has(key) : !prev.has(key)) return prev;
+      const next = new Set(prev);
+      if (pending) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
   const readRecovery = useRef(
     new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>(),
   );
@@ -2680,6 +2732,9 @@ export function Feed({
     const owner = viewOwner(),
       key = shownKey();
     const source = item.sourceId ?? scopedSource;
+    const dismissKey = feedDismissKey(item, owner);
+    if (dismissingRef.current.has(dismissKey)) return;
+    markDismissing(dismissKey, true);
     const current = () =>
       owner === viewOwner() &&
       doneRefresh.current.key === JSON.stringify([owner, key]);
@@ -2760,21 +2815,34 @@ export function Feed({
       notify({
         text: item.reply ? "Reply archived." : "Removed from Done.",
         undo: async () => {
-          if (owner !== viewOwner()) return;
-          await setHidden(false);
-          updateCard(false);
-          update((old) =>
-            [
-              ...old.filter((row) => feedItemKey(row) !== feedItemKey(item)),
-              item,
-            ].sort(feedItemOrder),
-          );
-          if (current()) await load();
+          if (owner !== viewOwner() || dismissingRef.current.has(dismissKey))
+            return;
+          markDismissing(dismissKey, true);
+          try {
+            await setHidden(false);
+            if (owner !== viewOwner()) return;
+            updateCard(false);
+            update((old) =>
+              [
+                ...old.filter(
+                  (row) =>
+                    feedItemKey(row, row.sourceId ?? scopedSource) !==
+                    feedItemKey(item, source),
+                ),
+                item,
+              ].sort(feedItemOrder),
+            );
+            if (current()) await load();
+          } finally {
+            markDismissing(dismissKey, false);
+          }
         },
       });
       if (current()) void load();
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      markDismissing(dismissKey, false);
     }
   }
   async function markReplyRead(item: FeedItem) {
@@ -3509,6 +3577,7 @@ export function Feed({
                 ? () => void dismissFeedCard(item)
                 : undefined
         }
+        dismissing={dismissingCards.has(feedDismissKey(item))}
         dismissLabel={
           dismissFailure
             ? "Dismiss from Needs you"

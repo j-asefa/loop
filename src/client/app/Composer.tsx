@@ -29,6 +29,7 @@ import {
   Clock3,
   AlarmClock,
   SlidersHorizontal,
+  Sparkles,
 } from "lucide-react";
 import {
   workspaceApi,
@@ -47,7 +48,7 @@ import type { ThreadWork } from "../Conversation";
 import { AttachmentList, UploadButton } from "../Attachments";
 import { HarnessPicker } from "../HarnessPicker";
 import { VoiceButton } from "../Voice";
-import { RichText, Sheet } from "../components";
+import { Avatar, RichText, Sheet } from "../components";
 import { ActionSheet } from "../components";
 import { type useLongPress } from "../gestures";
 import { agentModelName, effortName } from "../modelChoices";
@@ -960,6 +961,17 @@ export function renderComposer({
     }
     focusComposer();
   };
+  const currentRecipient =
+    selected === "__route__" ? "__route__" : activeAgent?.id || "";
+  const selectRecipient = (nextId: string) => {
+    if (nextId === currentRecipient) return;
+    setSelected(nextId);
+    setReplyContext(null);
+    setContextArtifact(null);
+    setFolderChoice(undefined);
+    const agent = data.agents.find((a) => a.id === nextId);
+    if (agent) setFolder(agent.folder_id || "");
+  };
   const messageComposer =
     (conversation ? composerData.agents : availableAgents).length > 0 ? (
       <section
@@ -1024,60 +1036,94 @@ export function renderComposer({
         <div className="composer" hidden={!composerExpanded && !threadMode}>
           <div className="composer-body">
             {!threadMode && (
-              <div className="composer-heading">
-                <label className="composer-field">
-                  <span className="sr-only">Send to</span>
-                  <select
-                    aria-label="Agent recipient"
-                    disabled={busy || uploading}
-                    value={
-                      selected === "__route__"
-                        ? "__route__"
-                        : activeAgent?.id || ""
-                    }
-                    onChange={(e) => {
-                      setSelected(e.target.value);
-                      setReplyContext(null);
-                      setContextArtifact(null);
-                      setFolderChoice(undefined);
-                      const agent = data.agents.find(
-                        (a) => a.id === e.target.value,
-                      );
-                      if (agent) setFolder(agent.folder_id || "");
+              <>
+                <div className="composer-heading">
+                  <label className="composer-field">
+                    <span className="sr-only">Send to</span>
+                    <select
+                      aria-label="Agent recipient"
+                      disabled={busy || uploading}
+                      value={currentRecipient}
+                      onChange={(e) => selectRecipient(e.target.value)}
+                    >
+                      {!availableAgents.length && (
+                        <option value="">Choose your first agent</option>
+                      )}
+                      {(composerOptions || selected === "__route__") && (
+                        <option value="__route__">Let Loop choose</option>
+                      )}
+                      {activeAgent?.retired_at && (
+                        <option value={activeAgent.id} disabled>
+                          @{activeAgent.name} · Retired
+                        </option>
+                      )}
+                      {availableAgents.map((a) => (
+                        <option value={a.id} key={a.id}>
+                          @{a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="composer-collapse text-button"
+                    onPointerDown={(event) => {
+                      // Keep the keyboard layout until the click; an early blur
+                      // can move Minimize away from mouseup in mobile WebKit.
+                      if (event.pointerType === "mouse" && event.button === 0)
+                        event.preventDefault();
                     }}
+                    onClick={collapseComposer}
+                    aria-label="Collapse composer"
                   >
-                    {!availableAgents.length && (
-                      <option value="">Choose your first agent</option>
-                    )}
+                    <ChevronDown size={18} /> Minimize
+                  </button>
+                </div>
+                {availableAgents.length > 0 && (
+                  <div
+                    className="composer-agent-pills"
+                    role="group"
+                    aria-label="Quick recipient"
+                  >
                     {(composerOptions || selected === "__route__") && (
-                      <option value="__route__">Let Loop choose</option>
+                      <button
+                        type="button"
+                        className={
+                          "composer-agent-pill" +
+                          (selected === "__route__" ? " selected" : "")
+                        }
+                        aria-pressed={selected === "__route__"}
+                        disabled={busy || uploading}
+                        onClick={() => selectRecipient("__route__")}
+                      >
+                        <Sparkles size={14} aria-hidden="true" />
+                        <span>Auto</span>
+                      </button>
                     )}
-                    {activeAgent?.retired_at && (
-                      <option value={activeAgent.id} disabled>
-                        @{activeAgent.name} · Retired
-                      </option>
-                    )}
-                    {availableAgents.map((a) => (
-                      <option value={a.id} key={a.id}>
-                        @{a.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="composer-collapse text-button"
-                  onPointerDown={(event) => {
-                    // Keep the keyboard layout until the click; an early blur
-                    // can move Minimize away from mouseup in mobile WebKit.
-                    if (event.pointerType === "mouse" && event.button === 0)
-                      event.preventDefault();
-                  }}
-                  onClick={collapseComposer}
-                  aria-label="Collapse composer"
-                >
-                  <ChevronDown size={18} /> Minimize
-                </button>
-              </div>
+                    {availableAgents.map((a) => {
+                      const active =
+                        selected !== "__route__" && activeAgent?.id === a.id;
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          className={
+                            "composer-agent-pill" + (active ? " selected" : "")
+                          }
+                          aria-label={`@${a.name}`}
+                          aria-pressed={active}
+                          disabled={busy || uploading}
+                          onClick={() => selectRecipient(a.id)}
+                        >
+                          <span aria-hidden="true">
+                            <Avatar name={a.name} />
+                          </span>
+                          <span>@{a.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
             {!threadMode &&
               activeAgent &&
