@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { compactMarkdown } from "../src/client/preview";
+import { checkDisplay } from "../src/server/display-check";
 import { displayFixtures } from "./display-spec-fixtures";
 
 const patch = (...lines: unknown[]) =>
@@ -300,9 +301,24 @@ it("draws or falls back at the source size limit as the reader does", () => {
   expect(atHtml).toContain('class="display-spec"');
   expect(atHtml).not.toContain("This display could not be drawn");
   expect(render("```spec\n" + at!.source)).toContain('class="display-spec"');
-  expect(render(fence(at!.source.replace("\n", "\r\n")))).toContain(
-    "This display could not be drawn",
-  );
+  const crlfSource = at!.source.replaceAll("\n", "\r\n");
+  const crlfFence = (source: string) =>
+    "  ~~~spec\r\n" +
+    source
+      .split("\r\n")
+      .map((line) => "  " + line)
+      .join("\r\n") +
+    "\r\n  ~~~";
+  const crlfAt = crlfFence(crlfSource.slice(0, at!.source.length));
+  const crlfOver = crlfFence(crlfSource);
+  for (const prefix of ["", "\uFEFF"]) {
+    expect(checkDisplay(prefix + crlfAt)).toContain("Display valid.");
+    expect(render(prefix + crlfAt)).toContain('class="display-spec"');
+    expect(checkDisplay(prefix + crlfOver)).toContain("Block exceeds");
+    expect(render(prefix + crlfOver)).toContain(
+      "This display could not be drawn",
+    );
+  }
   const overHtml = render(fence(over!.source));
   expect(overHtml).not.toContain('class="display-spec"');
   expect(overHtml).toContain("This display could not be drawn");

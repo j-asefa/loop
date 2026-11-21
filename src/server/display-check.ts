@@ -61,7 +61,8 @@ const failures: Record<DisplayFailure, string> = {
 };
 
 function displaySource(input: string) {
-  const lines = input.split(/\r\n?|\n/);
+  // Remark strips a leading BOM before identifying Markdown blocks.
+  const lines = input.replace(/^\uFEFF/, "").split(/\r\n?|\n/);
   const first = lines.findIndex((line) => /[^ \t]/.test(line));
   if (/^ {0,3}(\x60{3,}|~{3,})/.test(lines[first] ?? "")) {
     // Markdown preserves internal line endings and removes fence indentation.
