@@ -102,6 +102,9 @@ export async function mainComposerKeyboardSmoke(page, fixture, capture) {
       el.scrollTop = 0;
     });
     await expect(dock.getByLabel("Agent recipient")).toBeInViewport();
+    await expect(
+      dock.getByRole("group", { name: "Quick recipient", exact: true }),
+    ).toBeInViewport();
     await page.evaluate(() => {
       Object.defineProperty(window, "scrollY", window.__composerScroll);
       delete window.__composerScroll;

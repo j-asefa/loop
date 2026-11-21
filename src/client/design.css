@@ -918,7 +918,11 @@ label.catalog-search {
   font-weight: 650;
 }
 [data-keyboard="open"] .composer-agent-pills {
-  display: none;
+  padding: 4px 14px 0;
+}
+[data-keyboard="open"] .composer-agent-pill {
+  min-height: 32px;
+  padding-block: 3px;
 }
 
 @media (min-width: 1100px) {

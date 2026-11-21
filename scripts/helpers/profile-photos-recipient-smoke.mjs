@@ -29,17 +29,50 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
       .click();
   }
   await openTab(page, "Feed");
+  // Tapping the already-selected recipient pill must preserve reply context;
+  // tapping a different pill clears it like the recipient dropdown does.
+  await page.evaluate(
+    ({ owner, agentId }) => {
+      sessionStorage.setItem(
+        `loop-workspace-draft:${JSON.stringify([owner, "", "composer", ""])}`,
+        JSON.stringify({
+          selected: agentId,
+          replyContext: {
+            agentId,
+            conversationId: "",
+            messageId: "fixture-reply",
+            content: "Preserve this reply context",
+            mine: false,
+          },
+          folderChoice: "",
+        }),
+      );
+    },
+    { owner: fixture.owner, agentId: first.id },
+  );
+  await page.reload({ waitUntil: "networkidle" });
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  // Quick recipient pills mirror the recipient picker with one tap.
+  const replyChip = page.locator(".composer-reply-chip");
+  await expect(replyChip).toContainText("Preserve this reply context");
   const pills = page.getByRole("group", {
     name: "Quick recipient",
     exact: true,
   });
+  await expect(
+    pills.getByRole("button", { name: `@${first.name}`, exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await pills
+    .getByRole("button", { name: `@${first.name}`, exact: true })
+    .click();
+  await expect(replyChip).toContainText("Preserve this reply context");
+  // Quick recipient pills mirror the recipient picker with one tap and clear
+  // reply context only when switching to a different recipient.
   await pills
     .getByRole("button", { name: `@${second.name}`, exact: true })
     .click();
+  await expect(replyChip).toHaveCount(0);
   await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
   await expect(
     pills.getByRole("button", { name: `@${second.name}`, exact: true }),

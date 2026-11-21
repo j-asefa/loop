@@ -313,8 +313,14 @@ function FeedCard({
             ? item.run.error
             : "";
   const name = item.agent_name || agent?.name;
-  const canQuickDone =
+  const canQuickDismiss =
     !!onDismiss && !groupCount && dismissLabel !== "Dismiss from Needs you";
+  const quickDismissLabel = item.reply ? "Archive" : "Done";
+  const quickDismissIcon = item.reply ? (
+    <Archive size={16} aria-hidden="true" />
+  ) : (
+    <Check size={16} aria-hidden="true" />
+  );
   const awaitingUpdate =
     item.run &&
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -634,15 +640,15 @@ function FeedCard({
                   {next.label}
                 </button>
               )}
-              {canQuickDone && (
+              {canQuickDismiss && (
                 <button
                   type="button"
                   className="card-action-done"
                   title={dismissLabel ?? "Remove from Done"}
                   onClick={onDismiss}
                 >
-                  <Check size={16} aria-hidden="true" />
-                  Done
+                  {quickDismissIcon}
+                  {quickDismissLabel}
                 </button>
               )}
               {next?.kind !== "draft" && (
@@ -809,15 +815,15 @@ function FeedCard({
                 )}
               </div>
               <div className="result-edit-actions">
-                {canQuickDone && (
+                {canQuickDismiss && (
                   <button
                     type="button"
                     className="secondary card-action-done"
                     title={dismissLabel ?? "Remove from Done"}
                     onClick={() => leaveReading(onDismiss!)}
                   >
-                    <Check size={16} aria-hidden="true" />
-                    Done
+                    {quickDismissIcon}
+                    {quickDismissLabel}
                   </button>
                 )}
                 <button

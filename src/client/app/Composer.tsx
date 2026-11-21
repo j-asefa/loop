@@ -961,6 +961,17 @@ export function renderComposer({
     }
     focusComposer();
   };
+  const currentRecipient =
+    selected === "__route__" ? "__route__" : activeAgent?.id || "";
+  const selectRecipient = (nextId: string) => {
+    if (nextId === currentRecipient) return;
+    setSelected(nextId);
+    setReplyContext(null);
+    setContextArtifact(null);
+    setFolderChoice(undefined);
+    const agent = data.agents.find((a) => a.id === nextId);
+    if (agent) setFolder(agent.folder_id || "");
+  };
   const messageComposer =
     (conversation ? composerData.agents : availableAgents).length > 0 ? (
       <section
@@ -1032,21 +1043,8 @@ export function renderComposer({
                     <select
                       aria-label="Agent recipient"
                       disabled={busy || uploading}
-                      value={
-                        selected === "__route__"
-                          ? "__route__"
-                          : activeAgent?.id || ""
-                      }
-                      onChange={(e) => {
-                        setSelected(e.target.value);
-                        setReplyContext(null);
-                        setContextArtifact(null);
-                        setFolderChoice(undefined);
-                        const agent = data.agents.find(
-                          (a) => a.id === e.target.value,
-                        );
-                        if (agent) setFolder(agent.folder_id || "");
-                      }}
+                      value={currentRecipient}
+                      onChange={(e) => selectRecipient(e.target.value)}
                     >
                       {!availableAgents.length && (
                         <option value="">Choose your first agent</option>
@@ -1095,12 +1093,7 @@ export function renderComposer({
                         }
                         aria-pressed={selected === "__route__"}
                         disabled={busy || uploading}
-                        onClick={() => {
-                          setSelected("__route__");
-                          setReplyContext(null);
-                          setContextArtifact(null);
-                          setFolderChoice(undefined);
-                        }}
+                        onClick={() => selectRecipient("__route__")}
                       >
                         <Sparkles size={14} aria-hidden="true" />
                         <span>Auto</span>
@@ -1119,13 +1112,7 @@ export function renderComposer({
                           aria-label={`@${a.name}`}
                           aria-pressed={active}
                           disabled={busy || uploading}
-                          onClick={() => {
-                            setSelected(a.id);
-                            setReplyContext(null);
-                            setContextArtifact(null);
-                            setFolderChoice(undefined);
-                            setFolder(a.folder_id || "");
-                          }}
+                          onClick={() => selectRecipient(a.id)}
                         >
                           <span aria-hidden="true">
                             <Avatar name={a.name} />

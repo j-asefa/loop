@@ -106,6 +106,28 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await expect(doneCard).toHaveCount(1);
   await doneCard.getByRole("button", { name: title }).click();
   await expect(reading).toBeVisible();
+  // A dismissal failure after closing the reading sheet surfaces an alert
+  // and keeps the card in Done.
+  const failDismiss = (route) =>
+    route.request().method() === "PATCH"
+      ? route.fulfill({
+          status: 503,
+          json: { error: "Could not dismiss card" },
+        })
+      : route.continue();
+  await page.route("**/api/feed/*", failDismiss);
+  try {
+    await reading.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(reading).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText(
+      "Could not dismiss card",
+    );
+    await expect(doneCard).toHaveCount(1);
+  } finally {
+    await page.unroute("**/api/feed/*", failDismiss);
+  }
+  await doneCard.getByRole("button", { name: title }).click();
+  await expect(reading).toBeVisible();
   await reading.getByRole("button", { name: "Done", exact: true }).click();
   await expect(reading).toHaveCount(0);
   await expect(doneCard).toHaveCount(0);
