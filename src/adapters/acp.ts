@@ -703,8 +703,7 @@ export class Acp implements Adapter {
           }
           if (
             steer &&
-            !this.steerJoined &&
-            (this.earlierEnd || this.reactiveEnd) &&
+            (this.reactiveEnd || (!this.steerJoined && this.earlierEnd)) &&
             this.waitForReactiveTurn(this.workWhileSteerUnconfirmed)
           )
             return;
@@ -1350,6 +1349,14 @@ export class Acp implements Adapter {
       !this.cancelling
     ) {
       if (this.earlierEnd && this.echo) this.workWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
+      return;
+    }
+    if (
+      u.sessionUpdate === "usage_update" &&
+      this.reactiveEnd &&
+      !this.cancelling
+    ) {
       this.refreshReactiveWait();
       return;
     }

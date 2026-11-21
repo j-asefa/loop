@@ -321,6 +321,24 @@ test("Antigravity cancels a reactive turn with an outstanding steering request",
   assert.equal(adapter.reusable, false);
 });
 
+test("Antigravity preserves a reactive continuation when an echoed steer later rejects", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-reject-joined";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Start work");
+  await until(() => events.some((e) => e.type === "usage"));
+  await adapter.steer!("Keep going");
+  await until(() =>
+    events.some((e) => e.type === "delta" && e.text === "Done."),
+  );
+  assert.deepEqual(statuses(events), ["ready"]);
+});
+
 test("Antigravity interrupts when cancellation rejects an unjoined steer after end_turn", async (t) => {
   fixture(t);
   process.env.LOOP_TEST_AGY_MODE = "reactive-cancel-unjoined-steer";

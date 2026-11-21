@@ -521,12 +521,33 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       const text = req.params.prompt[0].text;
       if (
         turn === 1 &&
-        ["reactive-stalled-steer", "reactive-budget"].includes(mode)
+        [
+          "reactive-stalled-steer",
+          "reactive-budget",
+          "reactive-reject-joined",
+        ].includes(mode)
       ) {
         update(sessionId, {
           sessionUpdate: "user_message_chunk",
           content: { type: "text", text },
         });
+        if (mode === "reactive-reject-joined") {
+          send({
+            id: req.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+          setTimeout(() => {
+            update(sessionId, {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "background",
+              status: "completed",
+            });
+            update(sessionId, {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done." },
+            });
+          }, 30);
+        }
         if (mode === "reactive-budget")
           send({
             id: `perm-${++permission}`,
