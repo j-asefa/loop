@@ -99,7 +99,7 @@ try {
   held.shift()();
   await expect.poll(() => requests.length).toBe(before + 2);
   holdNext = true;
-  await page.evaluate(() => window.run("stalled"));
+  await page.evaluate(() => window.refresh());
   await expect.poll(() => held.length).toBe(1);
   const stalledReads = requests.length;
   const beforeRetryAbort = aborted;
@@ -114,7 +114,7 @@ try {
   ).toHaveCount(0);
   status = 503;
   holdNext = true;
-  await page.evaluate(() => window.run("manual-failure"));
+  await page.evaluate(() => window.refresh());
   await expect.poll(() => held.length).toBe(1);
   await page
     .getByRole("button", { name: "Retry connection", exact: true })
