@@ -763,7 +763,7 @@ export class Acp implements Adapter {
     )
       return;
     if (this.cancelling) {
-      if (this.reactiveEnd) this.interruptReactiveTurn();
+      this.interruptReactiveTurn();
       return;
     }
     if (this.permissions.size) return;

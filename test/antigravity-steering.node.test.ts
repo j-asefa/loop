@@ -341,6 +341,23 @@ test("Antigravity interrupts when cancellation rejects an unjoined steer after e
   assert.deepEqual(statuses(events), ["ready", "interrupted"]);
 });
 
+test("Antigravity interrupts an unanswered acknowledged steer on cancellation", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-stalled-joined-steer";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Start work");
+  await adapter.steer!("Keep going");
+  await until(() => events.some((e) => e.type === "usage"));
+  await adapter.cancel();
+  assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+  assert.equal(adapter.reusable, false);
+});
+
 test("Antigravity keeps an approval spanning the original end_turn in the reactive wait", async (t) => {
   fixture(t);
   process.env.LOOP_TEST_AGY_MODE = "reactive-approval-at-first-end";
