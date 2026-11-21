@@ -89,6 +89,31 @@ export async function workspaceProjectSmoke(page, fixture, _engine, capture) {
   await expect(reading).toContainText("Workspace notes are ready.");
   await reading.getByRole("button", { name: "Close", exact: true }).click();
   await expect(reading).toHaveCount(0);
+  // One-tap Done clears a sealed result from Done (both on the card and from
+  // the reading sheet) and restores it cleanly via Undo.
+  const doneCard = page
+    .locator(".feed-results .feed-item-card")
+    .filter({ hasText: title });
+  const dismissedToast = page
+    .getByRole("status")
+    .filter({ hasText: "Removed from Done" });
+  await doneCard.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(doneCard).toHaveCount(0);
+  await expect(dismissedToast).toBeVisible();
+  await dismissedToast
+    .getByRole("button", { name: "Undo", exact: true })
+    .click();
+  await expect(doneCard).toHaveCount(1);
+  await doneCard.getByRole("button", { name: title }).click();
+  await expect(reading).toBeVisible();
+  await reading.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(reading).toHaveCount(0);
+  await expect(doneCard).toHaveCount(0);
+  await expect(dismissedToast).toBeVisible();
+  await dismissedToast
+    .getByRole("button", { name: "Undo", exact: true })
+    .click();
+  await expect(doneCard).toHaveCount(1);
   await page.evaluate((project) => {
     sessionStorage.setItem("loop-project-tab", "brief");
     sessionStorage.setItem("loop-project-tab:" + project, "brief");

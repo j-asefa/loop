@@ -32,7 +32,18 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  await page.getByLabel("Agent recipient").selectOption(second.id);
+  // Quick recipient pills mirror the recipient picker with one tap.
+  const pills = page.getByRole("group", {
+    name: "Quick recipient",
+    exact: true,
+  });
+  await pills
+    .getByRole("button", { name: `@${second.name}`, exact: true })
+    .click();
+  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+  await expect(
+    pills.getByRole("button", { name: `@${second.name}`, exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page
     .getByLabel("Message your agent", { exact: true })
     .fill("Remember this recipient");

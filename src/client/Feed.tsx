@@ -96,6 +96,7 @@ import {
   Bookmark,
   BookmarkCheck,
   ArrowUpRight,
+  Check,
   MoreHorizontal,
   ArrowUp,
   FileText,
@@ -312,6 +313,8 @@ function FeedCard({
             ? item.run.error
             : "";
   const name = item.agent_name || agent?.name;
+  const canQuickDone =
+    !!onDismiss && !groupCount && dismissLabel !== "Dismiss from Needs you";
   const awaitingUpdate =
     item.run &&
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
@@ -631,6 +634,17 @@ function FeedCard({
                   {next.label}
                 </button>
               )}
+              {canQuickDone && (
+                <button
+                  type="button"
+                  className="card-action-done"
+                  title={dismissLabel ?? "Remove from Done"}
+                  onClick={onDismiss}
+                >
+                  <Check size={16} aria-hidden="true" />
+                  Done
+                </button>
+              )}
               {next?.kind !== "draft" && (
                 <button onClick={onReply}>
                   <MessageSquare size={16} />
@@ -795,6 +809,17 @@ function FeedCard({
                 )}
               </div>
               <div className="result-edit-actions">
+                {canQuickDone && (
+                  <button
+                    type="button"
+                    className="secondary card-action-done"
+                    title={dismissLabel ?? "Remove from Done"}
+                    onClick={() => leaveReading(onDismiss!)}
+                  >
+                    <Check size={16} aria-hidden="true" />
+                    Done
+                  </button>
+                )}
                 <button
                   className="primary"
                   onClick={() => leaveReading(onReply)}
