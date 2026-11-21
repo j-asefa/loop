@@ -154,13 +154,38 @@ function reactiveTurn(sessionId, mode) {
 
   tool("daemon", { IsDaemon: true }, "run_command");
   if (mode !== "daemon-only")
-    tool("background", {
-      CommandLine: "sleep 5",
-      IsDaemon: false,
-      WaitMsBeforeAsync: 500,
-    });
+    tool(
+      "background",
+      {
+        CommandLine: "sleep 5",
+        IsDaemon: false,
+        WaitMsBeforeAsync: 500,
+      },
+      "run_command",
+    );
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
+  if (mode === "reactive-before-end" || mode === "reactive-sync-answer") {
+    complete("background");
+    if (mode === "reactive-sync-answer") {
+      message("Done.");
+      finish(sessionId);
+    } else {
+      finish(sessionId);
+      setTimeout(() => {
+        message("Done.");
+        reportUsage();
+      }, 30);
+    }
+    return;
+  }
+  if (mode === "reactive-steer-limit") {
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      reply(request.id, { stopReason: "max_tokens" });
+    };
+    return;
+  }
   if (mode === "reactive-steering" || mode === "reactive-steer-ack") {
     endReactiveSteer = (request) => {
       finish(sessionId);

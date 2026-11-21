@@ -104,6 +104,40 @@ test("Antigravity keeps accepting reactive output after overlapping prompts end"
   assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
 });
 
+for (const mode of ["reactive-before-end", "reactive-sync-answer"])
+  test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
+    fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+      events.push(e),
+    );
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    await adapter.prompt("Run background work");
+    await until(() => complete(events).length === 1, 3000);
+    assert.deepEqual(
+      events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+      ["Waiting.", "Done."],
+    );
+  });
+
+test("Antigravity retires the live session when a steering limit interrupts reactive work", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-steer-limit";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run background work");
+  await assert.rejects(adapter.steer!("Keep going"), /max_tokens/);
+  assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+  assert.equal(adapter.reusable, false);
+  await assert.rejects(adapter.prompt("Next turn"), /unavailable/);
+});
+
 test("Antigravity keeps accepting reactive output after echoing and acknowledging a steer", async (t) => {
   fixture(t);
   process.env.LOOP_TEST_AGY_MODE = "reactive-steer-ack";

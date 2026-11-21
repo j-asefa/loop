@@ -146,12 +146,14 @@ export class Acp implements Adapter {
   /** agy can return end_turn before its background work wakes the model. */
   protected waitsForReactiveTurns = false;
   private reactiveTools = new Set<string>();
+  private backgroundTools = new Set<string>();
+  private pendingWakeup = false;
   private reactiveEnd = false;
   private reactiveIdle?: NodeJS.Timeout;
   private reactiveWatchdog?: NodeJS.Timeout;
-  private reactiveTimedOut = false;
+  private retireReactiveSession = false;
   get reusable() {
-    return !this.reactiveTimedOut && !(this.reactiveEnd && this.cancelling);
+    return !this.retireReactiveSession;
   }
   /** Prompt requests open in the current turn. A steering agent answers an
    * earlier request when it folds a later one into the same turn; the turn
@@ -610,6 +612,8 @@ export class Acp implements Adapter {
     this.turnUsage = undefined;
     this.earlierEnd = false;
     this.reactiveTools.clear();
+    this.backgroundTools.clear();
+    this.pendingWakeup = false;
     this.reactiveEnd = false;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
@@ -647,6 +651,7 @@ export class Acp implements Adapter {
               !this.cancelling &&
               this.waitsForReactiveTurns &&
               (this.reactiveEnd ||
+                this.pendingWakeup ||
                 this.reactiveTools.size ||
                 this.permissions.size)
             ) {
@@ -660,19 +665,20 @@ export class Acp implements Adapter {
           const limited = ["max_tokens", "max_turn_requests"].includes(
             result.stopReason,
           );
+          const interrupted =
+            this.cancelling || limited || result.stopReason === "cancelled";
+          if (
+            interrupted &&
+            (this.reactiveEnd || this.pendingWakeup || this.reactiveTools.size)
+          )
+            this.retireReactiveSession = true;
           this.emit({
             type: "status",
-            status:
-              this.cancelling ||
-              ["cancelled", "max_tokens", "max_turn_requests"].includes(
-                result.stopReason,
-              )
-                ? "interrupted"
-                : "completed",
+            status: interrupted ? "interrupted" : "completed",
             detail: limited
               ? "ACP turn stopped at the agent's limit."
               : undefined,
-            recoverable: true,
+            recoverable: !this.retireReactiveSession,
           });
         },
         (error: unknown) => {
@@ -751,7 +757,6 @@ export class Acp implements Adapter {
     this.reportReactiveEnd("completed");
   }
   private timeoutReactiveTurn(detail: string) {
-    this.reactiveTimedOut = true;
     this.reportReactiveEnd("interrupted", detail);
   }
   private reportReactiveEnd(
@@ -761,6 +766,7 @@ export class Acp implements Adapter {
     clearTimeout(this.reactiveIdle);
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
+    if (status === "interrupted") this.retireReactiveSession = true;
     this.terminalReported = true;
     this.active = false;
     this.emit({
@@ -1283,6 +1289,8 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
+        if (u.content.text.trim() && !this.reactiveTools.size)
+          this.pendingWakeup = false;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1324,8 +1332,24 @@ export class Acp implements Adapter {
           input.IsDaemon === true;
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
+          // A background-capable call can settle just before the response
+          // that yielded to it. Keep watching until the model answers again.
+          if (this.backgroundTools.delete(u.toolCallId) && !daemon)
+            this.pendingWakeup = true;
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
+          if (
+            (title === "run_command" &&
+              input &&
+              typeof input === "object" &&
+              "WaitMsBeforeAsync" in input &&
+              typeof input.WaitMsBeforeAsync === "number" &&
+              input.WaitMsBeforeAsync >= 0) ||
+            title === "invoke_subagent" ||
+            title === "schedule" ||
+            title === "run_workflow"
+          )
+            this.backgroundTools.add(u.toolCallId);
           reactiveWorkChanged = true;
         }
       }
