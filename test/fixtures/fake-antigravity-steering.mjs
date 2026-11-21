@@ -195,21 +195,44 @@ function reactiveTurn(sessionId, mode) {
       "reactive-daemon-unechoed-steer-output",
       "reactive-late-tool-steer-daemon",
       "reactive-daemon-failed",
+      "reactive-daemon-failed-after-identification",
+      "reactive-daemon-output-before-tool",
+      "reactive-multiple-steer-daemons",
     ].includes(mode)
   ) {
-    if (mode !== "reactive-late-tool-steer-daemon")
+    if (
+      ![
+        "reactive-late-tool-steer-daemon",
+        "reactive-daemon-output-before-tool",
+      ].includes(mode)
+    )
       tool("daemon", undefined, "sleep 90");
     message("Daemon started.");
     const identifyDaemon = () => {
       finish(sessionId);
-      if (mode === "reactive-late-tool-steer-daemon")
+      if (mode === "reactive-daemon-output-before-tool") message("Waiting.");
+      if (
+        [
+          "reactive-late-tool-steer-daemon",
+          "reactive-daemon-output-before-tool",
+        ].includes(mode)
+      )
         tool("daemon", undefined, "sleep 90");
+      if (mode === "reactive-multiple-steer-daemons")
+        tool("second-daemon", undefined, "sleep 91");
       update(sessionId, {
         sessionUpdate: "tool_call_update",
         toolCallId: "daemon",
         status: mode === "reactive-daemon-failed" ? "failed" : "in_progress",
         rawInput: { CommandLine: "sleep 90", IsDaemon: true },
       });
+      if (mode === "reactive-multiple-steer-daemons")
+        update(sessionId, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "second-daemon",
+          status: "in_progress",
+          rawInput: { CommandLine: "sleep 91", IsDaemon: true },
+        });
     };
     if (mode === "reactive-daemon-failed") {
       identifyDaemon();
@@ -217,11 +240,22 @@ function reactiveTurn(sessionId, mode) {
     } else if (mode !== "reactive-late-daemon")
       endReactiveSteer = (request) => {
         identifyDaemon();
+        if (mode === "reactive-daemon-failed-after-identification") {
+          complete("daemon", "failed");
+          setTimeout(() => message("Done."), 30);
+        }
+        if (mode === "reactive-daemon-output-before-tool")
+          setTimeout(() => message("Done."), 30);
         if (mode === "reactive-daemon-unechoed-steer-output") {
           message("Waiting.");
           setTimeout(() => message("Done."), 30);
         }
-        if (mode === "reactive-late-tool-steer-daemon")
+        if (
+          [
+            "reactive-late-tool-steer-daemon",
+            "reactive-multiple-steer-daemons",
+          ].includes(mode)
+        )
           reply(request.id, { stopReason: "end_turn" });
         else if (mode !== "reactive-steer-daemon")
           send({

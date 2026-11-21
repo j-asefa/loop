@@ -77,6 +77,7 @@ for (const mode of [
   "reactive-late-daemon",
   "reactive-rejected-steer-daemon",
   "reactive-late-tool-steer-daemon",
+  "reactive-multiple-steer-daemons",
 ])
   test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
     fixture(t);
@@ -88,7 +89,10 @@ for (const mode of [
     t.after(() => adapter.dispose());
     await adapter.start();
     await adapter.prompt("Start a daemon");
-    if (mode === "reactive-late-tool-steer-daemon")
+    if (
+      mode === "reactive-late-tool-steer-daemon" ||
+      mode === "reactive-multiple-steer-daemons"
+    )
       await adapter.steer!("Keep going");
     if (mode === "reactive-rejected-steer-daemon")
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
@@ -119,6 +123,8 @@ for (const mode of [
   "reactive-echoed-steer-settled-tool",
   "reactive-daemon-unechoed-steer-output",
   "reactive-steer-daemon",
+  "reactive-daemon-failed-after-identification",
+  "reactive-daemon-output-before-tool",
 ])
   test(`Antigravity keeps accepting output after overlapping prompts in ${mode}`, async (t) => {
     const requests = fixture(t);
@@ -131,7 +137,12 @@ for (const mode of [
     await adapter.start();
     await adapter.prompt("Run background work");
     await until(() => events.some((e) => e.type === "delta"));
-    if (mode.includes("rejected") || mode.includes("unechoed"))
+    if (
+      mode.includes("rejected") ||
+      mode.includes("unechoed") ||
+      mode === "reactive-daemon-failed-after-identification" ||
+      mode === "reactive-daemon-output-before-tool"
+    )
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     else await adapter.steer!("Keep going");
     await until(() =>
@@ -140,9 +151,11 @@ for (const mode of [
     assert.deepEqual(statuses(events), ["ready"]);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
-      mode === "reactive-daemon-unechoed-steer-output"
+      mode === "reactive-daemon-unechoed-steer-output" ||
+        mode === "reactive-daemon-output-before-tool"
         ? ["Daemon started.", "Waiting.", "Done."]
-        : mode === "reactive-steer-daemon"
+        : mode === "reactive-steer-daemon" ||
+            mode === "reactive-daemon-failed-after-identification"
           ? ["Daemon started.", "Done."]
           : ["Waiting.", "Done."],
     );
@@ -355,7 +368,7 @@ for (const mode of ["reactive-reordered", "reactive-final-usage"])
     `Antigravity preserves partial output and interrupts in ${mode}`,
     { timeout: 5000 },
     async (t) => {
-      fixture(t);
+      const requests = fixture(t);
       process.env.LOOP_TEST_AGY_MODE = mode;
       const events: AdapterEvent[] = [];
       let settle!: () => void;
@@ -390,6 +403,7 @@ for (const mode of ["reactive-reordered", "reactive-final-usage"])
       } finally {
         t.mock.timers.reset();
       }
+      await until(() => requests().some((r) => r.acp === "session/cancel"));
     },
   );
 

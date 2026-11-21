@@ -147,7 +147,8 @@ export class Acp implements Adapter {
   protected waitsForReactiveTurns = false;
   private reactiveTools = new Set<string>();
   private reactiveEnd = false;
-  private canResolveAsDaemonOnly = false;
+  private reclassifiedDaemons = new Set<string>();
+  private reactiveContinuationObserved = false;
   private reactiveIdle?: NodeJS.Timeout;
   private reactiveWatchdog?: NodeJS.Timeout;
   private reactiveWatchdogStarted = 0;
@@ -614,7 +615,8 @@ export class Acp implements Adapter {
     this.earlierEnd = false;
     this.reactiveTools.clear();
     this.reactiveEnd = false;
-    this.canResolveAsDaemonOnly = false;
+    this.reclassifiedDaemons.clear();
+    this.reactiveContinuationObserved = false;
     this.reactiveBudget = REACTIVE_WATCHDOG_MS;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
@@ -725,7 +727,7 @@ export class Acp implements Adapter {
       !(this.reactiveEnd || this.reactiveTools.size || this.permissions.size)
     )
       return false;
-    if (!this.reactiveEnd) this.canResolveAsDaemonOnly = !this.permissions.size;
+    if (this.permissions.size) this.reactiveContinuationObserved = true;
     this.reactiveEnd = true;
     this.finishReactiveTurn();
     return true;
@@ -739,7 +741,8 @@ export class Acp implements Adapter {
     }
     if (this.permissions.size) return;
     if (
-      this.canResolveAsDaemonOnly &&
+      this.reclassifiedDaemons.size &&
+      !this.reactiveContinuationObserved &&
       !this.openPrompts &&
       !this.reactiveTools.size
     ) {
@@ -777,6 +780,12 @@ export class Acp implements Adapter {
     ).unref();
   }
   private interruptReactiveTurn(detail?: string) {
+    if (!this.cancelling && this.session && this.connection) {
+      this.cancelling = true;
+      // The supervisor also retires the process when it sees this adapter
+      // is no longer reusable. A blocked cancel write cannot delay that.
+      void this.connection.cancel({ sessionId: this.session }).catch(() => {});
+    }
     clearTimeout(this.reactiveIdle);
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
@@ -1231,7 +1240,8 @@ export class Acp implements Adapter {
     if (!choices.length)
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
-    this.canResolveAsDaemonOnly = false;
+    if (this.earlierEnd || this.reactiveEnd)
+      this.reactiveContinuationObserved = true;
     clearTimeout(this.reactiveIdle);
     if (this.reactiveWatchdog)
       this.reactiveBudget = Math.max(
@@ -1311,7 +1321,8 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
-        this.canResolveAsDaemonOnly = false;
+        if (this.earlierEnd || this.reactiveEnd)
+          this.reactiveContinuationObserved = true;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1323,10 +1334,10 @@ export class Acp implements Adapter {
     }
     if (
       u.sessionUpdate === "agent_thought_chunk" &&
-      this.reactiveEnd &&
+      (this.earlierEnd || this.reactiveEnd) &&
       !this.cancelling
     ) {
-      this.canResolveAsDaemonOnly = false;
+      this.reactiveContinuationObserved = true;
       this.finishReactiveTurn();
       return;
     }
@@ -1351,10 +1362,18 @@ export class Acp implements Adapter {
           input.IsDaemon === true;
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
-          if (reactiveWorkChanged && (!daemon || u.status === "failed"))
-            this.canResolveAsDaemonOnly = false;
+          const knownDaemon = this.reclassifiedDaemons.has(u.toolCallId);
+          if (reactiveWorkChanged && daemon && u.status !== "failed")
+            this.reclassifiedDaemons.add(u.toolCallId);
+          if (
+            (this.earlierEnd || this.reactiveEnd) &&
+            ((reactiveWorkChanged && !daemon) ||
+              (u.status === "failed" && (reactiveWorkChanged || knownDaemon)))
+          ) {
+            this.reactiveContinuationObserved = true;
+            reactiveWorkChanged = true;
+          }
         } else if (u.sessionUpdate === "tool_call") {
-          this.canResolveAsDaemonOnly = false;
           this.reactiveTools.add(u.toolCallId);
           if (this.earlierEnd && !this.reactiveEnd) this.waitForReactiveTurn();
           reactiveWorkChanged = true;
