@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { ClientSideConnection } from "@agentclientprotocol/sdk";
 import { Antigravity } from "../src/adapters/antigravity.js";
 import type { AdapterEvent } from "../src/adapters/events.js";
 import { NotDelivered, type Options } from "../src/adapters/types.js";
@@ -211,6 +212,36 @@ test("Antigravity cancels a reactive turn with an outstanding steering request",
   await until(() => requests().some((r) => r.acp === "session/cancel"));
   assert.deepEqual(statuses(events), ["ready", "interrupted"]);
   assert.equal(adapter.reusable, false);
+});
+
+test("Antigravity reports interruption before a blocked cancel notification settles", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-stalled";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run background work");
+  await until(() => events.some((e) => e.type === "usage"));
+  let deliver!: () => void;
+  t.mock.method(
+    ClientSideConnection.prototype,
+    "cancel",
+    () =>
+      new Promise<void>((resolve) => {
+        deliver = resolve;
+      }),
+  );
+  const cancelled = adapter.cancel();
+  try {
+    assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+    assert.equal(adapter.reusable, false);
+  } finally {
+    deliver();
+    await cancelled;
+  }
 });
 
 test(

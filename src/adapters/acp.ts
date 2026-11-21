@@ -898,12 +898,12 @@ export class Acp implements Adapter {
     this.reactiveWatchdog = undefined;
     this.finishCommandDiscovery(false);
     this.cancelPermissions();
-    try {
-      if (!this.closed && this.session && this.connection && this.active)
-        await this.connection.cancel({ sessionId: this.session });
-    } finally {
-      this.finishReactiveTurn();
-    }
+    const notification =
+      !this.closed && this.session && this.connection && this.active
+        ? this.connection.cancel({ sessionId: this.session })
+        : undefined;
+    this.finishReactiveTurn();
+    await notification;
   }
   async answer(
     id: string,
@@ -1301,8 +1301,7 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
-        if (u.content.text.trim() && !this.reactiveTools.size)
-          this.pendingWakeup = false;
+        if (u.content.text.trim()) this.pendingWakeup = false;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1343,6 +1342,21 @@ export class Acp implements Adapter {
           typeof input === "object" &&
           "IsDaemon" in input &&
           input.IsDaemon === true;
+        if (
+          !daemon &&
+          (u.sessionUpdate === "tool_call" ||
+            this.reactiveTools.has(u.toolCallId)) &&
+          ((title === "run_command" &&
+            input &&
+            typeof input === "object" &&
+            "WaitMsBeforeAsync" in input &&
+            typeof input.WaitMsBeforeAsync === "number" &&
+            input.WaitMsBeforeAsync >= 0) ||
+            title === "invoke_subagent" ||
+            title === "schedule" ||
+            title === "run_workflow")
+        )
+          this.backgroundTools.add(u.toolCallId);
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
           // A background-capable call can settle just before the response
@@ -1351,18 +1365,6 @@ export class Acp implements Adapter {
             this.pendingWakeup = true;
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
-          if (
-            (title === "run_command" &&
-              input &&
-              typeof input === "object" &&
-              "WaitMsBeforeAsync" in input &&
-              typeof input.WaitMsBeforeAsync === "number" &&
-              input.WaitMsBeforeAsync >= 0) ||
-            title === "invoke_subagent" ||
-            title === "schedule" ||
-            title === "run_workflow"
-          )
-            this.backgroundTools.add(u.toolCallId);
           reactiveWorkChanged = true;
         }
       }

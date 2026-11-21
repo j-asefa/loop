@@ -138,11 +138,12 @@ function reactiveTurn(sessionId, mode) {
       status: "in_progress",
       rawInput,
     });
-  const complete = (toolCallId, status = "completed") =>
+  const complete = (toolCallId, status = "completed", rawInput) =>
     update(sessionId, {
       sessionUpdate: "tool_call_update",
       toolCallId,
       status,
+      rawInput,
     });
   const message = (text) =>
     update(sessionId, {
@@ -156,17 +157,19 @@ function reactiveTurn(sessionId, mode) {
   if (mode !== "daemon-only")
     tool(
       "background",
-      {
-        CommandLine: "sleep 5",
-        IsDaemon: false,
-        WaitMsBeforeAsync: 500,
-      },
+      mode === "reactive-before-end"
+        ? undefined
+        : {
+            CommandLine: "sleep 5",
+            IsDaemon: false,
+            WaitMsBeforeAsync: 500,
+          },
       "run_command",
     );
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
   if (mode === "reactive-before-end" || mode === "reactive-sync-answer") {
-    complete("background");
+    complete("background", "completed", { WaitMsBeforeAsync: 500 });
     if (mode === "reactive-sync-answer") {
       message("Done.");
       finish(sessionId);
@@ -221,7 +224,7 @@ function reactiveTurn(sessionId, mode) {
   reportUsage(); // Even a usage update following end_turn leaves open work.
   setTimeout(() => {
     complete("background");
-    tool("subagent", {});
+    tool("subagent", {}, "invoke_subagent");
     message("Waiting again.");
     reportUsage();
     setTimeout(() => {
@@ -230,8 +233,8 @@ function reactiveTurn(sessionId, mode) {
       const id = `perm-${++permission}`;
       permissions.set(id, (result) => {
         if (result.outcome.outcome !== "selected") return;
-        complete("follow-up");
         message("Done.");
+        complete("follow-up");
         reportUsage();
       });
       send({
