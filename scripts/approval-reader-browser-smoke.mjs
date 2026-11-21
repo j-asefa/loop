@@ -79,6 +79,9 @@ try {
   await page.goto("http://127.0.0.1:" + server.address().port);
   await expect.poll(() => requests.length).toBe(1);
   await page.waitForTimeout(100);
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(new Date(now.getTime() + 1000));
   const before = requests.length;
   holdNext = true;
   await page.evaluate(() => window.refresh());
@@ -95,7 +98,12 @@ try {
     "Notifications must not cancel and restart a slow approval read",
   );
   assert.equal(aborted, 0);
-  await expect(page.getByText("Loading approval updates…")).toHaveCount(0);
+  const loading = page.getByText("Loading approval updates…");
+  await page.clock.runFor(1999);
+  await expect(loading).toHaveCount(0);
+  await page.clock.runFor(1);
+  await expect(loading).toBeVisible();
+  await page.clock.resume();
   held.shift()();
   await expect.poll(() => requests.length).toBe(before + 2);
   holdNext = true;
