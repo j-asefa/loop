@@ -128,6 +128,72 @@ const finish = (sessionId, stopReason = "end_turn") => {
 let permission = 0;
 const permissions = new Map();
 
+function reactiveTurn(sessionId, mode) {
+  const tool = (toolCallId, rawInput) =>
+    update(sessionId, {
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title: toolCallId,
+      status: "in_progress",
+      rawInput,
+    });
+  const complete = (toolCallId, status = "completed") =>
+    update(sessionId, {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status,
+    });
+  const message = (text) =>
+    update(sessionId, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text },
+    });
+  const reportUsage = () =>
+    update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
+
+  tool("daemon", { IsDaemon: true });
+  if (mode !== "daemon-only")
+    tool("background", {
+      CommandLine: "sleep 5",
+      IsDaemon: false,
+      WaitMsBeforeAsync: 500,
+    });
+  message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
+  reportUsage();
+  finish(sessionId);
+  if (mode !== "reactive") return;
+
+  reportUsage(); // Even a usage update following end_turn leaves open work.
+  setTimeout(() => {
+    complete("background");
+    tool("subagent", {});
+    message("Waiting again.");
+    reportUsage();
+    setTimeout(() => {
+      complete("subagent", "failed");
+      tool("follow-up", {});
+      const id = `perm-${++permission}`;
+      permissions.set(id, (result) => {
+        if (result.outcome.outcome !== "selected") return;
+        complete("follow-up");
+        message("Done.");
+        reportUsage();
+      });
+      send({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId,
+          toolCall: { toolCallId: "follow-up", title: "Reactive approval" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          ],
+        },
+      });
+    }, 30);
+  }, 30);
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const req = JSON.parse(line);
   if (req.jsonrpc !== "2.0") process.exit(92);
@@ -280,6 +346,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           300,
         );
       } else echo();
+      if (["reactive", "reactive-stalled", "daemon-only"].includes(outcome()))
+        return reactiveTurn(sessionId, outcome());
       if (outcome() === "hang") return;
       if (text.includes("[slow]")) {
         update(sessionId, {

@@ -404,6 +404,46 @@ it("steers a running turn through agy acp without a restart or replaying the tas
   ]);
 });
 
+it("publishes the result only after Antigravity's reactive work and approval finish", async () => {
+  process.env.LOOP_TEST_AGY_MODE = "reactive";
+  const { run } = task("agy-reactive");
+  const before = prompts().length;
+  const execution = sessions.execute(
+    claim("antigravity-fixture", (candidate) => candidate.id === run.id)!,
+  );
+  const checkpoint = () =>
+    db
+      .prepare("SELECT stage,output FROM agent_checkpoints WHERE run_id=?")
+      .get(run.id);
+  const decision = () =>
+    db
+      .prepare(
+        "SELECT id FROM native_decisions WHERE run_id=? AND state='pending'",
+      )
+      .get(run.id) as { id: string } | undefined;
+  try {
+    await until(() => !!decision());
+    expect(checkpoint()).toMatchObject({ output: "" });
+    expect(checkpoint()).not.toMatchObject({ stage: "done" });
+    expect(ownedRun(run.id, OWNER).state).toBe("awaiting_approval");
+    await sessions.decisions.answer(decision()!.id, "reactive-approval", {
+      choice: "allow",
+    });
+    expect(await execution).toMatchObject({ kind: "finished" });
+    expect(checkpoint()).toMatchObject({
+      stage: "done",
+      output: expect.stringContaining("Done."),
+    });
+    expect(prompts().slice(before)).toEqual([
+      "Saved fixture instructions\n\nExplicit task",
+    ]);
+  } finally {
+    delete process.env.LOOP_TEST_AGY_MODE;
+    await sessions.interrupt(run.id);
+    await execution;
+  }
+});
+
 it("replaces an idle ACP session after refreshing workspace-tool support while retaining native context", async () => {
   const { run } = task("agy-acp-upgrade");
   const before = await sessions.session(run);

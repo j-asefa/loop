@@ -29,6 +29,7 @@ class AntigravityAcp extends Acp {
   protected override requireWorkspaceTools = false;
   protected override resumeWithoutReplay = true;
   protected override reportsUsage = true;
+  protected override waitsForReactiveTurns = true;
   override capabilities = {
     approvals: true,
     questions: false,

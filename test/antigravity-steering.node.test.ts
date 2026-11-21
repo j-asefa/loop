@@ -41,6 +41,72 @@ const statuses = (events: AdapterEvent[]) =>
 const complete = (events: AdapterEvent[]) =>
   events.filter((e) => e.type === "status" && e.status === "completed");
 
+test("Antigravity waits through successive reactive passes and approvals", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run background work");
+  await until(() => events.some((e) => e.type === "request"));
+  const approval = events.find((e) => e.type === "request")!;
+  assert.deepEqual(statuses(events), ["ready"]);
+  assert.deepEqual(
+    events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+    ["Waiting.", "Waiting again."],
+  );
+  await adapter.answer(approval.request.id, { choice: "allow" });
+  await until(() => complete(events).length === 1);
+  assert.deepEqual(statuses(events), ["ready", "completed"]);
+  assert.deepEqual(
+    events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
+    ["Waiting.", "Waiting again.", "Done."],
+  );
+  assert.deepEqual(prompts(requests), ["Run background work"]);
+  await adapter.prompt("Next turn");
+  await until(() => complete(events).length === 2);
+});
+
+test("Antigravity completes normally with only a daemon still running", async (t) => {
+  fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "daemon-only";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Start a daemon");
+  await until(() => complete(events).length === 1);
+  assert.deepEqual(statuses(events), ["ready", "completed"]);
+});
+
+for (const stop of ["cancel", "dispose"] as const)
+  test(`Antigravity ${stop} can stop a turn waiting for a reactive wakeup`, async (t) => {
+    const requests = fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = "reactive-stalled";
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+      events.push(e),
+    );
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    await adapter.prompt("Wait for background work");
+    await until(() => events.some((e) => e.type === "usage"));
+    assert.deepEqual(statuses(events), ["ready"]);
+    await adapter[stop]();
+    if (stop === "cancel") {
+      await until(() => requests().some((r) => r.acp === "session/cancel"));
+      assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+      assert.equal(adapter.reusable, false);
+    } else {
+      assert.deepEqual(statuses(events), ["ready"]);
+    }
+  });
+
 for (const version of ["1.5.2", "1.5.9"])
   test(`Antigravity ${version} waits for delayed discovery before framing a slash-leading steer`, async (t) => {
     const requests = fixture(t);

@@ -141,6 +141,14 @@ export class Acp implements Adapter {
   protected resumeWithoutReplay = false;
   /** Report each turn's cumulative token usage from prompt responses. */
   protected reportsUsage = false;
+  /** agy can return end_turn before its background work wakes the model. */
+  protected waitsForReactiveTurns = false;
+  private reactiveTools = new Set<string>();
+  private reactiveEnd = false;
+  private reactiveUsage = false;
+  get reusable() {
+    return !(this.reactiveEnd && this.cancelling);
+  }
   /** Prompt requests open in the current turn. A steering agent answers an
    * earlier request when it folds a later one into the same turn; the turn
    * ends only when the last open request settles. */
@@ -592,6 +600,9 @@ export class Acp implements Adapter {
     this.messageId = randomUUID();
     this.turnUsage = undefined;
     this.earlierEnd = false;
+    this.reactiveTools.clear();
+    this.reactiveEnd = false;
+    this.reactiveUsage = false;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
     this.promptEchoed = expected
@@ -618,8 +629,20 @@ export class Acp implements Adapter {
         (result) => {
           const last = --this.openPrompts === 0;
           this.addUsage(result);
-          if (!last && result.stopReason === "end_turn") this.earlierEnd = true;
-          if (!last || this.closed || this.terminalReported) return;
+          if (this.closed || this.terminalReported) return;
+          if (result.stopReason === "end_turn") {
+            if (!last) this.earlierEnd = true;
+            if (
+              !this.cancelling &&
+              this.waitsForReactiveTurns &&
+              (this.reactiveTools.size || this.permissions.size)
+            ) {
+              this.reactiveEnd = true;
+              this.reactiveUsage = false;
+              return;
+            }
+          }
+          if (!last) return;
           this.terminalReported = true;
           const limited = ["max_tokens", "max_turn_requests"].includes(
             result.stopReason,
@@ -642,9 +665,16 @@ export class Acp implements Adapter {
         (error: unknown) => {
           const last = --this.openPrompts === 0;
           if (!last || this.closed || this.terminalReported) return;
-          this.terminalReported = true;
           // A rejected steering input that never joined the turn does not
           // undo the turn's own normal end.
+          if (
+            this.reactiveEnd &&
+            (this.cancelling || (steer && !this.steerJoined))
+          ) {
+            this.finishReactiveTurn();
+            return;
+          }
+          this.terminalReported = true;
           if (steer && !this.steerJoined && this.earlierEnd) {
             this.emit({
               type: "status",
@@ -665,11 +695,31 @@ export class Acp implements Adapter {
         },
       )
       .finally(() => {
-        if (this.openPrompts) return;
+        if (this.openPrompts || !this.terminalReported) return;
         this.active = false;
         this.cancelPermissions();
       });
     return request;
+  }
+  private finishReactiveTurn() {
+    if (
+      this.closed ||
+      this.terminalReported ||
+      !this.reactiveEnd ||
+      this.openPrompts ||
+      (!this.cancelling &&
+        (!this.reactiveUsage ||
+          this.reactiveTools.size ||
+          this.permissions.size))
+    )
+      return;
+    this.terminalReported = true;
+    this.active = false;
+    this.emit({
+      type: "status",
+      status: this.cancelling ? "interrupted" : "completed",
+      recoverable: !this.cancelling,
+    });
   }
   private addUsage(result: unknown) {
     if (!this.reportsUsage) return;
@@ -786,6 +836,7 @@ export class Acp implements Adapter {
     this.cancelPermissions();
     if (!this.closed && this.session && this.connection && this.active)
       await this.connection.cancel({ sessionId: this.session });
+    this.finishReactiveTurn();
   }
   async answer(
     id: string,
@@ -1102,6 +1153,7 @@ export class Acp implements Adapter {
     if (!choices.length)
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
+    this.reactiveUsage = false;
     return new Promise((resolve) => {
       this.permissions.set(id, {
         choices: new Set(choices.map((choice) => choice.optionId)),
@@ -1170,6 +1222,7 @@ export class Acp implements Adapter {
       return;
     }
     if (u.sessionUpdate === "agent_message_chunk") {
+      this.reactiveUsage = false;
       if (!this.loading && u.content.type === "text")
         this.emit({
           type: "delta",
@@ -1178,10 +1231,31 @@ export class Acp implements Adapter {
         });
       return;
     }
+    if (u.sessionUpdate === "usage_update" && this.reactiveEnd) {
+      // agy 1.5.14 sends this after a reactive pass but sends no second
+      // prompt response. A pass that leaves more work open can wake again.
+      this.reactiveUsage = !this.reactiveTools.size && !this.permissions.size;
+      if (!this.cancelling) this.finishReactiveTurn();
+      return;
+    }
     if (
       u.sessionUpdate === "tool_call" ||
       u.sessionUpdate === "tool_call_update"
     ) {
+      if (this.waitsForReactiveTurns && !this.loading) {
+        const input = u.rawInput;
+        const daemon =
+          input &&
+          typeof input === "object" &&
+          "IsDaemon" in input &&
+          input.IsDaemon === true;
+        if (daemon || u.status === "completed" || u.status === "failed") {
+          this.reactiveTools.delete(u.toolCallId);
+        } else if (u.sessionUpdate === "tool_call") {
+          this.reactiveTools.add(u.toolCallId);
+          this.reactiveUsage = false;
+        }
+      }
       const old = this.toolItems.get(u.toolCallId);
       const title = text(u.title) || old?.title || "ACP tool";
       const memoryTool =
