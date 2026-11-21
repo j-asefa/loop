@@ -161,6 +161,24 @@ for (const mode of ["reactive-stalled", "reactive-stalled-steer"])
     },
   );
 
+test("Antigravity cancels a reactive turn with an outstanding steering request", async (t) => {
+  const requests = fixture(t);
+  process.env.LOOP_TEST_AGY_MODE = "reactive-stalled-steer";
+  const events: AdapterEvent[] = [];
+  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+    events.push(e),
+  );
+  t.after(() => adapter.dispose());
+  await adapter.start();
+  await adapter.prompt("Run background work");
+  await until(() => events.some((e) => e.type === "usage"));
+  await adapter.steer!("Keep going");
+  await adapter.cancel();
+  await until(() => requests().some((r) => r.acp === "session/cancel"));
+  assert.deepEqual(statuses(events), ["ready", "interrupted"]);
+  assert.equal(adapter.reusable, false);
+});
+
 test(
   "Antigravity interrupts a settled reactive pass without a final usage update",
   { timeout: 5000 },

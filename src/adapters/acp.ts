@@ -147,7 +147,6 @@ export class Acp implements Adapter {
   protected waitsForReactiveTurns = false;
   private reactiveTools = new Set<string>();
   private reactiveEnd = false;
-  private reactiveUsage = false;
   private reactiveIdle?: NodeJS.Timeout;
   private reactiveWatchdog?: NodeJS.Timeout;
   private reactiveTimedOut = false;
@@ -612,7 +611,6 @@ export class Acp implements Adapter {
     this.earlierEnd = false;
     this.reactiveTools.clear();
     this.reactiveEnd = false;
-    this.reactiveUsage = false;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
     this.promptEchoed = expected
@@ -719,11 +717,11 @@ export class Acp implements Adapter {
       });
     return request;
   }
-  private finishReactiveTurn() {
+  private finishReactiveTurn(confirmed = false) {
     clearTimeout(this.reactiveIdle);
     if (this.closed || this.terminalReported || !this.reactiveEnd) return;
     if (this.cancelling) {
-      if (!this.openPrompts) this.reportReactiveEnd("interrupted");
+      this.reportReactiveEnd("interrupted");
       return;
     }
     if (this.permissions.size) return;
@@ -737,7 +735,7 @@ export class Acp implements Adapter {
       REACTIVE_WATCHDOG_MS,
     ).unref();
     if (this.openPrompts || this.reactiveTools.size) return;
-    if (!this.reactiveUsage) {
+    if (!confirmed) {
       // Usage sent while work is still open can mark a yield to another
       // wakeup. Give agy time to acknowledge the settled pass before
       // retiring it with partial output.
@@ -888,9 +886,12 @@ export class Acp implements Adapter {
     this.reactiveWatchdog = undefined;
     this.finishCommandDiscovery(false);
     this.cancelPermissions();
-    if (!this.closed && this.session && this.connection && this.active)
-      await this.connection.cancel({ sessionId: this.session });
-    this.finishReactiveTurn();
+    try {
+      if (!this.closed && this.session && this.connection && this.active)
+        await this.connection.cancel({ sessionId: this.session });
+    } finally {
+      this.finishReactiveTurn();
+    }
   }
   async answer(
     id: string,
@@ -1210,7 +1211,6 @@ export class Acp implements Adapter {
     if (!choices.length)
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
-    this.reactiveUsage = false;
     clearTimeout(this.reactiveIdle);
     clearTimeout(this.reactiveWatchdog);
     this.reactiveWatchdog = undefined;
@@ -1282,7 +1282,6 @@ export class Acp implements Adapter {
       return;
     }
     if (u.sessionUpdate === "agent_message_chunk") {
-      this.reactiveUsage = false;
       if (!this.loading && u.content.type === "text") {
         this.emit({
           type: "delta",
@@ -1298,15 +1297,15 @@ export class Acp implements Adapter {
       this.reactiveEnd &&
       !this.cancelling
     ) {
-      this.reactiveUsage = false;
       this.finishReactiveTurn();
       return;
     }
     if (u.sessionUpdate === "usage_update" && this.reactiveEnd) {
       // agy 1.5.14 sends this after a reactive pass but sends no second
       // prompt response. A pass that leaves more work open can wake again.
-      this.reactiveUsage = !this.reactiveTools.size && !this.permissions.size;
-      if (!this.cancelling) this.finishReactiveTurn();
+      // A usage update that arrived during an open request cannot certify a
+      // later steering response. Evaluate it at arrival and never latch it.
+      if (!this.cancelling) this.finishReactiveTurn(true);
       return;
     }
     if (
@@ -1327,7 +1326,6 @@ export class Acp implements Adapter {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
         } else if (u.sessionUpdate === "tool_call") {
           this.reactiveTools.add(u.toolCallId);
-          this.reactiveUsage = false;
           reactiveWorkChanged = true;
         }
       }

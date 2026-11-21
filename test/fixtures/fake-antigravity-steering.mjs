@@ -171,6 +171,7 @@ function reactiveTurn(sessionId, mode) {
           content: { type: "text", text: request.params.prompt[0].text },
         });
         message("Acknowledged.");
+        reportUsage(); // This usage precedes the still-open steering response.
       }
       reply(request.id, { stopReason: "end_turn" });
       setTimeout(() => {
