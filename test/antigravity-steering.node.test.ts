@@ -72,19 +72,20 @@ test("Antigravity waits through successive reactive passes and approvals", async
   await assert.rejects(adapter.prompt("Next turn"), /busy/);
 });
 
-test("Antigravity completes normally with only a daemon still running", async (t) => {
-  fixture(t);
-  process.env.LOOP_TEST_AGY_MODE = "daemon-only";
-  const events: AdapterEvent[] = [];
-  const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
-    events.push(e),
-  );
-  t.after(() => adapter.dispose());
-  await adapter.start();
-  await adapter.prompt("Start a daemon");
-  await until(() => complete(events).length === 1);
-  assert.deepEqual(statuses(events), ["ready", "completed"]);
-});
+for (const mode of ["daemon-only", "reactive-late-daemon"])
+  test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
+    fixture(t);
+    process.env.LOOP_TEST_AGY_MODE = mode;
+    const events: AdapterEvent[] = [];
+    const adapter = new Antigravity({ ...options, version: "1.5.14" }, (e) =>
+      events.push(e),
+    );
+    t.after(() => adapter.dispose());
+    await adapter.start();
+    await adapter.prompt("Start a daemon");
+    await until(() => complete(events).length === 1);
+    assert.deepEqual(statuses(events), ["ready", "completed"]);
+  });
 
 test("Antigravity keeps accepting reactive output after overlapping prompts end", async (t) => {
   const requests = fixture(t);
@@ -128,7 +129,9 @@ for (const mode of ["reactive-before-end", "reactive-sync-answer"])
     else assert.deepEqual(statuses(events), ["ready"]);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
-      ["Waiting.", "Done."],
+      mode === "reactive-before-end"
+        ? ["Waiting.", "Waiting for the wakeup.", "Done."]
+        : ["Waiting.", "Done."],
     );
   });
 
@@ -158,6 +161,7 @@ test("Antigravity retires the live session when a steering limit interrupts reac
   await assert.rejects(adapter.steer!("Keep going"), /max_tokens/);
   assert.deepEqual(statuses(events), ["ready", "interrupted"]);
   assert.equal(adapter.reusable, false);
+  assert.equal(adapter.canReuse({ ...options, version: "1.5.14" }), false);
   await assert.rejects(adapter.prompt("Next turn"), /unavailable/);
 });
 

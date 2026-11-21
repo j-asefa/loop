@@ -150,6 +150,7 @@ export class Acp implements Adapter {
   private toolStartedAt = new Map<string, number>();
   private pendingWakeup = false;
   private reactiveEnd = false;
+  private canResolveAsDaemonOnly = false;
   private reactiveIdle?: NodeJS.Timeout;
   private reactiveWatchdog?: NodeJS.Timeout;
   private reactiveWatchdogStarted = 0;
@@ -619,6 +620,7 @@ export class Acp implements Adapter {
     this.toolStartedAt.clear();
     this.pendingWakeup = false;
     this.reactiveEnd = false;
+    this.canResolveAsDaemonOnly = false;
     this.reactiveBudget = REACTIVE_WATCHDOG_MS;
     const expected = this.echoOf(value).trim();
     this.promptEcho = undefined;
@@ -650,8 +652,9 @@ export class Acp implements Adapter {
           if (this.closed || this.terminalReported) return;
           if (result.stopReason === "end_turn") {
             if (!last) this.earlierEnd = true;
-            // An echoed steer and its text can be an interim update. Once
-            // a reactive wait begins, require the reactive usage boundary.
+            // Antigravity gives reactive passes no definitive end signal.
+            // Preserve their output as partial instead of publishing it
+            // based on usage, steering replies, or elapsed time.
             if (
               !this.cancelling &&
               this.waitsForReactiveTurns &&
@@ -660,6 +663,9 @@ export class Acp implements Adapter {
                 this.reactiveTools.size ||
                 this.permissions.size)
             ) {
+              if (!this.reactiveEnd)
+                this.canResolveAsDaemonOnly =
+                  last && !this.pendingWakeup && !this.permissions.size;
               this.reactiveEnd = true;
               this.finishReactiveTurn();
               return;
@@ -775,6 +781,25 @@ export class Acp implements Adapter {
       detail,
       recoverable: false,
     });
+  }
+  private reactiveToolChanged() {
+    if (!this.reactiveEnd || this.cancelling) return;
+    if (
+      this.canResolveAsDaemonOnly &&
+      !this.openPrompts &&
+      !this.reactiveTools.size
+    ) {
+      // The original end_turn is authoritative when every tool that
+      // blocked it was subsequently identified as a daemon.
+      clearTimeout(this.reactiveIdle);
+      clearTimeout(this.reactiveWatchdog);
+      this.reactiveWatchdog = undefined;
+      this.terminalReported = true;
+      this.active = false;
+      this.emit({ type: "status", status: "completed", recoverable: true });
+      return;
+    }
+    this.finishReactiveTurn();
   }
   private addUsage(result: unknown) {
     if (!this.reportsUsage) return;
@@ -1217,6 +1242,7 @@ export class Acp implements Adapter {
     if (!choices.length)
       return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const id = randomUUID();
+    this.canResolveAsDaemonOnly = false;
     clearTimeout(this.reactiveIdle);
     if (this.reactiveWatchdog)
       this.reactiveBudget = Math.max(
@@ -1295,7 +1321,7 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
-        if (u.content.text.trim()) this.pendingWakeup = false;
+        this.canResolveAsDaemonOnly = false;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1310,6 +1336,7 @@ export class Acp implements Adapter {
       this.reactiveEnd &&
       !this.cancelling
     ) {
+      this.canResolveAsDaemonOnly = false;
       this.finishReactiveTurn();
       return;
     }
@@ -1361,6 +1388,8 @@ export class Acp implements Adapter {
         }
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
+          if (reactiveWorkChanged && !daemon)
+            this.canResolveAsDaemonOnly = false;
           // A background-capable call can settle just before the response
           // that yielded to it. Keep watching until the model answers again.
           const delay = this.backgroundTools.get(u.toolCallId);
@@ -1376,6 +1405,7 @@ export class Acp implements Adapter {
           )
             this.pendingWakeup = true;
         } else if (u.sessionUpdate === "tool_call") {
+          this.canResolveAsDaemonOnly = false;
           this.reactiveTools.add(u.toolCallId);
           reactiveWorkChanged = true;
         }
@@ -1394,8 +1424,7 @@ export class Acp implements Adapter {
         };
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
-        if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-          this.finishReactiveTurn();
+        if (reactiveWorkChanged) this.reactiveToolChanged();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1614,8 +1643,7 @@ export class Acp implements Adapter {
         },
         this.loading,
       );
-      if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-        this.finishReactiveTurn();
+      if (reactiveWorkChanged) this.reactiveToolChanged();
       return;
     }
     if (u.sessionUpdate === "plan") {

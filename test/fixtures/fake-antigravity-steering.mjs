@@ -153,6 +153,18 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
+  if (mode === "reactive-late-daemon") {
+    tool("daemon", undefined, "sleep 90");
+    message("Daemon started.");
+    finish(sessionId);
+    update(sessionId, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "daemon",
+      status: "in_progress",
+      rawInput: { CommandLine: "sleep 90", IsDaemon: true },
+    });
+    return;
+  }
   tool("daemon", { CommandLine: "sleep 90", IsDaemon: true }, "sleep 90");
   if (mode !== "daemon-only")
     tool(
@@ -183,6 +195,7 @@ function reactiveTurn(sessionId, mode) {
       if (mode === "reactive-sync-answer") message("Done.");
       finish(sessionId);
     } else {
+      message("Waiting for the wakeup.");
       finish(sessionId);
       reportUsage(); // A settled tool still has a pending wakeup.
       setTimeout(() => {

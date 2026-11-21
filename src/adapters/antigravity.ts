@@ -208,6 +208,7 @@ export class Antigravity implements Adapter {
   }
   canReuse(registration: Options) {
     return (
+      this.reusable !== false &&
       meetsMinimum(registration.version, ANTIGRAVITY_ACP_MINIMUM_VERSION) ===
         this.adapter instanceof Acp &&
       meetsMinimum(
