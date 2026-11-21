@@ -168,6 +168,7 @@ export class Acp implements Adapter {
   private steering = false;
   /** The steering input's echo arrived, so it joined the running turn. */
   private steerJoined = false;
+  private outputWhileSteerUnconfirmed = false;
   /** An earlier request of this turn ended it normally. */
   private earlierEnd = false;
   private end!: () => void;
@@ -649,6 +650,7 @@ export class Acp implements Adapter {
             // based on usage, steering replies, or elapsed time.
             if ((last || !this.steerJoined) && this.waitForReactiveTurn())
               return;
+            if (!last && this.waitsForReactiveTurns) this.refreshReactiveWait();
           }
           if (!last) return;
           this.terminalReported = true;
@@ -677,14 +679,14 @@ export class Acp implements Adapter {
           // A rejected steering input that never joined the turn does not
           // undo the turn's own normal end.
           if (this.reactiveEnd && this.cancelling) {
-            this.finishReactiveTurn();
+            this.refreshReactiveWait();
             return;
           }
           if (
             steer &&
             !this.steerJoined &&
             (this.earlierEnd || this.reactiveEnd) &&
-            this.waitForReactiveTurn()
+            this.waitForReactiveTurn(this.outputWhileSteerUnconfirmed)
           )
             return;
           this.terminalReported = true;
@@ -730,14 +732,19 @@ export class Acp implements Adapter {
     )
       return false;
     this.reactiveEnd = true;
-    this.finishReactiveTurn();
+    this.refreshReactiveWait();
     return true;
   }
-  private finishReactiveTurn() {
+  private refreshReactiveWait() {
     clearTimeout(this.reactiveIdle);
-    if (this.closed || this.terminalReported || !this.reactiveEnd) return;
+    if (
+      this.closed ||
+      this.terminalReported ||
+      !(this.reactiveEnd || (this.earlierEnd && this.openPrompts))
+    )
+      return;
     if (this.cancelling) {
-      this.interruptReactiveTurn();
+      if (this.reactiveEnd) this.interruptReactiveTurn();
       return;
     }
     if (this.permissions.size) return;
@@ -753,7 +760,8 @@ export class Acp implements Adapter {
         this.reactiveBudget,
       ).unref();
     }
-    if (this.openPrompts || this.reactiveTools.size) return;
+    if (!this.reactiveEnd || this.openPrompts || this.reactiveTools.size)
+      return;
     // ACP usage updates also occur mid-pass. A quiet reactive wait can
     // preserve partial output, but cannot certify a completed Result.
     this.reactiveIdle = setTimeout(
@@ -863,6 +871,7 @@ export class Acp implements Adapter {
       throw new NotDelivered("ACP session is busy.");
     beforeDispatch?.();
     this.steerJoined = false;
+    this.outputWhileSteerUnconfirmed = false;
     const echoed = new Promise<void>((resolve) => {
       if (expected)
         this.echo = {
@@ -904,7 +913,7 @@ export class Acp implements Adapter {
       !this.closed && this.session && this.connection && this.active
         ? this.connection.cancel({ sessionId: this.session })
         : undefined;
-    this.finishReactiveTurn();
+    this.refreshReactiveWait();
     await notification;
   }
   async answer(
@@ -925,7 +934,8 @@ export class Acp implements Adapter {
       outcome: { outcome: "selected", optionId: answer.choice },
     });
     this.emit({ type: "resolved", id });
-    if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
+    if (this.waitsForReactiveTurns && !this.cancelling)
+      this.refreshReactiveWait();
   }
   async dispose() {
     this.closed = true;
@@ -1311,9 +1321,8 @@ export class Acp implements Adapter {
           text: text(u.content.text),
         });
       }
-      if (this.earlierEnd && !this.reactiveEnd && this.echo)
-        this.waitForReactiveTurn(true);
-      if (this.reactiveEnd && !this.cancelling) this.finishReactiveTurn();
+      if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
+      if (this.reactiveEnd && !this.cancelling) this.refreshReactiveWait();
       return;
     }
     if (
@@ -1321,9 +1330,8 @@ export class Acp implements Adapter {
       (this.earlierEnd || this.reactiveEnd) &&
       !this.cancelling
     ) {
-      if (this.earlierEnd && !this.reactiveEnd && this.echo)
-        this.waitForReactiveTurn(true);
-      else this.finishReactiveTurn();
+      if (this.earlierEnd && this.echo) this.outputWhileSteerUnconfirmed = true;
+      this.refreshReactiveWait();
       return;
     }
     if (
@@ -1371,7 +1379,7 @@ export class Acp implements Adapter {
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
         if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-          this.finishReactiveTurn();
+          this.refreshReactiveWait();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1591,7 +1599,7 @@ export class Acp implements Adapter {
         this.loading,
       );
       if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
-        this.finishReactiveTurn();
+        this.refreshReactiveWait();
       return;
     }
     if (u.sessionUpdate === "plan") {

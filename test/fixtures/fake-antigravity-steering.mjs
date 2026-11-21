@@ -153,6 +153,15 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
+  if (mode === "reactive-steered-sync-without-echo") {
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      message("Done.");
+      reply(request.id, { stopReason: "end_turn" });
+    };
+    return;
+  }
   if (
     [
       "reactive-rejected-steer-late-tool",
@@ -296,6 +305,16 @@ function reactiveTurn(sessionId, mode) {
     endReactiveSteer = (request) => {
       finish(sessionId);
       reply(request.id, { stopReason: "max_tokens" });
+    };
+    return;
+  }
+  if (mode === "reactive-stalled-joined-steer") {
+    endReactiveSteer = (request) => {
+      update(sessionId, {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: request.params.prompt[0].text },
+      });
+      finish(sessionId);
     };
     return;
   }

@@ -160,6 +160,7 @@ for (const mode of [
   "reactive-sync-subagent",
   "reactive-steered-sync-tool",
   "reactive-steered-sync-open-at-first-end",
+  "reactive-steered-sync-without-echo",
 ])
   test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
     fixture(t);
@@ -234,7 +235,11 @@ test("Antigravity keeps accepting reactive output after echoing and acknowledgin
   );
 });
 
-for (const mode of ["reactive-stalled", "reactive-stalled-steer"])
+for (const mode of [
+  "reactive-stalled",
+  "reactive-stalled-steer",
+  "reactive-stalled-joined-steer",
+])
   test(
     `Antigravity bounds the wait for ${mode}`,
     { timeout: 5000 },
@@ -258,6 +263,8 @@ for (const mode of ["reactive-stalled", "reactive-stalled-steer"])
       t.mock.timers.enable({ apis: ["setTimeout"] });
       try {
         await adapter.prompt("Run background work");
+        if (mode === "reactive-stalled-joined-steer")
+          await adapter.steer!("Keep going");
         await promptEnded;
         if (mode === "reactive-stalled-steer")
           await adapter.steer!("Keep going");
