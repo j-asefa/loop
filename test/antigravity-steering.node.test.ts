@@ -76,6 +76,7 @@ for (const mode of [
   "daemon-only",
   "reactive-late-daemon",
   "reactive-steer-daemon",
+  "reactive-rejected-steer-daemon",
 ])
   test(`Antigravity completes normally with only a daemon still running in ${mode}`, async (t) => {
     fixture(t);
@@ -88,6 +89,8 @@ for (const mode of [
     await adapter.start();
     await adapter.prompt("Start a daemon");
     if (mode === "reactive-steer-daemon") await adapter.steer!("Keep going");
+    if (mode === "reactive-rejected-steer-daemon")
+      await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     await until(() => complete(events).length === 1);
     assert.deepEqual(statuses(events), ["ready", "completed"]);
   });

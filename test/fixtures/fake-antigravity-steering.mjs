@@ -153,7 +153,13 @@ function reactiveTurn(sessionId, mode) {
   const reportUsage = () =>
     update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
 
-  if (["reactive-late-daemon", "reactive-steer-daemon"].includes(mode)) {
+  if (
+    [
+      "reactive-late-daemon",
+      "reactive-steer-daemon",
+      "reactive-rejected-steer-daemon",
+    ].includes(mode)
+  ) {
     tool("daemon", undefined, "sleep 90");
     message("Daemon started.");
     const identifyDaemon = () => {
@@ -165,10 +171,15 @@ function reactiveTurn(sessionId, mode) {
         rawInput: { CommandLine: "sleep 90", IsDaemon: true },
       });
     };
-    if (mode === "reactive-steer-daemon")
+    if (mode !== "reactive-late-daemon")
       endReactiveSteer = (request) => {
         identifyDaemon();
-        reply(request.id, { stopReason: "end_turn" });
+        if (mode === "reactive-rejected-steer-daemon")
+          send({
+            id: request.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+        else reply(request.id, { stopReason: "end_turn" });
       };
     else identifyDaemon();
     return;

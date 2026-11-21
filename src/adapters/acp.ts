@@ -652,12 +652,6 @@ export class Acp implements Adapter {
           if (this.closed || this.terminalReported) return;
           if (result.stopReason === "end_turn") {
             if (!last) this.earlierEnd = true;
-            if (
-              this.canResolveAsDaemonOnly &&
-              !this.reactiveTools.size &&
-              !this.permissions.size
-            )
-              this.reactiveEnd = false;
             // Antigravity gives reactive passes no definitive end signal.
             // Preserve their output as partial instead of publishing it
             // based on usage, steering replies, or elapsed time.
@@ -751,6 +745,22 @@ export class Acp implements Adapter {
       return;
     }
     if (this.permissions.size) return;
+    if (
+      this.canResolveAsDaemonOnly &&
+      !this.pendingWakeup &&
+      !this.openPrompts &&
+      !this.reactiveTools.size
+    ) {
+      // The original end_turn is authoritative when every tool that
+      // blocked it was subsequently identified as a daemon.
+      clearTimeout(this.reactiveIdle);
+      clearTimeout(this.reactiveWatchdog);
+      this.reactiveWatchdog = undefined;
+      this.terminalReported = true;
+      this.active = false;
+      this.emit({ type: "status", status: "completed", recoverable: true });
+      return;
+    }
     // The reactive wait stays bounded even if a concurrent steer never
     // answers. Human approval time does not count against the watchdog.
     if (!this.reactiveWatchdog) {
@@ -787,25 +797,6 @@ export class Acp implements Adapter {
       detail,
       recoverable: false,
     });
-  }
-  private reactiveToolChanged() {
-    if (!this.reactiveEnd || this.cancelling) return;
-    if (
-      this.canResolveAsDaemonOnly &&
-      !this.openPrompts &&
-      !this.reactiveTools.size
-    ) {
-      // The original end_turn is authoritative when every tool that
-      // blocked it was subsequently identified as a daemon.
-      clearTimeout(this.reactiveIdle);
-      clearTimeout(this.reactiveWatchdog);
-      this.reactiveWatchdog = undefined;
-      this.terminalReported = true;
-      this.active = false;
-      this.emit({ type: "status", status: "completed", recoverable: true });
-      return;
-    }
-    this.finishReactiveTurn();
   }
   private addUsage(result: unknown) {
     if (!this.reportsUsage) return;
@@ -1424,7 +1415,8 @@ export class Acp implements Adapter {
         };
         this.toolItems.set(u.toolCallId, item);
         this.emit({ type: "item", item });
-        if (reactiveWorkChanged) this.reactiveToolChanged();
+        if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
+          this.finishReactiveTurn();
         return;
       }
       const kind = u.kind ?? this.toolKinds.get(u.toolCallId);
@@ -1643,7 +1635,8 @@ export class Acp implements Adapter {
         },
         this.loading,
       );
-      if (reactiveWorkChanged) this.reactiveToolChanged();
+      if (reactiveWorkChanged && this.reactiveEnd && !this.cancelling)
+        this.finishReactiveTurn();
       return;
     }
     if (u.sessionUpdate === "plan") {
