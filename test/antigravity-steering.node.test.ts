@@ -93,6 +93,8 @@ for (const mode of [
       await assert.rejects(adapter.steer!("Keep going"), /Steer rejected/);
     await until(() => complete(events).length === 1);
     assert.deepEqual(statuses(events), ["ready", "completed"]);
+    if (mode === "reactive-steer-daemon")
+      assert(events.some((e) => e.type === "delta" && e.text === "Done."));
   });
 
 for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
@@ -121,11 +123,7 @@ for (const mode of ["reactive-steering", "reactive-rejected-steer-late-tool"])
     assert.deepEqual(prompts(requests), ["Run background work", "Keep going"]);
   });
 
-for (const mode of [
-  "reactive-before-end",
-  "reactive-sync-answer",
-  "reactive-sync-subagent",
-])
+for (const mode of ["reactive-sync-answer", "reactive-sync-subagent"])
   test(`Antigravity handles an async-capable tool that settles before end_turn in ${mode}`, async (t) => {
     fixture(t);
     process.env.LOOP_TEST_AGY_MODE = mode;
@@ -139,16 +137,10 @@ for (const mode of [
     await until(() =>
       events.some((e) => e.type === "delta" && e.text === "Done."),
     );
-    if (mode !== "reactive-before-end")
-      await until(() => complete(events).length === 1);
-    else assert.deepEqual(statuses(events), ["ready"]);
+    await until(() => complete(events).length === 1);
     assert.deepEqual(
       events.flatMap((e) => (e.type === "delta" ? [e.text] : [])),
-      mode === "reactive-before-end"
-        ? ["Waiting.", "Waiting for the wakeup.", "Done."]
-        : mode === "reactive-sync-subagent"
-          ? ["Done."]
-          : ["Waiting.", "Done."],
+      mode === "reactive-sync-subagent" ? ["Done."] : ["Waiting.", "Done."],
     );
   });
 

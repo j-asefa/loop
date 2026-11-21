@@ -146,9 +146,6 @@ export class Acp implements Adapter {
   /** agy can return end_turn before its background work wakes the model. */
   protected waitsForReactiveTurns = false;
   private reactiveTools = new Set<string>();
-  private backgroundTools = new Map<string, number>();
-  private toolStartedAt = new Map<string, number>();
-  private pendingWakeup = false;
   private reactiveEnd = false;
   private canResolveAsDaemonOnly = false;
   private reactiveIdle?: NodeJS.Timeout;
@@ -616,9 +613,6 @@ export class Acp implements Adapter {
     this.turnUsage = undefined;
     this.earlierEnd = false;
     this.reactiveTools.clear();
-    this.backgroundTools.clear();
-    this.toolStartedAt.clear();
-    this.pendingWakeup = false;
     this.reactiveEnd = false;
     this.canResolveAsDaemonOnly = false;
     this.reactiveBudget = REACTIVE_WATCHDOG_MS;
@@ -667,10 +661,7 @@ export class Acp implements Adapter {
             this.reactiveEnd ||
             limited ||
             result.stopReason === "cancelled";
-          if (
-            interrupted &&
-            (this.reactiveEnd || this.pendingWakeup || this.reactiveTools.size)
-          )
+          if (interrupted && (this.reactiveEnd || this.reactiveTools.size))
             this.retireReactiveSession = true;
           this.emit({
             type: "status",
@@ -731,17 +722,10 @@ export class Acp implements Adapter {
     if (
       this.cancelling ||
       !this.waitsForReactiveTurns ||
-      !(
-        this.reactiveEnd ||
-        this.pendingWakeup ||
-        this.reactiveTools.size ||
-        this.permissions.size
-      )
+      !(this.reactiveEnd || this.reactiveTools.size || this.permissions.size)
     )
       return false;
-    if (!this.reactiveEnd)
-      this.canResolveAsDaemonOnly =
-        !this.pendingWakeup && !this.permissions.size;
+    if (!this.reactiveEnd) this.canResolveAsDaemonOnly = !this.permissions.size;
     this.reactiveEnd = true;
     this.finishReactiveTurn();
     return true;
@@ -756,7 +740,6 @@ export class Acp implements Adapter {
     if (this.permissions.size) return;
     if (
       this.canResolveAsDaemonOnly &&
-      !this.pendingWakeup &&
       !this.openPrompts &&
       !this.reactiveTools.size
     ) {
@@ -1327,7 +1310,7 @@ export class Acp implements Adapter {
     }
     if (u.sessionUpdate === "agent_message_chunk") {
       if (!this.loading && u.content.type === "text") {
-        this.canResolveAsDaemonOnly = false;
+        if (!this.openPrompts) this.canResolveAsDaemonOnly = false;
         this.emit({
           type: "delta",
           id: this.messageId,
@@ -1342,7 +1325,7 @@ export class Acp implements Adapter {
       this.reactiveEnd &&
       !this.cancelling
     ) {
-      this.canResolveAsDaemonOnly = false;
+      if (!this.openPrompts) this.canResolveAsDaemonOnly = false;
       this.finishReactiveTurn();
       return;
     }
@@ -1365,45 +1348,10 @@ export class Acp implements Adapter {
           typeof input === "object" &&
           "IsDaemon" in input &&
           input.IsDaemon === true;
-        const knownTool =
-          u.sessionUpdate === "tool_call" ||
-          this.reactiveTools.has(u.toolCallId);
-        if (knownTool && !daemon) {
-          if (u.status === "pending") this.toolStartedAt.delete(u.toolCallId);
-          if (
-            u.status === "in_progress" &&
-            !this.toolStartedAt.has(u.toolCallId)
-          )
-            this.toolStartedAt.set(u.toolCallId, performance.now());
-          if (
-            (command || title === "run_command") &&
-            input &&
-            typeof input === "object" &&
-            "WaitMsBeforeAsync" in input &&
-            typeof input.WaitMsBeforeAsync === "number" &&
-            Number.isFinite(input.WaitMsBeforeAsync) &&
-            input.WaitMsBeforeAsync >= 0
-          )
-            this.backgroundTools.set(u.toolCallId, input.WaitMsBeforeAsync);
-        }
         if (daemon || u.status === "completed" || u.status === "failed") {
           reactiveWorkChanged = this.reactiveTools.delete(u.toolCallId);
           if (reactiveWorkChanged && !daemon)
             this.canResolveAsDaemonOnly = false;
-          // A background-capable call can settle just before the response
-          // that yielded to it. Keep watching until the model answers again.
-          const delay = this.backgroundTools.get(u.toolCallId);
-          const startedAt = this.toolStartedAt.get(u.toolCallId);
-          this.backgroundTools.delete(u.toolCallId);
-          this.toolStartedAt.delete(u.toolCallId);
-          if (
-            !daemon &&
-            delay !== undefined &&
-            (delay === 0 ||
-              (startedAt !== undefined &&
-                performance.now() - startedAt >= delay))
-          )
-            this.pendingWakeup = true;
         } else if (u.sessionUpdate === "tool_call") {
           this.canResolveAsDaemonOnly = false;
           this.reactiveTools.add(u.toolCallId);

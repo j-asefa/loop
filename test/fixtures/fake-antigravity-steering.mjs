@@ -196,7 +196,10 @@ function reactiveTurn(sessionId, mode) {
             id: request.id,
             error: { code: -32603, message: "Steer rejected" },
           });
-        else reply(request.id, { stopReason: "end_turn" });
+        else {
+          message("Done.");
+          reply(request.id, { stopReason: "end_turn" });
+        }
       };
     else identifyDaemon();
     return;
@@ -212,40 +215,22 @@ function reactiveTurn(sessionId, mode) {
   if (mode !== "daemon-only")
     tool(
       "background",
-      mode === "reactive-before-end"
-        ? undefined
-        : {
-            CommandLine: "sleep 5",
-            IsDaemon: false,
-            WaitMsBeforeAsync: 500,
-          },
+      {
+        CommandLine: "sleep 5",
+        IsDaemon: false,
+        WaitMsBeforeAsync: 500,
+      },
       "run_command",
     );
   message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
   reportUsage();
-  if (
-    [
-      "reactive-before-end",
-      "reactive-sync-answer",
-      "reactive-tool-only",
-    ].includes(mode)
-  ) {
+  if (["reactive-sync-answer", "reactive-tool-only"].includes(mode)) {
     complete("background", "completed", {
       CommandLine: "sleep 5",
-      WaitMsBeforeAsync: mode === "reactive-before-end" ? 0 : 500,
+      WaitMsBeforeAsync: 500,
     });
-    if (mode !== "reactive-before-end") {
-      if (mode === "reactive-sync-answer") message("Done.");
-      finish(sessionId);
-    } else {
-      message("Waiting for the wakeup.");
-      finish(sessionId);
-      reportUsage(); // A settled tool still has a pending wakeup.
-      setTimeout(() => {
-        message("Done.");
-        reportUsage();
-      }, 30);
-    }
+    if (mode === "reactive-sync-answer") message("Done.");
+    finish(sessionId);
     return;
   }
   if (mode === "reactive-steer-limit") {
