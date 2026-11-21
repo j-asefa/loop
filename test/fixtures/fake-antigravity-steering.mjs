@@ -127,6 +127,348 @@ const finish = (sessionId, stopReason = "end_turn") => {
 };
 let permission = 0;
 const permissions = new Map();
+let endReactiveSteer;
+let rejectSteerOnCancel;
+
+function reactiveTurn(sessionId, mode) {
+  const tool = (toolCallId, rawInput, title = toolCallId) =>
+    update(sessionId, {
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title,
+      status: "in_progress",
+      rawInput,
+    });
+  const complete = (toolCallId, status = "completed", rawInput) =>
+    update(sessionId, {
+      sessionUpdate: "tool_call_update",
+      toolCallId,
+      status,
+      rawInput,
+    });
+  const message = (text) =>
+    update(sessionId, {
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text },
+    });
+  const reportUsage = () =>
+    update(sessionId, { sessionUpdate: "usage_update", used: 20, size: 100 });
+
+  if (mode === "reactive-overlapping-steers") {
+    const echoSteer = (request) =>
+      update(sessionId, {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: request.params.prompt[0].text },
+      });
+    message("Waiting.");
+    endReactiveSteer = (first) => {
+      echoSteer(first);
+      tool("steer-tool", {}, "Synchronous tool");
+      endReactiveSteer = (second) => {
+        echoSteer(second);
+        finish(sessionId);
+        complete("steer-tool");
+        reply(first.id, { stopReason: "end_turn" });
+        message("Done.");
+        reply(second.id, { stopReason: "end_turn" });
+      };
+    };
+    return;
+  }
+  if (
+    mode === "reactive-cancel-unjoined-steer" ||
+    mode === "reactive-approval-at-first-end" ||
+    mode === "reactive-steer-owned-approval"
+  ) {
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      if (mode === "reactive-cancel-unjoined-steer") {
+        finish(sessionId);
+        rejectSteerOnCancel = () =>
+          send({
+            id: request.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+        return;
+      }
+      const id = `perm-${++permission}`;
+      permissions.set(id, () => {
+        if (mode === "reactive-steer-owned-approval") {
+          message("Done.");
+          reply(request.id, { stopReason: "end_turn" });
+          return;
+        }
+        reply(request.id, { stopReason: "end_turn" });
+        setTimeout(() => message("Done."), 30);
+      });
+      if (mode === "reactive-steer-owned-approval")
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: request.params.prompt[0].text },
+        });
+      send({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId,
+          toolCall: { toolCallId: "approval-only", title: "Reactive approval" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          ],
+        },
+      });
+      finish(sessionId);
+    };
+    return;
+  }
+  if (mode === "reactive-steered-sync-without-echo") {
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      message("Done.");
+      reply(request.id, { stopReason: "end_turn" });
+    };
+    return;
+  }
+  if (
+    [
+      "reactive-rejected-steer-late-tool",
+      "reactive-rejected-steer-settled-tool",
+      "reactive-echoed-steer-open-tool",
+      "reactive-steered-sync-tool",
+      "reactive-steered-sync-open-at-first-end",
+      "reactive-steered-sync-before-echo",
+      "reactive-inherited-steer-settled-tool",
+      "reactive-rejected-steer-text-before-tool",
+    ].includes(mode)
+  ) {
+    const inherited = mode === "reactive-inherited-steer-settled-tool";
+    const beforeEcho = mode === "reactive-steered-sync-before-echo";
+    const startTool = () =>
+      tool("late-background", { CommandLine: "sleep 5" }, "sleep 5");
+    if (inherited) startTool();
+    message("Waiting.");
+    endReactiveSteer = (request) => {
+      const synchronous = mode.startsWith("reactive-steered-sync");
+      const joined =
+        synchronous || inherited || mode === "reactive-echoed-steer-open-tool";
+      if (beforeEcho) {
+        finish(sessionId);
+        startTool();
+      }
+      if (joined)
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: request.params.prompt[0].text },
+        });
+      if (mode === "reactive-steered-sync-open-at-first-end") startTool();
+      if (!beforeEcho) finish(sessionId);
+      if (mode === "reactive-rejected-steer-text-before-tool")
+        message("Still waiting.");
+      else if (
+        !beforeEcho &&
+        !inherited &&
+        mode !== "reactive-steered-sync-open-at-first-end"
+      )
+        startTool();
+      if (
+        synchronous ||
+        inherited ||
+        mode === "reactive-rejected-steer-settled-tool"
+      )
+        complete("late-background");
+      if (synchronous) message("Done.");
+      if (joined) reply(request.id, { stopReason: "end_turn" });
+      else
+        send({
+          id: request.id,
+          error: { code: -32603, message: "Steer rejected" },
+        });
+      setTimeout(() => {
+        if (synchronous) return;
+        if (mode === "reactive-rejected-steer-text-before-tool") startTool();
+        if (!inherited && mode !== "reactive-rejected-steer-settled-tool")
+          complete("late-background");
+        message("Done.");
+        reportUsage();
+      }, 30);
+    };
+    return;
+  }
+  if (
+    [
+      "reactive-steer-daemon",
+      "reactive-daemon-unechoed-steer-output",
+      "reactive-daemon-failed",
+      "reactive-daemon-failed-unsteered",
+      "reactive-daemon-failed-after-identification",
+      "reactive-daemon-output-before-tool",
+    ].includes(mode)
+  ) {
+    if (mode !== "reactive-daemon-output-before-tool")
+      tool("daemon", undefined, "sleep 90");
+    message("Daemon started.");
+    const identifyDaemon = () => {
+      finish(sessionId);
+      if (mode === "reactive-daemon-output-before-tool") message("Waiting.");
+      if (mode === "reactive-daemon-output-before-tool")
+        tool("daemon", undefined, "sleep 90");
+      update(sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "daemon",
+        status: mode === "reactive-daemon-failed" ? "failed" : "in_progress",
+        rawInput: { CommandLine: "sleep 90", IsDaemon: true },
+      });
+    };
+    if (
+      mode === "reactive-daemon-failed" ||
+      mode === "reactive-daemon-failed-unsteered"
+    ) {
+      identifyDaemon();
+      setTimeout(() => {
+        if (mode === "reactive-daemon-failed-unsteered")
+          complete("daemon", "failed");
+        message("Daemon failed.");
+      }, 30);
+    } else
+      endReactiveSteer = (request) => {
+        identifyDaemon();
+        if (mode === "reactive-daemon-failed-after-identification") {
+          complete("daemon", "failed");
+          setTimeout(() => message("Done."), 30);
+        }
+        if (mode === "reactive-daemon-output-before-tool")
+          setTimeout(() => message("Done."), 30);
+        if (mode === "reactive-daemon-unechoed-steer-output") {
+          message("Waiting.");
+          setTimeout(() => message("Done."), 30);
+        }
+        if (mode !== "reactive-steer-daemon")
+          send({
+            id: request.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+        else {
+          update(sessionId, {
+            sessionUpdate: "user_message_chunk",
+            content: { type: "text", text: request.params.prompt[0].text },
+          });
+          message("Done.");
+          reply(request.id, { stopReason: "end_turn" });
+        }
+      };
+    return;
+  }
+  if (mode === "reactive-sync-subagent") {
+    tool("subagent", {}, "invoke_subagent");
+    complete("subagent");
+    message("Done.");
+    finish(sessionId);
+    return;
+  }
+  tool("daemon", { CommandLine: "sleep 90", IsDaemon: true }, "sleep 90");
+  if (mode !== "daemon-only" && mode !== "reactive-stalled-joined-steer")
+    tool(
+      "background",
+      {
+        CommandLine: "sleep 5",
+        IsDaemon: false,
+        WaitMsBeforeAsync: 500,
+      },
+      "run_command",
+    );
+  message(mode === "daemon-only" ? "Daemon started." : "Waiting.");
+  reportUsage();
+  if (["reactive-sync-answer", "reactive-tool-only"].includes(mode)) {
+    complete("background", "completed", {
+      CommandLine: "sleep 5",
+      WaitMsBeforeAsync: 500,
+    });
+    if (mode === "reactive-sync-answer") message("Done.");
+    finish(sessionId);
+    return;
+  }
+  if (mode === "reactive-steer-limit") {
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      reply(request.id, { stopReason: "max_tokens" });
+    };
+    return;
+  }
+  if (mode === "reactive-stalled-joined-steer") {
+    endReactiveSteer = (request) => {
+      update(sessionId, {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: request.params.prompt[0].text },
+      });
+      tool("background", { CommandLine: "sleep 5" }, "sleep 5");
+      finish(sessionId);
+    };
+    return;
+  }
+  if (mode === "reactive-steering" || mode === "reactive-steer-ack") {
+    endReactiveSteer = (request) => {
+      finish(sessionId);
+      complete("background");
+      if (mode === "reactive-steer-ack") {
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: request.params.prompt[0].text },
+        });
+        message("Acknowledged.");
+        reportUsage(); // This usage precedes the still-open steering response.
+      }
+      reply(request.id, { stopReason: "end_turn" });
+      if (mode === "reactive-steer-ack") reportUsage();
+      setTimeout(() => {
+        message("Done.");
+        reportUsage();
+      }, 30);
+    };
+    return;
+  }
+  finish(sessionId);
+  if (mode === "reactive-reordered" || mode === "reactive-final-usage") {
+    setTimeout(() => {
+      message("Done.");
+      if (mode === "reactive-reordered") reportUsage();
+      complete("background");
+      if (mode === "reactive-final-usage") reportUsage();
+    }, 30);
+    return;
+  }
+  if (mode !== "reactive") return;
+
+  reportUsage(); // Even a usage update following end_turn leaves open work.
+  setTimeout(() => {
+    complete("background");
+    tool("subagent", {}, "invoke_subagent");
+    message("Waiting again.");
+    reportUsage();
+    setTimeout(() => {
+      complete("subagent", "failed");
+      tool("follow-up", {});
+      const id = `perm-${++permission}`;
+      permissions.set(id, (result) => {
+        if (result.outcome.outcome !== "selected") return;
+        message("Done.");
+        complete("follow-up");
+        reportUsage();
+      });
+      send({
+        id,
+        method: "session/request_permission",
+        params: {
+          sessionId,
+          toolCall: { toolCallId: "follow-up", title: "Reactive approval" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          ],
+        },
+      });
+    }, 30);
+  }, 30);
+}
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const req = JSON.parse(line);
@@ -180,10 +522,66 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/close":
       return reply(req.id, {});
     case "session/cancel":
+      if (rejectSteerOnCancel) {
+        const reject = rejectSteerOnCancel;
+        rejectSteerOnCancel = undefined;
+        return reject();
+      }
       return finish(sessionId, "cancelled");
     case "session/prompt": {
       const text = req.params.prompt[0].text;
+      if (
+        turn === 1 &&
+        [
+          "reactive-stalled-steer",
+          "reactive-budget",
+          "reactive-reject-joined",
+        ].includes(mode)
+      ) {
+        update(sessionId, {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text },
+        });
+        if (mode === "reactive-reject-joined") {
+          send({
+            id: req.id,
+            error: { code: -32603, message: "Steer rejected" },
+          });
+          setTimeout(() => {
+            update(sessionId, {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "background",
+              status: "completed",
+            });
+            update(sessionId, {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "Done." },
+            });
+          }, 30);
+        }
+        if (mode === "reactive-budget")
+          send({
+            id: `perm-${++permission}`,
+            method: "session/request_permission",
+            params: {
+              sessionId,
+              toolCall: {
+                toolCallId: "background",
+                title: "Reactive approval",
+              },
+              options: [
+                { optionId: "allow", name: "Allow once", kind: "allow_once" },
+              ],
+            },
+          });
+        return;
+      }
       if (open.length) {
+        if (endReactiveSteer) {
+          const finishSteering = endReactiveSteer;
+          endReactiveSteer = undefined;
+          return finishSteering(req);
+        }
         // A prompt during a running turn steers it.
         if (mode === "steer-limit") {
           // No echo, and the turn stops at a limit.
@@ -280,6 +678,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           300,
         );
       } else echo();
+      if (outcome()?.startsWith("reactive") || outcome() === "daemon-only")
+        return reactiveTurn(sessionId, outcome());
       if (outcome() === "hang") return;
       if (text.includes("[slow]")) {
         update(sessionId, {
