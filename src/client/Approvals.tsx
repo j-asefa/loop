@@ -77,6 +77,16 @@ export function Approvals({
     failure,
     busy: readPending,
   } = useCollectionRead(readKey);
+  const refreshing = readPending && snapshot?.key === readKey;
+  const [slowRefreshKey, setSlowRefreshKey] = useState<string>();
+  useEffect(() => {
+    if (!refreshing) return;
+    const timer = setTimeout(() => setSlowRefreshKey(readKey), 2000);
+    return () => {
+      clearTimeout(timer);
+      setSlowRefreshKey(undefined);
+    };
+  }, [refreshing, readKey]);
   const rateLimited = isRateLimited(failure);
   const readError = rateLimited ? "" : failureMessage;
   const [selected, setSelected] = useState<Approval | null>(null);
@@ -294,7 +304,8 @@ export function Approvals({
           {notice}
         </p>
       )}
-      {(readPending || !!failure) && (
+      {((readPending && (!refreshing || slowRefreshKey === readKey)) ||
+        !!failure) && (
         <p
           className={readError ? "error" : "field-hint"}
           role={readError ? "alert" : "status"}
