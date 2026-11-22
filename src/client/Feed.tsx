@@ -1946,8 +1946,8 @@ export function Feed({
   }
   const [readError, setReadError] = useState("");
   const [readBusy, setReadBusy] = useState(false);
-  const activeAppendSources = useRef(new Set<string>());
-  const pendingAppendSources = useRef(new Set<string>());
+  const activeAppendSources = useRef(new Map<string, string>());
+  const pendingAppendSources = useRef(new Map<string, string>());
   const [partialReadPending, setPartialReadPending] = useState(false);
   type ReadAttempt = {
     append: boolean;
@@ -1971,7 +1971,7 @@ export function Feed({
     background = false,
     onlySources?: string[],
     manual = false,
-    resumeAppend = false,
+    resumeAppend?: Map<string, string>,
   ) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
@@ -2007,14 +2007,8 @@ export function Feed({
         (manual && retryPages.current.get(source.id)) || {
           append,
           before: append
-            ? resumeAppend &&
-              doneRefresh.current.sources.get(source.id)?.continuation !==
-                undefined
-              ? (doneRefresh.current.sources.get(source.id)!.continuation ??
-                undefined)
-              : combined
-                ? cursors[source.id]
-                : next || undefined
+            ? (resumeAppend?.get(source.id) ??
+              (combined ? cursors[source.id] : next || undefined))
             : undefined,
         },
       ]),
@@ -2035,15 +2029,23 @@ export function Feed({
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
       for (const source of headSources.current) pending.add(source);
-    activeAppendSources.current = new Set(
-      requestedSources.filter(
-        (source) =>
-          pages.get(source)!.append &&
-          (!combined || !!pages.get(source)!.before),
-      ),
+    activeAppendSources.current = new Map(
+      requestedSources.flatMap((source) => {
+        const page = pages.get(source)!;
+        return page.append && page.before
+          ? [[source, page.before] as const]
+          : [];
+      }),
     );
-    for (const source of activeAppendSources.current)
+    for (const source of activeAppendSources.current.keys()) {
+      if (
+        resumeAppend &&
+        retryPages.current.get(source)?.append === false &&
+        readError
+      )
+        historyReadErrors.current.set(source, new Error(readError));
       pendingAppendSources.current.delete(source);
+    }
     headSources.current = new Set(
       requestedSources.filter((source) => !pages.get(source)!.append),
     );
@@ -2739,8 +2741,8 @@ export function Feed({
       // A deliberate pull refreshes the head even after a failed append. Keep
       // the loaded card window and restart each source's bounded recovery.
       if (filter !== "done" && inFlight.current)
-        for (const source of activeAppendSources.current)
-          pendingAppendSources.current.add(source);
+        for (const [source, cursor] of activeAppendSources.current)
+          pendingAppendSources.current.set(source, cursor);
       readRecovery.current.reset();
       retryPages.current.clear();
       for (const [source, progress] of doneRefresh.current.sources)
@@ -2806,16 +2808,19 @@ export function Feed({
       .filter(
         (source) =>
           pendingAppendSources.current.has(source) &&
-          !retryPages.current.has(source) &&
-          doneRefresh.current.sources.get(source)?.continuation !== null,
+          retryPages.current.get(source)?.append !== true,
       );
-    for (const source of pendingAppendSources.current)
-      if (doneRefresh.current.sources.get(source)?.continuation === null)
-        pendingAppendSources.current.delete(source);
     if (!ready.length) return;
+    const cursors = new Map(
+      ready.map((source) => [
+        source,
+        pendingAppendSources.current.get(source)!,
+      ]),
+    );
     for (const source of ready) pendingAppendSources.current.delete(source);
-    // Run after the replacement head's state commits, using its current cursor.
-    void load(true, false, ready, false, true);
+    // Replay the interrupted page, which can be a gap even when older history
+    // was exhausted. Its cursor is distinct from the window's continuation.
+    void load(true, false, ready, false, cursors);
   }, [readBusy, next, filter, project, teams, agent, sourceKey, generation]);
   async function runAction(
     runId: string,

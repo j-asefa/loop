@@ -307,7 +307,6 @@ for (const engine of selectedEngines()) {
     await expect(page.getByRole("alert")).toContainText(
       "Replacement thread head unavailable",
     );
-    await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 30")).toHaveCount(1);
     await page.waitForTimeout(500);
     await expect(card("History thread 0")).toHaveCount(0);
@@ -548,6 +547,33 @@ for (const engine of selectedEngines()) {
     await expect(card("Working thread 40")).toHaveCount(1);
     await heldWorking.continue();
     await page.unroute(workingAppend);
+    // The loaded Working history is exhausted. A fresh burst creates a gap;
+    // another pull must preserve a Load more already reading that gap.
+    const newest = Date.now() + 1000;
+    for (let i = 0; i < 100; i++) workingThread("second-" + i, newest + i);
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+    await expect(card("Working thread second-30")).toHaveCount(1);
+    let heldGap;
+    await page.route(workingAppend, (route) => {
+      if (!heldGap) heldGap = route;
+      else return route.continue();
+    });
+    await page.getByRole("button", { name: /Load more/i }).click();
+    await expect.poll(() => !!heldGap).toBe(true);
+    await page.route(workingHead, (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: "Second pull head unavailable" },
+      }),
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+    await expect(card("Working thread second-0")).toHaveCount(1);
+    await expect(page.getByRole("alert")).toContainText(
+      "Second pull head unavailable",
+    );
+    await heldGap.continue();
+    await page.unroute(workingAppend);
+    await page.unroute(workingHead);
     console.log(
       `PASS ${engine.name()}: pull recovers both missing results, retains loaded history, retries failure, and preserves live delivery and automatic recovery`,
     );
