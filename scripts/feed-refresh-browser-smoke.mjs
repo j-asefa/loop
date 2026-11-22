@@ -201,6 +201,27 @@ for (const engine of selectedEngines()) {
     await expect(card("Normal live delivery control")).toHaveCount(1, {
       timeout: 10_000,
     });
+    let heldDone;
+    await page.route(changes, (route) => {
+      if (!heldDone) heldDone = route;
+      else return route.continue();
+    });
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [""] },
+        }),
+      );
+      window.__suppressFeedNotifications = true;
+    });
+    await expect.poll(() => !!heldDone).toBe(true);
+    publish("stalled-done", "gemini", "Recovered despite stalled Done read");
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    await pull();
+    await expect(card("Recovered despite stalled Done read")).toHaveCount(1);
+    await heldDone.continue();
+    await page.unroute(changes);
+    await expect(card("Retained answer 0")).toHaveCount(1);
     const publishThread = (id, body, time = Date.now()) => {
       seedConversation(db, {
         id,
@@ -225,6 +246,26 @@ for (const engine of selectedEngines()) {
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 0")).toHaveCount(1);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
+    const historyRead = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith("/feed") &&
+        url.searchParams.get("filter") === "all" &&
+        url.searchParams.has("before")
+      );
+    });
+    // Establish a saved background-reconciliation cursor after page two.
+    await page.evaluate(() => {
+      window.__suppressFeedNotifications = false;
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [""] },
+        }),
+      );
+      window.__suppressFeedNotifications = true;
+    });
+    await (await historyRead).finished();
+    await page.waitForTimeout(100);
     // A thread on the third page leaves this view on another device. The pull
     // must reconcile that deep interval without another notification or gesture.
     insertLaterItem(
@@ -238,12 +279,26 @@ for (const engine of selectedEngines()) {
       null,
       Date.now(),
     );
+    insertLaterItem(
+      db,
+      randomUUID(),
+      owner,
+      "conversation",
+      "history-50",
+      "time",
+      Date.now() + 3_600_000,
+      null,
+      Date.now(),
+    );
     publishThread("pulled-thread", "New thread recovered by pull");
     await pull();
     await expect(card("New thread recovered by pull")).toHaveCount(1);
     await expect(card("History thread 0")).toHaveCount(1);
     await expect(
       feed.getByRole("heading", { name: "History thread 10", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      feed.getByRole("heading", { name: "History thread 50", exact: true }),
     ).toHaveCount(0);
     await page.evaluate(() => (window.__suppressFeedNotifications = false));
     // This view also uses the shared bounded read recovery. Observe the old

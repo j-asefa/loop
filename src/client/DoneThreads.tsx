@@ -154,7 +154,10 @@ export function useDoneThreads(
       ),
     );
     const focus = () => refresh();
-    const stopRefresh = listenClientEvent("loop-refresh", focus);
+    const stopRefresh = listenClientEvent("loop-refresh", () => {
+      for (const reader of readers.values()) reader.cancel();
+      refresh();
+    });
     window.addEventListener("focus", focus);
     refresh();
     return () => {

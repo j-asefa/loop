@@ -15,6 +15,14 @@ export class DoneCardsReader {
     this.generation++;
     this.pendingAppend ||= this.activeAppends > 0;
   }
+  restartRefresh() {
+    this.invalidateForAction();
+    const saved = this.pager.snapshot();
+    // Detach stalled reads from the committed window. Their late responses
+    // cannot replace the new pager window or block an explicit refresh.
+    if (saved) this.pager.restore(this.key, saved);
+    else this.pager.reset(this.key);
+  }
   constructor(
     readonly key: string,
     saved?: CardWindow,

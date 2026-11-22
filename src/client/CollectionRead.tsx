@@ -193,6 +193,9 @@ type PagedOptions<P, C> = {
   revision?: string | number;
   requireAdvance?: boolean;
   needsRefresh?: (page: P) => boolean;
+  /** An explicit pull can cancel a stalled read and restart reconciliation
+   * from the retained window. Background notifications remain coalesced. */
+  restartOnRefresh?: (page: P) => P;
   empty: P;
   collections: QueryOptions["collections"];
   read: (
@@ -248,6 +251,7 @@ export function usePagedProjectionQuery<
       events = ["loop-refresh"],
       coalesceDelay = 0,
       needsRefresh,
+      restartOnRefresh,
       requireAdvance = false,
     } = context.options;
     if (!enabled) return;
@@ -353,6 +357,15 @@ export function usePagedProjectionQuery<
         urgent = true;
         clearTimeout(timer);
         timer = undefined;
+        if (restartOnRefresh && !stale()) {
+          requestEpoch++;
+          reader.cancel();
+          busy = false;
+          appendPending = false;
+          current = restartOnRefresh(current);
+          void load();
+          return;
+        }
       }
       schedule();
     };

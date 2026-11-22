@@ -45,6 +45,7 @@ try {
     failure = false,
     stuck = false,
     holdNext = false;
+  let holdBefore;
   const requests = [];
   const row = (source, n, agent) => ({
     id: "thread-" + n,
@@ -110,8 +111,9 @@ try {
           : { items: n === undefined ? [] : [row(source, n, agent)], next };
       const status = failure && source === "A" ? 503 : 200;
       const reply = () => send(status, body);
-      if (holdNext && source === "A") {
+      if ((holdNext || before === holdBefore) && source === "A") {
         holdNext = false;
+        holdBefore = undefined;
         held.push(reply);
       } else reply();
       return;
@@ -124,11 +126,12 @@ try {
   });
   for (const scenario of process.argv.length > 2
     ? process.argv.slice(2)
-    : ["window", "cursor", "queued-retry", "scope"]) {
+    : ["window", "cursor", "queued-retry", "pull", "scope"]) {
     rows = [3, 2, 1];
     failure = false;
     stuck = false;
     holdNext = false;
+    holdBefore = undefined;
     requests.length = 0;
     epoch = "initial";
     const context = await browser.newContext(),
@@ -166,6 +169,28 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
+      } else if (scenario === "pull") {
+        await more();
+        await expect(output).toContainText("first-A2:initial");
+        await idle();
+        await more();
+        await expect(output).toContainText("first-A1:initial");
+        await idle();
+        holdBefore = "2";
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await expect.poll(() => held.length).toBe(1);
+        epoch = "after-pull";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        // The held page must not block the pull, and its saved progress must
+        // not skip page two after that page changed on the server.
+        await expect(output).toContainText("first-A2:after-pull");
+        await expect(output).toContainText("first-A1:after-pull");
+        held.shift()();
+        await page.waitForTimeout(100);
+        await expect(output).not.toContainText(":initial");
+        await idle();
       } else if (scenario === "cursor") {
         stuck = true;
         await more();

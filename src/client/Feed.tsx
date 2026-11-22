@@ -2650,6 +2650,8 @@ export function Feed({
       // the loaded card window and restart each source's bounded recovery.
       readRecovery.current.reset();
       retryPages.current.clear();
+      doneRefresh.current.sources.clear();
+      for (const reader of doneCards.current.values()) reader.restartRefresh();
       refreshHistorySources.current = new Set(
         activeSources.map((source) => source.id),
       );

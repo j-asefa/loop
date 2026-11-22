@@ -139,6 +139,7 @@ try {
         "independent-sources",
         "mutation-refresh",
         "list-retry",
+        "list-pull",
         "detail-retry",
       ]) {
     holdRemote = false;
@@ -219,6 +220,19 @@ try {
           await expect(page.locator("#rows")).not.toHaveText("");
         if (change === "source") await page.evaluate(() => window.source(""));
       }
+    } else if (scenario === "list-pull") {
+      holdNext = true;
+      await refresh();
+      await expect.poll(() => held.length).toBe(1);
+      epoch = "after-pull";
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("loop-refresh")),
+      );
+      await expect(page.locator("#rows")).toHaveText("first:local:after-pull");
+      await expect.poll(() => aborted).toBeGreaterThan(0);
+      held.shift()();
+      await page.waitForTimeout(100);
+      await expect(page.locator("#rows")).toHaveText("first:local:after-pull");
     } else if (scenario === "mutation-refresh") {
       const before = count();
       failNext = true;
