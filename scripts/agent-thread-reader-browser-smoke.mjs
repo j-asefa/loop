@@ -150,6 +150,7 @@ try {
         "pull-append-live",
         "history-error",
         "history-error-reopen",
+        "history-error-exhausted",
         "notification-rescan",
         "scope",
       ]) {
@@ -236,11 +237,17 @@ try {
         await expect(output).toContainText("first-A2:after-pull");
       } else if (
         scenario === "history-error" ||
-        scenario === "history-error-reopen"
+        scenario === "history-error-reopen" ||
+        scenario === "history-error-exhausted"
       ) {
         await more();
         await expect(output).toContainText("first-A2");
         await idle();
+        if (scenario === "history-error-exhausted") {
+          await more();
+          await expect(output).toContainText("first-A1");
+          await idle();
+        }
         rows = [8, 7, 6, 5, 4, 3, 2, 1];
         failure = failHistoryOnly = true;
         await page.evaluate(() =>
@@ -263,7 +270,10 @@ try {
         await more();
         await expect(output).toContainText("first-A1");
         await idle();
-        await expect(output).not.toContainText("first-A7");
+        if (scenario === "history-error-exhausted") {
+          await expect(output).toContainText("first-A7");
+          await expect(output).not.toContainText("first-A6");
+        } else await expect(output).not.toContainText("first-A7");
         await expect(notice).toContainText("Couldn’t load some agent threads");
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),

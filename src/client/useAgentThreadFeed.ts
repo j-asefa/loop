@@ -26,8 +26,10 @@ type Window = {
   headErrors: Set<string>;
   next: string | null;
 };
-const appendCursor = (page: Page, progress?: DoneRefresh) =>
+const historyContinuation = (page: Page, progress?: DoneRefresh) =>
   progress?.continuation !== undefined ? progress.continuation : page.next;
+const appendCursor = (page: Page, progress?: DoneRefresh) =>
+  historyContinuation(page, progress) ?? page.next;
 const cursor = (
   pages: Map<string, Page>,
   progress = new Map<string, DoneRefresh>(),
@@ -141,7 +143,7 @@ export function useAgentThreadFeed(
                 ].sort(feedItemOrder),
               };
               const sweep = progress.get(source);
-              if (sweep)
+              if (sweep && older === historyContinuation(old, sweep))
                 progress.set(source, {
                   ...sweep,
                   floor: page.items.at(-1),
@@ -164,7 +166,10 @@ export function useAgentThreadFeed(
                 pages.set(source, page);
                 cacheView(
                   cacheKey(source),
-                  { ...page, next: appendCursor(page, progress.get(source)) },
+                  {
+                    ...page,
+                    next: historyContinuation(page, progress.get(source)),
+                  },
                   owner,
                 );
                 throw refreshed.error;
@@ -174,7 +179,10 @@ export function useAgentThreadFeed(
             pages.set(source, page);
             cacheView(
               cacheKey(source),
-              { ...page, next: appendCursor(page, progress.get(source)) },
+              {
+                ...page,
+                next: historyContinuation(page, progress.get(source)),
+              },
               owner,
             );
             if (before === undefined) headErrors.delete(source);
