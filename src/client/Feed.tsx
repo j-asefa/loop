@@ -2458,7 +2458,28 @@ export function Feed({
             if (!isCurrent() || (error as Error).name === "AbortError")
               throw error;
             if (attempt.append) {
-              retryPages.current.set(source.id, pages.get(source.id)!);
+              const retry = { ...pages.get(source.id)!, headPending: false };
+              retryPages.current.set(source.id, retry);
+              if (attempt.headPending) {
+                // A bad older cursor cannot consume a notification for a
+                // healthy head. Publish the head, then retain this retry.
+                pages.set(source.id, { append: false });
+                try {
+                  await readSource(source);
+                } catch (headError) {
+                  if (isCurrent() && (headError as Error).name !== "AbortError")
+                    historyReadErrors.current.set(
+                      source.id,
+                      headError as Error,
+                    );
+                } finally {
+                  if (isCurrent()) {
+                    pages.set(source.id, retry);
+                    retryPages.current.set(source.id, retry);
+                    setReadError((error as Error).message);
+                  }
+                }
+              }
               throw error;
             }
             const interrupted = pendingAppendSources.current.get(source.id);

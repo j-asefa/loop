@@ -548,8 +548,22 @@ try {
   await expect(page.getByRole("alert")).toContainText(
     "Synthetic append refused",
   );
-  failPaginationAppend = false;
   feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+  failPaginationAppend = false;
+  feedPageRows = [5, 4, 3, 2, 1];
   await page.evaluate(
     (source) =>
       window.dispatchEvent(
@@ -563,7 +577,7 @@ try {
     page.getByText("Older Machine 1 updated 2", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+    page.getByText("Measured Machine 1 updated 5", { exact: true }),
   ).toBeVisible();
   console.log(
     "Failed append preserves the single head notification: " + engineName,
