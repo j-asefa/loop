@@ -149,6 +149,7 @@ try {
         "pull-append-error",
         "pull-append-live",
         "history-error",
+        "history-error-reopen",
         "scope",
       ]) {
     rows = [3, 2, 1];
@@ -232,7 +233,10 @@ try {
         await page.waitForTimeout(100);
         await expect(output).not.toContainText(":initial");
         await expect(output).toContainText("first-A2:after-pull");
-      } else if (scenario === "history-error") {
+      } else if (
+        scenario === "history-error" ||
+        scenario === "history-error-reopen"
+      ) {
         await more();
         await expect(output).toContainText("first-A2");
         await idle();
@@ -244,6 +248,16 @@ try {
         await expect(output).toContainText("first-A8", { timeout: 15_000 });
         await expect(notice).toContainText("Couldn’t load some agent threads");
         await idle();
+        if (scenario === "history-error-reopen") {
+          await page.evaluate(() => window.enable(false));
+          await expect(output).toBeEmpty();
+          await page.evaluate(() => window.enable(true));
+          await expect(notice).toContainText(
+            "Couldn’t load some agent threads",
+            { timeout: 15_000 },
+          );
+          await idle();
+        }
         failure = false;
         await more();
         await expect(output).toContainText("first-A1");
@@ -255,6 +269,10 @@ try {
         );
         await expect(output).toContainText("first-A7");
         await expect(notice).toBeEmpty();
+        await idle();
+        await expect(
+          page.getByRole("button", { name: "More", exact: true }),
+        ).toBeDisabled();
       } else if (scenario === "pull") {
         await more();
         await expect(output).toContainText("first-A2:initial");

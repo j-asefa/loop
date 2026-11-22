@@ -153,13 +153,21 @@ export function useAgentThreadFeed(
               // succeeds, otherwise gaps could remain with no warning.
               if (refreshed.error && current()) {
                 pages.set(source, page);
-                cacheView(cacheKey(source), page, owner);
+                cacheView(
+                  cacheKey(source),
+                  { ...page, next: appendCursor(page, progress.get(source)) },
+                  owner,
+                );
                 throw refreshed.error;
               }
             }
             if (!current()) return;
             pages.set(source, page);
-            cacheView(cacheKey(source), page, owner);
+            cacheView(
+              cacheKey(source),
+              { ...page, next: appendCursor(page, progress.get(source)) },
+              owner,
+            );
             if (before === undefined) headErrors.delete(source);
             if (!headErrors.has(source)) errors.delete(source);
           } catch (error) {
