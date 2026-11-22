@@ -46,6 +46,7 @@ try {
     stuck = false,
     holdNext = false;
   let holdBefore;
+  let failHeadOnly = false;
   const requests = [];
   const row = (source, n, agent) => ({
     id: "thread-" + n,
@@ -106,10 +107,13 @@ try {
               ? String(n)
               : null;
       const body =
-        failure && source === "A"
+        failure && source === "A" && (!failHeadOnly || before === null)
           ? { error: "Agent threads unavailable" }
           : { items: n === undefined ? [] : [row(source, n, agent)], next };
-      const status = failure && source === "A" ? 503 : 200;
+      const status =
+        failure && source === "A" && (!failHeadOnly || before === null)
+          ? 503
+          : 200;
       const reply = () => send(status, body);
       if ((holdNext || before === holdBefore) && source === "A") {
         holdNext = false;
@@ -126,9 +130,18 @@ try {
   });
   for (const scenario of process.argv.length > 2
     ? process.argv.slice(2)
-    : ["window", "cursor", "queued-retry", "pull", "pull-append", "scope"]) {
+    : [
+        "window",
+        "cursor",
+        "queued-retry",
+        "pull",
+        "pull-append",
+        "pull-append-error",
+        "scope",
+      ]) {
     rows = [3, 2, 1];
     failure = false;
+    failHeadOnly = false;
     stuck = false;
     holdNext = false;
     holdBefore = undefined;
@@ -169,16 +182,34 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
-      } else if (scenario === "pull-append") {
+      } else if (
+        scenario === "pull-append" ||
+        scenario === "pull-append-error"
+      ) {
         holdNext = true;
         await more();
         await expect.poll(() => held.length).toBe(1);
         epoch = "after-pull";
+        failure = failHeadOnly = scenario === "pull-append-error";
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),
         );
-        await expect(output).toContainText("first-A2:after-pull");
+        await expect(output).toContainText("first-A2:after-pull", {
+          timeout: 12_000,
+        });
         await idle();
+        if (failHeadOnly) {
+          await expect(notice).toContainText(
+            "Couldn’t load some agent threads",
+          );
+          failure = false;
+          await page.evaluate(() =>
+            window.dispatchEvent(new Event("loop-refresh")),
+          );
+          await expect(notice).toBeEmpty();
+          await expect(output).toContainText("first-A3:after-pull");
+          await idle();
+        }
         held.shift()();
         await page.waitForTimeout(100);
         await expect(output).not.toContainText(":initial");

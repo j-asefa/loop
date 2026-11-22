@@ -23,6 +23,7 @@ type Window = {
   pages: Map<string, Page>;
   progress: Map<string, DoneRefresh>;
   errors: Map<string, string>;
+  headErrors: Set<string>;
   next: string | null;
 };
 const cursor = (pages: Map<string, Page>) => {
@@ -53,6 +54,7 @@ export function useAgentThreadFeed(
       pages,
       progress: new Map(),
       errors: new Map(),
+      headErrors: new Set(),
       next: cursor(pages),
     };
   }, [key]);
@@ -71,7 +73,8 @@ export function useAgentThreadFeed(
     read: async (previous, before, signal, mode, readComplete) => {
       const pages = new Map(previous.pages),
         progress = new Map(previous.progress),
-        errors = new Map(previous.errors);
+        errors = new Map(previous.errors),
+        headErrors = new Set(previous.headErrors);
       const current = () =>
         !signal.aborted &&
         generation === viewGeneration() &&
@@ -128,13 +131,17 @@ export function useAgentThreadFeed(
             if (!current()) return;
             pages.set(source, page);
             cacheView(cacheKey(source), page, owner);
-            errors.delete(source);
+            if (before === undefined) headErrors.delete(source);
+            if (!headErrors.has(source)) errors.delete(source);
           } catch (error) {
-            if (current()) errors.set(source, (error as Error).message);
+            if (current()) {
+              if (before === undefined) headErrors.add(source);
+              errors.set(source, (error as Error).message);
+            }
           }
         }),
       );
-      return { pages, progress, errors, next: cursor(pages) };
+      return { pages, progress, errors, headErrors, next: cursor(pages) };
     },
   });
   const items = useMemo(

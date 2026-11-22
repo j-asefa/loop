@@ -1926,6 +1926,8 @@ export function Feed({
   }
   const [readError, setReadError] = useState("");
   const [readBusy, setReadBusy] = useState(false);
+  const activeAppendSources = useRef(new Set<string>());
+  const pendingAppendSources = useRef(new Set<string>());
   const [partialReadPending, setPartialReadPending] = useState(false);
   type ReadAttempt = {
     append: boolean;
@@ -1996,6 +1998,9 @@ export function Feed({
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
       for (const source of headSources.current) pending.add(source);
+    activeAppendSources.current = new Set(
+      requestedSources.filter((source) => pages.get(source)!.append),
+    );
     headSources.current = new Set(
       requestedSources.filter((source) => !pages.get(source)!.append),
     );
@@ -2568,6 +2573,7 @@ export function Feed({
     } finally {
       if (ticket === request.current) {
         inFlight.current = false;
+        activeAppendSources.current.clear();
         setReadBusy(false);
         setPartialReadPending(false);
       }
@@ -2616,6 +2622,8 @@ export function Feed({
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
       refreshHistorySources.current.clear();
+      activeAppendSources.current.clear();
+      pendingAppendSources.current.clear();
       ++request.current;
       ++needsRequest.current;
       needsSourceRequests.current.clear();
@@ -2648,6 +2656,9 @@ export function Feed({
     const stopRefreshEvent = listenClientEvent("loop-refresh", () => {
       // A deliberate pull refreshes the head even after a failed append. Keep
       // the loaded card window and restart each source's bounded recovery.
+      if (filter !== "done" && inFlight.current)
+        for (const source of activeAppendSources.current)
+          pendingAppendSources.current.add(source);
       readRecovery.current.reset();
       retryPages.current.clear();
       doneRefresh.current.sources.clear();
@@ -2699,6 +2710,24 @@ export function Feed({
     doneRead,
     generation,
   ]);
+  useEffect(() => {
+    if (inFlight.current || !pendingAppendSources.current.size) return;
+    if (!next) {
+      pendingAppendSources.current.clear();
+      return;
+    }
+    const ready = activeSources
+      .map((source) => source.id)
+      .filter(
+        (source) =>
+          pendingAppendSources.current.has(source) &&
+          !retryPages.current.has(source),
+      );
+    if (!ready.length) return;
+    for (const source of ready) pendingAppendSources.current.delete(source);
+    // Run after the replacement head's state commits, using its current cursor.
+    void load(true, false, ready);
+  }, [readBusy, next, filter, project, teams, agent, sourceKey, generation]);
   async function runAction(
     runId: string,
     ...command:

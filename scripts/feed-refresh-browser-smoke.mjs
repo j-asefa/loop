@@ -242,7 +242,21 @@ for (const engine of selectedEngines()) {
     ).toBeVisible();
     await page.getByRole("tab", { name: "Threads", exact: true }).click();
     await expect(card("History thread 104")).toHaveCount(1);
+    let heldAppend;
+    const olderThreads = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "all" &&
+      url.searchParams.has("before");
+    await page.route(olderThreads, (route) => {
+      if (!heldAppend) heldAppend = route;
+      else return route.continue();
+    });
     await page.getByRole("button", { name: /Load more/i }).click();
+    await expect.poll(() => !!heldAppend).toBe(true);
+    await pull();
+    await expect(card("History thread 30")).toHaveCount(1);
+    await heldAppend.continue();
+    await page.unroute(olderThreads);
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 0")).toHaveCount(1);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
