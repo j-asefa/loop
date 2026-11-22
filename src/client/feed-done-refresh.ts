@@ -8,6 +8,7 @@ export type DoneRefresh = {
   floor?: DonePosition;
   continuation?: string | null;
   restart?: boolean;
+  head?: DonePosition;
 };
 const key = (item: DonePosition) =>
   JSON.stringify([
@@ -40,10 +41,11 @@ export async function refreshDonePage<
   const retained = [...previous.items].sort(feedItemOrder);
   const oldest = retained.at(-1)!;
   // A temporary gap cursor must not replace the loaded window's continuation.
-  // If an append changed the floor, use that newly committed continuation.
+  // Only an append extending below the old floor commits a new continuation.
+  // Moving or removing the oldest row must not promote a temporary gap cursor.
   const continuation =
     progress?.floor &&
-    feedItemOrder(progress.floor, oldest) === 0 &&
+    feedItemOrder(oldest, progress.floor) <= 0 &&
     progress.continuation !== undefined
       ? progress.continuation
       : previous.next;
@@ -67,10 +69,12 @@ export async function refreshDonePage<
   if (
     !progress ||
     progress.restart ||
+    (progress.head && feedItemOrder(firstLast, progress.head) < 0) ||
     feedItemOrder(firstLast, retained[0]) < 0 ||
     feedItemOrder(firstLast, oldest) >= 0
   )
     progress = {
+      head: firstLast,
       before: first.next,
       after: firstLast,
       floor: oldest,
@@ -100,7 +104,13 @@ export async function refreshDonePage<
     }
     progress =
       history.next && last && feedItemOrder(last, oldest) < 0
-        ? { before: history.next, after: last, floor: oldest, continuation }
+        ? {
+            head: firstLast,
+            before: history.next,
+            after: last,
+            floor: oldest,
+            continuation,
+          }
         : undefined;
   } else {
     progress = undefined;

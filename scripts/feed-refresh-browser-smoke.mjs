@@ -293,10 +293,27 @@ for (const engine of selectedEngines()) {
     });
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect.poll(() => !!heldAppend).toBe(true);
+    const threadHead = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "all" &&
+      !url.searchParams.has("before");
+    await page.route(threadHead, (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: "Replacement thread head unavailable" },
+      }),
+    );
     await pull();
+    await expect(page.getByRole("alert")).toContainText(
+      "Replacement thread head unavailable",
+    );
+    await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 30")).toHaveCount(1);
+    await page.waitForTimeout(500);
+    await expect(card("History thread 0")).toHaveCount(0);
     await heldAppend.continue();
     await page.unroute(olderThreads);
+    await page.unroute(threadHead);
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 0")).toHaveCount(1);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));

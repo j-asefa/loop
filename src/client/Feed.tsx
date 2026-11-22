@@ -2006,6 +2006,8 @@ export function Feed({
     activeAppendSources.current = new Set(
       requestedSources.filter((source) => pages.get(source)!.append),
     );
+    for (const source of activeAppendSources.current)
+      pendingAppendSources.current.delete(source);
     headSources.current = new Set(
       requestedSources.filter((source) => !pages.get(source)!.append),
     );

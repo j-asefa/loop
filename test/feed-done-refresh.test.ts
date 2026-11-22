@@ -299,3 +299,55 @@ it("stops history reads when the owner or selection has changed", async () => {
   );
   expect(api.calls).toEqual([undefined]);
 });
+
+it("revisits a newly uncovered interval when live updates move the head", async () => {
+  const initial = history(200);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  const changed = history(210).filter((item) => item.last_activity_at !== 160);
+  for (let cycle = 0; cycle < 8; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(changed);
+});
+
+it("preserves the real continuation when the oldest loaded row moves to the head", async () => {
+  const loaded = history(100).slice(0, 95);
+  const continuation = JSON.stringify(loaded.at(-1));
+  let result = await refreshDonePage(
+    server(history(225)).read,
+    { items: loaded, next: continuation },
+    undefined,
+    () => true,
+  );
+  const moved = { ...card(6), last_activity_at: 226 };
+  const changed = [
+    moved,
+    ...history(225).filter((item) => item.last_activity_at !== 6),
+  ];
+  for (let cycle = 0; cycle < 10; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.next).toBe(continuation);
+  expect((await server(changed).read(result.page.next!)).items).toEqual(
+    history(5),
+  );
+});
