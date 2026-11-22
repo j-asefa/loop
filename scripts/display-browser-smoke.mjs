@@ -92,7 +92,9 @@ async function boundaryModes(context, base, errors) {
     contextual,
   );
   await expect(page.locator(".markdown-fallback")).toBeVisible();
-  await expect(page.locator(".markdown-fallback pre")).toHaveText(contextual);
+  await expect(page.locator(".markdown-fallback pre")).toHaveText(
+    quote + "Hidden.",
+  );
   await page.locator(".markdown").evaluate((element) => {
     element.dataset.contextProbe = "mounted";
   });
@@ -106,6 +108,35 @@ async function boundaryModes(context, base, errors) {
     "data-context-probe",
     "mounted",
   );
+
+  const mixed =
+    "Readable summary.\n\n" +
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "card" },
+        add("card", { type: "Card", props: { title: "Surviving display" } }),
+      ),
+    ) +
+    "\n\n" +
+    content;
+  for (const compact of [true, false]) {
+    await page.evaluate((props) => window.renderBoundary(props), {
+      content: mixed,
+      compact,
+    });
+    await expect(page.locator(".display-title")).toHaveText(
+      "Surviving display",
+    );
+    await expect(page.locator(".markdown")).toContainText("Readable summary.");
+    const fallback = page.locator(".markdown-fallback");
+    await expect(fallback).toContainText(
+      compact ? "Open it to read the text." : "Its text is below.",
+    );
+    if (compact) {
+      await expect(fallback.locator("pre")).toHaveCount(0);
+      await expect(fallback).not.toContainText('"op"');
+    } else await expect(fallback.locator("pre")).toHaveText(content);
+  }
   await page.close();
 }
 
@@ -360,8 +391,9 @@ for (const engine of selectedEngines()) {
       await expect(failedReader.locator(".markdown-fallback")).toBeVisible();
       assert.equal(
         await failedReader.locator(".markdown-fallback pre").textContent(),
-        malformed,
+        malformed.slice("Summary.\n\n".length),
       );
+      await expect(failedReader.locator(".markdown")).toContainText("Summary.");
       await failedReader
         .getByRole("button", { name: "Close", exact: true })
         .click();

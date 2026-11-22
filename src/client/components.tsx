@@ -41,6 +41,9 @@ import {
   AlarmClock,
 } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
+import type { Nodes } from "mdast";
+import type { Element } from "hast";
+import type { Processor } from "unified";
 import remarkGfm from "remark-gfm";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
@@ -208,28 +211,99 @@ export function Sheet({
     </dialog>
   );
 }
-type MarkdownTree = { type: string; children?: MarkdownTree[] };
-function limitMarkdownDepth() {
-  return (tree: MarkdownTree) => {
-    const pending = [{ node: tree, depth: 0 }];
-    while (pending.length) {
-      const { node, depth } = pending.pop()!;
-      // Some browsers parse trees too deep for subsequent transforms or DOM
-      // traversal. Use the text fallback before entering those recursive paths.
-      if (depth > 128)
-        throw new Error("Markdown nesting exceeds display limit");
-      for (const child of node.children || [])
-        pending.push({ node: child, depth: depth + 1 });
-    }
-  };
+type MarkdownMode = {
+  compact: boolean;
+  writing: boolean;
+  cappedPreview: boolean;
+};
+const canShowMarkdownSource = (mode: MarkdownMode) =>
+  !mode.compact && !mode.writing && !mode.cappedPreview;
+const markdownFallbackNotice = (mode: MarkdownMode) =>
+  mode.compact
+    ? "This content could not be formatted. Open it to read the text."
+    : mode.writing
+      ? "This content could not be formatted while it is being written."
+      : mode.cappedPreview
+        ? "This preview could not be formatted. Open the conversation to read the complete answer."
+        : "This content could not be formatted. Its text is below.";
+
+function limitMarkdownDepth(
+  this: Processor,
+  options: MarkdownMode & { content: string; diagrams: boolean },
+) {
+  // Run before GFM's recursive autolink transform, not after parsing has
+  // already walked the entire tree. Retain the parser's grammar and positions.
+  const data = this.data();
+  const extensions =
+    data.fromMarkdownExtensions || (data.fromMarkdownExtensions = []);
+  extensions.unshift({
+    transforms: [
+      (tree) => {
+        if (options.compact)
+          compactMarkdown({ displays: options.diagrams })(tree);
+        for (const [index, block] of tree.children.entries()) {
+          const pending: { node: Nodes; depth: number }[] = [
+            { node: block, depth: 1 },
+          ];
+          let tooDeep = false;
+          while (pending.length) {
+            const { node, depth } = pending.pop()!;
+            if (depth > 128) {
+              tooDeep = true;
+              break;
+            }
+            if ("children" in node)
+              for (const child of node.children)
+                pending.push({ node: child, depth: depth + 1 });
+          }
+          if (!tooDeep) continue;
+          const children: Element[] = [
+            {
+              type: "element",
+              tagName: "p",
+              properties: { className: ["field-hint"] },
+              children: [
+                { type: "text", value: markdownFallbackNotice(options) },
+              ],
+            },
+          ];
+          const start = block.position?.start.offset;
+          const end = block.position?.end.offset;
+          if (
+            canShowMarkdownSource(options) &&
+            start !== undefined &&
+            end !== undefined
+          )
+            children.push({
+              type: "element",
+              tagName: "pre",
+              properties: {},
+              children: [
+                { type: "text", value: options.content.slice(start, end) },
+              ],
+            });
+          // Replace only the affected top-level block. Other prose and valid
+          // displays remain rendered; literal source is always an escaped text
+          // node and is never exposed for streaming or clipped content.
+          tree.children[index] = {
+            type: "paragraph",
+            children: [],
+            position: block.position,
+            data: {
+              hName: "div",
+              hProperties: { className: ["markdown-fallback"] },
+              hChildren: children,
+            },
+          };
+        }
+      },
+    ],
+  });
 }
 
 class MarkdownBoundary extends Component<
-  {
+  MarkdownMode & {
     content: string;
-    compact: boolean;
-    writing: boolean;
-    cappedPreview: boolean;
     children: ReactNode;
   },
   { failed: boolean }
@@ -246,18 +320,8 @@ class MarkdownBoundary extends Component<
   render() {
     return this.state.failed ? (
       <div className="markdown-fallback">
-        <p className="field-hint">
-          {this.props.compact
-            ? "This answer could not be formatted. Open it to read the text."
-            : this.props.writing
-              ? "This answer could not be formatted while it is being written."
-              : this.props.cappedPreview
-                ? "This preview could not be formatted. Open the conversation to read the complete answer."
-                : "This answer could not be formatted. Its text is below."}
-        </p>
-        {!this.props.compact &&
-          !this.props.writing &&
-          !this.props.cappedPreview && <pre>{this.props.content}</pre>}
+        <p className="field-hint">{markdownFallbackNotice(this.props)}</p>
+        {canShowMarkdownSource(this.props) && <pre>{this.props.content}</pre>}
       </div>
     ) : (
       this.props.children
@@ -388,15 +452,10 @@ export const RichText = memo(function RichText({
         >
           <Markdown
             remarkPlugins={[
-              ...(compact
-                ? [
-                    [compactMarkdown, { displays: diagrams }] as [
-                      typeof compactMarkdown,
-                      { displays: boolean },
-                    ],
-                  ]
-                : []),
-              limitMarkdownDepth,
+              [
+                limitMarkdownDepth,
+                { content, compact, diagrams, writing, cappedPreview },
+              ],
               remarkGfm,
               ...(diagrams
                 ? [

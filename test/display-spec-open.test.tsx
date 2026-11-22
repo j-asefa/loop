@@ -289,6 +289,25 @@ it("ignores deeply nested blocks outside the compact preview", () => {
   expect(html).not.toContain("Hidden.");
 });
 
+it("preserves summary and valid displays beside an excessively deep block", () => {
+  const content =
+    "Readable summary.\n\n```spec\n" +
+    block +
+    "\n```\n\n" +
+    "> ".repeat(10000) +
+    "Deep tail.";
+  for (const compact of [true, false]) {
+    const html = renderToStaticMarkup(
+      <RichText content={content} compact={compact} />,
+    );
+    expect(html).toContain("Readable summary.");
+    expect(html).toContain('class="display-title"');
+    expect(html).toContain("Weekly deploys");
+    expect(html).toContain("markdown-fallback");
+    expect(html).not.toContain("&quot;op&quot;");
+  }
+});
+
 it("does not expose source after an over-indented false closing fence", () => {
   for (const [opener, prefix, falseCloser, closer] of [
     ["   ```spec", "", "      ```", "```"],
