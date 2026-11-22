@@ -173,9 +173,13 @@ export function useAgentThreadFeed(
                     sweep.floor &&
                     feedItemOrder(floor, sweep.floor) > 0))
               ) {
-                if (sweep.gapUntil || sweep.rescanGap) page.next = old.next;
+                const exhaustedGap = older === old.next && !incoming.next;
+                if ((sweep.gapUntil || sweep.rescanGap) && !exhaustedGap)
+                  page.next = old.next;
                 progress.set(source, {
                   ...sweep,
+                  gapUntil: exhaustedGap ? undefined : sweep.gapUntil,
+                  rescanGap: exhaustedGap ? undefined : sweep.rescanGap,
                   floor: page.items.at(-1),
                   continuation: incoming.next,
                 });

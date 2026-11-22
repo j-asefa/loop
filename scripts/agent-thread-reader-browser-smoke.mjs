@@ -150,6 +150,7 @@ try {
         "pull",
         "pull-append",
         "pull-append-exhausted",
+        "gap-exhaustion",
         "pull-append-error",
         "pull-append-live",
         "pull-gap-replay",
@@ -206,6 +207,34 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
+      } else if (scenario === "gap-exhaustion") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        await more();
+        await expect(output).toContainText("first-A1");
+        await idle();
+        rows = [8, 7, 6, 5, 4, 3, 2, 1, 0];
+        failure = failHistoryOnly = true;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(notice).toContainText("Couldn’t load some agent threads", {
+          timeout: 20_000,
+        });
+        await idle();
+        failure = false;
+        for (const n of [7, 6, 5, 4, 3, 2, 1, 0]) {
+          await more();
+          await expect(output).toContainText("first-A" + n);
+          await idle();
+        }
+        await expect(
+          page.getByRole("button", { name: "More", exact: true }),
+        ).toBeDisabled();
+        await expect(notice).toContainText("Couldn’t load some agent threads", {
+          timeout: 20_000,
+        });
       } else if (scenario === "pull-append-exhausted") {
         holdNext = true;
         await more();

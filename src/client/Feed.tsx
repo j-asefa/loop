@@ -2338,11 +2338,7 @@ export function Feed({
           else historyReadErrors.current.delete(source);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            if (
-              !result.error &&
-              (retainHistory || refreshHistorySources.current.has(source))
-            )
-              followup.add(source);
+            if (!result.error && retainWindow) followup.add(source);
           } else {
             doneRefresh.current.sources.delete(source);
           }
