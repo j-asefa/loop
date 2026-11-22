@@ -7,6 +7,7 @@ export type DoneRefresh = {
   after: DonePosition;
   floor?: DonePosition;
   continuation?: string | null;
+  restart?: boolean;
 };
 const key = (item: DonePosition) =>
   JSON.stringify([
@@ -65,6 +66,7 @@ export async function refreshDonePage<
   // reach the old floor. A stale history read must not erase that new page.
   if (
     !progress ||
+    progress.restart ||
     feedItemOrder(firstLast, retained[0]) < 0 ||
     feedItemOrder(firstLast, oldest) >= 0
   )

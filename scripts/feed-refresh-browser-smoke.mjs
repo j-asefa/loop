@@ -388,6 +388,47 @@ for (const engine of selectedEngines()) {
     await expect(card("Recovered without another pull")).toHaveCount(1);
     await expect(card("History thread 0")).toHaveCount(1);
     await page.unroute(feedReads);
+    for (let i = 0; i < 105; i++) {
+      const id = "working-" + i;
+      seedConversation(db, {
+        id,
+        owner_id: owner,
+        agent_id: "astra",
+        title: "Working thread " + i,
+        created_at: at + i,
+      });
+      seedRun(db, {
+        id,
+        owner_id: owner,
+        agent_id: "astra",
+        conversation_id: id,
+        input: "Working thread " + i,
+        state: "running",
+        idempotency_key: id,
+        created_at: at + i,
+        updated_at: at + i,
+      });
+    }
+    await page.goto(fixture.origin + "/?filter=working");
+    await expect(card("Working thread 104")).toHaveCount(1);
+    await page.getByRole("button", { name: /Load more/i }).click();
+    await expect(card("Working thread 40")).toHaveCount(1);
+    let heldWorking;
+    const workingAppend = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "working" &&
+      url.searchParams.has("before");
+    await page.route(workingAppend, (route) => {
+      if (!heldWorking) heldWorking = route;
+      else return route.continue();
+    });
+    await page.getByRole("button", { name: /Load more/i }).click();
+    await expect.poll(() => !!heldWorking).toBe(true);
+    await pull();
+    await expect(card("Working thread 0")).toHaveCount(1);
+    await expect(card("Working thread 40")).toHaveCount(1);
+    await heldWorking.continue();
+    await page.unroute(workingAppend);
     console.log(
       `PASS ${engine.name()}: pull recovers both missing results, retains loaded history, retries failure, and preserves live delivery and automatic recovery`,
     );

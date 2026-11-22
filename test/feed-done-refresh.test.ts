@@ -154,28 +154,33 @@ it("keeps a new first page intact when remote removals shrink the loaded window"
   expect((await api.read(result.page.next!)).items[0]).toEqual(card(60));
 });
 
-it("restores the loaded-window continuation after reconciling a large new-result gap", async () => {
-  const loaded = history(100).slice(0, 95);
-  const continuation = JSON.stringify(loaded.at(-1));
-  const api = server(history(225));
-  let previous = { items: loaded, next: continuation as string | null };
-  let progress: DoneRefresh | undefined;
-  for (let cycle = 0; cycle < 8; cycle++) {
-    const result = await refreshDonePage(
-      api.read,
-      previous,
-      progress,
-      () => true,
-    );
-    previous = result.page;
-    progress = result.progress;
-    if (!progress) break;
-  }
-  expect(progress).toBeUndefined();
-  expect(previous.next).toBe(continuation);
-  expect(previous.items).toEqual(history(225).slice(0, 220));
-  expect((await api.read(previous.next!)).items).toEqual(history(5));
-});
+it.each([false, true])(
+  "restores the loaded-window continuation after a large gap (second pull: %s)",
+  async (secondPull) => {
+    const loaded = history(100).slice(0, 95);
+    const continuation = JSON.stringify(loaded.at(-1));
+    const api = server(history(225));
+    let previous = { items: loaded, next: continuation as string | null };
+    let progress: DoneRefresh | undefined;
+    for (let cycle = 0; cycle < 8; cycle++) {
+      const result = await refreshDonePage(
+        api.read,
+        previous,
+        progress,
+        () => true,
+      );
+      previous = result.page;
+      progress = result.progress;
+      if (secondPull && cycle === 0 && progress)
+        progress = { ...progress, restart: true };
+      if (!progress) break;
+    }
+    expect(progress).toBeUndefined();
+    expect(previous.next).toBe(continuation);
+    expect(previous.items).toEqual(history(225).slice(0, 220));
+    expect((await api.read(previous.next!)).items).toEqual(history(5));
+  },
+);
 
 it("rejects non-advancing history before it can schedule a reconciliation loop", async () => {
   const items = history(125);

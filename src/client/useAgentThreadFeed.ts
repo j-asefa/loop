@@ -65,7 +65,15 @@ export function useAgentThreadFeed(
     empty,
     collections: AGENT_THREAD_SURFACES,
     events: ["focus", "loop-refresh"],
-    restartOnRefresh: (page) => ({ ...page, progress: new Map() }),
+    restartOnRefresh: (page) => ({
+      ...page,
+      progress: new Map(
+        [...page.progress].map(([source, progress]) => [
+          source,
+          { ...progress, restart: true },
+        ]),
+      ),
+    }),
     coalesceDelay: 400,
     refreshDelay: () => 400,
     needsRefresh: (page) =>

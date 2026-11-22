@@ -1970,6 +1970,11 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
+    const retainWindow =
+      retainHistory ||
+      requestedSources.some((source) =>
+        refreshHistorySources.current.has(source),
+      );
     // Capture each failed operation before any source succeeds and clears it.
     // A partial retry must neither advance a healthy source nor borrow a later
     // cursor from another read. Head and append failures can coexist.
@@ -2030,7 +2035,7 @@ export function Feed({
       let result: Page;
       let partialError = "";
       let cached = cachedView<Shown>(shownKey());
-      let previous = retainHistory ? cached : undefined;
+      let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
       // A cold roster can reveal individual results before every first page
       // arrives, but it has no complete paging window to replace yet.
@@ -2203,7 +2208,7 @@ export function Feed({
         }
         if (appending || !previous) {
           const page = await read(before);
-          if (appending && retainHistory && cached) {
+          if (appending && retainWindow && cached) {
             const earlier = cached.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             );
@@ -2334,7 +2339,7 @@ export function Feed({
             // that source now, including an empty result; a slow peer cannot
             // retain rows that this source has already removed.
             const visible =
-              earlier && !retainHistory && page.next
+              earlier && !retainWindow && page.next
                 ? {
                     ...page,
                     next: earlier.next,
@@ -2365,7 +2370,7 @@ export function Feed({
             );
             if (hasPagingWindow) {
               cached = partial;
-              previous = retainHistory ? partial : undefined;
+              previous = retainWindow ? partial : undefined;
               cacheView(shownKey(), partial, owner);
               setNext(partial.next);
             }
@@ -2461,7 +2466,7 @@ export function Feed({
           const { source, page } = entry;
           // The outage fallback must include pages appended by Load more.
           const earlier =
-            pages.get(source.id)!.append && !retainHistory
+            pages.get(source.id)!.append && !retainWindow
               ? sourcePages.current.pages.get(source.id)?.items
               : undefined;
           const known = new Set(
@@ -2499,7 +2504,7 @@ export function Feed({
         partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
-        if (!append || retainHistory) {
+        if (!append || retainWindow) {
           settled.forEach((entry, index) => {
             const source = pending[index];
             if (entry.status !== "rejected") return;
@@ -2507,7 +2512,7 @@ export function Feed({
             if (page) loaded.push({ source, page });
           });
         }
-        if (append && retainHistory) {
+        if (append && retainWindow) {
           for (const source of activeSources) {
             if (loaded.some((item) => item.source.id === source.id)) continue;
             const page = sourcePages.current.pages.get(source.id);
@@ -2534,7 +2539,7 @@ export function Feed({
       const key = shownKey();
       setItems((old) => {
         const merged = pendingUnsaves(
-          append && !retainHistory
+          append && !retainWindow
             ? [
                 ...old,
                 ...result.items.filter(
@@ -2662,7 +2667,8 @@ export function Feed({
           pendingAppendSources.current.add(source);
       readRecovery.current.reset();
       retryPages.current.clear();
-      doneRefresh.current.sources.clear();
+      for (const [source, progress] of doneRefresh.current.sources)
+        doneRefresh.current.sources.set(source, { ...progress, restart: true });
       for (const reader of doneCards.current.values()) reader.restartRefresh();
       refreshHistorySources.current = new Set(
         activeSources.map((source) => source.id),
