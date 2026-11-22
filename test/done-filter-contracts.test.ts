@@ -9,7 +9,7 @@ import {
   seedRun,
 } from "./helpers/seed.js";
 
-it("keeps historical Done answers readable when preview Markdown is too deeply nested", async () => {
+it("keeps historical Done answers readable when preview Markdown is too deep or large", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
   const { db, owner, browser, request } = fixture;
   try {
@@ -32,6 +32,9 @@ it("keeps historical Done answers readable when preview Markdown is too deeply n
     const answers = [
       "An ordinary answer.",
       "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}',
+      '```spec\n{"value":"' +
+        "x".repeat(100000) +
+        '"}\n```\nAfter the display.',
     ];
     for (const [index, content] of answers.entries()) {
       seedRun(db, {
@@ -63,18 +66,24 @@ it("keeps historical Done answers readable when preview Markdown is too deeply n
     expect(response.status).toBe(200);
     const page = workspaceApi.cardList.response.parse(await response.json());
     expect(page.items.map(({ card }) => card.id)).toEqual([
+      "d:run:preview-run-2",
       "d:run:preview-run-1",
       "d:run:preview-run-0",
     ]);
-    const card = page.items[0].card;
-    expect(card.content).toBe(answers[1]);
-    if (card.type !== "done") throw new Error("Expected a Done card");
-    expect(card.display.last_message?.preview).toBe("Summary.");
-    expect(
-      db
-        .prepare("SELECT content FROM messages WHERE id=?")
-        .get("preview-answer-1"),
-    ).toEqual({ content: answers[1] });
+    for (const [position, answer, preview] of [
+      [0, 2, "After the display."],
+      [1, 1, "Summary."],
+    ] as const) {
+      const card = page.items[position].card;
+      expect(card.content).toBe(answers[answer]);
+      if (card.type !== "done") throw new Error("Expected a Done card");
+      expect(card.display.last_message?.preview).toBe(preview);
+      expect(
+        db
+          .prepare("SELECT content FROM messages WHERE id=?")
+          .get("preview-answer-" + answer),
+      ).toEqual({ content: answers[answer] });
+    }
   } finally {
     await fixture.close();
   }

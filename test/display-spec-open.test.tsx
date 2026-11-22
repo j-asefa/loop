@@ -236,15 +236,50 @@ it("drops closed and open spec blocks from other plain text", () => {
   expect(collapse(closed, 200)).toBe("Summary first. Then more words.");
 });
 
-it("keeps previews bounded and free of display source when Markdown cannot be parsed", () => {
-  for (const source of [
-    "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}',
-    'Summary.\n\n```spec\n{"value":"' + "x".repeat(100000) + '"}\n```\nAfter.',
+it("keeps previews readable and free of source when Markdown parsing is unsafe", () => {
+  for (const [source, expected] of [
+    ["Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}', "Summary."],
+    [
+      'Summary.\n\n```spec\n{"value":"' +
+        "x".repeat(100000) +
+        '"}\n```\nAfter.',
+      "Summary. After.",
+    ],
   ]) {
-    expect(collapse(source, 200)).toBe("Summary.");
-    expect(plainPreview(source)).toBe("Summary.");
-    expect(searchExcerpt(source, "", "")).toBe("Summary.");
+    expect(collapse(source, 200)).toBe(expected);
+    expect(plainPreview(source)).toBe(expected);
+    expect(searchExcerpt(source, "", "")).toBe(expected);
   }
+});
+
+it("retains searchable prose around oversized closed fences", () => {
+  for (const [opener, prefix, closer] of [
+    ["```spec", "", "```"],
+    ["> ~~~~spec", "> ", "> ~~~~"],
+    ["- ```spec", "  ", "  ```"],
+  ]) {
+    const source =
+      `${opener}\n` +
+      prefix +
+      JSON.stringify({ value: "x".repeat(100000) }) +
+      `\n${closer}\nSearchable conclusion.`;
+    expect(collapse(source, 200)).toBe("Searchable conclusion.");
+    expect(searchExcerpt(source, "", "conclusion")).toBe(
+      "Searchable conclusion.",
+    );
+  }
+  const prose = "Readable specifications. ".repeat(4000) + "Final needle.";
+  const source = "```js\nconst value = 1;\n```\n" + prose;
+  expect(collapse(source, 200)).toContain("Readable specifications.");
+  expect(searchExcerpt(source, "", "needle")).toContain("Final needle.");
+});
+
+it("ignores deeply nested blocks outside the compact preview", () => {
+  const source =
+    "Normal paragraph.\n\n".repeat(6) + "> ".repeat(150) + "Hidden.";
+  const html = renderToStaticMarkup(<RichText content={source} compact />);
+  expect(html.match(/Normal paragraph/g)).toHaveLength(6);
+  expect(html).not.toContain("Hidden.");
 });
 
 it("preserves prose after long closed fences in plain previews", () => {

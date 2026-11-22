@@ -37,10 +37,43 @@ export function plainPreview(text: string, length = 140) {
 
 /**
  * Removes display source from previews, including open blocks and blocks
- * nested in Markdown containers. Other code is left alone.
+ * nested in Markdown containers. Normal parsing leaves other code alone;
+ * oversized or unparseable input falls back to prose outside fenced blocks.
  */
 export function dropSpecBlocks(text: string) {
   return dropFencedBlocks(text, false);
+}
+
+/** Linear, conservative prose fallback: omit fenced source without parsing it. */
+export function markdownFallbackText(text: string) {
+  const kept: string[] = [];
+  let open: { marker: string; quotes: number; indent: number } | undefined;
+  for (const [line] of text.matchAll(/[^\r\n]*(?:\r\n?|\n|$)/g)) {
+    const fence = /(`{3,}|~{3,})/.exec(line);
+    const prefix = fence ? line.slice(0, fence.index) : "";
+    // Accept quote/list containers without recursively interpreting them.
+    const possible =
+      fence && /^(?:[ \t>]|[-+*][ \t]|\d{1,9}[.)][ \t])*$/.test(prefix);
+    if (!open) {
+      if (possible)
+        open = {
+          marker: fence[0],
+          quotes: prefix.split(">").length - 1,
+          indent: prefix.replace(/\t/g, "    ").length,
+        };
+      else kept.push(line);
+    } else if (
+      possible &&
+      fence[0][0] === open.marker[0] &&
+      fence[0].length >= open.marker.length &&
+      /^[ \t>]*$/.test(prefix) &&
+      prefix.split(">").length - 1 === open.quotes &&
+      prefix.replace(/\t/g, "    ").length <= open.indent + 3 &&
+      /^[ \t\r\n]*$/.test(line.slice(fence.index + fence[0].length))
+    )
+      open = undefined;
+  }
+  return kept.join("");
 }
 
 function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
@@ -54,16 +87,9 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
   const keep = (span: string) =>
     includeBacktickCode ? span.replace(/```[\s\S]*?```/g, " ") : span;
   // Preview generation must not prevent the stored answer from being read.
-  // If parsing is unsafe, retain only bounded prose before the first possible
-  // fence's line; returning raw input here could expose display JSON.
-  const fallback = () => {
-    const fence = text.search(/```|~~~/);
-    const end = Math.max(
-      text.lastIndexOf("\n", fence),
-      text.lastIndexOf("\r", fence),
-    );
-    return keep(text.slice(0, Math.min(end + 1, PREVIEW_MARKDOWN_LIMIT)));
-  };
+  // If parsing is unsafe, omit all fenced source with a linear scanner while
+  // retaining prose after closed blocks. Returning raw input can expose JSON.
+  const fallback = () => keep(markdownFallbackText(text));
   if (text.length > PREVIEW_MARKDOWN_LIMIT) return fallback();
   let pending: MarkdownNode[];
   try {

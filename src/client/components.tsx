@@ -45,6 +45,7 @@ import remarkGfm from "remark-gfm";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./json";
+import { markdownFallbackText, plainPreview } from "../shared/text";
 import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
@@ -225,24 +226,31 @@ function limitMarkdownDepth() {
 }
 
 class MarkdownBoundary extends Component<
-  { content: string; children: ReactNode },
+  { content: string; compact: boolean; children: ReactNode },
   { failed: boolean }
 > {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  componentDidUpdate(previous: Readonly<{ content: string }>) {
-    if (this.state.failed && previous.content !== this.props.content)
+  componentDidUpdate(previous: Readonly<{ children: ReactNode }>) {
+    // RichText recreates children when content or rendering context changes.
+    if (this.state.failed && previous.children !== this.props.children)
       this.setState({ failed: false });
   }
   render() {
     return this.state.failed ? (
       <div className="markdown-fallback">
         <p className="field-hint">
-          This answer could not be formatted. Its text is below.
+          {this.props.compact
+            ? "Open this answer to read its text."
+            : "This answer could not be formatted. Its text is below."}
         </p>
-        <pre>{this.props.content}</pre>
+        {this.props.compact ? (
+          <p>{plainPreview(markdownFallbackText(this.props.content), 600)}</p>
+        ) : (
+          <pre>{this.props.content}</pre>
+        )}
       </div>
     ) : (
       this.props.children
@@ -365,9 +373,17 @@ export const RichText = memo(function RichText({
   return (
     <div className="markdown">
       <DisplayWritingContext.Provider value={writing}>
-        <MarkdownBoundary content={content}>
+        <MarkdownBoundary content={content} compact={compact}>
           <Markdown
             remarkPlugins={[
+              ...(compact
+                ? [
+                    [compactMarkdown, { displays: diagrams }] as [
+                      typeof compactMarkdown,
+                      { displays: boolean },
+                    ],
+                  ]
+                : []),
               limitMarkdownDepth,
               remarkGfm,
               ...(diagrams
@@ -387,14 +403,6 @@ export const RichText = memo(function RichText({
                   ]
                 : []),
               ...(math?.remark || []),
-              ...(compact
-                ? [
-                    [compactMarkdown, { displays: diagrams }] as [
-                      typeof compactMarkdown,
-                      { displays: boolean },
-                    ],
-                  ]
-                : []),
             ]}
             rehypePlugins={math?.rehype}
             components={renderers}

@@ -250,10 +250,13 @@ for (const engine of selectedEngines()) {
       seal(done, malformed);
       await page.reload({ waitUntil: "networkidle" });
       await expect(card.locator(".markdown-fallback")).toBeVisible();
-      assert.equal(
-        await card.locator(".markdown-fallback pre").textContent(),
-        malformed,
+      await expect(card.locator(".markdown-fallback")).toContainText(
+        "Summary.",
       );
+      await expect(card.locator(".markdown-fallback")).not.toContainText(
+        '"op"',
+      );
+      await expect(card.locator(".markdown-fallback pre")).toHaveCount(0);
       await card.evaluate((element) => {
         element.dataset.recoveryProbe = "mounted";
       });
