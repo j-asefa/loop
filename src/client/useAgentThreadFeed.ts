@@ -111,10 +111,14 @@ export function useAgentThreadFeed(
         !signal.aborted &&
         generation === viewGeneration() &&
         owner === viewOwner();
+      const requested =
+        before === undefined
+          ? undefined
+          : new Map(JSON.parse(before) as [string, string][]);
       await Promise.all(
         sources.map(async (source) => {
           const old = pages.get(source)!;
-          const older = appendCursor(old, progress.get(source));
+          const older = requested?.get(source);
           if (before !== undefined && !older) return;
           const read = async (before?: string): Promise<Page> => {
             const page = await readRoute(
@@ -151,7 +155,14 @@ export function useAgentThreadFeed(
                 ].sort(feedItemOrder),
               };
               const sweep = progress.get(source);
-              if (sweep && older === historyContinuation(old, sweep)) {
+              const floor = page.items.at(-1);
+              if (
+                sweep &&
+                (older === historyContinuation(old, sweep) ||
+                  (floor &&
+                    sweep.floor &&
+                    feedItemOrder(floor, sweep.floor) > 0))
+              ) {
                 if (sweep.gapUntil || sweep.rescanGap) page.next = old.next;
                 progress.set(source, {
                   ...sweep,

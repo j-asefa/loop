@@ -275,6 +275,7 @@ export function usePagedProjectionQuery<
       historyInvalidated = false,
       refreshAfter = 0;
     let retryBefore: C | undefined;
+    let interruptedBefore: C | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       pending = true;
@@ -347,8 +348,14 @@ export function usePagedProjectionQuery<
           if (!stale()) {
             if (complete && needsRefresh?.(current)) pending = true;
             // Readers retain a separate append cursor while reconciling gaps.
-            const append = complete && appendPending ? current.next : null;
-            if (complete) appendPending = false;
+            const append =
+              complete && appendPending
+                ? (interruptedBefore ?? current.next)
+                : null;
+            if (complete) {
+              appendPending = false;
+              interruptedBefore = undefined;
+            }
             if (append !== null) void load(append);
             else if (pending) schedule();
           }
@@ -368,6 +375,11 @@ export function usePagedProjectionQuery<
         if (restartOnRefresh && !stale()) {
           const resumeAppend =
             appendPending || (busy && retryBefore !== undefined);
+          if (interruptedBefore === undefined && resumeAppend)
+            interruptedBefore =
+              busy && retryBefore !== undefined
+                ? retryBefore
+                : (current.next ?? undefined);
           requestEpoch++;
           reader.cancel();
           busy = false;
@@ -405,6 +417,7 @@ export function usePagedProjectionQuery<
       pendingManual = false;
       urgent = false;
       appendPending = false;
+      interruptedBefore = undefined;
       setState((old) => ({ ...old, loading: false, appending: false }));
     };
     const show = () => {

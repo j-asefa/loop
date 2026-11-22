@@ -49,6 +49,7 @@ try {
   let failHeadOnly = false;
   let failHistoryOnly = false;
   let movingHead = false;
+  let allowedHistoryCursor;
   const requests = [];
   const row = (source, n, agent) => ({
     id: "thread-" + n,
@@ -114,14 +115,16 @@ try {
         failure &&
         source === "A" &&
         (!failHeadOnly || before === null) &&
-        (!failHistoryOnly || before !== null)
+        (!failHistoryOnly || before !== null) &&
+        before !== allowedHistoryCursor
           ? { error: "Agent threads unavailable" }
           : { items: n === undefined ? [] : [row(source, n, agent)], next };
       const status =
         failure &&
         source === "A" &&
         (!failHeadOnly || before === null) &&
-        (!failHistoryOnly || before !== null)
+        (!failHistoryOnly || before !== null) &&
+        before !== allowedHistoryCursor
           ? 503
           : 200;
       const reply = () => send(status, body);
@@ -148,6 +151,7 @@ try {
         "pull-append",
         "pull-append-error",
         "pull-append-live",
+        "pull-gap-replay",
         "history-error",
         "history-error-reopen",
         "history-error-exhausted",
@@ -160,6 +164,7 @@ try {
     failHeadOnly = false;
     failHistoryOnly = false;
     movingHead = false;
+    allowedHistoryCursor = undefined;
     stuck = false;
     holdNext = false;
     holdBefore = undefined;
@@ -219,6 +224,7 @@ try {
           timeout: 12_000,
         });
         movingHead = false;
+        allowedHistoryCursor = undefined;
         await idle();
         if (failHeadOnly) {
           await expect(notice).toContainText(
@@ -316,6 +322,39 @@ try {
         await page.waitForTimeout(100);
         await expect(output).not.toContainText(":initial");
         await idle();
+      } else if (scenario === "pull-gap-replay") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        await more();
+        await expect(output).toContainText("first-A1");
+        await idle();
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        failure = failHistoryOnly = true;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A8", { timeout: 15_000 });
+        await idle();
+        failure = false;
+        holdNext = true;
+        await more();
+        await expect.poll(() => held.length).toBe(1);
+        rows = [12, 11, 10, 9, ...rows];
+        epoch = "second-pull";
+        failure = true;
+        allowedHistoryCursor = "8";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A7:second-pull", {
+          timeout: 20_000,
+        });
+        await expect(output).not.toContainText("first-A11");
+        await expect(notice).toContainText("Couldn’t load some agent threads");
+        held.shift()();
+        await page.waitForTimeout(100);
+        await expect(output).toContainText("first-A7:second-pull");
       } else if (scenario === "notification-rescan") {
         await more();
         await expect(output).toContainText("first-A2");
