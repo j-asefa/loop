@@ -21,6 +21,7 @@ type Query = NonNullable<
   RouteInput<typeof workspaceApi.agentThreadFeed>["query"]
 >;
 type Window = {
+  refreshSources?: readonly string[];
   pages: Map<string, Page>;
   progress: Map<string, DoneRefresh>;
   errors: Map<string, string>;
@@ -82,6 +83,7 @@ export function useAgentThreadFeed(
     events: ["focus", "loop-refresh"],
     restartOnRefresh: (page) => ({
       ...page,
+      refreshSources: undefined,
       progress: new Map(
         [...page.progress].map(([source, progress]) => [
           source,
@@ -89,12 +91,20 @@ export function useAgentThreadFeed(
         ]),
       ),
     }),
-    invalidateHistory: (page) => ({
+    invalidateHistory: (page, sources) => ({
       ...page,
+      refreshSources: [
+        ...new Set([
+          ...sources,
+          ...[...page.progress.keys()].filter(
+            (source) => !page.errors.has(source),
+          ),
+        ]),
+      ],
       progress: new Map(
         [...page.progress].map(([source, progress]) => [
           source,
-          { ...progress, rescan: true },
+          sources.includes(source) ? { ...progress, rescan: true } : progress,
         ]),
       ),
     }),
@@ -117,6 +127,13 @@ export function useAgentThreadFeed(
           : new Map(JSON.parse(before) as [string, string][]);
       await Promise.all(
         sources.map(async (source) => {
+          if (
+            before === undefined &&
+            mode !== "manual" &&
+            previous.refreshSources &&
+            !previous.refreshSources.includes(source)
+          )
+            return;
           const old = pages.get(source)!;
           const older = requested?.get(source);
           if (
@@ -231,6 +248,9 @@ export function useAgentThreadFeed(
         }),
       );
       return {
+        refreshSources: [...progress.keys()].filter(
+          (source) => !errors.has(source),
+        ),
         pages,
         progress,
         errors,

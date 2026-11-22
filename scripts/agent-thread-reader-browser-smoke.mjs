@@ -46,6 +46,8 @@ try {
     stuck = false,
     holdNext = false;
   let holdBefore;
+  let holdSource = "A",
+    otherRows = [1];
   let failHeadOnly = false;
   let failHistoryOnly = false;
   let movingHead = false;
@@ -102,7 +104,7 @@ try {
       requests.push({ source, agent, before });
       if (movingHead && source === "A" && before === null)
         rows.unshift(rows[0] + 1);
-      const selected = source === "A" ? rows : [1];
+      const selected = source === "A" ? rows : otherRows;
       const start = before === null ? 0 : selected.indexOf(Number(before)) + 1;
       const n = selected[start],
         next =
@@ -128,7 +130,7 @@ try {
           ? 503
           : 200;
       const reply = () => send(status, body);
-      if ((holdNext || before === holdBefore) && source === "A") {
+      if ((holdNext || before === holdBefore) && source === holdSource) {
         holdNext = false;
         holdBefore = undefined;
         held.push(reply);
@@ -159,6 +161,7 @@ try {
         "history-error-exhausted",
         "history-error-exhausted-reopen",
         "notification-rescan",
+        "notification-source",
         "scope",
       ]) {
     rows = [3, 2, 1];
@@ -170,6 +173,9 @@ try {
     stuck = false;
     holdNext = false;
     holdBefore = undefined;
+    holdSource = "A";
+    otherRows = [1];
+    if (scenario === "notification-source") otherRows = [6, 5, 4, 3, 2, 1];
     requests.length = 0;
     epoch = "initial";
     const context = await browser.newContext(),
@@ -184,7 +190,7 @@ try {
     try {
       await page.goto("http://127.0.0.1:" + server.address().port);
       await expect(output).toContainText("first-A3");
-      await expect(output).toContainText("first-B1");
+      await expect(output).toContainText("first-B" + otherRows[0]);
       await idle();
       if (scenario === "window") {
         await more();
@@ -402,6 +408,37 @@ try {
         held.shift()();
         await page.waitForTimeout(100);
         await expect(output).toContainText("first-A7:second-pull");
+      } else if (scenario === "notification-source") {
+        for (let n = 5; n >= 1; n--) {
+          await more();
+          await expect(output).toContainText("first-B" + n);
+          await idle();
+        }
+        requests.length = 0;
+        holdSource = "B";
+        holdBefore = "6";
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await expect.poll(() => held.length).toBe(1);
+        await page.evaluate(() => {
+          window.sourcePulse = setInterval(
+            () =>
+              window.dispatchEvent(
+                new CustomEvent("loop-workspace-change", {
+                  detail: { sources: [""] },
+                }),
+              ),
+            50,
+          );
+        });
+        held.shift()();
+        await page.waitForTimeout(4000);
+        await page.evaluate(() => clearInterval(window.sourcePulse));
+        await idle();
+        assert.equal(
+          requests.filter((r) => r.source === "B" && r.before === "6").length,
+          1,
+          "A notifications must not restart B's completed history sweep",
+        );
       } else if (scenario === "notification-rescan") {
         await more();
         await expect(output).toContainText("first-A2");

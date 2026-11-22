@@ -1413,7 +1413,27 @@ export function Feed({
     JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
   const activeView = useRef<string | null>(null);
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
-  const shown = cachedView<Shown>(shownKey());
+  // Cache eviction must not discard the paging window still mounted on screen.
+  const mountedShown = useRef<
+    { key: string; generation: number; page: Shown } | undefined
+  >(undefined);
+  const readShown = (key = shownKey()) => {
+    const saved = cachedView<Shown>(key);
+    if (saved) return saved;
+    const mounted = mountedShown.current;
+    return mounted?.key === key && mounted.generation === viewGeneration()
+      ? mounted.page
+      : undefined;
+  };
+  const cacheShown = (key: string, page: Shown, owner: string | undefined) => {
+    if (owner !== viewOwner() || generation !== viewGeneration()) return;
+    if (activeView.current === JSON.stringify([owner, key]))
+      mountedShown.current = { key, generation, page };
+    cacheView(key, page, owner);
+  };
+  const shown = readShown();
+  if (shown)
+    mountedShown.current = { key: shownKey(), generation, page: shown };
   // Recorded locations, keyed by source and connection id: ids from
   // different sources can collide.
   const environments = useMemo(
@@ -1992,10 +2012,10 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
-    const priorView = cachedView<Shown>(shownKey());
+    const priorView = readShown();
     const historyExpanded = append || priorView?.historyExpanded === true;
     if (append && priorView && !priorView.historyExpanded)
-      cacheView(
+      cacheShown(
         shownKey(),
         { ...priorView, historyExpanded: true },
         viewOwner(),
@@ -2086,7 +2106,7 @@ export function Feed({
       let result: Page;
       let partialError = "";
 
-      let cached = cachedView<Shown>(shownKey());
+      let cached = readShown();
       let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
       // A cold roster can reveal individual results before every first page
@@ -2174,7 +2194,7 @@ export function Feed({
               // from this source, even if the fresh list/summary then fails.
               const keep = (item: FeedItem) =>
                 (item.sourceId ?? scopedSource) !== source;
-              const saved = cachedView<Shown>(shownKey());
+              const saved = readShown();
               if (saved) {
                 const cursors = combined ? JSON.parse(saved.next || "{}") : {};
                 delete cursors[source];
@@ -2187,7 +2207,7 @@ export function Feed({
                       : null,
                 };
                 previous = cached;
-                cacheView(shownKey(), cached, owner);
+                cacheShown(shownKey(), cached, owner);
                 setNext(cached.next);
               }
               if (sourcePages.current.key === pagesKey()) {
@@ -2420,19 +2440,40 @@ export function Feed({
           const attempt = pages.get(source.id)!;
           if (attempt.append && attempt.before)
             activeAppendSources.current.set(source.id, attempt.before);
-          const incoming = await readPage(
-            (before) =>
-              readProjectionPage(
-                source.id,
-                query(before),
-                manual,
-                pages.get(source.id)!.append,
-              ),
-            source.id,
-            pages.get(source.id)!.before,
-          );
+          let incoming: Page;
+          try {
+            incoming = await readPage(
+              (before) =>
+                readProjectionPage(
+                  source.id,
+                  query(before),
+                  manual,
+                  pages.get(source.id)!.append,
+                ),
+              source.id,
+              pages.get(source.id)!.before,
+            );
+          } catch (error) {
+            if (!isCurrent() || (error as Error).name === "AbortError")
+              throw error;
+            if (attempt.append) {
+              retryPages.current.set(source.id, pages.get(source.id)!);
+              throw error;
+            }
+            const interrupted = pendingAppendSources.current.get(source.id);
+            if (!interrupted) throw error;
+            pendingAppendSources.current.delete(source.id);
+            historyReadErrors.current.set(source.id, error as Error);
+            // Let the interrupted page use the source after its cooldown;
+            // another head retry must not keep extending that same cooldown.
+            readRecovery.current.reset(source.id, JSON.stringify(query()));
+            setReadError((error as Error).message);
+            pages.set(source.id, { append: true, before: interrupted });
+            return readSource(source);
+          }
           if (!isCurrent()) return { source, page: incoming };
           activeAppendSources.current.delete(source.id);
+          retryPages.current.delete(source.id);
           const page = {
             ...incoming,
             items: pendingUnsaves(incoming.items, source.id),
@@ -2479,7 +2520,7 @@ export function Feed({
             if (hasPagingWindow) {
               cached = partial;
               previous = retainWindow ? partial : undefined;
-              cacheView(shownKey(), { ...partial, historyExpanded }, owner);
+              cacheShown(shownKey(), { ...partial, historyExpanded }, owner);
               setNext(partial.next);
             }
             setItems(partial.items);
@@ -2511,7 +2552,9 @@ export function Feed({
               const source = activeSources.find((source) => source.id === id)!;
               pendingRefresh.current.sources.delete(id);
               headSources.current.add(id);
-              if (pages.get(id)!.append) pages.set(id, { append: false });
+              const retry = retryPages.current.get(id);
+              if (retry?.append) pages.set(id, retry);
+              else if (pages.get(id)!.append) pages.set(id, { append: false });
               return readSource(source);
             },
             isCurrent,
@@ -2683,7 +2726,7 @@ export function Feed({
               (a.sourceId || "").localeCompare(b.sourceId || "") ||
               feedItemOrder(a, b),
           );
-        cacheView<Shown>(
+        cacheShown(
           key,
           {
             items: merged,
@@ -2737,7 +2780,7 @@ export function Feed({
     setReadError("");
     retryPages.current.clear();
     itemsSelection.current = shownKey();
-    const cached = cachedView<Shown>(shownKey());
+    const cached = readShown();
     // The first render already shows the cached list; a filter change swaps
     // to that filter's cached list, or a loader.
     if (!firstLoad.current) {
@@ -2990,9 +3033,9 @@ export function Feed({
     };
     const update = (change: (items: FeedItem[]) => FeedItem[]) => {
       if (owner !== viewOwner()) return;
-      const cached = cachedView<Shown>(key);
+      const cached = readShown(key);
       if (cached)
-        cacheView(key, { ...cached, items: change(cached.items) }, owner);
+        cacheShown(key, { ...cached, items: change(cached.items) }, owner);
       const page =
         sourcePages.current.key === pagesKey()
           ? sourcePages.current.pages.get(source)
@@ -3243,9 +3286,9 @@ export function Feed({
           ? { ...row, last_message: { ...row.last_message, saved } }
           : row,
       );
-    const cached = cachedView<Shown>(shownKey());
+    const cached = readShown();
     if (cached)
-      cacheView(
+      cacheShown(
         shownKey(),
         { ...cached, items: change(cached.items) },
         viewOwner(),

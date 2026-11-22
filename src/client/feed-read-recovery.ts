@@ -16,9 +16,11 @@ export class FeedReadRecovery<T> {
   private pending = new Map<string, Pending>();
   private generation = viewGeneration();
 
-  reset(source?: string) {
+  reset(source?: string, page?: string) {
     for (const [key, entry] of this.pending) {
       if (source !== undefined && source !== entry.source) continue;
+      if (page !== undefined && key !== JSON.stringify([source, page]))
+        continue;
       this.pending.delete(key);
       entry.reader.dispose();
       entry.reject(new DOMException("Obsolete Feed read", "AbortError"));

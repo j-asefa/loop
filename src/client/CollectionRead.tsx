@@ -196,7 +196,7 @@ type PagedOptions<P, C> = {
   /** An explicit pull can cancel a stalled read and restart reconciliation
    * from the retained window. Background notifications remain coalesced. */
   restartOnRefresh?: (page: P) => P;
-  invalidateHistory?: (page: P) => P;
+  invalidateHistory?: (page: P, sources: readonly string[]) => P;
   empty: P;
   collections: QueryOptions["collections"];
   read: (
@@ -272,8 +272,8 @@ export function usePagedProjectionQuery<
       pending = false,
       urgent = false,
       pendingManual = false,
-      historyInvalidated = false,
       refreshAfter = 0;
+    const historyInvalidated = new Set<string>();
     let retryBefore: C | undefined;
     let interruptedBefore: C | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -293,9 +293,10 @@ export function usePagedProjectionQuery<
       busy = true;
       retryBefore = before;
       if (before === undefined) {
-        if (historyInvalidated)
-          current = invalidateHistory?.(current) ?? current;
-        historyInvalidated = false;
+        if (historyInvalidated.size)
+          current =
+            invalidateHistory?.(current, [...historyInvalidated]) ?? current;
+        historyInvalidated.clear();
         pending = false;
         urgent = false;
         pendingManual = false;
@@ -367,7 +368,15 @@ export function usePagedProjectionQuery<
         event as CustomEvent<ClientEvents["loop-workspace-change"]>
       ).detail?.sources;
       if (sources && !sourceList.some((item) => sources.includes(item))) return;
-      historyInvalidated = true;
+      for (const source of sourceList)
+        if (
+          (!sources || sources.includes(source)) &&
+          (!collections?.length ||
+            collections.some((collection) =>
+              workspaceChangeAffects(event, collection, source),
+            ))
+        )
+          historyInvalidated.add(source);
       if (event.type === "loop-refresh") {
         urgent = true;
         clearTimeout(timer);

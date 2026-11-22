@@ -154,3 +154,28 @@ it("a manual page replaces only its recovery and preserves head recovery on both
   expect(recovered).toHaveBeenCalledTimes(2);
   reads.reset();
 });
+
+it("pauses only the failed head while an interrupted page recovers", async () => {
+  const reads = new FeedReadRecovery<string>(),
+    head = controlled(),
+    older = controlled(),
+    peer = controlled(),
+    recovered = vi.fn();
+  const failures = Promise.allSettled([
+    reads.read("one", "head", head.fetch, recovered),
+    reads.read("one", "older", older.fetch, recovered),
+    reads.read("two", "head", peer.fetch, recovered),
+  ]);
+  for (const read of [head, older, peer]) read.retry(new Error("retry"));
+  await failures;
+  reads.reset("one", "head");
+  expect(head.aborted()).toBe(true);
+  expect(older.aborted()).toBe(false);
+  expect(peer.aborted()).toBe(false);
+  head.resolve("obsolete head");
+  older.resolve("older page");
+  peer.resolve("peer head");
+  await Promise.all([head.result, older.result, peer.result]);
+  expect(recovered).toHaveBeenCalledTimes(2);
+  reads.reset();
+});

@@ -36,7 +36,9 @@ const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
 let feedFailSlow = false;
 let feedRevision = 0;
-let feedPageRows = [3, 2, 1];
+let feedPageRows = [4, 3, 2, 1, 0];
+let failPaginationHead = false;
+const paginationReads = [];
 let feedPagination = false,
   holdOlder = false,
   releaseOlder;
@@ -71,7 +73,7 @@ try {
     import { useAppController } from ${JSON.stringify(resolve("src/client/app/AppController.tsx"))};
     import { Feed } from ${JSON.stringify(resolve("src/client/Feed.tsx"))};
     import { loadCapabilities } from ${JSON.stringify(resolve("src/client/capabilities.ts"))};
-    import { setViewOwner } from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
+    import { setViewOwner, cacheView } from ${JSON.stringify(resolve("src/client/viewCache.ts"))};
     import { setShellSource } from ${JSON.stringify(resolve("src/client/sourceRouting.ts"))};
     await loadCapabilities();
     const root = createRoot(document.getElementById("root"));
@@ -88,6 +90,7 @@ try {
       return React.createElement("output",null,JSON.stringify({owner:model.session?.user?.id,selected:model.selected,share:model.sharedDraft,context:model.replyContext,folder:model.folderChoice}));
     }
     window.showSources = owner => root.render(React.createElement(Sources,{owner}));
+    window.evictFeedCache = () => {for(let i=0;i<60;i++)cacheView("eviction-"+i,{},"measured-feed");};
     window.showFeed = () => {
       setViewOwner("measured-feed");setShellSource("");
       root.render(React.createElement(Feed,{filter:"working",onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
@@ -235,6 +238,13 @@ try {
         }
         const paginated = feedPagination && source.id === sources[1].id;
         const older = paginated && url.searchParams.has("before");
+        if (paginated) paginationReads.push(url.searchParams.get("before"));
+        if (paginated && !older && failPaginationHead) {
+          reply({ error: "Synthetic head unavailable" }, 503, {
+            "retry-after": "1",
+          });
+          return;
+        }
         const index = older
           ? feedPageRows.indexOf(Number(url.searchParams.get("before"))) + 1
           : 0;
@@ -375,6 +385,7 @@ try {
   mode = "feed";
   hold = true;
   const feedStart = performance.now();
+  await page.waitForFunction(() => typeof window.showFeed === "function");
   await page.evaluate(() => window.showFeed());
   await page
     .locator(".feed-results .feed-row")
@@ -450,11 +461,19 @@ try {
   const moreFeed = page.getByRole("button", { name: /Load more/i });
   await expect(moreFeed).toBeVisible();
   await expect(page.locator(".feed-results .feed-row")).toHaveCount(9);
+  await page.evaluate(() => window.evictFeedCache());
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
   holdOlder = true;
   await moreFeed.click();
   await expect.poll(() => !!releaseOlder).toBe(true);
   hold = true;
-  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1, 0];
   await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
   await expect(
     page.getByText("Older Machine 1 updated 2", { exact: true }),
@@ -478,6 +497,39 @@ try {
   pending.clear();
   releaseOlder();
   console.log("Interrupted healthy pagination passed: " + engineName);
+  await expect
+    .poll(() => paginationReads.filter((before) => before === "3").length)
+    .toBeGreaterThanOrEqual(3);
+  await expect.poll(() => feedMetrics.active).toBe(0);
+  await expect(moreFeed).toBeEnabled();
+  releaseOlder = undefined;
+  holdOlder = true;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  hold = true;
+  failPaginationHead = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(page.getByText("Older Machine 1 updated 1", { exact: true }))
+    .toBeVisible({ timeout: 20_000 })
+    .catch((error) => {
+      console.error("Pagination requests", JSON.stringify(paginationReads));
+      throw error;
+    });
+  await expect(page.getByRole("alert")).toContainText(
+    "Synthetic head unavailable",
+  );
+  assert(
+    hold && pending.size > 0,
+    "A failed replacement head does not block available pagination behind a stalled peer",
+  );
+  failPaginationHead = false;
+  hold = false;
+  for (const release of pending) release();
+  pending.clear();
+  releaseOlder();
+  console.log(
+    "Cache eviction and failed-head pagination passed: " + engineName,
+  );
 
   if (!feedOnly) {
     mode = "needs";
