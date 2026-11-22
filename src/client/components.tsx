@@ -41,10 +41,11 @@ import {
   AlarmClock,
 } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
-import type { Nodes } from "mdast";
+import type { Definition, Nodes, Paragraph, Text } from "mdast";
 import type { Element } from "hast";
 import type { Processor } from "unified";
 import remarkGfm from "remark-gfm";
+import { dropSpecBlocks } from "../shared/text";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./json";
@@ -225,7 +226,7 @@ const markdownFallbackNotice = (mode: MarkdownMode) =>
       ? "This content could not be formatted while it is being written."
       : mode.cappedPreview
         ? "This preview could not be formatted. Open the conversation to read the complete answer."
-        : "This content could not be formatted. Its text is below.";
+        : "This content could not be formatted.";
 
 function limitMarkdownDepth(
   this: Processor,
@@ -241,22 +242,52 @@ function limitMarkdownDepth(
       (tree) => {
         if (options.compact)
           compactMarkdown({ displays: options.diagrams })(tree);
-        for (const [index, block] of tree.children.entries()) {
-          const pending: { node: Nodes; depth: number }[] = [
-            { node: block, depth: 1 },
-          ];
-          let tooDeep = false;
-          while (pending.length) {
-            const { node, depth } = pending.pop()!;
-            if (depth > 128) {
-              tooDeep = true;
-              break;
-            }
-            if ("children" in node)
-              for (const child of node.children)
-                pending.push({ node: child, depth: depth + 1 });
+        // Definitions apply to the whole document. Keep their original order
+        // even if the branch containing one needs a formatting fallback.
+        const definitions: Definition[] = [];
+        const scan: Nodes[] = [tree];
+        while (scan.length) {
+          const node = scan.pop()!;
+          if (node.type === "definition") definitions.push(node);
+          if ("children" in node)
+            for (let i = node.children.length - 1; i >= 0; i--)
+              scan.push(node.children[i]);
+        }
+        type Entry = { node: Nodes; depth: number; parent?: Entry };
+        const pending: Entry[] = [{ node: tree, depth: 0 }];
+        let replaced = false;
+        while (pending.length) {
+          const entry = pending.pop()!;
+          const { node, depth } = entry;
+          if (!("children" in node)) continue;
+          if (depth < 128) {
+            for (const child of node.children)
+              pending.push({ node: child, depth: depth + 1, parent: entry });
+            continue;
           }
-          if (!tooDeep) continue;
+          replaced = true;
+          // Keep the fallback readable: 128 quote/list margins can consume
+          // the entire viewport even though the resulting tree is safe.
+          for (
+            let ancestor: Entry | undefined = entry;
+            ancestor;
+            ancestor = ancestor.parent
+          ) {
+            const container = ancestor.node;
+            if (
+              container.type !== "blockquote" &&
+              container.type !== "list" &&
+              container.type !== "listItem"
+            )
+              continue;
+            container.data = {
+              ...container.data,
+              hProperties: {
+                ...container.data?.hProperties,
+                style: "margin:0;padding:0;border:0",
+              },
+            };
+          }
           const children: Element[] = [
             {
               type: "element",
@@ -267,35 +298,67 @@ function limitMarkdownDepth(
               ],
             },
           ];
-          const start = block.position?.start.offset;
-          const end = block.position?.end.offset;
-          if (
+          const start = node.position?.start.offset;
+          const end = node.position?.end.offset;
+          const source =
             canShowMarkdownSource(options) &&
             start !== undefined &&
             end !== undefined
-          )
+              ? dropSpecBlocks(options.content.slice(start, end))
+              : "";
+          if (source.trim())
             children.push({
               type: "element",
               tagName: "pre",
               properties: {},
-              children: [
-                { type: "text", value: options.content.slice(start, end) },
-              ],
+              children: [{ type: "text", value: source }],
             });
-          // Replace only the affected top-level block. Other prose and valid
-          // displays remain rendered; literal source is always an escaped text
-          // node and is never exposed for streaming or clipped content.
-          tree.children[index] = {
+          // Retain the ancestors and siblings, including displays in the same
+          // quote/list. Keep each container's required child shape valid.
+          const paragraph: Paragraph = {
             type: "paragraph",
             children: [],
-            position: block.position,
             data: {
               hName: "div",
               hProperties: { className: ["markdown-fallback"] },
               hChildren: children,
             },
           };
+          const text: Text = {
+            type: "text",
+            value:
+              markdownFallbackNotice(options) + (source ? "\n" + source : ""),
+            data: {
+              hName: "span",
+              hProperties: { className: ["markdown-fallback"] },
+            },
+          };
+          switch (node.type) {
+            case "root":
+            case "blockquote":
+            case "listItem":
+            case "footnoteDefinition":
+              node.children = [paragraph];
+              break;
+            case "list":
+              node.children = [{ type: "listItem", children: [paragraph] }];
+              break;
+            case "table":
+              node.children = [
+                {
+                  type: "tableRow",
+                  children: [{ type: "tableCell", children: [text] }],
+                },
+              ];
+              break;
+            case "tableRow":
+              node.children = [{ type: "tableCell", children: [text] }];
+              break;
+            default:
+              node.children = [text];
+          }
         }
+        if (replaced) tree.children.unshift(...definitions);
       },
     ],
   });
@@ -409,6 +472,8 @@ export const RichText = memo(function RichText({
                   content={content}
                   diagrams={false}
                   compact={compact}
+                  writing={writing}
+                  cappedPreview={cappedPreview}
                 />
               )}
             />
@@ -439,7 +504,7 @@ export const RichText = memo(function RichText({
         );
       },
     }),
-    [diagrams, compact, sourceId],
+    [diagrams, compact, sourceId, writing, cappedPreview],
   );
   return (
     <div className="markdown">

@@ -308,6 +308,47 @@ it("preserves summary and valid displays beside an excessively deep block", () =
   }
 });
 
+it("keeps displays beside deep branches inside the same quote or list", () => {
+  const inner =
+    "```spec\n" + block + "\n```\n\n" + "> ".repeat(150) + "Deep tail.";
+  for (const content of [
+    inner
+      .split("\n")
+      .map((line) => "> " + line)
+      .join("\n"),
+    "- Summary.\n\n" +
+      inner
+        .split("\n")
+        .map((line) => "  " + line)
+        .join("\n"),
+  ]) {
+    for (const compact of [true, false]) {
+      const html = renderToStaticMarkup(
+        <RichText content={content} compact={compact} />,
+      );
+      expect(html).toContain('class="display-title"');
+      expect(html).toContain("Weekly deploys");
+      expect(html).toContain("markdown-fallback");
+      expect(html).not.toContain("&quot;op&quot;");
+    }
+  }
+});
+
+it("keeps reference definitions in deep branches with first-definition precedence", () => {
+  for (const prefix of ["", "[g]: https://first.example\n\n"]) {
+    const content =
+      prefix +
+      "See [guide][g].\n\n" +
+      "> ".repeat(150) +
+      "[g]: https://deep.example\n\n[g]: https://last.example";
+    const html = renderToStaticMarkup(<RichText content={content} />);
+    expect(html).toContain(
+      `href="https://${prefix ? "first" : "deep"}.example"`,
+    );
+    expect(html).toContain(">guide</a>");
+  }
+});
+
 it("does not expose source after an over-indented false closing fence", () => {
   for (const [opener, prefix, falseCloser, closer] of [
     ["   ```spec", "", "      ```", "```"],

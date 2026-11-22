@@ -76,13 +76,17 @@ async function boundaryModes(context, base, errors) {
     await expect(fallback.locator("pre")).toHaveCount(0);
     await expect(fallback).not.toContainText('"op"');
   }
-  // The same content is readable when it is complete and no longer clipped.
+  // Display source stays hidden even when the answer is complete.
   await page.evaluate((props) => window.renderBoundary(props), {
     content,
     writing: false,
     cappedPreview: false,
   });
-  await expect(page.locator(".markdown-fallback pre")).toHaveText(content);
+  await expect(page.locator(".markdown-fallback .field-hint")).toHaveText(
+    "This content could not be formatted.",
+  );
+  await expect(page.locator(".markdown-fallback pre")).toHaveCount(0);
+  await expect(page.locator(".markdown-fallback")).not.toContainText('"op"');
 
   // Changing only rendering context retries formatting without replacing the
   // surrounding Markdown element; compact mode omits the deep seventh block.
@@ -92,8 +96,11 @@ async function boundaryModes(context, base, errors) {
     contextual,
   );
   await expect(page.locator(".markdown-fallback")).toBeVisible();
-  await expect(page.locator(".markdown-fallback pre")).toHaveText(
-    quote + "Hidden.",
+  await expect(page.locator(".markdown-fallback pre")).toContainText("Hidden.");
+  assert.ok(
+    contextual.endsWith(
+      await page.locator(".markdown-fallback pre").textContent(),
+    ),
   );
   await page.locator(".markdown").evaluate((element) => {
     element.dataset.contextProbe = "mounted";
@@ -129,14 +136,36 @@ async function boundaryModes(context, base, errors) {
     );
     await expect(page.locator(".markdown")).toContainText("Readable summary.");
     const fallback = page.locator(".markdown-fallback");
-    await expect(fallback).toContainText(
-      compact ? "Open it to read the text." : "Its text is below.",
+    await expect(fallback.locator(".field-hint")).toHaveText(
+      compact
+        ? "This content could not be formatted. Open it to read the text."
+        : "This content could not be formatted.",
     );
-    if (compact) {
-      await expect(fallback.locator("pre")).toHaveCount(0);
-      await expect(fallback).not.toContainText('"op"');
-    } else await expect(fallback.locator("pre")).toHaveText(content);
+    await expect(fallback.locator("pre")).toHaveCount(0);
+    await expect(fallback).not.toContainText('"op"');
   }
+  // A display and link definition share the container with a deep branch.
+  const contained =
+    "See [guide][g].\n\n" +
+    mixed
+      .replace(content, quote + "Deep tail.")
+      .split("\n")
+      .map((line) => "> " + line)
+      .join("\n") +
+    "\n> " +
+    quote +
+    "\n> " +
+    quote +
+    "[g]: https://example.com/guide";
+  await page.evaluate(
+    (content) => window.renderBoundary({ content }),
+    contained,
+  );
+  await expect(
+    page.getByRole("link", { name: "guide", exact: true }),
+  ).toHaveAttribute("href", "https://example.com/guide");
+  await expect(page.locator(".display-title")).toHaveText("Surviving display");
+  await expect(page.locator(".markdown-fallback")).not.toContainText('"op"');
   await page.close();
 }
 
@@ -389,10 +418,12 @@ for (const engine of selectedEngines()) {
       await card.locator(".feed-row").click();
       const failedReader = page.locator("dialog.feed-reading-sheet[open]");
       await expect(failedReader.locator(".markdown-fallback")).toBeVisible();
-      assert.equal(
-        await failedReader.locator(".markdown-fallback pre").textContent(),
-        malformed.slice("Summary.\n\n".length),
+      await expect(failedReader.locator(".markdown-fallback pre")).toHaveCount(
+        0,
       );
+      await expect(
+        failedReader.locator(".markdown-fallback"),
+      ).not.toContainText('"op"');
       await expect(failedReader.locator(".markdown")).toContainText("Summary.");
       await failedReader
         .getByRole("button", { name: "Close", exact: true })
