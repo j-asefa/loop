@@ -236,9 +236,16 @@ it("drops closed and open spec blocks from other plain text", () => {
   expect(collapse(closed, 200)).toBe("Summary first. Then more words.");
 });
 
-it("keeps previews readable and free of source when Markdown parsing is unsafe", () => {
+it("keeps deeply nested and large previews readable without display source", () => {
   for (const [source, expected] of [
-    ["Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}', "Summary."],
+    [
+      "Summary.\n\n" +
+        "> ".repeat(10000) +
+        "```spec\n" +
+        "> ".repeat(10000) +
+        '{"op":"add"}',
+      "Summary.",
+    ],
     [
       'Summary.\n\n```spec\n{"value":"' +
         "x".repeat(100000) +
@@ -295,6 +302,38 @@ it("does not expose source after an over-indented false closing fence", () => {
     expect(collapse(source, 200)).toBe("After.");
     expect(plainPreview(source)).toBe("After.");
   }
+});
+
+it("uses Markdown grammar for oversized indented code, list continuations and inline spans", () => {
+  const padding = "x".repeat(100000);
+  const sources = [
+    // The first opener is ordinary indented code; the second is a real fence.
+    "    ```spec\n    Example.\n\n```spec\n" +
+      padding +
+      '\n    ```\n{"op":"private-display-source"}\n```\nReadable conclusion.',
+    // A continuation line inherits list indentation even without a list marker.
+    '- item\n\n  ```spec\n  {"value":"' +
+      padding +
+      '"}\n    ```\n\nReadable conclusion.',
+    // Backticks in the info text prevent this from being a fence opener.
+    "```spec``` is the display syntax.\n\n" +
+      padding +
+      "\nReadable conclusion.",
+  ];
+  for (const source of sources) {
+    expect(dropSpecBlocks(source)).toContain("Readable conclusion.");
+    expect(dropSpecBlocks(source)).not.toContain("private-display-source");
+    expect(searchExcerpt(source, "", "conclusion")).toContain(
+      "Readable conclusion.",
+    );
+  }
+});
+
+it("retains GFM table cell syntax while extracting fenced blocks", () => {
+  const source =
+    "| Example |\n| --- |\n```spec``` is inline syntax.\n\n" +
+    "Readable prose. ".repeat(6000);
+  expect(dropSpecBlocks(source)).toBe(source);
 });
 
 it("preserves prose after long closed fences in plain previews", () => {

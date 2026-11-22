@@ -8,9 +8,18 @@ const markdown = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkChatMath)
+  .use(function blockPositionsOnly() {
+    // Fence extraction needs the parser's block grammar and positions, not
+    // inline rewrites. GFM's autolink transform recursively walks the full AST
+    // and overflows on deep quotes before our iterative traversal can run.
+    const data = this.data();
+    data.fromMarkdownExtensions = data.fromMarkdownExtensions
+      ?.flat()
+      .map((extension) => ({ ...extension, transforms: [] }));
+  })
   .freeze();
 type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
-const PREVIEW_MARKDOWN_LIMIT = 64 * 1024;
+const UNPARSED_PREVIEW_LIMIT = 64 * 1024;
 
 /** Classify a bounded, raw fence language token, decoding references if present. */
 export function isDisplayFenceToken(token: string) {
@@ -37,65 +46,10 @@ export function plainPreview(text: string, length = 140) {
 
 /**
  * Removes display source from previews, including open blocks and blocks
- * nested in Markdown containers. Normal parsing leaves other code alone;
- * oversized or unparseable input falls back to prose outside fenced blocks.
+ * nested in Markdown containers. Other code is left alone.
  */
 export function dropSpecBlocks(text: string) {
   return dropFencedBlocks(text, false);
-}
-
-/** Linear, conservative prose fallback: omit fenced source without parsing it. */
-export function markdownFallbackText(text: string) {
-  const kept: string[] = [];
-  let open: { marker: string; prefix: string } | undefined;
-  const closesContainer = (opening: string, closing: string) => {
-    // Continuation lines replace list markers with equally wide indentation.
-    // Do not count an opener's optional indentation as extra closing padding:
-    // six spaces before a root fence are code, not a closing fence.
-    const continued = opening.replace(/[-+*]|\d{1,9}[.)]/g, (marker) =>
-      " ".repeat(marker.length),
-    );
-    if (closing === continued) return true;
-    if (
-      /(?:[-+*]|\d{1,9}[.)]) {1,4}$/.test(opening) &&
-      closing.startsWith(continued) &&
-      /^ {0,3}$/.test(closing.slice(continued.length))
-    )
-      return true;
-    // Without lists, each quote permits its optional space plus at most three
-    // spaces before the next marker. A root fence permits only three spaces.
-    const parts = closing.split(">");
-    return (
-      /^[ >]*$/.test(opening) &&
-      /^[ >]*$/.test(closing) &&
-      parts.length === opening.split(">").length &&
-      parts.every((part, index) => part.length <= (index ? 4 : 3))
-    );
-  };
-  for (const [line] of text.matchAll(/[^\r\n]*(?:\r\n?|\n|$)/g)) {
-    const fence = /(`{3,}|~{3,})/.exec(line);
-    const prefix = fence ? line.slice(0, fence.index) : "";
-    // Accept quote/list containers without recursively interpreting them.
-    const possible =
-      fence && /^(?:[ \t>]|[-+*][ \t]|\d{1,9}[.)][ \t])*$/.test(prefix);
-    if (!open) {
-      if (possible)
-        open = {
-          marker: fence[0],
-          prefix,
-        };
-      else kept.push(line);
-    } else if (
-      possible &&
-      fence[0][0] === open.marker[0] &&
-      fence[0].length >= open.marker.length &&
-      /^[ \t>]*$/.test(prefix) &&
-      closesContainer(open.prefix, prefix) &&
-      /^[ \t\r\n]*$/.test(line.slice(fence.index + fence[0].length))
-    )
-      open = undefined;
-  }
-  return kept.join("");
 }
 
 function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
@@ -108,17 +62,20 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
   // A removed block must not cause its preceding and following markers to pair.
   const keep = (span: string) =>
     includeBacktickCode ? span.replace(/```[\s\S]*?```/g, " ") : span;
-  // Preview generation must not prevent the stored answer from being read.
-  // If parsing is unsafe, omit all fenced source with a linear scanner while
-  // retaining prose after closed blocks. Returning raw input can expose JSON.
-  const fallback = () => keep(markdownFallbackText(text));
-  if (text.length > PREVIEW_MARKDOWN_LIMIT) return fallback();
   let pending: MarkdownNode[];
   try {
     pending = markdown.parse(text).children.reverse();
   } catch {
-    // Bounded input can still exceed the parser's recursive nesting limit.
-    return fallback();
+    // Unexpected parser failures must not make a stored answer unreadable.
+    // Only this failure path uses a conservative, bounded prose prefix: raw
+    // input here could expose display JSON. Ordinary long answers still use
+    // the full Markdown grammar and retain prose after their fenced blocks.
+    const fence = text.search(/```|~~~/);
+    const end = Math.max(
+      text.lastIndexOf("\n", fence),
+      text.lastIndexOf("\r", fence),
+    );
+    return keep(text.slice(0, Math.min(end + 1, UNPARSED_PREVIEW_LIMIT)));
   }
   let end = 0;
   while (pending.length) {

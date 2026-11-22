@@ -45,7 +45,6 @@ import remarkGfm from "remark-gfm";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./json";
-import { markdownFallbackText, plainPreview } from "../shared/text";
 import { runModelName } from "./modelChoices";
 import { RunStatus } from "./RunStatus";
 import { useSheetDrag } from "./useSheetDrag";
@@ -243,14 +242,10 @@ class MarkdownBoundary extends Component<
       <div className="markdown-fallback">
         <p className="field-hint">
           {this.props.compact
-            ? "Open this answer to read its text."
+            ? "This answer could not be formatted. Open it to read the text."
             : "This answer could not be formatted. Its text is below."}
         </p>
-        {this.props.compact ? (
-          <p>{plainPreview(markdownFallbackText(this.props.content), 600)}</p>
-        ) : (
-          <pre>{this.props.content}</pre>
-        )}
+        {!this.props.compact && <pre>{this.props.content}</pre>}
       </div>
     ) : (
       this.props.children

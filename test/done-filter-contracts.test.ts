@@ -31,7 +31,11 @@ it("keeps historical Done answers readable when preview Markdown is too deep or 
     });
     const answers = [
       "An ordinary answer.",
-      "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}',
+      "Summary.\n\n" +
+        "> ".repeat(10000) +
+        "```spec\n" +
+        "> ".repeat(10000) +
+        '{"op":"add"}',
       '```spec\n{"value":"' +
         "x".repeat(100000) +
         '"}\n```\nAfter the display.',

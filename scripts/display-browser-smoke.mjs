@@ -246,12 +246,16 @@ for (const engine of selectedEngines()) {
 
       // A readable API response must also survive Markdown render failures.
       const malformed =
-        "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}';
+        "Summary.\n\n" +
+        "> ".repeat(10000) +
+        "```spec\n" +
+        "> ".repeat(10000) +
+        '{"op":"add"}';
       seal(done, malformed);
       await page.reload({ waitUntil: "networkidle" });
       await expect(card.locator(".markdown-fallback")).toBeVisible();
       await expect(card.locator(".markdown-fallback")).toContainText(
-        "Summary.",
+        "Open it to read the text.",
       );
       await expect(card.locator(".markdown-fallback")).not.toContainText(
         '"op"',
