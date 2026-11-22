@@ -98,10 +98,10 @@ export async function refreshDonePage<
           ...first,
           items: [...items.values()].sort(feedItemOrder),
           next:
-            previous.next !== continuation
-              ? previous.next
-              : feedItemOrder(firstLast, retained[0]) < 0
-                ? progress.before
+            feedItemOrder(firstLast, retained[0]) < 0
+              ? progress.before
+              : previous.next !== continuation
+                ? previous.next
                 : next,
         },
         progress: { ...progress, rescan },

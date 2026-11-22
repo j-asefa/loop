@@ -429,3 +429,26 @@ it("keeps an exposed gap reachable across repeated history failures", async () =
   expect((await api.read(gap!)).items[0]).toEqual(card(185));
   expect(result.error?.message).toBe("history unavailable");
 });
+
+it("a newer failed pull exposes its new gap ahead of an earlier failed gap", async () => {
+  let items = history(225);
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return server(items).read();
+  };
+  const initial = {
+    items: history(100).slice(0, 95),
+    next: JSON.stringify(card(6)),
+  };
+  let result = await refreshDonePage(read, initial, undefined, () => true);
+  items = history(300);
+  result = await refreshDonePage(
+    read,
+    result.page,
+    { ...result.progress!, restart: true },
+    () => true,
+  );
+  expect((await server(items).read(result.page.next!)).items[0]).toEqual(
+    card(260),
+  );
+});

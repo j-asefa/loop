@@ -33,7 +33,7 @@ export class FeedReadRecovery<T> {
       onRetry: (error: unknown) => void,
     ) => Promise<T>,
     recovered: () => void,
-    manual = false,
+    replaceRecovery = false,
   ): Promise<T> {
     if (this.generation !== viewGeneration()) {
       this.reset();
@@ -44,7 +44,7 @@ export class FeedReadRecovery<T> {
     const prior = this.pending.get(key);
     // Further notifications retain the source's error while the same recovery
     // is running. They cannot multiply retry loops or wait behind that loop.
-    if (prior?.retrying && !manual) return Promise.reject(prior.error);
+    if (prior?.retrying && !replaceRecovery) return Promise.reject(prior.error);
     if (prior) {
       this.pending.delete(key);
       prior.reader.dispose();

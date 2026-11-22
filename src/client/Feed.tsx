@@ -1361,6 +1361,7 @@ export function Feed({
     query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
     purpose = "",
     manual = false,
+    replaceRecovery = false,
   ) => {
     const { known: _known, ...page } = query;
     const context = activeView.current;
@@ -1380,7 +1381,7 @@ export function Feed({
         if (generation === viewGeneration() && context === activeView.current)
           recoverSource.current(source);
       },
-      manual,
+      manual || replaceRecovery,
     );
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
@@ -1388,9 +1389,10 @@ export function Feed({
     source: string,
     query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
     manual = false,
+    replaceRecovery = false,
   ) => {
     const read = (known?: string) =>
-      readSnapshot(source, { ...query, known }, "", manual);
+      readSnapshot(source, { ...query, known }, "", manual, replaceRecovery);
     return projectionPages.current.read(source, JSON.stringify(query), read);
   };
   const activeSources: AgentSource[] = doneAgent
@@ -2345,7 +2347,8 @@ export function Feed({
               readProjectionPage(
                 source.id,
                 query(before),
-                manual || pages.get(source.id)!.append,
+                manual,
+                pages.get(source.id)!.append,
               ),
             source.id,
             pages.get(source.id)!.before,
@@ -2559,7 +2562,8 @@ export function Feed({
             readProjectionPage(
               scopedSource,
               query(before),
-              manual || pages.get(scopedSource)!.append,
+              manual,
+              pages.get(scopedSource)!.append,
             ),
           scopedSource,
           pages.get(scopedSource)!.before,
