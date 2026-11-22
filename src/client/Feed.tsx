@@ -1799,6 +1799,9 @@ export function Feed({
     key: "",
     sources: new Map(),
   });
+  // An explicit pull reconciles every already-loaded interval through bounded
+  // trailing reads. Background notifications keep the usual two-page budget.
+  const refreshHistorySources = useRef(new Set<string>());
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
     const ticketGeneration = needsRequest.current;
@@ -2230,9 +2233,13 @@ export function Feed({
           current,
         );
         if (current()) {
-          if (result.progress)
+          if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-          else doneRefresh.current.sources.delete(source);
+            if (refreshHistorySources.current.has(source)) followup.add(source);
+          } else {
+            doneRefresh.current.sources.delete(source);
+            refreshHistorySources.current.delete(source);
+          }
         }
         return result.page;
       };
@@ -2608,6 +2615,7 @@ export function Feed({
     return () => {
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
+      refreshHistorySources.current.clear();
       ++request.current;
       ++needsRequest.current;
       needsSourceRequests.current.clear();
@@ -2642,6 +2650,9 @@ export function Feed({
       // the loaded card window and restart each source's bounded recovery.
       readRecovery.current.reset();
       retryPages.current.clear();
+      refreshHistorySources.current = new Set(
+        activeSources.map((source) => source.id),
+      );
       void load();
     });
     const stopChanges = listenWorkspaceChanges("feed", (event) => {

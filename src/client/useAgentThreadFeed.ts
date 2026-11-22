@@ -62,7 +62,7 @@ export function useAgentThreadFeed(
     enabled,
     empty,
     collections: AGENT_THREAD_SURFACES,
-    events: ["focus"],
+    events: ["focus", "loop-refresh"],
     coalesceDelay: 400,
     refreshDelay: () => 400,
     needsRefresh: (page) =>

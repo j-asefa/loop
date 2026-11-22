@@ -1,6 +1,7 @@
 // Fixture-only: lose collection notifications, then exercise the actual pull
 // gesture against the compiled UI. Published answers use the production writer.
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
 import {
   seedAgent,
@@ -10,6 +11,7 @@ import {
 } from "../test/helpers/seed.ts";
 import { cardsFixture } from "../test/helpers/cards-fixture.ts";
 import { publishCompletedRunResult } from "../src/server/result-publication.ts";
+import { insert as insertLaterItem } from "../src/server/sql/later-items.ts";
 import { chromiumExecutable, selectedEngines } from "./helpers/engines.mjs";
 
 for (const engine of selectedEngines()) {
@@ -67,6 +69,16 @@ for (const engine of selectedEngines()) {
     };
     for (let i = 0; i < 55; i++)
       publish("old-" + i, "astra", "Retained answer " + i, at + i);
+    const group = randomUUID();
+    const grouped = await fixture.request("/api/feed/threads", {
+      headers: fixture.browser,
+      body: {
+        id: group,
+        title: "Grouped old answers",
+        cardIds: ["d:run:old-40", "d:run:old-41"],
+      },
+    });
+    assert.equal(grouped.status, 200);
     browser = await engine.launch({
       headless: true,
       executablePath: chromiumExecutable(engine),
@@ -130,11 +142,17 @@ for (const engine of selectedEngines()) {
     };
     await page.goto(fixture.origin + "/?filter=done");
     await expect(card("Retained answer 54")).toHaveCount(1);
+    await expect(card("Grouped old answers")).toHaveCount(1);
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("Retained answer 0")).toHaveCount(1);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
     // Let any previously queued read finish before injecting missing results.
     await page.waitForTimeout(3500);
+    const ungrouped = await fixture.request("/api/feed/threads/" + group, {
+      method: "DELETE",
+      headers: fixture.browser,
+    });
+    assert.equal(ungrouped.status, 200);
     publish("new-gemini", "gemini", "Recovered Gemini answer");
     publish("new-astra", "astra", "Recovered Astra answer");
     await page.waitForTimeout(3500);
@@ -146,6 +164,8 @@ for (const engine of selectedEngines()) {
       timeout: 10_000,
     });
     await expect(card("Recovered Astra answer")).toHaveCount(1);
+    await expect(card("Grouped old answers")).toHaveCount(0);
+    await expect(card("Retained answer 41")).toHaveCount(1);
     await expect(card("Retained answer 0")).toHaveCount(1);
     assert(
       doneRequests.length > before,
@@ -193,21 +213,38 @@ for (const engine of selectedEngines()) {
     };
     // Agent profiles use filter=all. Their loaded thread pages must survive a
     // pull too, including when the first page is already fully populated.
-    for (let i = 0; i < 55; i++)
+    for (let i = 0; i < 105; i++)
       publishThread("history-" + i, "History thread " + i, at + i);
     await page.goto(fixture.origin + "/?agent=astra");
     await expect(
       page.getByText("No results yet.", { exact: true }),
     ).toBeVisible();
     await page.getByRole("tab", { name: "Threads", exact: true }).click();
-    await expect(card("History thread 54")).toHaveCount(1);
+    await expect(card("History thread 104")).toHaveCount(1);
+    await page.getByRole("button", { name: /Load more/i }).click();
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 0")).toHaveCount(1);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
+    // A thread on the third page leaves this view on another device. The pull
+    // must reconcile that deep interval without another notification or gesture.
+    insertLaterItem(
+      db,
+      randomUUID(),
+      owner,
+      "conversation",
+      "history-10",
+      "time",
+      Date.now() + 3_600_000,
+      null,
+      Date.now(),
+    );
     publishThread("pulled-thread", "New thread recovered by pull");
     await pull();
     await expect(card("New thread recovered by pull")).toHaveCount(1);
     await expect(card("History thread 0")).toHaveCount(1);
+    await expect(
+      feed.getByRole("heading", { name: "History thread 10", exact: true }),
+    ).toHaveCount(0);
     await page.evaluate(() => (window.__suppressFeedNotifications = false));
     // This view also uses the shared bounded read recovery. Observe the old
     // read's cancellation so an already scheduled retry cannot satisfy the test.
