@@ -1380,6 +1380,7 @@ export function Feed({
         if (generation === viewGeneration() && context === activeView.current)
           recoverSource.current(source);
       },
+      manual,
     );
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
@@ -2008,8 +2009,6 @@ export function Feed({
       refreshReadingSources.current?.(requestedSources);
       return;
     }
-    if (append && !background)
-      for (const source of requestedSources) readRecovery.current.reset(source);
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
@@ -2342,7 +2341,12 @@ export function Feed({
           if (!isCurrent())
             throw new DOMException("Feed read superseded", "AbortError");
           const incoming = await readPage(
-            (before) => readProjectionPage(source.id, query(before), manual),
+            (before) =>
+              readProjectionPage(
+                source.id,
+                query(before),
+                manual || pages.get(source.id)!.append,
+              ),
             source.id,
             pages.get(source.id)!.before,
           );
@@ -2551,7 +2555,12 @@ export function Feed({
         result = assemble(loaded, nextCursors);
       } else {
         result = await readPage(
-          (before) => readProjectionPage(scopedSource, query(before), manual),
+          (before) =>
+            readProjectionPage(
+              scopedSource,
+              query(before),
+              manual || pages.get(scopedSource)!.append,
+            ),
           scopedSource,
           pages.get(scopedSource)!.before,
         );
@@ -2591,7 +2600,8 @@ export function Feed({
         return merged;
       });
       for (const [source, error] of historyReadErrors.current) {
-        retryPages.current.set(source, { append: false });
+        if (!retryPages.current.get(source)?.append)
+          retryPages.current.set(source, { append: false });
         if (combined) sourcePages.current.failures.add(source);
         partialError ||= error.message;
       }

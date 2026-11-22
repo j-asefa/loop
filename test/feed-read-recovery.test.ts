@@ -126,3 +126,31 @@ it("releases exhausted retries without inventing another retry loop", async () =
   ).resolves.toBe("manual refresh");
   expect(slow.aborted()).toBe(true);
 });
+
+it("a manual page replaces only its recovery and preserves head recovery on both sources", async () => {
+  const reads = new FeedReadRecovery<string>();
+  const firstHead = controlled(),
+    secondHead = controlled(),
+    older = controlled();
+  const recovered = vi.fn();
+  const pending = Promise.allSettled([
+    reads.read("first", "head", firstHead.fetch, recovered),
+    reads.read("second", "head", secondHead.fetch, recovered),
+    reads.read("second", "older", older.fetch, recovered),
+  ]);
+  for (const read of [firstHead, secondHead, older])
+    read.retry(new Error("unavailable"));
+  await pending;
+  await expect(
+    reads.read("second", "older", async () => "manual page", recovered, true),
+  ).resolves.toBe("manual page");
+  expect(older.aborted()).toBe(true);
+  expect(firstHead.aborted()).toBe(false);
+  expect(secondHead.aborted()).toBe(false);
+  firstHead.resolve("recovered first");
+  secondHead.resolve("recovered second");
+  older.resolve("obsolete older");
+  await Promise.all([firstHead.result, secondHead.result, older.result]);
+  expect(recovered).toHaveBeenCalledTimes(2);
+  reads.reset();
+});

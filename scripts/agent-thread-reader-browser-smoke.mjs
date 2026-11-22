@@ -47,6 +47,7 @@ try {
     holdNext = false;
   let holdBefore;
   let failHeadOnly = false;
+  let failHistoryOnly = false;
   let movingHead = false;
   const requests = [];
   const row = (source, n, agent) => ({
@@ -110,11 +111,17 @@ try {
               ? String(n)
               : null;
       const body =
-        failure && source === "A" && (!failHeadOnly || before === null)
+        failure &&
+        source === "A" &&
+        (!failHeadOnly || before === null) &&
+        (!failHistoryOnly || before !== null)
           ? { error: "Agent threads unavailable" }
           : { items: n === undefined ? [] : [row(source, n, agent)], next };
       const status =
-        failure && source === "A" && (!failHeadOnly || before === null)
+        failure &&
+        source === "A" &&
+        (!failHeadOnly || before === null) &&
+        (!failHistoryOnly || before !== null)
           ? 503
           : 200;
       const reply = () => send(status, body);
@@ -141,11 +148,13 @@ try {
         "pull-append",
         "pull-append-error",
         "pull-append-live",
+        "history-error",
         "scope",
       ]) {
     rows = [3, 2, 1];
     failure = false;
     failHeadOnly = false;
+    failHistoryOnly = false;
     movingHead = false;
     stuck = false;
     holdNext = false;
@@ -223,6 +232,29 @@ try {
         await page.waitForTimeout(100);
         await expect(output).not.toContainText(":initial");
         await expect(output).toContainText("first-A2:after-pull");
+      } else if (scenario === "history-error") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        failure = failHistoryOnly = true;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A8", { timeout: 15_000 });
+        await expect(notice).toContainText("Couldn’t load some agent threads");
+        await idle();
+        failure = false;
+        await more();
+        await expect(output).toContainText("first-A1");
+        await idle();
+        await expect(output).not.toContainText("first-A7");
+        await expect(notice).toContainText("Couldn’t load some agent threads");
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A7");
+        await expect(notice).toBeEmpty();
       } else if (scenario === "pull") {
         await more();
         await expect(output).toContainText("first-A2:initial");

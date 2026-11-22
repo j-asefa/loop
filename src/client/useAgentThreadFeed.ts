@@ -148,6 +148,9 @@ export function useAgentThreadFeed(
               page = refreshed.page;
               if (refreshed.progress) progress.set(source, refreshed.progress);
               else progress.delete(source);
+              // A successful older-page append cannot repair a failed scan
+              // of the loaded window. Keep this refresh error until that scan
+              // succeeds, otherwise gaps could remain with no warning.
               if (refreshed.error && current()) {
                 pages.set(source, page);
                 cacheView(cacheKey(source), page, owner);
