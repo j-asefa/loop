@@ -2637,6 +2637,13 @@ export function Feed({
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
     const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", () => {
+      // A deliberate pull refreshes the head even after a failed append. Keep
+      // the loaded card window, but give each source a fresh read attempt.
+      readRecovery.current.reset();
+      retryPages.current.clear();
+      void load(false, false, undefined, true);
+    });
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
       const affected: string[] = activeSources
         .filter((source) => workspaceChangeAffects(event, "feed", source.id))
@@ -2663,6 +2670,7 @@ export function Feed({
       stopLaterEvent();
       stopSocialEvent();
       stopSourceEvent();
+      stopRefreshEvent();
       stopChanges();
       clearTimeout(doneCatchup.current);
     };
