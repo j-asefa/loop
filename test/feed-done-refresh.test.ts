@@ -482,3 +482,31 @@ it("keeps a gap reachable after an intermediate success and a later failure", as
   expect(result.page.next).toBe(gap);
   expect((await api.read(result.page.next!)).items[0]).toEqual(card(280));
 });
+
+it("finishes a new burst above an already active history sweep", async () => {
+  const original = history(200);
+  let result = await refreshDonePage(
+    server(original).read,
+    { items: original, next: null },
+    undefined,
+    () => true,
+  );
+  result = await refreshDonePage(
+    server(original).read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  const changed = history(300);
+  for (let cycle = 0; cycle < 15; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(changed);
+});

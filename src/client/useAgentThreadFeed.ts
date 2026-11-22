@@ -79,6 +79,15 @@ export function useAgentThreadFeed(
         ]),
       ),
     }),
+    invalidateHistory: (page) => ({
+      ...page,
+      progress: new Map(
+        [...page.progress].map(([source, progress]) => [
+          source,
+          { ...progress, rescan: true },
+        ]),
+      ),
+    }),
     coalesceDelay: 400,
     refreshDelay: () => 400,
     needsRefresh: (page) =>

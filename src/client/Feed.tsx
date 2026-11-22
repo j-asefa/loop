@@ -2270,7 +2270,7 @@ export function Feed({
             doneRefresh.current.sources.set(source, result.progress);
             if (
               !result.error &&
-              (filter === "all" || refreshHistorySources.current.has(source))
+              (retainHistory || refreshHistorySources.current.has(source))
             )
               followup.add(source);
           } else {

@@ -150,6 +150,7 @@ try {
         "pull-append-live",
         "history-error",
         "history-error-reopen",
+        "notification-rescan",
         "scope",
       ]) {
     rows = [3, 2, 1];
@@ -295,6 +296,31 @@ try {
         await page.waitForTimeout(100);
         await expect(output).not.toContainText(":initial");
         await idle();
+      } else if (scenario === "notification-rescan") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        await more();
+        await expect(output).toContainText("first-A1");
+        await idle();
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        holdBefore = "4";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect.poll(() => held.length, { timeout: 10_000 }).toBe(1);
+        await expect(output).toContainText("first-A6");
+        rows = rows.filter((n) => n !== 6);
+        await page.evaluate(() =>
+          window.dispatchEvent(
+            new CustomEvent("loop-workspace-change", {
+              detail: { sources: [""] },
+            }),
+          ),
+        );
+        held.shift()();
+        await expect(output).not.toContainText("first-A6", { timeout: 10_000 });
+        await expect(output).toContainText("first-A1");
       } else if (scenario === "cursor") {
         stuck = true;
         await more();
