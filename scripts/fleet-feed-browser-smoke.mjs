@@ -37,7 +37,8 @@ let needsRevision = 0;
 let feedFailSlow = false;
 let feedRevision = 0;
 let feedPageRows = [4, 3, 2, 1, 0];
-let failPaginationHead = false;
+let failPaginationHead = false,
+  failPaginationAppend = false;
 const paginationReads = [];
 let feedPagination = false,
   holdOlder = false,
@@ -91,8 +92,8 @@ try {
     }
     window.showSources = owner => root.render(React.createElement(Sources,{owner}));
     window.evictFeedCache = () => {for(let i=0;i<60;i++)cacheView("eviction-"+i,{},"measured-feed");};
-    window.showFeed = () => {
-      setViewOwner("measured-feed");setShellSource("");
+    window.showFeed = (owner="measured-feed") => {
+      setViewOwner(owner);setShellSource("");
       root.render(React.createElement(Feed,{filter:"working",onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
     };
     window.showNeeds = () => {
@@ -239,6 +240,10 @@ try {
         const paginated = feedPagination && source.id === sources[1].id;
         const older = paginated && url.searchParams.has("before");
         if (paginated) paginationReads.push(url.searchParams.get("before"));
+        if (older && failPaginationAppend) {
+          reply({ error: "Synthetic append refused" }, 400);
+          return;
+        }
         if (paginated && !older && failPaginationHead) {
           reply({ error: "Synthetic head unavailable" }, 503, {
             "retry-after": "1",
@@ -529,6 +534,39 @@ try {
   releaseOlder();
   console.log(
     "Cache eviction and failed-head pagination passed: " + engineName,
+  );
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("notification-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toHaveCount(0);
+  failPaginationAppend = true;
+  await moreFeed.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Synthetic append refused",
+  );
+  failPaginationAppend = false;
+  feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  console.log(
+    "Failed append preserves the single head notification: " + engineName,
   );
 
   if (!feedOnly) {

@@ -1974,6 +1974,7 @@ export function Feed({
     append: boolean;
     before?: string;
     doneSummary?: boolean;
+    headPending?: boolean;
   };
   const retryPages = useRef(new Map<string, ReadAttempt>());
   const retryRead = () => {
@@ -2474,6 +2475,7 @@ export function Feed({
           if (!isCurrent()) return { source, page: incoming };
           activeAppendSources.current.delete(source.id);
           retryPages.current.delete(source.id);
+          if (attempt.append && attempt.headPending) followup.add(source.id);
           const page = {
             ...incoming,
             items: pendingUnsaves(incoming.items, source.id),
@@ -2553,7 +2555,7 @@ export function Feed({
               pendingRefresh.current.sources.delete(id);
               headSources.current.add(id);
               const retry = retryPages.current.get(id);
-              if (retry?.append) pages.set(id, retry);
+              if (retry?.append) pages.set(id, { ...retry, headPending: true });
               else if (pages.get(id)!.append) pages.set(id, { append: false });
               return readSource(source);
             },
