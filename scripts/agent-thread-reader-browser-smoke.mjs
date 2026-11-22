@@ -279,7 +279,11 @@ try {
         if (scenario.includes("exhausted")) {
           await expect(output).toContainText("first-A7");
           await expect(output).not.toContainText("first-A6");
-        } else await expect(output).not.toContainText("first-A7");
+        } else {
+          await expect(output).not.toContainText("first-A7");
+          await more();
+          await expect(output).toContainText("first-A7");
+        }
         await expect(notice).toContainText("Couldn’t load some agent threads");
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),

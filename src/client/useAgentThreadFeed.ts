@@ -151,12 +151,14 @@ export function useAgentThreadFeed(
                 ].sort(feedItemOrder),
               };
               const sweep = progress.get(source);
-              if (sweep && older === historyContinuation(old, sweep))
+              if (sweep && older === historyContinuation(old, sweep)) {
+                if (sweep.gapUntil || sweep.rescanGap) page.next = old.next;
                 progress.set(source, {
                   ...sweep,
                   floor: page.items.at(-1),
                   continuation: incoming.next,
                 });
+              }
             } else {
               const refreshed = await refreshDonePage(
                 read,

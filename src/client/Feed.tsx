@@ -1992,8 +1992,14 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
-    const historyExpanded =
-      append || cachedView<Shown>(shownKey())?.historyExpanded === true;
+    const priorView = cachedView<Shown>(shownKey());
+    const historyExpanded = append || priorView?.historyExpanded === true;
+    if (append && priorView && !priorView.historyExpanded)
+      cacheView(
+        shownKey(),
+        { ...priorView, historyExpanded: true },
+        viewOwner(),
+      );
     const retainWindow =
       filter === "all"
         ? historyExpanded
@@ -2257,6 +2263,7 @@ export function Feed({
         }
         if (appending || !previous) {
           const page = await read(before);
+          if (!isCurrent()) return page;
           if (appending && historyReadErrors.current.has(source))
             followup.add(source);
           if (appending && retainWindow && cached) {
