@@ -2,7 +2,12 @@ import {
   feedItemOrder,
   type FeedPosition as DonePosition,
 } from "../shared/feed-order";
-export type DoneRefresh = { before: string; after: DonePosition };
+export type DoneRefresh = {
+  before: string;
+  after: DonePosition;
+  floor?: DonePosition;
+  continuation?: string | null;
+};
 const key = (item: DonePosition) =>
   JSON.stringify([
     item.conversation_id,
@@ -33,6 +38,14 @@ export async function refreshDonePage<
     return { page: first };
   const retained = [...previous.items].sort(feedItemOrder);
   const oldest = retained.at(-1)!;
+  // A temporary gap cursor must not replace the loaded window's continuation.
+  // If an append changed the floor, use that newly committed continuation.
+  const continuation =
+    progress?.floor &&
+    feedItemOrder(progress.floor, oldest) === 0 &&
+    progress.continuation !== undefined
+      ? progress.continuation
+      : previous.next;
   const items = new Map(retained.map((item) => [key(item), item]));
   const apply = (page: P, after?: DonePosition, floor?: DonePosition) => {
     const last = page.items.at(-1);
@@ -55,15 +68,27 @@ export async function refreshDonePage<
     feedItemOrder(firstLast, retained[0]) < 0 ||
     feedItemOrder(firstLast, oldest) >= 0
   )
-    progress = { before: first.next, after: firstLast };
+    progress = {
+      before: first.next,
+      after: firstLast,
+      floor: oldest,
+      continuation,
+    };
   // The newest page can itself reach or extend a formerly exhausted window.
   // Its continuation must become visible even when no history read is needed.
-  let next = feedItemOrder(firstLast, oldest) >= 0 ? first.next : previous.next;
+  let next = feedItemOrder(firstLast, oldest) >= 0 ? first.next : continuation;
   if (feedItemOrder(progress.after, oldest) < 0 && current()) {
     const history = await read(progress.before);
     if (!current()) return { page: first };
-    apply(history, progress.after, oldest);
     const last = history.items.at(-1);
+    if (
+      history.next &&
+      (history.next === progress.before ||
+        !last ||
+        feedItemOrder(last, progress.after) <= 0)
+    )
+      throw new Error("History pagination did not advance. Try again.");
+    apply(history, progress.after, oldest);
     if (last && feedItemOrder(last, oldest) > 0) {
       // Newly imported history can arrive below a previously exhausted window.
       // Reuse the server cursor; append deduplicates any overlap.
@@ -73,7 +98,7 @@ export async function refreshDonePage<
     }
     progress =
       history.next && last && feedItemOrder(last, oldest) < 0
-        ? { before: history.next, after: last }
+        ? { before: history.next, after: last, floor: oldest, continuation }
         : undefined;
   } else {
     progress = undefined;

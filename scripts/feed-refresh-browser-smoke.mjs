@@ -315,6 +315,20 @@ for (const engine of selectedEngines()) {
       feed.getByRole("heading", { name: "History thread 50", exact: true }),
     ).toHaveCount(0);
     await page.evaluate(() => (window.__suppressFeedNotifications = false));
+    insertLaterItem(
+      db,
+      randomUUID(),
+      owner,
+      "conversation",
+      "history-20",
+      "time",
+      Date.now() + 3_600_000,
+      null,
+      Date.now(),
+    );
+    await expect(
+      feed.getByRole("heading", { name: "History thread 20", exact: true }),
+    ).toHaveCount(0);
     // This view also uses the shared bounded read recovery. Observe the old
     // read's cancellation so an already scheduled retry cannot satisfy the test.
     const feedReads = (url) =>

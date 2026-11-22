@@ -1799,8 +1799,8 @@ export function Feed({
     key: "",
     sources: new Map(),
   });
-  // An explicit pull reconciles every already-loaded interval through bounded
-  // trailing reads. Background notifications keep the usual two-page budget.
+  // Explicit pulls reconcile loaded history through bounded trailing reads.
+  // Thread views also finish live reconciliation so removals cannot linger.
   const refreshHistorySources = useRef(new Set<string>());
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
@@ -2240,7 +2240,8 @@ export function Feed({
         if (current()) {
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            if (refreshHistorySources.current.has(source)) followup.add(source);
+            if (filter === "all" || refreshHistorySources.current.has(source))
+              followup.add(source);
           } else {
             doneRefresh.current.sources.delete(source);
             refreshHistorySources.current.delete(source);
