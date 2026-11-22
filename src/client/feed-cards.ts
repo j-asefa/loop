@@ -9,14 +9,16 @@ export class DoneCardsReader {
   resetVersion = 0;
   discardPrior = false;
   private generation = 0;
-  private activeAppends = 0;
+  private activeReads = new Map<AbortController, boolean>();
   private pendingAppend = false;
   invalidateForAction() {
     this.generation++;
-    this.pendingAppend ||= this.activeAppends > 0;
+    this.pendingAppend ||= [...this.activeReads.values()].some(Boolean);
   }
   restartRefresh() {
     this.invalidateForAction();
+    for (const controller of this.activeReads.keys()) controller.abort();
+    this.activeReads.clear();
     const saved = this.pager.snapshot();
     // Detach stalled reads from the committed window. Their late responses
     // cannot replace the new pager window or block an explicit refresh.
@@ -35,10 +37,13 @@ export class DoneCardsReader {
     append: boolean,
     allowResync = true,
   ): Promise<CardWindow> {
-    const reader = contractCardReader(request);
+    const controller = new AbortController();
+    const reader = contractCardReader((contract, input) =>
+      request(contract, input, controller.signal),
+    );
     const generation = this.generation;
     const effectiveAppend = append || this.pendingAppend;
-    if (effectiveAppend) this.activeAppends++;
+    this.activeReads.set(controller, effectiveAppend);
     try {
       await this.pager.load(
         this.key,
@@ -55,6 +60,8 @@ export class DoneCardsReader {
         },
         async (after) => {
           const delta = await reader.changes({ ...selection, after });
+          if (controller.signal.aborted)
+            throw new DOMException("Obsolete Done read", "AbortError");
           this.hasMore = delta.more;
           return delta;
         },
@@ -65,6 +72,8 @@ export class DoneCardsReader {
       // A concurrent caller can finish against a window replaced by a 409
       // reset. Retry within the same contract before publishing a window.
       if (!window) {
+        if (generation !== this.generation || controller.signal.aborted)
+          throw new DOMException("Obsolete Done read", "AbortError");
         if (allowResync)
           return this.load(request, selection, effectiveAppend, false);
         throw new Error(
@@ -82,7 +91,7 @@ export class DoneCardsReader {
         return this.load(request, selection, false, false);
       throw error;
     } finally {
-      if (effectiveAppend) this.activeAppends--;
+      this.activeReads.delete(controller);
     }
   }
 }

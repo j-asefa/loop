@@ -126,7 +126,7 @@ try {
   });
   for (const scenario of process.argv.length > 2
     ? process.argv.slice(2)
-    : ["window", "cursor", "queued-retry", "pull", "scope"]) {
+    : ["window", "cursor", "queued-retry", "pull", "pull-append", "scope"]) {
     rows = [3, 2, 1];
     failure = false;
     stuck = false;
@@ -169,6 +169,20 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
+      } else if (scenario === "pull-append") {
+        holdNext = true;
+        await more();
+        await expect.poll(() => held.length).toBe(1);
+        epoch = "after-pull";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A2:after-pull");
+        await idle();
+        held.shift()();
+        await page.waitForTimeout(100);
+        await expect(output).not.toContainText(":initial");
+        await expect(output).toContainText("first-A2:after-pull");
       } else if (scenario === "pull") {
         await more();
         await expect(output).toContainText("first-A2:initial");

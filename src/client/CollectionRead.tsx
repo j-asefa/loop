@@ -358,10 +358,12 @@ export function usePagedProjectionQuery<
         clearTimeout(timer);
         timer = undefined;
         if (restartOnRefresh && !stale()) {
+          const resumeAppend =
+            appendPending || (busy && retryBefore !== undefined);
           requestEpoch++;
           reader.cancel();
           busy = false;
-          appendPending = false;
+          appendPending = resumeAppend;
           current = restartOnRefresh(current);
           void load();
           return;
