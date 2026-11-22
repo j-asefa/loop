@@ -10,7 +10,8 @@
 // never shows its JSON, keeps the conversation link when the text is cut at
 // 4,000 characters, and the finished run's Done card shows the whole display.
 // Fixture writes drive the mounted completion check; earlier progress uses
-// reloads. Set
+// reloads. Set LOOP_DISPLAY_BOUNDARY_ONLY=1 to run only formatting recovery.
+// Set
 // LOOP_SCREENSHOT_DIR to save light and
 // dark screenshots. It makes no provider requests and does not replace
 // physical-phone validation.
@@ -25,6 +26,148 @@ import { designFixture } from "./helpers/design-fixture.mjs";
 import { trackSmokeCleanup } from "./helpers/smoke-lifecycle.mjs";
 import { isWebKitNavigationFetchError } from "./helpers/browser-errors.mjs";
 import { tsImport } from "tsx/esm/api";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+
+// Exercise rendering modes with the actual component, including clipped text
+// before a full-message read resolves. No test hook is added to the app bundle.
+const boundaryBundle = await build({
+  stdin: {
+    contents: `import {createRoot} from "react-dom/client";
+import {RichText} from "./src/client/components";
+const root = createRoot(document.getElementById("root"));
+window.renderBoundary = props => root.render(<RichText {...props} />);`,
+    resolveDir: fileURLToPath(new URL("../", import.meta.url)),
+    loader: "tsx",
+  },
+  bundle: true,
+  write: false,
+  format: "iife",
+  platform: "browser",
+  jsx: "automatic",
+  loader: { ".css": "empty" },
+  define: { "process.env.NODE_ENV": '"production"' },
+});
+
+async function boundaryModes(context, base, errors) {
+  const page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/__markdown-boundary", (route) =>
+    route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' }),
+  );
+  await page.goto(`${base}/__markdown-boundary`);
+  await page.addScriptTag({ content: boundaryBundle.outputFiles[0].text });
+  const quote = "> ".repeat(150);
+  const content = `${quote}\`\`\`spec\n${quote}{"op":"add"}`;
+  for (const mode of [{ writing: true }, { cappedPreview: true }]) {
+    await page.evaluate((props) => window.renderBoundary(props), {
+      content,
+      writing: false,
+      cappedPreview: false,
+      ...mode,
+    });
+    const fallback = page.locator(".markdown-fallback");
+    await expect(fallback).toBeVisible();
+    await expect(fallback).toContainText(
+      mode.writing
+        ? "while it is being written."
+        : "Open the conversation to read the complete answer.",
+    );
+    await expect(fallback.locator("pre")).toHaveCount(0);
+    await expect(fallback).not.toContainText('"op"');
+  }
+  // Display source stays hidden even when the answer is complete.
+  await page.evaluate((props) => window.renderBoundary(props), {
+    content,
+    writing: false,
+    cappedPreview: false,
+  });
+  await expect(page.locator(".markdown-fallback .field-hint")).toHaveText(
+    "This content could not be formatted.",
+  );
+  await expect(page.locator(".markdown-fallback pre")).toHaveCount(0);
+  await expect(page.locator(".markdown-fallback")).not.toContainText('"op"');
+
+  // Changing only rendering context retries formatting without replacing the
+  // surrounding Markdown element; compact mode omits the deep seventh block.
+  const contextual = "Normal paragraph.\n\n".repeat(6) + quote + "Hidden.";
+  await page.evaluate(
+    (content) => window.renderBoundary({ content }),
+    contextual,
+  );
+  await expect(page.locator(".markdown-fallback")).toBeVisible();
+  await expect(page.locator(".markdown-fallback pre")).toContainText("Hidden.");
+  assert.ok(
+    contextual.endsWith(
+      await page.locator(".markdown-fallback pre").textContent(),
+    ),
+  );
+  await page.locator(".markdown").evaluate((element) => {
+    element.dataset.contextProbe = "mounted";
+  });
+  await page.evaluate(
+    (content) => window.renderBoundary({ content, compact: true }),
+    contextual,
+  );
+  await expect(page.locator(".markdown-fallback")).toHaveCount(0);
+  await expect(page.locator(".markdown > p")).toHaveCount(6);
+  await expect(page.locator(".markdown")).toHaveAttribute(
+    "data-context-probe",
+    "mounted",
+  );
+
+  const mixed =
+    "Readable summary.\n\n" +
+    fence(
+      patch(
+        { op: "add", path: "/root", value: "card" },
+        add("card", { type: "Card", props: { title: "Surviving display" } }),
+      ),
+    ) +
+    "\n\n" +
+    content;
+  for (const compact of [true, false]) {
+    await page.evaluate((props) => window.renderBoundary(props), {
+      content: mixed,
+      compact,
+    });
+    await expect(page.locator(".display-title")).toHaveText(
+      "Surviving display",
+    );
+    await expect(page.locator(".markdown")).toContainText("Readable summary.");
+    const fallback = page.locator(".markdown-fallback");
+    await expect(fallback.locator(".field-hint")).toHaveText(
+      compact
+        ? "This content could not be formatted. Open it to read the text."
+        : "This content could not be formatted.",
+    );
+    await expect(fallback.locator("pre")).toHaveCount(0);
+    await expect(fallback).not.toContainText('"op"');
+  }
+  // A display and link definition share the container with a deep branch.
+  const contained =
+    "See [guide][g].\n\n" +
+    mixed
+      .replace(content, quote + "Deep tail.")
+      .split("\n")
+      .map((line) => "> " + line)
+      .join("\n") +
+    "\n> " +
+    quote +
+    "\n> " +
+    quote +
+    "[g]: https://example.com/guide";
+  await page.evaluate(
+    (content) => window.renderBoundary({ content }),
+    contained,
+  );
+  await expect(
+    page.getByRole("link", { name: "guide", exact: true }),
+  ).toHaveAttribute("href", "https://example.com/guide");
+  await expect(page.locator(".display-title")).toHaveText("Surviving display");
+  await expect(page.locator(".markdown-fallback")).not.toContainText('"op"');
+  await page.close();
+}
 
 // The design fixture completes a run without sealing its Result, which is what
 // a Done card is drawn from. Seal it through the production write path.
@@ -234,6 +377,14 @@ for (const engine of selectedEngines()) {
       });
       const requests = [];
       page.on("request", (request) => requests.push(request.url()));
+      await boundaryModes(context, fixture.base, errors);
+      if (process.env.LOOP_DISPLAY_BOUNDARY_ONLY === "1") {
+        assert.deepEqual(errors, [], "Uncaught browser errors");
+        console.log(
+          `${engine.name()}: streaming/clipped source suppression, full-text fallback and context-only recovery passed`,
+        );
+        continue;
+      }
       seal(done, answer);
       await page.goto(fixture.base, { waitUntil: "networkidle" });
       const card = page
@@ -243,6 +394,45 @@ for (const engine of selectedEngines()) {
       await expect(card.locator(".display-spec")).toHaveCount(1);
       await expect(card.locator(".display-title")).toHaveText("Weekly deploys");
       await expect(card.locator("code.language-spec")).toHaveCount(0);
+
+      // A readable API response must also survive Markdown render failures.
+      const malformed =
+        "Summary.\n\n" +
+        "> ".repeat(10000) +
+        "```spec\n" +
+        "> ".repeat(10000) +
+        '{"op":"add"}';
+      seal(done, malformed);
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(card.locator(".markdown-fallback")).toBeVisible();
+      await expect(card.locator(".markdown-fallback")).toContainText(
+        "Open it to read the text.",
+      );
+      await expect(card.locator(".markdown-fallback")).not.toContainText(
+        '"op"',
+      );
+      await expect(card.locator(".markdown-fallback pre")).toHaveCount(0);
+      await card.evaluate((element) => {
+        element.dataset.recoveryProbe = "mounted";
+      });
+      await card.locator(".feed-row").click();
+      const failedReader = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(failedReader.locator(".markdown-fallback")).toBeVisible();
+      await expect(failedReader.locator(".markdown-fallback pre")).toHaveCount(
+        0,
+      );
+      await expect(
+        failedReader.locator(".markdown-fallback"),
+      ).not.toContainText('"op"');
+      await expect(failedReader.locator(".markdown")).toContainText("Summary.");
+      await failedReader
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      seal(done, answer);
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+      await expect(card.locator(".display-title")).toHaveText("Weekly deploys");
+      await expect(card.locator(".markdown-fallback")).toHaveCount(0);
+      await expect(card).toHaveAttribute("data-recovery-probe", "mounted");
 
       // Reading sheet: every component, and the degraded ones.
       await card.locator(".feed-row").click();

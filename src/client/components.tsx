@@ -20,6 +20,7 @@ import {
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
+  Component,
   memo,
   useEffect,
   useMemo,
@@ -40,7 +41,11 @@ import {
   AlarmClock,
 } from "lucide-react";
 import Markdown, { type Components } from "react-markdown";
+import type { Definition, Nodes, Paragraph, Text } from "mdast";
+import type { Element } from "hast";
+import type { Processor } from "unified";
 import remarkGfm from "remark-gfm";
+import { dropSpecBlocks } from "../shared/text";
 import { useMarkdownMath } from "./markdownMath";
 import type { Artifact, Connection, Provider } from "../shared/types";
 import { parse } from "./json";
@@ -207,6 +212,186 @@ export function Sheet({
     </dialog>
   );
 }
+type MarkdownMode = {
+  compact: boolean;
+  writing: boolean;
+  cappedPreview: boolean;
+};
+const canShowMarkdownSource = (mode: MarkdownMode) =>
+  !mode.compact && !mode.writing && !mode.cappedPreview;
+const markdownFallbackNotice = (mode: MarkdownMode) =>
+  mode.compact
+    ? "This content could not be formatted. Open it to read the text."
+    : mode.writing
+      ? "This content could not be formatted while it is being written."
+      : mode.cappedPreview
+        ? "This preview could not be formatted. Open the conversation to read the complete answer."
+        : "This content could not be formatted.";
+
+function limitMarkdownDepth(
+  this: Processor,
+  options: MarkdownMode & { content: string; diagrams: boolean },
+) {
+  // Run before GFM's recursive autolink transform, not after parsing has
+  // already walked the entire tree. Retain the parser's grammar and positions.
+  const data = this.data();
+  const extensions =
+    data.fromMarkdownExtensions || (data.fromMarkdownExtensions = []);
+  extensions.unshift({
+    transforms: [
+      (tree) => {
+        if (options.compact)
+          compactMarkdown({ displays: options.diagrams })(tree);
+        // Definitions apply to the whole document. Keep their original order
+        // even if the branch containing one needs a formatting fallback.
+        const definitions: Definition[] = [];
+        const scan: Nodes[] = [tree];
+        while (scan.length) {
+          const node = scan.pop()!;
+          if (node.type === "definition") definitions.push(node);
+          if ("children" in node)
+            for (let i = node.children.length - 1; i >= 0; i--)
+              scan.push(node.children[i]);
+        }
+        type Entry = { node: Nodes; depth: number; parent?: Entry };
+        const pending: Entry[] = [{ node: tree, depth: 0 }];
+        let replaced = false;
+        while (pending.length) {
+          const entry = pending.pop()!;
+          const { node, depth } = entry;
+          if (!("children" in node)) continue;
+          if (depth < 128) {
+            for (const child of node.children)
+              pending.push({ node: child, depth: depth + 1, parent: entry });
+            continue;
+          }
+          replaced = true;
+          // Keep the fallback readable: 128 quote/list margins can consume
+          // the entire viewport even though the resulting tree is safe.
+          for (
+            let ancestor: Entry | undefined = entry;
+            ancestor;
+            ancestor = ancestor.parent
+          ) {
+            const container = ancestor.node;
+            if (
+              container.type !== "blockquote" &&
+              container.type !== "list" &&
+              container.type !== "listItem"
+            )
+              continue;
+            container.data = {
+              ...container.data,
+              hProperties: {
+                ...container.data?.hProperties,
+                style: "margin:0;padding:0;border:0",
+              },
+            };
+          }
+          const children: Element[] = [
+            {
+              type: "element",
+              tagName: "p",
+              properties: { className: ["field-hint"] },
+              children: [
+                { type: "text", value: markdownFallbackNotice(options) },
+              ],
+            },
+          ];
+          const start = node.position?.start.offset;
+          const end = node.position?.end.offset;
+          const source =
+            canShowMarkdownSource(options) &&
+            start !== undefined &&
+            end !== undefined
+              ? dropSpecBlocks(options.content.slice(start, end))
+              : "";
+          if (source.trim())
+            children.push({
+              type: "element",
+              tagName: "pre",
+              properties: {},
+              children: [{ type: "text", value: source }],
+            });
+          // Retain the ancestors and siblings, including displays in the same
+          // quote/list. Keep each container's required child shape valid.
+          const paragraph: Paragraph = {
+            type: "paragraph",
+            children: [],
+            data: {
+              hName: "div",
+              hProperties: { className: ["markdown-fallback"] },
+              hChildren: children,
+            },
+          };
+          const text: Text = {
+            type: "text",
+            value:
+              markdownFallbackNotice(options) + (source ? "\n" + source : ""),
+            data: {
+              hName: "span",
+              hProperties: { className: ["markdown-fallback"] },
+            },
+          };
+          switch (node.type) {
+            case "root":
+            case "blockquote":
+            case "listItem":
+            case "footnoteDefinition":
+              node.children = [paragraph];
+              break;
+            case "list":
+              node.children = [{ type: "listItem", children: [paragraph] }];
+              break;
+            case "table":
+              node.children = [
+                {
+                  type: "tableRow",
+                  children: [{ type: "tableCell", children: [text] }],
+                },
+              ];
+              break;
+            case "tableRow":
+              node.children = [{ type: "tableCell", children: [text] }];
+              break;
+            default:
+              node.children = [text];
+          }
+        }
+        if (replaced) tree.children.unshift(...definitions);
+      },
+    ],
+  });
+}
+
+class MarkdownBoundary extends Component<
+  MarkdownMode & {
+    content: string;
+    children: ReactNode;
+  },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidUpdate(previous: Readonly<{ children: ReactNode }>) {
+    // RichText recreates children when content or rendering context changes.
+    if (this.state.failed && previous.children !== this.props.children)
+      this.setState({ failed: false });
+  }
+  render() {
+    return this.state.failed ? (
+      <div className="markdown-fallback">
+        <p className="field-hint">{markdownFallbackNotice(this.props)}</p>
+        {canShowMarkdownSource(this.props) && <pre>{this.props.content}</pre>}
+      </div>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 // Draft edits rerender the surrounding Feed and conversation. Reuse unchanged
 // Markdown so typing never reparses every visible answer. Source context still
 // invalidates the render, keeping file links bound to the right workspace.
@@ -287,6 +472,8 @@ export const RichText = memo(function RichText({
                   content={content}
                   diagrams={false}
                   compact={compact}
+                  writing={writing}
+                  cappedPreview={cappedPreview}
                 />
               )}
             />
@@ -317,45 +504,48 @@ export const RichText = memo(function RichText({
         );
       },
     }),
-    [diagrams, compact, sourceId],
+    [diagrams, compact, sourceId, writing, cappedPreview],
   );
   return (
     <div className="markdown">
       <DisplayWritingContext.Provider value={writing}>
-        <Markdown
-          remarkPlugins={[
-            remarkGfm,
-            ...(diagrams
-              ? [
-                  [
-                    markOpenSpecFences,
-                    {
-                      previewFenceCut,
-                      cappedPreview,
-                      previewEndsAtLine,
-                      previewFenceIsSpec,
-                    },
-                  ] as [
-                    typeof markOpenSpecFences,
-                    Parameters<typeof markOpenSpecFences>[0],
-                  ],
-                ]
-              : []),
-            ...(math?.remark || []),
-            ...(compact
-              ? [
-                  [compactMarkdown, { displays: diagrams }] as [
-                    typeof compactMarkdown,
-                    { displays: boolean },
-                  ],
-                ]
-              : []),
-          ]}
-          rehypePlugins={math?.rehype}
-          components={renderers}
+        <MarkdownBoundary
+          content={content}
+          compact={compact}
+          writing={writing}
+          cappedPreview={cappedPreview}
         >
-          {content}
-        </Markdown>
+          <Markdown
+            remarkPlugins={[
+              [
+                limitMarkdownDepth,
+                { content, compact, diagrams, writing, cappedPreview },
+              ],
+              remarkGfm,
+              ...(diagrams
+                ? [
+                    [
+                      markOpenSpecFences,
+                      {
+                        previewFenceCut,
+                        cappedPreview,
+                        previewEndsAtLine,
+                        previewFenceIsSpec,
+                      },
+                    ] as [
+                      typeof markOpenSpecFences,
+                      Parameters<typeof markOpenSpecFences>[0],
+                    ],
+                  ]
+                : []),
+              ...(math?.remark || []),
+            ]}
+            rehypePlugins={math?.rehype}
+            components={renderers}
+          >
+            {content}
+          </Markdown>
+        </MarkdownBoundary>
       </DisplayWritingContext.Provider>
     </div>
   );

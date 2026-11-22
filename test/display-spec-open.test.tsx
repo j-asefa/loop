@@ -236,6 +236,166 @@ it("drops closed and open spec blocks from other plain text", () => {
   expect(collapse(closed, 200)).toBe("Summary first. Then more words.");
 });
 
+it("keeps deeply nested and large previews readable without display source", () => {
+  for (const [source, expected] of [
+    [
+      "Summary.\n\n" +
+        "> ".repeat(10000) +
+        "```spec\n" +
+        "> ".repeat(10000) +
+        '{"op":"add"}',
+      "Summary.",
+    ],
+    [
+      'Summary.\n\n```spec\n{"value":"' +
+        "x".repeat(100000) +
+        '"}\n```\nAfter.',
+      "Summary. After.",
+    ],
+  ]) {
+    expect(collapse(source, 200)).toBe(expected);
+    expect(plainPreview(source)).toBe(expected);
+    expect(searchExcerpt(source, "", "")).toBe(expected);
+  }
+});
+
+it("retains searchable prose around oversized closed fences", () => {
+  for (const [opener, prefix, closer] of [
+    ["```spec", "", "```"],
+    ["> ~~~~spec", "> ", "> ~~~~"],
+    ["- ```spec", "  ", "  ```"],
+  ]) {
+    const source =
+      `${opener}\n` +
+      prefix +
+      JSON.stringify({ value: "x".repeat(100000) }) +
+      `\n${closer}\nSearchable conclusion.`;
+    expect(collapse(source, 200)).toBe("Searchable conclusion.");
+    expect(searchExcerpt(source, "", "conclusion")).toBe(
+      "Searchable conclusion.",
+    );
+  }
+  const prose = "Readable specifications. ".repeat(4000) + "Final needle.";
+  const source = "```js\nconst value = 1;\n```\n" + prose;
+  expect(collapse(source, 200)).toContain("Readable specifications.");
+  expect(searchExcerpt(source, "", "needle")).toContain("Final needle.");
+});
+
+it("ignores deeply nested blocks outside the compact preview", () => {
+  const source =
+    "Normal paragraph.\n\n".repeat(6) + "> ".repeat(150) + "Hidden.";
+  const html = renderToStaticMarkup(<RichText content={source} compact />);
+  expect(html.match(/Normal paragraph/g)).toHaveLength(6);
+  expect(html).not.toContain("Hidden.");
+});
+
+it("preserves summary and valid displays beside an excessively deep block", () => {
+  const content =
+    "Readable summary.\n\n```spec\n" +
+    block +
+    "\n```\n\n" +
+    "> ".repeat(10000) +
+    "Deep tail.";
+  for (const compact of [true, false]) {
+    const html = renderToStaticMarkup(
+      <RichText content={content} compact={compact} />,
+    );
+    expect(html).toContain("Readable summary.");
+    expect(html).toContain('class="display-title"');
+    expect(html).toContain("Weekly deploys");
+    expect(html).toContain("markdown-fallback");
+    expect(html).not.toContain("&quot;op&quot;");
+  }
+});
+
+it("keeps displays beside deep branches inside the same quote or list", () => {
+  const inner =
+    "```spec\n" + block + "\n```\n\n" + "> ".repeat(150) + "Deep tail.";
+  for (const content of [
+    inner
+      .split("\n")
+      .map((line) => "> " + line)
+      .join("\n"),
+    "- Summary.\n\n" +
+      inner
+        .split("\n")
+        .map((line) => "  " + line)
+        .join("\n"),
+  ]) {
+    for (const compact of [true, false]) {
+      const html = renderToStaticMarkup(
+        <RichText content={content} compact={compact} />,
+      );
+      expect(html).toContain('class="display-title"');
+      expect(html).toContain("Weekly deploys");
+      expect(html).toContain("markdown-fallback");
+      expect(html).not.toContain("&quot;op&quot;");
+    }
+  }
+});
+
+it("keeps reference definitions in deep branches with first-definition precedence", () => {
+  for (const prefix of ["", "[g]: https://first.example\n\n"]) {
+    const content =
+      prefix +
+      "See [guide][g].\n\n" +
+      "> ".repeat(150) +
+      "[g]: https://deep.example\n\n[g]: https://last.example";
+    const html = renderToStaticMarkup(<RichText content={content} />);
+    expect(html).toContain(
+      `href="https://${prefix ? "first" : "deep"}.example"`,
+    );
+    expect(html).toContain(">guide</a>");
+  }
+});
+
+it("does not expose source after an over-indented false closing fence", () => {
+  for (const [opener, prefix, falseCloser, closer] of [
+    ["   ```spec", "", "      ```", "```"],
+    ["   > ```spec", "> ", ">       ```", "> ```"],
+  ]) {
+    const source =
+      `${opener}\n` +
+      prefix +
+      "x".repeat(100000) +
+      `\n${falseCloser}\n${prefix}{"op":"add"}\n${closer}\nAfter.`;
+    expect(collapse(source, 200)).toBe("After.");
+    expect(plainPreview(source)).toBe("After.");
+  }
+});
+
+it("uses Markdown grammar for oversized indented code, list continuations and inline spans", () => {
+  const padding = "x".repeat(100000);
+  const sources = [
+    // The first opener is ordinary indented code; the second is a real fence.
+    "    ```spec\n    Example.\n\n```spec\n" +
+      padding +
+      '\n    ```\n{"op":"private-display-source"}\n```\nReadable conclusion.',
+    // A continuation line inherits list indentation even without a list marker.
+    '- item\n\n  ```spec\n  {"value":"' +
+      padding +
+      '"}\n    ```\n\nReadable conclusion.',
+    // Backticks in the info text prevent this from being a fence opener.
+    "```spec``` is the display syntax.\n\n" +
+      padding +
+      "\nReadable conclusion.",
+  ];
+  for (const source of sources) {
+    expect(dropSpecBlocks(source)).toContain("Readable conclusion.");
+    expect(dropSpecBlocks(source)).not.toContain("private-display-source");
+    expect(searchExcerpt(source, "", "conclusion")).toContain(
+      "Readable conclusion.",
+    );
+  }
+});
+
+it("retains GFM table cell syntax while extracting fenced blocks", () => {
+  const source =
+    "| Example |\n| --- |\n```spec``` is inline syntax.\n\n" +
+    "Readable prose. ".repeat(6000);
+  expect(dropSpecBlocks(source)).toBe(source);
+});
+
 it("preserves prose after long closed fences in plain previews", () => {
   expect(plainPreview("Before\n``````ts\nx\n``````\nAfter")).toBe(
     "Before After",

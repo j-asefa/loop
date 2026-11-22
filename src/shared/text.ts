@@ -8,8 +8,18 @@ const markdown = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkChatMath)
+  .use(function blockPositionsOnly() {
+    // Fence extraction needs the parser's block grammar and positions, not
+    // inline rewrites. GFM's autolink transform recursively walks the full AST
+    // and overflows on deep quotes before our iterative traversal can run.
+    const data = this.data();
+    data.fromMarkdownExtensions = data.fromMarkdownExtensions
+      ?.flat()
+      .map((extension) => ({ ...extension, transforms: [] }));
+  })
   .freeze();
 type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
+const UNPARSED_PREVIEW_LIMIT = 64 * 1024;
 
 /** Classify a bounded, raw fence language token, decoding references if present. */
 export function isDisplayFenceToken(token: string) {
@@ -52,8 +62,22 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
   // A removed block must not cause its preceding and following markers to pair.
   const keep = (span: string) =>
     includeBacktickCode ? span.replace(/```[\s\S]*?```/g, " ") : span;
+  let pending: MarkdownNode[];
+  try {
+    pending = markdown.parse(text).children.reverse();
+  } catch {
+    // Unexpected parser failures must not make a stored answer unreadable.
+    // Only this failure path uses a conservative, bounded prose prefix: raw
+    // input here could expose display JSON. Ordinary long answers still use
+    // the full Markdown grammar and retain prose after their fenced blocks.
+    const fence = text.search(/```|~~~/);
+    const end = Math.max(
+      text.lastIndexOf("\n", fence),
+      text.lastIndexOf("\r", fence),
+    );
+    return keep(text.slice(0, Math.min(end + 1, UNPARSED_PREVIEW_LIMIT)));
+  }
   let end = 0;
-  const pending: MarkdownNode[] = markdown.parse(text).children.reverse();
   while (pending.length) {
     const node = pending.pop()!;
     if (node.type === "code" && node.position) {
