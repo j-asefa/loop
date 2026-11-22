@@ -2000,13 +2000,12 @@ export function Feed({
         { ...priorView, historyExpanded: true },
         viewOwner(),
       );
-    const retainWindow =
-      filter === "all"
-        ? historyExpanded
-        : retainHistory ||
-          requestedSources.some((source) =>
-            refreshHistorySources.current.has(source),
-          );
+    const retainWindow = ["all", "working", "queued"].includes(filter)
+      ? historyExpanded
+      : retainHistory ||
+        requestedSources.some((source) =>
+          refreshHistorySources.current.has(source),
+        );
     // Capture each failed operation before any source succeeds and clears it.
     // A partial retry must neither advance a healthy source nor borrow a later
     // cursor from another read. Head and append failures can coexist.
@@ -2286,6 +2285,13 @@ export function Feed({
             const gap = combined
               ? JSON.parse(cached.next || "{}")[source]
               : cached.next;
+            const oldFloor = earlier.at(-1);
+            const newFloor = merged.items.at(-1);
+            if (
+              before !== gap &&
+              (!newFloor || !oldFloor || feedItemOrder(newFloor, oldFloor) <= 0)
+            )
+              merged.next = gap;
             if (
               progress &&
               (progress.gapUntil || progress.rescanGap) &&
@@ -2405,9 +2411,14 @@ export function Feed({
             ),
           };
         };
-        const readSource = async (source: (typeof activeSources)[number]) => {
+        const readSource = async (
+          source: (typeof activeSources)[number],
+        ): Promise<{ source: (typeof activeSources)[number]; page: Page }> => {
           if (!isCurrent())
             throw new DOMException("Feed read superseded", "AbortError");
+          const attempt = pages.get(source.id)!;
+          if (attempt.append && attempt.before)
+            activeAppendSources.current.set(source.id, attempt.before);
           const incoming = await readPage(
             (before) =>
               readProjectionPage(
@@ -2420,11 +2431,12 @@ export function Feed({
             pages.get(source.id)!.before,
           );
           if (!isCurrent()) return { source, page: incoming };
+          activeAppendSources.current.delete(source.id);
           const page = {
             ...incoming,
             items: pendingUnsaves(incoming.items, source.id),
           };
-          if (!pages.get(source.id)!.append) {
+          if (!attempt.append || retainWindow) {
             const earlier = sourcePages.current.pages.get(source.id);
             const known = new Set(
               page.items.map((item) => feedItemKey(item, source.id)),
@@ -2434,7 +2446,7 @@ export function Feed({
             // that source now, including an empty result; a slow peer cannot
             // retain rows that this source has already removed.
             const visible =
-              earlier && !retainWindow && page.next
+              earlier && historyExpanded && !retainWindow && page.next
                 ? {
                     ...page,
                     next: earlier.next,
@@ -2472,6 +2484,14 @@ export function Feed({
             setItems(partial.items);
             setPartialReadPending(hadVisibleItems && !partial.items.length);
           }
+          const interrupted = pendingAppendSources.current.get(source.id);
+          if (!attempt.append && interrupted) {
+            pendingAppendSources.current.delete(source.id);
+            if (page.next) {
+              pages.set(source.id, { append: true, before: interrupted });
+              return readSource(source);
+            }
+          }
           if (followup.has(source.id)) {
             pendingRefresh.current.sources.add(source.id);
             schedulePendingRefresh();
@@ -2490,6 +2510,7 @@ export function Feed({
               const source = activeSources.find((source) => source.id === id)!;
               pendingRefresh.current.sources.delete(id);
               headSources.current.add(id);
+              if (pages.get(id)!.append) pages.set(id, { append: false });
               return readSource(source);
             },
             isCurrent,
@@ -2839,6 +2860,11 @@ export function Feed({
     if (!next) {
       pendingAppendSources.current.clear();
       return;
+    }
+    for (const source of pendingAppendSources.current.keys()) {
+      const cursor = combined ? JSON.parse(next || "{}")[source] : next;
+      if (!cursor && !doneRefresh.current.sources.has(source))
+        pendingAppendSources.current.delete(source);
     }
     const ready = activeSources
       .map((source) => source.id)

@@ -36,6 +36,9 @@ const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
 let feedFailSlow = false;
 let feedRevision = 0;
+let feedPagination = false,
+  holdOlder = false,
+  releaseOlder;
 let metadataRevision = 0;
 const metadataMetrics = { requests: 0, active: 0, peak: 0 };
 function trackResponse(metrics, res) {
@@ -229,20 +232,36 @@ try {
           });
           return;
         }
+        const older =
+          feedPagination &&
+          source.id === sources[1].id &&
+          url.searchParams.has("before");
+        if (older && holdOlder) {
+          holdOlder = false;
+          await new Promise((resolve) => {
+            releaseOlder = resolve;
+          });
+          if (res.destroyed) return;
+        }
         const body = {
           items: [
             {
               ...feedTemplate,
-              conversation_id: "same-conversation",
+              conversation_id: older
+                ? "older-conversation"
+                : "same-conversation",
               title:
-                "Measured " +
+                (older ? "Older " : "Measured ") +
                 source.name +
                 (source.id === sources[1].id && feedRevision ? " updated" : ""),
-              last_activity_at: Date.now(),
+              last_activity_at: older ? 1 : Date.now(),
               queued_runs: [],
             },
           ],
-          next: null,
+          next:
+            feedPagination && source.id === sources[1].id && !older
+              ? "older"
+              : null,
           summary: { needs: 0, working: 1, queued: 0, later_due: 0 },
         };
         feedMetrics.responseBodyBytes += Buffer.byteLength(
@@ -418,6 +437,30 @@ try {
           "A held response followed by HTTP 503 is an injected failure, not a measured Internet timeout; counts cover Feed reads only.",
       }),
   );
+
+  feedFailSlow = false;
+  feedPagination = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  const moreFeed = page.getByRole("button", { name: /Load more/i });
+  await expect(moreFeed).toBeVisible();
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(9);
+  holdOlder = true;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  hold = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Older Machine 1 updated", { exact: true }),
+  ).toBeVisible();
+  assert(
+    hold && pending.size > 0,
+    "Interrupted healthy pagination resumes before the stalled peer",
+  );
+  hold = false;
+  for (const release of pending) release();
+  pending.clear();
+  releaseOlder();
+  console.log("Interrupted healthy pagination passed: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

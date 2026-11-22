@@ -493,6 +493,15 @@ for (const engine of selectedEngines()) {
     for (let i = 0; i < 105; i++) workingThread(i, at + i);
     await page.goto(fixture.origin + "/?filter=working");
     await expect(card("Working thread 104")).toHaveCount(1);
+    const firstWorkingCount = await page
+      .locator(".feed-results .feed-row")
+      .count();
+    workingThread("unexpanded", at + 106);
+    await pull();
+    await expect(card("Working thread unexpanded")).toHaveCount(1);
+    await expect(page.locator(".feed-results .feed-row")).toHaveCount(
+      firstWorkingCount,
+    );
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("Working thread 40")).toHaveCount(1);
     let heldWorking;

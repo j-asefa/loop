@@ -119,7 +119,11 @@ export function useAgentThreadFeed(
         sources.map(async (source) => {
           const old = pages.get(source)!;
           const older = requested?.get(source);
-          if (before !== undefined && !older) return;
+          if (
+            before !== undefined &&
+            (!older || (!old.next && !progress.has(source)))
+          )
+            return;
           const read = async (before?: string): Promise<Page> => {
             const page = await readRoute(
               workspaceApi.agentThreadFeed,
@@ -156,6 +160,12 @@ export function useAgentThreadFeed(
               };
               const sweep = progress.get(source);
               const floor = page.items.at(-1);
+              const oldFloor = old.items.at(-1);
+              if (
+                older !== appendCursor(old, sweep) &&
+                (!floor || !oldFloor || feedItemOrder(floor, oldFloor) <= 0)
+              )
+                page.next = old.next;
               if (
                 sweep &&
                 (older === historyContinuation(old, sweep) ||

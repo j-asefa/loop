@@ -349,7 +349,7 @@ export function usePagedProjectionQuery<
             if (complete && needsRefresh?.(current)) pending = true;
             // Readers retain a separate append cursor while reconciling gaps.
             const append =
-              complete && appendPending
+              complete && appendPending && current.next !== null
                 ? (interruptedBefore ?? current.next)
                 : null;
             if (complete) {

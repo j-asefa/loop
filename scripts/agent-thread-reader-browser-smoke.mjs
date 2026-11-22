@@ -149,6 +149,7 @@ try {
         "queued-retry",
         "pull",
         "pull-append",
+        "pull-append-exhausted",
         "pull-append-error",
         "pull-append-live",
         "pull-gap-replay",
@@ -205,6 +206,23 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
+      } else if (scenario === "pull-append-exhausted") {
+        holdNext = true;
+        await more();
+        await expect.poll(() => held.length).toBe(1);
+        rows = [3];
+        epoch = "exhausted";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A3:exhausted");
+        await idle();
+        held.shift()();
+        await page.waitForTimeout(100);
+        await expect(output).not.toContainText("first-A2");
+        await expect(
+          page.getByRole("button", { name: "More", exact: true }),
+        ).toBeDisabled();
       } else if (
         scenario === "pull-append" ||
         scenario === "pull-append-error" ||
