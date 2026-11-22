@@ -2224,6 +2224,8 @@ export function Feed({
         }
         if (appending || !previous) {
           const page = await read(before);
+          if (appending && historyReadErrors.current.has(source))
+            followup.add(source);
           if (appending && retainWindow && cached) {
             const earlier = cached.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,

@@ -10,6 +10,7 @@ export type DoneRefresh = {
   restart?: boolean;
   head?: DonePosition;
   rescan?: boolean;
+  gapUntil?: DonePosition;
 };
 const key = (item: DonePosition) =>
   JSON.stringify([
@@ -65,6 +66,12 @@ export async function refreshDonePage<
   };
   apply(first);
   const firstLast = first.items.at(-1)!;
+  let gapUntil = progress?.gapUntil;
+  if (
+    feedItemOrder(firstLast, retained[0]) < 0 &&
+    (!gapUntil || feedItemOrder(retained[0], gapUntil) > 0)
+  )
+    gapUntil = retained[0];
   // Restart after a new front-page gap or removals that let the first page
   // reach the old floor. A stale history read must not erase that new page.
   if (
@@ -75,6 +82,7 @@ export async function refreshDonePage<
   )
     progress = {
       head: firstLast,
+      gapUntil,
       before: first.next,
       after: firstLast,
       floor: oldest,
@@ -97,14 +105,9 @@ export async function refreshDonePage<
         page: {
           ...first,
           items: [...items.values()].sort(feedItemOrder),
-          next:
-            feedItemOrder(firstLast, retained[0]) < 0
-              ? progress.before
-              : previous.next !== continuation
-                ? previous.next
-                : next,
+          next: gapUntil ? progress.before : next,
         },
-        progress: { ...progress, rescan },
+        progress: { ...progress, rescan, gapUntil },
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }
@@ -125,11 +128,17 @@ export async function refreshDonePage<
     } else if (!history.next || (last && feedItemOrder(last, oldest) === 0)) {
       next = history.next;
     }
+    if (
+      gapUntil &&
+      (!history.next || (last && feedItemOrder(last, gapUntil) >= 0))
+    )
+      gapUntil = undefined;
     progress =
       history.next && last && feedItemOrder(last, oldest) < 0
         ? {
             head: firstLast,
             rescan,
+            gapUntil,
             before: history.next,
             after: last,
             floor: oldest,
@@ -146,11 +155,11 @@ export async function refreshDonePage<
       after: firstLast,
       floor: oldest,
       continuation: next,
+      gapUntil: oldest,
     };
   // A burst can leave unseen results between the two fresh pages and the
   // retained window. Let Load more reach that gap immediately.
-  if (progress && feedItemOrder(progress.after, retained[0]) < 0)
-    next = progress.before;
+  if (progress?.gapUntil) next = progress.before;
   return {
     page: { ...first, items: [...items.values()].sort(feedItemOrder), next },
     progress,

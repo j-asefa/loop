@@ -513,9 +513,10 @@ for (const engine of selectedEngines()) {
       "Working history unavailable",
     );
     await page.unroute(workingHead);
-    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
-    await pull();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    // The successful append resumes the failed scan. Server recovery alone
+    // must finish it, without another pull or notification.
+    await expect(page.getByRole("alert")).toHaveCount(0, { timeout: 15_000 });
+    await expect(card("Working thread burst-0")).toHaveCount(1);
     await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("Working thread 0")).toHaveCount(1);

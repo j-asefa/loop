@@ -452,3 +452,33 @@ it("a newer failed pull exposes its new gap ahead of an earlier failed gap", asy
     card(260),
   );
 });
+
+it("keeps a gap reachable after an intermediate success and a later failure", async () => {
+  const api = server(history(400));
+  let result = await refreshDonePage(
+    api.read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  result = await refreshDonePage(
+    api.read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  const gap = result.page.next;
+  expect(gap).not.toBeNull();
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.page.next).toBe(gap);
+  expect((await api.read(result.page.next!)).items[0]).toEqual(card(280));
+});
