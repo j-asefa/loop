@@ -225,7 +225,13 @@ function limitMarkdownDepth() {
 }
 
 class MarkdownBoundary extends Component<
-  { content: string; compact: boolean; children: ReactNode },
+  {
+    content: string;
+    compact: boolean;
+    writing: boolean;
+    cappedPreview: boolean;
+    children: ReactNode;
+  },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -243,9 +249,15 @@ class MarkdownBoundary extends Component<
         <p className="field-hint">
           {this.props.compact
             ? "This answer could not be formatted. Open it to read the text."
-            : "This answer could not be formatted. Its text is below."}
+            : this.props.writing
+              ? "This answer could not be formatted while it is being written."
+              : this.props.cappedPreview
+                ? "This preview could not be formatted. Open the conversation to read the complete answer."
+                : "This answer could not be formatted. Its text is below."}
         </p>
-        {!this.props.compact && <pre>{this.props.content}</pre>}
+        {!this.props.compact &&
+          !this.props.writing &&
+          !this.props.cappedPreview && <pre>{this.props.content}</pre>}
       </div>
     ) : (
       this.props.children
@@ -368,7 +380,12 @@ export const RichText = memo(function RichText({
   return (
     <div className="markdown">
       <DisplayWritingContext.Provider value={writing}>
-        <MarkdownBoundary content={content} compact={compact}>
+        <MarkdownBoundary
+          content={content}
+          compact={compact}
+          writing={writing}
+          cappedPreview={cappedPreview}
+        >
           <Markdown
             remarkPlugins={[
               ...(compact
