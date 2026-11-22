@@ -9,6 +9,7 @@ export type DoneRefresh = {
   continuation?: string | null;
   restart?: boolean;
   head?: DonePosition;
+  rescan?: boolean;
 };
 const key = (item: DonePosition) =>
   JSON.stringify([
@@ -29,7 +30,7 @@ export async function refreshDonePage<
   previous: Page<T>,
   progress: DoneRefresh | undefined,
   current: () => boolean,
-): Promise<{ page: P; progress?: DoneRefresh }> {
+): Promise<{ page: P; progress?: DoneRefresh; error?: Error }> {
   const first = await read();
   if (
     !current() ||
@@ -69,8 +70,7 @@ export async function refreshDonePage<
   if (
     !progress ||
     progress.restart ||
-    (progress.head && feedItemOrder(firstLast, progress.head) < 0) ||
-    feedItemOrder(firstLast, retained[0]) < 0 ||
+    (!progress.head && feedItemOrder(firstLast, retained[0]) < 0) ||
     feedItemOrder(firstLast, oldest) >= 0
   )
     progress = {
@@ -80,11 +80,29 @@ export async function refreshDonePage<
       floor: oldest,
       continuation,
     };
+  // Finish this sweep before revisiting intervals changed by a moving head.
+  // Rewinding on every live update can starve the oldest loaded pages.
+  const rescan =
+    progress.rescan ||
+    (!!progress.head && feedItemOrder(firstLast, progress.head) < 0);
   // The newest page can itself reach or extend a formerly exhausted window.
   // Its continuation must become visible even when no history read is needed.
   let next = feedItemOrder(firstLast, oldest) >= 0 ? first.next : continuation;
   if (feedItemOrder(progress.after, oldest) < 0 && current()) {
-    const history = await read(progress.before);
+    let history: P;
+    try {
+      history = await read(progress.before);
+    } catch (error) {
+      return {
+        page: {
+          ...first,
+          items: [...items.values()].sort(feedItemOrder),
+          next,
+        },
+        progress: { ...progress, rescan },
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
     if (!current()) return { page: first };
     const last = history.items.at(-1);
     if (
@@ -106,6 +124,7 @@ export async function refreshDonePage<
       history.next && last && feedItemOrder(last, oldest) < 0
         ? {
             head: firstLast,
+            rescan,
             before: history.next,
             after: last,
             floor: oldest,
@@ -115,6 +134,14 @@ export async function refreshDonePage<
   } else {
     progress = undefined;
   }
+  if (!progress && rescan && feedItemOrder(firstLast, oldest) < 0)
+    progress = {
+      head: firstLast,
+      before: first.next,
+      after: firstLast,
+      floor: oldest,
+      continuation: next,
+    };
   // A burst can leave unseen results between the two fresh pages and the
   // retained window. Let Load more reach that gap immediately.
   if (progress && feedItemOrder(progress.after, retained[0]) < 0)

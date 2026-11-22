@@ -273,18 +273,25 @@ it.each([39, 40])(
   },
 );
 
-it("leaves the source's retained window and progress intact when a history read fails", async () => {
+it("returns a successful head with retained history and an explicit history error", async () => {
   const items = history(125),
     original = structuredClone(items);
   const progress = { before: JSON.stringify(card(85)), after: card(85) };
   const originalProgress = structuredClone(progress);
   const read = async (before?: string) => {
     if (before) throw new Error("Source unavailable");
-    return server(items).read();
+    return server([card(126), ...items]).read();
   };
-  await expect(
-    refreshDonePage(read, { items, next: null }, progress, () => true),
-  ).rejects.toThrow("Source unavailable");
+  const result = await refreshDonePage(
+    read,
+    { items, next: null },
+    progress,
+    () => true,
+  );
+  expect(result.error?.message).toBe("Source unavailable");
+  expect(result.page.items).toContainEqual(card(126));
+  expect(result.page.items).toContainEqual(card(1));
+  expect(result.progress?.before).toBe(progress.before);
   expect(items).toEqual(original);
   expect(progress).toEqual(originalProgress);
 });
@@ -349,5 +356,52 @@ it("preserves the real continuation when the oldest loaded row moves to the head
   expect(result.page.next).toBe(continuation);
   expect((await server(changed).read(result.page.next!)).items).toEqual(
     history(5),
+  );
+});
+
+it("revisits a completed interval after a notification without a moving head", async () => {
+  const initial = history(200);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  result.progress!.rescan = true;
+  const changed = initial.filter((item) => item.last_activity_at !== 160);
+  for (let cycle = 0; cycle < 12; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.page.items).toEqual(changed);
+  expect(result.progress).toBeUndefined();
+});
+
+it("reaches old removals even when every pass moves the head", async () => {
+  const initial = history(400);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  for (let cycle = 1; cycle <= 12; cycle++) {
+    const changed = history(400 + cycle).filter(
+      (item) => item.last_activity_at !== 10,
+    );
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  }
+  expect(result.page.items.some((item) => item.last_activity_at === 10)).toBe(
+    false,
   );
 });

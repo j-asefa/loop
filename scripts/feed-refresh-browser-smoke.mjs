@@ -472,18 +472,32 @@ for (const engine of selectedEngines()) {
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("Working thread 40")).toHaveCount(1);
     let heldWorking;
+    let failWorkingHistory = true;
     const workingAppend = (url) =>
       url.pathname.endsWith("/feed") &&
       url.searchParams.get("filter") === "working" &&
       url.searchParams.has("before");
     await page.route(workingAppend, (route) => {
       if (!heldWorking) heldWorking = route;
+      else if (failWorkingHistory)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Working history unavailable" },
+        });
       else return route.continue();
     });
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect.poll(() => !!heldWorking).toBe(true);
     const burstAt = Date.now();
     for (let i = 0; i < 100; i++) workingThread("burst-" + i, burstAt + i);
+    await pull();
+    await expect(card("Working thread burst-99")).toHaveCount(1);
+    await expect(page.getByRole("alert")).toContainText(
+      "Working history unavailable",
+    );
+    await expect(card("Working thread 40")).toHaveCount(1);
+    failWorkingHistory = false;
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
     await pull();
     await expect(card("Working thread 0")).toHaveCount(1);
     await expect(card("Working thread 40")).toHaveCount(1);

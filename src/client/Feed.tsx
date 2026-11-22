@@ -1799,9 +1799,11 @@ export function Feed({
     key: "",
     sources: new Map(),
   });
-  // Explicit pulls reconcile loaded history through bounded trailing reads.
+  // Explicit pulls retain this selection’s loaded history through subsequent
+  // retries and pagination, reconciling it through bounded trailing reads.
   // Thread views also finish live reconciliation so removals cannot linger.
   const refreshHistorySources = useRef(new Set<string>());
+  const historyDirtySources = useRef(new Set<string>());
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
     const ticketGeneration = needsRequest.current;
@@ -2036,6 +2038,7 @@ export function Feed({
       type Page = Shown;
       let result: Page;
       let partialError = "";
+      const historyErrors = new Map<string, Error>();
       let cached = cachedView<Shown>(shownKey());
       let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
@@ -2232,6 +2235,9 @@ export function Feed({
         }
         const current = () =>
           ticket === request.current && owner === viewOwner();
+        const progress = doneRefresh.current.sources.get(source);
+        if (historyDirtySources.current.delete(source) && progress)
+          progress.rescan = true;
         const result = await refreshDonePage<FeedItem, Page>(
           read,
           {
@@ -2242,17 +2248,20 @@ export function Feed({
               ? (JSON.parse(previous.next || "{}")[source] ?? null)
               : previous.next,
           },
-          doneRefresh.current.sources.get(source),
+          progress,
           current,
         );
         if (current()) {
+          if (result.error) historyErrors.set(source, result.error);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            if (filter === "all" || refreshHistorySources.current.has(source))
+            if (
+              !result.error &&
+              (filter === "all" || refreshHistorySources.current.has(source))
+            )
               followup.add(source);
           } else {
             doneRefresh.current.sources.delete(source);
-            refreshHistorySources.current.delete(source);
           }
         }
         return result.page;
@@ -2571,6 +2580,11 @@ export function Feed({
         );
         return merged;
       });
+      for (const [source, error] of historyErrors) {
+        retryPages.current.set(source, pages.get(source)!);
+        if (combined) sourcePages.current.failures.add(source);
+        partialError ||= error.message;
+      }
       setNext(result.next);
       setReadError(partialError);
     } catch (e) {
@@ -2631,6 +2645,7 @@ export function Feed({
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
       refreshHistorySources.current.clear();
+      historyDirtySources.current.clear();
       activeAppendSources.current.clear();
       pendingAppendSources.current.clear();
       ++request.current;
@@ -2683,6 +2698,7 @@ export function Feed({
         .filter((source) => workspaceChangeAffects(event, "feed", source.id))
         .map((source) => source.id);
       if (affected.length) {
+        for (const source of affected) historyDirtySources.current.add(source);
         if (
           [...retryPages.current.keys()].every((source) =>
             affected.includes(source),

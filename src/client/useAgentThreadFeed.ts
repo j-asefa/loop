@@ -135,6 +135,11 @@ export function useAgentThreadFeed(
               page = refreshed.page;
               if (refreshed.progress) progress.set(source, refreshed.progress);
               else progress.delete(source);
+              if (refreshed.error && current()) {
+                pages.set(source, page);
+                cacheView(cacheKey(source), page, owner);
+                throw refreshed.error;
+              }
             }
             if (!current()) return;
             pages.set(source, page);
