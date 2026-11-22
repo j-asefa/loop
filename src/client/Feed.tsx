@@ -2728,7 +2728,8 @@ export function Feed({
       .filter(
         (source) =>
           pendingAppendSources.current.has(source) &&
-          !retryPages.current.has(source),
+          !retryPages.current.has(source) &&
+          !doneRefresh.current.sources.has(source),
       );
     if (!ready.length) return;
     for (const source of ready) pendingAppendSources.current.delete(source);

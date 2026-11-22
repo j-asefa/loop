@@ -191,6 +191,7 @@ try {
         await expect.poll(() => held.length).toBe(1);
         epoch = "after-pull";
         failure = failHeadOnly = scenario === "pull-append-error";
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),
         );
