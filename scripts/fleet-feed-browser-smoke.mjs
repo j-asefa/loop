@@ -36,6 +36,7 @@ const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
 let feedFailSlow = false;
 let feedRevision = 0;
+let feedPageRows = [3, 2, 1];
 let feedPagination = false,
   holdOlder = false,
   releaseOlder;
@@ -232,10 +233,12 @@ try {
           });
           return;
         }
-        const older =
-          feedPagination &&
-          source.id === sources[1].id &&
-          url.searchParams.has("before");
+        const paginated = feedPagination && source.id === sources[1].id;
+        const older = paginated && url.searchParams.has("before");
+        const index = older
+          ? feedPageRows.indexOf(Number(url.searchParams.get("before"))) + 1
+          : 0;
+        const rowNumber = feedPageRows[index];
         if (older && holdOlder) {
           holdOlder = false;
           await new Promise((resolve) => {
@@ -247,20 +250,23 @@ try {
           items: [
             {
               ...feedTemplate,
-              conversation_id: older
-                ? "older-conversation"
+              conversation_id: paginated
+                ? "conversation-" + rowNumber
                 : "same-conversation",
               title:
                 (older ? "Older " : "Measured ") +
                 source.name +
-                (source.id === sources[1].id && feedRevision ? " updated" : ""),
-              last_activity_at: older ? 1 : Date.now(),
+                (source.id === sources[1].id && feedRevision
+                  ? " updated"
+                  : "") +
+                (paginated ? " " + rowNumber : ""),
+              last_activity_at: paginated ? rowNumber : Date.now(),
               queued_runs: [],
             },
           ],
           next:
-            feedPagination && source.id === sources[1].id && !older
-              ? "older"
+            paginated && index + 1 < feedPageRows.length
+              ? String(rowNumber)
               : null,
           summary: { needs: 0, working: 1, queued: 0, later_due: 0 },
         };
@@ -448,13 +454,24 @@ try {
   await moreFeed.click();
   await expect.poll(() => !!releaseOlder).toBe(true);
   hold = true;
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
   await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
   await expect(
-    page.getByText("Older Machine 1 updated", { exact: true }),
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
   ).toBeVisible();
   assert(
     hold && pending.size > 0,
     "Interrupted healthy pagination resumes before the stalled peer",
+  );
+  await expect(
+    page.getByText("Older Machine 1 updated 6", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  assert(
+    hold && pending.size > 0,
+    "Replayed append preserves follow-up reconciliation while the peer is stalled",
   );
   hold = false;
   for (const release of pending) release();

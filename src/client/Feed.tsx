@@ -2263,7 +2263,12 @@ export function Feed({
         if (appending || !previous) {
           const page = await read(before);
           if (!isCurrent()) return page;
-          if (appending && historyReadErrors.current.has(source))
+          // Replaying an interrupted append must not consume the head scan.
+          if (
+            appending &&
+            (historyReadErrors.current.has(source) ||
+              doneRefresh.current.sources.has(source))
+          )
             followup.add(source);
           if (appending && retainWindow && cached) {
             const earlier = cached.items.filter(
