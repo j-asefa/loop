@@ -1790,6 +1790,7 @@ export function Feed({
     () => () => {
       activeView.current = null;
       clearTimeout(doneCatchup.current);
+      doneCatchup.current = undefined;
       ++request.current;
     },
     [],
@@ -1914,8 +1915,7 @@ export function Feed({
   // pulls and user pagination remain immediate.
   const nextBackgroundReadAt = useRef(0);
   function schedulePendingRefresh() {
-    clearTimeout(doneCatchup.current);
-    doneCatchup.current = undefined;
+    if (doneCatchup.current !== undefined) return;
     const owner = viewOwner(),
       context = JSON.stringify([owner, shownKey()]);
     if (
@@ -1926,6 +1926,7 @@ export function Feed({
     const ticket = request.current;
     doneCatchup.current = setTimeout(
       () => {
+        doneCatchup.current = undefined;
         if (
           ticket === request.current &&
           owner === viewOwner() &&
@@ -2052,6 +2053,7 @@ export function Feed({
     }
     if (!manual && !background) setReadError("");
     clearTimeout(doneCatchup.current);
+    doneCatchup.current = undefined;
     inFlight.current = true;
     setReadBusy(true);
     setPartialReadPending(false);
@@ -2779,6 +2781,7 @@ export function Feed({
       stopRefreshEvent();
       stopChanges();
       clearTimeout(doneCatchup.current);
+      doneCatchup.current = undefined;
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.

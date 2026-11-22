@@ -363,15 +363,16 @@ try {
   );
   const allHealthySourcesMs = Math.round(performance.now() - feedStart);
   feedRevision++;
-  await page.evaluate(
-    (source) =>
+  await page.evaluate((source) => {
+    const notify = () =>
       window.dispatchEvent(
         new CustomEvent("loop-workspace-change", {
           detail: { sources: [source] },
         }),
-      ),
-    sources[1].id,
-  );
+      );
+    notify();
+    window.__feedPulse = setInterval(notify, 25);
+  }, sources[1].id);
   await expect(
     page.getByText("Measured Machine 1 updated", { exact: true }),
   ).toBeVisible();
@@ -379,6 +380,8 @@ try {
     hold && pending.size > 0,
     "A healthy source must update while its peer is still stalled",
   );
+  await page.evaluate(() => clearInterval(window.__feedPulse));
+  await page.waitForTimeout(1250);
   const beforeIdle = feedMetrics.requests;
   await page.waitForTimeout(2000);
   const idleRequests = feedMetrics.requests - beforeIdle;
