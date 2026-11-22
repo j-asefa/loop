@@ -20,6 +20,7 @@ import {
 import { ConnectionNotice } from "./ConnectionNotice";
 import { PullRequestCards, pullRequestCardData } from "./PullRequestCard";
 import {
+  Component,
   memo,
   useEffect,
   useMemo,
@@ -207,6 +208,48 @@ export function Sheet({
     </dialog>
   );
 }
+type MarkdownTree = { type: string; children?: MarkdownTree[] };
+function limitMarkdownDepth() {
+  return (tree: MarkdownTree) => {
+    const pending = [{ node: tree, depth: 0 }];
+    while (pending.length) {
+      const { node, depth } = pending.pop()!;
+      // Some browsers parse trees too deep for subsequent transforms or DOM
+      // traversal. Use the text fallback before entering those recursive paths.
+      if (depth > 128)
+        throw new Error("Markdown nesting exceeds display limit");
+      for (const child of node.children || [])
+        pending.push({ node: child, depth: depth + 1 });
+    }
+  };
+}
+
+class MarkdownBoundary extends Component<
+  { content: string; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidUpdate(previous: Readonly<{ content: string }>) {
+    if (this.state.failed && previous.content !== this.props.content)
+      this.setState({ failed: false });
+  }
+  render() {
+    return this.state.failed ? (
+      <div className="markdown-fallback">
+        <p className="field-hint">
+          This answer could not be formatted. Its text is below.
+        </p>
+        <pre>{this.props.content}</pre>
+      </div>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
 // Draft edits rerender the surrounding Feed and conversation. Reuse unchanged
 // Markdown so typing never reparses every visible answer. Source context still
 // invalidates the render, keeping file links bound to the right workspace.
@@ -322,40 +365,43 @@ export const RichText = memo(function RichText({
   return (
     <div className="markdown">
       <DisplayWritingContext.Provider value={writing}>
-        <Markdown
-          remarkPlugins={[
-            remarkGfm,
-            ...(diagrams
-              ? [
-                  [
-                    markOpenSpecFences,
-                    {
-                      previewFenceCut,
-                      cappedPreview,
-                      previewEndsAtLine,
-                      previewFenceIsSpec,
-                    },
-                  ] as [
-                    typeof markOpenSpecFences,
-                    Parameters<typeof markOpenSpecFences>[0],
-                  ],
-                ]
-              : []),
-            ...(math?.remark || []),
-            ...(compact
-              ? [
-                  [compactMarkdown, { displays: diagrams }] as [
-                    typeof compactMarkdown,
-                    { displays: boolean },
-                  ],
-                ]
-              : []),
-          ]}
-          rehypePlugins={math?.rehype}
-          components={renderers}
-        >
-          {content}
-        </Markdown>
+        <MarkdownBoundary content={content}>
+          <Markdown
+            remarkPlugins={[
+              limitMarkdownDepth,
+              remarkGfm,
+              ...(diagrams
+                ? [
+                    [
+                      markOpenSpecFences,
+                      {
+                        previewFenceCut,
+                        cappedPreview,
+                        previewEndsAtLine,
+                        previewFenceIsSpec,
+                      },
+                    ] as [
+                      typeof markOpenSpecFences,
+                      Parameters<typeof markOpenSpecFences>[0],
+                    ],
+                  ]
+                : []),
+              ...(math?.remark || []),
+              ...(compact
+                ? [
+                    [compactMarkdown, { displays: diagrams }] as [
+                      typeof compactMarkdown,
+                      { displays: boolean },
+                    ],
+                  ]
+                : []),
+            ]}
+            rehypePlugins={math?.rehype}
+            components={renderers}
+          >
+            {content}
+          </Markdown>
+        </MarkdownBoundary>
       </DisplayWritingContext.Provider>
     </div>
   );

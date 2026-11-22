@@ -244,6 +244,35 @@ for (const engine of selectedEngines()) {
       await expect(card.locator(".display-title")).toHaveText("Weekly deploys");
       await expect(card.locator("code.language-spec")).toHaveCount(0);
 
+      // A readable API response must also survive Markdown render failures.
+      const malformed =
+        "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}';
+      seal(done, malformed);
+      await page.reload({ waitUntil: "networkidle" });
+      await expect(card.locator(".markdown-fallback")).toBeVisible();
+      assert.equal(
+        await card.locator(".markdown-fallback pre").textContent(),
+        malformed,
+      );
+      await card.evaluate((element) => {
+        element.dataset.recoveryProbe = "mounted";
+      });
+      await card.locator(".feed-row").click();
+      const failedReader = page.locator("dialog.feed-reading-sheet[open]");
+      await expect(failedReader.locator(".markdown-fallback")).toBeVisible();
+      assert.equal(
+        await failedReader.locator(".markdown-fallback pre").textContent(),
+        malformed,
+      );
+      await failedReader
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+      seal(done, answer);
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
+      await expect(card.locator(".display-title")).toHaveText("Weekly deploys");
+      await expect(card.locator(".markdown-fallback")).toHaveCount(0);
+      await expect(card).toHaveAttribute("data-recovery-probe", "mounted");
+
       // Reading sheet: every component, and the degraded ones.
       await card.locator(".feed-row").click();
       const reader = page.locator("dialog.feed-reading-sheet[open]");
