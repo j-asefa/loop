@@ -2639,10 +2639,10 @@ export function Feed({
     const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
     const stopRefreshEvent = listenClientEvent("loop-refresh", () => {
       // A deliberate pull refreshes the head even after a failed append. Keep
-      // the loaded card window, but give each source a fresh read attempt.
+      // the loaded card window and restart each source's bounded recovery.
       readRecovery.current.reset();
       retryPages.current.clear();
-      void load(false, false, undefined, true);
+      void load();
     });
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
       const affected: string[] = activeSources

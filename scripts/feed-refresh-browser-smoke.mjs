@@ -175,8 +175,48 @@ for (const engine of selectedEngines()) {
     await expect(card("Normal live delivery control")).toHaveCount(1, {
       timeout: 10_000,
     });
+    // Replies uses the Feed's shared bounded read recovery. A pull during that
+    // recovery must restart it even when the new read fails without Retry-After.
+    const feedReads = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "replies";
+    const repliesLoaded = page.waitForResponse(
+      (response) => feedReads(new URL(response.url())) && response.ok(),
+    );
+    await page.getByRole("tab", { name: /^Replies/ }).click();
+    await repliesLoaded;
+    let unavailable = true;
+    let recoveryAttempts = 0;
+    await page.route(feedReads, (route) => {
+      recoveryAttempts++;
+      return unavailable
+        ? route.fulfill({
+            status: 503,
+            json: { error: "Transient recovery fixture unavailable" },
+          })
+        : route.continue();
+    });
+    publish("automatic-recovery", "astra", "Background recovery stimulus");
+    await expect(page.getByRole("alert")).toContainText(
+      "Transient recovery fixture unavailable",
+    );
+    await page.evaluate(() => (window.__suppressFeedNotifications = true));
+    const beforeRecoveryPull = recoveryAttempts;
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    await pull();
+    await expect
+      .poll(() => recoveryAttempts)
+      .toBeGreaterThan(beforeRecoveryPull);
+    // Restore the server only. No notification, reload or further pull may be
+    // needed after the pull replaced the background read.
+    unavailable = false;
+    await expect
+      .poll(() => recoveryAttempts, { timeout: 10_000 })
+      .toBeGreaterThan(beforeRecoveryPull + 1);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await page.unroute(feedReads);
     console.log(
-      `PASS ${engine.name()}: pull recovers both missing results, retains loaded history, retries failure, and preserves live delivery`,
+      `PASS ${engine.name()}: pull recovers both missing results, retains loaded history, retries failure, and preserves live delivery and automatic recovery`,
     );
   } finally {
     await browser?.close();
