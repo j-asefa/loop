@@ -9,6 +9,77 @@ import {
   seedRun,
 } from "./helpers/seed.js";
 
+it("keeps historical Done answers readable when preview Markdown is too deeply nested", async () => {
+  const fixture = await cardsFixture(false, { projectedWrites: true });
+  const { db, owner, browser, request } = fixture;
+  try {
+    seedAgent(db, {
+      id: "preview-agent",
+      owner_id: owner,
+      name: "preview-agent",
+      normalized_name: "preview-agent",
+      provider: "openai",
+      model: "fixture",
+      created_at: 1,
+    });
+    seedConversation(db, {
+      id: "preview-thread",
+      owner_id: owner,
+      agent_id: "preview-agent",
+      title: "Preview resilience",
+      created_at: 1,
+    });
+    const answers = [
+      "An ordinary answer.",
+      "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}',
+    ];
+    for (const [index, content] of answers.entries()) {
+      seedRun(db, {
+        id: "preview-run-" + index,
+        owner_id: owner,
+        agent_id: "preview-agent",
+        conversation_id: "preview-thread",
+        input: "Read this result",
+        state: "completed",
+        idempotency_key: "preview-run-" + index,
+        created_at: index + 2,
+        updated_at: index + 2,
+      });
+      seedMessage(db, {
+        id: "preview-answer-" + index,
+        owner_id: owner,
+        conversation_id: "preview-thread",
+        run_id: "preview-run-" + index,
+        role: "assistant",
+        content,
+        created_at: index + 2,
+      });
+    }
+    // Exercise the upgrade reader for answers written by released versions.
+    sealSeededHistory(db);
+    const response = await request("/api/v1/cards?view=done", {
+      headers: browser,
+    });
+    expect(response.status).toBe(200);
+    const page = workspaceApi.cardList.response.parse(await response.json());
+    expect(page.items.map(({ card }) => card.id)).toEqual([
+      "d:run:preview-run-1",
+      "d:run:preview-run-0",
+    ]);
+    const card = page.items[0].card;
+    expect(card.content).toBe(answers[1]);
+    if (card.type !== "done") throw new Error("Expected a Done card");
+    expect(card.display.last_message?.preview).toBe("Summary.");
+    expect(
+      db
+        .prepare("SELECT content FROM messages WHERE id=?")
+        .get("preview-answer-1"),
+    ).toEqual({ content: answers[1] });
+  } finally {
+    await fixture.close();
+  }
+});
+
 it("companion filters Done before pagination and reconciles read transitions within the owner and agent selection", async () => {
   const fixture = await cardsFixture(false, { projectedWrites: true });
   const { db, owner, browser, request } = fixture;

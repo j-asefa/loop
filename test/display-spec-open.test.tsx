@@ -236,6 +236,17 @@ it("drops closed and open spec blocks from other plain text", () => {
   expect(collapse(closed, 200)).toBe("Summary first. Then more words.");
 });
 
+it("keeps previews bounded and free of display source when Markdown cannot be parsed", () => {
+  for (const source of [
+    "Summary.\n\n" + "> ".repeat(10000) + '```spec\n{"op":"add"}',
+    'Summary.\n\n```spec\n{"value":"' + "x".repeat(100000) + '"}\n```\nAfter.',
+  ]) {
+    expect(collapse(source, 200)).toBe("Summary.");
+    expect(plainPreview(source)).toBe("Summary.");
+    expect(searchExcerpt(source, "", "")).toBe("Summary.");
+  }
+});
+
 it("preserves prose after long closed fences in plain previews", () => {
   expect(plainPreview("Before\n``````ts\nx\n``````\nAfter")).toBe(
     "Before After",

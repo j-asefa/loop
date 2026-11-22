@@ -10,6 +10,7 @@ const markdown = unified()
   .use(remarkChatMath)
   .freeze();
 type MarkdownNode = ReturnType<typeof markdown.parse>["children"][number];
+const PREVIEW_MARKDOWN_LIMIT = 64 * 1024;
 
 /** Classify a bounded, raw fence language token, decoding references if present. */
 export function isDisplayFenceToken(token: string) {
@@ -52,8 +53,26 @@ function dropFencedBlocks(text: string, includeBacktickCode: boolean) {
   // A removed block must not cause its preceding and following markers to pair.
   const keep = (span: string) =>
     includeBacktickCode ? span.replace(/```[\s\S]*?```/g, " ") : span;
+  // Preview generation must not prevent the stored answer from being read.
+  // If parsing is unsafe, retain only bounded prose before the first possible
+  // fence's line; returning raw input here could expose display JSON.
+  const fallback = () => {
+    const fence = text.search(/```|~~~/);
+    const end = Math.max(
+      text.lastIndexOf("\n", fence),
+      text.lastIndexOf("\r", fence),
+    );
+    return keep(text.slice(0, Math.min(end + 1, PREVIEW_MARKDOWN_LIMIT)));
+  };
+  if (text.length > PREVIEW_MARKDOWN_LIMIT) return fallback();
+  let pending: MarkdownNode[];
+  try {
+    pending = markdown.parse(text).children.reverse();
+  } catch {
+    // Bounded input can still exceed the parser's recursive nesting limit.
+    return fallback();
+  }
   let end = 0;
-  const pending: MarkdownNode[] = markdown.parse(text).children.reverse();
   while (pending.length) {
     const node = pending.pop()!;
     if (node.type === "code" && node.position) {
