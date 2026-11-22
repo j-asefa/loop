@@ -26,10 +26,15 @@ type Window = {
   headErrors: Set<string>;
   next: string | null;
 };
-const cursor = (pages: Map<string, Page>) => {
+const appendCursor = (page: Page, progress?: DoneRefresh) =>
+  progress?.continuation !== undefined ? progress.continuation : page.next;
+const cursor = (
+  pages: Map<string, Page>,
+  progress = new Map<string, DoneRefresh>(),
+) => {
   const next = [...pages]
-    .filter(([, page]) => page.next)
-    .map(([source, page]) => [source, page.next]);
+    .map(([source, page]) => [source, appendCursor(page, progress.get(source))])
+    .filter(([, next]) => next);
   return next.length ? JSON.stringify(next) : null;
 };
 
@@ -90,7 +95,8 @@ export function useAgentThreadFeed(
       await Promise.all(
         sources.map(async (source) => {
           const old = pages.get(source)!;
-          if (before !== undefined && !old.next) return;
+          const older = appendCursor(old, progress.get(source));
+          if (before !== undefined && !older) return;
           const read = async (before?: string): Promise<Page> => {
             const page = await readRoute(
               workspaceApi.agentThreadFeed,
@@ -116,7 +122,7 @@ export function useAgentThreadFeed(
           try {
             let page: Page;
             if (before !== undefined) {
-              const incoming = await read(old.next!);
+              const incoming = await read(older!);
               const known = new Set(incoming.items.map((thread) => thread.id));
               page = {
                 ...incoming,
@@ -125,6 +131,13 @@ export function useAgentThreadFeed(
                   ...incoming.items,
                 ].sort(feedItemOrder),
               };
+              const sweep = progress.get(source);
+              if (sweep)
+                progress.set(source, {
+                  ...sweep,
+                  floor: page.items.at(-1),
+                  continuation: incoming.next,
+                });
             } else {
               const refreshed = await refreshDonePage(
                 read,
@@ -154,7 +167,13 @@ export function useAgentThreadFeed(
           }
         }),
       );
-      return { pages, progress, errors, headErrors, next: cursor(pages) };
+      return {
+        pages,
+        progress,
+        errors,
+        headErrors,
+        next: cursor(pages, progress),
+      };
     },
   });
   const items = useMemo(

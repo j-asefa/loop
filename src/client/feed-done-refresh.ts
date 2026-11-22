@@ -97,7 +97,12 @@ export async function refreshDonePage<
         page: {
           ...first,
           items: [...items.values()].sort(feedItemOrder),
-          next,
+          next:
+            previous.next !== continuation
+              ? previous.next
+              : feedItemOrder(firstLast, retained[0]) < 0
+                ? progress.before
+                : next,
         },
         progress: { ...progress, rescan },
         error: error instanceof Error ? error : new Error(String(error)),

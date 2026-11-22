@@ -1804,6 +1804,7 @@ export function Feed({
   // Thread views also finish live reconciliation so removals cannot linger.
   const refreshHistorySources = useRef(new Set<string>());
   const historyDirtySources = useRef(new Set<string>());
+  const historyReadErrors = useRef(new Map<string, Error>());
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
     const ticketGeneration = needsRequest.current;
@@ -1953,6 +1954,7 @@ export function Feed({
     background = false,
     onlySources?: string[],
     manual = false,
+    resumeAppend = false,
   ) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
@@ -1988,9 +1990,14 @@ export function Feed({
         (manual && retryPages.current.get(source.id)) || {
           append,
           before: append
-            ? combined
-              ? cursors[source.id]
-              : next || undefined
+            ? resumeAppend &&
+              doneRefresh.current.sources.get(source.id)?.continuation !==
+                undefined
+              ? (doneRefresh.current.sources.get(source.id)!.continuation ??
+                undefined)
+              : combined
+                ? cursors[source.id]
+                : next || undefined
             : undefined,
         },
       ]),
@@ -2001,6 +2008,8 @@ export function Feed({
       refreshReadingSources.current?.(requestedSources);
       return;
     }
+    if (append && !background)
+      for (const source of requestedSources) readRecovery.current.reset(source);
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
@@ -2038,7 +2047,7 @@ export function Feed({
       type Page = Shown;
       let result: Page;
       let partialError = "";
-      const historyErrors = new Map<string, Error>();
+
       let cached = cachedView<Shown>(shownKey());
       let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
@@ -2252,7 +2261,8 @@ export function Feed({
           current,
         );
         if (current()) {
-          if (result.error) historyErrors.set(source, result.error);
+          if (result.error) historyReadErrors.current.set(source, result.error);
+          else historyReadErrors.current.delete(source);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
             if (
@@ -2580,8 +2590,8 @@ export function Feed({
         );
         return merged;
       });
-      for (const [source, error] of historyErrors) {
-        retryPages.current.set(source, pages.get(source)!);
+      for (const [source, error] of historyReadErrors.current) {
+        retryPages.current.set(source, { append: false });
         if (combined) sourcePages.current.failures.add(source);
         partialError ||= error.message;
       }
@@ -2646,6 +2656,7 @@ export function Feed({
       readRecovery.current.reset();
       refreshHistorySources.current.clear();
       historyDirtySources.current.clear();
+      historyReadErrors.current.clear();
       activeAppendSources.current.clear();
       pendingAppendSources.current.clear();
       ++request.current;
@@ -2748,12 +2759,15 @@ export function Feed({
         (source) =>
           pendingAppendSources.current.has(source) &&
           !retryPages.current.has(source) &&
-          !doneRefresh.current.sources.has(source),
+          doneRefresh.current.sources.get(source)?.continuation !== null,
       );
+    for (const source of pendingAppendSources.current)
+      if (doneRefresh.current.sources.get(source)?.continuation === null)
+        pendingAppendSources.current.delete(source);
     if (!ready.length) return;
     for (const source of ready) pendingAppendSources.current.delete(source);
     // Run after the replacement head's state commits, using its current cursor.
-    void load(true, false, ready);
+    void load(true, false, ready, false, true);
   }, [readBusy, next, filter, project, teams, agent, sourceKey, generation]);
   async function runAction(
     runId: string,

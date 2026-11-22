@@ -47,6 +47,7 @@ try {
     holdNext = false;
   let holdBefore;
   let failHeadOnly = false;
+  let movingHead = false;
   const requests = [];
   const row = (source, n, agent) => ({
     id: "thread-" + n,
@@ -97,6 +98,8 @@ try {
         agent = url.searchParams.get("agent"),
         before = url.searchParams.get("before");
       requests.push({ source, agent, before });
+      if (movingHead && source === "A" && before === null)
+        rows.unshift(rows[0] + 1);
       const selected = source === "A" ? rows : [1];
       const start = before === null ? 0 : selected.indexOf(Number(before)) + 1;
       const n = selected[start],
@@ -137,11 +140,13 @@ try {
         "pull",
         "pull-append",
         "pull-append-error",
+        "pull-append-live",
         "scope",
       ]) {
     rows = [3, 2, 1];
     failure = false;
     failHeadOnly = false;
+    movingHead = false;
     stuck = false;
     holdNext = false;
     holdBefore = undefined;
@@ -184,7 +189,8 @@ try {
         await expect(output).toContainText("first-A1");
       } else if (
         scenario === "pull-append" ||
-        scenario === "pull-append-error"
+        scenario === "pull-append-error" ||
+        scenario === "pull-append-live"
       ) {
         holdNext = true;
         await more();
@@ -192,12 +198,14 @@ try {
         epoch = "after-pull";
         failure = failHeadOnly = scenario === "pull-append-error";
         rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        movingHead = scenario === "pull-append-live";
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),
         );
         await expect(output).toContainText("first-A2:after-pull", {
           timeout: 12_000,
         });
+        movingHead = false;
         await idle();
         if (failHeadOnly) {
           await expect(notice).toContainText(

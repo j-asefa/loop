@@ -405,3 +405,27 @@ it("reaches old removals even when every pass moves the head", async () => {
     false,
   );
 });
+
+it("keeps an exposed gap reachable across repeated history failures", async () => {
+  const api = server(history(225));
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  const initial = {
+    items: history(100).slice(0, 95),
+    next: JSON.stringify(card(6)),
+  };
+  let result = await refreshDonePage(read, initial, undefined, () => true);
+  const gap = result.page.next;
+  for (let i = 0; i < 3; i++)
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  expect(result.page.next).toBe(gap);
+  expect((await api.read(gap!)).items[0]).toEqual(card(185));
+  expect(result.error?.message).toBe("history unavailable");
+});

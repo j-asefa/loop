@@ -496,9 +496,28 @@ for (const engine of selectedEngines()) {
       "Working history unavailable",
     );
     await expect(card("Working thread 40")).toHaveCount(1);
+    const workingHead = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "working" &&
+      !url.searchParams.has("before");
+    await page.route(workingHead, (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: "Working history unavailable" },
+      }),
+    );
     failWorkingHistory = false;
+    await page.getByRole("button", { name: /Load more/i }).click();
+    await expect(card("Working thread burst-30")).toHaveCount(1);
+    await expect(page.getByRole("alert")).toContainText(
+      "Working history unavailable",
+    );
+    await page.unroute(workingHead);
     await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
     await pull();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("Working thread 0")).toHaveCount(1);
     await expect(card("Working thread 40")).toHaveCount(1);
     await heldWorking.continue();

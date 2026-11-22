@@ -340,10 +340,9 @@ export function usePagedProjectionQuery<
             refreshAfter = urgent ? 0 : Date.now() + refreshDelay(reads);
           if (!stale()) {
             if (complete && needsRefresh?.(current)) pending = true;
-            const canReplay = !restartOnRefresh || !needsRefresh?.(current);
-            const append =
-              complete && appendPending && canReplay ? current.next : null;
-            if (complete && canReplay) appendPending = false;
+            // Readers retain a separate append cursor while reconciling gaps.
+            const append = complete && appendPending ? current.next : null;
+            if (complete) appendPending = false;
             if (append !== null) void load(append);
             else if (pending) schedule();
           }
