@@ -1278,7 +1278,7 @@ export function Feed({
   const scopedSource = useSourceId();
   const scopedCapabilities = useSourceCapabilities();
   // Browsable histories retain loaded pages while new activity arrives.
-  const retainHistory = ["done", "replies", "threads"].includes(filter);
+  const retainHistory = ["all", "done", "replies", "threads"].includes(filter);
   type Shown = {
     items: FeedItem[];
     next: string | null;

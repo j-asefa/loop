@@ -36,12 +36,18 @@ for (const engine of selectedEngines()) {
         created_at: at,
       });
     }
-    const publish = (id, agent, body, time = Date.now()) => {
+    const publish = (
+      id,
+      agent,
+      body,
+      time = Date.now(),
+      conversation = agent,
+    ) => {
       seedRun(db, {
         id,
         owner_id: owner,
         agent_id: agent,
-        conversation_id: agent,
+        conversation_id: conversation,
         input: body,
         state: "completed",
         idempotency_key: id,
@@ -51,7 +57,7 @@ for (const engine of selectedEngines()) {
       seedMessage(db, {
         id: "m-" + id,
         owner_id: owner,
-        conversation_id: agent,
+        conversation_id: conversation,
         run_id: id,
         role: "assistant",
         content: body,
@@ -175,16 +181,52 @@ for (const engine of selectedEngines()) {
     await expect(card("Normal live delivery control")).toHaveCount(1, {
       timeout: 10_000,
     });
-    // Replies uses the Feed's shared bounded read recovery. A pull during that
-    // recovery must restart it even when the new read fails without Retry-After.
+    const publishThread = (id, body, time = Date.now()) => {
+      seedConversation(db, {
+        id,
+        owner_id: owner,
+        agent_id: "astra",
+        title: body,
+        created_at: time,
+      });
+      publish(id, "astra", body, time, id);
+    };
+    // Agent profiles use filter=all. Their loaded thread pages must survive a
+    // pull too, including when the first page is already fully populated.
+    for (let i = 0; i < 55; i++)
+      publishThread("history-" + i, "History thread " + i, at + i);
+    await page.goto(fixture.origin + "/?agent=astra");
+    await expect(
+      page.getByText("No results yet.", { exact: true }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Threads", exact: true }).click();
+    await expect(card("History thread 54")).toHaveCount(1);
+    await page.getByRole("button", { name: /Load more/i }).click();
+    await expect(card("History thread 0")).toHaveCount(1);
+    await page.evaluate(() => (window.__suppressFeedNotifications = true));
+    publishThread("pulled-thread", "New thread recovered by pull");
+    await pull();
+    await expect(card("New thread recovered by pull")).toHaveCount(1);
+    await expect(card("History thread 0")).toHaveCount(1);
+    await page.evaluate(() => (window.__suppressFeedNotifications = false));
+    // This view also uses the shared bounded read recovery. Observe the old
+    // read's cancellation so an already scheduled retry cannot satisfy the test.
     const feedReads = (url) =>
       url.pathname.endsWith("/feed") &&
-      url.searchParams.get("filter") === "replies";
-    const repliesLoaded = page.waitForResponse(
-      (response) => feedReads(new URL(response.url())) && response.ok(),
-    );
-    await page.getByRole("tab", { name: /^Replies/ }).click();
-    await repliesLoaded;
+      url.searchParams.get("filter") === "all";
+    await page.evaluate(() => {
+      const fetch = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = new URL(String(input), location.href);
+        if (
+          url.pathname.endsWith("/feed") &&
+          url.searchParams.get("filter") === "all" &&
+          !window.__backgroundFeedSignal
+        )
+          window.__backgroundFeedSignal = init?.signal;
+        return fetch(input, init);
+      };
+    });
     let unavailable = true;
     let recoveryAttempts = 0;
     await page.route(feedReads, (route) => {
@@ -196,14 +238,23 @@ for (const engine of selectedEngines()) {
           })
         : route.continue();
     });
-    publish("automatic-recovery", "astra", "Background recovery stimulus");
+    publishThread("automatic-recovery", "Recovered without another pull");
     await expect(page.getByRole("alert")).toContainText(
       "Transient recovery fixture unavailable",
     );
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
     const beforeRecoveryPull = recoveryAttempts;
     await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    assert.equal(
+      await page.evaluate(() => window.__backgroundFeedSignal?.aborted),
+      false,
+    );
     await pull();
+    assert.equal(
+      await page.evaluate(() => window.__backgroundFeedSignal?.aborted),
+      true,
+      "the pull must cancel the prior recovery before starting its fresh read",
+    );
     await expect
       .poll(() => recoveryAttempts)
       .toBeGreaterThan(beforeRecoveryPull);
@@ -214,6 +265,8 @@ for (const engine of selectedEngines()) {
       .poll(() => recoveryAttempts, { timeout: 10_000 })
       .toBeGreaterThan(beforeRecoveryPull + 1);
     await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(card("Recovered without another pull")).toHaveCount(1);
+    await expect(card("History thread 0")).toHaveCount(1);
     await page.unroute(feedReads);
     console.log(
       `PASS ${engine.name()}: pull recovers both missing results, retains loaded history, retries failure, and preserves live delivery and automatic recovery`,

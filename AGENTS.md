@@ -21,7 +21,9 @@ Keep one canonical explanation per topic and link to it. Verify commands against
 
 When a guide and the code disagree, follow the code at its production entrypoint and list each inconsistency in the PR.
 
-Preserve owner/profile isolation, durable dispatch identities and generation-bound decisions. Never replay an uncertain external effect automatically. Keep native context owned by its harness and credentials out of browser-visible content. Add regressions at the production boundary being changed; use [development](docs/development.md) to choose checks. Run `npm run check` before every PR and record its output there. Distinguish fixture coverage from live provider/device validation.
+Never run full test suites locally; full suites run only in CI. For every change, run only focused, related tests locally and record their results in the PR. Rebase only when the PR has merge conflicts. See [development](docs/development.md#manual-verification) for verification commands and evidence.
+
+Preserve owner/profile isolation, durable dispatch identities and generation-bound decisions. Never replay an uncertain external effect automatically. Keep native context owned by its harness and credentials out of browser-visible content. Add regressions at the production boundary being changed; use [development](docs/development.md) to choose focused checks. Distinguish fixture coverage from live provider/device validation.
 
 Loop v0.1.0 has an installed user base. Upgrades must preserve historical data and conversations, including saved answers, published files and their references, and related durable identities. Validate migrations and stored-record readers against records that released versions could create; a fresh database alone does not establish upgrade safety. Keep compatibility at storage boundaries where it is needed to retain readable history. Never reconstruct missing history by automatically replaying uncertain external effects.
 
