@@ -1930,8 +1930,15 @@ export function Feed({
           ticket === request.current &&
           owner === viewOwner() &&
           activeView.current === context
-        )
-          void load(false, true, [...pendingRefresh.current.sources]);
+        ) {
+          const sources = [...pendingRefresh.current.sources];
+          if (inFlight.current) {
+            if (refreshReadingSources.current) {
+              nextBackgroundReadAt.current = Date.now() + 1000;
+              refreshReadingSources.current(sources);
+            }
+          } else void load(false, true, sources);
+        }
       },
       Math.max(100, nextBackgroundReadAt.current - Date.now()),
     );
@@ -2014,6 +2021,7 @@ export function Feed({
     const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
       for (const source of requestedSources) pending.add(source);
+      schedulePendingRefresh();
       return;
     }
     if (background && Date.now() < nextBackgroundReadAt.current) {
@@ -2080,6 +2088,7 @@ export function Feed({
         source: string,
         before?: string,
       ) => {
+        followup.delete(source);
         const appending = pages.get(source)!.append;
         const cardKey =
           "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
@@ -2422,6 +2431,10 @@ export function Feed({
             }
             setItems(partial.items);
             setPartialReadPending(hadVisibleItems && !partial.items.length);
+          }
+          if (followup.has(source.id)) {
+            pendingRefresh.current.sources.add(source.id);
+            schedulePendingRefresh();
           }
           return { source, page };
         };

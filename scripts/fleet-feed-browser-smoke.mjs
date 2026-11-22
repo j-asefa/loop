@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 import { workspaceCapabilities } from "../src/shared/capabilities.ts";
 
+const feedOnly = process.argv.includes("--feed-only");
 const dir = await mkdtemp(join(tmpdir(), "loop-fleet-feed-"));
 const sources = Array.from({ length: 9 }, (_, index) => ({
   id: "peer:m_" + String(index + 1).repeat(64),
@@ -34,6 +35,7 @@ const feedMetrics = { requests: 0, responseBodyBytes: 0, active: 0, peak: 0 };
 const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
 let feedFailSlow = false;
+let feedRevision = 0;
 let metadataRevision = 0;
 const metadataMetrics = { requests: 0, active: 0, peak: 0 };
 function trackResponse(metrics, res) {
@@ -91,7 +93,7 @@ try {
       root.render(React.createElement(Feed,{key:"needs-probe",filter:"working",onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
     };
     window.showApp = (source="") => {setShellSource(source);root.render(React.createElement(AppProbe,{revision:++revision}));};
-    window.showSources("alice");
+    if (!${JSON.stringify(feedOnly)}) window.showSources("alice");
   `,
   );
   const { script, style: bundledStyle } = await browserFixtureBundle(entry);
@@ -232,7 +234,10 @@ try {
             {
               ...feedTemplate,
               conversation_id: "same-conversation",
-              title: "Measured " + source.name,
+              title:
+                "Measured " +
+                source.name +
+                (source.id === sources[1].id && feedRevision ? " updated" : ""),
               last_activity_at: Date.now(),
               queued_runs: [],
             },
@@ -266,81 +271,82 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   const began = Date.now();
   await page.goto(origin);
-  await expect
-    .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
-    .toBe(8);
-  const useful = Date.now() - began;
-  assert(
-    hold && pending.size > 0,
-    "Healthy metadata must publish before the slow source settles",
-  );
-  assert(
-    metadataMetrics.peak <= 12,
-    `Four source workers exceeded twelve HTTP requests: ${metadataMetrics.peak}`,
-  );
-  const initialRequests = metadataMetrics.requests;
-  metadataRevision++;
-  await page.evaluate(
-    (source) =>
-      window.dispatchEvent(
-        new CustomEvent("loop-workspace-change", {
-          detail: { sources: [source] },
+  if (!feedOnly) {
+    await expect
+      .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
+      .toBe(8);
+    const useful = Date.now() - began;
+    assert(
+      hold && pending.size > 0,
+      "Healthy metadata must publish before the slow source settles",
+    );
+    assert(
+      metadataMetrics.peak <= 12,
+      `Four source workers exceeded twelve HTTP requests: ${metadataMetrics.peak}`,
+    );
+    const initialRequests = metadataMetrics.requests;
+    metadataRevision++;
+    await page.evaluate(
+      (source) =>
+        window.dispatchEvent(
+          new CustomEvent("loop-workspace-change", {
+            detail: { sources: [source] },
+          }),
+        ),
+      sources[1].id,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (source) =>
+            window.snapshot?.agents.find((agent) => agent.sourceId === source)
+              ?.name,
+          sources[1].id,
+        ),
+      )
+      .toBe("alice-Machine 1-updated");
+    assert(
+      hold && pending.size > 0,
+      "A healthy source's metadata update must not wait for the held source",
+    );
+    assert(
+      metadataMetrics.peak <= 12,
+      "Metadata invalidations must share the four-worker budget",
+    );
+    fixtureOwner = "bob";
+    await page.evaluate(() => window.showSources("bob"));
+    await expect
+      .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
+      .toBe(8);
+    hold = false;
+    for (const release of pending) release();
+    pending.clear();
+    await expect
+      .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
+      .toBe(9);
+    assert(
+      (await page.evaluate(() => window.snapshot.agents)).every((agent) =>
+        agent.name.startsWith("bob-"),
+      ),
+      "Late reads must stay with their original owner",
+    );
+    console.log(
+      `PASS ${engineName} partial metadata: first eight sources ${useful}ms while one held; initial ${initialRequests} requests; peak ${metadataMetrics.peak} concurrent requests`,
+    );
+    console.log(
+      "FLEET_METRIC " +
+        JSON.stringify({
+          boundary:
+            "production source metadata loader in browser with synthetic HTTP",
+          engine: engineName,
+          sourceCount: sources.length,
+          heldSources: 1,
+          firstHealthySourcesMs: useful,
+          initialRequests,
+          peakRequests: metadataMetrics.peak,
         }),
-      ),
-    sources[1].id,
-  );
-  await expect
-    .poll(() =>
-      page.evaluate(
-        (source) =>
-          window.snapshot?.agents.find((agent) => agent.sourceId === source)
-            ?.name,
-        sources[1].id,
-      ),
-    )
-    .toBe("alice-Machine 1-updated");
-  assert(
-    hold && pending.size > 0,
-    "A healthy source's metadata update must not wait for the held source",
-  );
-  assert(
-    metadataMetrics.peak <= 12,
-    "Metadata invalidations must share the four-worker budget",
-  );
-  fixtureOwner = "bob";
-  await page.evaluate(() => window.showSources("bob"));
-  await expect
-    .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
-    .toBe(8);
-  hold = false;
-  for (const release of pending) release();
-  pending.clear();
-  await expect
-    .poll(() => page.evaluate(() => window.snapshot?.agents.length ?? 0))
-    .toBe(9);
-  assert(
-    (await page.evaluate(() => window.snapshot.agents)).every((agent) =>
-      agent.name.startsWith("bob-"),
-    ),
-    "Late reads must stay with their original owner",
-  );
-  console.log(
-    `PASS ${engineName} partial metadata: first eight sources ${useful}ms while one held; initial ${initialRequests} requests; peak ${metadataMetrics.peak} concurrent requests`,
-  );
-  console.log(
-    "FLEET_METRIC " +
-      JSON.stringify({
-        boundary:
-          "production source metadata loader in browser with synthetic HTTP",
-        engine: engineName,
-        sourceCount: sources.length,
-        heldSources: 1,
-        firstHealthySourcesMs: useful,
-        initialRequests,
-        peakRequests: metadataMetrics.peak,
-      }),
-  );
-
+    );
+  }
   mode = "feed";
   hold = true;
   const feedStart = performance.now();
@@ -356,6 +362,23 @@ try {
     "Healthy Feed rows must render while the slow source remains pending",
   );
   const allHealthySourcesMs = Math.round(performance.now() - feedStart);
+  feedRevision++;
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Measured Machine 1 updated", { exact: true }),
+  ).toBeVisible();
+  assert(
+    hold && pending.size > 0,
+    "A healthy source must update while its peer is still stalled",
+  );
   const beforeIdle = feedMetrics.requests;
   await page.waitForTimeout(2000);
   const idleRequests = feedMetrics.requests - beforeIdle;
@@ -393,159 +416,169 @@ try {
       }),
   );
 
-  mode = "needs";
-  hold = true;
-  await page.evaluate(() => window.showNeeds());
-  await expect(page.locator(".needs-stack .feed-row")).toHaveCount(8);
-  await expect(page.locator('[data-filter="working"] .chip-count')).toHaveText(
-    "8",
-  );
-  assert(
-    pending.size > 0,
-    "Needs you must show healthy sources while one remains held",
-  );
-  needsRevision++;
-  await page.evaluate(
-    (source) =>
-      window.dispatchEvent(
-        new CustomEvent("loop-workspace-change", {
-          detail: { sources: [source] },
-        }),
-      ),
-    sources[1].id,
-  );
-  await expect(
-    page
-      .locator(".needs-stack")
-      .getByText("Needs Machine 1 updated", { exact: true }),
-  ).toHaveCount(1);
-  assert(
-    pending.size > 0,
-    "A healthy approval update must not wait for another source",
-  );
-  assert(
-    needsMetrics.peak <= 4,
-    `Needs reads exceeded the shared four-source budget: ${needsMetrics.peak}`,
-  );
-  hold = false;
-  for (const release of pending) release();
-  pending.clear();
-  await expect(page.locator(".needs-stack .feed-row")).toHaveCount(9);
-  await expect(page.locator('[data-filter="working"] .chip-count')).toHaveText(
-    "9",
-  );
-  console.log(
-    `PASS ${engineName} independent Needs you and operational counters: ${needsMetrics.requests} requests, peak ${needsMetrics.peak}`,
-  );
+  if (!feedOnly) {
+    mode = "needs";
+    hold = true;
+    await page.evaluate(() => window.showNeeds());
+    await expect(page.locator(".needs-stack .feed-row")).toHaveCount(8);
+    await expect(
+      page.locator('[data-filter="working"] .chip-count'),
+    ).toHaveText("8");
+    assert(
+      pending.size > 0,
+      "Needs you must show healthy sources while one remains held",
+    );
+    needsRevision++;
+    await page.evaluate(
+      (source) =>
+        window.dispatchEvent(
+          new CustomEvent("loop-workspace-change", {
+            detail: { sources: [source] },
+          }),
+        ),
+      sources[1].id,
+    );
+    await expect(
+      page
+        .locator(".needs-stack")
+        .getByText("Needs Machine 1 updated", { exact: true }),
+    ).toHaveCount(1);
+    assert(
+      pending.size > 0,
+      "A healthy approval update must not wait for another source",
+    );
+    assert(
+      needsMetrics.peak <= 4,
+      `Needs reads exceeded the shared four-source budget: ${needsMetrics.peak}`,
+    );
+    hold = false;
+    for (const release of pending) release();
+    pending.clear();
+    await expect(page.locator(".needs-stack .feed-row")).toHaveCount(9);
+    await expect(
+      page.locator('[data-filter="working"] .chip-count'),
+    ).toHaveText("9");
+    console.log(
+      `PASS ${engineName} independent Needs you and operational counters: ${needsMetrics.requests} requests, peak ${needsMetrics.peak}`,
+    );
 
-  mode = "app";
-  fixtureOwner = "alice";
-  await page.evaluate(() => {
-    for (const prefix of ["loop"]) {
-      sessionStorage.setItem(`${prefix}-draft-agent`, "foreign-agent");
-      sessionStorage.setItem(
-        `${prefix}-draft-context`,
-        JSON.stringify({
-          agentId: "foreign-agent",
-          conversationId: "foreign-thread",
-          content: "foreign private context",
-        }),
-      );
-      sessionStorage.setItem(
-        `${prefix}-share`,
-        JSON.stringify({ excerpt: "foreign private share" }),
-      );
-    }
-    window.showApp();
-  });
-  await expect
-    .poll(() => page.evaluate(() => window.model?.session?.user?.id))
-    .toBe("alice");
-  await expect.poll(() => page.evaluate(() => window.model?.selected)).toBe("");
-  assert.equal(await page.evaluate(() => window.model.sharedDraft.excerpt), "");
-  await page.evaluate(() => {
-    window.model.setSelected("same-agent");
-    window.model.setReplyContext({
-      agentId: "same-agent",
-      conversationId: "private-thread",
-      content: "Alice local context",
+    mode = "app";
+    fixtureOwner = "alice";
+    await page.evaluate(() => {
+      for (const prefix of ["loop"]) {
+        sessionStorage.setItem(`${prefix}-draft-agent`, "foreign-agent");
+        sessionStorage.setItem(
+          `${prefix}-draft-context`,
+          JSON.stringify({
+            agentId: "foreign-agent",
+            conversationId: "foreign-thread",
+            content: "foreign private context",
+          }),
+        );
+        sessionStorage.setItem(
+          `${prefix}-share`,
+          JSON.stringify({ excerpt: "foreign private share" }),
+        );
+      }
+      window.showApp();
     });
-    window.model.setFolderChoice("alice-local-folder");
-    window.model.setSharedDraft({
-      url: "",
-      title: "",
-      excerpt: "Alice local share",
-      question: "",
-      folderId: "alice-local-folder",
+    await expect
+      .poll(() => page.evaluate(() => window.model?.session?.user?.id))
+      .toBe("alice");
+    await expect
+      .poll(() => page.evaluate(() => window.model?.selected))
+      .toBe("");
+    assert.equal(
+      await page.evaluate(() => window.model.sharedDraft.excerpt),
+      "",
+    );
+    await page.evaluate(() => {
+      window.model.setSelected("same-agent");
+      window.model.setReplyContext({
+        agentId: "same-agent",
+        conversationId: "private-thread",
+        content: "Alice local context",
+      });
+      window.model.setFolderChoice("alice-local-folder");
+      window.model.setSharedDraft({
+        url: "",
+        title: "",
+        excerpt: "Alice local share",
+        question: "",
+        folderId: "alice-local-folder",
+      });
     });
-  });
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Object.values(sessionStorage).some((value) =>
-          value.includes("Alice local share"),
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.values(sessionStorage).some((value) =>
+            value.includes("Alice local share"),
+          ),
         ),
-      ),
-    )
-    .toBe(true);
-  await page.evaluate((source) => window.showApp(source), sources[0].id);
-  await expect
-    .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
-    .toBe("");
-  assert.equal(await page.evaluate(() => window.model.replyContext), null);
-  assert.equal(await page.evaluate(() => window.model.folderChoice), undefined);
-  await page.evaluate(() =>
-    window.model.setSharedDraft({
-      url: "",
-      title: "",
-      excerpt: "Alice remote share",
-      question: "",
-      folderId: "",
-    }),
-  );
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Object.values(sessionStorage).some((value) =>
-          value.includes("Alice remote share"),
+      )
+      .toBe(true);
+    await page.evaluate((source) => window.showApp(source), sources[0].id);
+    await expect
+      .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
+      .toBe("");
+    assert.equal(await page.evaluate(() => window.model.replyContext), null);
+    assert.equal(
+      await page.evaluate(() => window.model.folderChoice),
+      undefined,
+    );
+    await page.evaluate(() =>
+      window.model.setSharedDraft({
+        url: "",
+        title: "",
+        excerpt: "Alice remote share",
+        question: "",
+        folderId: "",
+      }),
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.values(sessionStorage).some((value) =>
+            value.includes("Alice remote share"),
+          ),
         ),
-      ),
-    )
-    .toBe(true);
-  await page.evaluate(() =>
-    window.model.setSession({
-      user: { id: "bob", name: "Bob" },
-      mode: "paired",
-    }),
-  );
-  await expect
-    .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
-    .toBe("");
-  await page.evaluate(() =>
-    window.model.setSession({
-      user: { id: "alice", name: "Alice" },
-      mode: "paired",
-    }),
-  );
-  await expect
-    .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
-    .toBe("Alice remote share");
-  await page.evaluate(() => window.showApp(""));
-  await expect
-    .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
-    .toBe("Alice local share");
-  assert.equal(
-    await page.evaluate(() => window.model.replyContext?.content),
-    "Alice local context",
-  );
-  assert.equal(
-    await page.evaluate(() => window.model.folderChoice),
-    "alice-local-folder",
-  );
-  assert.deepEqual(errors, []);
-  console.log(
-    `PASS ${engineName} actual app draft hydration isolates owners and sources and restores returning drafts`,
-  );
+      )
+      .toBe(true);
+    await page.evaluate(() =>
+      window.model.setSession({
+        user: { id: "bob", name: "Bob" },
+        mode: "paired",
+      }),
+    );
+    await expect
+      .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
+      .toBe("");
+    await page.evaluate(() =>
+      window.model.setSession({
+        user: { id: "alice", name: "Alice" },
+        mode: "paired",
+      }),
+    );
+    await expect
+      .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
+      .toBe("Alice remote share");
+    await page.evaluate(() => window.showApp(""));
+    await expect
+      .poll(() => page.evaluate(() => window.model.sharedDraft.excerpt))
+      .toBe("Alice local share");
+    assert.equal(
+      await page.evaluate(() => window.model.replyContext?.content),
+      "Alice local context",
+    );
+    assert.equal(
+      await page.evaluate(() => window.model.folderChoice),
+      "alice-local-folder",
+    );
+    assert.deepEqual(errors, []);
+    console.log(
+      `PASS ${engineName} actual app draft hydration isolates owners and sources and restores returning drafts`,
+    );
+  }
 } finally {
   for (const release of pending) release();
   await browser?.close();
