@@ -47,7 +47,31 @@ export function dropSpecBlocks(text: string) {
 /** Linear, conservative prose fallback: omit fenced source without parsing it. */
 export function markdownFallbackText(text: string) {
   const kept: string[] = [];
-  let open: { marker: string; quotes: number; indent: number } | undefined;
+  let open: { marker: string; prefix: string } | undefined;
+  const closesContainer = (opening: string, closing: string) => {
+    // Continuation lines replace list markers with equally wide indentation.
+    // Do not count an opener's optional indentation as extra closing padding:
+    // six spaces before a root fence are code, not a closing fence.
+    const continued = opening.replace(/[-+*]|\d{1,9}[.)]/g, (marker) =>
+      " ".repeat(marker.length),
+    );
+    if (closing === continued) return true;
+    if (
+      /(?:[-+*]|\d{1,9}[.)]) {1,4}$/.test(opening) &&
+      closing.startsWith(continued) &&
+      /^ {0,3}$/.test(closing.slice(continued.length))
+    )
+      return true;
+    // Without lists, each quote permits its optional space plus at most three
+    // spaces before the next marker. A root fence permits only three spaces.
+    const parts = closing.split(">");
+    return (
+      /^[ >]*$/.test(opening) &&
+      /^[ >]*$/.test(closing) &&
+      parts.length === opening.split(">").length &&
+      parts.every((part, index) => part.length <= (index ? 4 : 3))
+    );
+  };
   for (const [line] of text.matchAll(/[^\r\n]*(?:\r\n?|\n|$)/g)) {
     const fence = /(`{3,}|~{3,})/.exec(line);
     const prefix = fence ? line.slice(0, fence.index) : "";
@@ -58,8 +82,7 @@ export function markdownFallbackText(text: string) {
       if (possible)
         open = {
           marker: fence[0],
-          quotes: prefix.split(">").length - 1,
-          indent: prefix.replace(/\t/g, "    ").length,
+          prefix,
         };
       else kept.push(line);
     } else if (
@@ -67,8 +90,7 @@ export function markdownFallbackText(text: string) {
       fence[0][0] === open.marker[0] &&
       fence[0].length >= open.marker.length &&
       /^[ \t>]*$/.test(prefix) &&
-      prefix.split(">").length - 1 === open.quotes &&
-      prefix.replace(/\t/g, "    ").length <= open.indent + 3 &&
+      closesContainer(open.prefix, prefix) &&
       /^[ \t\r\n]*$/.test(line.slice(fence.index + fence[0].length))
     )
       open = undefined;

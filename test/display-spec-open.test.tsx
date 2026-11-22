@@ -282,6 +282,21 @@ it("ignores deeply nested blocks outside the compact preview", () => {
   expect(html).not.toContain("Hidden.");
 });
 
+it("does not expose source after an over-indented false closing fence", () => {
+  for (const [opener, prefix, falseCloser, closer] of [
+    ["   ```spec", "", "      ```", "```"],
+    ["   > ```spec", "> ", ">       ```", "> ```"],
+  ]) {
+    const source =
+      `${opener}\n` +
+      prefix +
+      "x".repeat(100000) +
+      `\n${falseCloser}\n${prefix}{"op":"add"}\n${closer}\nAfter.`;
+    expect(collapse(source, 200)).toBe("After.");
+    expect(plainPreview(source)).toBe("After.");
+  }
+});
+
 it("preserves prose after long closed fences in plain previews", () => {
   expect(plainPreview("Before\n``````ts\nx\n``````\nAfter")).toBe(
     "Before After",
