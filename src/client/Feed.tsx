@@ -1284,6 +1284,7 @@ export function Feed({
     next: string | null;
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
+    historyExpanded?: boolean;
   };
   const generation = viewGeneration();
   const selectionScope = JSON.stringify([
@@ -1991,11 +1992,15 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
+    const historyExpanded =
+      append || cachedView<Shown>(shownKey())?.historyExpanded === true;
     const retainWindow =
-      retainHistory ||
-      requestedSources.some((source) =>
-        refreshHistorySources.current.has(source),
-      );
+      filter === "all"
+        ? historyExpanded
+        : retainHistory ||
+          requestedSources.some((source) =>
+            refreshHistorySources.current.has(source),
+          );
     // Capture each failed operation before any source succeeds and clears it.
     // A partial retry must neither advance a healthy source nor borrow a later
     // cursor from another read. Head and append failures can coexist.
@@ -2261,7 +2266,7 @@ export function Feed({
             const incoming = new Set(
               page.items.map((item) => feedItemKey(item, source)),
             );
-            return {
+            const merged = {
               ...page,
               items: [
                 ...earlier.filter(
@@ -2270,6 +2275,30 @@ export function Feed({
                 ...page.items,
               ].sort(feedItemOrder),
             };
+            const progress = doneRefresh.current.sources.get(source);
+            const gap = combined
+              ? JSON.parse(cached.next || "{}")[source]
+              : cached.next;
+            if (
+              progress &&
+              (progress.gapUntil || progress.rescanGap) &&
+              gap &&
+              before !== gap
+            ) {
+              const floor = merged.items.at(-1);
+              if (
+                floor &&
+                progress.floor &&
+                feedItemOrder(floor, progress.floor) > 0
+              )
+                doneRefresh.current.sources.set(source, {
+                  ...progress,
+                  floor,
+                  continuation: page.next,
+                });
+              merged.next = gap;
+            }
+            return merged;
           }
           return page;
         }
@@ -2430,7 +2459,7 @@ export function Feed({
             if (hasPagingWindow) {
               cached = partial;
               previous = retainWindow ? partial : undefined;
-              cacheView(shownKey(), partial, owner);
+              cacheView(shownKey(), { ...partial, historyExpanded }, owner);
               setNext(partial.next);
             }
             setItems(partial.items);
@@ -2632,6 +2661,7 @@ export function Feed({
             next: result.next,
             summary: result.summary,
             sourceSummaries: result.sourceSummaries,
+            historyExpanded,
           },
           owner,
         );

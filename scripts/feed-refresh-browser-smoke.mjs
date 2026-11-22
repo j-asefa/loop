@@ -282,6 +282,12 @@ for (const engine of selectedEngines()) {
     ).toBeVisible();
     await page.getByRole("tab", { name: "Threads", exact: true }).click();
     await expect(card("History thread 104")).toHaveCount(1);
+    const firstPageCount = await feed.locator(".feed-item-card").count();
+    publishThread("bounded-head", "Bounded new agent head");
+    await expect(card("Bounded new agent head")).toHaveCount(1, {
+      timeout: 12_000,
+    });
+    await expect(feed.locator(".feed-item-card")).toHaveCount(firstPageCount);
     let heldAppend;
     const olderThreads = (url) =>
       url.pathname.endsWith("/feed") &&
