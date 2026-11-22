@@ -2016,7 +2016,11 @@ export function Feed({
     if (inFlight.current)
       for (const source of headSources.current) pending.add(source);
     activeAppendSources.current = new Set(
-      requestedSources.filter((source) => pages.get(source)!.append),
+      requestedSources.filter(
+        (source) =>
+          pages.get(source)!.append &&
+          (!combined || !!pages.get(source)!.before),
+      ),
     );
     for (const source of activeAppendSources.current)
       pendingAppendSources.current.delete(source);

@@ -11,6 +11,7 @@ export type DoneRefresh = {
   head?: DonePosition;
   rescan?: boolean;
   gapUntil?: DonePosition;
+  rescanGap?: DonePosition;
 };
 const key = (item: DonePosition) =>
   JSON.stringify([
@@ -66,12 +67,15 @@ export async function refreshDonePage<
   };
   apply(first);
   const firstLast = first.items.at(-1)!;
-  let gapUntil = progress?.gapUntil;
-  if (
-    feedItemOrder(firstLast, retained[0]) < 0 &&
-    (!gapUntil || feedItemOrder(retained[0], gapUntil) > 0)
-  )
-    gapUntil = retained[0];
+  let gapUntil = progress?.gapUntil,
+    rescanGap = progress?.rescanGap;
+  const farther = (left: DonePosition | undefined, right: DonePosition) =>
+    !left || feedItemOrder(right, left) > 0 ? right : left;
+  if (feedItemOrder(firstLast, retained[0]) < 0) {
+    if (progress?.head && !progress.restart)
+      rescanGap = farther(rescanGap, retained[0]);
+    else gapUntil = farther(gapUntil, retained[0]);
+  }
   // Restart after a new front-page gap or removals that let the first page
   // reach the old floor. A stale history read must not erase that new page.
   if (
@@ -79,7 +83,9 @@ export async function refreshDonePage<
     progress.restart ||
     (!progress.head && feedItemOrder(firstLast, retained[0]) < 0) ||
     feedItemOrder(firstLast, oldest) >= 0
-  )
+  ) {
+    if (rescanGap) gapUntil = farther(gapUntil, rescanGap);
+    rescanGap = undefined;
     progress = {
       head: firstLast,
       gapUntil,
@@ -88,6 +94,7 @@ export async function refreshDonePage<
       floor: oldest,
       continuation,
     };
+  }
   // Finish this sweep before revisiting intervals changed by a moving head.
   // Rewinding on every live update can starve the oldest loaded pages.
   const rescan =
@@ -105,9 +112,9 @@ export async function refreshDonePage<
         page: {
           ...first,
           items: [...items.values()].sort(feedItemOrder),
-          next: gapUntil ? progress.before : next,
+          next: rescanGap ? first.next : gapUntil ? progress.before : next,
         },
-        progress: { ...progress, rescan, gapUntil },
+        progress: { ...progress, rescan, gapUntil, rescanGap },
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }
@@ -139,6 +146,7 @@ export async function refreshDonePage<
             head: firstLast,
             rescan,
             gapUntil,
+            rescanGap,
             before: history.next,
             after: last,
             floor: oldest,
@@ -155,11 +163,12 @@ export async function refreshDonePage<
       after: firstLast,
       floor: oldest,
       continuation: next,
-      gapUntil: oldest,
+      gapUntil: rescanGap,
     };
   // A burst can leave unseen results between the two fresh pages and the
   // retained window. Let Load more reach that gap immediately.
-  if (progress?.gapUntil) next = progress.before;
+  if (progress?.rescanGap) next = first.next;
+  else if (progress?.gapUntil) next = progress.before;
   return {
     page: { ...first, items: [...items.values()].sort(feedItemOrder), next },
     progress,

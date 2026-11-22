@@ -510,3 +510,25 @@ it("finishes a new burst above an already active history sweep", async () => {
   expect(result.progress).toBeUndefined();
   expect(result.page.items).toEqual(changed);
 });
+
+it("does not expose duplicate pagination during a deletion-only rescan", async () => {
+  const items = history(200);
+  let result = await refreshDonePage(
+    server(items).read,
+    { items, next: null },
+    undefined,
+    () => true,
+  );
+  result.progress!.rescan = true;
+  for (let cycle = 0; cycle < 12; cycle++) {
+    result = await refreshDonePage(
+      server(items).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    expect(result.page.next).toBeNull();
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+});
