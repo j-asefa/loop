@@ -16,6 +16,7 @@ type Row = SourcedAgentThread & {
   last_activity_at: number;
 };
 type Page = { items: Row[]; next: string | null };
+type CachedPage = Page & { progress?: DoneRefresh };
 type Query = NonNullable<
   RouteInput<typeof workspaceApi.agentThreadFeed>["query"]
 >;
@@ -51,18 +52,25 @@ export function useAgentThreadFeed(
   const cacheKey = (source: string) =>
     "agent-thread-feed:" + JSON.stringify([source, query]);
   const empty = useMemo<Window>(() => {
-    const pages = new Map(
+    const pages = new Map<string, CachedPage>(
       sources.map((source) => [
         source,
-        cachedView<Page>(cacheKey(source)) ?? { items: [], next: null },
+        cachedView<CachedPage>(cacheKey(source)) ?? { items: [], next: null },
       ]),
+    );
+    const progress = new Map(
+      [...pages].flatMap(([source, page]) =>
+        page.progress
+          ? [[source, { ...page.progress, restart: true }] as const]
+          : [],
+      ),
     );
     return {
       pages,
-      progress: new Map(),
+      progress,
       errors: new Map(),
       headErrors: new Set(),
-      next: cursor(pages),
+      next: cursor(pages, progress),
     };
   }, [key]);
   const reader = usePagedProjectionQuery<Window, string>({
@@ -168,7 +176,7 @@ export function useAgentThreadFeed(
                   cacheKey(source),
                   {
                     ...page,
-                    next: historyContinuation(page, progress.get(source)),
+                    progress: progress.get(source),
                   },
                   owner,
                 );
@@ -181,7 +189,7 @@ export function useAgentThreadFeed(
               cacheKey(source),
               {
                 ...page,
-                next: historyContinuation(page, progress.get(source)),
+                progress: progress.get(source),
               },
               owner,
             );

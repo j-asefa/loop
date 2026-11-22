@@ -151,6 +151,7 @@ try {
         "history-error",
         "history-error-reopen",
         "history-error-exhausted",
+        "history-error-exhausted-reopen",
         "notification-rescan",
         "scope",
       ]) {
@@ -238,12 +239,13 @@ try {
       } else if (
         scenario === "history-error" ||
         scenario === "history-error-reopen" ||
-        scenario === "history-error-exhausted"
+        scenario === "history-error-exhausted" ||
+        scenario === "history-error-exhausted-reopen"
       ) {
         await more();
         await expect(output).toContainText("first-A2");
         await idle();
-        if (scenario === "history-error-exhausted") {
+        if (scenario.includes("exhausted")) {
           await more();
           await expect(output).toContainText("first-A1");
           await idle();
@@ -256,9 +258,13 @@ try {
         await expect(output).toContainText("first-A8", { timeout: 15_000 });
         await expect(notice).toContainText("Couldn’t load some agent threads");
         await idle();
-        if (scenario === "history-error-reopen") {
+        if (scenario.includes("reopen")) {
           await page.evaluate(() => window.enable(false));
           await expect(output).toBeEmpty();
+          if (scenario.includes("exhausted")) {
+            failHistoryOnly = false;
+            failHeadOnly = true;
+          }
           await page.evaluate(() => window.enable(true));
           await expect(notice).toContainText(
             "Couldn’t load some agent threads",
@@ -270,7 +276,7 @@ try {
         await more();
         await expect(output).toContainText("first-A1");
         await idle();
-        if (scenario === "history-error-exhausted") {
+        if (scenario.includes("exhausted")) {
           await expect(output).toContainText("first-A7");
           await expect(output).not.toContainText("first-A6");
         } else await expect(output).not.toContainText("first-A7");
