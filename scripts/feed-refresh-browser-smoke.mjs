@@ -143,8 +143,48 @@ for (const engine of selectedEngines()) {
     await page.goto(fixture.origin + "/?filter=done");
     await expect(card("Retained answer 54")).toHaveCount(1);
     await expect(card("Grouped old answers")).toHaveCount(1);
+    let heldDoneAppend;
+    let failDoneAppend = true;
+    const olderDone = (url) =>
+      url.pathname.endsWith("/cards") &&
+      url.searchParams.get("view") === "done" &&
+      url.searchParams.has("before");
+    await page.route(olderDone, (route) => {
+      if (!heldDoneAppend) heldDoneAppend = route;
+      else if (failDoneAppend)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Older Done page unavailable" },
+        });
+      else return route.continue();
+    });
     await page.getByRole("button", { name: /Load more/i }).click();
+    await expect.poll(() => !!heldDoneAppend).toBe(true);
+    await page.evaluate(() => (window.__suppressFeedNotifications = true));
+    publish(
+      "head-before-append",
+      "gemini",
+      "New head despite failed older page",
+    );
+    await pull();
+    await expect(card("New head despite failed older page")).toHaveCount(1);
+    await expect(page.getByRole("alert")).toContainText(
+      "Older Done page unavailable",
+    );
+    publish("another-head", "gemini", "Another head despite failed older page");
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    await pull();
+    await expect(card("Another head despite failed older page")).toHaveCount(1);
+    await expect(page.getByRole("alert")).toContainText(
+      "Older Done page unavailable",
+    );
+    failDoneAppend = false;
+    await expect(page.locator(".pull-refresh.refreshing")).toHaveCount(0);
+    await pull();
     await expect(card("Retained answer 0")).toHaveCount(1);
+    await heldDoneAppend.continue();
+    await page.unroute(olderDone);
+    await page.evaluate(() => (window.__pullRefreshes = 0));
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
     // Let any previously queued read finish before injecting missing results.
     await page.waitForTimeout(3500);

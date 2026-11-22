@@ -2152,6 +2152,7 @@ export function Feed({
           if (reader.discardPrior) priorItems = [];
           if (
             reader.hasMore ||
+            reader.hasPendingAppend ||
             (window.boundary &&
               priorItems.some(
                 (item) => compareCardOrder(order(item), window.boundary!) < 0,

@@ -11,12 +11,17 @@ export class DoneCardsReader {
   private generation = 0;
   private activeReads = new Map<AbortController, boolean>();
   private pendingAppend = false;
+  private refreshHeadFirst = false;
+  get hasPendingAppend() {
+    return this.pendingAppend;
+  }
   invalidateForAction() {
     this.generation++;
     this.pendingAppend ||= [...this.activeReads.values()].some(Boolean);
   }
   restartRefresh() {
     this.invalidateForAction();
+    this.refreshHeadFirst = true;
     for (const controller of this.activeReads.keys()) controller.abort();
     this.activeReads.clear();
     const saved = this.pager.snapshot();
@@ -42,7 +47,9 @@ export class DoneCardsReader {
       request(contract, input, controller.signal),
     );
     const generation = this.generation;
-    const effectiveAppend = append || this.pendingAppend;
+    const headFirst = this.refreshHeadFirst;
+    if (headFirst && append) this.pendingAppend = true;
+    const effectiveAppend = !headFirst && (append || this.pendingAppend);
     this.activeReads.set(controller, effectiveAppend);
     try {
       await this.pager.load(
@@ -68,6 +75,8 @@ export class DoneCardsReader {
       );
       if (generation === this.generation && effectiveAppend)
         this.pendingAppend = false;
+      if (generation === this.generation && headFirst)
+        this.refreshHeadFirst = false;
       const window = this.pager.snapshot();
       // A concurrent caller can finish against a window replaced by a 409
       // reset. Retry within the same contract before publishing a window.
