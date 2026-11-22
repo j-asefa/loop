@@ -68,6 +68,11 @@ async function boundaryModes(context, base, errors) {
     });
     const fallback = page.locator(".markdown-fallback");
     await expect(fallback).toBeVisible();
+    await expect(fallback).toContainText(
+      mode.writing
+        ? "while it is being written."
+        : "Open the conversation to read the complete answer.",
+    );
     await expect(fallback.locator("pre")).toHaveCount(0);
     await expect(fallback).not.toContainText('"op"');
   }
@@ -87,6 +92,7 @@ async function boundaryModes(context, base, errors) {
     contextual,
   );
   await expect(page.locator(".markdown-fallback")).toBeVisible();
+  await expect(page.locator(".markdown-fallback pre")).toHaveText(contextual);
   await page.locator(".markdown").evaluate((element) => {
     element.dataset.contextProbe = "mounted";
   });
