@@ -1910,6 +1910,9 @@ export function Feed({
   }
   const pendingRefresh = useRef({ key: "", sources: new Set<string>() });
   const headSources = useRef(new Set<string>());
+  // Notifications coalesce behind a bounded background read cadence. Explicit
+  // pulls and user pagination remain immediate.
+  const nextBackgroundReadAt = useRef(0);
   function schedulePendingRefresh() {
     clearTimeout(doneCatchup.current);
     doneCatchup.current = undefined;
@@ -1921,14 +1924,17 @@ export function Feed({
     )
       return;
     const ticket = request.current;
-    doneCatchup.current = setTimeout(() => {
-      if (
-        ticket === request.current &&
-        owner === viewOwner() &&
-        activeView.current === context
-      )
-        void load(false, true, [...pendingRefresh.current.sources]);
-    }, 100);
+    doneCatchup.current = setTimeout(
+      () => {
+        if (
+          ticket === request.current &&
+          owner === viewOwner() &&
+          activeView.current === context
+        )
+          void load(false, true, [...pendingRefresh.current.sources]);
+      },
+      Math.max(100, nextBackgroundReadAt.current - Date.now()),
+    );
   }
   const [readError, setReadError] = useState("");
   const [readBusy, setReadBusy] = useState(false);
@@ -2008,9 +2014,14 @@ export function Feed({
     const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
       for (const source of requestedSources) pending.add(source);
-      refreshReadingSources.current?.(requestedSources);
       return;
     }
+    if (background && Date.now() < nextBackgroundReadAt.current) {
+      for (const source of requestedSources) pending.add(source);
+      schedulePendingRefresh();
+      return;
+    }
+    nextBackgroundReadAt.current = Date.now() + 1000;
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
@@ -2677,6 +2688,7 @@ export function Feed({
       refreshHistorySources.current.clear();
       historyDirtySources.current.clear();
       historyReadErrors.current.clear();
+      nextBackgroundReadAt.current = 0;
       activeAppendSources.current.clear();
       pendingAppendSources.current.clear();
       ++request.current;

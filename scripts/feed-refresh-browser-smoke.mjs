@@ -316,6 +316,31 @@ for (const engine of selectedEngines()) {
     await page.unroute(threadHead);
     await page.getByRole("button", { name: /Load more/i }).click();
     await expect(card("History thread 0")).toHaveCount(1);
+    let notificationReads = 0;
+    const countedFeed = (url) =>
+      url.pathname.endsWith("/feed") &&
+      url.searchParams.get("filter") === "all";
+    await page.route(countedFeed, (route) => {
+      notificationReads++;
+      return route.continue();
+    });
+    await page.evaluate(async () => {
+      window.__suppressFeedNotifications = false;
+      for (let i = 0; i < 40; i++) {
+        window.dispatchEvent(
+          new CustomEvent("loop-workspace-change", {
+            detail: { sources: [""] },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      window.__suppressFeedNotifications = true;
+    });
+    assert(
+      notificationReads > 0 && notificationReads <= 6,
+      `40 notifications in two seconds must coalesce into at most three two-page passes; observed ${notificationReads} reads`,
+    );
+    await page.unroute(countedFeed);
     await page.evaluate(() => (window.__suppressFeedNotifications = true));
     const historyRead = page.waitForResponse((response) => {
       const url = new URL(response.url());
