@@ -322,6 +322,43 @@ export function useComposerDraft({
   return { draftKey, draftOwner, draftLoadedFor, pendingDraftSave };
 }
 
+export function parseLeadingAgentMention(
+  draft: string,
+  agents: readonly Agent[],
+): {
+  query: string;
+  completed: boolean;
+  agent?: Agent;
+  suggestions: Agent[];
+} | null {
+  const match = draft.match(/^\s*@([^\s]*)(?:\s|$)/);
+  if (!match) return null;
+  if (/^\s*@new\b/i.test(draft)) return null;
+  const query = match[1].toLowerCase().replace(/[,;:]$/, "");
+  const completed = /^\s*@[^\s]+\s/.test(draft);
+  const candidates = agents.filter(
+    (a) => Boolean(a.connection_id) && !a.retired_at,
+  );
+  const agent = candidates.find((a) => a.name.toLowerCase() === query);
+  const suggestions = completed
+    ? []
+    : [
+        ...(agent ? [agent] : []),
+        ...candidates.filter(
+          (a) => a.id !== agent?.id && a.name.toLowerCase().startsWith(query),
+        ),
+      ];
+  return { query, completed, agent, suggestions };
+}
+
+export function completeLeadingAgentMention(
+  draft: string,
+  agentName: string,
+): string {
+  const rest = draft.replace(/^\s*@[^\s]*\s*/, "");
+  return `@${agentName} ${rest}`;
+}
+
 export function useComposerSend({
   replyQuoted,
   busy,
@@ -701,6 +738,10 @@ export function useComposerSend({
             ...old.filter((run) => run.id !== accepted.id),
           ]);
         if (!unchanged) return;
+        const handedOffInThread =
+          Boolean(conversation) &&
+          Boolean(conversationTarget?.agentId) &&
+          recipient.id !== conversationTarget?.agentId;
         if (!conversation)
           setSendNotice({
             runId: accepted.id,
@@ -711,7 +752,8 @@ export function useComposerSend({
           });
         setDraft("");
         setAttachments([]);
-        if (conversationId) saveThreadDraft(conversationId, "", []);
+        const clearedThread = conversation || conversationId;
+        if (clearedThread) saveThreadDraft(clearedThread, "", []);
         // Stay in the thread after sending; its reply context returns to the
         // conversation itself rather than the quoted message.
         setReplyContext(
@@ -720,13 +762,18 @@ export function useComposerSend({
         setContextArtifact(null);
         if (options.queue && conversation)
           notify({
-            text: "Queued after the current task." + reconciled,
+            text:
+              (handedOffInThread
+                ? `Queued for @${recipient.name}.`
+                : "Queued after the current task.") + reconciled,
             // Undo takes it back to a draft, only while it has not started.
             undo: async () => {
               await withdrawToComposer(accepted.id);
               void refresh();
             },
           });
+        else if (handedOffInThread)
+          setThreadNotice(`Sent to @${recipient.name}.${reconciled}`);
         else if (reconciled && conversation) setThreadNotice(reconciled.trim());
         else if (reconciled) setDismissNotice(reconciled.trim());
         if (!conversation) collapseComposer();
@@ -896,9 +943,24 @@ export function renderComposer({
   | "threadNotice"
   | "setThreadNotice"
 >) {
+  const mentionCandidates = conversation
+    ? composerData.agents
+    : availableAgents;
+  const mention = parseLeadingAgentMention(draft, mentionCandidates);
+  const currentTargetId = conversation
+    ? conversationTarget?.agentId
+    : replyContext?.agentId || activeAgent?.id;
+  const handoffAgent =
+    mention?.agent && currentTargetId && mention.agent.id !== currentTargetId
+      ? mention.agent
+      : undefined;
+  const keepsReplyQuote =
+    !mention?.agent || mention.agent.id === replyContext?.agentId;
   // Undecided shows the quote: a send before the thread's fresh snapshot
-  // keeps the reference, so the composer shows what will be sent.
+  // keeps the reference, so the composer shows what will be sent. Addressing
+  // a different @agent does not quote the previous agent's reply target.
   const quoted =
+    keepsReplyQuote &&
     replyQuoted !== false &&
     replyContext?.content &&
     (replyContext.messageId || replyContext.artifactId || !conversation)
@@ -923,7 +985,7 @@ export function renderComposer({
         busy ||
         uploading ||
         !draft.trim() ||
-        !!activeAgent?.retired_at ||
+        !!(handoffAgent ? handoffAgent.retired_at : activeAgent?.retired_at) ||
         !!(conversation && !conversationTarget)
       }
       onClick={() => void send()}
@@ -1126,20 +1188,25 @@ export function renderComposer({
               </>
             )}
             {!threadMode &&
-              activeAgent &&
+              (handoffAgent || activeAgent) &&
               selected !== "__route__" &&
-              (steersActive ||
+              (handoffAgent ||
+                steersActive ||
                 replyContext ||
                 !["Unfiled", "Workspace"].includes(destination.project)) && (
                 <p className="composer-destination">
-                  {steersActive
-                    ? "Continues the current task"
-                    : replyContext
-                      ? destination.thread
-                      : destination.project}
+                  {handoffAgent
+                    ? `Sends to @${handoffAgent.name}`
+                    : steersActive
+                      ? "Continues the current task"
+                      : replyContext
+                        ? destination.thread
+                        : destination.project}
                 </p>
               )}
-            {activeAgent?.retired_at && (
+            {(handoffAgent
+              ? handoffAgent.retired_at
+              : activeAgent?.retired_at) && (
               <p className="note">
                 This agent is retired. Restore it from its profile to send new
                 work.
@@ -1201,6 +1268,49 @@ export function renderComposer({
                 </button>
               </div>
             )}
+            {mention &&
+              !mention.completed &&
+              mention.suggestions.length > 0 && (
+                <div
+                  className="composer-mention-list"
+                  role="listbox"
+                  aria-label="Mention agent"
+                >
+                  {mention.suggestions.map((a) => {
+                    const handoff = Boolean(
+                      currentTargetId && a.id !== currentTargetId,
+                    );
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        role="option"
+                        aria-selected={mention.agent?.id === a.id}
+                        className={
+                          "composer-agent-pill composer-mention-pill" +
+                          (mention.agent?.id === a.id ? " selected" : "")
+                        }
+                        disabled={busy || uploading}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setDraft(completeLeadingAgentMention(draft, a.name));
+                          document.getElementById("composer")?.focus();
+                        }}
+                      >
+                        <span aria-hidden="true">
+                          <Avatar name={a.name} />
+                        </span>
+                        <span>@{a.name}</span>
+                        {handoff && (
+                          <small className="composer-mention-badge">
+                            Hand off
+                          </small>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             <div className="composer-main">
               <AutofillBoundary>
                 <textarea
@@ -1218,6 +1328,25 @@ export function renderComposer({
                     if (threadMode) setComposerExpanded(true);
                   }}
                   onKeyDown={(e) => {
+                    if (
+                      e.key === "Tab" &&
+                      !e.shiftKey &&
+                      !e.altKey &&
+                      !e.ctrlKey &&
+                      !e.metaKey &&
+                      mention &&
+                      !mention.completed &&
+                      mention.suggestions.length > 0
+                    ) {
+                      e.preventDefault();
+                      setDraft(
+                        completeLeadingAgentMention(
+                          draft,
+                          (mention.agent ?? mention.suggestions[0]).name,
+                        ),
+                      );
+                      return;
+                    }
                     if (e.key === "Escape") setComposerExpanded(false);
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                       e.preventDefault();
@@ -1371,11 +1500,13 @@ export function renderComposer({
               </button>
             )}
           </div>
-          {threadMode && threadWork && draft.trim() && (
+          {threadMode && draft.trim() && (handoffAgent || threadWork) && (
             <p className="field-hint composer-intent">
-              {threadWork.steerable
-                ? `Send steers @${destination.agent}’s current task.`
-                : `Send waits for @${destination.agent}’s current task.`}
+              {handoffAgent
+                ? `Sends to @${handoffAgent.name}.`
+                : threadWork!.steerable
+                  ? `Send steers @${destination.agent}’s current task.`
+                  : `Send waits for @${destination.agent}’s current task.`}
             </p>
           )}
           {threadNotice && threadMode && (
@@ -1403,7 +1534,7 @@ export function renderComposer({
         </button>
       </section>
     ) : null;
-  return { messageComposer, launchComposer };
+  return { messageComposer, launchComposer, handoffAgent };
 }
 
 export function renderComposerSendSheets({
@@ -1412,6 +1543,7 @@ export function renderComposerSendSheets({
   threadMode,
   threadWork,
   destination,
+  handoffAgent,
   send,
   steersActive,
   setScheduleAt,
@@ -1433,7 +1565,10 @@ export function renderComposerSendSheets({
   | "draft"
   | "busy"
   | "setComposerError"
->) {
+> & { handoffAgent?: Agent }) {
+  const effectiveThreadWork = handoffAgent ? null : threadWork;
+  const effectiveSteersActive = handoffAgent ? false : steersActive;
+  const recipientName = handoffAgent ? handoffAgent.name : destination.agent;
   return (
     <>
       {sendMenu && (
@@ -1441,11 +1576,11 @@ export function renderComposerSendSheets({
           title="Send options"
           onClose={() => setSendMenu(false)}
           actions={[
-            threadMode && threadWork?.steerable
+            threadMode && effectiveThreadWork?.steerable
               ? {
                   id: "steer",
                   label: "Steer current task",
-                  hint: `Delivered to @${destination.agent} now, while it works`,
+                  hint: `Delivered to @${recipientName} now, while it works`,
                   icon: <ArrowUp size={20} />,
                   onSelect: () => void send(),
                 }
@@ -1453,10 +1588,10 @@ export function renderComposerSendSheets({
                   id: "now",
                   label: "Send now",
                   hint:
-                    threadMode && threadWork
-                      ? `@${destination.agent} can’t take messages mid-task, so this waits for the current task`
-                      : steersActive
-                        ? `Goes to @${destination.agent}’s current task, which it steers`
+                    threadMode && effectiveThreadWork
+                      ? `@${recipientName} can’t take messages mid-task, so this waits for the current task`
+                      : effectiveSteersActive
+                        ? `Goes to @${recipientName}’s current task, which it steers`
                         : undefined,
                   icon: <ArrowUp size={20} />,
                   onSelect: () => void send(),
@@ -1464,7 +1599,7 @@ export function renderComposerSendSheets({
             {
               id: "queue",
               label:
-                threadMode && threadWork
+                threadMode && effectiveThreadWork
                   ? "Queue after this task"
                   : "Queue after current work",
               hint: "Held until the agent’s earlier work ends, and while it is paused. Edit, cancel or move it back to a draft until it starts.",
@@ -1482,8 +1617,13 @@ export function renderComposerSendSheets({
           ]}
         >
           <p className="send-destination">
-            To <strong>@{destination.agent}</strong> ·{" "}
-            <strong>{destination.project}</strong> · {destination.thread}
+            To <strong>@{recipientName}</strong>
+            {!handoffAgent && (
+              <>
+                {" "}
+                · <strong>{destination.project}</strong> · {destination.thread}
+              </>
+            )}
           </p>
         </ActionSheet>
       )}
@@ -1491,11 +1631,15 @@ export function renderComposerSendSheets({
         <Sheet title="Send later" onClose={() => setScheduleAt(null)}>
           <dl className="send-summary">
             <dt>To</dt>
-            <dd>@{destination.agent}</dd>
-            <dt>Project</dt>
-            <dd>{destination.project}</dd>
-            <dt>Thread</dt>
-            <dd>{destination.thread}</dd>
+            <dd>@{recipientName}</dd>
+            {!handoffAgent && (
+              <>
+                <dt>Project</dt>
+                <dd>{destination.project}</dd>
+                <dt>Thread</dt>
+                <dd>{destination.thread}</dd>
+              </>
+            )}
             <dt>Message</dt>
             <dd className="send-summary-text">{preview(draft, 140)}</dd>
           </dl>
