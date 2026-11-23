@@ -2327,7 +2327,7 @@ export function Feed({
                 ...page.items,
               ].sort(feedItemOrder),
             };
-            const progress = doneRefresh.current.sources.get(source);
+            let progress = doneRefresh.current.sources.get(source);
             const gap = combined
               ? JSON.parse(cached.next || "{}")[source]
               : cached.next;
@@ -2338,24 +2338,61 @@ export function Feed({
               (!newFloor || !oldFloor || feedItemOrder(newFloor, oldFloor) <= 0)
             )
               merged.next = gap;
-            if (
-              progress &&
-              (progress.gapUntil || progress.rescanGap) &&
-              gap &&
-              before !== gap
-            ) {
-              const floor = merged.items.at(-1);
-              if (
-                floor &&
-                progress.floor &&
-                feedItemOrder(floor, progress.floor) > 0
-              )
-                doneRefresh.current.sources.set(source, {
+            if (progress) {
+              const wasGap = !!(progress.gapUntil || progress.rescanGap);
+              if (before === gap && wasGap) {
+                const last = page.items.at(-1);
+                const covered = (boundary: DoneRefresh["gapUntil"]) => {
+                  const target =
+                    boundary &&
+                    progress!.continuation === null &&
+                    progress!.floor &&
+                    feedItemOrder(progress!.floor, boundary) > 0
+                      ? progress!.floor
+                      : boundary;
+                  return (
+                    !page.next ||
+                    (last && target && feedItemOrder(last, target) >= 0)
+                  );
+                };
+                progress = {
                   ...progress,
-                  floor,
+                  gapUntil: covered(progress.gapUntil)
+                    ? undefined
+                    : progress.gapUntil,
+                  rescanGap: covered(progress.rescanGap)
+                    ? undefined
+                    : progress.rescanGap,
+                };
+              }
+              if (
+                before === progress.continuation ||
+                (newFloor &&
+                  progress.floor &&
+                  feedItemOrder(newFloor, progress.floor) > 0) ||
+                (progress.continuation === null &&
+                  before === gap &&
+                  page.items.at(-1) &&
+                  progress.floor &&
+                  feedItemOrder(page.items.at(-1)!, progress.floor) >= 0)
+              )
+                progress = {
+                  ...progress,
+                  floor: newFloor,
                   continuation: page.next,
-                });
-              merged.next = gap;
+                };
+              if (progress.gapUntil || progress.rescanGap) {
+                if (before !== gap) merged.next = gap;
+              } else if (
+                wasGap &&
+                before === gap &&
+                progress.continuation !== undefined
+              ) {
+                // The missing interval is now filled. Skip the already loaded
+                // window and return to its saved older-page continuation.
+                merged.next = progress.continuation;
+              }
+              doneRefresh.current.sources.set(source, progress);
             }
             return merged;
           }

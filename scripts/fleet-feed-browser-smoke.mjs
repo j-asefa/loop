@@ -45,6 +45,7 @@ let feedPagination = false,
   releaseOlder;
 let holdOlderBefore;
 let failReplayCursor;
+let headFailureStatus = 503;
 let feedPageSize = 1,
   feedLabelSuffix = "",
   delayOlderMs = 0,
@@ -260,7 +261,7 @@ try {
           return;
         }
         if (paginated && !older && failPaginationHead) {
-          reply({ error: "Synthetic head unavailable" }, 503, {
+          reply({ error: "Synthetic head unavailable" }, headFailureStatus, {
             "retry-after": "1",
           });
           return;
@@ -814,6 +815,41 @@ try {
   console.log(
     "Failed replay preserved the unfinished history scan: " + engineName,
   );
+
+  feedPageRows = [3, 2, 1, 0];
+  await page.evaluate(() => window.showFeed("gap-continuation-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1, 0];
+  failReplayCursor = "8";
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+  failReplayCursor = undefined;
+  failPaginationHead = true;
+  headFailureStatus = 400;
+  for (const n of [7, 6, 5, 4, 3]) {
+    await expect(moreFeed).toBeEnabled();
+    await moreFeed.click();
+    await expect(
+      page.getByText("Older Machine 1 updated " + n, { exact: true }),
+    ).toBeVisible();
+  }
+  await expect(moreFeed).toBeEnabled();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 1", { exact: true }),
+  ).toBeVisible();
+  failPaginationHead = false;
+  headFailureStatus = 503;
+  console.log("Gap pagination skipped retained history: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

@@ -105,12 +105,13 @@ try {
       if (movingHead && source === "A" && before === null)
         rows.unshift(rows[0] + 1);
       const selected = source === "A" ? rows : otherRows;
-      const start = before === null ? 0 : selected.indexOf(Number(before)) + 1;
+      const start =
+        before === null ? 0 : selected.findIndex((n) => n < Number(before));
       const n = selected[start],
         next =
           stuck && before !== null
             ? before
-            : start + 1 < selected.length
+            : n !== undefined && start + 1 < selected.length
               ? String(n)
               : null;
       const body =
@@ -152,6 +153,7 @@ try {
         "pull",
         "pull-append",
         "pull-append-exhausted",
+        "pull-append-overlap",
         "gap-exhaustion",
         "gap-continuation",
         "pull-append-error",
@@ -273,6 +275,20 @@ try {
         await expect(notice).toContainText("Couldn’t load some agent threads", {
           timeout: 20_000,
         });
+      } else if (scenario === "pull-append-overlap") {
+        holdNext = true;
+        await more();
+        await expect.poll(() => held.length).toBe(1);
+        rows = [2, 1, 0];
+        epoch = "after-removal";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A2:after-removal");
+        await expect(output).toContainText("first-A1:after-removal");
+        await idle();
+        held.shift()();
+        await expect(output).not.toContainText("first-A3");
       } else if (scenario === "pull-append-exhausted") {
         holdNext = true;
         await more();

@@ -137,7 +137,7 @@ export function useAgentThreadFeed(
           )
             return;
           const old = pages.get(source)!;
-          const older = requested?.get(source);
+          let older = requested?.get(source);
           if (
             before !== undefined &&
             (!older || (!old.next && !progress.has(source)))
@@ -168,7 +168,21 @@ export function useAgentThreadFeed(
           try {
             let page: Page;
             if (before !== undefined) {
-              const incoming = await read(older!);
+              let incoming = await read(older!);
+              const continuation = appendCursor(old, progress.get(source));
+              const visible = new Set(old.items.map((thread) => thread.id));
+              // A refreshed head can already contain the interrupted page.
+              // Finish that More intent at the new cursor instead of making
+              // the user repeat a click that only returned duplicate rows.
+              if (
+                current() &&
+                continuation &&
+                continuation !== older &&
+                incoming.items.every((thread) => visible.has(thread.id))
+              ) {
+                older = continuation;
+                incoming = await read(older);
+              }
               const known = new Set(incoming.items.map((thread) => thread.id));
               page = {
                 ...incoming,
