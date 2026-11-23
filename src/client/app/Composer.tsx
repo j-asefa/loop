@@ -353,6 +353,74 @@ export function completeLeadingAgentMention(
   return `@${agentName} ${rest}`;
 }
 
+const MAX_SUBMIT_INPUT = 30_000;
+
+export type HandoffQuote = {
+  id: string;
+  content: string;
+  authorName: string;
+  mine?: boolean;
+  excerpt?: boolean;
+};
+
+export function handoffQuote(
+  replyContext: ComposerContext | null,
+  recipientId: string,
+  agents: readonly Agent[],
+): HandoffQuote | null {
+  if (!replyContext) return null;
+  const id = replyContext.messageId || replyContext.artifactId;
+  if (!id || !replyContext.content?.trim()) return null;
+  if (!replyContext.agentId || replyContext.agentId === recipientId)
+    return null;
+  const author = agents.find((a) => a.id === replyContext.agentId);
+  if (!author) return null;
+  return {
+    id,
+    content: replyContext.content,
+    authorName: author.name,
+    mine: replyContext.mine,
+    excerpt: replyContext.excerpt,
+  };
+}
+
+export function buildHandoffInput(
+  draft: string,
+  handoff: HandoffQuote,
+): string {
+  const full = replyPrompt(draft, {
+    id: handoff.id,
+    content: handoff.content,
+    name: handoff.authorName,
+    created_at: 0,
+    mine: handoff.mine,
+    excerpt: handoff.excerpt,
+  });
+  if (full.length <= MAX_SUBMIT_INPUT || draft.length > MAX_SUBMIT_INPUT)
+    return full.length <= MAX_SUBMIT_INPUT ? full : draft;
+  const emptyQuote = replyPrompt(draft, {
+    id: handoff.id,
+    content: "",
+    name: handoff.authorName,
+    created_at: 0,
+    mine: handoff.mine,
+    excerpt: handoff.excerpt,
+  });
+  const budget = MAX_SUBMIT_INPUT - emptyQuote.length;
+  if (budget <= 32) return draft;
+  const trimmed =
+    handoff.content.replace(/\n/g, " ").slice(0, budget - 1) + "…";
+  const candidate = replyPrompt(draft, {
+    id: handoff.id,
+    content: trimmed,
+    name: handoff.authorName,
+    created_at: 0,
+    mine: handoff.mine,
+    excerpt: handoff.excerpt,
+  });
+  return candidate.length <= MAX_SUBMIT_INPUT ? candidate : draft;
+}
+
 export function useComposerSend({
   replyQuoted,
   busy,
@@ -577,49 +645,12 @@ export function useComposerSend({
       );
       const reply =
         replyContext?.agentId === recipient.id ? replyContext : undefined;
-      const handoffSource =
-        replyContext &&
-        replyContext.agentId !== recipient.id &&
-        replyContext.content?.trim()
-          ? replyContext
-          : conversation &&
-              conversationTarget &&
-              conversationTarget.agentId !== recipient.id &&
-              conversationTarget.content?.trim()
-            ? conversationTarget
-            : !replyContext &&
-                contextArtifact &&
-                resultTarget(contextArtifact).agent_id !== recipient.id &&
-                resultTarget(contextArtifact).content?.trim()
-              ? {
-                  agentId: resultTarget(contextArtifact).agent_id || "",
-                  content: resultTarget(contextArtifact).content,
-                  messageId: undefined,
-                  artifactId: resultTarget(contextArtifact).id,
-                  mine: false,
-                  excerpt: false,
-                }
-              : undefined;
-      const handoffAuthor = handoffSource
-        ? composerData.agents.find((a) => a.id === handoffSource.agentId)
-            ?.name ||
-          activeAgent?.name ||
-          "agent"
-        : undefined;
-      const outgoingInput =
-        handoffSource && handoffAuthor
-          ? replyPrompt(draft, {
-              id:
-                handoffSource.messageId ||
-                handoffSource.artifactId ||
-                recipient.id,
-              content: handoffSource.content!,
-              name: handoffAuthor,
-              created_at: 0,
-              mine: handoffSource.mine,
-              excerpt: handoffSource.excerpt,
-            })
-          : draft;
+      const handoff = handoffQuote(
+        replyContext,
+        recipient.id,
+        composerData.agents,
+      );
+      const outgoingInput = handoff ? buildHandoffInput(draft, handoff) : draft;
       const currentConversation =
         conversation && conversationTarget?.agentId === recipient.id
           ? conversationTarget.conversationId
@@ -640,11 +671,11 @@ export function useComposerSend({
               : undefined);
       const signature = JSON.stringify([
         recipient.id,
-        outgoingInput,
+        draft,
         folderChoice,
         conversationId,
-        reply?.messageId,
-        reply?.excerpt ? reply.content : null,
+        reply?.messageId ?? handoff?.id,
+        (reply ?? handoff)?.excerpt ? (reply ?? handoff)?.content : null,
         attachments.map((file) => file.id),
       ]);
       // The send's mode and exact time travel with its key: a retry after a
@@ -653,6 +684,7 @@ export function useComposerSend({
       // message's uncertain receipt; it wins over this composer's own.
       const sendPrepared = async (plan: PreparedSend) => {
         const quotedId = plan.receipt.unquoted ? undefined : reply?.messageId;
+        const sentInput = plan.intent.input ?? outgoingInput;
         request.current = plan.receipt;
         sentReceipt = plan.receipt;
         const reconciled = plan.reconciled
@@ -671,7 +703,7 @@ export function useComposerSend({
           conversationId: parseId(ConversationId, conversationId),
           replyToMessageId: parseId(MessageId, quotedId),
           replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
-          input: outgoingInput,
+          input: sentInput,
           idempotencyKey: IdempotencyKey.parse(request.current.key),
           attachmentIds: attachments.map((file) => ArtifactId.parse(file.id)),
           folderId: parseId(
@@ -779,7 +811,7 @@ export function useComposerSend({
           Boolean(conversation) &&
           Boolean(conversationTarget?.agentId) &&
           recipient.id !== conversationTarget?.agentId;
-        if (!conversation || handedOffInThread)
+        if (!conversation)
           setSendNotice({
             runId: accepted.id,
             conversationId: accepted.conversation_id || conversationId || null,
@@ -789,7 +821,11 @@ export function useComposerSend({
           });
         setDraft("");
         setAttachments([]);
-        if (conversationId) saveThreadDraft(conversationId, "", []);
+        if (
+          conversationId &&
+          (!conversation || conversationId === conversation)
+        )
+          saveThreadDraft(conversationId, "", []);
         // Stay in the thread after sending; its reply context returns to the
         // conversation itself rather than the quoted message.
         setReplyContext(
@@ -805,7 +841,12 @@ export function useComposerSend({
               void refresh();
             },
           });
-        else if (reconciled && conversation) setThreadNotice(reconciled.trim());
+        else if (reconciled && conversation)
+          setThreadNotice(
+            handedOffInThread
+              ? `Handed off to @${recipient.name}. ${reconciled.trim()}`
+              : reconciled.trim(),
+          );
         else if (handedOffInThread)
           setThreadNotice(`Handed off to @${recipient.name}.`);
         else if (reconciled) setDismissNotice(reconciled.trim());
@@ -821,6 +862,7 @@ export function useComposerSend({
         {
           mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
           sendAt: options.sendAt ?? null,
+          ...(handoff ? { input: outgoingInput } : {}),
         },
         !!reply?.messageId && !reply.excerpt && replyQuoted === false,
         () => owner === ownerRef.current && currentView() && sameComposer(),
@@ -976,31 +1018,32 @@ export function renderComposer({
   | "threadNotice"
   | "setThreadNotice"
 >) {
-  const mentionCandidates = availableAgents.length
-    ? availableAgents
-    : composerData.agents;
+  const mentionCandidates = conversation
+    ? composerData.agents.filter((a) => a.connection_id && !a.retired_at)
+    : availableAgents;
   const mention = parseLeadingAgentMention(draft, mentionCandidates);
-  const sourceContext = replyContext?.content?.trim()
-    ? replyContext
-    : conversation && conversationTarget?.content?.trim()
-      ? conversationTarget
-      : null;
+  const handoff = mention?.agent
+    ? handoffQuote(replyContext, mention.agent.id, composerData.agents)
+    : null;
   const handoffAgent =
     mention?.agent &&
-    sourceContext &&
-    mention.agent.id !== sourceContext.agentId
+    (handoff ||
+      (replyContext?.agentId && mention.agent.id !== replyContext.agentId) ||
+      (conversationTarget?.agentId &&
+        mention.agent.id !== conversationTarget.agentId))
       ? mention.agent
       : undefined;
   const sourceAgentName =
-    (sourceContext &&
-      composerData.agents.find((a) => a.id === sourceContext.agentId)?.name) ||
+    handoff?.authorName ||
+    (replyContext &&
+      composerData.agents.find((a) => a.id === replyContext.agentId)?.name) ||
     activeAgent?.name ||
     "agent";
   // Undecided shows the quote: a send before the thread's fresh snapshot
   // keeps the reference, so the composer shows what will be sent. Handing off
-  // to another @agent also quotes the current message or thread context.
-  const quoted = handoffAgent
-    ? sourceContext
+  // an explicit reply to another @agent also quotes that message or result.
+  const quoted = handoff
+    ? replyContext
     : replyQuoted !== false &&
         replyContext?.content &&
         (replyContext.messageId || replyContext.artifactId || !conversation)
@@ -1546,22 +1589,6 @@ export function renderComposer({
           {threadNotice && threadMode && (
             <p className="field-hint composer-notice" role="status">
               {threadNotice}
-              {sendNotice &&
-                sendNotice.conversationId &&
-                sendNotice.agentId !== conversationTarget?.agentId && (
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={() => {
-                      setSelected(sendNotice.agentId);
-                      setConversation(sendNotice.conversationId);
-                      setSendNotice(null);
-                      setThreadNotice("");
-                    }}
-                  >
-                    View conversation <ArrowUpRight size={14} />
-                  </button>
-                )}
               <button
                 type="button"
                 className="text-button"
