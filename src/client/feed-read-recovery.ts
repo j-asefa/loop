@@ -16,6 +16,10 @@ export class FeedReadRecovery<T> {
   private pending = new Map<string, Pending>();
   private generation = viewGeneration();
 
+  isRecovering(source: string, page: string) {
+    return this.pending.get(JSON.stringify([source, page]))?.retrying === true;
+  }
+
   reset(source?: string, page?: string) {
     for (const [key, entry] of this.pending) {
       if (source !== undefined && source !== entry.source) continue;
@@ -36,6 +40,7 @@ export class FeedReadRecovery<T> {
     ) => Promise<T>,
     recovered: () => void,
     replaceRecovery = false,
+    recoveryFailed?: () => void,
   ): Promise<T> {
     if (this.generation !== viewGeneration()) {
       this.reset();
@@ -62,8 +67,11 @@ export class FeedReadRecovery<T> {
     const failed = (error: unknown) => {
       // Exhausted reads retain transport recovery interest until reset or a
       // new intent. Disposing here would cancel that signal-bound interest.
-      if (current()) entry.retrying = false;
-      else {
+      if (current()) {
+        const wasRetrying = entry.retrying;
+        entry.retrying = false;
+        if (wasRetrying) recoveryFailed?.();
+      } else {
         if (this.pending.get(key) === entry) this.pending.delete(key);
         entry.reader.dispose();
       }

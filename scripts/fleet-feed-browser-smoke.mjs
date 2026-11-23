@@ -46,6 +46,7 @@ let feedPagination = false,
 let holdOlderBefore;
 let failReplayCursor;
 let headFailureStatus = 503;
+let refusedAppendReads = 0;
 let movingFeedHead = false;
 let feedPageSize = 1,
   feedLabelSuffix = "",
@@ -254,6 +255,7 @@ try {
         const older = paginated && url.searchParams.has("before");
         if (paginated) paginationReads.push(url.searchParams.get("before"));
         if (older && failPaginationAppend) {
+          refusedAppendReads++;
           reply({ error: "Synthetic append refused" }, 400);
           return;
         }
@@ -1012,6 +1014,32 @@ try {
   for (const release of pending) release();
   pending.clear();
   console.log("Source discovery retained expanded history: " + engineName);
+
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("failed-head-and-replay-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  holdOlder = true;
+  releaseOlder = undefined;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  failPaginationHead = true;
+  failPaginationAppend = true;
+  const refusedBefore = refusedAppendReads;
+  feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect
+    .poll(() => refusedAppendReads, { timeout: 12000 })
+    .toBeGreaterThan(refusedBefore);
+  await expect(page.getByRole("alert")).toBeVisible();
+  failPaginationHead = false;
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible({ timeout: 12000 });
+  releaseOlder();
+  failPaginationAppend = false;
+  console.log("Failed append preserved automatic head recovery: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

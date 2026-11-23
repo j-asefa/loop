@@ -1357,6 +1357,7 @@ export function Feed({
   const readRecovery = useRef(
     new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>(),
   );
+  const pausedHeadRecovery = useRef(new Set<string>());
   const recoverSource = useRef<(source: string) => void>(() => {});
   const readSnapshot = (
     source: string,
@@ -1384,6 +1385,15 @@ export function Feed({
           recoverSource.current(source);
       },
       manual || replaceRecovery,
+      () => {
+        if (
+          generation === viewGeneration() &&
+          context === activeView.current &&
+          query.before &&
+          pausedHeadRecovery.current.delete(source)
+        )
+          recoverSource.current(source);
+      },
     );
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
@@ -2614,11 +2624,32 @@ export function Feed({
             // Let the interrupted page use the source after its cooldown;
             // another head retry must not keep extending that same cooldown.
             readRecovery.current.reset(source.id, JSON.stringify(query()));
+            pausedHeadRecovery.current.add(source.id);
             setReadError((error as Error).message);
             pages.set(source.id, { append: true, before: interrupted });
-            return readSource(source);
+            try {
+              return await readSource(source);
+            } catch (replayError) {
+              if (
+                isCurrent() &&
+                (replayError as Error).name !== "AbortError" &&
+                !readRecovery.current.isRecovering(
+                  source.id,
+                  JSON.stringify(query(pages.get(source.id)!.before)),
+                )
+              ) {
+                // Pausing the failed head freed this source for its older
+                // page. Restore head recovery even if that page also fails.
+                followup.add(source.id);
+                pausedHeadRecovery.current.delete(source.id);
+                pendingRefresh.current.sources.add(source.id);
+                schedulePendingRefresh();
+              }
+              throw replayError;
+            }
           }
           if (!isCurrent()) return { source, page: incoming };
+          pausedHeadRecovery.current.delete(source.id);
           activeAppendSources.current.delete(source.id);
           if (attempt.append) preemptedAppends.current.delete(source.id);
           retryPages.current.delete(source.id);
@@ -3002,6 +3033,7 @@ export function Feed({
     return () => {
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
+      pausedHeadRecovery.current.clear();
       refreshHistorySources.current.clear();
       doneRefresh.current = { key: "", sources: new Map() };
       historyDirtySources.current.clear();
@@ -3048,6 +3080,7 @@ export function Feed({
           pendingAppendSources.current.set(source, cursor);
       readRecovery.current.reset();
       retryPages.current.clear();
+      pausedHeadRecovery.current.clear();
       for (const [source, progress] of doneRefresh.current.sources)
         doneRefresh.current.sources.set(source, { ...progress, restart: true });
       for (const reader of doneCards.current.values()) reader.restartRefresh();

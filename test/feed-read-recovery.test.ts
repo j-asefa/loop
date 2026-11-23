@@ -127,6 +127,27 @@ it("releases exhausted retries without inventing another retry loop", async () =
   expect(slow.aborted()).toBe(true);
 });
 
+it("notifies the caller when a cooling replay terminates without recovery", async () => {
+  const reads = new FeedReadRecovery<string>();
+  const replay = controlled(),
+    recovered = vi.fn(),
+    failedRecovery = vi.fn();
+  const failed = expect(
+    reads.read("one", "older", replay.fetch, recovered, false, failedRecovery),
+  ).rejects.toThrow("cooldown");
+  replay.retry(new Error("cooldown"));
+  await failed;
+  expect(reads.isRecovering("one", "older")).toBe(true);
+  expect(failedRecovery).not.toHaveBeenCalled();
+  replay.reject(new Error("cursor refused"));
+  await replay.result.catch(() => {});
+  expect(reads.isRecovering("one", "older")).toBe(false);
+  expect(failedRecovery).toHaveBeenCalledTimes(1);
+  expect(recovered).not.toHaveBeenCalled();
+  reads.reset();
+  expect(failedRecovery).toHaveBeenCalledTimes(1);
+});
+
 it("a manual page replaces only its recovery and preserves head recovery on both sources", async () => {
   const reads = new FeedReadRecovery<string>();
   const firstHead = controlled(),
