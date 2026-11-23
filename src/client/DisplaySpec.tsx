@@ -19,6 +19,8 @@ type Context = {
   inFields?: boolean;
   // A card preview: charts leave out their table of numbers.
   compact: boolean;
+  // Pre-fills the reply composer when a finished display's ReplyButton is clicked.
+  onReply: ((prompt: string) => void) | null;
 };
 
 // Remark plugin: marks a `spec` fence that has not closed (an answer still
@@ -130,6 +132,9 @@ function closedFence(raw: string, value: string) {
 }
 
 export const DisplayWritingContext = createContext(false);
+export const DisplayReplyContext = createContext<
+  ((prompt: string) => void) | null
+>(null);
 
 export function DisplaySpec({
   source,
@@ -150,8 +155,10 @@ export function DisplaySpec({
   markdown: (content: string) => ReactNode;
 }) {
   const writing = useContext(DisplayWritingContext);
+  const reply = useContext(DisplayReplyContext);
   const live = open && canGrow && writing;
   const incomplete = live || omitSource;
+  const onReply = !compact && !writing && !open && !omitSource ? reply : null;
   const read = useMemo(
     () =>
       readDisplaySpec(source, {
@@ -202,7 +209,7 @@ export function DisplaySpec({
       )}
       <DisplayNodeView
         node={read.root}
-        context={{ markdown, compact }}
+        context={{ markdown, compact, onReply }}
         level={0}
       />
     </div>
@@ -360,6 +367,23 @@ function DisplayNodeView({
           {node.label}
         </a>
       );
+    case "ReplyButton": {
+      const prompt = node.prompt ?? node.label;
+      const onReply = context.onReply;
+      return (
+        <button
+          type="button"
+          className="display-reply-button"
+          disabled={!onReply}
+          title={
+            node.prompt && node.prompt !== node.label ? node.prompt : undefined
+          }
+          onClick={onReply ? () => onReply(prompt) : undefined}
+        >
+          {node.label}
+        </button>
+      );
+    }
     case "Placeholder":
       return <Placeholder name={node.name} reason={node.reason} />;
   }

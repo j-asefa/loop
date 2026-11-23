@@ -61,6 +61,11 @@ export function outline(node: DisplayNode, depth = 0): string[] {
       ];
     case "LinkButton":
       return [`${pad}LinkButton ${json(node.label)} ${node.url}`];
+    case "ReplyButton":
+      return [
+        `${pad}ReplyButton ${json(node.label)}` +
+          (node.prompt !== null ? ` prompt=${json(node.prompt)}` : ""),
+      ];
     case "Placeholder":
       return [`${pad}!${node.name} ${node.reason}`];
   }
@@ -1119,6 +1124,36 @@ export const displayFixtures: DisplayFixture[] = [
     open: "writing",
     expect: { fails: "missing_root" },
     skipped: 1,
+  },
+  // ---- ReplyButton elements -----------------------------------------------
+  {
+    name: "a ReplyButton with default and explicit prompts",
+    source: lines(
+      root("actions"),
+      element("actions", "Actions", {}, ["quick", "custom"]),
+      element("quick", "ReplyButton", { label: "Run benchmark" }),
+      element("custom", "ReplyButton", {
+        label: "Compare staging",
+        prompt: "Compare these metrics with the staging cluster.",
+      }),
+    ),
+    expect: {
+      outline: [
+        "Actions",
+        '  ReplyButton "Run benchmark"',
+        '  ReplyButton "Compare staging" prompt="Compare these metrics with the staging cluster."',
+      ],
+    },
+  },
+  {
+    name: "a ReplyButton with an empty label",
+    source: inCard(element("x", "ReplyButton", { label: "" })),
+    expect: { outline: ['Card title="Frame"', "  !ReplyButton invalid"] },
+  },
+  {
+    name: "a ReplyButton with an empty prompt",
+    source: inCard(element("x", "ReplyButton", { label: "Ask", prompt: "" })),
+    expect: { outline: ['Card title="Frame"', "  !ReplyButton invalid"] },
   },
 ];
 

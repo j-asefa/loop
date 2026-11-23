@@ -1,4 +1,5 @@
 import { dropSpecBlocks } from "../shared/text";
+import { DisplayReplyContext } from "./DisplaySpec";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -236,7 +237,7 @@ function ConversationView({
   readyKey?: string;
   /** So a reply to the agent's latest message goes unquoted. */
   onLatestAgentMessage?: (latest: LatestAgentMessage) => void;
-  onReply: (context: ComposerContext) => void;
+  onReply: (context: ComposerContext, text?: string) => void;
   onUsePrompt: (text: string) => void;
 
   onRestoreDraft: (text: string, files: UploadedFile[]) => void;
@@ -1727,16 +1728,29 @@ function ConversationView({
               !imported &&
               !pendingAnswer &&
               m.content.trim() !== "";
-            const reply = canReply
-              ? () =>
-                  onReply({
-                    agentId: agent!.id,
-                    conversationId: id,
-                    messageId: m.id,
-                    content: m.content,
-                    ...(m.role === "user" ? { mine: true } : {}),
-                  })
+            const replyTarget = canReply
+              ? {
+                  agentId: agent!.id,
+                  conversationId: id,
+                  messageId: m.id,
+                  content: m.content,
+                  ...(m.role === "user" ? { mine: true } : {}),
+                }
               : undefined;
+            const reply = replyTarget ? () => onReply(replyTarget) : undefined;
+            const messageWriting =
+              m.role === "assistant" &&
+              !!m.run_state &&
+              STARTED_RUN_DISPLAY_STATES.includes(m.run_state) &&
+              (meta.progress
+                ? !meta.final &&
+                  !!m.run_id &&
+                  latestProgressByRun.get(m.run_id)?.id === m.id
+                : !anchor || latestAgent === m.id);
+            const replyWithPrompt =
+              replyTarget && !messageWriting
+                ? (prompt: string) => onReply(replyTarget, prompt)
+                : null;
             const finalForRun =
               m.run_id &&
               !meta.progress &&
@@ -1838,20 +1852,13 @@ function ConversationView({
                     </details>
                   )}
                   {showContent && (
-                    <RichText
-                      content={m.content}
-                      // Only the current progress update can still grow.
-                      writing={
-                        m.role === "assistant" &&
-                        !!m.run_state &&
-                        STARTED_RUN_DISPLAY_STATES.includes(m.run_state) &&
-                        (meta.progress
-                          ? !meta.final &&
-                            !!m.run_id &&
-                            latestProgressByRun.get(m.run_id)?.id === m.id
-                          : !anchor || latestAgent === m.id)
-                      }
-                    />
+                    <DisplayReplyContext.Provider value={replyWithPrompt}>
+                      <RichText
+                        content={m.content}
+                        // Only the current progress update can still grow.
+                        writing={messageWriting}
+                      />
+                    </DisplayReplyContext.Provider>
                   )}
                   {m.role === "user" &&
                     m.run_id &&

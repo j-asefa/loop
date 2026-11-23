@@ -35,8 +35,11 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Chart:
     'nonempty title and chart; pie uses {type:"pie",segments:[{label,value}]} with positive values; bar, line, or area uses {type,categories,series:[{name,values}],xLabel?,yLabel?} with string categories and at most one numeric value per category in each series',
   Divider: "no props",
-  Actions: "no props; children allowed, typically LinkButton elements",
+  Actions:
+    "no props; children allowed, typically LinkButton or ReplyButton elements",
   LinkButton: "nonempty label and an HTTP(S) url",
+  ReplyButton:
+    "nonempty label; optional nonempty prompt string to pre-fill a reply",
 };
 const patchForm =
   "One JSON object per line with op add or replace. Use path /root with a string key, or /elements/<key> with an element object.";

@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { DisplayReplyContext } from "./DisplaySpec";
 import { listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -264,7 +265,7 @@ function FeedCard({
   model?: string;
   environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
-  onReply: () => void;
+  onReply: (prompt?: string) => void;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -659,7 +660,7 @@ function FeedCard({
                 </button>
               )}
               {next?.kind !== "draft" && (
-                <button onClick={onReply}>
+                <button onClick={() => onReply()}>
                   <MessageSquare size={16} />
                   {groupCount ? "Reply to latest" : "Reply"}
                 </button>
@@ -764,28 +765,40 @@ function FeedCard({
                 )}
                 <div className="artifact-body">
                   {content ? (
-                    item.card ? (
-                      <CardBody card={item.card} />
-                    ) : (
-                      <RichText
-                        content={content}
-                        previewEndsAtLine={item.live_preview_ends_at_line}
-                        previewFenceIsSpec={item.live_preview_fence_spec}
-                        previewFenceCut={
-                          item.live_preview
-                            ? (item.live_preview_fence_cut ?? false)
-                            : undefined
-                        }
-                        cappedPreview={
-                          item.live_preview
-                            ? previewAtLimit
-                            : message?.id !== messageId && messagePreviewCapped
-                        }
-                        writing={
-                          !!item.live_preview && content === item.live_preview
-                        }
-                      />
-                    )
+                    <DisplayReplyContext.Provider
+                      value={
+                        feedReplyQuote(item) &&
+                        !item.live_preview &&
+                        !awaitingUpdate
+                          ? (prompt: string) =>
+                              leaveReading(() => onReply(prompt))
+                          : null
+                      }
+                    >
+                      {item.card ? (
+                        <CardBody card={item.card} />
+                      ) : (
+                        <RichText
+                          content={content}
+                          previewEndsAtLine={item.live_preview_ends_at_line}
+                          previewFenceIsSpec={item.live_preview_fence_spec}
+                          previewFenceCut={
+                            item.live_preview
+                              ? (item.live_preview_fence_cut ?? false)
+                              : undefined
+                          }
+                          cappedPreview={
+                            item.live_preview
+                              ? previewAtLimit
+                              : message?.id !== messageId &&
+                                messagePreviewCapped
+                          }
+                          writing={
+                            !!item.live_preview && content === item.live_preview
+                          }
+                        />
+                      )}
+                    </DisplayReplyContext.Provider>
                   ) : (
                     <p className="field-hint">
                       {status.tone === "working"
@@ -836,7 +849,7 @@ function FeedCard({
                 )}
                 <button
                   className="primary"
-                  onClick={() => leaveReading(onReply)}
+                  onClick={() => leaveReading(() => onReply())}
                 >
                   {draft ? (
                     <PencilLine size={18} />
@@ -1264,6 +1277,7 @@ export function Feed({
     conversation: string,
     sourceId?: string,
     quote?: FeedReplyQuote,
+    prompt?: string,
   ) => void;
   agent?: string;
 
@@ -4142,12 +4156,13 @@ export function Feed({
                 source,
               )
         }
-        onReply={() =>
+        onReply={(prompt) =>
           onReply
             ? onReply(
                 item.conversation_id,
                 source,
                 feedReplyQuote(item) ?? undefined,
+                prompt,
               )
             : onOpen(item.conversation_id, undefined, source)
         }

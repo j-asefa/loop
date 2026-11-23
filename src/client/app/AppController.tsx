@@ -549,9 +549,20 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined && !readThreadDraft(key).text)
-        writeThreadDraft(key, text, [], session?.user?.id);
-    } else if (text !== undefined) setDraft(text);
+      if (text !== undefined) {
+        const saved = readThreadDraft(key, session?.user?.id);
+        writeThreadDraft(
+          key,
+          appendDraftText(saved.text, text),
+          saved.files,
+          session?.user?.id,
+        );
+      }
+    } else if (text !== undefined) {
+      const nextText = appendDraftText(draftRef.current, text);
+      draftRef.current = nextText;
+      setDraft(nextText);
+    }
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);
     else if (context.conversationId) focusComposer();

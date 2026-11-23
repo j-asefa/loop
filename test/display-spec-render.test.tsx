@@ -1,6 +1,8 @@
-import { expect, it } from "vitest";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
+import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
 import { compactMarkdown } from "../src/client/preview";
 import { checkDisplay } from "../src/server/display-check";
 import { displayFixtures } from "./display-spec-fixtures";
@@ -352,6 +354,118 @@ it("checks and draws a text explanation alongside a link in Actions", () => {
   const html = render(source);
   expect(html).toContain("Read the full report.");
   expect(html).toContain('href="https://example.com/report"');
+});
+
+it("checks and draws ReplyButton elements and pre-fills the reply handler only when interactive", () => {
+  const raw = patch(
+    { op: "add", path: "/root", value: "actions" },
+    {
+      op: "add",
+      path: "/elements/actions",
+      value: { type: "Actions", children: ["same", "custom"] },
+    },
+    {
+      op: "add",
+      path: "/elements/same",
+      value: { type: "ReplyButton", props: { label: "Run benchmark" } },
+    },
+    {
+      op: "add",
+      path: "/elements/custom",
+      value: {
+        type: "ReplyButton",
+        props: {
+          label: "Compare staging",
+          prompt: "Compare these metrics with staging.",
+        },
+      },
+    },
+  );
+  const source = fence(raw);
+  expect(checkDisplay(source)).toContain("Display valid. Elements: 3.");
+
+  // Without a DisplayReplyContext provider, ReplyButton renders disabled.
+  const disabledHtml = render(source);
+  expect(disabledHtml).toContain(
+    '<button type="button" class="display-reply-button" disabled="">Run benchmark</button>',
+  );
+  expect(disabledHtml).toContain(
+    '<button type="button" class="display-reply-button" disabled="" title="Compare these metrics with staging.">Compare staging</button>',
+  );
+
+  // With a DisplayReplyContext provider in a non-compact, finished message, ReplyButton is enabled.
+  const onReply = vi.fn();
+  const enabledHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(enabledHtml).toContain(
+    '<button type="button" class="display-reply-button">Run benchmark</button>',
+  );
+  expect(enabledHtml).toContain(
+    '<button type="button" class="display-reply-button" title="Compare these metrics with staging.">Compare staging</button>',
+  );
+
+  // In compact previews or while writing, ReplyButton remains disabled even inside a provider.
+  const compactHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} compact />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(compactHtml).toContain('class="display-reply-button" disabled=""');
+
+  const writingHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} writing />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(writingHtml).toContain('class="display-reply-button" disabled=""');
+
+  // Clicking an active ReplyButton invokes the context callback with prompt ?? label.
+  let capturedTree: ReactNode = null;
+  function Capture() {
+    capturedTree = DisplaySpec({ source: raw, markdown: (text) => text });
+    return <>{capturedTree}</>;
+  }
+  renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <Capture />
+    </DisplayReplyContext.Provider>,
+  );
+  const buttons: ReactElement<{
+    onClick?: () => void;
+    disabled?: boolean;
+  }>[] = [];
+  const collectButtons = (node: ReactNode): void => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(collectButtons);
+      return;
+    }
+    if (isValidElement(node)) {
+      const el = node as ReactElement<{
+        children?: ReactNode;
+        onClick?: () => void;
+        disabled?: boolean;
+      }>;
+      if (typeof el.type === "function") {
+        collectButtons((el.type as (props: unknown) => ReactNode)(el.props));
+        return;
+      }
+      if (el.type === "button") buttons.push(el);
+      if (el.props.children) collectButtons(el.props.children);
+    }
+  };
+  collectButtons(capturedTree);
+  expect(buttons).toHaveLength(2);
+  buttons[0]!.props.onClick?.();
+  buttons[1]!.props.onClick?.();
+  expect(onReply).toHaveBeenNthCalledWith(1, "Run benchmark");
+  expect(onReply).toHaveBeenNthCalledWith(
+    2,
+    "Compare these metrics with staging.",
+  );
 });
 
 it("checks and draws a standalone display nested in a quote or list item", () => {

@@ -112,6 +112,10 @@ const propSchemas = {
   Divider: z.object({}),
   Actions: z.object({}),
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
+  ReplyButton: z.object({
+    label: text.min(1),
+    prompt: text.min(1).nullish(),
+  }),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);
 export const DISPLAY_COMPONENTS = Object.keys(
@@ -148,6 +152,12 @@ export type DisplayNode =
   | { type: "Divider"; key: string }
   | { type: "Actions"; key: string; children: DisplayNode[] }
   | { type: "LinkButton"; key: string; label: string; url: string }
+  | {
+      type: "ReplyButton";
+      key: string;
+      label: string;
+      prompt: string | null;
+    }
   | {
       type: "Placeholder";
       key: string;
@@ -280,6 +290,17 @@ function build(
       // `https:example.com` would otherwise resolve against Loop's own page.
       return p.success
         ? { type, key, label: p.data.label, url: new URL(p.data.url).href }
+        : problem(p.error);
+    }
+    case "ReplyButton": {
+      const p = propSchemas.ReplyButton.safeParse(props);
+      return p.success
+        ? {
+            type,
+            key,
+            label: p.data.label,
+            prompt: p.data.prompt ?? null,
+          }
         : problem(p.error);
     }
     default:
@@ -441,6 +462,8 @@ function drawnLength(node: DisplayNode): number {
       );
     case "LinkButton":
       return sum([node.label, node.url]);
+    case "ReplyButton":
+      return sum([node.label, node.prompt]);
     default:
       return 0;
   }
