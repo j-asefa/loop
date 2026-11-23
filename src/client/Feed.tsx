@@ -2293,6 +2293,10 @@ export function Feed({
             }
           }
           if (reader.discardPrior) priorItems = [];
+          // Cards have committed this append before the operational summary.
+          // A notification during that summary must not replay the next page.
+          if (appending && !reader.hasPendingAppend && isCurrent())
+            activeAppendSources.current.delete(source);
           if (
             reader.hasMore ||
             reader.hasPendingAppend ||

@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 import { workspaceCapabilities } from "../src/shared/capabilities.ts";
+import { CardEntrySchema } from "../src/shared/cards.ts";
 
 const feedOnly = process.argv.includes("--feed-only");
 const dir = await mkdtemp(join(tmpdir(), "loop-fleet-feed-"));
@@ -31,6 +32,53 @@ const feedTemplate = JSON.parse(
 const needsTemplate = JSON.parse(
   await readFile("test/snapshots/feed/feed-needs-none.json", "utf8"),
 ).body.items[0];
+const doneTemplate = JSON.parse(
+  await readFile("test/snapshots/feed/feed-done-none.json", "utf8"),
+).body.items[0];
+const doneEntry = (n) =>
+  CardEntrySchema.parse({
+    card: {
+      type: "done",
+      id: "d:message:fixture-" + n,
+      display: {
+        ...doneTemplate,
+        conversation_id: "done-" + n,
+        done_card_key: "message:fixture-" + n,
+        title: "Done fixture " + n,
+        last_activity_at: n,
+        run: null,
+        next_action: null,
+      },
+      content: "Done fixture " + n,
+      format: "markdown",
+      created_at: n,
+      updated_at: null,
+      saved: false,
+      attachments: [],
+      href: "/",
+      author: { kind: "unknown", id: null, name: null, provider: null },
+      recipient: null,
+      source: {
+        agent_id: null,
+        artifact_id: null,
+        message_id: "fixture-" + n,
+        conversation_id: "done-" + n,
+        run_id: null,
+      },
+      context: {
+        conversation_title: "Done fixture " + n,
+        folder_id: null,
+        project_id: null,
+        project_name: null,
+        team_id: null,
+      },
+    },
+    order: [n, "fixture-" + n],
+    saved: null,
+  });
+const donePageReads = [];
+let holdDoneSummary = false,
+  releaseDoneSummary;
 const feedMetrics = { requests: 0, responseBodyBytes: 0, active: 0, peak: 0 };
 const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
@@ -217,6 +265,38 @@ try {
     if (path === "runs" || path === "events") {
       reply([]);
       return;
+    }
+    if (mode === "cards" && source) {
+      if (path === "v1/cards") {
+        const before = url.searchParams.get("before");
+        const n = before ? Number(before) - 1 : 3;
+        const selected = source.id === sources[1].id;
+        if (selected) donePageReads.push(before);
+        reply({
+          revision: "r",
+          items: selected ? [doneEntry(n)] : [],
+          next: selected && n > 1 ? String(n) : null,
+        });
+        return;
+      }
+      if (path === "v1/cards/changes") {
+        reply({ revision: "r", items: [], removed: [], more: false });
+        return;
+      }
+      if (path === "feed") {
+        if (holdDoneSummary && source.id === sources[1].id) {
+          holdDoneSummary = false;
+          await new Promise((resolve) => {
+            releaseDoneSummary = resolve;
+          });
+        }
+        reply({
+          items: [],
+          next: null,
+          summary: { needs: 0, working: 0, queued: 0, later_due: 0 },
+        });
+        return;
+      }
     }
     if (path === "feed") {
       if (
@@ -1083,6 +1163,37 @@ try {
   failPaginationAppend = false;
   allPaginated = false;
   console.log("Pull did not replay an already failed append: " + engineName);
+
+  mode = "cards";
+  await page.evaluate(() => window.showFeed("done-summary-feed", "done"));
+  await expect(
+    page.getByText("Done fixture 3", { exact: true }).first(),
+  ).toBeVisible();
+  holdDoneSummary = true;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseDoneSummary).toBe(true);
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  releaseDoneSummary();
+  await expect(
+    page.getByText("Done fixture 2", { exact: true }).first(),
+  ).toBeVisible();
+  await page.waitForTimeout(1500);
+  assert.deepEqual(
+    donePageReads,
+    [null, "3"],
+    "A notification during the summary read must not append a second Cards page",
+  );
+  console.log(
+    "Done summary notification preserved one-page intent: " + engineName,
+  );
 
   if (!feedOnly) {
     mode = "needs";
