@@ -98,6 +98,8 @@ export function AgentPicker({
     );
   const choose = (next: string) => {
     setOpen(false);
+    // The trigger was disabled while the sheet was open, as by a send.
+    if (disabled) return;
     if (next !== value) onChange(next);
   };
   return (

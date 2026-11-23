@@ -5,6 +5,7 @@ import { expect } from "@playwright/test";
  * clicks the option whose value matches, or the nth agent for { index }.
  */
 export async function chooseAgent(trigger, choice) {
+  const before = await historyEntry(trigger);
   await trigger.click();
   const sheet = trigger.page().locator("dialog.agent-picker-sheet[open]");
   await expect(sheet).toHaveCount(1);
@@ -15,10 +16,12 @@ export async function chooseAgent(trigger, choice) {
       : options.and(sheet.locator(`[value=${JSON.stringify(choice)}]`))
   ).click();
   await expect(sheet).toHaveCount(0);
+  await settled(trigger, before);
 }
 
 /** The AgentPicker options' values, in the order the sheet lists them. */
 export async function agentPickerValues(trigger) {
+  const before = await historyEntry(trigger);
   await trigger.click();
   const sheet = trigger.page().locator("dialog.agent-picker-sheet[open]");
   await expect(sheet).toHaveCount(1);
@@ -27,5 +30,19 @@ export async function agentPickerValues(trigger) {
     .evaluateAll((buttons) => buttons.map((button) => button.value));
   await sheet.getByRole("searchbox", { name: "Search agents" }).press("Escape");
   await expect(sheet).toHaveCount(0);
+  await settled(trigger, before);
   return values;
 }
+
+const historyEntry = (trigger) =>
+  trigger.page().evaluate(() => JSON.stringify([location.href, history.state]));
+
+// Closing the sheet goes back in history. Wait for the entry from before it
+// opened, so a parent sheet's own history entry is left alone.
+const settled = (trigger, before) =>
+  trigger
+    .page()
+    .waitForFunction(
+      (entry) => JSON.stringify([location.href, history.state]) === entry,
+      before,
+    );
