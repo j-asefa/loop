@@ -46,6 +46,7 @@ const doneEntry = (n) =>
         done_card_key: "message:fixture-" + n,
         title: "Done fixture " + n,
         last_activity_at: n,
+        read_at: null,
         run: null,
         next_action: null,
       },
@@ -83,6 +84,7 @@ let doneAllSources = false,
   cancelledDoneSummaries = 0;
 let failNextDoneChanges = false,
   doneChangesFailures = 0;
+let doneChangesRequests = 0;
 let failDoneSummary = false,
   doneSummaryFailures = 0;
 const doneSourceReads = new Map();
@@ -299,6 +301,7 @@ try {
         return;
       }
       if (path === "v1/cards/changes") {
+        if (source.id === sources[1].id) doneChangesRequests++;
         if (failNextDoneChanges && source.id === sources[1].id) {
           failNextDoneChanges = false;
           doneChangesFailures++;
@@ -1345,6 +1348,37 @@ try {
   console.log(
     "One Load more after a failed pull drained its pending append: " +
       engineName,
+  );
+
+  await expect(moreFeed).toBeEnabled();
+  holdDoneAppends.add(sources[1].id);
+  await moreFeed.click();
+  await expect.poll(() => heldDoneAppends.has(sources[1].id)).toBe(true);
+  holdDoneSummary = true;
+  releaseDoneSummary = undefined;
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
+  await expect.poll(() => !!releaseDoneSummary).toBe(true);
+  const beforeLateCards = doneChangesRequests;
+  const cancelledBeforeLateCards = cancelledDoneSummaries;
+  heldDoneAppends.get(sources[1].id)();
+  heldDoneAppends.clear();
+  await expect.poll(() => doneChangesRequests).toBeGreaterThan(beforeLateCards);
+  await page.waitForTimeout(500);
+  assert.equal(
+    cancelledDoneSummaries,
+    cancelledBeforeLateCards,
+    "An obsolete Cards response must not cancel the new selection's summary",
+  );
+  releaseDoneSummary();
+  await expect(
+    page.getByText("Done fixture 3", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByText("Done fixture 1", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  console.log(
+    "Late Cards response preserved the new selection summary: " + engineName,
   );
 
   mode = "feed";

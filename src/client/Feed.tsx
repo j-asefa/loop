@@ -2299,6 +2299,8 @@ export function Feed({
               setItems((items) => items.filter(keep));
             }
           }
+          if (!isCurrent())
+            throw new DOMException("Obsolete Done read", "AbortError");
           if (reader.discardPrior) priorItems = [];
           // Cards have committed this append before the operational summary.
           // A notification during that summary must not replay the next page.
