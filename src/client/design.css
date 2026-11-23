@@ -924,6 +924,26 @@ label.catalog-search {
   min-height: 32px;
   padding-block: 3px;
 }
+.composer-mention-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+}
+.composer-mention-list::-webkit-scrollbar {
+  display: none;
+}
+.composer-mention-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brass) 16%, var(--secondary));
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
 
 @media (min-width: 1100px) {
   .app-shell {

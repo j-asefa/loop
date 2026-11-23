@@ -918,6 +918,17 @@ function ConversationView({
       stopChanges();
     };
   }, [id, anchor, sourceId]);
+  const latestPublicMessage = [...(data?.messages || [])]
+    .reverse()
+    .find((message) => {
+      if (message.role !== "assistant" && message.role !== "user") return false;
+      const meta = readMessageMetadata(message.metadata, "fallback");
+      return (
+        meta.activeBranch !== false &&
+        !meta.progress &&
+        Boolean(message.content.trim())
+      );
+    });
   useEffect(() => {
     if (!imported && agent && data?.conversation.id === id)
       readyRef.current({
@@ -925,6 +936,8 @@ function ConversationView({
         conversationId: id,
         title: data.conversation.title,
         projectName: project?.name,
+        content: latestPublicMessage?.content,
+        mine: latestPublicMessage?.role === "user" ? true : undefined,
       });
   }, [
     id,
@@ -933,6 +946,8 @@ function ConversationView({
     data?.conversation.title,
     imported,
     project?.name,
+    latestPublicMessage?.id,
+    latestPublicMessage?.content,
   ]);
   useLayoutEffect(() => {
     if (data?.conversation.id !== id) return;

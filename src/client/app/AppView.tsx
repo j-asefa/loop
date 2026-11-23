@@ -1322,9 +1322,15 @@ export function renderApp(props: AppViewProps) {
               setContextArtifact(null);
               setReplyContext((current) =>
                 current?.agentId === context.agentId &&
-                current.conversationId === context.conversationId
+                current.conversationId === context.conversationId &&
+                (current.messageId || current.artifactId)
                   ? current
-                  : context,
+                  : {
+                      agentId: context.agentId,
+                      conversationId: context.conversationId,
+                      title: context.title,
+                      projectName: context.projectName,
+                    },
               );
               const saved = threadDraft(context.conversationId);
               if (!draft.trim() && saved.text) setDraft(saved.text);
