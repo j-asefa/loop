@@ -295,6 +295,10 @@ function FeedCard({
     content: string;
   } | null>(null);
   const [readError, setReadError] = useState("");
+  // Pointer, touch or focus on a card starts loading its full answer, so
+  // the reading sheet usually opens with the whole text already in memory.
+  const [readIntent, setReadIntent] = useState(false);
+  const markReadIntent = () => setReadIntent(true);
   const swipe = useDoneCardGestures({
     id: aggregationId,
     session: dragSession,
@@ -332,17 +336,24 @@ function FeedCard({
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
+  const messagePreviewCapped =
+    item.last_message?.content_truncated ??
+    Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")
+      .length >= FEED_MESSAGE_PREFIX_LIMIT;
+  const loadedMessage = message?.id === messageId ? message : null;
   useEffect(() => {
     if (
-      !reading ||
+      (!reading && !(readAsCard && readIntent)) ||
       !messageId ||
+      loadedMessage ||
+      !messagePreviewCapped ||
       item.card ||
       item.live_preview ||
       awaitingUpdate
     )
       return;
     const controller = new AbortController();
-    setReadError("");
+    if (reading) setReadError("");
     void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
@@ -353,10 +364,13 @@ function FeedCard({
       },
     )
       .then((value) => {
-        if (!controller.signal.aborted) setMessage(value);
+        if (!controller.signal.aborted) {
+          setMessage(value);
+          setReadError("");
+        }
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted && reading)
           setReadError(
             "Couldn’t load the full message. Open the conversation to read it.",
           );
@@ -364,6 +378,10 @@ function FeedCard({
     return () => controller.abort();
   }, [
     reading,
+    readAsCard,
+    readIntent,
+    !!loadedMessage,
+    messagePreviewCapped,
     item.card,
     messageId,
     item.sourceId,
@@ -371,16 +389,12 @@ function FeedCard({
     !!item.live_preview,
     !!awaitingUpdate,
   ]);
-  const messagePreviewCapped =
-    item.last_message?.content_truncated ??
-    Array.from(item.last_message?.content ?? "").length >=
-      FEED_MESSAGE_PREFIX_LIMIT;
   const content =
     item.live_preview ||
     (awaitingUpdate
       ? ""
-      : message?.id === messageId
-        ? (message?.content ?? "")
+      : loadedMessage
+        ? loadedMessage.content
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const previewAtLimit =
     item.live_preview_truncated ??
@@ -410,6 +424,9 @@ function FeedCard({
         (swipe.armed ? " armed-" + swipe.armed : "") +
         (swipe.offset ? " swiping" : "")
       }
+      onPointerEnter={readAsCard ? markReadIntent : undefined}
+      onTouchStart={readAsCard ? markReadIntent : undefined}
+      onFocus={readAsCard ? markReadIntent : undefined}
     >
       {onDismiss && (
         <span className="swipe-under right" aria-hidden="true">
