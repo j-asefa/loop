@@ -2576,8 +2576,14 @@ export function Feed({
               if (!isCurrent())
                 throw new DOMException("Feed read superseded", "AbortError");
               const source = activeSources.find((source) => source.id === id)!;
-              pendingRefresh.current.sources.delete(id);
-              if (!initialReads.delete(id) || !pages.get(id)!.append) {
+              const notified = pendingRefresh.current.sources.delete(id);
+              const initial = initialReads.delete(id);
+              const starting = pages.get(id)!;
+              if (initial && starting.append && starting.before && notified) {
+                pendingAppendSources.current.set(id, starting.before);
+                pages.set(id, { append: false });
+              }
+              if (!initial || !pages.get(id)!.append) {
                 headSources.current.add(id);
                 const retry = retryPages.current.get(id);
                 if (

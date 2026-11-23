@@ -177,7 +177,7 @@ export function useAgentThreadFeed(
                   ...incoming.items,
                 ].sort(feedItemOrder),
               };
-              const sweep = progress.get(source);
+              let sweep = progress.get(source);
               const floor = page.items.at(-1);
               const oldFloor = old.items.at(-1);
               if (
@@ -185,20 +185,49 @@ export function useAgentThreadFeed(
                 (!floor || !oldFloor || feedItemOrder(floor, oldFloor) <= 0)
               )
                 page.next = old.next;
+              if (sweep && older === old.next) {
+                const last = incoming.items.at(-1);
+                const exhaustedFloor =
+                  sweep.continuation === null ? sweep.floor : undefined;
+                const covered = (boundary: DoneRefresh["gapUntil"]) => {
+                  const target =
+                    boundary &&
+                    exhaustedFloor &&
+                    feedItemOrder(exhaustedFloor, boundary) > 0
+                      ? exhaustedFloor
+                      : boundary;
+                  return (
+                    !incoming.next ||
+                    (last && target && feedItemOrder(last, target) >= 0)
+                  );
+                };
+                sweep = {
+                  ...sweep,
+                  gapUntil: covered(sweep.gapUntil)
+                    ? undefined
+                    : sweep.gapUntil,
+                  rescanGap: covered(sweep.rescanGap)
+                    ? undefined
+                    : sweep.rescanGap,
+                };
+                progress.set(source, sweep);
+              }
               if (
                 sweep &&
                 (older === historyContinuation(old, sweep) ||
+                  (sweep.continuation === null &&
+                    older === old.next &&
+                    incoming.items.at(-1) &&
+                    sweep.floor &&
+                    feedItemOrder(incoming.items.at(-1)!, sweep.floor) >= 0) ||
                   (floor &&
                     sweep.floor &&
                     feedItemOrder(floor, sweep.floor) > 0))
               ) {
-                const exhaustedGap = older === old.next && !incoming.next;
-                if ((sweep.gapUntil || sweep.rescanGap) && !exhaustedGap)
+                if ((sweep.gapUntil || sweep.rescanGap) && older !== old.next)
                   page.next = old.next;
                 progress.set(source, {
                   ...sweep,
-                  gapUntil: exhaustedGap ? undefined : sweep.gapUntil,
-                  rescanGap: exhaustedGap ? undefined : sweep.rescanGap,
                   floor: page.items.at(-1),
                   continuation: incoming.next,
                 });

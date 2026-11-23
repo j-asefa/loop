@@ -44,6 +44,10 @@ let feedPagination = false,
   holdOlder = false,
   releaseOlder;
 let holdOlderBefore;
+let allPaginated = false,
+  queuedHeadChanged = false;
+const holdFleetAppends = new Set();
+const heldFleetAppends = new Map();
 let metadataRevision = 0;
 const metadataMetrics = { requests: 0, active: 0, peak: 0 };
 function trackResponse(metrics, res) {
@@ -238,7 +242,8 @@ try {
           });
           return;
         }
-        const paginated = feedPagination && source.id === sources[1].id;
+        const paginated =
+          allPaginated || (feedPagination && source.id === sources[1].id);
         const older = paginated && url.searchParams.has("before");
         if (paginated) paginationReads.push(url.searchParams.get("before"));
         if (older && failPaginationAppend) {
@@ -251,10 +256,20 @@ try {
           });
           return;
         }
+        const pageRows =
+          allPaginated && queuedHeadChanged && source.id === sources[4].id
+            ? [4, 3, 2, 1]
+            : feedPageRows;
         const index = older
-          ? feedPageRows.indexOf(Number(url.searchParams.get("before"))) + 1
+          ? pageRows.indexOf(Number(url.searchParams.get("before"))) + 1
           : 0;
-        const rowNumber = feedPageRows[index];
+        const rowNumber = pageRows[index];
+        if (older && holdFleetAppends.delete(source.id)) {
+          await new Promise((resolve) =>
+            heldFleetAppends.set(source.id, resolve),
+          );
+          if (res.destroyed) return;
+        }
         if (
           older &&
           holdOlder &&
@@ -286,9 +301,7 @@ try {
             },
           ],
           next:
-            paginated && index + 1 < feedPageRows.length
-              ? String(rowNumber)
-              : null,
+            paginated && index + 1 < pageRows.length ? String(rowNumber) : null,
           summary: { needs: 0, working: 1, queued: 0, later_due: 0 },
         };
         feedMetrics.responseBodyBytes += Buffer.byteLength(
@@ -607,6 +620,37 @@ try {
   console.log(
     "Failed append preserves the single head notification: " + engineName,
   );
+  allPaginated = true;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("queued-append-feed"));
+  await expect(
+    page.getByText("Measured Machine 4 3", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(9);
+  for (const source of sources.slice(0, 4)) holdFleetAppends.add(source.id);
+  await moreFeed.click();
+  await expect.poll(() => heldFleetAppends.size).toBe(4);
+  queuedHeadChanged = true;
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[4].id,
+  );
+  for (const release of heldFleetAppends.values()) release();
+  heldFleetAppends.clear();
+  await expect(
+    page.getByText("Measured Machine 4 4", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 4 2", { exact: true }),
+  ).toBeVisible();
+  console.log(
+    "Queued append preserved its pending head notification: " + engineName,
+  );
 
   if (!feedOnly) {
     mode = "needs";
@@ -772,6 +816,7 @@ try {
     );
   }
 } finally {
+  for (const release of heldFleetAppends.values()) release();
   for (const release of pending) release();
   await browser?.close();
   if (server) {
