@@ -1,5 +1,6 @@
 import { literalEntry } from "./textEntry";
 import { useState } from "react";
+import { sortAgentsByName } from "./AgentPicker";
 import { ArrowUpRight, Plus, Search } from "lucide-react";
 import { Avatar, Badge, Empty, Sheet } from "./components";
 import type { EnvironmentAgent, EnvironmentFolder } from "./agentSources";
@@ -24,7 +25,7 @@ export function AgentDirectory({
   const [retired, setRetired] = useState(false);
   const key = (agent: EnvironmentAgent) =>
     `${agent.sourceId || "laptop"}:${agent.id}`;
-  const filtered = agents.filter(
+  const filtered = sortAgentsByName(agents).filter(
     (a) =>
       !!a.retired_at === retired &&
       (retired || all || scopedKeys.includes(key(a))) &&

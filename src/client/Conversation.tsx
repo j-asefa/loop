@@ -1,3 +1,4 @@
+import { AgentPicker } from "./AgentPicker";
 import { dropSpecBlocks } from "../shared/text";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
@@ -2122,30 +2123,35 @@ function ConversationView({
             )}
             <label>
               Continue with
-              <select
+              <AgentPicker
+                label="Continue with"
                 value={destination}
                 disabled={busy || !!pendingContinuation}
-                onChange={(e) => setDestination(e.target.value)}
-              >
-                <option value="">Choose a connected agent</option>
-                {pendingContinuation &&
-                  !agents.some((a) => a.id === pendingContinuation.agentId) && (
-                    <option value={pendingContinuation.agentId}>
-                      Previously selected agent
-                    </option>
-                  )}
-                {agents
+                onChange={setDestination}
+                placeholder="Choose a connected agent"
+                extras={
+                  pendingContinuation &&
+                  !agents.some((a) => a.id === pendingContinuation.agentId)
+                    ? [
+                        {
+                          value: pendingContinuation.agentId,
+                          label: "Previously selected agent",
+                        },
+                      ]
+                    : []
+                }
+                agents={agents
                   .filter(
                     (a) =>
                       a.id === pendingContinuation?.agentId ||
                       (a.connection_id && !a.retired_at),
                   )
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      @{a.name} · {a.provider} · {a.model}
-                    </option>
-                  ))}
-              </select>
+                  .map((a) => ({
+                    value: a.id,
+                    name: a.name,
+                    detail: `${a.provider} · ${a.model}`,
+                  }))}
+              />
             </label>
             <label>
               Message to new agent

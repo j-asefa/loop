@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
 import { engineForRun } from "./helpers/engines.mjs";
+import { chooseAgent } from "./helpers/agent-picker.mjs";
 
 const engine = await engineForRun(import.meta.url);
 
@@ -133,7 +134,7 @@ try {
   await page.getByRole("button", { name: "Refresh from machine" }).click();
   await expect.poll(() => held.length).toBe(1);
   const beforeSelection = aborted.length;
-  await page.getByRole("combobox").selectOption("agent-b");
+  await chooseAgent(page.getByRole("button", { name: "Pi agent" }), "agent-b");
   await expect.poll(() => aborted.length).toBe(beforeSelection + 1);
   await expect(configuration).toHaveCount(0);
   await expect.poll(() => held.length).toBe(2);

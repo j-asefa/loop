@@ -24,6 +24,12 @@ import { agentModelName } from "./modelChoices";
 import { TEAM_PRESETS, type TeamPreset } from "../shared/team-presets";
 import type { Agent, Connection, Team, Folder } from "../shared/types";
 import { AgentMailThreads } from "./AgentMail";
+import {
+  AgentPicker,
+  AgentSearch,
+  agentMatches,
+  sortAgentsByName,
+} from "./AgentPicker";
 import { SettingsToggle } from "./SettingsUI";
 import { viewOwner } from "./viewCache";
 import { executionSourceId } from "./sourceRouting";
@@ -106,22 +112,32 @@ export function TeamDirectory({
   const [error, setError] = useState("");
   const name = (id: string) =>
     agents.find((agent) => agent.id === id)?.name || "Former agent";
+  const [workerSearch, setWorkerSearch] = useState("");
   const available = adding
-    ? agents.filter(
-        (agent) =>
-          !agent.retired_at &&
-          connections.some(
-            (connection) =>
-              connection.id === agent.connection_id &&
-              connection.status === "connected",
-          ) &&
-          agent.id !== adding.manager_id &&
-          !adding.members.includes(agent.id),
+    ? sortAgentsByName(
+        agents.filter(
+          (agent) =>
+            !agent.retired_at &&
+            connections.some(
+              (connection) =>
+                connection.id === agent.connection_id &&
+                connection.status === "connected",
+            ) &&
+            agent.id !== adding.manager_id &&
+            !adding.members.includes(agent.id),
+        ),
       )
     : [];
+  const shownWorkers = available.filter((agent) =>
+    agentMatches(workerSearch, {
+      name: agent.name,
+      detail: agentModelName(agent, connections),
+    }),
+  );
   const backToTeams = () => {
     setAdding(null);
     setError("");
+    setWorkerSearch("");
   };
   if (adding && definitionsOpen)
     return (
@@ -173,8 +189,11 @@ export function TeamDirectory({
             Create worker from Markdown
           </button>
           {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
+          {available.length > 0 && (
+            <AgentSearch value={workerSearch} onChange={setWorkerSearch} />
+          )}
           <div className="team-manager-options">
-            {available.map((agent) => (
+            {shownWorkers.map((agent) => (
               <button
                 className="team-manager-option"
                 key={agent.id}
@@ -209,10 +228,16 @@ export function TeamDirectory({
               </button>
             ))}
           </div>
-          {!available.length && (
+          {!available.length ? (
             <p className="muted">
               No available agents. Create or connect another agent first.
             </p>
+          ) : (
+            !shownWorkers.length && (
+              <p className="note" role="status">
+                No agents match your search.
+              </p>
+            )
           )}
           <button className="text-button" onClick={backToTeams}>
             Back to teams
@@ -728,20 +753,23 @@ export function CreateTeam({
   );
   const [definitionsOpen, setDefinitionsOpen] = useState(false);
   const [definition, setDefinition] = useState<AgentDefinition>();
-  const available = agents.filter(
-    (agent) =>
-      !agent.retired_at &&
-      connections.some(
-        (connection) =>
-          connection.id === agent.connection_id &&
-          connection.status === "connected",
-      ),
+  const available = sortAgentsByName(
+    agents.filter(
+      (agent) =>
+        !agent.retired_at &&
+        connections.some(
+          (connection) =>
+            connection.id === agent.connection_id &&
+            connection.status === "connected",
+        ),
+    ),
   );
   const [name, setName] = useState(""),
     [manager, setManager] = useState(available[0]?.id || ""),
     [members, setMembers] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [workerSearch, setWorkerSearch] = useState("");
   if (definitionsOpen)
     return (
       <MarkdownDefinitions
@@ -831,26 +859,37 @@ export function CreateTeam({
             </label>
             <label>
               Manager
-              <select
-                aria-label="Manager"
+              <AgentPicker
+                label="Manager"
+                title="Choose a manager"
                 value={manager}
-                onChange={(e) => {
-                  setManager(e.target.value);
-                  setMembers((v) => v.filter((id) => id !== e.target.value));
+                placeholder="Choose a manager"
+                onChange={(value) => {
+                  setManager(value);
+                  setMembers((v) => v.filter((id) => id !== value));
                 }}
-              >
-                <option value="">Choose a manager</option>
-                {available.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    @{a.name} · {agentModelName(a, connections)}
-                  </option>
-                ))}
-              </select>
+                agents={available.map((a) => ({
+                  value: a.id,
+                  name: a.name,
+                  detail: agentModelName(a, connections),
+                }))}
+              />
             </label>
             <fieldset>
               <legend>Workers</legend>
+              {available.length > 0 && (
+                <AgentSearch value={workerSearch} onChange={setWorkerSearch} />
+              )}
               {available
-                .filter((a) => a.id !== manager)
+                .filter(
+                  (a) =>
+                    a.id !== manager &&
+                    (members.includes(a.id) ||
+                      agentMatches(workerSearch, {
+                        name: a.name,
+                        detail: agentModelName(a, connections),
+                      })),
+                )
                 .map((a) => (
                   <label className="checkbox-row" key={a.id}>
                     <input

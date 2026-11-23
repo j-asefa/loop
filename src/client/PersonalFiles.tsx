@@ -1,3 +1,4 @@
+import { AgentPicker } from "./AgentPicker";
 import { usePagedProjectionQuery } from "./CollectionRead";
 import { readRoute } from "./api";
 import { AgentId, ProjectId, parseId } from "../shared/contract-ids.js";
@@ -137,18 +138,17 @@ export function PersonalFiles({
         </label>
         <label>
           Agent
-          <select
-            aria-label="Agent"
+          <AgentPicker
+            label="Agent"
+            title="Filter files by agent"
             value={query.agent}
-            onChange={(event) => filter("agent", event.target.value)}
-          >
-            <option value="">All agents</option>
-            {page.agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => filter("agent", value)}
+            extras={[{ value: "", label: "All agents" }]}
+            agents={page.agents.map((agent) => ({
+              value: agent.id,
+              name: agent.name,
+            }))}
+          />
         </label>
         <label>
           Project

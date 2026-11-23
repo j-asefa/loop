@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
+import { chooseAgent } from "./agent-picker.mjs";
 
 const photo = {
   name: "picker-photo.png",
@@ -149,9 +150,10 @@ export async function attachmentPickerSmoke(page, fixture) {
   for (const thread of [false, true]) {
     const composer = await openComposer(page, fixture, thread);
     if (!thread)
-      await composer
-        .getByLabel("Agent recipient")
-        .selectOption(fixture.agents[0].id);
+      await chooseAgent(
+        composer.getByLabel("Agent recipient"),
+        fixture.agents[0].id,
+      );
     const remove = composer
       .getByRole("list", { name: "Attached files" })
       .getByRole("button", { name: /^Remove / });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { openAgentProfile, openChatOptions } from "./browser-ui.mjs";
+import { chooseAgent } from "./agent-picker.mjs";
 
 export async function teamDirectorySmoke(page, fixture, team) {
   const projects = [];
@@ -112,19 +113,21 @@ export async function teamDirectorySmoke(page, fixture, team) {
     );
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
     await expand();
-    await expect(composer().getByLabel("Agent recipient")).toHaveValue(
+    await expect(composer().getByLabel("Agent recipient")).toHaveAttribute(
+      "value",
       team.manager_id,
     );
 
     for (const recipient of [fixture.agents[2].id, "__route__"]) {
       await openChatOptions(page);
-      await composer().getByLabel("Agent recipient").selectOption(recipient);
+      await chooseAgent(composer().getByLabel("Agent recipient"), recipient);
       await composer()
         .getByLabel("Message your agent", { exact: true })
         .fill("Please re-run the lint fix");
       await open();
       await expand();
-      await expect(composer().getByLabel("Agent recipient")).toHaveValue(
+      await expect(composer().getByLabel("Agent recipient")).toHaveAttribute(
+        "value",
         recipient,
       );
       await expect(
@@ -134,9 +137,10 @@ export async function teamDirectorySmoke(page, fixture, team) {
     // An attachment-only draft also owns its recipient, including when the
     // team filter changes and the automatic recipient-selection effect runs.
     await composer().getByLabel("Message your agent", { exact: true }).fill("");
-    await composer()
-      .getByLabel("Agent recipient")
-      .selectOption(fixture.agents[10].id);
+    await chooseAgent(
+      composer().getByLabel("Agent recipient"),
+      fixture.agents[10].id,
+    );
     await composer()
       .locator('input[type="file"]')
       .first()
@@ -153,7 +157,8 @@ export async function teamDirectorySmoke(page, fixture, team) {
     );
     await open(otherTeam);
     await expand();
-    await expect(composer().getByLabel("Agent recipient")).toHaveValue(
+    await expect(composer().getByLabel("Agent recipient")).toHaveAttribute(
+      "value",
       fixture.agents[10].id,
     );
     await expect(
@@ -255,21 +260,49 @@ async function teamEditingSmoke(page, fixture) {
           "Create an agent team",
         );
         await expect(
-          dialog()
-            .getByLabel("Manager", { exact: true })
-            .locator(`option[value="${disconnected.id}"]`),
-        ).toHaveCount(0);
-        await expect(
           dialog().getByRole("checkbox", {
             name: `@${disconnected.name}`,
           }),
         ).toHaveCount(0);
+        await dialog()
+          .getByRole("button", { name: "Manager", exact: true })
+          .click();
+        const managers = page.getByRole("dialog", {
+          name: "Choose a manager",
+          exact: true,
+        });
+        const managerOptions = managers.locator(".agent-picker-options button");
+        await expect(
+          managerOptions.and(page.locator(`[value="${disconnected.id}"]`)),
+        ).toHaveCount(0);
         // Agent names alone don't say which model each agent runs.
         await expect(
-          dialog()
-            .getByLabel("Manager", { exact: true })
-            .locator(`option[value="${fixture.agents[9].id}"]`),
+          managerOptions.and(page.locator(`[value="${fixture.agents[9].id}"]`)),
         ).toHaveText(new RegExp(`^@${fixture.agents[9].name} · \\S`));
+        // Managers are listed alphabetically, and the search narrows them.
+        const names = await managerOptions.allTextContents();
+        assert.deepEqual(
+          names,
+          [...names].sort((a, b) =>
+            a.localeCompare(b, undefined, {
+              sensitivity: "base",
+              numeric: true,
+            }),
+          ),
+        );
+        await managers
+          .getByRole("searchbox", { name: "Search agents" })
+          .fill(fixture.agents[9].name);
+        await expect(
+          managerOptions.filter({ hasText: `@${fixture.agents[9].name} ` }),
+        ).toHaveCount(1);
+        await managers
+          .getByRole("searchbox", { name: "Search agents" })
+          .fill("");
+        await managers
+          .getByRole("searchbox", { name: "Search agents" })
+          .press("Escape");
+        await expect(managers).toHaveCount(0);
         await exit();
         await expect(dialog()).toHaveAttribute("aria-label", "Agent teams");
       }

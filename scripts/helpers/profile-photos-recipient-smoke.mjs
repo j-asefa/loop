@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import { openAgentProfile, openTab } from "./browser-ui.mjs";
+import { chooseAgent } from "./agent-picker.mjs";
 
 export async function profilePhotosRecipientSmoke(page, fixture) {
   await page.goto(fixture.base, { waitUntil: "networkidle" });
@@ -73,7 +74,10 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
     .getByRole("button", { name: `@${second.name}`, exact: true })
     .click();
   await expect(replyChip).toHaveCount(0);
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    second.id,
+  );
   await expect(
     pills.getByRole("button", { name: `@${second.name}`, exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
@@ -89,9 +93,12 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
   // A fresh composer on a profile addresses that agent, ahead of the last send.
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(first.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    first.id,
+  );
   // An unsent draft keeps its chosen destination when reopened on that profile.
-  await page.getByLabel("Agent recipient").selectOption(second.id);
+  await chooseAgent(page.getByLabel("Agent recipient"), second.id);
   await page
     .getByLabel("Message your agent", { exact: true })
     .fill("Unsent draft");
@@ -101,9 +108,12 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    second.id,
+  );
   // Changing an unsent selection must not replace the last sent recipient.
-  await page.getByLabel("Agent recipient").selectOption(first.id);
+  await chooseAgent(page.getByLabel("Agent recipient"), first.id);
   await page.getByLabel("Message your agent", { exact: true }).fill("");
   await page
     .getByRole("button", { name: "Collapse composer", exact: true })
@@ -113,5 +123,8 @@ export async function profilePhotosRecipientSmoke(page, fixture) {
   await page
     .getByRole("button", { name: "Compose a message", exact: true })
     .click();
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    second.id,
+  );
 }

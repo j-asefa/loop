@@ -65,7 +65,7 @@ export async function conversationLiveSmoke(page, capture) {
         `Reply to ${agentName.charAt(0).toUpperCase() + agentName.slice(1)}…`,
       );
       await expect(
-        page.getByRole("combobox", { name: "Agent recipient" }),
+        page.getByRole("button", { name: "Agent recipient" }),
       ).toHaveCount(0);
     };
     await page.setViewportSize({ width: 390, height: 844 });

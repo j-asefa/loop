@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { expect } from "@playwright/test";
+import { chooseAgent } from "./agent-picker.mjs";
 
 async function setupContinuation(page, fixture) {
   const connection = await fixture.api("/connections", {
@@ -73,9 +74,10 @@ export async function continuationSmoke(page, fixture) {
   );
   await page.goto(`${fixture.base}/?conversation=${source}`);
   await open();
-  await dialog()
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption(target.id);
+  await chooseAgent(
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+    target.id,
+  );
   await dialog().getByRole("checkbox").nth(0).check();
   await dialog().getByRole("checkbox").nth(1).check();
   await dialog().getByRole("checkbox").nth(2).uncheck();
@@ -132,8 +134,8 @@ export async function continuationSmoke(page, fixture) {
     }),
   ).toHaveValue(prompt);
   await expect(
-    dialog().getByRole("combobox", { name: "Continue with", exact: true }),
-  ).toHaveValue(target.id);
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+  ).toHaveAttribute("value", target.id);
   await expect(dialog().getByRole("checkbox").nth(1)).toBeChecked();
   await expect(dialog().getByRole("checkbox").nth(2)).not.toBeChecked();
   await expect(
@@ -248,9 +250,10 @@ export async function continuationSmoke(page, fixture) {
   loseResponse = true;
   await page.goto(`${fixture.base}/?conversation=${source}`);
   await open();
-  await dialog()
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption(target.id);
+  await chooseAgent(
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+    target.id,
+  );
   await dialog().getByRole("checkbox").nth(0).check();
   await dialog()
     .getByRole("button", { name: "Start continuation", exact: true })
@@ -304,14 +307,15 @@ export async function continuationSmoke(page, fixture) {
     .getByRole("button", { name: "New continuation", exact: true })
     .click();
   await expect(
-    dialog().getByRole("combobox", { name: "Continue with", exact: true }),
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
   ).toBeEnabled();
   await expect(
     dialog().getByRole("button", { name: "Start continuation", exact: true }),
   ).toBeDisabled();
-  await dialog()
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption(target.id);
+  await chooseAgent(
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+    target.id,
+  );
   await dialog()
     .getByRole("textbox", { name: "Message to new agent", exact: true })
     .fill("Start separate work explicitly.");
@@ -364,9 +368,13 @@ export async function continuationTabsSmoke(page, fixture) {
   for (const item of tabs) {
     await item.tab.goto(`${fixture.base}/?conversation=${sharedSource}`);
     await open(item.tab);
-    await dialog(item.tab)
-      .getByRole("combobox", { name: "Continue with", exact: true })
-      .selectOption(target.id);
+    await chooseAgent(
+      dialog(item.tab).getByRole("button", {
+        name: "Continue with",
+        exact: true,
+      }),
+      target.id,
+    );
     await dialog(item.tab)
       .getByRole("textbox", { name: "Message to new agent", exact: true })
       .fill(item.prompt);
@@ -460,9 +468,10 @@ export async function continuationRecoverySmoke(page, fixture) {
   );
   await page.goto(`${fixture.base}/?conversation=${source}`);
   await open();
-  await dialog()
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption(target.id);
+  await chooseAgent(
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+    target.id,
+  );
   await dialog()
     .getByRole("textbox", { name: "Message to new agent", exact: true })
     .fill("Recover the first request.");
@@ -511,7 +520,7 @@ export async function continuationRecoverySmoke(page, fixture) {
     .getByRole("button", { name: "New continuation", exact: true })
     .click();
   await expect(
-    dialog().getByRole("combobox", { name: "Continue with", exact: true }),
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
   ).toBeEnabled();
   await expect(
     dialog().getByRole("button", { name: "Start continuation", exact: true }),
@@ -537,9 +546,10 @@ export async function continuationRecoverySmoke(page, fixture) {
   await dialog()
     .getByRole("button", { name: "New continuation", exact: true })
     .click();
-  await dialog()
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption(sourceAgent.id);
+  await chooseAgent(
+    dialog().getByRole("button", { name: "Continue with", exact: true }),
+    sourceAgent.id,
+  );
   await dialog()
     .getByRole("textbox", { name: "Message to new agent", exact: true })
     .fill("Start separate work.");

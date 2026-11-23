@@ -4,6 +4,7 @@ import { ProjectId, parseId } from "../shared/contract-ids.js";
 import { literalEntry } from "./textEntry";
 import { CollectionReadNotice, useProjectionQuery } from "./CollectionRead";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AgentSearch, agentMatches, sortAgentsByName } from "./AgentPicker";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -89,7 +90,8 @@ export function Projects({
       projectTab(sessionStorage.getItem("loop-project-tab")),
     ),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [agentSearch, setAgentSearch] = useState("");
   const current = folders.find((f) => f.id === selected);
   const requestedTab = useRef(
     new URLSearchParams(location.search).get("projectTab"),
@@ -433,16 +435,24 @@ export function Projects({
       {adding && current && (
         <Sheet
           title="Add an agent to this project"
-          onClose={() => setAdding(false)}
+          onClose={() => {
+            setAdding(false);
+            setAgentSearch("");
+          }}
         >
           <p className="muted">
             Choose an agent to move into {current.name}. Its existing
             conversations and files stay where they are.
           </p>
+          {agents.some(
+            (a) => !belongsToProject(a.folder_id, current.id, folders),
+          ) && <AgentSearch value={agentSearch} onChange={setAgentSearch} />}
           <div className="project-agents">
-            {agents
+            {sortAgentsByName(agents)
               .filter(
-                (a) => !belongsToProject(a.folder_id, current.id, folders),
+                (a) =>
+                  !belongsToProject(a.folder_id, current.id, folders) &&
+                  agentMatches(agentSearch, { name: a.name, detail: a.model }),
               )
               .map((a) => (
                 <button
@@ -456,6 +466,7 @@ export function Projects({
                     try {
                       await onAssign(a, current.id);
                       setAdding(false);
+                      setAgentSearch("");
                     } catch (e) {
                       setError((e as Error).message);
                     } finally {
