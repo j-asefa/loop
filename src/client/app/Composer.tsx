@@ -8,7 +8,6 @@ import {
   MessageId,
   parseId,
 } from "../../shared/contract-ids.js";
-import { replyPrompt } from "../../shared/replies";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { proseEntry } from "../textEntry";
 import { AutofillBoundary } from "../AutofillBoundary";
@@ -334,10 +333,12 @@ export function parseLeadingAgentMention(
 } | null {
   const match = draft.match(/^\s*@([^\s]*)(?:\s|$)/);
   if (!match) return null;
-  if (/^\s*@new(?:\s|$)/i.test(draft)) return null;
+  if (/^\s*@new\b/i.test(draft)) return null;
   const query = match[1].toLowerCase().replace(/[,;:]$/, "");
   const completed = /^\s*@[^\s]+\s/.test(draft);
-  const candidates = agents.filter((a) => !a.retired_at);
+  const candidates = agents.filter(
+    (a) => Boolean(a.connection_id) && !a.retired_at,
+  );
   const agent = candidates.find((a) => a.name.toLowerCase() === query);
   const suggestions = completed
     ? []
@@ -351,74 +352,6 @@ export function completeLeadingAgentMention(
 ): string {
   const rest = draft.replace(/^\s*@[^\s]*\s*/, "");
   return `@${agentName} ${rest}`;
-}
-
-const MAX_SUBMIT_INPUT = 30_000;
-
-export type HandoffQuote = {
-  id: string;
-  content: string;
-  authorName: string;
-  mine?: boolean;
-  excerpt?: boolean;
-};
-
-export function handoffQuote(
-  replyContext: ComposerContext | null,
-  recipientId: string,
-  agents: readonly Agent[],
-): HandoffQuote | null {
-  if (!replyContext) return null;
-  const id = replyContext.messageId || replyContext.artifactId;
-  if (!id || !replyContext.content?.trim()) return null;
-  if (!replyContext.agentId || replyContext.agentId === recipientId)
-    return null;
-  const author = agents.find((a) => a.id === replyContext.agentId);
-  if (!author) return null;
-  return {
-    id,
-    content: replyContext.content,
-    authorName: author.name,
-    mine: replyContext.mine,
-    excerpt: replyContext.excerpt,
-  };
-}
-
-export function buildHandoffInput(
-  draft: string,
-  handoff: HandoffQuote,
-): string {
-  const full = replyPrompt(draft, {
-    id: handoff.id,
-    content: handoff.content,
-    name: handoff.authorName,
-    created_at: 0,
-    mine: handoff.mine,
-    excerpt: handoff.excerpt,
-  });
-  if (full.length <= MAX_SUBMIT_INPUT || draft.length > MAX_SUBMIT_INPUT)
-    return full.length <= MAX_SUBMIT_INPUT ? full : draft;
-  const emptyQuote = replyPrompt(draft, {
-    id: handoff.id,
-    content: "",
-    name: handoff.authorName,
-    created_at: 0,
-    mine: handoff.mine,
-    excerpt: handoff.excerpt,
-  });
-  const budget = MAX_SUBMIT_INPUT - emptyQuote.length;
-  if (budget <= 32) return draft;
-  const trimmed =
-    handoff.content.replace(/\n/g, " ").slice(0, budget - 1) + "…";
-  const candidate = replyPrompt(draft, {
-    id: handoff.id,
-    content: trimmed,
-    name: handoff.authorName,
-    created_at: 0,
-    mine: handoff.mine,
-    excerpt: handoff.excerpt,
-  });
-  return candidate.length <= MAX_SUBMIT_INPUT ? candidate : draft;
 }
 
 export function useComposerSend({
@@ -645,12 +578,6 @@ export function useComposerSend({
       );
       const reply =
         replyContext?.agentId === recipient.id ? replyContext : undefined;
-      const handoff = handoffQuote(
-        replyContext,
-        recipient.id,
-        composerData.agents,
-      );
-      const outgoingInput = handoff ? buildHandoffInput(draft, handoff) : draft;
       const currentConversation =
         conversation && conversationTarget?.agentId === recipient.id
           ? conversationTarget.conversationId
@@ -674,8 +601,8 @@ export function useComposerSend({
         draft,
         folderChoice,
         conversationId,
-        reply?.messageId ?? handoff?.id,
-        (reply ?? handoff)?.excerpt ? (reply ?? handoff)?.content : null,
+        reply?.messageId,
+        reply?.excerpt ? reply.content : null,
         attachments.map((file) => file.id),
       ]);
       // The send's mode and exact time travel with its key: a retry after a
@@ -684,7 +611,6 @@ export function useComposerSend({
       // message's uncertain receipt; it wins over this composer's own.
       const sendPrepared = async (plan: PreparedSend) => {
         const quotedId = plan.receipt.unquoted ? undefined : reply?.messageId;
-        const sentInput = plan.intent.input ?? outgoingInput;
         request.current = plan.receipt;
         sentReceipt = plan.receipt;
         const reconciled = plan.reconciled
@@ -703,7 +629,7 @@ export function useComposerSend({
           conversationId: parseId(ConversationId, conversationId),
           replyToMessageId: parseId(MessageId, quotedId),
           replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
-          input: sentInput,
+          input: draft,
           idempotencyKey: IdempotencyKey.parse(request.current.key),
           attachmentIds: attachments.map((file) => ArtifactId.parse(file.id)),
           folderId: parseId(
@@ -832,7 +758,11 @@ export function useComposerSend({
           conversation && conversationTarget ? conversationTarget : null,
         );
         setContextArtifact(null);
-        if (options.queue && conversation)
+        if (handedOffInThread)
+          setThreadNotice(
+            `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}.${reconciled}`,
+          );
+        else if (options.queue && conversation)
           notify({
             text: "Queued after the current task." + reconciled,
             // Undo takes it back to a draft, only while it has not started.
@@ -841,14 +771,7 @@ export function useComposerSend({
               void refresh();
             },
           });
-        else if (reconciled && conversation)
-          setThreadNotice(
-            handedOffInThread
-              ? `Handed off to @${recipient.name}. ${reconciled.trim()}`
-              : reconciled.trim(),
-          );
-        else if (handedOffInThread)
-          setThreadNotice(`Handed off to @${recipient.name}.`);
+        else if (reconciled && conversation) setThreadNotice(reconciled.trim());
         else if (reconciled) setDismissNotice(reconciled.trim());
         if (!conversation) collapseComposer();
         else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
@@ -862,7 +785,6 @@ export function useComposerSend({
         {
           mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
           sendAt: options.sendAt ?? null,
-          ...(handoff ? { input: outgoingInput } : {}),
         },
         !!reply?.messageId && !reply.excerpt && replyQuoted === false,
         () => owner === ownerRef.current && currentView() && sameComposer(),
@@ -1019,34 +941,23 @@ export function renderComposer({
   | "setThreadNotice"
 >) {
   const mentionCandidates = conversation
-    ? composerData.agents.filter((a) => a.connection_id && !a.retired_at)
+    ? composerData.agents
     : availableAgents;
   const mention = parseLeadingAgentMention(draft, mentionCandidates);
-  const handoff = mention?.agent
-    ? handoffQuote(replyContext, mention.agent.id, composerData.agents)
-    : null;
+  const currentTargetId =
+    replyContext?.agentId || conversationTarget?.agentId || activeAgent?.id;
   const handoffAgent =
-    mention?.agent &&
-    (handoff ||
-      (replyContext?.agentId && mention.agent.id !== replyContext.agentId) ||
-      (conversationTarget?.agentId &&
-        mention.agent.id !== conversationTarget.agentId))
+    mention?.agent && currentTargetId && mention.agent.id !== currentTargetId
       ? mention.agent
       : undefined;
-  const sourceAgentName =
-    handoff?.authorName ||
-    (replyContext &&
-      composerData.agents.find((a) => a.id === replyContext.agentId)?.name) ||
-    activeAgent?.name ||
-    "agent";
   // Undecided shows the quote: a send before the thread's fresh snapshot
-  // keeps the reference, so the composer shows what will be sent. Handing off
-  // an explicit reply to another @agent also quotes that message or result.
-  const quoted = handoff
-    ? replyContext
-    : replyQuoted !== false &&
-        replyContext?.content &&
-        (replyContext.messageId || replyContext.artifactId || !conversation)
+  // keeps the reference, so the composer shows what will be sent. Addressing
+  // a different @agent does not quote the previous agent's reply target.
+  const quoted =
+    !handoffAgent &&
+    replyQuoted !== false &&
+    replyContext?.content &&
+    (replyContext.messageId || replyContext.artifactId || !conversation)
       ? replyContext
       : null;
   const sendButton = (
@@ -1068,7 +979,7 @@ export function renderComposer({
         busy ||
         uploading ||
         !draft.trim() ||
-        !!activeAgent?.retired_at ||
+        !!(handoffAgent ? handoffAgent.retired_at : activeAgent?.retired_at) ||
         !!(conversation && !conversationTarget)
       }
       onClick={() => void send()}
@@ -1307,10 +1218,9 @@ export function renderComposer({
                     {quoted.mine
                       ? "your message"
                       : "@" +
-                        sourceAgentName +
+                        (activeAgent?.name || "agent") +
                         (quoted.excerpt ? "'s message" : "")}
-                    {handoffAgent ? ` with @${handoffAgent.name}` : ""}:{" "}
-                    <span>{preview(quoted.content!, 80)}</span>
+                    : <span>{preview(quoted.content!, 80)}</span>
                   </summary>
                   <div
                     className="composer-quote"
@@ -1580,7 +1490,7 @@ export function renderComposer({
           {threadMode && draft.trim() && (handoffAgent || threadWork) && (
             <p className="field-hint composer-intent">
               {handoffAgent
-                ? `Send hands this reply off to @${handoffAgent.name}.`
+                ? `Sends to @${handoffAgent.name}.`
                 : threadWork!.steerable
                   ? `Send steers @${destination.agent}’s current task.`
                   : `Send waits for @${destination.agent}’s current task.`}

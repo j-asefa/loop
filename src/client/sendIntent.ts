@@ -4,8 +4,6 @@ export type SendIntent = {
   mode: "send" | "queue" | "schedule";
   /** Exact time for a scheduled send, fixed when it was first chosen. */
   sendAt: number | null;
-  /** Frozen payload input when an inline handoff quote was embedded on the first attempt. */
-  input?: string;
 };
 export type SendReceipt = {
   /** The message: recipient, text, thread, reply target and files. */

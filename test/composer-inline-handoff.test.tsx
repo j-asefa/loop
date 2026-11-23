@@ -1,9 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildHandoffInput,
   completeLeadingAgentMention,
-  handoffQuote,
   parseLeadingAgentMention,
   renderComposer,
   useComposerSend,
@@ -14,24 +12,24 @@ import {
 } from "../src/shared/workspace-contract-schemas.js";
 import { workspaceApi } from "../src/shared/workspace-api";
 import type { Agent } from "../src/shared/types";
-import type { ComposerContext } from "../src/client/composerContext";
 
 function agent(
   id: string,
   name: string,
-  retiredAt: number | null = null,
+  options: { retiredAt?: number | null; connectionId?: string | null } = {},
 ): Agent {
   return PublicAgent.parse({
     id,
     owner_id: "owner",
     name,
     provider: "anthropic",
-    connection_id: "conn-1",
+    connection_id:
+      options.connectionId === undefined ? "conn-1" : options.connectionId,
     model: "claude",
     instructions: "",
     origin: "loop",
     created_at: 0,
-    retired_at: retiredAt,
+    retired_at: options.retiredAt ?? null,
   });
 }
 
@@ -109,12 +107,16 @@ function baseComposerProps(
 describe("inline @agent mention and handoff in composer", () => {
   const holly = agent("holly", "holly");
   const mist = agent("mist", "mist");
-  const retired = agent("old", "old", 100);
-  const agents = [holly, mist, retired];
+  const retired = agent("old", "old", { retiredAt: 100 });
+  const unconnected = agent("unconn", "unconn", { connectionId: null });
+  const agents = [holly, mist, retired, unconnected];
 
-  it("parses leading @agent prefixes and completed handles while skipping retired and @new", () => {
+  it("parses leading @agent prefixes and completed handles while skipping retired, unconnected, and @new", () => {
     expect(parseLeadingAgentMention("Hello @mist", agents)).toBeNull();
     expect(parseLeadingAgentMention("@new Build a tool", agents)).toBeNull();
+    expect(
+      parseLeadingAgentMention("@new-bot Build a tool", agents),
+    ).toBeNull();
 
     const emptyPrefix = parseLeadingAgentMention("@", agents);
     expect(emptyPrefix?.completed).toBe(false);
@@ -142,62 +144,7 @@ describe("inline @agent mention and handoff in composer", () => {
     );
   });
 
-  it("requires an explicit messageId or artifactId and known author for handoffQuote, and caps buildHandoffInput at 30000 chars", () => {
-    expect(
-      handoffQuote(
-        {
-          agentId: "holly",
-          conversationId: "conv-holly",
-          title: "Thread without messageId",
-          content: "Should not be quoted after clear",
-        },
-        "mist",
-        [holly, mist],
-      ),
-    ).toBeNull();
-
-    expect(
-      handoffQuote(
-        {
-          agentId: "unknown-agent",
-          conversationId: "conv-1",
-          messageId: "msg-1",
-          content: "Orphaned author",
-        },
-        "mist",
-        [holly, mist],
-      ),
-    ).toBeNull();
-
-    const valid = handoffQuote(
-      {
-        agentId: "holly",
-        conversationId: "conv-holly",
-        messageId: "msg-1",
-        content: "The cache TTL is 5 minutes.",
-      },
-      "mist",
-      [holly, mist],
-    );
-    expect(valid).toEqual({
-      id: "msg-1",
-      content: "The cache TTL is 5 minutes.",
-      authorName: "holly",
-      mine: undefined,
-      excerpt: undefined,
-    });
-
-    const longDraft = "@mist " + "a".repeat(29_800);
-    const bounded = buildHandoffInput(longDraft, {
-      id: "msg-1",
-      content: "b".repeat(5_000),
-      authorName: "holly",
-    });
-    expect(bounded.length).toBeLessThanOrEqual(30_000);
-    expect(bounded).toContain(longDraft);
-  });
-
-  it("renders inline @agent autocomplete suggestions with handoff badges, uses peer agents in remote threads, and omits quote when cleared", () => {
+  it("renders inline @agent autocomplete suggestions with handoff badges, uses peer agents in remote threads, and hides same-thread reply chip when addressing another agent", () => {
     vi.stubGlobal("window", {});
     try {
       const peerAlpha = agent("peer-alpha", "alpha");
@@ -239,86 +186,53 @@ describe("inline @agent mention and handoff in composer", () => {
         baseComposerProps({
           threadMode: true,
           conversation: "conv-holly",
+          activeAgent: retired,
           conversationTarget: {
-            agentId: "holly",
+            agentId: "old",
             conversationId: "conv-holly",
             title: "Cache audit",
           },
           replyContext: {
-            agentId: "holly",
+            agentId: "old",
             conversationId: "conv-holly",
             messageId: "msg-1",
             content: "The cache TTL is 5 minutes.",
           },
-          replyQuoted: false,
+          replyQuoted: true,
           draft: "@mist Compare this with the staging TTL.",
         }),
       );
       const handoffHtml = renderToStaticMarkup(
         <>{completedMention.messageComposer}</>,
       );
-      expect(handoffHtml).toContain("Replying to @holly with @mist:");
-      expect(handoffHtml).toContain("The cache TTL is 5 minutes.");
-      expect(handoffHtml).toContain("Send hands this reply off to @mist.");
-
-      // After clicking "Clear reply context", replyContext resets to conversationTarget (no messageId/artifactId).
-      const clearedQuote = renderComposer(
-        baseComposerProps({
-          threadMode: true,
-          conversation: "conv-holly",
-          conversationTarget: {
-            agentId: "holly",
-            conversationId: "conv-holly",
-            title: "Cache audit",
-          },
-          replyContext: {
-            agentId: "holly",
-            conversationId: "conv-holly",
-            title: "Cache audit",
-          },
-          replyQuoted: false,
-          draft: "@mist Compare this with the staging TTL.",
-        }),
-      );
-      const clearedHtml = renderToStaticMarkup(
-        <>{clearedQuote.messageComposer}</>,
-      );
-      expect(clearedHtml).not.toContain("composer-reply-chip");
-      expect(clearedHtml).toContain("Send hands this reply off to @mist.");
+      expect(handoffHtml).not.toContain("composer-reply-chip");
+      expect(handoffHtml).toContain("Sends to @mist.");
+      expect(handoffHtml).not.toContain('aria-label="Send reply" disabled=""');
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("forwards quoted replyContext on @agent handoff and freezes the idempotency key and embedded input across uncertain retries", async () => {
-    let shouldFail = true;
-    const fetchMock = vi.fn(async () => {
-      if (shouldFail) {
-        return new Response(
-          JSON.stringify({ error: "Upstream temporarily unavailable" }),
+  it("reports in-thread @agent handoffs and preserves other threads' saved drafts", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: "run-mist-1",
+            agent_id: "mist",
+            conversation_id: "conv-team-mist",
+            input: "@mist Compare this with the staging config.",
+            payload: "{}",
+            created_at: 1,
+            updated_at: 1,
+            state: "queued",
+          }),
           {
-            status: 503,
+            status: 202,
             headers: { "content-type": "application/json" },
           },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          id: "run-mist-1",
-          agent_id: "mist",
-          conversation_id: "conv-mist-1",
-          input: "@mist Compare this with the staging config.",
-          payload: "{}",
-          created_at: 1,
-          updated_at: 1,
-          state: "running",
-        }),
-        {
-          status: 202,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    });
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("window", {});
     vi.stubGlobal("document", { querySelector: () => null });
@@ -347,132 +261,103 @@ describe("inline @agent mention and handoff in composer", () => {
       const setThreadNotice = vi.fn();
       const setDraft = vi.fn();
       const saveThreadDraft = vi.fn();
-      const requestBox = {
-        current: { signature: "", key: "", unquoted: false },
-      };
-      const makeSend = (replyContext: ComposerContext | null) =>
-        useComposerSend({
-          replyQuoted: false,
-          busy: false,
-          uploading: false,
-          draft,
-          conversation: "conv-holly",
-          conversationTarget: {
-            agentId: "holly",
-            conversationId: "conv-holly",
-            title: "Cache audit",
-          },
-          viewIdentity: "view-1",
-          threadIdentityRef: { current: "view-1" },
-          threadIdentity: "composer-1",
-          composerIdentityRef: { current: "composer-1" },
-          draftRef: { current: draft },
-          attachmentsRef: { current: [] },
-          attachments: [],
-          setNewAgentPrompt: vi.fn(),
-          setFolder: vi.fn(),
-          projectFilter: "",
-          project: "",
-          setSheet: vi.fn(),
-          replyContext,
-          contextArtifact: null,
-          setError: vi.fn(),
-          threadApi: threadApi as unknown as Parameters<
-            typeof useComposerSend
-          >[0]["threadApi"],
-          setFilingResult: vi.fn(),
-          setFiling: vi.fn(),
-          setDraft,
-          changed: async () => {},
-          selected: "holly",
-          routePreview: null,
-          folder: "",
-          setBusy: vi.fn(),
-          setRoutePreview: vi.fn(),
-          activeAgent: holly,
-          setComposerError: vi.fn(),
-          composerUnavailable: undefined,
-          ownerRef: { current: "owner" },
-          composerData: {
-            agents: [holly, mist],
-            connections: [],
-            folders: [],
-            teams: [
-              PublicTeam.parse({
-                id: "team-1",
-                name: "Team",
-                manager_id: "mist",
-                conversation_id: "conv-team-mist",
-                members: ["holly"],
-              }),
-            ],
-          },
-          profile: null,
-          teamSelection: [],
-          folderChoice: undefined,
-          draftId: (id) => id,
-          request: requestBox,
-          receiptStorageKey: "receipt-key",
-          pendingDraftSave: { current: null },
-          draftKey: "draft-key",
-          openSourceLater: vi.fn(),
-          actionSource: "",
-          setAttachments: vi.fn(),
-          setReplyContext: vi.fn(),
-          collapseComposer: vi.fn(),
-          runsGeneration: { current: 0 },
-          setRuns: vi.fn(),
-          setSendNotice,
-          saveThreadDraft,
-          setContextArtifact: vi.fn(),
-          withdrawToComposer: async () => {},
-          refresh: async () => {},
-          setThreadNotice,
-          setDismissNotice: vi.fn(),
-        });
+      const send = useComposerSend({
+        replyQuoted: false,
+        busy: false,
+        uploading: false,
+        draft,
+        conversation: "conv-holly",
+        conversationTarget: {
+          agentId: "holly",
+          conversationId: "conv-holly",
+          title: "Cache audit",
+        },
+        viewIdentity: "view-1",
+        threadIdentityRef: { current: "view-1" },
+        threadIdentity: "composer-1",
+        composerIdentityRef: { current: "composer-1" },
+        draftRef: { current: draft },
+        attachmentsRef: { current: [] },
+        attachments: [],
+        setNewAgentPrompt: vi.fn(),
+        setFolder: vi.fn(),
+        projectFilter: "",
+        project: "",
+        setSheet: vi.fn(),
+        replyContext: {
+          agentId: "holly",
+          conversationId: "conv-holly",
+          messageId: "msg-holly-1",
+          content: "Finding 1: The cache TTL is 5 minutes.",
+        },
+        contextArtifact: null,
+        setError: vi.fn(),
+        threadApi: threadApi as unknown as Parameters<
+          typeof useComposerSend
+        >[0]["threadApi"],
+        setFilingResult: vi.fn(),
+        setFiling: vi.fn(),
+        setDraft,
+        changed: async () => {},
+        selected: "holly",
+        routePreview: null,
+        folder: "",
+        setBusy: vi.fn(),
+        setRoutePreview: vi.fn(),
+        activeAgent: holly,
+        setComposerError: vi.fn(),
+        composerUnavailable: undefined,
+        ownerRef: { current: "owner" },
+        composerData: {
+          agents: [holly, mist],
+          connections: [],
+          folders: [],
+          teams: [
+            PublicTeam.parse({
+              id: "team-1",
+              name: "Team",
+              manager_id: "mist",
+              conversation_id: "conv-team-mist",
+              members: ["holly"],
+            }),
+          ],
+        },
+        profile: null,
+        teamSelection: [],
+        folderChoice: undefined,
+        draftId: (id) => id,
+        request: { current: { signature: "", key: "", unquoted: false } },
+        receiptStorageKey: "receipt-key",
+        pendingDraftSave: { current: null },
+        draftKey: "draft-key",
+        openSourceLater: vi.fn(),
+        actionSource: "",
+        setAttachments: vi.fn(),
+        setReplyContext: vi.fn(),
+        collapseComposer: vi.fn(),
+        runsGeneration: { current: 0 },
+        setRuns: vi.fn(),
+        setSendNotice,
+        saveThreadDraft,
+        setContextArtifact: vi.fn(),
+        withdrawToComposer: async () => {},
+        refresh: async () => {},
+        setThreadNotice,
+        setDismissNotice: vi.fn(),
+      });
 
-      // Attempt 1 fails with 503 (uncertain outcome).
-      await makeSend({
-        agentId: "holly",
-        conversationId: "conv-holly",
-        messageId: "msg-holly-1",
-        content: "Finding 1: The cache TTL is 5 minutes.",
-      })();
+      await send({ queue: true });
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      const firstBody = JSON.parse(
+      const body = JSON.parse(
         String(
           (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body,
         ),
       );
-      expect(firstBody.agentId).toBe("mist");
-      expect(firstBody.input).toContain(
-        "Replying to this earlier message from @holly:",
-      );
-      expect(firstBody.input).toContain(
-        "> Finding 1: The cache TTL is 5 minutes.",
-      );
-      expect(firstBody.input).toContain(draft);
-
-      // Attempt 2 succeeds even if the message text in replyContext changed in the meantime:
-      // it reuses the exact same idempotencyKey and frozen input from Attempt 1.
-      shouldFail = false;
-      await makeSend({
-        agentId: "holly",
-        conversationId: "conv-holly",
-        messageId: "msg-holly-1",
-        content: "Finding 1: Updated streaming text that arrived later.",
-      })();
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      const secondBody = JSON.parse(
-        String(
-          (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body,
-        ),
-      );
-      expect(secondBody.idempotencyKey).toBe(firstBody.idempotencyKey);
-      expect(secondBody.input).toBe(firstBody.input);
-      expect(setThreadNotice).toHaveBeenCalledWith("Handed off to @mist.");
+      expect(body.agentId).toBe("mist");
+      expect(body.input).toBe(draft);
+      expect(body.replyToMessageId).toBeUndefined();
+      expect(setThreadNotice).toHaveBeenCalledWith("Queued for @mist.");
       expect(setSendNotice).not.toHaveBeenCalled();
-      // Must not overwrite @mist's team conversation draft when handing off from @holly's thread.
       expect(saveThreadDraft).not.toHaveBeenCalled();
       expect(setDraft).toHaveBeenCalledWith("");
     } finally {

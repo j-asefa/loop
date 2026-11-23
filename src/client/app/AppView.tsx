@@ -11,11 +11,7 @@ import { LoopLogo } from "../LoopLogo";
 import { sessionDraft, type WorkspaceComposerDraft } from "../workspace-drafts";
 
 import { literalEntry, proseEntry } from "../textEntry";
-import {
-  parseLeadingAgentMention,
-  renderComposer,
-  renderComposerSendSheets,
-} from "./Composer";
+import { renderComposer, renderComposerSendSheets } from "./Composer";
 import { workspaceApi } from "../../shared/workspace-api";
 import { callRoute } from "../api";
 import { StartCodeReview } from "../CodeReview";
@@ -341,45 +337,32 @@ export function renderApp(props: AppViewProps) {
   };
   // Outside a thread, sending now to an agent with a running task steers
   // that task (the server joins its active conversation).
-  const mentionAgent = parseLeadingAgentMention(
-    draft,
-    conversation
-      ? composerData.agents.filter((a) => a.connection_id && !a.retired_at)
-      : availableAgents,
-  )?.agent;
-  const handoffMention = Boolean(
-    mentionAgent && mentionAgent.id !== activeAgent?.id,
-  );
-  const destinationAgent = handoffMention ? mentionAgent : activeAgent;
   const steersActive =
     !threadMode &&
-    !handoffMention &&
     !replyContext?.conversationId &&
     runs.some(
       (run) =>
-        run.agent_id === destinationAgent?.id &&
+        run.agent_id === activeAgent?.id &&
         ["running", "awaiting_approval"].includes(run.state),
     );
   const destination = {
-    agent: destinationAgent?.name || "agent",
+    agent: activeAgent?.name || "agent",
     project:
-      (threadMode && !handoffMention
+      (threadMode
         ? conversationTarget?.projectName
         : topProject(
             folderChoice !== undefined
               ? folderChoice
               : (contextArtifact && resultTarget(contextArtifact))?.agent_id ===
-                  destinationAgent?.id
+                  activeAgent?.id
                 ? (contextArtifact && resultTarget(contextArtifact))?.folder_id
-                : destinationAgent?.folder_id,
+                : activeAgent?.folder_id,
           )) || "Unfiled",
-    thread: handoffMention
-      ? "New thread"
-      : threadMode
-        ? conversationTarget?.title || "This thread"
-        : replyContext?.conversationId
-          ? replyContext.title || "Its thread"
-          : "New thread",
+    thread: threadMode
+      ? conversationTarget?.title || "This thread"
+      : replyContext?.conversationId
+        ? replyContext.title || "Its thread"
+        : "New thread",
   };
   const { messageComposer, launchComposer } = renderComposer({
     replyQuoted,
@@ -690,7 +673,7 @@ export function renderApp(props: AppViewProps) {
         sendMenu,
         setSendMenu,
         threadMode,
-        threadWork: handoffMention ? null : threadWork,
+        threadWork,
         destination,
         send,
         steersActive,
