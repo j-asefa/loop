@@ -44,6 +44,10 @@ let feedPagination = false,
   holdOlder = false,
   releaseOlder;
 let holdOlderBefore;
+let feedPageSize = 1,
+  feedLabelSuffix = "",
+  delayOlderMs = 0,
+  delayedOlderReads = 0;
 let allPaginated = false,
   queuedHeadChanged = false;
 const holdFleetAppends = new Set();
@@ -97,9 +101,9 @@ try {
     }
     window.showSources = owner => root.render(React.createElement(Sources,{owner}));
     window.evictFeedCache = () => {for(let i=0;i<60;i++)cacheView("eviction-"+i,{},"measured-feed");};
-    window.showFeed = (owner="measured-feed") => {
+    window.showFeed = (owner="measured-feed",filter="working") => {
       setViewOwner(owner);setShellSource("");
-      root.render(React.createElement(Feed,{filter:"working",onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
+      root.render(React.createElement(Feed,{filter,onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
     };
     window.showNeeds = () => {
       setViewOwner("measured-needs");setShellSource("");
@@ -263,7 +267,14 @@ try {
         const index = older
           ? pageRows.indexOf(Number(url.searchParams.get("before"))) + 1
           : 0;
-        const rowNumber = pageRows[index];
+        const pageNumbers = paginated
+          ? pageRows.slice(index, index + feedPageSize)
+          : [undefined];
+        if (older && delayOlderMs) {
+          delayedOlderReads++;
+          await new Promise((resolve) => setTimeout(resolve, delayOlderMs));
+          if (res.destroyed) return;
+        }
         if (older && holdFleetAppends.delete(source.id)) {
           await new Promise((resolve) =>
             heldFleetAppends.set(source.id, resolve),
@@ -283,25 +294,23 @@ try {
           if (res.destroyed) return;
         }
         const body = {
-          items: [
-            {
-              ...feedTemplate,
-              conversation_id: paginated
-                ? "conversation-" + rowNumber
-                : "same-conversation",
-              title:
-                (older ? "Older " : "Measured ") +
-                source.name +
-                (source.id === sources[1].id && feedRevision
-                  ? " updated"
-                  : "") +
-                (paginated ? " " + rowNumber : ""),
-              last_activity_at: paginated ? rowNumber : Date.now(),
-              queued_runs: [],
-            },
-          ],
+          items: pageNumbers.map((rowNumber) => ({
+            ...feedTemplate,
+            conversation_id: paginated
+              ? "conversation-" + rowNumber
+              : "same-conversation",
+            title:
+              (older ? "Older " : "Measured ") +
+              source.name +
+              (source.id === sources[1].id && feedRevision ? " updated" : "") +
+              (paginated ? " " + rowNumber + feedLabelSuffix : ""),
+            last_activity_at: paginated ? rowNumber : Date.now(),
+            queued_runs: [],
+          })),
           next:
-            paginated && index + 1 < pageRows.length ? String(rowNumber) : null,
+            paginated && index + feedPageSize < pageRows.length
+              ? String(pageNumbers.at(-1))
+              : null,
           summary: { needs: 0, working: 1, queued: 0, later_due: 0 },
         };
         feedMetrics.responseBodyBytes += Buffer.byteLength(
@@ -650,6 +659,75 @@ try {
   ).toBeVisible();
   console.log(
     "Queued append preserved its pending head notification: " + engineName,
+  );
+  allPaginated = false;
+  feedPageSize = 2;
+  feedPageRows = [8, 6, 4, 2, 0];
+  await page.evaluate(() => window.showFeed("reopen-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 6", { exact: true }),
+  ).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  feedPageRows = [15, 14, 13, 12, 11, 10, 9, 8, 6, 4, 2, 0];
+  failPaginationAppend = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 15", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.evaluate(() => window.showFeed("reopen-feed", "queued"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 15", { exact: true }),
+  ).toHaveCount(0);
+  failPaginationAppend = false;
+  feedLabelSuffix = " reopened";
+  await page.evaluate(() => window.showFeed("reopen-feed"));
+  await expect(
+    page.getByText("Older Machine 1 updated 2 reopened", { exact: true }),
+  ).toBeVisible({ timeout: 12_000 });
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 0 reopened", { exact: true }),
+  ).toBeVisible();
+  console.log(
+    "Reopened Working retained its actual continuation: " + engineName,
+  );
+
+  feedPageSize = 1;
+  feedLabelSuffix = "";
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("slow-append-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  delayOlderMs = 1800;
+  delayedOlderReads = 0;
+  await moreFeed.click();
+  await page.evaluate((source) => {
+    window.slowAppendPulse = setInterval(
+      () =>
+        window.dispatchEvent(
+          new CustomEvent("loop-workspace-change", {
+            detail: { sources: [source] },
+          }),
+        ),
+      50,
+    );
+  }, sources[1].id);
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible({ timeout: 8_000 });
+  await page.evaluate(() => clearInterval(window.slowAppendPulse));
+  assert(
+    delayedOlderReads <= 3,
+    "A slow append must finish under continuous notifications without repeated cancellation",
+  );
+  delayOlderMs = 0;
+  console.log(
+    "Slow append completed under continuous notifications: " + engineName,
   );
 
   if (!feedOnly) {

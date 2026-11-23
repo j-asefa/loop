@@ -1285,6 +1285,7 @@ export function Feed({
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
     historyExpanded?: boolean;
+    historyProgress?: Record<string, DoneRefresh>;
   };
   const generation = viewGeneration();
   const selectionScope = JSON.stringify([
@@ -1427,6 +1428,16 @@ export function Feed({
   };
   const cacheShown = (key: string, page: Shown, owner: string | undefined) => {
     if (owner !== viewOwner() || generation !== viewGeneration()) return;
+    if (doneRefresh.current.key === JSON.stringify([owner, key]))
+      page = {
+        ...page,
+        historyProgress: Object.fromEntries(
+          [...doneRefresh.current.sources].map(([source, progress]) => [
+            source,
+            { ...progress },
+          ]),
+        ),
+      };
     if (activeView.current === JSON.stringify([owner, key]))
       mountedShown.current = { key, generation, page };
     cacheView(key, page, owner);
@@ -1969,6 +1980,7 @@ export function Feed({
   const [readBusy, setReadBusy] = useState(false);
   const activeAppendSources = useRef(new Map<string, string>());
   const pendingAppendSources = useRef(new Map<string, string>());
+  const preemptedAppends = useRef(new Map<string, string>());
   const [partialReadPending, setPartialReadPending] = useState(false);
   type ReadAttempt = {
     append: boolean;
@@ -2013,6 +2025,9 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
+    if (append && !background && !resumeAppend)
+      for (const source of requestedSources)
+        preemptedAppends.current.delete(source);
     const priorView = readShown();
     const historyExpanded = append || priorView?.historyExpanded === true;
     if (append && priorView && !priorView.historyExpanded)
@@ -2117,7 +2132,14 @@ export function Feed({
       );
       const refreshKey = JSON.stringify([owner, shownKey()]);
       if (doneRefresh.current.key !== refreshKey)
-        doneRefresh.current = { key: refreshKey, sources: new Map() };
+        doneRefresh.current = {
+          key: refreshKey,
+          sources: new Map(
+            Object.entries(cached?.historyProgress ?? {}).map(
+              ([source, progress]) => [source, { ...progress, restart: true }],
+            ),
+          ),
+        };
       const readPage = async (
         read: (before?: string) => Promise<Page>,
         source: string,
@@ -2495,6 +2517,7 @@ export function Feed({
           }
           if (!isCurrent()) return { source, page: incoming };
           activeAppendSources.current.delete(source.id);
+          if (attempt.append) preemptedAppends.current.delete(source.id);
           retryPages.current.delete(source.id);
           if (attempt.append && attempt.headPending) followup.add(source.id);
           const page = {
@@ -2616,7 +2639,14 @@ export function Feed({
               if (!pending.some((item) => item.id === source.id))
                 pending.push(source);
               const before = activeAppendSources.current.get(source.id);
-              if (before && historyDirtySources.current.has(source.id)) {
+              if (
+                before &&
+                historyDirtySources.current.has(source.id) &&
+                preemptedAppends.current.get(source.id) !== before
+              ) {
+                // A resumed page gets a turn to finish; later notifications
+                // coalesce behind it instead of repeatedly cancelling it.
+                preemptedAppends.current.set(source.id, before);
                 pendingAppendSources.current.set(source.id, before);
                 initialReads.delete(source.id);
                 readRecovery.current.reset(
@@ -2870,11 +2900,13 @@ export function Feed({
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
       refreshHistorySources.current.clear();
+      doneRefresh.current = { key: "", sources: new Map() };
       historyDirtySources.current.clear();
       historyReadErrors.current.clear();
       nextBackgroundReadAt.current = 0;
       activeAppendSources.current.clear();
       pendingAppendSources.current.clear();
+      preemptedAppends.current.clear();
       ++request.current;
       ++needsRequest.current;
       needsSourceRequests.current.clear();
@@ -2905,6 +2937,7 @@ export function Feed({
     // retry budget. Only this view's notice retries the failed operation once.
     const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
     const stopRefreshEvent = listenClientEvent("loop-refresh", () => {
+      preemptedAppends.current.clear();
       // A deliberate pull refreshes the head even after a failed append. Keep
       // the loaded card window and restart each source's bounded recovery.
       if (filter !== "done" && inFlight.current)
