@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { listenClientEvent } from "./clientEvents";
 import { DoneThreadId } from "../shared/contract-ids.js";
 import { proseEntry } from "./textEntry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -153,12 +154,17 @@ export function useDoneThreads(
       ),
     );
     const focus = () => refresh();
+    const stopRefresh = listenClientEvent("loop-refresh", () => {
+      for (const reader of readers.values()) reader.cancel();
+      refresh();
+    });
     window.addEventListener("focus", focus);
     refresh();
     return () => {
       active = false;
       for (const reader of readers.values()) reader.dispose();
       stop();
+      stopRefresh();
       window.removeEventListener("focus", focus);
     };
   }, [context]);

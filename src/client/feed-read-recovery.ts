@@ -16,9 +16,15 @@ export class FeedReadRecovery<T> {
   private pending = new Map<string, Pending>();
   private generation = viewGeneration();
 
-  reset(source?: string) {
+  isRecovering(source: string, page: string) {
+    return this.pending.get(JSON.stringify([source, page]))?.retrying === true;
+  }
+
+  reset(source?: string, page?: string) {
     for (const [key, entry] of this.pending) {
       if (source !== undefined && source !== entry.source) continue;
+      if (page !== undefined && key !== JSON.stringify([source, page]))
+        continue;
       this.pending.delete(key);
       entry.reader.dispose();
       entry.reject(new DOMException("Obsolete Feed read", "AbortError"));
@@ -33,6 +39,8 @@ export class FeedReadRecovery<T> {
       onRetry: (error: unknown) => void,
     ) => Promise<T>,
     recovered: () => void,
+    replaceRecovery = false,
+    recoveryFailed?: () => void,
   ): Promise<T> {
     if (this.generation !== viewGeneration()) {
       this.reset();
@@ -43,7 +51,7 @@ export class FeedReadRecovery<T> {
     const prior = this.pending.get(key);
     // Further notifications retain the source's error while the same recovery
     // is running. They cannot multiply retry loops or wait behind that loop.
-    if (prior?.retrying) return Promise.reject(prior.error);
+    if (prior?.retrying && !replaceRecovery) return Promise.reject(prior.error);
     if (prior) {
       this.pending.delete(key);
       prior.reader.dispose();
@@ -59,8 +67,11 @@ export class FeedReadRecovery<T> {
     const failed = (error: unknown) => {
       // Exhausted reads retain transport recovery interest until reset or a
       // new intent. Disposing here would cancel that signal-bound interest.
-      if (current()) entry.retrying = false;
-      else {
+      if (current()) {
+        const wasRetrying = entry.retrying;
+        entry.retrying = false;
+        if (wasRetrying) recoveryFailed?.();
+      } else {
         if (this.pending.get(key) === entry) this.pending.delete(key);
         entry.reader.dispose();
       }

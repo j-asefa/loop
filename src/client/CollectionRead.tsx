@@ -193,6 +193,10 @@ type PagedOptions<P, C> = {
   revision?: string | number;
   requireAdvance?: boolean;
   needsRefresh?: (page: P) => boolean;
+  /** An explicit pull can cancel a stalled read and restart reconciliation
+   * from the retained window. Background notifications remain coalesced. */
+  restartOnRefresh?: (page: P) => P;
+  invalidateHistory?: (page: P, sources: readonly string[]) => P;
   empty: P;
   collections: QueryOptions["collections"];
   read: (
@@ -201,6 +205,7 @@ type PagedOptions<P, C> = {
     signal: AbortSignal,
     mode: ReadMode,
     readComplete: () => void,
+    publish: (page: P) => void,
   ) => Promise<P>;
   queueMore?: boolean;
   refreshDelay: (reads: number) => number;
@@ -248,6 +253,8 @@ export function usePagedProjectionQuery<
       events = ["loop-refresh"],
       coalesceDelay = 0,
       needsRefresh,
+      restartOnRefresh,
+      invalidateHistory,
       requireAdvance = false,
     } = context.options;
     if (!enabled) return;
@@ -267,7 +274,9 @@ export function usePagedProjectionQuery<
       urgent = false,
       pendingManual = false,
       refreshAfter = 0;
+    const historyInvalidated = new Set<string>();
     let retryBefore: C | undefined;
+    let interruptedBefore: C | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
       pending = true;
@@ -285,6 +294,10 @@ export function usePagedProjectionQuery<
       busy = true;
       retryBefore = before;
       if (before === undefined) {
+        if (historyInvalidated.size)
+          current =
+            invalidateHistory?.(current, [...historyInvalidated]) ?? current;
+        historyInvalidated.clear();
         pending = false;
         urgent = false;
         pendingManual = false;
@@ -302,9 +315,20 @@ export function usePagedProjectionQuery<
       try {
         const page = await reader.request(
           (signal, mode) =>
-            read(current, before, signal, mode, () => {
-              reads++;
-            }),
+            read(
+              current,
+              before,
+              signal,
+              mode,
+              () => {
+                reads++;
+              },
+              (partial) => {
+                if (stale() || signal.aborted || epoch !== requestEpoch) return;
+                current = partial;
+                setState((old) => ({ ...old, context, page: partial }));
+              },
+            ),
           { mode: manual ? "manual" : "automatic" },
         );
         if (stale() || epoch !== requestEpoch) return;
@@ -336,8 +360,15 @@ export function usePagedProjectionQuery<
             refreshAfter = urgent ? 0 : Date.now() + refreshDelay(reads);
           if (!stale()) {
             if (complete && needsRefresh?.(current)) pending = true;
-            const append = complete && appendPending ? current.next : null;
-            if (complete) appendPending = false;
+            // Readers retain a separate append cursor while reconciling gaps.
+            const append =
+              complete && appendPending && current.next !== null
+                ? (interruptedBefore ?? current.next)
+                : null;
+            if (complete) {
+              appendPending = false;
+              interruptedBefore = undefined;
+            }
             if (append !== null) void load(append);
             else if (pending) schedule();
           }
@@ -349,10 +380,35 @@ export function usePagedProjectionQuery<
         event as CustomEvent<ClientEvents["loop-workspace-change"]>
       ).detail?.sources;
       if (sources && !sourceList.some((item) => sources.includes(item))) return;
+      for (const source of sourceList)
+        if (
+          (!sources || sources.includes(source)) &&
+          (!collections?.length ||
+            collections.some((collection) =>
+              workspaceChangeAffects(event, collection, source),
+            ))
+        )
+          historyInvalidated.add(source);
       if (event.type === "loop-refresh") {
         urgent = true;
         clearTimeout(timer);
         timer = undefined;
+        if (restartOnRefresh && !stale()) {
+          const resumeAppend =
+            appendPending || (busy && retryBefore !== undefined);
+          if (interruptedBefore === undefined && resumeAppend)
+            interruptedBefore =
+              busy && retryBefore !== undefined
+                ? retryBefore
+                : (current.next ?? undefined);
+          requestEpoch++;
+          reader.cancel();
+          busy = false;
+          appendPending = resumeAppend;
+          current = restartOnRefresh(current);
+          void load();
+          return;
+        }
       }
       schedule();
     };
@@ -382,6 +438,7 @@ export function usePagedProjectionQuery<
       pendingManual = false;
       urgent = false;
       appendPending = false;
+      interruptedBefore = undefined;
       setState((old) => ({ ...old, loading: false, appending: false }));
     };
     const show = () => {

@@ -78,10 +78,10 @@ Runtime helpers live in their owning shared, adapter or server layer under `src/
 | Check                      | Purpose                                                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `npm run typecheck`        | Root TypeScript                                                                                                                |
-| `npm run check`            | Convention gate before every PR: formatting, typecheck, `openapi:check`, source boundaries, guidance links and route contracts |
-| `npm test`                 | Vitest server/domain and shared client production logic in `test/`                                                             |
-| `npm run test:native`      | Node tests in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing                                                  |
-| `npm run test:all`         | Both root suites                                                                                                               |
+| `npm run check`            | CI convention gate: formatting, typecheck, `openapi:check`, source boundaries, guidance links and route contracts |
+| `npm test`                 | Full Vitest server/domain and shared client suite in `test/`; CI only |
+| `npm run test:native`      | Full Node suite in `test/*.node.test.ts`: adapter protocols, lifecycle and pairing; CI only |
+| `npm run test:all`         | Both full root suites; CI only |
 | `npm run smoke:package`    | Tarball installation, CLI/host lifecycle and `loop upgrade` between packed builds behind one connection service                |
 | `npm run test:browser:acp` | Deterministic activity/ACP browser journey                                                                                     |
 | `npm run feeds:check`      | Reads every Social catalog feed over the network; manual live check                                                            |
@@ -92,7 +92,7 @@ The [test runner](../scripts/test-runner.mjs) removes inherited `LOOP_*` runtime
 
 `feeds:check` is the exception to fixture-only testing: it fetches the checked-in [feed catalog](../src/shared/news.ts) through [feed-fetch.ts](../src/server/feed-fetch.ts), the same transport Social uses, and exits non-zero for any feed that no longer parses. Run it when changing the catalog and put its output in the PR. The Vitest suite never reaches a feed.
 
-For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). Repository checks use [command supervision](#command-supervision). On process-limited hosts, use `npm test -- --maxWorkers=1` for the full suite; native runtime fixtures also spawn child processes.
+For a focused Vitest run, invoke it directly, for example `npx vitest run test/runtime-network.test.ts --maxWorkers=1`. Do not append file paths to `npm test --`: the script already supplies `test/`, so that still selects the full directory. Vitest defaults to two workers in [vite.config.ts](../vite.config.ts). Repository checks use [command supervision](#command-supervision). Use `--maxWorkers=1` for focused runs on process-limited hosts; native runtime fixtures also spawn child processes. Full suites run only in CI.
 
 The workspace-event socket suite compiles the current server into an isolated temporary fixture, so focused tests do not require or reuse the checkout's `dist` build.
 
@@ -180,6 +180,7 @@ npm run smoke:social
 npm run smoke:companion
 npm run smoke:cards
 npm run smoke:feed-events
+npm run smoke:feed-refresh
 LOOP_BROWSER=webkit npm run smoke:companion
 npm run smoke:reconnect
 LOOP_BROWSER=webkit npm run smoke:reconnect
@@ -209,6 +210,7 @@ Each script in the table below describes its coverage in the header comment.
 | `smoke:pulls`                                                        | [pull-requests-smoke.mjs](../scripts/pull-requests-smoke.mjs)                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `smoke:social`                                                       | [social-browser-smoke.mjs](../scripts/social-browser-smoke.mjs)                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `smoke:feed-events`                                                  | [feed-websocket-smoke.mjs](../scripts/feed-websocket-smoke.mjs), [personal-files-events-smoke.mjs](../scripts/personal-files-events-smoke.mjs)                                                                                                                                                                                                                                                                                                                                                 |
+| `smoke:feed-refresh` | [feed-refresh-browser-smoke.mjs](../scripts/feed-refresh-browser-smoke.mjs): missed-notification recovery through pull-to-refresh, retained history, retry after a failed read, and live delivery |
 | `smoke:fleet-controls`, `smoke:fleet-commands`, `smoke:fleet-traces` | [fleet-controls-browser-smoke.mjs](../scripts/fleet-controls-browser-smoke.mjs), [fleet-command-browser-smoke.mjs](../scripts/fleet-command-browser-smoke.mjs), [fleet-traces-browser-smoke.mjs](../scripts/fleet-traces-browser-smoke.mjs)                                                                                                                                                                                                                                                    |
 | Harness upgrades, send receipts, fleet Feed, Feed transfer           | [harness-upgrades-browser-smoke.mjs](../scripts/harness-upgrades-browser-smoke.mjs), [send-receipts-browser-smoke.mjs](../scripts/send-receipts-browser-smoke.mjs), [fleet-feed-browser-smoke.mjs](../scripts/fleet-feed-browser-smoke.mjs), [feed-transfer-smoke.mjs](../scripts/feed-transfer-smoke.mjs). Run each with `node scripts/heavy-command.mjs <script>`, adding `--import tsx` before the script for `fleet-feed-browser-smoke.mjs`; `feed-transfer-smoke.mjs` needs a build first |
 
@@ -251,19 +253,18 @@ stage, so the version is not installable until a maintainer approves it with 2FA
 npmjs.com). Publish the draft release after approving. Bump the version in a pull
 request first, then tag the merged commit.
 
-During editing and between commits, run focused tests for the changed boundaries.
-Immediately before requesting a fresh review, run `npm run check` and one full
-local Vitest suite: `npm test -- --shard=1/3 --maxWorkers=1`, then `2/3` and `3/3`.
-Server, runtime or CLI changes also require `npm run test:native` before review;
-docs/scripts-only changes do not. Run relevant browser, package and Docker checks
-for affected behavior. Record the tested commit, commands, exits and limitations
-in the PR. Review teams inspect snapshots and do not run these checks.
+Follow the [repository testing and rebase rules](../AGENTS.md): never run full
+test suites locally, including by splitting them into shards. Full suites run
+only in CI. For every change, run only focused, related tests locally, including
+targeted native fixtures or browser journeys when their behavior is affected.
+Record the tested commit, commands, exits and limitations in the PR. Review
+teams inspect snapshots and do not run these checks.
 
-A fresh review of changed content requires fresh full-suite evidence. Do not
-repeat full suites merely for a push or commit that leaves tested content
-unchanged; record any commit/tree parity used to carry evidence forward. A failed
-check still needs investigation and relevant reruns. Native tests, browser smokes
-and Docker validation remain local.
+After revisions, rerun focused checks for the changed boundaries. A push or
+commit that leaves tested content unchanged does not require rerunning those
+checks; record any commit/tree parity used to carry evidence forward. Investigate
+failed checks and rerun the affected tests. Rebase only when the PR has merge
+conflicts; do not rebase merely to bring the branch up to date.
 
 Docker checks require an actual daemon and shipped-image validation; fixture-only results do not replace them. The Docker companion smoke (`node scripts/compose-companion-smoke.mjs`) builds its images by default. For an isolated prebuilt validation, pass `--images-file /absolute/override.yaml` to the companion smoke; the Compose override selects the test images and can set container memory/CPU limits and environment-specific CA mounts. This avoids overwriting shared CI tags. The runner still owns only its unique Compose project and volumes.
 
@@ -293,7 +294,7 @@ Lifecycle fixtures use [lifecycle-waits.ts](../src/lifecycle-waits.ts) to shorte
 
 The native contract checks exercise direct adapter framing, paired sign-in, native session recovery, live steering and team messaging across harnesses. They use subprocess fixtures and do not verify real provider OAuth or inference.
 
-Before a PR, run `npm run check` on the commit you are submitting and paste its `check:` lines into the PR; repeat after revisions. The review team reads a snapshot and does not run it. The command runs Prettier's check, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the registry route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Budget roughly a minute on an idle shared host. Typecheck needs about 2 GiB, and the contract tests use two Vitest workers; the route inventory checks the companion's mounted routes. Run it per submitted PR head, not in a mandatory push hook. It refuses to start without the required local `node_modules` tools or with a different Prettier version; use `npm ci`. It is not the full suite. Also run checks relevant to the change and report exact failures or unavailable dependencies.
+CI runs `npm run check` on the submitted commit. It checks Prettier formatting, [typecheck](../scripts/typecheck.mjs), `openapi:check`, the [source boundary test](../test/source-boundaries.test.ts), the [formatting policy](../test/format-policy.test.ts), the registry route inventory, the workspace event contract and `test/*-contracts.test.ts`, stopping at the first failure. Locally, select only the checks related to the change, such as formatting the changed source files or running the affected contract test directly. Record commands, observed exits and unavailable dependencies in the PR; include CI results separately. The review team reads a snapshot and does not run it. Typecheck needs about 2 GiB, and the route inventory checks the companion's mounted routes. The check command refuses to start without the required `node_modules` tools or with a different Prettier version; use `npm ci`.
 
 TypeScript and JavaScript (`ts`, `tsx`, `js`, `jsx`, `mjs`, `cjs`) in `src/`, `test/` and `scripts/` use the exactly pinned Prettier version with its defaults; `npm run format` rewrites them. The formatting policy rejects a repository ignore file; all files in these source directories are checked.
 

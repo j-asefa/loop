@@ -252,6 +252,33 @@ it("replays pending Load more after an optimistic action invalidates its respons
   ]);
 });
 
+it("cancels a superseded cold read without allowing it to restart the replacement pager", async () => {
+  const reader = new DoneCardsReader("owner/cold-restart");
+  const pending: {
+    resolve: (page: unknown) => void;
+    reject: (error: unknown) => void;
+    signal?: AbortSignal;
+  }[] = [];
+  const transport: CardReadTransport = (_contract, _input, signal) =>
+    new Promise((resolve, reject) => pending.push({ resolve, reject, signal }));
+  const obsolete = reader.load(transport, selection, false);
+  reader.restartRefresh();
+  expect(pending[0].signal?.aborted).toBe(true);
+  const replacement = reader.load(transport, selection, false);
+  // Simulate a transport delivering despite cancellation, before the fresh
+  // request has committed any window.
+  pending[0].resolve({
+    revision: "old",
+    items: [entry("obsolete", 100)],
+    next: null,
+  });
+  await expect(obsolete).rejects.toMatchObject({ name: "AbortError" });
+  pending[1].reject(failure(503));
+  await expect(replacement).rejects.toMatchObject({ status: 503 });
+  expect(pending).toHaveLength(2);
+  expect(reader.pager.snapshot()).toBeNull();
+});
+
 it("keeps concurrent callers on Cards while an expired revision resets the pager", async () => {
   const reader = new DoneCardsReader("owner/concurrent-reset");
   const delta = { revision: "r", items: [], removed: [], more: false };
@@ -284,6 +311,37 @@ it("keeps concurrent callers on Cards while an expired revision resets the pager
       (window) => window?.page.items[0].card.id === "d:message:kept",
     ),
   ).toBe(true);
+});
+
+it("rejects a cancelled list even after its replacement committed a window", async () => {
+  const reader = new DoneCardsReader("owner/late-list");
+  let resolve!: (value: unknown) => void;
+  const summary = vi.fn();
+  const obsolete = reader
+    .load(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+      selection,
+      false,
+    )
+    .then(summary);
+  reader.restartRefresh();
+  await reader.load(
+    async (contract, input) =>
+      routePath(contract, input).includes("/changes?")
+        ? { revision: "new", items: [], removed: [], more: false }
+        : { revision: "new", items: [entry("replacement", 200)], next: null },
+    selection,
+    false,
+  );
+  resolve({ revision: "old", items: [entry("obsolete", 100)], next: null });
+  await expect(obsolete).rejects.toMatchObject({ name: "AbortError" });
+  expect(summary).not.toHaveBeenCalled();
+  expect(reader.pager.snapshot()?.page.items[0].card.id).toBe(
+    "d:message:replacement",
+  );
 });
 
 it("distinguishes a complete message at the feed cap from a clipped message", () => {

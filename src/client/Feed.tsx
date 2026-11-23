@@ -151,7 +151,11 @@ import {
   type FeedNextAction,
 } from "./threadView";
 import { notify } from "./toast";
-import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import {
+  advanceDoneRefresh,
+  refreshDonePage,
+  type DoneRefresh,
+} from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
 import { listenProjectionFrames } from "./workspace-projections";
@@ -1278,12 +1282,14 @@ export function Feed({
   const scopedSource = useSourceId();
   const scopedCapabilities = useSourceCapabilities();
   // Browsable histories retain loaded pages while new activity arrives.
-  const retainHistory = ["done", "replies", "threads"].includes(filter);
+  const retainHistory = ["all", "done", "replies", "threads"].includes(filter);
   type Shown = {
     items: FeedItem[];
     next: string | null;
     summary: Summary;
     sourceSummaries?: Record<string, Summary>;
+    historyExpanded?: boolean;
+    historyProgress?: Record<string, DoneRefresh>;
   };
   const generation = viewGeneration();
   const selectionScope = JSON.stringify([
@@ -1355,12 +1361,20 @@ export function Feed({
   const readRecovery = useRef(
     new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>(),
   );
+  const pausedHeadRecovery = useRef(new Set<string>());
+  const doneSummaryReads = useRef(new Map<string, AbortController>());
+  const cancelDoneSummaries = () => {
+    for (const controller of doneSummaryReads.current.values())
+      controller.abort();
+    doneSummaryReads.current.clear();
+  };
   const recoverSource = useRef<(source: string) => void>(() => {});
   const readSnapshot = (
     source: string,
     query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
     purpose = "",
     manual = false,
+    replaceRecovery = false,
   ) => {
     const { known: _known, ...page } = query;
     const context = activeView.current;
@@ -1380,6 +1394,19 @@ export function Feed({
         if (generation === viewGeneration() && context === activeView.current)
           recoverSource.current(source);
       },
+      manual || replaceRecovery,
+      () => {
+        if (
+          generation !== viewGeneration() ||
+          context !== activeView.current ||
+          !query.before
+        )
+          return;
+        if (activeAppendSources.current.get(source) === query.before)
+          activeAppendSources.current.delete(source);
+        if (pausedHeadRecovery.current.delete(source))
+          recoverSource.current(source);
+      },
     );
   };
   const projectionPages = useRef(new FeedProjectionReader<FeedItem, Shown>());
@@ -1387,9 +1414,10 @@ export function Feed({
     source: string,
     query: NonNullable<RouteInput<typeof workspaceApi.feed>["query"]>,
     manual = false,
+    replaceRecovery = false,
   ) => {
     const read = (known?: string) =>
-      readSnapshot(source, { ...query, known }, "", manual);
+      readSnapshot(source, { ...query, known }, "", manual, replaceRecovery);
     return projectionPages.current.read(source, JSON.stringify(query), read);
   };
   const activeSources: AgentSource[] = doneAgent
@@ -1409,7 +1437,73 @@ export function Feed({
     JSON.stringify([viewOwner(), filter, project, agent, teams, doneRead]);
   const activeView = useRef<string | null>(null);
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
-  const shown = cachedView<Shown>(shownKey());
+  // Cache eviction must not discard the paging window still mounted on screen.
+  const mountedShown = useRef<
+    | { key: string; selection: string; generation: number; page: Shown }
+    | undefined
+  >(undefined);
+  const readShown = (key = shownKey()) => {
+    const saved = cachedView<Shown>(key);
+    const mounted = mountedShown.current;
+    if (
+      combined &&
+      key === shownKey() &&
+      mounted &&
+      mounted.key !== key &&
+      mounted.selection === pagesKey() &&
+      mounted.generation === viewGeneration()
+    ) {
+      // Discovery changes the roster, not the user's loaded window. Carry
+      // its paging state into the new roster, excluding departed sources.
+      const ids = new Set(activeSources.map((source) => source.id as string));
+      const keep = <T,>(entries: Record<string, T> | undefined) =>
+        Object.fromEntries(
+          Object.entries(entries ?? {}).filter(([source]) => ids.has(source)),
+        );
+      const cursors = keep(
+        JSON.parse(mounted.page.next || "{}") as Record<string, string>,
+      );
+      const sourceSummaries = keep(mounted.page.sourceSummaries);
+      return {
+        ...mounted.page,
+        items: mounted.page.items.filter((item) =>
+          ids.has(item.sourceId ?? scopedSource),
+        ),
+        next: Object.keys(cursors).length ? JSON.stringify(cursors) : null,
+        sourceSummaries,
+        summary: combineSummaries(Object.values(sourceSummaries)),
+        historyProgress: keep(mounted.page.historyProgress),
+      };
+    }
+    if (saved) return saved;
+    return mounted?.key === key && mounted.generation === viewGeneration()
+      ? mounted.page
+      : undefined;
+  };
+  const cacheShown = (key: string, page: Shown, owner: string | undefined) => {
+    if (owner !== viewOwner() || generation !== viewGeneration()) return;
+    if (doneRefresh.current.key === JSON.stringify([owner, key]))
+      page = {
+        ...page,
+        historyProgress: Object.fromEntries(
+          [...doneRefresh.current.sources].map(([source, progress]) => [
+            source,
+            { ...progress },
+          ]),
+        ),
+      };
+    if (activeView.current === JSON.stringify([owner, key]))
+      mountedShown.current = { key, selection: pagesKey(), generation, page };
+    cacheView(key, page, owner);
+  };
+  const shown = readShown();
+  if (shown)
+    mountedShown.current = {
+      key: shownKey(),
+      selection: pagesKey(),
+      generation,
+      page: shown,
+    };
   // Recorded locations, keyed by source and connection id: ids from
   // different sources can collide.
   const environments = useMemo(
@@ -1787,6 +1881,7 @@ export function Feed({
     () => () => {
       activeView.current = null;
       clearTimeout(doneCatchup.current);
+      doneCatchup.current = undefined;
       ++request.current;
     },
     [],
@@ -1799,6 +1894,12 @@ export function Feed({
     key: "",
     sources: new Map(),
   });
+  // Explicit pulls retain this selection’s loaded history through subsequent
+  // retries and pagination, reconciling it through bounded trailing reads.
+  // Thread views also finish live reconciliation so removals cannot linger.
+  const refreshHistorySources = useRef(new Set<string>());
+  const historyDirtySources = useRef(new Set<string>());
+  const historyReadErrors = useRef(new Map<string, Error>());
   async function loadNeeds(onlySources?: string[], manual = false) {
     if (hideFilters || generation !== viewGeneration()) return;
     const ticketGeneration = needsRequest.current;
@@ -1901,9 +2002,11 @@ export function Feed({
   }
   const pendingRefresh = useRef({ key: "", sources: new Set<string>() });
   const headSources = useRef(new Set<string>());
+  // Notifications coalesce behind a bounded background read cadence. Explicit
+  // pulls and user pagination remain immediate.
+  const nextBackgroundReadAt = useRef(0);
   function schedulePendingRefresh() {
-    clearTimeout(doneCatchup.current);
-    doneCatchup.current = undefined;
+    if (doneCatchup.current !== undefined) return;
     const owner = viewOwner(),
       context = JSON.stringify([owner, shownKey()]);
     if (
@@ -1912,22 +2015,37 @@ export function Feed({
     )
       return;
     const ticket = request.current;
-    doneCatchup.current = setTimeout(() => {
-      if (
-        ticket === request.current &&
-        owner === viewOwner() &&
-        activeView.current === context
-      )
-        void load(false, true, [...pendingRefresh.current.sources]);
-    }, 100);
+    doneCatchup.current = setTimeout(
+      () => {
+        doneCatchup.current = undefined;
+        if (
+          ticket === request.current &&
+          owner === viewOwner() &&
+          activeView.current === context
+        ) {
+          const sources = [...pendingRefresh.current.sources];
+          if (inFlight.current) {
+            if (refreshReadingSources.current) {
+              nextBackgroundReadAt.current = Date.now() + 1000;
+              refreshReadingSources.current(sources);
+            }
+          } else void load(false, true, sources);
+        }
+      },
+      Math.max(100, nextBackgroundReadAt.current - Date.now()),
+    );
   }
   const [readError, setReadError] = useState("");
   const [readBusy, setReadBusy] = useState(false);
+  const activeAppendSources = useRef(new Map<string, string>());
+  const pendingAppendSources = useRef(new Map<string, string>());
+  const preemptedAppends = useRef(new Map<string, string>());
   const [partialReadPending, setPartialReadPending] = useState(false);
   type ReadAttempt = {
     append: boolean;
     before?: string;
     doneSummary?: boolean;
+    headPending?: boolean;
   };
   const retryPages = useRef(new Map<string, ReadAttempt>());
   const retryRead = () => {
@@ -1946,6 +2064,7 @@ export function Feed({
     background = false,
     onlySources?: string[],
     manual = false,
+    resumeAppend?: Map<string, string>,
   ) {
     const refreshContext = JSON.stringify([viewOwner(), shownKey()]);
     // A completed action may still hold the load function for an old view.
@@ -1965,6 +2084,23 @@ export function Feed({
     const requestedSources = activeSources
       .filter((source) => !onlySources || onlySources.includes(source.id))
       .map((source) => source.id);
+    if (append && !background && !resumeAppend)
+      for (const source of requestedSources)
+        preemptedAppends.current.delete(source);
+    const priorView = readShown();
+    const historyExpanded = append || priorView?.historyExpanded === true;
+    if (append && priorView && !priorView.historyExpanded)
+      cacheShown(
+        shownKey(),
+        { ...priorView, historyExpanded: true },
+        viewOwner(),
+      );
+    const retainWindow = ["all", "working", "queued"].includes(filter)
+      ? historyExpanded
+      : retainHistory ||
+        requestedSources.some((source) =>
+          refreshHistorySources.current.has(source),
+        );
     // Capture each failed operation before any source succeeds and clears it.
     // A partial retry must neither advance a healthy source nor borrow a later
     // cursor from another read. Head and append failures can coexist.
@@ -1976,9 +2112,8 @@ export function Feed({
         (manual && retryPages.current.get(source.id)) || {
           append,
           before: append
-            ? combined
-              ? cursors[source.id]
-              : next || undefined
+            ? (resumeAppend?.get(source.id) ??
+              (combined ? cursors[source.id] : next || undefined))
             : undefined,
         },
       ]),
@@ -1986,13 +2121,36 @@ export function Feed({
     const pending = pendingRefresh.current.sources;
     if (background && inFlight.current) {
       for (const source of requestedSources) pending.add(source);
-      refreshReadingSources.current?.(requestedSources);
+      schedulePendingRefresh();
       return;
     }
+    if (background && Date.now() < nextBackgroundReadAt.current) {
+      for (const source of requestedSources) pending.add(source);
+      schedulePendingRefresh();
+      return;
+    }
+    nextBackgroundReadAt.current = Date.now() + 1000;
     // A superseded head read has not reconciled its sources. Appending cannot
     // consume any head notification; a scoped head consumes only its sources.
     if (inFlight.current)
       for (const source of headSources.current) pending.add(source);
+    activeAppendSources.current = new Map(
+      requestedSources.flatMap((source) => {
+        const page = pages.get(source)!;
+        return page.append && page.before
+          ? [[source, page.before] as const]
+          : [];
+      }),
+    );
+    for (const source of activeAppendSources.current.keys()) {
+      if (
+        resumeAppend &&
+        retryPages.current.get(source)?.append === false &&
+        readError
+      )
+        historyReadErrors.current.set(source, new Error(readError));
+      pendingAppendSources.current.delete(source);
+    }
     headSources.current = new Set(
       requestedSources.filter((source) => !pages.get(source)!.append),
     );
@@ -2002,10 +2160,12 @@ export function Feed({
     }
     if (!manual && !background) setReadError("");
     clearTimeout(doneCatchup.current);
+    doneCatchup.current = undefined;
     inFlight.current = true;
     setReadBusy(true);
     setPartialReadPending(false);
     const followup = new Set<string>();
+    cancelDoneSummaries();
     const ticket = ++request.current;
     refreshReadingSources.current = undefined;
     // The account this request is for; a late answer for another is dropped.
@@ -2021,23 +2181,30 @@ export function Feed({
       type Page = Shown;
       let result: Page;
       let partialError = "";
-      let cached = cachedView<Shown>(shownKey());
-      let previous = retainHistory ? cached : undefined;
+
+      let cached = readShown();
+      let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
-      // A cold roster can reveal individual results before every first page
-      // arrives, but it has no complete paging window to replace yet.
-      const hasPagingWindow = activeSources.every(
-        (source) => cached?.sourceSummaries?.[source.id],
-      );
+      // A cold roster can reveal rows before committing its first paging
+      // window. A cached partial window still counts when a peer failed.
+      const hasPagingWindow = cached !== undefined;
       const refreshKey = JSON.stringify([owner, shownKey()]);
       if (doneRefresh.current.key !== refreshKey)
-        doneRefresh.current = { key: refreshKey, sources: new Map() };
+        doneRefresh.current = {
+          key: refreshKey,
+          sources: new Map(
+            Object.entries(cached?.historyProgress ?? {}).map(
+              ([source, progress]) => [source, { ...progress, restart: true }],
+            ),
+          ),
+        };
       const readPage = async (
         read: (before?: string) => Promise<Page>,
         source: string,
         before?: string,
       ) => {
         const appending = pages.get(source)!.append;
+        if (!appending) followup.delete(source);
         const cardKey =
           "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
         let priorItems =
@@ -2108,7 +2275,7 @@ export function Feed({
               // from this source, even if the fresh list/summary then fails.
               const keep = (item: FeedItem) =>
                 (item.sourceId ?? scopedSource) !== source;
-              const saved = cachedView<Shown>(shownKey());
+              const saved = readShown();
               if (saved) {
                 const cursors = combined ? JSON.parse(saved.next || "{}") : {};
                 delete cursors[source];
@@ -2121,7 +2288,7 @@ export function Feed({
                       : null,
                 };
                 previous = cached;
-                cacheView(shownKey(), cached, owner);
+                cacheShown(shownKey(), cached, owner);
                 setNext(cached.next);
               }
               if (sourcePages.current.key === pagesKey()) {
@@ -2136,30 +2303,49 @@ export function Feed({
               setItems((items) => items.filter(keep));
             }
           }
+          if (!isCurrent())
+            throw new DOMException("Obsolete Done read", "AbortError");
           if (reader.discardPrior) priorItems = [];
+          // Cards have committed this append before the operational summary.
+          // A notification during that summary must not replay the next page.
+          if (appending && !reader.hasPendingAppend && isCurrent())
+            activeAppendSources.current.delete(source);
           if (
             reader.hasMore ||
+            reader.hasPendingAppend ||
             (window.boundary &&
               priorItems.some(
                 (item) => compareCardOrder(order(item), window.boundary!) < 0,
               ))
           )
+            // A More click after a failed head can perform only the head here.
+            // The scheduled follow-up drains the reader's pending append.
             followup.add(source);
           if (ticket === request.current && owner === viewOwner())
             cacheView(cardKey, window, owner);
           // Counters remain conversation-based operational Feed state.
           pages.set(source, { ...pages.get(source)!, doneSummary: true });
-          const operational = await readProjection(
-            workspaceApi.feed,
-            { query: query(undefined, "needs") },
-            { mode: "once", source: source },
-          );
+          const summaryController = new AbortController();
+          doneSummaryReads.current.get(source)?.abort();
+          doneSummaryReads.current.set(source, summaryController);
+          let operational: Page;
+          try {
+            operational = await readProjection(
+              workspaceApi.feed,
+              { query: query(undefined, "needs") },
+              { mode: "once", source, signal: summaryController.signal },
+            );
+          } finally {
+            if (doneSummaryReads.current.get(source) === summaryController)
+              doneSummaryReads.current.delete(source);
+          }
           // Only a failed operational read needs a summary-only retry. A
           // trailing notification in this queue must read newer card changes.
           pages.set(source, { ...pages.get(source)!, doneSummary: false });
           if (ticket === request.current && owner === viewOwner()) {
             reader.discardPrior = false;
             cacheView(cardKey + ":reset", undefined, owner);
+            if (!appending) historyReadErrors.current.delete(source);
           }
           const typedItems = window.page.items.flatMap(
             ({ card, order: cardOrder }) =>
@@ -2194,15 +2380,42 @@ export function Feed({
           };
         }
         if (appending || !previous) {
-          const page = await read(before);
-          if (appending && retainHistory && cached) {
+          let page = await read(before);
+          if (!isCurrent()) return page;
+          // Replaying an interrupted append must not consume the head scan.
+          if (
+            appending &&
+            (historyReadErrors.current.has(source) ||
+              doneRefresh.current.sources.has(source))
+          )
+            followup.add(source);
+          if (appending && retainWindow && cached) {
             const earlier = cached.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             );
+            const gap = combined
+              ? JSON.parse(cached.next || "{}")[source]
+              : cached.next;
+            const visible = new Set(
+              earlier.map((item) => feedItemKey(item, source)),
+            );
+            if (
+              gap &&
+              before !== gap &&
+              page.items.every((item) => visible.has(feedItemKey(item, source)))
+            ) {
+              // The replacement head already covered this interrupted page.
+              // Keep the user's More intent and track the new active cursor.
+              before = gap;
+              pages.get(source)!.before = gap;
+              activeAppendSources.current.set(source, gap);
+              page = await read(gap);
+              if (!isCurrent()) return page;
+            }
             const incoming = new Set(
               page.items.map((item) => feedItemKey(item, source)),
             );
-            return {
+            const merged = {
               ...page,
               items: [
                 ...earlier.filter(
@@ -2211,14 +2424,86 @@ export function Feed({
                 ...page.items,
               ].sort(feedItemOrder),
             };
+            let progress = doneRefresh.current.sources.get(source);
+            const oldFloor = earlier.at(-1);
+            const newFloor = merged.items.at(-1);
+            if (
+              before !== gap &&
+              (!newFloor || !oldFloor || feedItemOrder(newFloor, oldFloor) <= 0)
+            )
+              merged.next = gap;
+            if (progress) {
+              progress = advanceDoneRefresh(progress, before!, page);
+              const wasGap = !!(progress.gapUntil || progress.rescanGap);
+              if (before === gap && wasGap) {
+                const last = page.items.at(-1);
+                const covered = (boundary: DoneRefresh["gapUntil"]) => {
+                  const target =
+                    boundary &&
+                    progress!.continuation === null &&
+                    progress!.floor &&
+                    feedItemOrder(progress!.floor, boundary) > 0
+                      ? progress!.floor
+                      : boundary;
+                  return (
+                    !page.next ||
+                    (last && target && feedItemOrder(last, target) >= 0)
+                  );
+                };
+                progress = {
+                  ...progress,
+                  gapUntil: covered(progress.gapUntil)
+                    ? undefined
+                    : progress.gapUntil,
+                  rescanGap: covered(progress.rescanGap)
+                    ? undefined
+                    : progress.rescanGap,
+                };
+              }
+              if (
+                before === progress.continuation ||
+                (newFloor &&
+                  progress.floor &&
+                  feedItemOrder(newFloor, progress.floor) > 0) ||
+                (progress.continuation === null &&
+                  before === gap &&
+                  page.items.at(-1) &&
+                  progress.floor &&
+                  feedItemOrder(page.items.at(-1)!, progress.floor) >= 0)
+              )
+                progress = {
+                  ...progress,
+                  floor: newFloor,
+                  continuation: page.next,
+                };
+              if (progress.gapUntil || progress.rescanGap) {
+                if (before !== gap) merged.next = gap;
+              } else if (
+                wasGap &&
+                before === gap &&
+                progress.continuation !== undefined
+              ) {
+                // The missing interval is now filled. Skip the already loaded
+                // window and return to its saved older-page continuation.
+                merged.next = progress.continuation;
+              }
+              doneRefresh.current.sources.set(source, progress);
+            }
+            return merged;
           }
           return page;
         }
-        const current = () =>
-          ticket === request.current && owner === viewOwner();
+        const current = isCurrent;
+        const progress = doneRefresh.current.sources.get(source);
+        if (historyDirtySources.current.delete(source) && progress) {
+          progress.rescan = true;
+          progress.invalidated = true;
+        }
         const result = await refreshDonePage<FeedItem, Page>(
           read,
           {
+            ...previous,
+            summary: previous.sourceSummaries?.[source] ?? previous.summary,
             items: previous.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             ),
@@ -2226,13 +2511,86 @@ export function Feed({
               ? (JSON.parse(previous.next || "{}")[source] ?? null)
               : previous.next,
           },
-          doneRefresh.current.sources.get(source),
+          progress,
           current,
+          (head, headProgress) => {
+            if (!current()) return;
+            const shown = readShown();
+            if (!shown) return;
+            head = {
+              ...head,
+              items: pendingUnsaves(head.items, combined ? source : undefined),
+            };
+            doneRefresh.current.sources.set(source, headProgress);
+            const cursors = combined ? JSON.parse(shown.next || "{}") : {};
+            if (head.next) cursors[source] = head.next;
+            else delete cursors[source];
+            const sourceSummaries = combined
+              ? { ...shown.sourceSummaries, [source]: head.summary }
+              : undefined;
+            const partial = {
+              ...shown,
+              next: combined
+                ? Object.keys(cursors).length
+                  ? JSON.stringify(cursors)
+                  : null
+                : head.next,
+              items: combined
+                ? [
+                    ...shown.items.filter(
+                      (item) => (item.sourceId ?? scopedSource) !== source,
+                    ),
+                    ...head.items.map((item) => ({
+                      ...item,
+                      sourceId: source,
+                      executionEnvironment: activeSources.find(
+                        (item) => item.id === source,
+                      )?.name,
+                    })),
+                  ].sort(
+                    (a, b) =>
+                      b.last_activity_at - a.last_activity_at ||
+                      (a.sourceId || "").localeCompare(b.sourceId || "") ||
+                      feedItemOrder(a, b),
+                  )
+                : head.items,
+              sourceSummaries,
+              summary: sourceSummaries
+                ? combineSummaries(Object.values(sourceSummaries))
+                : head.summary,
+            };
+            if (combined) sourcePages.current.pages.set(source, head);
+            cached = partial;
+            previous = retainWindow ? partial : undefined;
+            cacheShown(shownKey(), partial, owner);
+            setItems(partial.items);
+            setNext(partial.next);
+            setPartialReadPending(false);
+          },
         );
         if (current()) {
-          if (result.progress)
+          if (result.error) {
+            historyReadErrors.current.set(source, result.error);
+            setReadError(result.error.message);
+          } else historyReadErrors.current.delete(source);
+          if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-          else doneRefresh.current.sources.delete(source);
+            // Finish this sweep and its known gaps. A moving head alone
+            // cannot start another full reconciliation sweep indefinitely.
+            const restartedSweep =
+              progress &&
+              !progress.restart &&
+              !progress.invalidated &&
+              !result.progress.settleGap &&
+              feedItemOrder(result.progress.after, progress.after) <= 0;
+            if (!result.error && retainWindow && !restartedSweep) {
+              followup.add(source);
+              pendingRefresh.current.sources.add(source);
+              schedulePendingRefresh();
+            }
+          } else {
+            doneRefresh.current.sources.delete(source);
+          }
         }
         return result.page;
       };
@@ -2298,20 +2656,104 @@ export function Feed({
             ),
           };
         };
-        const readSource = async (source: (typeof activeSources)[number]) => {
+        const readSource = async (
+          source: (typeof activeSources)[number],
+        ): Promise<{ source: (typeof activeSources)[number]; page: Page }> => {
           if (!isCurrent())
             throw new DOMException("Feed read superseded", "AbortError");
-          const incoming = await readPage(
-            (before) => readProjectionPage(source.id, query(before), manual),
-            source.id,
-            pages.get(source.id)!.before,
-          );
+          const attempt = pages.get(source.id)!;
+          if (attempt.append && attempt.before)
+            activeAppendSources.current.set(source.id, attempt.before);
+          let incoming: Page;
+          try {
+            incoming = await readPage(
+              (before) =>
+                readProjectionPage(
+                  source.id,
+                  query(before),
+                  manual,
+                  pages.get(source.id)!.append,
+                ),
+              source.id,
+              pages.get(source.id)!.before,
+            );
+          } catch (error) {
+            if (!isCurrent() || (error as Error).name === "AbortError")
+              throw error;
+            if (attempt.append) {
+              if (
+                !readRecovery.current.isRecovering(
+                  source.id,
+                  JSON.stringify(query(pages.get(source.id)!.before)),
+                )
+              )
+                activeAppendSources.current.delete(source.id);
+              const retry = { ...pages.get(source.id)!, headPending: false };
+              retryPages.current.set(source.id, retry);
+              if (attempt.headPending) {
+                // A bad older cursor cannot consume a notification for a
+                // healthy head. Publish the head, then retain this retry.
+                pages.set(source.id, { append: false });
+                try {
+                  await readSource(source);
+                } catch (headError) {
+                  if (isCurrent() && (headError as Error).name !== "AbortError")
+                    historyReadErrors.current.set(
+                      source.id,
+                      headError as Error,
+                    );
+                } finally {
+                  if (isCurrent()) {
+                    pages.set(source.id, retry);
+                    retryPages.current.set(source.id, retry);
+                    setReadError((error as Error).message);
+                  }
+                }
+              }
+              throw error;
+            }
+            const interrupted = pendingAppendSources.current.get(source.id);
+            if (!interrupted) throw error;
+            pendingAppendSources.current.delete(source.id);
+            historyReadErrors.current.set(source.id, error as Error);
+            // Let the interrupted page use the source after its cooldown;
+            // another head retry must not keep extending that same cooldown.
+            readRecovery.current.reset(source.id, JSON.stringify(query()));
+            pausedHeadRecovery.current.add(source.id);
+            setReadError((error as Error).message);
+            pages.set(source.id, { append: true, before: interrupted });
+            try {
+              return await readSource(source);
+            } catch (replayError) {
+              if (
+                isCurrent() &&
+                (replayError as Error).name !== "AbortError" &&
+                !readRecovery.current.isRecovering(
+                  source.id,
+                  JSON.stringify(query(pages.get(source.id)!.before)),
+                )
+              ) {
+                // Pausing the failed head freed this source for its older
+                // page. Restore head recovery even if that page also fails.
+                followup.add(source.id);
+                pausedHeadRecovery.current.delete(source.id);
+                pendingRefresh.current.sources.add(source.id);
+                schedulePendingRefresh();
+              }
+              throw replayError;
+            }
+          }
           if (!isCurrent()) return { source, page: incoming };
+          pausedHeadRecovery.current.delete(source.id);
+          activeAppendSources.current.delete(source.id);
+          if (attempt.append) preemptedAppends.current.delete(source.id);
+          retryPages.current.delete(source.id);
+          if (attempt.append && attempt.headPending) followup.add(source.id);
           const page = {
             ...incoming,
             items: pendingUnsaves(incoming.items, source.id),
           };
-          if (!pages.get(source.id)!.append) {
+          if (!attempt.append || retainWindow) {
             const earlier = sourcePages.current.pages.get(source.id);
             const known = new Set(
               page.items.map((item) => feedItemKey(item, source.id)),
@@ -2321,7 +2763,7 @@ export function Feed({
             // that source now, including an empty result; a slow peer cannot
             // retain rows that this source has already removed.
             const visible =
-              earlier && !retainHistory && page.next
+              earlier && historyExpanded && !retainWindow && page.next
                 ? {
                     ...page,
                     next: earlier.next,
@@ -2352,27 +2794,72 @@ export function Feed({
             );
             if (hasPagingWindow) {
               cached = partial;
-              previous = retainHistory ? partial : undefined;
-              cacheView(shownKey(), partial, owner);
+              previous = retainWindow ? partial : undefined;
+              cacheShown(shownKey(), { ...partial, historyExpanded }, owner);
               setNext(partial.next);
             }
             setItems(partial.items);
             setPartialReadPending(hadVisibleItems && !partial.items.length);
+          }
+          const interrupted = pendingAppendSources.current.get(source.id);
+          if (!attempt.append && interrupted) {
+            pendingAppendSources.current.delete(source.id);
+            if (page.next) {
+              pages.set(source.id, { append: true, before: interrupted });
+              return readSource(source);
+            }
+          }
+          if (followup.has(source.id)) {
+            pendingRefresh.current.sources.add(source.id);
+            schedulePendingRefresh();
           }
           return { source, page };
         };
         let settled: PromiseSettledResult<
           Awaited<ReturnType<typeof readSource>>
         >[];
-        if (pages.size && [...pages.values()].every((page) => !page.append)) {
+        {
+          const initialReads = new Set<string>(
+            pending.map((source) => source.id),
+          );
+          // Keep the same four-source budget for heads and appends. A fifth
+          // source waits for a slot; peer transport bounds each exchange to
+          // 15 seconds, and recovery releases the slot before cooldown waits.
           const queue = sourceReadQueue(
             pending.map((source) => source.id),
             async (id) => {
               if (!isCurrent())
                 throw new DOMException("Feed read superseded", "AbortError");
               const source = activeSources.find((source) => source.id === id)!;
-              pendingRefresh.current.sources.delete(id);
-              headSources.current.add(id);
+              const notified = pendingRefresh.current.sources.delete(id);
+              const initial = initialReads.delete(id);
+              const starting = pages.get(id)!;
+              if (initial && starting.append && starting.before && notified) {
+                pendingAppendSources.current.set(id, starting.before);
+                pages.set(id, { append: false });
+              }
+              if (!initial || !pages.get(id)!.append) {
+                headSources.current.add(id);
+                const retry = retryPages.current.get(id);
+                if (
+                  retry?.append &&
+                  !retry.doneSummary &&
+                  historyReadErrors.current.has(id) &&
+                  !historyDirtySources.current.has(id) &&
+                  !pendingAppendSources.current.has(id)
+                ) {
+                  pages.set(id, { ...retry, headPending: true });
+                } else {
+                  if (
+                    retry?.append &&
+                    !retry.doneSummary &&
+                    retry.before &&
+                    !pendingAppendSources.current.has(id)
+                  )
+                    pendingAppendSources.current.set(id, retry.before);
+                  if (pages.get(id)!.append) pages.set(id, { append: false });
+                }
+              }
               return readSource(source);
             },
             isCurrent,
@@ -2382,9 +2869,33 @@ export function Feed({
             const selected = activeSources.filter((source) =>
               ids.includes(source.id),
             );
-            for (const source of selected)
+            for (const source of selected) {
               if (!pending.some((item) => item.id === source.id))
                 pending.push(source);
+              const before = activeAppendSources.current.get(source.id);
+              if (
+                before &&
+                historyDirtySources.current.has(source.id) &&
+                preemptedAppends.current.get(source.id) !== before
+              ) {
+                // A resumed page gets a turn to finish; later notifications
+                // coalesce behind it instead of repeatedly cancelling it.
+                preemptedAppends.current.set(source.id, before);
+                pendingAppendSources.current.set(source.id, before);
+                initialReads.delete(source.id);
+                readRecovery.current.reset(
+                  source.id,
+                  JSON.stringify(query(before)),
+                );
+                if (filter === "done")
+                  doneCards.current
+                    .get(
+                      "feed-cards:" +
+                        JSON.stringify([owner, shownKey(), source.id]),
+                    )
+                    ?.restartRefresh();
+              }
+            }
             void loadNeeds(
               selected.map((source) => source.id),
               manual,
@@ -2408,7 +2919,7 @@ export function Feed({
             if (refreshReadingSources.current === enqueue)
               refreshReadingSources.current = undefined;
           }
-        } else settled = await Promise.allSettled(pending.map(readSource));
+        }
         if (!isCurrent()) return;
         settled.forEach((entry, index) => {
           const id = pending[index].id;
@@ -2448,7 +2959,7 @@ export function Feed({
           const { source, page } = entry;
           // The outage fallback must include pages appended by Load more.
           const earlier =
-            pages.get(source.id)!.append && !retainHistory
+            pages.get(source.id)!.append && !retainWindow
               ? sourcePages.current.pages.get(source.id)?.items
               : undefined;
           const known = new Set(
@@ -2486,7 +2997,7 @@ export function Feed({
         partialError = sourcePages.current.failures.size
           ? "Some environments could not refresh. Showing their last loaded threads."
           : "";
-        if (!append || retainHistory) {
+        if (!append || retainWindow) {
           settled.forEach((entry, index) => {
             const source = pending[index];
             if (entry.status !== "rejected") return;
@@ -2494,7 +3005,7 @@ export function Feed({
             if (page) loaded.push({ source, page });
           });
         }
-        if (append && retainHistory) {
+        if (append && retainWindow) {
           for (const source of activeSources) {
             if (loaded.some((item) => item.source.id === source.id)) continue;
             const page = sourcePages.current.pages.get(source.id);
@@ -2511,7 +3022,13 @@ export function Feed({
         result = assemble(loaded, nextCursors);
       } else {
         result = await readPage(
-          (before) => readProjectionPage(scopedSource, query(before), manual),
+          (before) =>
+            readProjectionPage(
+              scopedSource,
+              query(before),
+              manual,
+              pages.get(scopedSource)!.append,
+            ),
           scopedSource,
           pages.get(scopedSource)!.before,
         );
@@ -2521,7 +3038,7 @@ export function Feed({
       const key = shownKey();
       setItems((old) => {
         const merged = pendingUnsaves(
-          append && !retainHistory
+          append && !retainWindow
             ? [
                 ...old,
                 ...result.items.filter(
@@ -2538,18 +3055,25 @@ export function Feed({
               (a.sourceId || "").localeCompare(b.sourceId || "") ||
               feedItemOrder(a, b),
           );
-        cacheView<Shown>(
+        cacheShown(
           key,
           {
             items: merged,
             next: result.next,
             summary: result.summary,
             sourceSummaries: result.sourceSummaries,
+            historyExpanded,
           },
           owner,
         );
         return merged;
       });
+      for (const [source, error] of historyReadErrors.current) {
+        if (!retryPages.current.get(source)?.append)
+          retryPages.current.set(source, { append: false });
+        if (combined) sourcePages.current.failures.add(source);
+        partialError ||= error.message;
+      }
       setNext(result.next);
       setReadError(partialError);
     } catch (e) {
@@ -2561,6 +3085,7 @@ export function Feed({
     } finally {
       if (ticket === request.current) {
         inFlight.current = false;
+        activeAppendSources.current.clear();
         setReadBusy(false);
         setPartialReadPending(false);
       }
@@ -2584,7 +3109,7 @@ export function Feed({
     setReadError("");
     retryPages.current.clear();
     itemsSelection.current = shownKey();
-    const cached = cachedView<Shown>(shownKey());
+    const cached = readShown();
     // The first render already shows the cached list; a filter change swaps
     // to that filter's cached list, or a loader.
     if (!firstLoad.current) {
@@ -2608,6 +3133,16 @@ export function Feed({
     return () => {
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
+      pausedHeadRecovery.current.clear();
+      cancelDoneSummaries();
+      refreshHistorySources.current.clear();
+      doneRefresh.current = { key: "", sources: new Map() };
+      historyDirtySources.current.clear();
+      historyReadErrors.current.clear();
+      nextBackgroundReadAt.current = 0;
+      activeAppendSources.current.clear();
+      pendingAppendSources.current.clear();
+      preemptedAppends.current.clear();
       ++request.current;
       ++needsRequest.current;
       needsSourceRequests.current.clear();
@@ -2637,11 +3172,43 @@ export function Feed({
     // Source discovery and completed actions refresh the head with its normal
     // retry budget. Only this view's notice retries the failed operation once.
     const stopSourceEvent = listenClientEvent("loop-source-refresh", update);
+    const stopRefreshEvent = listenClientEvent("loop-refresh", () => {
+      preemptedAppends.current.clear();
+      // A deliberate pull refreshes the head even after a failed append. Keep
+      // the loaded card window and restart each source's bounded recovery.
+      if (inFlight.current)
+        for (const [source, cursor] of activeAppendSources.current)
+          pendingAppendSources.current.set(source, cursor);
+      // A retry cooldown outlives its visible batch. Preserve only a still
+      // recovering append; terminal failures require a new user intent.
+      for (const [source, retry] of retryPages.current)
+        if (
+          retry.append &&
+          retry.before &&
+          !retry.doneSummary &&
+          readRecovery.current.isRecovering(
+            source,
+            JSON.stringify(query(retry.before)),
+          )
+        )
+          pendingAppendSources.current.set(source, retry.before);
+      readRecovery.current.reset();
+      retryPages.current.clear();
+      pausedHeadRecovery.current.clear();
+      for (const [source, progress] of doneRefresh.current.sources)
+        doneRefresh.current.sources.set(source, { ...progress, restart: true });
+      for (const reader of doneCards.current.values()) reader.restartRefresh();
+      refreshHistorySources.current = new Set(
+        activeSources.map((source) => source.id),
+      );
+      void load();
+    });
     const stopChanges = listenWorkspaceChanges("feed", (event) => {
       const affected: string[] = activeSources
         .filter((source) => workspaceChangeAffects(event, "feed", source.id))
         .map((source) => source.id);
       if (affected.length) {
+        for (const source of affected) historyDirtySources.current.add(source);
         if (
           [...retryPages.current.keys()].every((source) =>
             affected.includes(source),
@@ -2663,8 +3230,10 @@ export function Feed({
       stopLaterEvent();
       stopSocialEvent();
       stopSourceEvent();
+      stopRefreshEvent();
       stopChanges();
       clearTimeout(doneCatchup.current);
+      doneCatchup.current = undefined;
     };
     // Re-arm with every input `load` reads, so the fallback refresh never
     // replaces the Feed using a stale filter or source list.
@@ -2678,6 +3247,37 @@ export function Feed({
     doneRead,
     generation,
   ]);
+  useEffect(() => {
+    if (inFlight.current || !pendingAppendSources.current.size) return;
+    if (!next) {
+      pendingAppendSources.current.clear();
+      return;
+    }
+    for (const source of pendingAppendSources.current.keys()) {
+      const cursor = combined ? JSON.parse(next || "{}")[source] : next;
+      if (!cursor && !doneRefresh.current.sources.has(source))
+        pendingAppendSources.current.delete(source);
+    }
+    const ready = activeSources
+      .map((source) => source.id)
+      .filter(
+        (source) =>
+          pendingAppendSources.current.has(source) &&
+          !pendingRefresh.current.sources.has(source) &&
+          retryPages.current.get(source)?.append !== true,
+      );
+    if (!ready.length) return;
+    const cursors = new Map(
+      ready.map((source) => [
+        source,
+        pendingAppendSources.current.get(source)!,
+      ]),
+    );
+    for (const source of ready) pendingAppendSources.current.delete(source);
+    // Replay the interrupted page, which can be a gap even when older history
+    // was exhausted. Its cursor is distinct from the window's continuation.
+    void load(true, false, ready, false, cursors);
+  }, [readBusy, next, filter, project, teams, agent, sourceKey, generation]);
   async function runAction(
     runId: string,
     ...command:
@@ -2782,9 +3382,9 @@ export function Feed({
     };
     const update = (change: (items: FeedItem[]) => FeedItem[]) => {
       if (owner !== viewOwner()) return;
-      const cached = cachedView<Shown>(key);
+      const cached = readShown(key);
       if (cached)
-        cacheView(key, { ...cached, items: change(cached.items) }, owner);
+        cacheShown(key, { ...cached, items: change(cached.items) }, owner);
       const page =
         sourcePages.current.key === pagesKey()
           ? sourcePages.current.pages.get(source)
@@ -3035,9 +3635,9 @@ export function Feed({
           ? { ...row, last_message: { ...row.last_message, saved } }
           : row,
       );
-    const cached = cachedView<Shown>(shownKey());
+    const cached = readShown();
     if (cached)
-      cacheView(
+      cacheShown(
         shownKey(),
         { ...cached, items: change(cached.items) },
         viewOwner(),

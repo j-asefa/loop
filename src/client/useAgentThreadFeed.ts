@@ -4,7 +4,11 @@ import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import type { AgentThreadSummary } from "../shared/agent-thread-feed";
 import { readRoute } from "./api";
 import { cachedView, cacheView, viewGeneration, viewOwner } from "./viewCache";
-import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import {
+  advanceDoneRefresh,
+  refreshDonePage,
+  type DoneRefresh,
+} from "./feed-done-refresh";
 import { usePagedProjectionQuery } from "./CollectionRead";
 
 export type SourcedAgentThread = AgentThreadSummary & { source: string };
@@ -16,19 +20,31 @@ type Row = SourcedAgentThread & {
   last_activity_at: number;
 };
 type Page = { items: Row[]; next: string | null };
+type CachedPage = Page & { progress?: DoneRefresh };
 type Query = NonNullable<
   RouteInput<typeof workspaceApi.agentThreadFeed>["query"]
 >;
 type Window = {
+  refreshSources?: readonly string[];
   pages: Map<string, Page>;
   progress: Map<string, DoneRefresh>;
   errors: Map<string, string>;
+  headErrors: Set<string>;
   next: string | null;
 };
-const cursor = (pages: Map<string, Page>) => {
+const historyContinuation = (page: Page, progress?: DoneRefresh) =>
+  progress?.continuation !== undefined ? progress.continuation : page.next;
+const appendCursor = (page: Page, progress?: DoneRefresh) =>
+  progress?.gapUntil || progress?.rescanGap
+    ? page.next
+    : historyContinuation(page, progress);
+const cursor = (
+  pages: Map<string, Page>,
+  progress = new Map<string, DoneRefresh>(),
+) => {
   const next = [...pages]
-    .filter(([, page]) => page.next)
-    .map(([source, page]) => [source, page.next]);
+    .map(([source, page]) => [source, appendCursor(page, progress.get(source))])
+    .filter(([, next]) => next);
   return next.length ? JSON.stringify(next) : null;
 };
 
@@ -43,17 +59,25 @@ export function useAgentThreadFeed(
   const cacheKey = (source: string) =>
     "agent-thread-feed:" + JSON.stringify([source, query]);
   const empty = useMemo<Window>(() => {
-    const pages = new Map(
+    const pages = new Map<string, CachedPage>(
       sources.map((source) => [
         source,
-        cachedView<Page>(cacheKey(source)) ?? { items: [], next: null },
+        cachedView<CachedPage>(cacheKey(source)) ?? { items: [], next: null },
       ]),
+    );
+    const progress = new Map(
+      [...pages].flatMap(([source, page]) =>
+        page.progress
+          ? [[source, { ...page.progress, restart: true }] as const]
+          : [],
+      ),
     );
     return {
       pages,
-      progress: new Map(),
+      progress,
       errors: new Map(),
-      next: cursor(pages),
+      headErrors: new Set(),
+      next: cursor(pages, progress),
     };
   }, [key]);
   const reader = usePagedProjectionQuery<Window, string>({
@@ -62,23 +86,72 @@ export function useAgentThreadFeed(
     enabled,
     empty,
     collections: AGENT_THREAD_SURFACES,
-    events: ["focus"],
+    events: ["focus", "loop-refresh"],
+    restartOnRefresh: (page) => ({
+      ...page,
+      refreshSources: undefined,
+      progress: new Map(
+        [...page.progress].map(([source, progress]) => [
+          source,
+          { ...progress, restart: true },
+        ]),
+      ),
+    }),
+    invalidateHistory: (page, sources) => ({
+      ...page,
+      refreshSources: [
+        ...new Set([
+          ...sources,
+          ...[...(page.refreshSources ?? page.progress.keys())].filter(
+            (source) => !page.errors.has(source),
+          ),
+        ]),
+      ],
+      progress: new Map(
+        [...page.progress].map(([source, progress]) => [
+          source,
+          sources.includes(source)
+            ? { ...progress, rescan: true, invalidated: true }
+            : progress,
+        ]),
+      ),
+    }),
     coalesceDelay: 400,
     refreshDelay: () => 400,
     needsRefresh: (page) =>
-      [...page.progress.keys()].some((source) => !page.errors.has(source)),
-    read: async (previous, before, signal, mode, readComplete) => {
+      !!page.refreshSources?.some((source) => !page.errors.has(source)),
+    read: async (previous, before, signal, mode, readComplete, publish) => {
       const pages = new Map(previous.pages),
         progress = new Map(previous.progress),
-        errors = new Map(previous.errors);
+        errors = new Map(previous.errors),
+        headErrors = new Set(previous.headErrors);
+      const refreshSources = new Set(
+        previous.refreshSources ?? progress.keys(),
+      );
       const current = () =>
         !signal.aborted &&
         generation === viewGeneration() &&
         owner === viewOwner();
+      const requested =
+        before === undefined
+          ? undefined
+          : new Map(JSON.parse(before) as [string, string][]);
       await Promise.all(
         sources.map(async (source) => {
+          if (
+            before === undefined &&
+            mode !== "manual" &&
+            previous.refreshSources &&
+            !previous.refreshSources.includes(source)
+          )
+            return;
           const old = pages.get(source)!;
-          if (before !== undefined && !old.next) return;
+          let older = requested?.get(source);
+          if (
+            before !== undefined &&
+            (!older || (!old.next && !progress.has(source)))
+          )
+            return;
           const read = async (before?: string): Promise<Page> => {
             const page = await readRoute(
               workspaceApi.agentThreadFeed,
@@ -104,7 +177,21 @@ export function useAgentThreadFeed(
           try {
             let page: Page;
             if (before !== undefined) {
-              const incoming = await read(old.next!);
+              let incoming = await read(older!);
+              const continuation = appendCursor(old, progress.get(source));
+              const visible = new Set(old.items.map((thread) => thread.id));
+              // A refreshed head can already contain the interrupted page.
+              // Finish that More intent at the new cursor instead of making
+              // the user repeat a click that only returned duplicate rows.
+              if (
+                current() &&
+                continuation &&
+                continuation !== older &&
+                incoming.items.every((thread) => visible.has(thread.id))
+              ) {
+                older = continuation;
+                incoming = await read(older);
+              }
               const known = new Set(incoming.items.map((thread) => thread.id));
               page = {
                 ...incoming,
@@ -113,27 +200,156 @@ export function useAgentThreadFeed(
                   ...incoming.items,
                 ].sort(feedItemOrder),
               };
+              let sweep = progress.get(source);
+              if (sweep) sweep = advanceDoneRefresh(sweep, older!, incoming);
+              const floor = page.items.at(-1);
+              const oldFloor = old.items.at(-1);
+              if (
+                older !== appendCursor(old, sweep) &&
+                (!floor || !oldFloor || feedItemOrder(floor, oldFloor) <= 0)
+              )
+                page.next = old.next;
+              if (sweep && older === old.next) {
+                const last = incoming.items.at(-1);
+                const exhaustedFloor =
+                  sweep.continuation === null ? sweep.floor : undefined;
+                const covered = (boundary: DoneRefresh["gapUntil"]) => {
+                  const target =
+                    boundary &&
+                    exhaustedFloor &&
+                    feedItemOrder(exhaustedFloor, boundary) > 0
+                      ? exhaustedFloor
+                      : boundary;
+                  return (
+                    !incoming.next ||
+                    (last && target && feedItemOrder(last, target) >= 0)
+                  );
+                };
+                sweep = {
+                  ...sweep,
+                  gapUntil: covered(sweep.gapUntil)
+                    ? undefined
+                    : sweep.gapUntil,
+                  rescanGap: covered(sweep.rescanGap)
+                    ? undefined
+                    : sweep.rescanGap,
+                };
+                progress.set(source, sweep);
+              }
+              if (
+                sweep &&
+                (older === historyContinuation(old, sweep) ||
+                  (sweep.continuation === null &&
+                    older === old.next &&
+                    incoming.items.at(-1) &&
+                    sweep.floor &&
+                    feedItemOrder(incoming.items.at(-1)!, sweep.floor) >= 0) ||
+                  (floor &&
+                    sweep.floor &&
+                    feedItemOrder(floor, sweep.floor) > 0))
+              ) {
+                if ((sweep.gapUntil || sweep.rescanGap) && older !== old.next)
+                  page.next = old.next;
+                progress.set(source, {
+                  ...sweep,
+                  floor: page.items.at(-1),
+                  continuation: incoming.next,
+                });
+              }
+              if (progress.has(source)) refreshSources.add(source);
             } else {
+              const priorProgress = progress.get(source);
               const refreshed = await refreshDonePage(
                 read,
                 old,
-                progress.get(source),
+                priorProgress,
                 current,
+                (head, headProgress) => {
+                  if (!current()) return;
+                  pages.set(source, head);
+                  progress.set(source, headProgress);
+                  cacheView(
+                    cacheKey(source),
+                    { ...head, progress: headProgress },
+                    owner,
+                  );
+                  publish({
+                    pages: new Map(pages),
+                    progress: new Map(progress),
+                    errors: new Map(errors),
+                    headErrors: new Set(headErrors),
+                    refreshSources: [...refreshSources],
+                    next: cursor(pages, progress),
+                  });
+                },
               );
               page = refreshed.page;
-              if (refreshed.progress) progress.set(source, refreshed.progress);
-              else progress.delete(source);
+              if (refreshed.progress) {
+                progress.set(source, refreshed.progress);
+                // Finish this sweep and its known gap. Only an external
+                // invalidation starts another full reconciliation sweep.
+                if (
+                  priorProgress &&
+                  !priorProgress.restart &&
+                  !priorProgress.invalidated &&
+                  !refreshed.progress.settleGap &&
+                  feedItemOrder(
+                    refreshed.progress.after,
+                    priorProgress.after,
+                  ) <= 0
+                )
+                  refreshSources.delete(source);
+                else refreshSources.add(source);
+              } else {
+                progress.delete(source);
+                refreshSources.delete(source);
+              }
+              // A successful older-page append cannot repair a failed scan
+              // of the loaded window. Keep this refresh error until that scan
+              // succeeds, otherwise gaps could remain with no warning.
+              if (refreshed.error && current()) {
+                pages.set(source, page);
+                cacheView(
+                  cacheKey(source),
+                  {
+                    ...page,
+                    progress: progress.get(source),
+                  },
+                  owner,
+                );
+                throw refreshed.error;
+              }
             }
             if (!current()) return;
             pages.set(source, page);
-            cacheView(cacheKey(source), page, owner);
-            errors.delete(source);
+            cacheView(
+              cacheKey(source),
+              {
+                ...page,
+                progress: progress.get(source),
+              },
+              owner,
+            );
+            if (before === undefined) headErrors.delete(source);
+            if (!headErrors.has(source)) errors.delete(source);
           } catch (error) {
-            if (current()) errors.set(source, (error as Error).message);
+            if (current()) {
+              if (before === undefined) headErrors.add(source);
+              errors.set(source, (error as Error).message);
+            }
           }
         }),
       );
-      return { pages, progress, errors, next: cursor(pages) };
+      return {
+        refreshSources: [...refreshSources].filter(
+          (source) => !errors.has(source),
+        ),
+        pages,
+        progress,
+        errors,
+        headErrors,
+        next: cursor(pages, progress),
+      };
     },
   });
   const items = useMemo(

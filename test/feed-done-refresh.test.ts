@@ -2,6 +2,7 @@ import { feedItemOrder } from "../src/shared/feed-order";
 import { expect, it } from "vitest";
 import {
   refreshDonePage,
+  advanceDoneRefresh,
   type DoneRefresh,
 } from "../src/client/feed-done-refresh";
 
@@ -31,6 +32,143 @@ it("retains distinct replies to the same question across a history refresh", asy
 });
 const history = (count: number) =>
   Array.from({ length: count }, (_, i) => card(count - i));
+it("publishes a fresh head before a held history page finishes", async () => {
+  let release!: () => void;
+  let published!: (value: unknown) => void;
+  const head = new Promise((resolve) => {
+    published = resolve;
+  });
+  const pending = refreshDonePage(
+    async (before) => {
+      if (!before) return { items: [card(8)], next: "8" as string | null };
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { items: [card(7)], next: "7" };
+    },
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+    published,
+  );
+  expect(await head).toMatchObject({ items: [card(8), ...history(3)] });
+  release();
+  expect((await pending).page.items).toContainEqual(card(7));
+});
+
+it("retains a partially published gap when a second pull fails in history", async () => {
+  let partial: { items: Item[]; next: string | null } | undefined;
+  let progress: DoneRefresh | undefined;
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return { items: [card(8)], next: "8" as string | null };
+  };
+  await refreshDonePage(
+    read,
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+    (page, sweep) => {
+      partial = page;
+      progress = sweep;
+    },
+  );
+  expect(partial?.next).toBe("8");
+  expect(progress?.gapUntil).toEqual(card(3));
+  const retry = await refreshDonePage(
+    read,
+    partial!,
+    { ...progress!, restart: true },
+    () => true,
+  );
+  expect(retry.error?.message).toBe("history unavailable");
+  expect(retry.page.next).toBe("8");
+  expect(retry.progress?.gapUntil).toEqual(card(3));
+});
+
+it("advances a failed sweep when manual appends cover its pending pages", async () => {
+  const read = async (before?: string) => {
+    const n = before ? Number(before) - 1 : 8;
+    return { items: [card(n)], next: n > 1 ? String(n) : null };
+  };
+  let result = await refreshDonePage(
+    async (before) => {
+      if (before) throw new Error("unavailable");
+      return read();
+    },
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+  );
+  for (let i = 0; i < 2; i++) {
+    const before = result.page.next!;
+    const page = await read(before);
+    result = {
+      page: {
+        ...page,
+        items: [...result.page.items, ...page.items].sort(feedItemOrder),
+      },
+      progress: advanceDoneRefresh(result.progress!, before, page),
+    };
+  }
+  expect(result.page.next).toBe("6");
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.page.next).toBe("5");
+});
+it("finishes a finite burst during a sweep without chasing more heads", async () => {
+  let rows = Array.from({ length: 8 }, (_, i) => 8 - i);
+  let heads = 0;
+  const read = async (before?: string) => {
+    if (!before) heads++;
+    const remaining = before ? rows.filter((n) => n < Number(before)) : rows;
+    const n = remaining[0];
+    return {
+      items: n === undefined ? [] : [card(n)],
+      next: remaining.length > 1 ? String(n) : null,
+    };
+  };
+  let result = await refreshDonePage(
+    read,
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+  );
+  rows = Array.from({ length: 12 }, (_, i) => 12 - i);
+  for (let i = 0; i < 20 && result.progress; i++)
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(history(12));
+  expect(heads).toBe(7);
+});
+it("stops gap settlement when a manual append already covered it", async () => {
+  const page = { items: history(12), next: "8", summary: "preserved" };
+  const result = await refreshDonePage(
+    async () => {
+      throw new Error("The covered gap must not be reread");
+    },
+    page,
+    {
+      before: "12",
+      after: card(12),
+      floor: card(1),
+      continuation: null,
+      settleGap: true,
+    },
+    () => true,
+  );
+  expect(result.progress).toBeUndefined();
+  expect(result.page).toEqual({ ...page, next: null });
+});
 function server(items: Item[]) {
   const calls: (string | undefined)[] = [];
   return {
@@ -45,7 +183,6 @@ function server(items: Item[]) {
       return {
         items: page,
         next: remaining.length > 40 ? JSON.stringify(page.at(-1)) : null,
-        summary: "fresh",
       };
     },
   };
@@ -154,6 +291,46 @@ it("keeps a new first page intact when remote removals shrink the loaded window"
   expect((await api.read(result.page.next!)).items[0]).toEqual(card(60));
 });
 
+it.each([false, true])(
+  "restores the loaded-window continuation after a large gap (second pull: %s)",
+  async (secondPull) => {
+    const loaded = history(100).slice(0, 95);
+    const continuation = JSON.stringify(loaded.at(-1));
+    const api = server(history(225));
+    let previous = { items: loaded, next: continuation as string | null };
+    let progress: DoneRefresh | undefined;
+    for (let cycle = 0; cycle < 8; cycle++) {
+      const result = await refreshDonePage(
+        api.read,
+        previous,
+        progress,
+        () => true,
+      );
+      previous = result.page;
+      progress = result.progress;
+      if (secondPull && cycle === 0 && progress)
+        progress = { ...progress, restart: true };
+      if (!progress) break;
+    }
+    expect(progress).toBeUndefined();
+    expect(previous.next).toBe(continuation);
+    expect(previous.items).toEqual(history(225).slice(0, 220));
+    expect((await api.read(previous.next!)).items).toEqual(history(5));
+  },
+);
+
+it("rejects non-advancing history before it can schedule a reconciliation loop", async () => {
+  const items = history(125);
+  const api = server(items);
+  const first = await api.read();
+  const read = async (before?: string) =>
+    before ? { ...first, next: before } : first;
+  await expect(
+    refreshDonePage(read, { items, next: null }, undefined, () => true),
+  ).rejects.toThrow("History pagination did not advance");
+  expect(items).toEqual(history(125));
+});
+
 it("keeps equal-time results from different conversations and independent card identities", async () => {
   const items = history(125)
     .map((item, i) => ({
@@ -233,18 +410,25 @@ it.each([39, 40])(
   },
 );
 
-it("leaves the source's retained window and progress intact when a history read fails", async () => {
+it("returns a successful head with retained history and an explicit history error", async () => {
   const items = history(125),
     original = structuredClone(items);
   const progress = { before: JSON.stringify(card(85)), after: card(85) };
   const originalProgress = structuredClone(progress);
   const read = async (before?: string) => {
     if (before) throw new Error("Source unavailable");
-    return server(items).read();
+    return server([card(126), ...items]).read();
   };
-  await expect(
-    refreshDonePage(read, { items, next: null }, progress, () => true),
-  ).rejects.toThrow("Source unavailable");
+  const result = await refreshDonePage(
+    read,
+    { items, next: null },
+    progress,
+    () => true,
+  );
+  expect(result.error?.message).toBe("Source unavailable");
+  expect(result.page.items).toContainEqual(card(126));
+  expect(result.page.items).toContainEqual(card(1));
+  expect(result.progress?.before).toBe(progress.before);
   expect(items).toEqual(original);
   expect(progress).toEqual(originalProgress);
 });
@@ -258,4 +442,314 @@ it("stops history reads when the owner or selection has changed", async () => {
     () => false,
   );
   expect(api.calls).toEqual([undefined]);
+});
+
+it("revisits a newly uncovered interval when live updates move the head", async () => {
+  const initial = history(200);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  const changed = history(210).filter((item) => item.last_activity_at !== 160);
+  for (let cycle = 0; cycle < 8; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(changed);
+});
+
+it("preserves the real continuation when the oldest loaded row moves to the head", async () => {
+  const loaded = history(100).slice(0, 95);
+  const continuation = JSON.stringify(loaded.at(-1));
+  let result = await refreshDonePage(
+    server(history(225)).read,
+    { items: loaded, next: continuation },
+    undefined,
+    () => true,
+  );
+  const moved = { ...card(6), last_activity_at: 226 };
+  const changed = [
+    moved,
+    ...history(225).filter((item) => item.last_activity_at !== 6),
+  ];
+  for (let cycle = 0; cycle < 10; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.next).toBe(continuation);
+  expect((await server(changed).read(result.page.next!)).items).toEqual(
+    history(5),
+  );
+});
+
+it("revisits a completed interval after a notification without a moving head", async () => {
+  const initial = history(200);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  result.progress!.rescan = true;
+  const changed = initial.filter((item) => item.last_activity_at !== 160);
+  for (let cycle = 0; cycle < 12; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.page.items).toEqual(changed);
+  expect(result.progress).toBeUndefined();
+});
+
+it("reaches old removals even when every pass moves the head", async () => {
+  const initial = history(400);
+  let result = await refreshDonePage(
+    server(initial).read,
+    { items: initial, next: null },
+    undefined,
+    () => true,
+  );
+  for (let cycle = 1; cycle <= 12; cycle++) {
+    const changed = history(400 + cycle).filter(
+      (item) => item.last_activity_at !== 10,
+    );
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  }
+  expect(result.page.items.some((item) => item.last_activity_at === 10)).toBe(
+    false,
+  );
+});
+
+it("keeps an exposed gap reachable across repeated history failures", async () => {
+  const api = server(history(225));
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  const initial = {
+    items: history(100).slice(0, 95),
+    next: JSON.stringify(card(6)),
+  };
+  let result = await refreshDonePage(read, initial, undefined, () => true);
+  const gap = result.page.next;
+  for (let i = 0; i < 3; i++)
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  expect(result.page.next).toBe(gap);
+  expect((await api.read(gap!)).items[0]).toEqual(card(185));
+  expect(result.error?.message).toBe("history unavailable");
+});
+
+it("does not publish a partial window when history is cancelled without a ticket change", async () => {
+  const api = server(history(225));
+  const cancelled = new DOMException("Projection reset", "AbortError");
+  const read = async (before?: string) => {
+    if (before) throw cancelled;
+    return api.read();
+  };
+  await expect(
+    refreshDonePage(
+      read,
+      { items: history(100), next: null },
+      undefined,
+      () => true,
+    ),
+  ).rejects.toBe(cancelled);
+});
+
+it("keeps an appended initial-gap cursor through repeated history failures", async () => {
+  const api = server(history(225));
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  let result = await refreshDonePage(
+    read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  const appended = await api.read(result.page.next!);
+  const next = appended.next;
+  result = {
+    ...result,
+    page: {
+      ...result.page,
+      items: [...result.page.items, ...appended.items],
+      next,
+    },
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    expect(result.error?.message).toBe("history unavailable");
+    expect(result.page.next).toBe(next);
+  }
+});
+
+it("keeps an appended rescan-gap cursor when the older sweep fails", async () => {
+  let items = history(225);
+  let result = await refreshDonePage(
+    server(items).read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  items = history(400);
+  const failedSweep = result.progress!.before;
+  const read = async (before?: string) => {
+    if (before === failedSweep) throw new Error("older sweep unavailable");
+    return server(items).read(before);
+  };
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.progress?.rescanGap).toBeDefined();
+  const appended = await read(result.page.next!);
+  const next = appended.next;
+  result = await refreshDonePage(
+    read,
+    { ...result.page, items: [...result.page.items, ...appended.items], next },
+    result.progress,
+    () => true,
+  );
+  expect(result.error?.message).toBe("older sweep unavailable");
+  expect(result.page.next).toBe(next);
+});
+
+it("a newer failed pull exposes its new gap ahead of an earlier failed gap", async () => {
+  let items = history(225);
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return server(items).read();
+  };
+  const initial = {
+    items: history(100).slice(0, 95),
+    next: JSON.stringify(card(6)),
+  };
+  let result = await refreshDonePage(read, initial, undefined, () => true);
+  items = history(300);
+  result = await refreshDonePage(
+    read,
+    result.page,
+    { ...result.progress!, restart: true },
+    () => true,
+  );
+  expect((await server(items).read(result.page.next!)).items[0]).toEqual(
+    card(260),
+  );
+});
+
+it("keeps a gap reachable after an intermediate success and a later failure", async () => {
+  const api = server(history(400));
+  let result = await refreshDonePage(
+    api.read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  result = await refreshDonePage(
+    api.read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  const gap = result.page.next;
+  expect(gap).not.toBeNull();
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.page.next).toBe(gap);
+  expect((await api.read(result.page.next!)).items[0]).toEqual(card(280));
+});
+
+it("finishes a new burst above an already active history sweep", async () => {
+  const original = history(200);
+  let result = await refreshDonePage(
+    server(original).read,
+    { items: original, next: null },
+    undefined,
+    () => true,
+  );
+  result = await refreshDonePage(
+    server(original).read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  const changed = history(300);
+  for (let cycle = 0; cycle < 15; cycle++) {
+    result = await refreshDonePage(
+      server(changed).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(changed);
+});
+
+it("does not expose duplicate pagination during a deletion-only rescan", async () => {
+  const items = history(200);
+  let result = await refreshDonePage(
+    server(items).read,
+    { items, next: null },
+    undefined,
+    () => true,
+  );
+  result.progress!.rescan = true;
+  for (let cycle = 0; cycle < 12; cycle++) {
+    result = await refreshDonePage(
+      server(items).read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    expect(result.page.next).toBeNull();
+    if (!result.progress) break;
+  }
+  expect(result.progress).toBeUndefined();
 });
