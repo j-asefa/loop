@@ -303,6 +303,31 @@ async function teamEditingSmoke(page, fixture) {
           .getByRole("searchbox", { name: "Search agents" })
           .press("Escape");
         await expect(managers).toHaveCount(0);
+        // Enter in the Workers search filters; it never submits the team.
+        const creates = [];
+        const onRequest = (request) => {
+          if (
+            request.method() === "POST" &&
+            new URL(request.url()).pathname.endsWith("/teams")
+          )
+            creates.push(request.url());
+        };
+        page.on("request", onRequest);
+        await dialog()
+          .getByLabel("Team name", { exact: true })
+          .fill("Enter must not submit");
+        await dialog().getByRole("checkbox").first().check();
+        await dialog()
+          .getByRole("searchbox", { name: "Search agents" })
+          .press("Enter");
+        // A submit would request immediately; give it time to appear.
+        await page.waitForTimeout(500);
+        page.off("request", onRequest);
+        assert.deepEqual(creates, []);
+        await expect(dialog()).toHaveAttribute(
+          "aria-label",
+          "Create an agent team",
+        );
         await exit();
         await expect(dialog()).toHaveAttribute("aria-label", "Agent teams");
       }

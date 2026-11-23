@@ -216,6 +216,10 @@ export function AgentSearch({
         placeholder="Search agents…"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        // Filtering never submits a surrounding form, such as Create team.
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
       />
     </label>
   );
