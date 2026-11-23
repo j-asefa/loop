@@ -135,6 +135,14 @@ function PublishedFileView({
           url={url}
           name={name}
           mime={meta.mime}
+          initialText={
+            meta.text &&
+            typeof content === "string" &&
+            !isHtmlFile(name, meta.mime) &&
+            previewsAsText(name, meta.mime)
+              ? content
+              : undefined
+          }
           onClose={() => setOpen(false)}
         />
       )}
@@ -230,5 +238,17 @@ export function RunFiles({
         />
       ))}
     </section>
+  );
+}
+
+// Matches the text types FilePreview renders once the download finishes, so
+// a file it will show as a placeholder never flashes as text first.
+function previewsAsText(name: string, mime = "") {
+  const type = mime.split(";")[0].trim().toLowerCase();
+  if (!type || type === "application/octet-stream")
+    return /\.(md|markdown|txt|csv|tsv|log|json|ya?ml)$/i.test(name);
+  return (
+    type.startsWith("text/") ||
+    ["application/json", "application/xml", "application/yaml"].includes(type)
   );
 }

@@ -203,13 +203,46 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
     // The published-file button and a Markdown file link share this preview.
     await page.goto(fixture.base + "/?artifact=" + id);
     await expect(dialog().locator(".file-text-preview")).toHaveCount(0);
-    await dialog()
-      .getByRole("button", { name: "Preview prototype.html", exact: true })
-      .click();
+    let releaseDownload, downloadContinued;
+    const heldDownload = new Promise((resolve) => {
+      releaseDownload = resolve;
+    });
+    const holdRawFile = async (route) => {
+      if (new URL(route.request().url()).searchParams.get("preview") === "html")
+        return route.continue();
+      downloadContinued = (async () => {
+        await heldDownload;
+        await route.continue();
+      })();
+      await downloadContinued;
+    };
+    await page.route(`**/api/artifacts/${id}/file*`, holdRawFile);
+    try {
+      await dialog()
+        .getByRole("button", { name: "Preview prototype.html", exact: true })
+        .click();
+      await expect(
+        dialog().frameLocator("iframe").getByRole("heading", {
+          name: "Interactive prototype",
+          exact: true,
+        }),
+      ).toBeVisible();
+      // The iframe rendered while the raw download was still held.
+      await expect(dialog().locator(".file-preview-actions")).toHaveCount(0);
+    } finally {
+      releaseDownload();
+      // Cleanup must not replace an assertion failure from the try block.
+      await downloadContinued?.catch(() => {});
+      await page.unroute(`**/api/artifacts/${id}/file*`, holdRawFile);
+    }
+    // Once the download lands, its result keeps the same sandboxed iframe.
+    await expect(dialog().locator(".file-preview-actions")).toBeVisible();
+    await expect(dialog().locator("iframe")).toHaveCount(1);
     await expect(
-      dialog()
-        .frameLocator("iframe")
-        .getByRole("heading", { name: "Interactive prototype", exact: true }),
+      dialog().frameLocator("iframe").getByRole("heading", {
+        name: "Interactive prototype",
+        exact: true,
+      }),
     ).toBeVisible();
     await page.evaluate(() =>
       Object.defineProperty(navigator, "canShare", {
