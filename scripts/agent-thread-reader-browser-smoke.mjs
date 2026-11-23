@@ -158,6 +158,7 @@ try {
         "gap-continuation",
         "pull-append-error",
         "pull-append-live",
+        "moving-head-settles",
         "pull-gap-replay",
         "history-error",
         "history-error-reopen",
@@ -216,6 +217,38 @@ try {
         await expect(output).toBeEmpty();
         await page.evaluate(() => window.enable(true));
         await expect(output).toContainText("first-A1");
+      } else if (scenario === "moving-head-settles") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        movingHead = true;
+        const start = requests.length;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(output).toContainText("first-A4");
+        await page.waitForTimeout(2500);
+        assert(
+          requests.slice(start).filter((r) => r.source === "A").length <= 4,
+          "One pull must finish its sweep without polling a moving head indefinitely",
+        );
+        const settled = requests.length;
+        await page.waitForTimeout(1000);
+        assert.equal(
+          requests.length,
+          settled,
+          "A moving head alone must not keep the reader polling",
+        );
+        movingHead = false;
+        rows.unshift(20);
+        await page.evaluate(() =>
+          window.dispatchEvent(
+            new CustomEvent("loop-workspace-change", {
+              detail: { sources: [""] },
+            }),
+          ),
+        );
+        await expect(output).toContainText("first-A20");
       } else if (scenario === "gap-continuation") {
         await more();
         await expect(output).toContainText("first-A2");

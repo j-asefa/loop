@@ -98,7 +98,7 @@ export function useAgentThreadFeed(
       refreshSources: [
         ...new Set([
           ...sources,
-          ...[...page.progress.keys()].filter(
+          ...[...(page.refreshSources ?? page.progress.keys())].filter(
             (source) => !page.errors.has(source),
           ),
         ]),
@@ -113,12 +113,15 @@ export function useAgentThreadFeed(
     coalesceDelay: 400,
     refreshDelay: () => 400,
     needsRefresh: (page) =>
-      [...page.progress.keys()].some((source) => !page.errors.has(source)),
+      !!page.refreshSources?.some((source) => !page.errors.has(source)),
     read: async (previous, before, signal, mode, readComplete) => {
       const pages = new Map(previous.pages),
         progress = new Map(previous.progress),
         errors = new Map(previous.errors),
         headErrors = new Set(previous.headErrors);
+      const refreshSources = new Set(
+        previous.refreshSources ?? progress.keys(),
+      );
       const current = () =>
         !signal.aborted &&
         generation === viewGeneration() &&
@@ -246,16 +249,34 @@ export function useAgentThreadFeed(
                   continuation: incoming.next,
                 });
               }
+              if (progress.has(source)) refreshSources.add(source);
             } else {
+              const priorProgress = progress.get(source);
               const refreshed = await refreshDonePage(
                 read,
                 old,
-                progress.get(source),
+                priorProgress,
                 current,
               );
               page = refreshed.page;
-              if (refreshed.progress) progress.set(source, refreshed.progress);
-              else progress.delete(source);
+              if (refreshed.progress) {
+                progress.set(source, refreshed.progress);
+                // Finish this sweep, then wait for another invalidation or
+                // More before revisiting a gap created by a moving head.
+                if (
+                  priorProgress &&
+                  !priorProgress.restart &&
+                  feedItemOrder(
+                    refreshed.progress.after,
+                    priorProgress.after,
+                  ) <= 0
+                )
+                  refreshSources.delete(source);
+                else refreshSources.add(source);
+              } else {
+                progress.delete(source);
+                refreshSources.delete(source);
+              }
               // A successful older-page append cannot repair a failed scan
               // of the loaded window. Keep this refresh error until that scan
               // succeeds, otherwise gaps could remain with no warning.
@@ -293,7 +314,7 @@ export function useAgentThreadFeed(
         }),
       );
       return {
-        refreshSources: [...progress.keys()].filter(
+        refreshSources: [...refreshSources].filter(
           (source) => !errors.has(source),
         ),
         pages,
