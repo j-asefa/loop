@@ -4,8 +4,10 @@ import {
   completeLeadingAgentMention,
   parseLeadingAgentMention,
   renderComposer,
+  renderComposerSendSheets,
   useComposerSend,
 } from "../src/client/app/Composer";
+import { listenClientEvent } from "../src/client/clientEvents";
 import {
   PublicAgent,
   PublicTeam,
@@ -220,6 +222,110 @@ describe("inline @agent mention and handoff in composer", () => {
       expect(handoffHtml).not.toContain("composer-reply-chip");
       expect(handoffHtml).toContain("Sends to @mist.");
       expect(handoffHtml).not.toContain('aria-label="Send reply" disabled=""');
+      expect(handoffHtml).not.toContain("This agent is retired.");
+
+      // Walk the element tree to exercise Tab, Shift+Tab, and suggestion click handlers directly.
+      const findElements = (
+        node: unknown,
+        predicate: (el: {
+          type: unknown;
+          props: Record<string, any>;
+        }) => boolean,
+        out: { type: unknown; props: Record<string, any> }[] = [],
+      ) => {
+        if (!node || typeof node !== "object") return out;
+        if (Array.isArray(node)) {
+          for (const child of node) findElements(child, predicate, out);
+          return out;
+        }
+        const el = node as { type?: unknown; props?: Record<string, any> };
+        if (el.props) {
+          if (predicate(el as { type: unknown; props: Record<string, any> }))
+            out.push(el as { type: unknown; props: Record<string, any> });
+          findElements(el.props.children, predicate, out);
+        }
+        return out;
+      };
+      const misty = agent("misty", "misty");
+      const setDraft = vi.fn();
+      const interactive = renderComposer(
+        baseComposerProps({
+          composerData: {
+            agents: [misty, mist, holly],
+            connections: [],
+            folders: [],
+          },
+          availableAgents: [misty, mist, holly],
+          draft: "@mist",
+          setDraft,
+        }),
+      );
+      const textarea = findElements(
+        interactive.messageComposer,
+        (el) => el.type === "textarea" && el.props.id === "composer",
+      )[0];
+      expect(textarea).toBeDefined();
+      // Shift+Tab must not swallow focus navigation or rewrite the draft.
+      textarea.props.onKeyDown({
+        key: "Tab",
+        shiftKey: true,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        preventDefault: vi.fn(),
+      });
+      expect(setDraft).not.toHaveBeenCalled();
+      // Unmodified Tab completes the exact match (@mist) ahead of @misty.
+      const preventDefault = vi.fn();
+      textarea.props.onKeyDown({
+        key: "Tab",
+        shiftKey: false,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        preventDefault,
+      });
+      expect(preventDefault).toHaveBeenCalledTimes(1);
+      expect(setDraft).toHaveBeenCalledWith("@mist ");
+
+      // Clicking a suggestion pill completes its handle.
+      const pills = findElements(
+        interactive.messageComposer,
+        (el) => el.props.role === "option",
+      );
+      expect(pills).toHaveLength(2);
+      vi.stubGlobal("document", { getElementById: () => null });
+      pills[1].props.onClick();
+      expect(setDraft).toHaveBeenLastCalledWith("@misty ");
+
+      // Send options and Send later sheets reflect @mist during an inline handoff.
+      const sheets = renderComposerSendSheets({
+        sendMenu: true,
+        setSendMenu: vi.fn(),
+        threadMode: true,
+        threadWork: { steerable: true, state: "running" },
+        destination: {
+          agent: "holly",
+          project: "Holly project",
+          thread: "Holly thread",
+        },
+        handoffAgent: completedMention.handoffAgent,
+        send: async () => {},
+        steersActive: true,
+        setScheduleAt: vi.fn(),
+        scheduleAt: "2026-12-01T10:00",
+        draft: "@mist Compare this with the staging TTL.",
+        busy: false,
+        setComposerError: vi.fn(),
+      });
+      const sendOptionElements = findElements(
+        sheets,
+        (el) =>
+          Array.isArray(el.props.actions) && el.props.title === "Send options",
+      );
+      expect(sendOptionElements).toHaveLength(1);
+      expect(sendOptionElements[0].props.actions[0].label).toBe("Send now");
+      expect(sendOptionElements[0].props.actions[0].hint).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
     }
@@ -246,7 +352,7 @@ describe("inline @agent mention and handoff in composer", () => {
         ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("window", {});
+    vi.stubGlobal("window", new EventTarget());
     vi.stubGlobal("document", { querySelector: () => null });
     const storage = new Map<string, string>();
     vi.stubGlobal("localStorage", {
@@ -370,90 +476,107 @@ describe("inline @agent mention and handoff in composer", () => {
       expect(body.replyToMessageId).toBeUndefined();
       expect(setThreadNotice).toHaveBeenCalledWith("Sent to @mist.");
       expect(setSendNotice).not.toHaveBeenCalled();
-      expect(saveThreadDraft).not.toHaveBeenCalled();
+      // Clears only the source thread's draft ("conv-holly"), never @mist's team thread ("conv-team-mist").
+      expect(saveThreadDraft).toHaveBeenCalledTimes(1);
+      expect(saveThreadDraft).toHaveBeenCalledWith("conv-holly", "", []);
       expect(setDraft).toHaveBeenCalledWith("");
 
       // Queued in-thread handoff preserves withdrawToComposer Undo toast instead of dropping it.
-      const withdrawToComposer = vi.fn(async () => {});
-      const queuedSend = useComposerSend({
-        replyQuoted: false,
-        busy: false,
-        uploading: false,
-        draft,
-        conversation: "conv-holly",
-        conversationTarget: {
-          agentId: "holly",
-          conversationId: "conv-holly",
-          title: "Cache audit",
-        },
-        viewIdentity: "view-1",
-        threadIdentityRef: { current: "view-1" },
-        threadIdentity: "composer-1",
-        composerIdentityRef: { current: "composer-1" },
-        draftRef: { current: draft },
-        attachmentsRef: { current: [] },
-        attachments: [],
-        setNewAgentPrompt: vi.fn(),
-        setFolder: vi.fn(),
-        projectFilter: "",
-        project: "",
-        setSheet: vi.fn(),
-        replyContext: null,
-        contextArtifact: null,
-        setError: vi.fn(),
-        threadApi: threadApi as unknown as Parameters<
-          typeof useComposerSend
-        >[0]["threadApi"],
-        setFilingResult: vi.fn(),
-        setFiling: vi.fn(),
-        setDraft,
-        changed: async () => {},
-        selected: "holly",
-        routePreview: null,
-        folder: "",
-        setBusy: vi.fn(),
-        setRoutePreview: vi.fn(),
-        activeAgent: holly,
-        setComposerError: vi.fn(),
-        composerUnavailable: undefined,
-        ownerRef: { current: "owner" },
-        composerData: {
-          agents: [holly, mist],
-          connections: [],
-          folders: [],
-          teams: [],
-        },
-        profile: null,
-        teamSelection: [],
-        folderChoice: undefined,
-        draftId: (id) => id,
-        request: { current: { signature: "", key: "", unquoted: false } },
-        receiptStorageKey: "receipt-key-2",
-        pendingDraftSave: { current: null },
-        draftKey: "draft-key",
-        openSourceLater: vi.fn(),
-        actionSource: "",
-        setAttachments: vi.fn(),
-        setReplyContext: vi.fn(),
-        collapseComposer: vi.fn(),
-        runsGeneration: { current: 0 },
-        setRuns: vi.fn(),
-        setSendNotice,
-        saveThreadDraft,
-        setContextArtifact: vi.fn(),
-        withdrawToComposer,
-        refresh: async () => {},
-        setThreadNotice,
-        setDismissNotice: vi.fn(),
+      const toasts: { text: string; undo?: () => Promise<void> | void }[] = [];
+      const unsubscribe = listenClientEvent("loop-toast", (toast) => {
+        if (toast) toasts.push(toast);
       });
-      await queuedSend({ queue: true });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      const queuedBody = JSON.parse(
-        String(
-          (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body,
-        ),
-      );
-      expect(queuedBody.queue).toBe(true);
+      const withdrawToComposer = vi.fn(async () => {});
+      try {
+        const queuedSend = useComposerSend({
+          replyQuoted: false,
+          busy: false,
+          uploading: false,
+          draft,
+          conversation: "conv-holly",
+          conversationTarget: {
+            agentId: "holly",
+            conversationId: "conv-holly",
+            title: "Cache audit",
+          },
+          viewIdentity: "view-1",
+          threadIdentityRef: { current: "view-1" },
+          threadIdentity: "composer-1",
+          composerIdentityRef: { current: "composer-1" },
+          draftRef: { current: draft },
+          attachmentsRef: { current: [] },
+          attachments: [],
+          setNewAgentPrompt: vi.fn(),
+          setFolder: vi.fn(),
+          projectFilter: "",
+          project: "",
+          setSheet: vi.fn(),
+          replyContext: null,
+          contextArtifact: null,
+          setError: vi.fn(),
+          threadApi: threadApi as unknown as Parameters<
+            typeof useComposerSend
+          >[0]["threadApi"],
+          setFilingResult: vi.fn(),
+          setFiling: vi.fn(),
+          setDraft,
+          changed: async () => {},
+          selected: "holly",
+          routePreview: null,
+          folder: "",
+          setBusy: vi.fn(),
+          setRoutePreview: vi.fn(),
+          activeAgent: holly,
+          setComposerError: vi.fn(),
+          composerUnavailable: undefined,
+          ownerRef: { current: "owner" },
+          composerData: {
+            agents: [holly, mist],
+            connections: [],
+            folders: [],
+            teams: [],
+          },
+          profile: null,
+          teamSelection: [],
+          folderChoice: undefined,
+          draftId: (id) => id,
+          request: { current: { signature: "", key: "", unquoted: false } },
+          receiptStorageKey: "receipt-key-2",
+          pendingDraftSave: { current: null },
+          draftKey: "draft-key",
+          openSourceLater: vi.fn(),
+          actionSource: "",
+          setAttachments: vi.fn(),
+          setReplyContext: vi.fn(),
+          collapseComposer: vi.fn(),
+          runsGeneration: { current: 0 },
+          setRuns: vi.fn(),
+          setSendNotice,
+          saveThreadDraft,
+          setContextArtifact: vi.fn(),
+          withdrawToComposer,
+          refresh: async () => {},
+          setThreadNotice,
+          setDismissNotice: vi.fn(),
+        });
+        await queuedSend({ queue: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const queuedBody = JSON.parse(
+          String(
+            (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1]
+              .body,
+          ),
+        );
+        expect(queuedBody.queue).toBe(true);
+        const queuedToast = toasts.find((t) =>
+          t.text.includes("Queued for @mist."),
+        );
+        expect(queuedToast).toBeDefined();
+        await queuedToast?.undo?.();
+        expect(withdrawToComposer).toHaveBeenCalledWith("run-mist-1");
+      } finally {
+        unsubscribe();
+      }
     } finally {
       vi.unstubAllGlobals();
     }

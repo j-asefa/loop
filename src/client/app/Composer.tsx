@@ -752,11 +752,8 @@ export function useComposerSend({
           });
         setDraft("");
         setAttachments([]);
-        if (
-          conversationId &&
-          (!conversation || conversationId === conversation)
-        )
-          saveThreadDraft(conversationId, "", []);
+        const clearedThread = conversation || conversationId;
+        if (clearedThread) saveThreadDraft(clearedThread, "", []);
         // Stay in the thread after sending; its reply context returns to the
         // conversation itself rather than the quoted message.
         setReplyContext(
@@ -1191,20 +1188,25 @@ export function renderComposer({
               </>
             )}
             {!threadMode &&
-              activeAgent &&
+              (handoffAgent || activeAgent) &&
               selected !== "__route__" &&
-              (steersActive ||
+              (handoffAgent ||
+                steersActive ||
                 replyContext ||
                 !["Unfiled", "Workspace"].includes(destination.project)) && (
                 <p className="composer-destination">
-                  {steersActive
-                    ? "Continues the current task"
-                    : replyContext
-                      ? destination.thread
-                      : destination.project}
+                  {handoffAgent
+                    ? `Sends to @${handoffAgent.name}`
+                    : steersActive
+                      ? "Continues the current task"
+                      : replyContext
+                        ? destination.thread
+                        : destination.project}
                 </p>
               )}
-            {activeAgent?.retired_at && (
+            {(handoffAgent
+              ? handoffAgent.retired_at
+              : activeAgent?.retired_at) && (
               <p className="note">
                 This agent is retired. Restore it from its profile to send new
                 work.
@@ -1532,7 +1534,7 @@ export function renderComposer({
         </button>
       </section>
     ) : null;
-  return { messageComposer, launchComposer };
+  return { messageComposer, launchComposer, handoffAgent };
 }
 
 export function renderComposerSendSheets({
@@ -1541,6 +1543,7 @@ export function renderComposerSendSheets({
   threadMode,
   threadWork,
   destination,
+  handoffAgent,
   send,
   steersActive,
   setScheduleAt,
@@ -1562,7 +1565,10 @@ export function renderComposerSendSheets({
   | "draft"
   | "busy"
   | "setComposerError"
->) {
+> & { handoffAgent?: Agent }) {
+  const effectiveThreadWork = handoffAgent ? null : threadWork;
+  const effectiveSteersActive = handoffAgent ? false : steersActive;
+  const recipientName = handoffAgent ? handoffAgent.name : destination.agent;
   return (
     <>
       {sendMenu && (
@@ -1570,11 +1576,11 @@ export function renderComposerSendSheets({
           title="Send options"
           onClose={() => setSendMenu(false)}
           actions={[
-            threadMode && threadWork?.steerable
+            threadMode && effectiveThreadWork?.steerable
               ? {
                   id: "steer",
                   label: "Steer current task",
-                  hint: `Delivered to @${destination.agent} now, while it works`,
+                  hint: `Delivered to @${recipientName} now, while it works`,
                   icon: <ArrowUp size={20} />,
                   onSelect: () => void send(),
                 }
@@ -1582,10 +1588,10 @@ export function renderComposerSendSheets({
                   id: "now",
                   label: "Send now",
                   hint:
-                    threadMode && threadWork
-                      ? `@${destination.agent} can’t take messages mid-task, so this waits for the current task`
-                      : steersActive
-                        ? `Goes to @${destination.agent}’s current task, which it steers`
+                    threadMode && effectiveThreadWork
+                      ? `@${recipientName} can’t take messages mid-task, so this waits for the current task`
+                      : effectiveSteersActive
+                        ? `Goes to @${recipientName}’s current task, which it steers`
                         : undefined,
                   icon: <ArrowUp size={20} />,
                   onSelect: () => void send(),
@@ -1593,7 +1599,7 @@ export function renderComposerSendSheets({
             {
               id: "queue",
               label:
-                threadMode && threadWork
+                threadMode && effectiveThreadWork
                   ? "Queue after this task"
                   : "Queue after current work",
               hint: "Held until the agent’s earlier work ends, and while it is paused. Edit, cancel or move it back to a draft until it starts.",
@@ -1611,8 +1617,13 @@ export function renderComposerSendSheets({
           ]}
         >
           <p className="send-destination">
-            To <strong>@{destination.agent}</strong> ·{" "}
-            <strong>{destination.project}</strong> · {destination.thread}
+            To <strong>@{recipientName}</strong>
+            {!handoffAgent && (
+              <>
+                {" "}
+                · <strong>{destination.project}</strong> · {destination.thread}
+              </>
+            )}
           </p>
         </ActionSheet>
       )}
@@ -1620,11 +1631,15 @@ export function renderComposerSendSheets({
         <Sheet title="Send later" onClose={() => setScheduleAt(null)}>
           <dl className="send-summary">
             <dt>To</dt>
-            <dd>@{destination.agent}</dd>
-            <dt>Project</dt>
-            <dd>{destination.project}</dd>
-            <dt>Thread</dt>
-            <dd>{destination.thread}</dd>
+            <dd>@{recipientName}</dd>
+            {!handoffAgent && (
+              <>
+                <dt>Project</dt>
+                <dd>{destination.project}</dd>
+                <dt>Thread</dt>
+                <dd>{destination.thread}</dd>
+              </>
+            )}
             <dt>Message</dt>
             <dd className="send-summary-text">{preview(draft, 140)}</dd>
           </dl>

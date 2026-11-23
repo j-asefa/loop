@@ -364,7 +364,7 @@ export function renderApp(props: AppViewProps) {
         ? replyContext.title || "Its thread"
         : "New thread",
   };
-  const { messageComposer, launchComposer } = renderComposer({
+  const { messageComposer, launchComposer, handoffAgent } = renderComposer({
     replyQuoted,
     replyContext,
     contextArtifact,
@@ -675,6 +675,7 @@ export function renderApp(props: AppViewProps) {
         threadMode,
         threadWork,
         destination,
+        handoffAgent,
         send,
         steersActive,
         setScheduleAt,
