@@ -341,54 +341,83 @@ function FeedCard({
     Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")
       .length >= FEED_MESSAGE_PREFIX_LIMIT;
   const loadedMessage = message?.id === messageId ? message : null;
-  useEffect(() => {
-    if (
-      (!reading && !(readAsCard && readIntent)) ||
-      !messageId ||
-      loadedMessage ||
-      !messagePreviewCapped ||
-      item.card ||
-      item.live_preview ||
-      awaitingUpdate
-    )
+  const fetchSource = item.sourceId ?? scopedSource;
+  const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
+  const canLoadFull =
+    !!messageId && !item.card && !item.live_preview && !awaitingUpdate;
+  // One request per message at a time: opening the sheet joins a prefetch
+  // that is already in flight instead of aborting and restarting it.
+  const fullRequest = useRef<{
+    key: string;
+    controller: AbortController;
+    showError: boolean;
+  } | null>(null);
+  const loadedId = useRef<string | undefined>(undefined);
+  loadedId.current = loadedMessage?.id;
+  const loadFull = (fromSheet: boolean) => {
+    if (!canLoadFull || !messageId) return;
+    const pending = fullRequest.current;
+    if (pending?.key === fetchKey && !pending.controller.signal.aborted) {
+      if (fromSheet) pending.showError = true;
       return;
-    const controller = new AbortController();
-    if (reading) setReadError("");
+    }
+    pending?.controller.abort();
+    const entry = {
+      key: fetchKey,
+      controller: new AbortController(),
+      showError: fromSheet,
+    };
+    fullRequest.current = entry;
+    if (fromSheet) setReadError("");
     void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
-      {
-        mode: "once",
-        source: item.sourceId ?? scopedSource,
-        signal: controller.signal,
-      },
+      { mode: "once", source: fetchSource, signal: entry.controller.signal },
     )
       .then((value) => {
-        if (!controller.signal.aborted) {
-          setMessage(value);
-          setReadError("");
-        }
+        if (entry.controller.signal.aborted) return;
+        setMessage(value);
+        setReadError("");
       })
       .catch(() => {
-        if (!controller.signal.aborted && reading)
+        // A failed refresh keeps a copy that already loaded.
+        if (
+          !entry.controller.signal.aborted &&
+          entry.showError &&
+          loadedId.current !== messageId
+        )
           setReadError(
             "Couldn’t load the full message. Open the conversation to read it.",
           );
+      })
+      .finally(() => {
+        if (fullRequest.current === entry) fullRequest.current = null;
       });
-    return () => controller.abort();
+  };
+  useEffect(
+    () => () => {
+      fullRequest.current?.controller.abort();
+      fullRequest.current = null;
+    },
+    [fetchKey, canLoadFull],
+  );
+  // Pointer, touch or focus on a long answer loads it before the tap.
+  useEffect(() => {
+    if (readAsCard && readIntent && messagePreviewCapped && !loadedMessage)
+      loadFull(false);
   }, [
-    reading,
     readAsCard,
     readIntent,
-    !!loadedMessage,
     messagePreviewCapped,
-    item.card,
-    messageId,
-    item.sourceId,
-    scopedSource,
-    !!item.live_preview,
-    !!awaitingUpdate,
+    !!loadedMessage,
+    fetchKey,
+    canLoadFull,
   ]);
+  // Opening the sheet always reads the current message, as before, so a
+  // revised answer replaces a prefetched copy.
+  useEffect(() => {
+    if (reading) loadFull(true);
+  }, [reading, fetchKey, canLoadFull]);
   const content =
     item.live_preview ||
     (awaitingUpdate

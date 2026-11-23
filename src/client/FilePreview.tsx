@@ -303,22 +303,26 @@ function FilePreviewBody({
     };
   }, [url, name, mime, attempt]);
 
+  // Only a stored MIME type is trusted before the response arrives; a bare
+  // name can be link text (for example Markdown image alt text).
   const initialHtmlUrl =
-    attempt === 0 && isHtmlFile(name, mime)
+    attempt === 0 && mime && isHtmlFile("", mime)
       ? loopFileUrl(url, undefined, "html")
       : undefined;
   const displayName = ready?.file.name || discoveredName || name;
-  const htmlUrl = ready?.htmlUrl ?? discoveredHtmlUrl ?? initialHtmlUrl;
-  const previewText =
-    ready?.text !== undefined
-      ? ready.text
-      : !htmlUrl && attempt === 0
-        ? initialText
-        : undefined;
-  const previewMarkdown =
-    ready?.markdown ??
-    (previewText !== undefined &&
-      (mime === "text/markdown" || /\.(md|markdown)$/i.test(displayName)));
+  // The name, MIME and response headers are only hints; once the file has
+  // loaded, its result decides what the sheet shows.
+  const htmlUrl = ready ? ready.htmlUrl : (discoveredHtmlUrl ?? initialHtmlUrl);
+  const previewText = ready
+    ? ready.text
+    : !htmlUrl && attempt === 0
+      ? initialText
+      : undefined;
+  const previewMarkdown = ready
+    ? ready.markdown
+    : previewText !== undefined &&
+      (mime?.split(";")[0].trim().toLowerCase() === "text/markdown" ||
+        /\.(md|markdown)$/i.test(displayName));
   const hasPreview = !!ready || !!htmlUrl || previewText !== undefined;
 
   let canShare = false;

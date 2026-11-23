@@ -232,6 +232,18 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
       await downloadContinued;
       await page.unroute(`**/api/artifacts/${id}/file*`, holdRawFile);
     }
+    // Once the download lands, its result keeps the same sandboxed iframe.
+    await expect(dialog().locator(".file-preview-content")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    await expect(dialog().locator("iframe")).toHaveCount(1);
+    await expect(
+      dialog().frameLocator("iframe").getByRole("heading", {
+        name: "Interactive prototype",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page.evaluate(() =>
       Object.defineProperty(navigator, "canShare", {
         configurable: true,
