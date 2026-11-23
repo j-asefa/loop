@@ -4,7 +4,11 @@ import { workspaceApi, type RouteInput } from "../shared/workspace-api";
 import type { AgentThreadSummary } from "../shared/agent-thread-feed";
 import { readRoute } from "./api";
 import { cachedView, cacheView, viewGeneration, viewOwner } from "./viewCache";
-import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import {
+  advanceDoneRefresh,
+  refreshDonePage,
+  type DoneRefresh,
+} from "./feed-done-refresh";
 import { usePagedProjectionQuery } from "./CollectionRead";
 
 export type SourcedAgentThread = AgentThreadSummary & { source: string };
@@ -116,7 +120,7 @@ export function useAgentThreadFeed(
     refreshDelay: () => 400,
     needsRefresh: (page) =>
       !!page.refreshSources?.some((source) => !page.errors.has(source)),
-    read: async (previous, before, signal, mode, readComplete) => {
+    read: async (previous, before, signal, mode, readComplete, publish) => {
       const pages = new Map(previous.pages),
         progress = new Map(previous.progress),
         errors = new Map(previous.errors),
@@ -197,6 +201,7 @@ export function useAgentThreadFeed(
                 ].sort(feedItemOrder),
               };
               let sweep = progress.get(source);
+              if (sweep) sweep = advanceDoneRefresh(sweep, older!, incoming);
               const floor = page.items.at(-1);
               const oldFloor = old.items.at(-1);
               if (
@@ -259,6 +264,23 @@ export function useAgentThreadFeed(
                 old,
                 priorProgress,
                 current,
+                (head) => {
+                  if (!current()) return;
+                  pages.set(source, head);
+                  cacheView(
+                    cacheKey(source),
+                    { ...head, progress: priorProgress },
+                    owner,
+                  );
+                  publish({
+                    pages: new Map(pages),
+                    progress: new Map(progress),
+                    errors: new Map(errors),
+                    headErrors: new Set(headErrors),
+                    refreshSources: [...refreshSources],
+                    next: previous.next,
+                  });
+                },
               );
               page = refreshed.page;
               if (refreshed.progress) {

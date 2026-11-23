@@ -157,6 +157,7 @@ try {
         "gap-exhaustion",
         "gap-continuation",
         "gap-repeated-failure",
+        "gap-successful-retry",
         "pull-append-error",
         "pull-append-live",
         "moving-head-settles",
@@ -251,7 +252,10 @@ try {
           ),
         );
         await expect(output).toContainText("first-A20");
-      } else if (scenario === "gap-repeated-failure") {
+      } else if (
+        scenario === "gap-repeated-failure" ||
+        scenario === "gap-successful-retry"
+      ) {
         await more();
         await expect(output).toContainText("first-A2");
         await idle();
@@ -277,6 +281,29 @@ try {
           requests.slice(start).find((r) => r.source === "A")?.before,
           "7",
         );
+        if (scenario === "gap-successful-retry") {
+          failure = true;
+          allowedHistoryCursor = "6";
+          await page.evaluate(() =>
+            window.dispatchEvent(
+              new CustomEvent("loop-workspace-change", {
+                detail: { sources: [""] },
+              }),
+            ),
+          );
+          await expect(output).toContainText("first-A5");
+          await idle();
+          failure = false;
+          allowedHistoryCursor = undefined;
+          const afterRetry = requests.length;
+          await more();
+          await expect(output).toContainText("first-A4");
+          assert.equal(
+            requests.slice(afterRetry).find((r) => r.source === "A" && r.before)
+              ?.before,
+            "5",
+          );
+        }
       } else if (scenario === "gap-continuation") {
         await more();
         await expect(output).toContainText("first-A2");
@@ -561,11 +588,12 @@ try {
           await idle();
         }
         rows = [8, 7, 6, 5, 4, 3, 2, 1];
-        holdBefore = "4";
+        holdBefore = "8";
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),
         );
         await expect.poll(() => held.length, { timeout: 10000 }).toBe(1);
+        await expect(output).toContainText("first-A8");
         rows = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
         held.shift()();
         for (const n of [12, 11, 10, 9])

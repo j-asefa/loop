@@ -205,6 +205,7 @@ type PagedOptions<P, C> = {
     signal: AbortSignal,
     mode: ReadMode,
     readComplete: () => void,
+    publish: (page: P) => void,
   ) => Promise<P>;
   queueMore?: boolean;
   refreshDelay: (reads: number) => number;
@@ -314,9 +315,20 @@ export function usePagedProjectionQuery<
       try {
         const page = await reader.request(
           (signal, mode) =>
-            read(current, before, signal, mode, () => {
-              reads++;
-            }),
+            read(
+              current,
+              before,
+              signal,
+              mode,
+              () => {
+                reads++;
+              },
+              (partial) => {
+                if (stale() || signal.aborted || epoch !== requestEpoch) return;
+                current = partial;
+                setState((old) => ({ ...old, context, page: partial }));
+              },
+            ),
           { mode: manual ? "manual" : "automatic" },
         );
         if (stale() || epoch !== requestEpoch) return;

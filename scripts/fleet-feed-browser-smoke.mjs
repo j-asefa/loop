@@ -1396,10 +1396,13 @@ try {
   }
   feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
   holdOlder = true;
-  holdOlderBefore = "4";
+  holdOlderBefore = "8";
   releaseOlder = undefined;
   await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
   await expect.poll(() => !!releaseOlder, { timeout: 15000 }).toBe(true);
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toBeVisible();
   feedPageRows = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
   releaseOlder();
   holdOlderBefore = undefined;

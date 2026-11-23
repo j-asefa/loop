@@ -24,6 +24,20 @@ const key = (item: DonePosition) =>
   ]);
 type Page<T> = { items: T[]; next: string | null };
 
+/** A manual append can complete the very page a failed sweep was waiting for. */
+export function advanceDoneRefresh<T extends DonePosition>(
+  progress: DoneRefresh,
+  before: string,
+  page: Page<T>,
+): DoneRefresh {
+  const last = page.items.at(-1);
+  return (progress.gapUntil || progress.rescanGap) &&
+    before === progress.before &&
+    last
+    ? { ...progress, before: page.next ?? progress.before, after: last }
+    : progress;
+}
+
 /** Refresh the newest page and one page of loaded history per source. Each
  * page replaces only its covered interval; untouched history stays visible.
  * History reconciliation continues on subsequent refreshes, without an
@@ -36,6 +50,7 @@ export async function refreshDonePage<
   previous: P,
   progress: DoneRefresh | undefined,
   current: () => boolean,
+  publishHead?: (page: P) => void,
 ): Promise<{ page: P; progress?: DoneRefresh; error?: Error }> {
   if (progress?.settleGap && !progress.restart && !progress.invalidated) {
     // Finish the gap observed by the last head read without chasing another
@@ -176,6 +191,11 @@ export async function refreshDonePage<
   // Its continuation must become visible even when no history read is needed.
   let next = feedItemOrder(firstLast, oldest) >= 0 ? first.next : continuation;
   if (feedItemOrder(progress.after, oldest) < 0 && current()) {
+    publishHead?.({
+      ...first,
+      items: [...items.values()].sort(feedItemOrder),
+      next: previous.next,
+    });
     let history: P;
     try {
       history = await read(progress.before);

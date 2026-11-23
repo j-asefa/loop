@@ -151,7 +151,11 @@ import {
   type FeedNextAction,
 } from "./threadView";
 import { notify } from "./toast";
-import { refreshDonePage, type DoneRefresh } from "./feed-done-refresh";
+import {
+  advanceDoneRefresh,
+  refreshDonePage,
+  type DoneRefresh,
+} from "./feed-done-refresh";
 import { FeedProjectionReader } from "./feed-projection";
 import { FeedReadRecovery } from "./feed-read-recovery";
 import { listenProjectionFrames } from "./workspace-projections";
@@ -2429,6 +2433,7 @@ export function Feed({
             )
               merged.next = gap;
             if (progress) {
+              progress = advanceDoneRefresh(progress, before!, page);
               const wasGap = !!(progress.gapUntil || progress.rescanGap);
               if (before === gap && wasGap) {
                 const last = page.items.at(-1);
@@ -2488,8 +2493,7 @@ export function Feed({
           }
           return page;
         }
-        const current = () =>
-          ticket === request.current && owner === viewOwner();
+        const current = isCurrent;
         const progress = doneRefresh.current.sources.get(source);
         if (historyDirtySources.current.delete(source) && progress) {
           progress.rescan = true;
@@ -2509,6 +2513,46 @@ export function Feed({
           },
           progress,
           current,
+          (head) => {
+            if (!current()) return;
+            const shown = readShown();
+            if (!shown) return;
+            const sourceSummaries = combined
+              ? { ...shown.sourceSummaries, [source]: head.summary }
+              : undefined;
+            const partial = {
+              ...shown,
+              items: combined
+                ? [
+                    ...shown.items.filter(
+                      (item) => (item.sourceId ?? scopedSource) !== source,
+                    ),
+                    ...head.items.map((item) => ({
+                      ...item,
+                      sourceId: source,
+                      executionEnvironment: activeSources.find(
+                        (item) => item.id === source,
+                      )?.name,
+                    })),
+                  ].sort(
+                    (a, b) =>
+                      b.last_activity_at - a.last_activity_at ||
+                      (a.sourceId || "").localeCompare(b.sourceId || "") ||
+                      feedItemOrder(a, b),
+                  )
+                : head.items,
+              sourceSummaries,
+              summary: sourceSummaries
+                ? combineSummaries(Object.values(sourceSummaries))
+                : head.summary,
+            };
+            if (combined) sourcePages.current.pages.set(source, head);
+            cached = partial;
+            previous = retainWindow ? partial : undefined;
+            cacheShown(shownKey(), partial, owner);
+            setItems(partial.items);
+            setPartialReadPending(false);
+          },
         );
         if (current()) {
           if (result.error) {
@@ -2517,9 +2561,8 @@ export function Feed({
           } else historyReadErrors.current.delete(source);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            // Finish the current history sweep. A moving head may leave a
-            // newer gap, but cannot make one refresh poll forever; More or
-            // the next external invalidation resumes the saved continuation.
+            // Finish this sweep and its known gaps. A moving head alone
+            // cannot start another full reconciliation sweep indefinitely.
             const restartedSweep =
               progress &&
               !progress.restart &&

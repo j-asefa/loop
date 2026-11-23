@@ -2,6 +2,7 @@ import { feedItemOrder } from "../src/shared/feed-order";
 import { expect, it } from "vitest";
 import {
   refreshDonePage,
+  advanceDoneRefresh,
   type DoneRefresh,
 } from "../src/client/feed-done-refresh";
 
@@ -31,6 +32,64 @@ it("retains distinct replies to the same question across a history refresh", asy
 });
 const history = (count: number) =>
   Array.from({ length: count }, (_, i) => card(count - i));
+it("publishes a fresh head before a held history page finishes", async () => {
+  let release!: () => void;
+  let published!: (value: unknown) => void;
+  const head = new Promise((resolve) => {
+    published = resolve;
+  });
+  const pending = refreshDonePage(
+    async (before) => {
+      if (!before) return { items: [card(8)], next: "8" as string | null };
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { items: [card(7)], next: "7" };
+    },
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+    published,
+  );
+  expect(await head).toMatchObject({ items: [card(8), ...history(3)] });
+  release();
+  expect((await pending).page.items).toContainEqual(card(7));
+});
+
+it("advances a failed sweep when manual appends cover its pending pages", async () => {
+  const read = async (before?: string) => {
+    const n = before ? Number(before) - 1 : 8;
+    return { items: [card(n)], next: n > 1 ? String(n) : null };
+  };
+  let result = await refreshDonePage(
+    async (before) => {
+      if (before) throw new Error("unavailable");
+      return read();
+    },
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+  );
+  for (let i = 0; i < 2; i++) {
+    const before = result.page.next!;
+    const page = await read(before);
+    result = {
+      page: {
+        ...page,
+        items: [...result.page.items, ...page.items].sort(feedItemOrder),
+      },
+      progress: advanceDoneRefresh(result.progress!, before, page),
+    };
+  }
+  expect(result.page.next).toBe("6");
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.page.next).toBe("5");
+});
 it("finishes a finite burst during a sweep without chasing more heads", async () => {
   let rows = Array.from({ length: 8 }, (_, i) => 8 - i);
   let heads = 0;
