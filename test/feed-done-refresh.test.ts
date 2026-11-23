@@ -495,6 +495,40 @@ it("does not publish a partial window when history is cancelled without a ticket
   ).rejects.toBe(cancelled);
 });
 
+it("keeps an appended initial-gap cursor through repeated history failures", async () => {
+  const api = server(history(225));
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return api.read();
+  };
+  let result = await refreshDonePage(
+    read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  const appended = await api.read(result.page.next!);
+  const next = appended.next;
+  result = {
+    ...result,
+    page: {
+      ...result.page,
+      items: [...result.page.items, ...appended.items],
+      next,
+    },
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+    expect(result.error?.message).toBe("history unavailable");
+    expect(result.page.next).toBe(next);
+  }
+});
+
 it("keeps an appended rescan-gap cursor when the older sweep fails", async () => {
   let items = history(225);
   let result = await refreshDonePage(

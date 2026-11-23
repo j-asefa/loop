@@ -3120,6 +3120,19 @@ export function Feed({
       if (inFlight.current)
         for (const [source, cursor] of activeAppendSources.current)
           pendingAppendSources.current.set(source, cursor);
+      // A retry cooldown outlives its visible batch. Preserve only a still
+      // recovering append; terminal failures require a new user intent.
+      for (const [source, retry] of retryPages.current)
+        if (
+          retry.append &&
+          retry.before &&
+          !retry.doneSummary &&
+          readRecovery.current.isRecovering(
+            source,
+            JSON.stringify(query(retry.before)),
+          )
+        )
+          pendingAppendSources.current.set(source, retry.before);
       readRecovery.current.reset();
       retryPages.current.clear();
       pausedHeadRecovery.current.clear();

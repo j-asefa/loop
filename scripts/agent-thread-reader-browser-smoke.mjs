@@ -156,6 +156,7 @@ try {
         "pull-append-overlap",
         "gap-exhaustion",
         "gap-continuation",
+        "gap-repeated-failure",
         "pull-append-error",
         "pull-append-live",
         "moving-head-settles",
@@ -250,6 +251,32 @@ try {
           ),
         );
         await expect(output).toContainText("first-A20");
+      } else if (scenario === "gap-repeated-failure") {
+        await more();
+        await expect(output).toContainText("first-A2");
+        await idle();
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        failure = failHistoryOnly = true;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(notice).toContainText("Couldn’t load some agent threads", {
+          timeout: 20000,
+        });
+        await idle();
+        failure = false;
+        await more();
+        await expect(output).toContainText("first-A7");
+        failure = true;
+        await idle();
+        failure = false;
+        const start = requests.length;
+        await more();
+        await expect(output).toContainText("first-A6");
+        assert.equal(
+          requests.slice(start).find((r) => r.source === "A")?.before,
+          "7",
+        );
       } else if (scenario === "gap-continuation") {
         await more();
         await expect(output).toContainText("first-A2");

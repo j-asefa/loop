@@ -136,6 +136,8 @@ export async function refreshDonePage<
     feedItemOrder(firstLast, progress.head) >= 0
       ? previous.next
       : first.next;
+  const failedGapNext =
+    progress?.gapUntil && !progress.restart ? previous.next : undefined;
   let gapUntil = progress?.gapUntil,
     rescanGap = progress?.rescanGap;
   const farther = (left: DonePosition | undefined, right: DonePosition) =>
@@ -183,7 +185,11 @@ export async function refreshDonePage<
         page: {
           ...first,
           items: [...items.values()].sort(feedItemOrder),
-          next: rescanGap ? rescanNext : gapUntil ? progress.before : next,
+          next: rescanGap
+            ? rescanNext
+            : gapUntil
+              ? (failedGapNext ?? progress.before)
+              : next,
         },
         progress: { ...progress, head: firstLast, rescan, gapUntil, rescanGap },
         error: error instanceof Error ? error : new Error(String(error)),

@@ -103,6 +103,7 @@ let feedPagination = false,
 let holdOlderBefore;
 let failReplayCursor;
 let headFailureStatus = 503;
+let appendFailureStatus = 400;
 let refusedAppendReads = 0;
 let appendFailureSource;
 const refusedAppendCursors = [];
@@ -381,7 +382,11 @@ try {
         ) {
           refusedAppendReads++;
           refusedAppendCursors.push(url.searchParams.get("before"));
-          reply({ error: "Synthetic append refused" }, 400);
+          reply(
+            { error: "Synthetic append refused" },
+            appendFailureStatus,
+            appendFailureStatus === 429 ? { "retry-after": "10" } : undefined,
+          );
           return;
         }
         if (older && url.searchParams.get("before") === failReplayCursor) {
@@ -1370,6 +1375,27 @@ try {
     ).toBeVisible({ timeout: 15000 });
   console.log(
     "Finite mid-sweep burst filled without another notification: " + engineName,
+  );
+
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("pull-during-append-cooldown"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  appendFailureStatus = 429;
+  failPaginationAppend = true;
+  await moreFeed.click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(moreFeed).toBeEnabled();
+  failPaginationAppend = false;
+  appendFailureStatus = 400;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  console.log(
+    "Pull retained an append during its retry cooldown: " + engineName,
   );
 
   if (!feedOnly) {
