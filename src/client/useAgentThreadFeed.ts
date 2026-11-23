@@ -31,7 +31,9 @@ type Window = {
 const historyContinuation = (page: Page, progress?: DoneRefresh) =>
   progress?.continuation !== undefined ? progress.continuation : page.next;
 const appendCursor = (page: Page, progress?: DoneRefresh) =>
-  historyContinuation(page, progress) ?? page.next;
+  progress?.gapUntil || progress?.rescanGap
+    ? page.next
+    : historyContinuation(page, progress);
 const cursor = (
   pages: Map<string, Page>,
   progress = new Map<string, DoneRefresh>(),

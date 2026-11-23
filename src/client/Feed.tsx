@@ -2566,7 +2566,10 @@ export function Feed({
         let settled: PromiseSettledResult<
           Awaited<ReturnType<typeof readSource>>
         >[];
-        if (pages.size && [...pages.values()].every((page) => !page.append)) {
+        {
+          const initialReads = new Set<string>(
+            pending.map((source) => source.id),
+          );
           const queue = sourceReadQueue(
             pending.map((source) => source.id),
             async (id) => {
@@ -2574,10 +2577,26 @@ export function Feed({
                 throw new DOMException("Feed read superseded", "AbortError");
               const source = activeSources.find((source) => source.id === id)!;
               pendingRefresh.current.sources.delete(id);
-              headSources.current.add(id);
-              const retry = retryPages.current.get(id);
-              if (retry?.append) pages.set(id, { ...retry, headPending: true });
-              else if (pages.get(id)!.append) pages.set(id, { append: false });
+              if (!initialReads.delete(id) || !pages.get(id)!.append) {
+                headSources.current.add(id);
+                const retry = retryPages.current.get(id);
+                if (
+                  retry?.append &&
+                  historyReadErrors.current.has(id) &&
+                  !historyDirtySources.current.has(id) &&
+                  !pendingAppendSources.current.has(id)
+                ) {
+                  pages.set(id, { ...retry, headPending: true });
+                } else {
+                  if (
+                    retry?.append &&
+                    retry.before &&
+                    !pendingAppendSources.current.has(id)
+                  )
+                    pendingAppendSources.current.set(id, retry.before);
+                  if (pages.get(id)!.append) pages.set(id, { append: false });
+                }
+              }
               return readSource(source);
             },
             isCurrent,
@@ -2587,9 +2606,26 @@ export function Feed({
             const selected = activeSources.filter((source) =>
               ids.includes(source.id),
             );
-            for (const source of selected)
+            for (const source of selected) {
               if (!pending.some((item) => item.id === source.id))
                 pending.push(source);
+              const before = activeAppendSources.current.get(source.id);
+              if (before && historyDirtySources.current.has(source.id)) {
+                pendingAppendSources.current.set(source.id, before);
+                initialReads.delete(source.id);
+                readRecovery.current.reset(
+                  source.id,
+                  JSON.stringify(query(before)),
+                );
+                if (filter === "done")
+                  doneCards.current
+                    .get(
+                      "feed-cards:" +
+                        JSON.stringify([owner, shownKey(), source.id]),
+                    )
+                    ?.restartRefresh();
+              }
+            }
             void loadNeeds(
               selected.map((source) => source.id),
               manual,
@@ -2613,7 +2649,7 @@ export function Feed({
             if (refreshReadingSources.current === enqueue)
               refreshReadingSources.current = undefined;
           }
-        } else settled = await Promise.allSettled(pending.map(readSource));
+        }
         if (!isCurrent()) return;
         settled.forEach((entry, index) => {
           const id = pending[index].id;
@@ -2938,6 +2974,7 @@ export function Feed({
       .filter(
         (source) =>
           pendingAppendSources.current.has(source) &&
+          !pendingRefresh.current.sources.has(source) &&
           retryPages.current.get(source)?.append !== true,
       );
     if (!ready.length) return;

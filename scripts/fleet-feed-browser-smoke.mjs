@@ -43,6 +43,7 @@ const paginationReads = [];
 let feedPagination = false,
   holdOlder = false,
   releaseOlder;
+let holdOlderBefore;
 let metadataRevision = 0;
 const metadataMetrics = { requests: 0, active: 0, peak: 0 };
 function trackResponse(metrics, res) {
@@ -254,7 +255,12 @@ try {
           ? feedPageRows.indexOf(Number(url.searchParams.get("before"))) + 1
           : 0;
         const rowNumber = feedPageRows[index];
-        if (older && holdOlder) {
+        if (
+          older &&
+          holdOlder &&
+          (!holdOlderBefore ||
+            url.searchParams.get("before") === holdOlderBefore)
+        ) {
           holdOlder = false;
           await new Promise((resolve) => {
             releaseOlder = resolve;
@@ -563,6 +569,9 @@ try {
   ).toBeVisible();
   await expect(page.getByRole("alert")).toBeVisible();
   failPaginationAppend = false;
+  holdOlder = true;
+  holdOlderBefore = "3";
+  releaseOlder = undefined;
   feedPageRows = [5, 4, 3, 2, 1];
   await page.evaluate(
     (source) =>
@@ -574,11 +583,27 @@ try {
     sources[1].id,
   );
   await expect(
-    page.getByText("Older Machine 1 updated 2", { exact: true }),
-  ).toBeVisible();
-  await expect(
     page.getByText("Measured Machine 1 updated 5", { exact: true }),
   ).toBeVisible();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  feedPageRows = [6, 5, 4, 3, 2, 1];
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Measured Machine 1 updated 6", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  releaseOlder();
+  holdOlderBefore = undefined;
   console.log(
     "Failed append preserves the single head notification: " + engineName,
   );

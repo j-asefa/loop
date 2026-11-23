@@ -333,16 +333,11 @@ try {
         }
         failure = false;
         await more();
-        await expect(output).toContainText("first-A1");
+        await expect(output).toContainText("first-A7");
         await idle();
-        if (scenario.includes("exhausted")) {
-          await expect(output).toContainText("first-A7");
-          await expect(output).not.toContainText("first-A6");
-        } else {
-          await expect(output).not.toContainText("first-A7");
-          await more();
-          await expect(output).toContainText("first-A7");
-        }
+        await expect(output).not.toContainText("first-A6");
+        if (!scenario.includes("exhausted"))
+          await expect(output).not.toContainText("first-A1");
         await expect(notice).toContainText("Couldn’t load some agent threads");
         await page.evaluate(() =>
           window.dispatchEvent(new Event("loop-refresh")),
@@ -350,6 +345,17 @@ try {
         await expect(output).toContainText("first-A7");
         await expect(notice).toBeEmpty();
         await idle();
+        if (!scenario.includes("exhausted")) {
+          for (
+            let remaining = 8;
+            remaining > 0 && !(await output.textContent()).includes("first-A1");
+            remaining--
+          ) {
+            await more();
+            await idle();
+          }
+          await expect(output).toContainText("first-A1");
+        }
         await expect(
           page.getByRole("button", { name: "More", exact: true }),
         ).toBeDisabled();
