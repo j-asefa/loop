@@ -227,16 +227,15 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
           exact: true,
         }),
       ).toBeVisible();
+      // The iframe rendered while the raw download was still held.
+      await expect(dialog().locator(".file-preview-actions")).toHaveCount(0);
     } finally {
       releaseDownload();
       await downloadContinued;
       await page.unroute(`**/api/artifacts/${id}/file*`, holdRawFile);
     }
     // Once the download lands, its result keeps the same sandboxed iframe.
-    await expect(dialog().locator(".file-preview-content")).toHaveAttribute(
-      "aria-busy",
-      "false",
-    );
+    await expect(dialog().locator(".file-preview-actions")).toBeVisible();
     await expect(dialog().locator("iframe")).toHaveCount(1);
     await expect(
       dialog().frameLocator("iframe").getByRole("heading", {

@@ -356,6 +356,7 @@ function FeedCard({
   loadedId.current = loadedMessage?.id;
   const loadFull = (fromSheet: boolean) => {
     if (!canLoadFull || !messageId) return;
+    if (fromSheet) setReadError("");
     const pending = fullRequest.current;
     if (pending?.key === fetchKey && !pending.controller.signal.aborted) {
       if (fromSheet) pending.showError = true;
@@ -368,7 +369,6 @@ function FeedCard({
       showError: fromSheet,
     };
     fullRequest.current = entry;
-    if (fromSheet) setReadError("");
     void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
