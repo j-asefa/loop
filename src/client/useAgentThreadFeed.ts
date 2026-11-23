@@ -106,7 +106,9 @@ export function useAgentThreadFeed(
       progress: new Map(
         [...page.progress].map(([source, progress]) => [
           source,
-          sources.includes(source) ? { ...progress, rescan: true } : progress,
+          sources.includes(source)
+            ? { ...progress, rescan: true, invalidated: true }
+            : progress,
         ]),
       ),
     }),
@@ -266,6 +268,7 @@ export function useAgentThreadFeed(
                 if (
                   priorProgress &&
                   !priorProgress.restart &&
+                  !priorProgress.invalidated &&
                   feedItemOrder(
                     refreshed.progress.after,
                     priorProgress.after,

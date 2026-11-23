@@ -2417,8 +2417,10 @@ export function Feed({
         const current = () =>
           ticket === request.current && owner === viewOwner();
         const progress = doneRefresh.current.sources.get(source);
-        if (historyDirtySources.current.delete(source) && progress)
+        if (historyDirtySources.current.delete(source) && progress) {
           progress.rescan = true;
+          progress.invalidated = true;
+        }
         const result = await refreshDonePage<FeedItem, Page>(
           read,
           {
@@ -2445,6 +2447,7 @@ export function Feed({
             const restartedSweep =
               progress &&
               !progress.restart &&
+              !progress.invalidated &&
               feedItemOrder(result.progress.after, progress.after) <= 0;
             if (!result.error && retainWindow && !restartedSweep) {
               followup.add(source);

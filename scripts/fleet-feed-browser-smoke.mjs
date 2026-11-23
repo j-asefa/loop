@@ -942,6 +942,48 @@ try {
     "Moving head reconciliation settled after one sweep: " + engineName,
   );
 
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("notified-removal-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  for (const n of [2, 1]) {
+    await moreFeed.click();
+    await expect(
+      page.getByText("Older Machine 1 updated " + n, { exact: true }),
+    ).toBeVisible();
+  }
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
+  holdOlder = true;
+  holdOlderBefore = "4";
+  releaseOlder = undefined;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect.poll(() => !!releaseOlder, { timeout: 15000 }).toBe(true);
+  await expect(
+    page.getByText("Older Machine 1 updated 6", { exact: true }),
+  ).toBeVisible();
+  feedPageRows = feedPageRows.filter((n) => n !== 6);
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  releaseOlder();
+  holdOlderBefore = undefined;
+  await expect(
+    page.getByText("Older Machine 1 updated 6", { exact: true }),
+  ).not.toBeVisible({ timeout: 15000 });
+  await expect(
+    page.getByText("Older Machine 1 updated 1", { exact: true }),
+  ).toBeVisible();
+  console.log(
+    "Mid-sweep notification removed previously visited history: " + engineName,
+  );
+
   if (!feedOnly) {
     mode = "needs";
     hold = true;

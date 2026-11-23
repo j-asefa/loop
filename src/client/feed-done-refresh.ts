@@ -10,6 +10,9 @@ export type DoneRefresh = {
   restart?: boolean;
   head?: DonePosition;
   rescan?: boolean;
+  // An external notification requires the next sweep even if automatic
+  // rescans caused only by a moving head have reached their stopping point.
+  invalidated?: boolean;
   gapUntil?: DonePosition;
   rescanGap?: DonePosition;
 };
@@ -145,6 +148,7 @@ export async function refreshDonePage<
         ? {
             head: firstLast,
             rescan,
+            invalidated: progress.invalidated,
             gapUntil,
             rescanGap,
             before: history.next,
