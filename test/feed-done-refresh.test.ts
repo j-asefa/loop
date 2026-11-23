@@ -430,6 +430,23 @@ it("keeps an exposed gap reachable across repeated history failures", async () =
   expect(result.error?.message).toBe("history unavailable");
 });
 
+it("does not publish a partial window when history is cancelled without a ticket change", async () => {
+  const api = server(history(225));
+  const cancelled = new DOMException("Projection reset", "AbortError");
+  const read = async (before?: string) => {
+    if (before) throw cancelled;
+    return api.read();
+  };
+  await expect(
+    refreshDonePage(
+      read,
+      { items: history(100), next: null },
+      undefined,
+      () => true,
+    ),
+  ).rejects.toBe(cancelled);
+});
+
 it("keeps an appended rescan-gap cursor when the older sweep fails", async () => {
   let items = history(225);
   let result = await refreshDonePage(

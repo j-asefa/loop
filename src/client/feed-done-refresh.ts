@@ -119,6 +119,7 @@ export async function refreshDonePage<
     try {
       history = await read(progress.before);
     } catch (error) {
+      if ((error as Error)?.name === "AbortError") throw error;
       return {
         page: {
           ...first,
