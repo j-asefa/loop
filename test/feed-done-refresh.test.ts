@@ -56,6 +56,36 @@ it("publishes a fresh head before a held history page finishes", async () => {
   expect((await pending).page.items).toContainEqual(card(7));
 });
 
+it("retains a partially published gap when a second pull fails in history", async () => {
+  let partial: { items: Item[]; next: string | null } | undefined;
+  let progress: DoneRefresh | undefined;
+  const read = async (before?: string) => {
+    if (before) throw new Error("history unavailable");
+    return { items: [card(8)], next: "8" as string | null };
+  };
+  await refreshDonePage(
+    read,
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+    (page, sweep) => {
+      partial = page;
+      progress = sweep;
+    },
+  );
+  expect(partial?.next).toBe("8");
+  expect(progress?.gapUntil).toEqual(card(3));
+  const retry = await refreshDonePage(
+    read,
+    partial!,
+    { ...progress!, restart: true },
+    () => true,
+  );
+  expect(retry.error?.message).toBe("history unavailable");
+  expect(retry.page.next).toBe("8");
+  expect(retry.progress?.gapUntil).toEqual(card(3));
+});
+
 it("advances a failed sweep when manual appends cover its pending pages", async () => {
   const read = async (before?: string) => {
     const n = before ? Number(before) - 1 : 8;

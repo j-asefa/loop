@@ -162,6 +162,7 @@ try {
         "pull-append-live",
         "moving-head-settles",
         "mid-sweep-burst",
+        "partial-head-repull",
         "pull-gap-replay",
         "history-error",
         "history-error-reopen",
@@ -581,6 +582,31 @@ try {
           1,
           "A notifications must not restart B's completed history sweep",
         );
+      } else if (scenario === "partial-head-repull") {
+        for (const n of [2, 1]) {
+          await more();
+          await expect(output).toContainText("first-A" + n);
+          await idle();
+        }
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        holdBefore = "8";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect.poll(() => held.length).toBe(1);
+        await expect(output).toContainText("first-A8");
+        failure = failHistoryOnly = true;
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect(notice).toContainText("Couldn’t load some agent threads", {
+          timeout: 20000,
+        });
+        await idle();
+        failure = false;
+        held.shift()();
+        await more();
+        await expect(output).toContainText("first-A7");
       } else if (scenario === "mid-sweep-burst") {
         for (const n of [2, 1]) {
           await more();

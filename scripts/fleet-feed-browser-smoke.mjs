@@ -106,6 +106,7 @@ let holdOlderBefore;
 let failReplayCursor;
 let headFailureStatus = 503;
 let appendFailureStatus = 400;
+let savedFeedMessage = false;
 let refusedAppendReads = 0;
 let appendFailureSource;
 const refusedAppendCursors = [];
@@ -443,6 +444,18 @@ try {
         const body = {
           items: pageNumbers.map((rowNumber) => ({
             ...feedTemplate,
+            ...(savedFeedMessage
+              ? {
+                  last_message: {
+                    id: "saved-fixture-" + rowNumber,
+                    role: "assistant",
+                    preview: "Saved answer",
+                    content: "Saved answer",
+                    created_at: rowNumber,
+                    saved: true,
+                  },
+                }
+              : {}),
             conversation_id: paginated
               ? "conversation-" + rowNumber
               : "same-conversation",
@@ -1434,6 +1447,75 @@ try {
   console.log(
     "Pull retained an append during its retry cooldown: " + engineName,
   );
+
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("partial-head-repull-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  for (const n of [2, 1]) {
+    await moreFeed.click();
+    await expect(
+      page.getByText("Older Machine 1 updated " + n, { exact: true }),
+    ).toBeVisible();
+  }
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
+  holdOlder = true;
+  holdOlderBefore = "8";
+  releaseOlder = undefined;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toBeVisible();
+  failReplayCursor = "8";
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(moreFeed).toBeEnabled();
+  failReplayCursor = undefined;
+  releaseOlder();
+  holdOlderBefore = undefined;
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 7", { exact: true }),
+  ).toBeVisible();
+  console.log(
+    "Second pull preserved the partially published gap: " + engineName,
+  );
+
+  savedFeedMessage = true;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("partial-pending-unsave"));
+  const savedRow = page.locator(".feed-item-wrap").filter({
+    has: page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  });
+  await expect(savedRow).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  holdOlder = true;
+  holdOlderBefore = "3";
+  releaseOlder = undefined;
+  await savedRow
+    .getByRole("button", { name: "Thread actions", exact: true })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Remove from Saved", exact: true })
+    .click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  await savedRow
+    .getByRole("button", { name: "Thread actions", exact: true })
+    .click();
+  await expect(page.getByRole("menuitem", { name: /^Save\b/ })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Remove from Saved", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  releaseOlder();
+  holdOlderBefore = undefined;
+  savedFeedMessage = false;
+  console.log("Partial head preserved the pending unsave: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

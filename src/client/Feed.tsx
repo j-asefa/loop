@@ -2513,15 +2513,28 @@ export function Feed({
           },
           progress,
           current,
-          (head) => {
+          (head, headProgress) => {
             if (!current()) return;
             const shown = readShown();
             if (!shown) return;
+            head = {
+              ...head,
+              items: pendingUnsaves(head.items, combined ? source : undefined),
+            };
+            doneRefresh.current.sources.set(source, headProgress);
+            const cursors = combined ? JSON.parse(shown.next || "{}") : {};
+            if (head.next) cursors[source] = head.next;
+            else delete cursors[source];
             const sourceSummaries = combined
               ? { ...shown.sourceSummaries, [source]: head.summary }
               : undefined;
             const partial = {
               ...shown,
+              next: combined
+                ? Object.keys(cursors).length
+                  ? JSON.stringify(cursors)
+                  : null
+                : head.next,
               items: combined
                 ? [
                     ...shown.items.filter(
@@ -2551,6 +2564,7 @@ export function Feed({
             previous = retainWindow ? partial : undefined;
             cacheShown(shownKey(), partial, owner);
             setItems(partial.items);
+            setNext(partial.next);
             setPartialReadPending(false);
           },
         );

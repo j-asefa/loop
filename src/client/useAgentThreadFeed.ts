@@ -264,12 +264,13 @@ export function useAgentThreadFeed(
                 old,
                 priorProgress,
                 current,
-                (head) => {
+                (head, headProgress) => {
                   if (!current()) return;
                   pages.set(source, head);
+                  progress.set(source, headProgress);
                   cacheView(
                     cacheKey(source),
-                    { ...head, progress: priorProgress },
+                    { ...head, progress: headProgress },
                     owner,
                   );
                   publish({
@@ -278,7 +279,7 @@ export function useAgentThreadFeed(
                     errors: new Map(errors),
                     headErrors: new Set(headErrors),
                     refreshSources: [...refreshSources],
-                    next: previous.next,
+                    next: cursor(pages, progress),
                   });
                 },
               );
