@@ -73,6 +73,8 @@ export class DoneCardsReader {
           return delta;
         },
       );
+      if (controller.signal.aborted)
+        throw new DOMException("Obsolete Done read", "AbortError");
       if (generation === this.generation && effectiveAppend)
         this.pendingAppend = false;
       if (generation === this.generation && headFirst)

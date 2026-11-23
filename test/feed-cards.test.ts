@@ -313,6 +313,37 @@ it("keeps concurrent callers on Cards while an expired revision resets the pager
   ).toBe(true);
 });
 
+it("rejects a cancelled list even after its replacement committed a window", async () => {
+  const reader = new DoneCardsReader("owner/late-list");
+  let resolve!: (value: unknown) => void;
+  const summary = vi.fn();
+  const obsolete = reader
+    .load(
+      () =>
+        new Promise((yes) => {
+          resolve = yes;
+        }),
+      selection,
+      false,
+    )
+    .then(summary);
+  reader.restartRefresh();
+  await reader.load(
+    async (contract, input) =>
+      routePath(contract, input).includes("/changes?")
+        ? { revision: "new", items: [], removed: [], more: false }
+        : { revision: "new", items: [entry("replacement", 200)], next: null },
+    selection,
+    false,
+  );
+  resolve({ revision: "old", items: [entry("obsolete", 100)], next: null });
+  await expect(obsolete).rejects.toMatchObject({ name: "AbortError" });
+  expect(summary).not.toHaveBeenCalled();
+  expect(reader.pager.snapshot()?.page.items[0].card.id).toBe(
+    "d:message:replacement",
+  );
+});
+
 it("distinguishes a complete message at the feed cap from a clipped message", () => {
   const exact = "🌕".repeat(1000);
   expect(feedMessagePrefix(exact)).toEqual({

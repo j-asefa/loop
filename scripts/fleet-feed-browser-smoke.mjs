@@ -47,6 +47,8 @@ let holdOlderBefore;
 let failReplayCursor;
 let headFailureStatus = 503;
 let refusedAppendReads = 0;
+let appendFailureSource;
+const refusedAppendCursors = [];
 let movingFeedHead = false;
 let feedPageSize = 1,
   feedLabelSuffix = "",
@@ -254,8 +256,13 @@ try {
           allPaginated || (feedPagination && source.id === sources[1].id);
         const older = paginated && url.searchParams.has("before");
         if (paginated) paginationReads.push(url.searchParams.get("before"));
-        if (older && failPaginationAppend) {
+        if (
+          older &&
+          failPaginationAppend &&
+          (!appendFailureSource || source.id === appendFailureSource)
+        ) {
           refusedAppendReads++;
+          refusedAppendCursors.push(url.searchParams.get("before"));
           reply({ error: "Synthetic append refused" }, 400);
           return;
         }
@@ -1040,6 +1047,42 @@ try {
   releaseOlder();
   failPaginationAppend = false;
   console.log("Failed append preserved automatic head recovery: " + engineName);
+
+  allPaginated = true;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("failed-append-pull-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  holdFleetAppends.add(sources[2].id);
+  appendFailureSource = sources[1].id;
+  failPaginationAppend = true;
+  const refusalStart = refusedAppendCursors.length;
+  await moreFeed.click();
+  await expect.poll(() => heldFleetAppends.has(sources[2].id)).toBe(true);
+  await expect
+    .poll(() => refusedAppendCursors.length)
+    .toBeGreaterThan(refusalStart);
+  const refusedCursorReads = refusedAppendCursors.filter(
+    (before) => before === "3",
+  ).length;
+  feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  await page.waitForTimeout(1200);
+  assert.equal(
+    refusedAppendCursors.filter((before) => before === "3").length,
+    refusedCursorReads,
+    "Pull must not replay an append that already failed before the gesture",
+  );
+  for (const release of heldFleetAppends.values()) release();
+  heldFleetAppends.clear();
+  appendFailureSource = undefined;
+  failPaginationAppend = false;
+  allPaginated = false;
+  console.log("Pull did not replay an already failed append: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

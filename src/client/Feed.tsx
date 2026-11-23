@@ -1387,11 +1387,14 @@ export function Feed({
       manual || replaceRecovery,
       () => {
         if (
-          generation === viewGeneration() &&
-          context === activeView.current &&
-          query.before &&
-          pausedHeadRecovery.current.delete(source)
+          generation !== viewGeneration() ||
+          context !== activeView.current ||
+          !query.before
         )
+          return;
+        if (activeAppendSources.current.get(source) === query.before)
+          activeAppendSources.current.delete(source);
+        if (pausedHeadRecovery.current.delete(source))
           recoverSource.current(source);
       },
     );
@@ -2593,6 +2596,13 @@ export function Feed({
             if (!isCurrent() || (error as Error).name === "AbortError")
               throw error;
             if (attempt.append) {
+              if (
+                !readRecovery.current.isRecovering(
+                  source.id,
+                  JSON.stringify(query(pages.get(source.id)!.before)),
+                )
+              )
+                activeAppendSources.current.delete(source.id);
               const retry = { ...pages.get(source.id)!, headPending: false };
               retryPages.current.set(source.id, retry);
               if (attempt.headPending) {
