@@ -70,6 +70,14 @@ export async function refreshDonePage<
   };
   apply(first);
   const firstLast = first.items.at(-1)!;
+  // An append may have advanced through the newer gap while the older sweep
+  // remains blocked. Only a newly moved head can replace that gap cursor.
+  const rescanNext =
+    progress?.rescanGap &&
+    progress.head &&
+    feedItemOrder(firstLast, progress.head) >= 0
+      ? previous.next
+      : first.next;
   let gapUntil = progress?.gapUntil,
     rescanGap = progress?.rescanGap;
   const farther = (left: DonePosition | undefined, right: DonePosition) =>
@@ -115,9 +123,9 @@ export async function refreshDonePage<
         page: {
           ...first,
           items: [...items.values()].sort(feedItemOrder),
-          next: rescanGap ? first.next : gapUntil ? progress.before : next,
+          next: rescanGap ? rescanNext : gapUntil ? progress.before : next,
         },
-        progress: { ...progress, rescan, gapUntil, rescanGap },
+        progress: { ...progress, head: firstLast, rescan, gapUntil, rescanGap },
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }
@@ -171,7 +179,7 @@ export async function refreshDonePage<
     };
   // A burst can leave unseen results between the two fresh pages and the
   // retained window. Let Load more reach that gap immediately.
-  if (progress?.rescanGap) next = first.next;
+  if (progress?.rescanGap) next = rescanNext;
   else if (progress?.gapUntil) next = progress.before;
   return {
     page: { ...first, items: [...items.values()].sort(feedItemOrder), next },

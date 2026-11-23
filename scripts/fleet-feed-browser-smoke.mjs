@@ -104,9 +104,9 @@ try {
     }
     window.showSources = owner => root.render(React.createElement(Sources,{owner}));
     window.evictFeedCache = () => {for(let i=0;i<60;i++)cacheView("eviction-"+i,{},"measured-feed");};
-    window.showFeed = (owner="measured-feed",filter="working") => {
+    window.showFeed = (owner="measured-feed",filter="working",includeSlow=true) => {
       setViewOwner(owner);setShellSource("");
-      root.render(React.createElement(Feed,{filter,onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)},onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
+      root.render(React.createElement(Feed,{filter,onFilter:()=>{},revision:0,agents:[],sources:${JSON.stringify(sources)}.filter((_,i)=>includeSlow||i!==0),onOpen:()=>{},onAgent:()=>{},onChanged:()=>{}}));
     };
     window.showNeeds = () => {
       setViewOwner("measured-needs");setShellSource("");
@@ -983,6 +983,35 @@ try {
   console.log(
     "Mid-sweep notification removed previously visited history: " + engineName,
   );
+
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() =>
+    window.showFeed("discovery-history-feed", "working", false),
+  );
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  hold = true;
+  feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(() => window.showFeed("discovery-history-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  assert(
+    hold && pending.size > 0,
+    "Source discovery retains expanded history while the new peer is stalled",
+  );
+  hold = false;
+  for (const release of pending) release();
+  pending.clear();
+  console.log("Source discovery retained expanded history: " + engineName);
 
   if (!feedOnly) {
     mode = "needs";

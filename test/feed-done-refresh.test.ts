@@ -430,6 +430,39 @@ it("keeps an exposed gap reachable across repeated history failures", async () =
   expect(result.error?.message).toBe("history unavailable");
 });
 
+it("keeps an appended rescan-gap cursor when the older sweep fails", async () => {
+  let items = history(225);
+  let result = await refreshDonePage(
+    server(items).read,
+    { items: history(100), next: null },
+    undefined,
+    () => true,
+  );
+  items = history(400);
+  const failedSweep = result.progress!.before;
+  const read = async (before?: string) => {
+    if (before === failedSweep) throw new Error("older sweep unavailable");
+    return server(items).read(before);
+  };
+  result = await refreshDonePage(
+    read,
+    result.page,
+    result.progress,
+    () => true,
+  );
+  expect(result.progress?.rescanGap).toBeDefined();
+  const appended = await read(result.page.next!);
+  const next = appended.next;
+  result = await refreshDonePage(
+    read,
+    { ...result.page, items: [...result.page.items, ...appended.items], next },
+    result.progress,
+    () => true,
+  );
+  expect(result.error?.message).toBe("older sweep unavailable");
+  expect(result.page.next).toBe(next);
+});
+
 it("a newer failed pull exposes its new gap ahead of an earlier failed gap", async () => {
   let items = history(225);
   const read = async (before?: string) => {

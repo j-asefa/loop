@@ -1416,12 +1416,43 @@ export function Feed({
   activeView.current = JSON.stringify([viewOwner(), shownKey()]);
   // Cache eviction must not discard the paging window still mounted on screen.
   const mountedShown = useRef<
-    { key: string; generation: number; page: Shown } | undefined
+    | { key: string; selection: string; generation: number; page: Shown }
+    | undefined
   >(undefined);
   const readShown = (key = shownKey()) => {
     const saved = cachedView<Shown>(key);
-    if (saved) return saved;
     const mounted = mountedShown.current;
+    if (
+      combined &&
+      key === shownKey() &&
+      mounted &&
+      mounted.key !== key &&
+      mounted.selection === pagesKey() &&
+      mounted.generation === viewGeneration()
+    ) {
+      // Discovery changes the roster, not the user's loaded window. Carry
+      // its paging state into the new roster, excluding departed sources.
+      const ids = new Set(activeSources.map((source) => source.id as string));
+      const keep = <T,>(entries: Record<string, T> | undefined) =>
+        Object.fromEntries(
+          Object.entries(entries ?? {}).filter(([source]) => ids.has(source)),
+        );
+      const cursors = keep(
+        JSON.parse(mounted.page.next || "{}") as Record<string, string>,
+      );
+      const sourceSummaries = keep(mounted.page.sourceSummaries);
+      return {
+        ...mounted.page,
+        items: mounted.page.items.filter((item) =>
+          ids.has(item.sourceId ?? scopedSource),
+        ),
+        next: Object.keys(cursors).length ? JSON.stringify(cursors) : null,
+        sourceSummaries,
+        summary: combineSummaries(Object.values(sourceSummaries)),
+        historyProgress: keep(mounted.page.historyProgress),
+      };
+    }
+    if (saved) return saved;
     return mounted?.key === key && mounted.generation === viewGeneration()
       ? mounted.page
       : undefined;
@@ -1439,12 +1470,17 @@ export function Feed({
         ),
       };
     if (activeView.current === JSON.stringify([owner, key]))
-      mountedShown.current = { key, generation, page };
+      mountedShown.current = { key, selection: pagesKey(), generation, page };
     cacheView(key, page, owner);
   };
   const shown = readShown();
   if (shown)
-    mountedShown.current = { key: shownKey(), generation, page: shown };
+    mountedShown.current = {
+      key: shownKey(),
+      selection: pagesKey(),
+      generation,
+      page: shown,
+    };
   // Recorded locations, keyed by source and connection id: ids from
   // different sources can collide.
   const environments = useMemo(
