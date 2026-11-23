@@ -376,7 +376,11 @@ function DisplayNodeView({
           className="display-reply-button"
           disabled={!onReply}
           title={
-            node.prompt && node.prompt !== node.label ? node.prompt : undefined
+            onReply
+              ? node.prompt && node.prompt !== node.label
+                ? node.prompt
+                : undefined
+              : "Open the conversation to reply"
           }
           onClick={onReply ? () => onReply(prompt) : undefined}
         >

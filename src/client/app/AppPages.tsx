@@ -578,7 +578,7 @@ export function renderAppPages(
           }}
           onReply={(c, source, quote, prompt) => {
             setSelected(profile.id);
-            if (quote) {
+            if (quote && prompt !== undefined) {
               beginReply(
                 { ...quote, conversationId: c },
                 prompt,
@@ -812,7 +812,7 @@ export function renderAppPages(
               agents={data.agents}
               onOpen={(c, m) => setConversation(c, m)}
               onReply={(c, source, quote, prompt) => {
-                if (quote) {
+                if (quote && prompt !== undefined) {
                   beginReply(
                     { ...quote, conversationId: c },
                     prompt,
@@ -859,7 +859,7 @@ export function renderAppPages(
                 agents={data.agents}
                 onOpen={(c, m) => setConversation(c, m)}
                 onReply={(c, source, quote, prompt) => {
-                  if (quote) {
+                  if (quote && prompt !== undefined) {
                     beginReply(
                       { ...quote, conversationId: c },
                       prompt,

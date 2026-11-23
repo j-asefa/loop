@@ -767,7 +767,10 @@ function FeedCard({
                   {content ? (
                     <DisplayReplyContext.Provider
                       value={
-                        feedReplyQuote(item) &&
+                        item.agent_id &&
+                        !item.origin.endsWith("-import") &&
+                        item.last_message?.role === "assistant" &&
+                        !item.last_message.automation &&
                         !item.live_preview &&
                         !awaitingUpdate
                           ? (prompt: string) =>
@@ -4161,7 +4164,21 @@ export function Feed({
             ? onReply(
                 item.conversation_id,
                 source,
-                feedReplyQuote(item) ?? undefined,
+                feedReplyQuote(item) ??
+                  (prompt !== undefined &&
+                  item.agent_id &&
+                  !item.origin.endsWith("-import") &&
+                  item.last_message?.role === "assistant" &&
+                  !item.last_message.automation
+                    ? {
+                        agentId: item.agent_id,
+                        messageId: item.last_message.id,
+                        content:
+                          item.last_message.content ??
+                          item.last_message.preview,
+                      }
+                    : null) ??
+                  undefined,
                 prompt,
               )
             : onOpen(item.conversation_id, undefined, source)

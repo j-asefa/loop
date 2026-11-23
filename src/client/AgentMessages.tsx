@@ -1,4 +1,5 @@
 import { useSourceId } from "./SourceContext";
+import { DisplayReplyContext } from "./DisplaySpec";
 import {
   CollectionReadNotice,
   usePagedProjectionQuery,
@@ -23,7 +24,7 @@ export function AgentMessages({
   agent: Agent;
   revision: number;
   onConversation: (id: string) => void;
-  onReply: (context: ComposerContext) => void;
+  onReply: (context: ComposerContext, text?: string) => void;
 }) {
   const source = useSourceId();
   const agentId = agent.id;
@@ -98,7 +99,24 @@ export function AgentMessages({
           <time className="field-hint">
             {new Date(item.created_at).toLocaleString()}
           </time>
-          <RichText content={item.content} />
+          <DisplayReplyContext.Provider
+            value={
+              item.conversation_id
+                ? (prompt: string) =>
+                    onReply(
+                      {
+                        agentId: agent.id,
+                        conversationId: item.conversation_id!,
+                        messageId: item.id,
+                        content: item.content,
+                      },
+                      prompt,
+                    )
+                : null
+            }
+          >
+            <RichText content={item.content} />
+          </DisplayReplyContext.Provider>
           {item.conversation_id && (
             <div className="agent-message-actions">
               <button

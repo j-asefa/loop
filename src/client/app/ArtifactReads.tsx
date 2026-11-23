@@ -24,7 +24,7 @@ export function useArtifactReads({
   initialArtifact?: string | null;
   onStartOpen(): void;
   onOpen(item: ResultAction): void;
-  onReply(context: ComposerContext): void;
+  onReply(context: ComposerContext, prompt?: string): void;
 }) {
   const source = executionSourceId();
   const key = JSON.stringify([viewGeneration(), source]);
@@ -34,6 +34,7 @@ export function useArtifactReads({
     () => ({
       open: undefined as ResultAction | string | undefined,
       reply: undefined as ResultAction | undefined,
+      prompt: undefined as string | undefined,
     }),
     [key],
   );
@@ -107,15 +108,21 @@ export function useArtifactReads({
     );
   }
 
-  async function replyToArtifact(item: ResultAction, retry = false) {
+  async function replyToArtifact(
+    item: ResultAction,
+    retry = false,
+    prompt?: string,
+  ) {
     if (!retry) {
       if (!replying.cancel()) return;
       opening.cancel();
       context.open = undefined;
+      context.prompt = prompt;
     }
     const owner = ownerRef.current;
     if (!owner || (item.cardOwner && item.cardOwner !== owner)) return;
     context.reply = item;
+    const replyPrompt = retry ? context.prompt : prompt;
     const selectedSource = item.sourceId ?? source;
     if (selectedSource !== executionSourceId()) return;
     await replying.load<ResultAction>(
@@ -150,22 +157,25 @@ export function useArtifactReads({
               .metadata.origin === "import";
         if (!target.agent_id || !target.conversation_id || imported)
           return void openTarget(original);
-        onReply({
-          agentId: target.agent_id,
-          conversationId: target.conversation_id,
-          messageId: original.card
-            ? original.card.source.message_id || undefined
-            : artifactMessageId(
-                readArtifactMetadata(
-                  original.role,
-                  original.metadata,
-                  "fallback",
+        onReply(
+          {
+            agentId: target.agent_id,
+            conversationId: target.conversation_id,
+            messageId: original.card
+              ? original.card.source.message_id || undefined
+              : artifactMessageId(
+                  readArtifactMetadata(
+                    original.role,
+                    original.metadata,
+                    "fallback",
+                  ),
                 ),
-              ),
-          artifactId: target.id,
-          title: target.title,
-          content: target.content,
-        });
+            artifactId: target.id,
+            title: target.title,
+            content: target.content,
+          },
+          replyPrompt,
+        );
       },
       true,
     );
@@ -176,7 +186,8 @@ export function useArtifactReads({
   }, [owner, initialArtifact]);
   return {
     open: (item: ResultAction | string) => openTarget(item),
-    replyToArtifact: (item: ResultAction) => replyToArtifact(item),
+    replyToArtifact: (item: ResultAction, prompt?: string) =>
+      replyToArtifact(item, false, prompt),
     opening: {
       error: opening.error,
       busy: opening.busy,

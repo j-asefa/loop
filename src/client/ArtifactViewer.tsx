@@ -1,4 +1,5 @@
 import { ErrorNotice } from "./ErrorNotice";
+import { DisplayReplyContext } from "./DisplaySpec";
 import { CopyButton } from "./CopyButton";
 import { downloadText } from "./downloadText";
 import { assertNever } from "../shared/assert-never";
@@ -189,7 +190,7 @@ export function ArtifactViewer({
   onConversation: () => void;
   onChanged: () => void;
   onRun: (text: string) => void;
-  onReply: () => void;
+  onReply: (prompt?: string) => void;
   readNotice?: ReactNode;
 }) {
   const target = resultTarget(item);
@@ -452,10 +453,20 @@ export function ArtifactViewer({
                 rows={16}
               />
             </AutofillBoundary>
-          ) : item.card ? (
-            <CardBody card={item.card} />
           ) : (
-            <ArtifactContent item={item} />
+            <DisplayReplyContext.Provider
+              value={
+                agent && target.conversation_id && meta.origin !== "import"
+                  ? (prompt: string) => onReply(prompt)
+                  : null
+              }
+            >
+              {item.card ? (
+                <CardBody card={item.card} />
+              ) : (
+                <ArtifactContent item={item} />
+              )}
+            </DisplayReplyContext.Provider>
           )}
         </div>
         <RunFiles runId={target.run_id} excludeId={target.id} />
@@ -488,7 +499,7 @@ export function ArtifactViewer({
         target.conversation_id &&
         meta.origin !== "import" && (
           <div className="result-edit-actions">
-            <button className="primary" onClick={onReply}>
+            <button className="primary" onClick={() => onReply()}>
               <MessageSquare size={18} />
               Reply
             </button>

@@ -1398,7 +1398,7 @@ export function renderApp(props: AppViewProps) {
               setActiveArtifact(null);
             }}
             onChanged={() => void changed()}
-            onReply={() => void replyToArtifact(activeArtifact)}
+            onReply={(prompt) => void replyToArtifact(activeArtifact, prompt)}
             onRun={(text) => {
               setDraft(text);
               setActiveArtifact(null);

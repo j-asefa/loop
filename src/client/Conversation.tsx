@@ -1748,7 +1748,10 @@ function ConversationView({
                   latestProgressByRun.get(m.run_id)?.id === m.id
                 : !anchor || latestAgent === m.id);
             const replyWithPrompt =
-              replyTarget && !messageWriting
+              replyTarget &&
+              m.role === "assistant" &&
+              !meta.automation &&
+              !messageWriting
                 ? (prompt: string) => onReply(replyTarget, prompt)
                 : null;
             const finalForRun =

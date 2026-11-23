@@ -54,6 +54,7 @@ import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,
+  seedReplyDraftText,
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
@@ -553,13 +554,13 @@ export function useAppController(seed?: AppNavigationInitial) {
         const saved = readThreadDraft(key, session?.user?.id);
         writeThreadDraft(
           key,
-          appendDraftText(saved.text, text),
+          seedReplyDraftText(saved.text, text),
           saved.files,
           session?.user?.id,
         );
       }
     } else if (text !== undefined) {
-      const nextText = appendDraftText(draftRef.current, text);
+      const nextText = seedReplyDraftText(draftRef.current, text);
       draftRef.current = nextText;
       setDraft(nextText);
     }
@@ -578,7 +579,7 @@ export function useAppController(seed?: AppNavigationInitial) {
       if (agentId) setSelected(agentId);
       setActiveArtifact(item);
     },
-    onReply: (context) => beginReply(context),
+    onReply: (context, prompt) => beginReply(context, prompt),
   });
   const { open, replyToArtifact } = artifactReads;
   function openTeamFeed(team: Team) {

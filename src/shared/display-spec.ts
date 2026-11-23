@@ -92,6 +92,13 @@ const seriesChart = z.object({
 export const DisplayChartSchema = z.union([pieChart, seriesChart]);
 export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 
+const replyText = text
+  .min(1)
+  .refine(
+    (value) => !/^[ \t\r\n]*[@/!]/.test(value),
+    "Reply prompts cannot start with @, /, or !",
+  );
+
 // Props of each catalog component. Unknown props are ignored.
 const propSchemas = {
   Card: z.object({ title: text.nullish(), subtitle: text.nullish() }),
@@ -113,8 +120,8 @@ const propSchemas = {
   Actions: z.object({}),
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
   ReplyButton: z.object({
-    label: text.min(1),
-    prompt: text.min(1).nullish(),
+    label: replyText,
+    prompt: replyText.nullish(),
   }),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);

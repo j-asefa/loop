@@ -2,9 +2,12 @@ import { isValidElement, type ReactElement, type ReactNode } from "react";
 import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
+import { ContentCard } from "../src/client/ContentCard";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
+import { seedReplyDraftText } from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
 import { checkDisplay } from "../src/server/display-check";
+import type { Card } from "../src/shared/cards";
 import { displayFixtures } from "./display-spec-fixtures";
 
 const patch = (...lines: unknown[]) =>
@@ -384,13 +387,13 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   const source = fence(raw);
   expect(checkDisplay(source)).toContain("Display valid. Elements: 3.");
 
-  // Without a DisplayReplyContext provider, ReplyButton renders disabled.
+  // Without a DisplayReplyContext provider, ReplyButton renders disabled with an explanation title.
   const disabledHtml = render(source);
   expect(disabledHtml).toContain(
-    '<button type="button" class="display-reply-button" disabled="">Run benchmark</button>',
+    '<button type="button" class="display-reply-button" disabled="" title="Open the conversation to reply">Run benchmark</button>',
   );
   expect(disabledHtml).toContain(
-    '<button type="button" class="display-reply-button" disabled="" title="Compare these metrics with staging.">Compare staging</button>',
+    '<button type="button" class="display-reply-button" disabled="" title="Open the conversation to reply">Compare staging</button>',
   );
 
   // With a DisplayReplyContext provider in a non-compact, finished message, ReplyButton is enabled.
@@ -466,6 +469,122 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     2,
     "Compare these metrics with staging.",
   );
+
+  // Leading @, /, or ! in ReplyButton label or prompt is rejected so a display cannot hijack routing or commands.
+  for (const badPrompt of ["@other-agent run", "  /compact", "\n!rm -rf"]) {
+    const invalidSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: badPrompt },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(invalidSource)).toContain(
+      "Reply prompts cannot start with @, /, or !",
+    );
+    expect(render(invalidSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+
+  // seedReplyDraftText appends to existing drafts without duplicating repeated clicks of the same ReplyButton.
+  expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
+  expect(seedReplyDraftText("Run benchmark", "Run benchmark")).toBe(
+    "Run benchmark",
+  );
+  expect(
+    seedReplyDraftText("Already typed\n\nRun benchmark", "Run benchmark"),
+  ).toBe("Already typed\n\nRun benchmark");
+  expect(
+    seedReplyDraftText("Already typed", "Compare these metrics with staging."),
+  ).toBe("Already typed\n\nCompare these metrics with staging.");
+
+  // ContentCard enables ReplyButton only on assistant agent message cards, not owner messages or compact result cards.
+  vi.stubGlobal("location", { origin: "http://localhost:3210" });
+  try {
+    const baseMessageCard: Extract<Card, { type: "message" }> = {
+      id: "m:msg-1",
+      type: "message",
+      role: "assistant",
+      format: "markdown",
+      created_at: 1_700_000_000_000,
+      updated_at: 1_700_000_000_000,
+      content: source,
+      saved: true,
+      author: {
+        kind: "agent",
+        id: "11111111-1111-4111-8111-111111111111" as Card["author"]["id"],
+        name: "alpha",
+        provider: "anthropic",
+      },
+      recipient: null,
+      context: {
+        conversation_title: "Deploy check",
+        folder_id: null,
+        project_id: null,
+        project_name: null,
+        team_id: null,
+      },
+      source: {
+        artifact_id: null,
+        message_id:
+          "33333333-3333-4333-8333-333333333333" as Card["source"]["message_id"],
+        conversation_id:
+          "22222222-2222-4222-8222-222222222222" as Card["source"]["conversation_id"],
+        run_id: null,
+        agent_id:
+          "11111111-1111-4111-8111-111111111111" as Card["source"]["agent_id"],
+      },
+      attachments: [],
+      href: "/?conversation=22222222-2222-4222-8222-222222222222",
+    };
+    const agentCardHtml = renderToStaticMarkup(
+      <ContentCard
+        card={baseMessageCard}
+        onOpen={() => {}}
+        onReply={() => {}}
+      />,
+    );
+    expect(agentCardHtml).toContain(
+      '<button type="button" class="display-reply-button">Run benchmark</button>',
+    );
+    const ownerCardHtml = renderToStaticMarkup(
+      <ContentCard
+        card={{
+          ...baseMessageCard,
+          role: "user",
+          author: { kind: "owner", id: null, name: "You", provider: null },
+        }}
+        onOpen={() => {}}
+        onReply={() => {}}
+      />,
+    );
+    expect(ownerCardHtml).toContain('class="display-reply-button" disabled=""');
+    const unknownAuthorCardHtml = renderToStaticMarkup(
+      <ContentCard
+        card={{
+          ...baseMessageCard,
+          author: {
+            ...baseMessageCard.author,
+            kind: "unknown",
+          },
+        }}
+        onOpen={() => {}}
+        onReply={() => {}}
+      />,
+    );
+    expect(unknownAuthorCardHtml).toContain(
+      'class="display-reply-button" disabled=""',
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("checks and draws a standalone display nested in a quote or list item", () => {

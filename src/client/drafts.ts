@@ -6,6 +6,14 @@ export function appendDraftText(current: string, added: string): string {
   return current.trim() ? `${current.trimEnd()}\n\n${added}` : added;
 }
 
+export function seedReplyDraftText(current: string, prompt: string): string {
+  const trimmed = current.trimEnd();
+  if (!trimmed.trim()) return prompt;
+  const target = prompt.trimEnd();
+  if (trimmed === target || trimmed.endsWith(`\n\n${target}`)) return current;
+  return `${trimmed}\n\n${prompt}`;
+}
+
 export const GLOBAL_DRAFT = "__global__";
 
 export function sourceDraftId(id: string, source: string) {

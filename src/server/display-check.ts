@@ -39,7 +39,7 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
     "no props; children allowed, typically LinkButton or ReplyButton elements",
   LinkButton: "nonempty label and an HTTP(S) url",
   ReplyButton:
-    "nonempty label; optional nonempty prompt string to pre-fill a reply",
+    "nonempty label; optional nonempty prompt string to pre-fill a reply (neither may start with @, /, or !)",
 };
 const patchForm =
   "One JSON object per line with op add or replace. Use path /root with a string key, or /elements/<key> with an element object.";
