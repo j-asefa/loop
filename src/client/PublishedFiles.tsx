@@ -135,6 +135,13 @@ function PublishedFileView({
           url={url}
           name={name}
           mime={meta.mime}
+          initialText={
+            meta.text &&
+            typeof content === "string" &&
+            !isHtmlFile(name, meta.mime)
+              ? content
+              : undefined
+          }
           onClose={() => setOpen(false)}
         />
       )}

@@ -154,10 +154,19 @@ type FilePreviewProps = {
   url: string;
   name: string;
   mime?: string;
+  initialText?: string;
   onClose: () => void;
 };
-function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
+function FilePreviewBody({
+  url,
+  name,
+  mime,
+  initialText,
+  onClose,
+}: FilePreviewProps) {
   const [ready, setReady] = useState<ReadyFile>(),
+    [discoveredHtmlUrl, setDiscoveredHtmlUrl] = useState<string>(),
+    [discoveredName, setDiscoveredName] = useState<string>(),
     [error, setError] = useState(""),
     [saveError, setSaveError] = useState(""),
     [sharing, setSharing] = useState(false),
@@ -175,6 +184,8 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
       return result;
     };
     setReady(undefined);
+    setDiscoveredHtmlUrl(undefined);
+    setDiscoveredName(undefined);
     setError("");
     setSaveError("");
     void (async () => {
@@ -218,6 +229,22 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
           throw new Error("Sign in to Loop to open this file.");
         if (!response.ok)
           throw new Error("Could not load this file. Please try again.");
+        const headerName = responseName(response) || name;
+        const headerMime = (mime || response.headers.get("content-type") || "")
+          .split(";")[0]
+          .toLowerCase();
+        const headerType =
+          !headerMime || headerMime === "application/octet-stream"
+            ? previewMime[headerName.split(".").at(-1)?.toLowerCase() || ""] ||
+              "application/octet-stream"
+            : headerMime;
+        const earlyHtmlUrl = isHtmlFile(headerName, headerType)
+          ? loopFileUrl(url, undefined, "html")
+          : undefined;
+        if (earlyHtmlUrl && current()) {
+          setDiscoveredName(headerName);
+          setDiscoveredHtmlUrl(earlyHtmlUrl);
+        }
         const blob = await response.blob();
         const fileName = responseName(response) || name;
         const responseType = (mime || blob.type).split(";")[0].toLowerCase();
@@ -276,6 +303,23 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
     };
   }, [url, name, mime, attempt]);
 
+  const initialHtmlUrl =
+    attempt === 0 && isHtmlFile(name, mime)
+      ? loopFileUrl(url, undefined, "html")
+      : undefined;
+  const displayName = ready?.file.name || discoveredName || name;
+  const htmlUrl = ready ? ready.htmlUrl : (discoveredHtmlUrl ?? initialHtmlUrl);
+  const previewText = ready
+    ? ready.text
+    : !htmlUrl && attempt === 0
+      ? initialText
+      : undefined;
+  const previewMarkdown =
+    ready?.markdown ??
+    (previewText !== undefined &&
+      (mime === "text/markdown" || /\.(md|markdown)$/i.test(displayName)));
+  const hasPreview = !!ready || !!htmlUrl || previewText !== undefined;
+
   let canShare = false;
   try {
     canShare = !!(
@@ -310,14 +354,14 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
       onContextMenu={(event) => event.stopPropagation()}
     >
       <Sheet
-        title={ready?.file.name || name}
+        title={displayName}
         className="file-preview-sheet"
         wide
         onClose={onClose}
       >
         <div
-          className={`file-preview-content${ready?.htmlUrl && !error ? " file-preview-html" : ""}${ready?.markdown && !error ? " file-preview-markdown" : ""}`}
-          aria-busy={!ready && !error}
+          className={`file-preview-content${htmlUrl && !error ? " file-preview-html" : ""}${previewMarkdown && !error ? " file-preview-markdown" : ""}`}
+          aria-busy={!hasPreview && !error}
         >
           {error ? (
             <div className="file-preview-placeholder">
@@ -332,16 +376,14 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
                 </button>
               )}
             </div>
-          ) : !ready ? (
-            <p role="status">Loading preview…</p>
-          ) : ready.htmlUrl ? (
+          ) : htmlUrl ? (
             <iframe
-              src={ready.htmlUrl}
-              title={`Preview of ${ready.file.name}`}
+              src={htmlUrl}
+              title={`Preview of ${displayName}`}
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
             />
-          ) : ready.imageUrl ? (
+          ) : ready?.imageUrl ? (
             <img
               src={ready.imageUrl}
               alt={ready.file.name}
@@ -351,7 +393,7 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
                 )
               }
             />
-          ) : ready.videoUrl ? (
+          ) : ready?.videoUrl ? (
             <video
               src={ready.videoUrl}
               controls
@@ -364,21 +406,23 @@ function FilePreviewBody({ url, name, mime, onClose }: FilePreviewProps) {
                 )
               }
             />
-          ) : ready.text !== undefined ? (
+          ) : previewText !== undefined ? (
             <>
-              {ready.markdown ? (
+              {previewMarkdown ? (
                 // The same renderer as chat answers: no raw HTML, and Loop
                 // file links open in their own preview.
-                <RichText content={ready.text} />
+                <RichText content={previewText} />
               ) : (
-                <pre>{ready.text}</pre>
+                <pre>{previewText}</pre>
               )}
-              {ready.truncated && (
+              {ready?.truncated && (
                 <p className="muted">
                   Preview shortened. Save the file to see the full contents.
                 </p>
               )}
             </>
+          ) : !ready ? (
+            <p role="status">Loading preview…</p>
           ) : (
             <div className="file-preview-placeholder">
               <FileIcon size={44} aria-hidden="true" />

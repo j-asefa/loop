@@ -290,9 +290,12 @@ function FeedCard({
   const inheritedCapabilities = useSourceCapabilities();
   const capabilities = sourceCapabilities || inheritedCapabilities;
   const [reading, setReading] = useState(false);
+  const [prefetchedKey, setPrefetchedKey] = useState("");
   const [message, setMessage] = useState<{
     id: string;
     content: string;
+    source: string;
+    generation: number;
   } | null>(null);
   const [readError, setReadError] = useState("");
   const swipe = useDoneCardGestures({
@@ -332,55 +335,99 @@ function FeedCard({
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
+  const messageSource = item.sourceId ?? scopedSource;
+  const generation = viewGeneration();
+  const prefetchKey = JSON.stringify([generation, messageSource, messageId]);
+  const prefetching = prefetchedKey === prefetchKey;
+  const messagePreviewCapped =
+    item.last_message?.content_truncated ??
+    Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")
+      .length >= FEED_MESSAGE_PREFIX_LIMIT;
+  const loadedMessage =
+    message &&
+    messageId &&
+    message.id === messageId &&
+    message.source === messageSource &&
+    message.generation === generation
+      ? message
+      : null;
+  const startPrefetch = () => {
+    if (
+      readAsCard &&
+      messageId &&
+      messagePreviewCapped &&
+      !loadedMessage &&
+      !item.card &&
+      !item.live_preview &&
+      !awaitingUpdate
+    )
+      setPrefetchedKey(prefetchKey);
+  };
   useEffect(() => {
     if (
-      !reading ||
+      (!reading && !(readAsCard && prefetching)) ||
       !messageId ||
+      loadedMessage ||
+      !messagePreviewCapped ||
       item.card ||
       item.live_preview ||
       awaitingUpdate
     )
       return;
     const controller = new AbortController();
-    setReadError("");
+    if (reading) setReadError("");
     void readProjection(
       workspaceApi.messageDetail,
       { params: { id: MessageId.parse(messageId) } },
       {
         mode: "once",
-        source: item.sourceId ?? scopedSource,
+        source: messageSource,
         signal: controller.signal,
       },
     )
       .then((value) => {
-        if (!controller.signal.aborted) setMessage(value);
+        if (!controller.signal.aborted && generation === viewGeneration()) {
+          setMessage({
+            ...value,
+            source: messageSource,
+            generation,
+          });
+          setReadError("");
+        }
       })
       .catch(() => {
-        if (!controller.signal.aborted)
-          setReadError(
-            "Couldn’t load the full message. Open the conversation to read it.",
-          );
+        if (!controller.signal.aborted) {
+          if (reading)
+            setReadError(
+              "Couldn’t load the full message. Open the conversation to read it.",
+            );
+          else
+            setPrefetchedKey((current) =>
+              current === prefetchKey ? "" : current,
+            );
+        }
       });
     return () => controller.abort();
   }, [
     reading,
+    readAsCard,
+    prefetching,
+    prefetchKey,
+    !!loadedMessage,
+    messagePreviewCapped,
     item.card,
     messageId,
-    item.sourceId,
-    scopedSource,
+    messageSource,
+    generation,
     !!item.live_preview,
     !!awaitingUpdate,
   ]);
-  const messagePreviewCapped =
-    item.last_message?.content_truncated ??
-    Array.from(item.last_message?.content ?? "").length >=
-      FEED_MESSAGE_PREFIX_LIMIT;
   const content =
     item.live_preview ||
     (awaitingUpdate
       ? ""
-      : message?.id === messageId
-        ? (message?.content ?? "")
+      : loadedMessage
+        ? loadedMessage.content
         : (item.last_message?.content ?? item.last_message?.preview ?? ""));
   const previewAtLimit =
     item.live_preview_truncated ??
@@ -501,6 +548,8 @@ function FeedCard({
           tabIndex={0}
           aria-label={`${item.title}${status.label ? `, ${status.label}` : ""}`}
           aria-pressed={onSelect ? !!selected : undefined}
+          onPointerEnter={startPrefetch}
+          onFocus={startPrefetch}
           onClick={(e) => {
             if (!(e.target as HTMLElement).closest("a,button,summary,input"))
               openReading();
@@ -636,6 +685,10 @@ function FeedCard({
                 <button
                   className="next-action"
                   data-kind={next.kind}
+                  onPointerEnter={
+                    next.kind === "result" ? startPrefetch : undefined
+                  }
+                  onFocus={next.kind === "result" ? startPrefetch : undefined}
                   onClick={() =>
                     next.kind === "result" && readAsCard
                       ? openReading()

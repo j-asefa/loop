@@ -203,14 +203,35 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
     // The published-file button and a Markdown file link share this preview.
     await page.goto(fixture.base + "/?artifact=" + id);
     await expect(dialog().locator(".file-text-preview")).toHaveCount(0);
-    await dialog()
-      .getByRole("button", { name: "Preview prototype.html", exact: true })
-      .click();
-    await expect(
-      dialog()
-        .frameLocator("iframe")
-        .getByRole("heading", { name: "Interactive prototype", exact: true }),
-    ).toBeVisible();
+    let releaseDownload, downloadContinued;
+    const heldDownload = new Promise((resolve) => {
+      releaseDownload = resolve;
+    });
+    const holdRawFile = async (route) => {
+      if (new URL(route.request().url()).searchParams.get("preview") === "html")
+        return route.continue();
+      downloadContinued = (async () => {
+        await heldDownload;
+        await route.continue();
+      })();
+      await downloadContinued;
+    };
+    await page.route(`**/api/artifacts/${id}/file*`, holdRawFile);
+    try {
+      await dialog()
+        .getByRole("button", { name: "Preview prototype.html", exact: true })
+        .click();
+      await expect(
+        dialog().frameLocator("iframe").getByRole("heading", {
+          name: "Interactive prototype",
+          exact: true,
+        }),
+      ).toBeVisible();
+    } finally {
+      releaseDownload();
+      await downloadContinued;
+      await page.unroute(`**/api/artifacts/${id}/file*`, holdRawFile);
+    }
     await page.evaluate(() =>
       Object.defineProperty(navigator, "canShare", {
         configurable: true,
