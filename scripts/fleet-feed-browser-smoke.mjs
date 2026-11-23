@@ -81,6 +81,10 @@ let holdDoneSummary = false,
   releaseDoneSummary;
 let doneAllSources = false,
   cancelledDoneSummaries = 0;
+let failNextDoneChanges = false,
+  doneChangesFailures = 0;
+let failDoneSummary = false,
+  doneSummaryFailures = 0;
 const doneSourceReads = new Map();
 const holdDoneAppends = new Set(),
   heldDoneAppends = new Map();
@@ -294,10 +298,25 @@ try {
         return;
       }
       if (path === "v1/cards/changes") {
+        if (failNextDoneChanges && source.id === sources[1].id) {
+          failNextDoneChanges = false;
+          doneChangesFailures++;
+          reply({ error: "Synthetic Done head unavailable" }, 503);
+          return;
+        }
         reply({ revision: "r", items: [], removed: [], more: false });
         return;
       }
+      if (path === "feed/agent-threads") {
+        reply({ items: [], next: null });
+        return;
+      }
       if (path === "feed") {
+        if (failDoneSummary && source.id === sources[1].id) {
+          doneSummaryFailures++;
+          reply({ error: "Synthetic Done summary refused" }, 400);
+          return;
+        }
         if (holdDoneSummary && source.id === sources[1].id) {
           holdDoneSummary = false;
           await new Promise((resolve) => {
@@ -1242,6 +1261,62 @@ try {
   doneAllSources = false;
   console.log(
     "Pull resumed Done pages queued behind four readers: " + engineName,
+  );
+
+  await page.evaluate(() => window.showFeed("done-head-recovery-feed", "done"));
+  await expect(
+    page.getByText("Done fixture 3", { exact: true }).first(),
+  ).toBeVisible();
+  holdDoneAppends.add(sources[1].id);
+  await moreFeed.click();
+  await expect.poll(() => heldDoneAppends.has(sources[1].id)).toBe(true);
+  failNextDoneChanges = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect.poll(() => doneChangesFailures).toBe(1);
+  await expect(
+    page.getByText("Done fixture 2", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  for (const release of heldDoneAppends.values()) release();
+  heldDoneAppends.clear();
+  console.log("Recovered Done head cleared its refresh warning: " + engineName);
+
+  donePageReads.length = 0;
+  await page.evaluate(() =>
+    window.showFeed("failed-done-summary-feed", "done"),
+  );
+  await expect.poll(() => donePageReads).toEqual([null]);
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(1);
+  await expect(moreFeed).toBeEnabled();
+  await expect(
+    page.getByText("Done fixture 3", { exact: true }).first(),
+  ).toBeVisible();
+  failDoneSummary = true;
+  await moreFeed.click();
+  await expect.poll(() => doneSummaryFailures).toBeGreaterThan(0);
+  await expect(page.getByRole("alert")).toBeVisible();
+  failDoneSummary = false;
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Done fixture 2", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.waitForTimeout(1500);
+  assert.deepEqual(
+    donePageReads,
+    [null, "3"],
+    "Summary failure must not turn a later notification into another Cards append",
+  );
+  console.log(
+    "Done summary recovery did not append an extra page: " + engineName,
   );
 
   if (!feedOnly) {

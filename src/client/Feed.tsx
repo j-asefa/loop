@@ -2337,6 +2337,7 @@ export function Feed({
           if (ticket === request.current && owner === viewOwner()) {
             reader.discardPrior = false;
             cacheView(cardKey + ":reset", undefined, owner);
+            if (!appending) historyReadErrors.current.delete(source);
           }
           const typedItems = window.page.items.flatMap(
             ({ card, order: cardOrder }) =>
@@ -2775,6 +2776,7 @@ export function Feed({
                 const retry = retryPages.current.get(id);
                 if (
                   retry?.append &&
+                  !retry.doneSummary &&
                   historyReadErrors.current.has(id) &&
                   !historyDirtySources.current.has(id) &&
                   !pendingAppendSources.current.has(id)
@@ -2783,6 +2785,7 @@ export function Feed({
                 } else {
                   if (
                     retry?.append &&
+                    !retry.doneSummary &&
                     retry.before &&
                     !pendingAppendSources.current.has(id)
                   )
