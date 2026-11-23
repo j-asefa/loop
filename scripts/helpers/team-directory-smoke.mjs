@@ -264,6 +264,9 @@ async function teamEditingSmoke(page, fixture) {
             name: `@${disconnected.name}`,
           }),
         ).toHaveCount(0);
+        const managerBefore = await dialog()
+          .getByRole("button", { name: "Manager", exact: true })
+          .getAttribute("value");
         await dialog()
           .getByRole("button", { name: "Manager", exact: true })
           .click();
@@ -299,10 +302,18 @@ async function teamEditingSmoke(page, fixture) {
         await managers
           .getByRole("searchbox", { name: "Search agents" })
           .fill("");
+        // Enter on an empty search keeps the current choice.
+        await managers
+          .getByRole("searchbox", { name: "Search agents" })
+          .press("Enter");
+        await expect(managers).toHaveCount(1);
         await managers
           .getByRole("searchbox", { name: "Search agents" })
           .press("Escape");
         await expect(managers).toHaveCount(0);
+        await expect(
+          dialog().getByRole("button", { name: "Manager", exact: true }),
+        ).toHaveAttribute("value", managerBefore);
         // Enter in the Workers search filters; it never submits the team.
         const creates = [];
         const onRequest = (request) => {

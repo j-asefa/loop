@@ -141,9 +141,11 @@ export function AgentPicker({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key !== "Enter" || !matches.length) return;
+                  if (event.key !== "Enter") return;
                   event.preventDefault();
-                  choose(matches[0].value);
+                  // Only a typed search picks its first match; Enter on an
+                  // empty search keeps choices such as "Let Loop choose".
+                  if (query.trim() && matches.length) choose(matches[0].value);
                 }}
                 autoFocus
               />
