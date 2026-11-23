@@ -297,8 +297,7 @@ function FeedCard({
   const [readError, setReadError] = useState("");
   // Pointer, touch or focus on a card starts loading its full answer, so
   // the reading sheet usually opens with the whole text already in memory.
-  const [readIntent, setReadIntent] = useState(false);
-  const markReadIntent = () => setReadIntent(true);
+  const [readIntentFor, setReadIntentFor] = useState<string>();
   const swipe = useDoneCardGestures({
     id: aggregationId,
     session: dragSession,
@@ -336,6 +335,9 @@ function FeedCard({
     WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
     item.last_message?.role !== "assistant";
   const messageId = item.last_message?.id;
+  // Intent covers the message seen at the time, not later answers.
+  const readIntent = !!messageId && readIntentFor === messageId;
+  const markReadIntent = () => setReadIntentFor(messageId);
   const messagePreviewCapped =
     item.last_message?.content_truncated ??
     Array.from(item.last_message?.content ?? item.last_message?.preview ?? "")

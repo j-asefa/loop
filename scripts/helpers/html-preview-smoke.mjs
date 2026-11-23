@@ -231,7 +231,8 @@ export async function htmlPreviewSmoke(page, fixture, capture) {
       await expect(dialog().locator(".file-preview-actions")).toHaveCount(0);
     } finally {
       releaseDownload();
-      await downloadContinued;
+      // Cleanup must not replace an assertion failure from the try block.
+      await downloadContinued?.catch(() => {});
       await page.unroute(`**/api/artifacts/${id}/file*`, holdRawFile);
     }
     // Once the download lands, its result keeps the same sandboxed iframe.
