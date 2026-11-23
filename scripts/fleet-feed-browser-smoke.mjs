@@ -79,6 +79,11 @@ const doneEntry = (n) =>
 const donePageReads = [];
 let holdDoneSummary = false,
   releaseDoneSummary;
+let doneAllSources = false,
+  cancelledDoneSummaries = 0;
+const doneSourceReads = new Map();
+const holdDoneAppends = new Set(),
+  heldDoneAppends = new Map();
 const feedMetrics = { requests: 0, responseBodyBytes: 0, active: 0, peak: 0 };
 const needsMetrics = { requests: 0, active: 0, peak: 0 };
 let needsRevision = 0;
@@ -270,8 +275,17 @@ try {
       if (path === "v1/cards") {
         const before = url.searchParams.get("before");
         const n = before ? Number(before) - 1 : 3;
-        const selected = source.id === sources[1].id;
+        const selected = doneAllSources || source.id === sources[1].id;
         if (selected) donePageReads.push(before);
+        if (!doneSourceReads.has(source.id)) doneSourceReads.set(source.id, []);
+        doneSourceReads.get(source.id).push(before);
+        if (before && holdDoneAppends.delete(source.id)) {
+          await new Promise((resolve) => {
+            heldDoneAppends.set(source.id, resolve);
+            res.once("close", resolve);
+          });
+          if (res.destroyed) return;
+        }
         reply({
           revision: "r",
           items: selected ? [doneEntry(n)] : [],
@@ -288,7 +302,12 @@ try {
           holdDoneSummary = false;
           await new Promise((resolve) => {
             releaseDoneSummary = resolve;
+            res.once("close", () => {
+              if (!res.writableEnded) cancelledDoneSummaries++;
+              resolve();
+            });
           });
+          if (res.destroyed) return;
         }
         reply({
           items: [],
@@ -1193,6 +1212,36 @@ try {
   );
   console.log(
     "Done summary notification preserved one-page intent: " + engineName,
+  );
+
+  holdDoneSummary = true;
+  releaseDoneSummary = undefined;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseDoneSummary).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect.poll(() => cancelledDoneSummaries).toBe(1);
+  await expect(
+    page.getByText("Done fixture 1", { exact: true }).first(),
+  ).toBeVisible();
+  console.log("Pull cancelled the superseded Done summary: " + engineName);
+
+  doneAllSources = true;
+  doneSourceReads.clear();
+  await page.evaluate(() => window.showFeed("queued-done-feed", "done"));
+  await expect.poll(() => doneSourceReads.size).toBe(sources.length);
+  for (const source of sources.slice(0, 4)) holdDoneAppends.add(source.id);
+  await moreFeed.click();
+  await expect.poll(() => heldDoneAppends.size).toBe(4);
+  assert.deepEqual(doneSourceReads.get(sources[4].id), [null]);
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect
+    .poll(() => doneSourceReads.get(sources[4].id))
+    .toEqual([null, "3"]);
+  for (const release of heldDoneAppends.values()) release();
+  heldDoneAppends.clear();
+  doneAllSources = false;
+  console.log(
+    "Pull resumed Done pages queued behind four readers: " + engineName,
   );
 
   if (!feedOnly) {

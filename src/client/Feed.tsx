@@ -1358,6 +1358,12 @@ export function Feed({
     new FeedReadRecovery<RouteResponse<typeof workspaceApi.feed>>(),
   );
   const pausedHeadRecovery = useRef(new Set<string>());
+  const doneSummaryReads = useRef(new Map<string, AbortController>());
+  const cancelDoneSummaries = () => {
+    for (const controller of doneSummaryReads.current.values())
+      controller.abort();
+    doneSummaryReads.current.clear();
+  };
   const recoverSource = useRef<(source: string) => void>(() => {});
   const readSnapshot = (
     source: string,
@@ -2155,6 +2161,7 @@ export function Feed({
     setReadBusy(true);
     setPartialReadPending(false);
     const followup = new Set<string>();
+    cancelDoneSummaries();
     const ticket = ++request.current;
     refreshReadingSources.current = undefined;
     // The account this request is for; a late answer for another is dropped.
@@ -2310,11 +2317,20 @@ export function Feed({
             cacheView(cardKey, window, owner);
           // Counters remain conversation-based operational Feed state.
           pages.set(source, { ...pages.get(source)!, doneSummary: true });
-          const operational = await readProjection(
-            workspaceApi.feed,
-            { query: query(undefined, "needs") },
-            { mode: "once", source: source },
-          );
+          const summaryController = new AbortController();
+          doneSummaryReads.current.get(source)?.abort();
+          doneSummaryReads.current.set(source, summaryController);
+          let operational: Page;
+          try {
+            operational = await readProjection(
+              workspaceApi.feed,
+              { query: query(undefined, "needs") },
+              { mode: "once", source, signal: summaryController.signal },
+            );
+          } finally {
+            if (doneSummaryReads.current.get(source) === summaryController)
+              doneSummaryReads.current.delete(source);
+          }
           // Only a failed operational read needs a summary-only retry. A
           // trailing notification in this queue must read newer card changes.
           pages.set(source, { ...pages.get(source)!, doneSummary: false });
@@ -3048,6 +3064,7 @@ export function Feed({
       stopFrames.forEach((stop) => stop());
       readRecovery.current.reset();
       pausedHeadRecovery.current.clear();
+      cancelDoneSummaries();
       refreshHistorySources.current.clear();
       doneRefresh.current = { key: "", sources: new Map() };
       historyDirtySources.current.clear();
@@ -3089,7 +3106,7 @@ export function Feed({
       preemptedAppends.current.clear();
       // A deliberate pull refreshes the head even after a failed append. Keep
       // the loaded card window and restart each source's bounded recovery.
-      if (filter !== "done" && inFlight.current)
+      if (inFlight.current)
         for (const [source, cursor] of activeAppendSources.current)
           pendingAppendSources.current.set(source, cursor);
       readRecovery.current.reset();
