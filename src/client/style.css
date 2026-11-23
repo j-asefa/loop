@@ -493,31 +493,9 @@ small,
   font-weight: 600;
   color: var(--muted);
 }
-.composer-field select {
-  appearance: none;
-  padding: 10px 28px 10px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
+.composer-field .agent-picker {
   height: 44px;
-  font-size: var(--control-size);
-  color: var(--text);
-  text-overflow: ellipsis;
-}
-.composer-field::after {
-  content: "";
-  position: absolute;
-  right: 13px;
-  bottom: 19px;
-  width: 6px;
-  height: 6px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
-  pointer-events: none;
+  padding: 10px;
 }
 .composer-main {
   position: relative;
@@ -1784,9 +1762,9 @@ pre {
   min-width: 96px;
 }
 @media (max-width: 700px) {
-  .composer-field select {
+  .composer-field .agent-picker {
     font-size: var(--reading-size);
-    padding: 9px 25px 9px 8px;
+    padding: 9px 8px;
   }
   .composer-heading {
     font-size: 13px;
@@ -4954,20 +4932,52 @@ select {
   white-space: nowrap;
 }
 .done-agent-filter svg,
-.done-agent-options svg {
+.agent-picker svg,
+.agent-picker-options svg {
   flex-shrink: 0;
 }
-.done-agent-picker .directory-search {
+/* A select-shaped button that opens the searchable agent list. */
+.agent-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--control-size);
+  font-weight: 400;
+  text-align: left;
+}
+.agent-picker span,
+.chip.agent-picker-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip.agent-picker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(240px, 100%);
+}
+.agent-picker-sheet .directory-search {
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--bg);
 }
-.done-agent-options {
+.agent-picker-options {
   display: grid;
   gap: 4px;
 }
-.done-agent-options button {
+.agent-picker-options button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4978,7 +4988,12 @@ select {
   border-radius: 12px;
   overflow-wrap: anywhere;
 }
-.done-agent-options button[aria-pressed="true"] {
+.agent-picker-options button > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-picker-options button[aria-pressed="true"] {
   color: var(--brass-text);
   background: var(--surface);
 }

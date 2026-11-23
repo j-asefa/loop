@@ -1,3 +1,4 @@
+import { AgentPicker } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import {
@@ -962,21 +963,15 @@ export function SearchWorkspace({
               ))}
             </select>
           </label>
-          <label className="chip chip-select">
-            <span className="sr-only">Agent</span>
-            <select
-              aria-label="Search agent"
-              value={agent}
-              onChange={(e) => setAgent(e.target.value)}
-            >
-              <option value="">Any agent</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  @{a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <AgentPicker
+            label="Search agent"
+            title="Search by agent"
+            className="chip agent-picker-chip"
+            value={agent}
+            onChange={setAgent}
+            extras={[{ value: "", label: "Any agent" }]}
+            agents={agents.map((a) => ({ value: a.id, name: a.name }))}
+          />
           <details className="search-dates">
             <summary className="chip">Dates{from || to ? " ·" : ""}</summary>
             <div className="search-filters">

@@ -11,6 +11,7 @@ import {
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { proseEntry } from "../textEntry";
 import { AutofillBoundary } from "../AutofillBoundary";
+import { AgentPicker, sortAgentsByName } from "../AgentPicker";
 import {
   useEffect,
   useLayoutEffect,
@@ -1023,6 +1024,7 @@ export function renderComposer({
     }
     focusComposer();
   };
+  const sortedAgents = sortAgentsByName(availableAgents);
   const currentRecipient =
     selected === "__route__" ? "__route__" : activeAgent?.id || "";
   const selectRecipient = (nextId: string) => {
@@ -1100,32 +1102,34 @@ export function renderComposer({
             {!threadMode && (
               <>
                 <div className="composer-heading">
-                  <label className="composer-field">
-                    <span className="sr-only">Send to</span>
-                    <select
-                      aria-label="Agent recipient"
+                  <div className="composer-field">
+                    <AgentPicker
+                      label="Agent recipient"
+                      title="Send to"
                       disabled={busy || uploading}
                       value={currentRecipient}
-                      onChange={(e) => selectRecipient(e.target.value)}
-                    >
-                      {!availableAgents.length && (
-                        <option value="">Choose your first agent</option>
-                      )}
-                      {(composerOptions || selected === "__route__") && (
-                        <option value="__route__">Let Loop choose</option>
-                      )}
-                      {activeAgent?.retired_at && (
-                        <option value={activeAgent.id} disabled>
-                          @{activeAgent.name} · Retired
-                        </option>
-                      )}
-                      {availableAgents.map((a) => (
-                        <option value={a.id} key={a.id}>
-                          @{a.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      onChange={selectRecipient}
+                      placeholder="Choose your first agent"
+                      extras={[
+                        ...(composerOptions || selected === "__route__"
+                          ? [{ value: "__route__", label: "Let Loop choose" }]
+                          : []),
+                        ...(activeAgent?.retired_at
+                          ? [
+                              {
+                                value: activeAgent.id,
+                                label: `@${activeAgent.name} · Retired`,
+                                disabled: true,
+                              },
+                            ]
+                          : []),
+                      ]}
+                      agents={sortedAgents.map((a) => ({
+                        value: a.id,
+                        name: a.name,
+                      }))}
+                    />
+                  </div>
                   <button
                     className="composer-collapse text-button"
                     onPointerDown={(event) => {
@@ -1161,7 +1165,7 @@ export function renderComposer({
                         <span>Auto</span>
                       </button>
                     )}
-                    {availableAgents.map((a) => {
+                    {sortedAgents.map((a) => {
                       const active =
                         selected !== "__route__" && activeAgent?.id === a.id;
                       return (

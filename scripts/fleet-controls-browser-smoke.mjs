@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { browserFixtureBundle } from "./helpers/browser-fixture-bundle.mjs";
+import { chooseAgent } from "./helpers/agent-picker.mjs";
 
 const dir = await mkdtemp(join(tmpdir(), "loop-fleet-controls-"));
 const peer = "peer:m_" + "1".repeat(64);
@@ -1034,9 +1035,13 @@ try {
       name: "You: Continue this work",
     }),
   ).toBeChecked();
-  await continuationSheet
-    .getByRole("combobox", { name: "Continue with", exact: true })
-    .selectOption("continuation-target");
+  await chooseAgent(
+    continuationSheet.getByRole("button", {
+      name: "Continue with",
+      exact: true,
+    }),
+    "continuation-target",
+  );
   const startContinuation = continuationSheet.getByRole("button", {
     name: "Start continuation",
     exact: true,

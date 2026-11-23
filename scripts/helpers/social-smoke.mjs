@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { temporaryPageRoute } from "./temporary-page-route.mjs";
+import { chooseAgent } from "./agent-picker.mjs";
 
 // Social, driven against stories already in the store: Loop reads a feed from
 // feed_stories, so this needs no network and no feed fixture server. It checks
@@ -728,9 +729,12 @@ export async function socialSmoke(page, fixture, shot) {
   );
   await expect(digests.getByRole("alert")).toHaveCount(0);
   await stopDigestFault();
-  await digests
-    .getByRole("combobox", { name: "Agent", exact: true })
-    .selectOption({ index: 1 });
+  await chooseAgent(
+    digests.getByRole("button", { name: "Agent", exact: true }),
+    {
+      index: 0,
+    },
+  );
   await digests.getByLabel("Time", { exact: true }).fill("09:30");
   await digests
     .getByRole("button", { name: "Schedule digest", exact: true })

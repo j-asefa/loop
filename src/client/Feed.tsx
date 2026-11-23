@@ -1,3 +1,4 @@
+import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
 import { useProjectionRoute } from "./SourceContext";
@@ -1136,7 +1137,9 @@ function MoveQueued({
       ((a as EnvironmentAgent).sourceId || "") ===
         (message.sourceId ?? scopedSource),
   );
-  const [agentId, setAgentId] = useState(choices[0]?.id || "");
+  const [agentId, setAgentId] = useState(
+    sortAgentsByName(choices)[0]?.id || "",
+  );
   const [error, setError] = useState("");
   const key = useRef(crypto.randomUUID());
   return (
@@ -1147,13 +1150,14 @@ function MoveQueued({
       </p>
       <label>
         Agent
-        <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-          {choices.map((a) => (
-            <option key={a.id} value={a.id}>
-              @{a.name}
-            </option>
-          ))}
-        </select>
+        <AgentPicker
+          label="Agent"
+          title="Move to agent"
+          value={agentId}
+          onChange={setAgentId}
+          placeholder="No other connected agent"
+          agents={choices.map((a) => ({ value: a.id, name: a.name }))}
+        />
       </label>
       {error && <ErrorNotice role="alert">{error}</ErrorNotice>}
       <button

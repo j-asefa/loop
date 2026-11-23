@@ -1,3 +1,4 @@
+import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { useSourceId } from "./SourceContext";
 import { AgentId, ConversationId, parseId } from "../shared/contract-ids.js";
@@ -33,8 +34,8 @@ export function PiCustomizations({
   onUse?: (agentId: string, token: string) => void;
 }) {
   const route = useSourceRoute();
-  const piAgents = agents.filter(
-    (agent) => agent.provider === "pi" && !agent.retired_at,
+  const piAgents = sortAgentsByName(
+    agents.filter((agent) => agent.provider === "pi" && !agent.retired_at),
   );
   const [selected, setSelected] = useState(agentId || piAgents[0]?.id || "");
   const selectedId = AgentId.parse(selected);
@@ -274,19 +275,18 @@ export function PiCustomizations({
       {piAgents.length > 1 && (
         <label>
           Pi agent
-          <select
+          <AgentPicker
+            label="Pi agent"
             value={selected}
-            onChange={(event) => {
-              setSelected(event.target.value);
+            onChange={(value) => {
+              setSelected(value);
               setPackagePath("");
             }}
-          >
-            {piAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
+            agents={piAgents.map((agent) => ({
+              value: agent.id,
+              name: agent.name,
+            }))}
+          />
         </label>
       )}
       {!selected ? (

@@ -1,3 +1,4 @@
+import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 
 import {
@@ -436,7 +437,9 @@ export function ForkSheet({
   const call = useSourceRoute();
   const choices = agents.filter((a) => a.connection_id && !a.retired_at);
   const [agentId, setAgentId] = useState(
-    choices.find((a) => a.id === defaultAgentId)?.id || choices[0]?.id || "",
+    choices.find((a) => a.id === defaultAgentId)?.id ||
+      sortAgentsByName(choices)[0]?.id ||
+      "",
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -452,14 +455,17 @@ export function ForkSheet({
       </figure>
       <label>
         Continue with
-        <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-          {choices.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              @{agent.name}
-              {agent.id === defaultAgentId ? " (same agent)" : ""}
-            </option>
-          ))}
-        </select>
+        <AgentPicker
+          label="Continue with"
+          value={agentId}
+          onChange={setAgentId}
+          placeholder="No connected agent"
+          agents={choices.map((agent) => ({
+            value: agent.id,
+            name: agent.name,
+            detail: agent.id === defaultAgentId ? "same agent" : undefined,
+          }))}
+        />
       </label>
       <p className="fork-project">
         Project: <strong>{projectName || "Unfiled"}</strong>

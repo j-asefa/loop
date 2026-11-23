@@ -1,3 +1,4 @@
+import { AgentPicker } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { emitClientEvent, listenClientEvent } from "./clientEvents";
 import {
@@ -973,14 +974,13 @@ function DigestSheetView({
         <>
           <label>
             Agent
-            <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-              <option value="">Choose an agent</option>
-              {choices.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+            <AgentPicker
+              label="Agent"
+              title="Send the digest to"
+              value={agent}
+              onChange={setAgent}
+              agents={choices.map((a) => ({ value: a.id, name: a.name }))}
+            />
           </label>
           <label>
             Time
