@@ -130,6 +130,18 @@ describe("inline @agent mention and handoff in composer", () => {
     expect(partial?.agent).toBeUndefined();
     expect(partial?.suggestions.map((a) => a.name)).toEqual(["mist"]);
 
+    const misty = agent("misty", "misty");
+    const exactOverPrefix = parseLeadingAgentMention("@mist", [
+      misty,
+      mist,
+      holly,
+    ]);
+    expect(exactOverPrefix?.agent?.id).toBe("mist");
+    expect(exactOverPrefix?.suggestions.map((a) => a.name)).toEqual([
+      "mist",
+      "misty",
+    ]);
+
     const completed = parseLeadingAgentMention(
       "@mist Compare this with production",
       agents,
@@ -346,7 +358,7 @@ describe("inline @agent mention and handoff in composer", () => {
         setDismissNotice: vi.fn(),
       });
 
-      await send({ queue: true });
+      await send();
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const body = JSON.parse(
         String(
@@ -356,10 +368,92 @@ describe("inline @agent mention and handoff in composer", () => {
       expect(body.agentId).toBe("mist");
       expect(body.input).toBe(draft);
       expect(body.replyToMessageId).toBeUndefined();
-      expect(setThreadNotice).toHaveBeenCalledWith("Queued for @mist.");
+      expect(setThreadNotice).toHaveBeenCalledWith("Sent to @mist.");
       expect(setSendNotice).not.toHaveBeenCalled();
       expect(saveThreadDraft).not.toHaveBeenCalled();
       expect(setDraft).toHaveBeenCalledWith("");
+
+      // Queued in-thread handoff preserves withdrawToComposer Undo toast instead of dropping it.
+      const withdrawToComposer = vi.fn(async () => {});
+      const queuedSend = useComposerSend({
+        replyQuoted: false,
+        busy: false,
+        uploading: false,
+        draft,
+        conversation: "conv-holly",
+        conversationTarget: {
+          agentId: "holly",
+          conversationId: "conv-holly",
+          title: "Cache audit",
+        },
+        viewIdentity: "view-1",
+        threadIdentityRef: { current: "view-1" },
+        threadIdentity: "composer-1",
+        composerIdentityRef: { current: "composer-1" },
+        draftRef: { current: draft },
+        attachmentsRef: { current: [] },
+        attachments: [],
+        setNewAgentPrompt: vi.fn(),
+        setFolder: vi.fn(),
+        projectFilter: "",
+        project: "",
+        setSheet: vi.fn(),
+        replyContext: null,
+        contextArtifact: null,
+        setError: vi.fn(),
+        threadApi: threadApi as unknown as Parameters<
+          typeof useComposerSend
+        >[0]["threadApi"],
+        setFilingResult: vi.fn(),
+        setFiling: vi.fn(),
+        setDraft,
+        changed: async () => {},
+        selected: "holly",
+        routePreview: null,
+        folder: "",
+        setBusy: vi.fn(),
+        setRoutePreview: vi.fn(),
+        activeAgent: holly,
+        setComposerError: vi.fn(),
+        composerUnavailable: undefined,
+        ownerRef: { current: "owner" },
+        composerData: {
+          agents: [holly, mist],
+          connections: [],
+          folders: [],
+          teams: [],
+        },
+        profile: null,
+        teamSelection: [],
+        folderChoice: undefined,
+        draftId: (id) => id,
+        request: { current: { signature: "", key: "", unquoted: false } },
+        receiptStorageKey: "receipt-key-2",
+        pendingDraftSave: { current: null },
+        draftKey: "draft-key",
+        openSourceLater: vi.fn(),
+        actionSource: "",
+        setAttachments: vi.fn(),
+        setReplyContext: vi.fn(),
+        collapseComposer: vi.fn(),
+        runsGeneration: { current: 0 },
+        setRuns: vi.fn(),
+        setSendNotice,
+        saveThreadDraft,
+        setContextArtifact: vi.fn(),
+        withdrawToComposer,
+        refresh: async () => {},
+        setThreadNotice,
+        setDismissNotice: vi.fn(),
+      });
+      await queuedSend({ queue: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const queuedBody = JSON.parse(
+        String(
+          (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body,
+        ),
+      );
+      expect(queuedBody.queue).toBe(true);
     } finally {
       vi.unstubAllGlobals();
     }

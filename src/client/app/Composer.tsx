@@ -342,7 +342,12 @@ export function parseLeadingAgentMention(
   const agent = candidates.find((a) => a.name.toLowerCase() === query);
   const suggestions = completed
     ? []
-    : candidates.filter((a) => a.name.toLowerCase().startsWith(query));
+    : [
+        ...(agent ? [agent] : []),
+        ...candidates.filter(
+          (a) => a.id !== agent?.id && a.name.toLowerCase().startsWith(query),
+        ),
+      ];
   return { query, completed, agent, suggestions };
 }
 
@@ -758,19 +763,20 @@ export function useComposerSend({
           conversation && conversationTarget ? conversationTarget : null,
         );
         setContextArtifact(null);
-        if (handedOffInThread)
-          setThreadNotice(
-            `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}.${reconciled}`,
-          );
-        else if (options.queue && conversation)
+        if (options.queue && conversation)
           notify({
-            text: "Queued after the current task." + reconciled,
+            text:
+              (handedOffInThread
+                ? `Queued for @${recipient.name}.`
+                : "Queued after the current task.") + reconciled,
             // Undo takes it back to a draft, only while it has not started.
             undo: async () => {
               await withdrawToComposer(accepted.id);
               void refresh();
             },
           });
+        else if (handedOffInThread)
+          setThreadNotice(`Sent to @${recipient.name}.${reconciled}`);
         else if (reconciled && conversation) setThreadNotice(reconciled.trim());
         else if (reconciled) setDismissNotice(reconciled.trim());
         if (!conversation) collapseComposer();
@@ -944,17 +950,20 @@ export function renderComposer({
     ? composerData.agents
     : availableAgents;
   const mention = parseLeadingAgentMention(draft, mentionCandidates);
-  const currentTargetId =
-    replyContext?.agentId || conversationTarget?.agentId || activeAgent?.id;
+  const currentTargetId = conversation
+    ? conversationTarget?.agentId
+    : replyContext?.agentId || activeAgent?.id;
   const handoffAgent =
     mention?.agent && currentTargetId && mention.agent.id !== currentTargetId
       ? mention.agent
       : undefined;
+  const keepsReplyQuote =
+    !mention?.agent || mention.agent.id === replyContext?.agentId;
   // Undecided shows the quote: a send before the thread's fresh snapshot
   // keeps the reference, so the composer shows what will be sent. Addressing
   // a different @agent does not quote the previous agent's reply target.
   const quoted =
-    !handoffAgent &&
+    keepsReplyQuote &&
     replyQuoted !== false &&
     replyContext?.content &&
     (replyContext.messageId || replyContext.artifactId || !conversation)
@@ -1267,9 +1276,7 @@ export function renderComposer({
                 >
                   {mention.suggestions.map((a) => {
                     const handoff = Boolean(
-                      (replyContext?.agentId || conversationTarget?.agentId) &&
-                      a.id !==
-                        (replyContext?.agentId || conversationTarget?.agentId),
+                      currentTargetId && a.id !== currentTargetId,
                     );
                     return (
                       <button
@@ -1321,6 +1328,10 @@ export function renderComposer({
                   onKeyDown={(e) => {
                     if (
                       e.key === "Tab" &&
+                      !e.shiftKey &&
+                      !e.altKey &&
+                      !e.ctrlKey &&
+                      !e.metaKey &&
                       mention &&
                       !mention.completed &&
                       mention.suggestions.length > 0
@@ -1329,7 +1340,7 @@ export function renderComposer({
                       setDraft(
                         completeLeadingAgentMention(
                           draft,
-                          mention.suggestions[0].name,
+                          (mention.agent ?? mention.suggestions[0]).name,
                         ),
                       );
                       return;
