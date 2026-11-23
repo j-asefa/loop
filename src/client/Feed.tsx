@@ -2302,7 +2302,7 @@ export function Feed({
           };
         }
         if (appending || !previous) {
-          const page = await read(before);
+          let page = await read(before);
           if (!isCurrent()) return page;
           // Replaying an interrupted append must not consume the head scan.
           if (
@@ -2315,6 +2315,25 @@ export function Feed({
             const earlier = cached.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             );
+            const gap = combined
+              ? JSON.parse(cached.next || "{}")[source]
+              : cached.next;
+            const visible = new Set(
+              earlier.map((item) => feedItemKey(item, source)),
+            );
+            if (
+              gap &&
+              before !== gap &&
+              page.items.every((item) => visible.has(feedItemKey(item, source)))
+            ) {
+              // The replacement head already covered this interrupted page.
+              // Keep the user's More intent and track the new active cursor.
+              before = gap;
+              pages.get(source)!.before = gap;
+              activeAppendSources.current.set(source, gap);
+              page = await read(gap);
+              if (!isCurrent()) return page;
+            }
             const incoming = new Set(
               page.items.map((item) => feedItemKey(item, source)),
             );
@@ -2328,9 +2347,6 @@ export function Feed({
               ].sort(feedItemOrder),
             };
             let progress = doneRefresh.current.sources.get(source);
-            const gap = combined
-              ? JSON.parse(cached.next || "{}")[source]
-              : cached.next;
             const oldFloor = earlier.at(-1);
             const newFloor = merged.items.at(-1);
             if (
@@ -2417,11 +2433,20 @@ export function Feed({
           current,
         );
         if (current()) {
-          if (result.error) historyReadErrors.current.set(source, result.error);
-          else historyReadErrors.current.delete(source);
+          if (result.error) {
+            historyReadErrors.current.set(source, result.error);
+            setReadError(result.error.message);
+          } else historyReadErrors.current.delete(source);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            if (!result.error && retainWindow) {
+            // Finish the current history sweep. A moving head may leave a
+            // newer gap, but cannot make one refresh poll forever; More or
+            // the next external invalidation resumes the saved continuation.
+            const restartedSweep =
+              progress &&
+              !progress.restart &&
+              feedItemOrder(result.progress.after, progress.after) <= 0;
+            if (!result.error && retainWindow && !restartedSweep) {
               followup.add(source);
               pendingRefresh.current.sources.add(source);
               schedulePendingRefresh();

@@ -46,6 +46,7 @@ let feedPagination = false,
 let holdOlderBefore;
 let failReplayCursor;
 let headFailureStatus = 503;
+let movingFeedHead = false;
 let feedPageSize = 1,
   feedLabelSuffix = "",
   delayOlderMs = 0,
@@ -266,13 +267,18 @@ try {
           });
           return;
         }
+        if (movingFeedHead && paginated && !older)
+          feedPageRows.unshift(feedPageRows[0] + 1);
         const pageRows =
           allPaginated && queuedHeadChanged && source.id === sources[4].id
             ? [4, 3, 2, 1]
             : feedPageRows;
-        const index = older
-          ? pageRows.indexOf(Number(url.searchParams.get("before"))) + 1
+        const firstOlder = older
+          ? pageRows.findIndex(
+              (n) => n < Number(url.searchParams.get("before")),
+            )
           : 0;
+        const index = firstOlder < 0 ? pageRows.length : firstOlder;
         const pageNumbers = paginated
           ? pageRows.slice(index, index + feedPageSize)
           : [undefined];
@@ -850,6 +856,91 @@ try {
   failPaginationHead = false;
   headFailureStatus = 503;
   console.log("Gap pagination skipped retained history: " + engineName);
+
+  feedPageRows = [3, 2, 1, 0];
+  await page.evaluate(() => window.showFeed("overlapping-append-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  holdOlder = true;
+  releaseOlder = undefined;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  feedPageRows = [2, 1, 0];
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 1", { exact: true }),
+  ).toBeVisible();
+  releaseOlder();
+  console.log(
+    "Interrupted Feed append skipped refreshed overlap: " + engineName,
+  );
+
+  feedPageRows = [3, 2, 1, 0];
+  await page.evaluate(() => window.showFeed("partial-history-error-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1, 0];
+  hold = true;
+  failReplayCursor = "8";
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText(
+    "Synthetic replay refused",
+  );
+  assert(
+    hold && pending.size > 0,
+    "A history error must be visible before the stalled peer returns",
+  );
+  hold = false;
+  for (const release of pending) release();
+  pending.clear();
+  failReplayCursor = undefined;
+  console.log(
+    "Partial history failure surfaced before stalled peer: " + engineName,
+  );
+
+  feedPageRows = [3, 2, 1, 0];
+  await page.evaluate(() => window.showFeed("moving-head-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  movingFeedHead = true;
+  const movingStart = paginationReads.length;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  await page.waitForTimeout(6500);
+  assert(
+    paginationReads.length - movingStart <= 6,
+    "One refresh must finish its sweep without polling a moving head indefinitely",
+  );
+  const settledReads = paginationReads.length;
+  await page.waitForTimeout(1500);
+  assert.equal(
+    paginationReads.length,
+    settledReads,
+    "No further reads without another notification or user action",
+  );
+  movingFeedHead = false;
+  console.log(
+    "Moving head reconciliation settled after one sweep: " + engineName,
+  );
 
   if (!feedOnly) {
     mode = "needs";
