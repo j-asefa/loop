@@ -1319,6 +1319,29 @@ try {
     "Done summary recovery did not append an extra page: " + engineName,
   );
 
+  donePageReads.length = 0;
+  await page.evaluate(() =>
+    window.showFeed("done-more-after-failed-pull", "done"),
+  );
+  await expect.poll(() => donePageReads).toEqual([null]);
+  await expect(moreFeed).toBeEnabled();
+  failNextDoneChanges = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(page.getByRole("alert")).toHaveCount(1);
+  await expect(moreFeed).toBeEnabled();
+  await moreFeed.click();
+  await expect(
+    page.getByText("Done fixture 2", { exact: true }).first(),
+  ).toBeVisible({
+    timeout: 15000,
+  });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  assert.deepEqual(donePageReads, [null, "3"]);
+  console.log(
+    "One Load more after a failed pull drained its pending append: " +
+      engineName,
+  );
+
   mode = "feed";
   allPaginated = false;
   feedPageRows = [3, 2, 1];

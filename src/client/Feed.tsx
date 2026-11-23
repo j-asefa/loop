@@ -2312,6 +2312,8 @@ export function Feed({
                 (item) => compareCardOrder(order(item), window.boundary!) < 0,
               ))
           )
+            // A More click after a failed head can perform only the head here.
+            // The scheduled follow-up drains the reader's pending append.
             followup.add(source);
           if (ticket === request.current && owner === viewOwner())
             cacheView(cardKey, window, owner);
@@ -2761,6 +2763,9 @@ export function Feed({
           const initialReads = new Set<string>(
             pending.map((source) => source.id),
           );
+          // Keep the same four-source budget for heads and appends. A fifth
+          // source waits for a slot; peer transport bounds each exchange to
+          // 15 seconds, and recovery releases the slot before cooldown waits.
           const queue = sourceReadQueue(
             pending.map((source) => source.id),
             async (id) => {
