@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { chooseAgent } from "./agent-picker.mjs";
 
 export async function uploadDestinationSmoke(page, fixture) {
   const [first, second] = fixture.agents;
@@ -20,7 +21,7 @@ export async function uploadDestinationSmoke(page, fixture) {
     await page
       .getByRole("button", { name: "Compose a message", exact: true })
       .click();
-    await page.getByLabel("Agent recipient").selectOption(first.id);
+    await chooseAgent(page.getByLabel("Agent recipient"), first.id);
     await page
       .getByLabel("Message your agent", { exact: true })
       .fill("Keep this unsent text");
@@ -44,7 +45,10 @@ export async function uploadDestinationSmoke(page, fixture) {
       .locator(".profile-actions")
       .getByRole("button", { name: "Message", exact: true })
       .click();
-    await expect(page.getByLabel("Agent recipient")).toHaveValue(second.id);
+    await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+      "value",
+      second.id,
+    );
     await expect(page.getByLabel("Agent recipient")).toBeEnabled();
     release();
     await expect(

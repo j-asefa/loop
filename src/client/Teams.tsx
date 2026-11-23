@@ -289,6 +289,7 @@ export function TeamDirectory({
                       className="text-button"
                       disabled={workers.length >= MAX_TEAM_WORKERS}
                       onClick={() => {
+                        setWorkerSearch("");
                         setAdding(team);
                         setError("");
                       }}

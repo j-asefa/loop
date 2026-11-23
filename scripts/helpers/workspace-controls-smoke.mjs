@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import { expect } from "@playwright/test";
+import { chooseAgent } from "./agent-picker.mjs";
 
 // A noisy RGB PNG: noise does not compress, so it is large like a photo.
 function noisePng(width, height) {
@@ -166,9 +167,10 @@ export async function workspaceControlsSmoke(
   await page.goto(fixture.base);
   await page.reload();
   await page.locator(".composer-launch").click();
-  await page
-    .getByLabel("Agent recipient", { exact: true })
-    .selectOption(recipient.id);
+  await chooseAgent(
+    page.getByLabel("Agent recipient", { exact: true }),
+    recipient.id,
+  );
   const composer = page.locator(".composer");
   await expect(composer.getByLabel("Project", { exact: true })).toHaveCount(0);
   await expect(

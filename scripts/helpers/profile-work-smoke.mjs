@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { expect } from "@playwright/test";
 import { designFixture } from "./design-fixture.mjs";
 import { workspaceRecoverySmoke } from "./workspace-recovery-smoke.mjs";
+import { chooseAgent } from "./agent-picker.mjs";
 
 // A separate fixture keeps submission and steering checks away from both real
 // providers and the shared design fixture's navigation/count assertions.
@@ -90,7 +91,10 @@ export async function profileWorkSmoke(page, capture) {
       .fill(savedReply);
     await close();
     await page.getByRole("button", { name: "Compose a message" }).click();
-    await expect(page.getByLabel("Agent recipient")).toHaveValue(agent.id);
+    await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+      "value",
+      agent.id,
+    );
     await expect(page.locator(".composer textarea")).toHaveValue("");
     await page.getByLabel("Collapse composer").click();
     await openThread(previous.title);
@@ -100,8 +104,8 @@ export async function profileWorkSmoke(page, capture) {
     await dialog().getByLabel("Reply to agent", { exact: true }).fill("");
     await close();
     await page.getByRole("button", { name: "Compose a message" }).click();
-    await page.getByLabel("Agent recipient").selectOption(team.manager_id);
-    await page.getByLabel("Agent recipient").selectOption(agent.id);
+    await chooseAgent(page.getByLabel("Agent recipient"), team.manager_id);
+    await chooseAgent(page.getByLabel("Agent recipient"), agent.id);
     await page.getByLabel("Collapse composer").click();
 
     // Hold an older read, and every post-send refresh. The POST receipt itself

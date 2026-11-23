@@ -256,7 +256,7 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
       await message.click();
       await expect(
         page.getByLabel("Agent recipient", { exact: true }),
-      ).toHaveValue(agent.id);
+      ).toHaveAttribute("value", agent.id);
       await page
         .getByRole("button", { name: "Collapse composer", exact: true })
         .click();
@@ -376,9 +376,9 @@ export async function visualLayoutSmoke(page, fixture, engine, capture) {
   await compose.click();
   const draft = page.locator(".main-column #composer");
   await expect(draft).toBeFocused();
-  await expect(page.getByLabel("Agent recipient", { exact: true })).toHaveValue(
-    fixture.agents[0].id,
-  );
+  await expect(
+    page.getByLabel("Agent recipient", { exact: true }),
+  ).toHaveAttribute("value", fixture.agents[0].id);
   await draft.fill("Keep this draft while I read reminders.");
   await page
     .getByRole("button", { name: "Collapse composer", exact: true })

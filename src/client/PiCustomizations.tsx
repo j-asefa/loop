@@ -34,12 +34,10 @@ export function PiCustomizations({
   onUse?: (agentId: string, token: string) => void;
 }) {
   const route = useSourceRoute();
-  const piAgents = agents.filter(
-    (agent) => agent.provider === "pi" && !agent.retired_at,
+  const piAgents = sortAgentsByName(
+    agents.filter((agent) => agent.provider === "pi" && !agent.retired_at),
   );
-  const [selected, setSelected] = useState(
-    agentId || sortAgentsByName(piAgents)[0]?.id || "",
-  );
+  const [selected, setSelected] = useState(agentId || piAgents[0]?.id || "");
   const selectedId = AgentId.parse(selected);
   useEffect(() => {
     if (!selected && piAgents[0]) setSelected(piAgents[0].id);

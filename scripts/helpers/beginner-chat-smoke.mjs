@@ -96,7 +96,10 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
   await expect(sheet).toHaveCount(0);
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("");
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(created.id);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    created.id,
+  );
   assert.equal(count(), before + 1);
   assert.equal(requests, 1, "One click creates exactly one agent");
   assert.equal(
@@ -352,10 +355,15 @@ export async function beginnerChatSmoke(page, fixture, _engine, capture) {
 
   // After creating on another source, the destination opens a composer rather
   // than the profile. Ordinary agent links still open that agent's profile.
-  const agentId = await page.getByLabel("Agent recipient").inputValue();
+  const agentId = await page
+    .getByLabel("Agent recipient")
+    .getAttribute("value");
   await page.goto(`${fixture.base}/?agent=${agentId}&compose=1`);
   await expect(input).toBeFocused();
-  await expect(page.getByLabel("Agent recipient")).toHaveValue(agentId);
+  await expect(page.getByLabel("Agent recipient")).toHaveAttribute(
+    "value",
+    agentId,
+  );
   assert.equal(new URL(page.url()).searchParams.has("compose"), false);
   assert.equal(requests, 5);
   await page.goto(`${fixture.base}/?agent=${agentId}`);
