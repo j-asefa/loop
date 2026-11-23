@@ -2494,6 +2494,8 @@ export function Feed({
         const result = await refreshDonePage<FeedItem, Page>(
           read,
           {
+            ...previous,
+            summary: previous.sourceSummaries?.[source] ?? previous.summary,
             items: previous.items.filter(
               (item) => (item.sourceId ?? scopedSource) === source,
             ),
@@ -2518,6 +2520,7 @@ export function Feed({
               progress &&
               !progress.restart &&
               !progress.invalidated &&
+              !result.progress.settleGap &&
               feedItemOrder(result.progress.after, progress.after) <= 0;
             if (!result.error && retainWindow && !restartedSweep) {
               followup.add(source);

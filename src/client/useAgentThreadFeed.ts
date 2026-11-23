@@ -263,12 +263,13 @@ export function useAgentThreadFeed(
               page = refreshed.page;
               if (refreshed.progress) {
                 progress.set(source, refreshed.progress);
-                // Finish this sweep, then wait for another invalidation or
-                // More before revisiting a gap created by a moving head.
+                // Finish this sweep and its known gap. Only an external
+                // invalidation starts another full reconciliation sweep.
                 if (
                   priorProgress &&
                   !priorProgress.restart &&
                   !priorProgress.invalidated &&
+                  !refreshed.progress.settleGap &&
                   feedItemOrder(
                     refreshed.progress.after,
                     priorProgress.after,

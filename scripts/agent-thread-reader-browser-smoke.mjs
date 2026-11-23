@@ -159,6 +159,7 @@ try {
         "pull-append-error",
         "pull-append-live",
         "moving-head-settles",
+        "mid-sweep-burst",
         "pull-gap-replay",
         "history-error",
         "history-error-reopen",
@@ -229,7 +230,7 @@ try {
         await expect(output).toContainText("first-A4");
         await page.waitForTimeout(2500);
         assert(
-          requests.slice(start).filter((r) => r.source === "A").length <= 4,
+          requests.slice(start).filter((r) => r.source === "A").length <= 5,
           "One pull must finish its sweep without polling a moving head indefinitely",
         );
         const settled = requests.length;
@@ -526,6 +527,23 @@ try {
           1,
           "A notifications must not restart B's completed history sweep",
         );
+      } else if (scenario === "mid-sweep-burst") {
+        for (const n of [2, 1]) {
+          await more();
+          await expect(output).toContainText("first-A" + n);
+          await idle();
+        }
+        rows = [8, 7, 6, 5, 4, 3, 2, 1];
+        holdBefore = "4";
+        await page.evaluate(() =>
+          window.dispatchEvent(new Event("loop-refresh")),
+        );
+        await expect.poll(() => held.length, { timeout: 10000 }).toBe(1);
+        rows = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+        held.shift()();
+        for (const n of [12, 11, 10, 9])
+          await expect(output).toContainText("first-A" + n, { timeout: 15000 });
+        await idle();
       } else if (scenario === "notification-rescan") {
         await more();
         await expect(output).toContainText("first-A2");

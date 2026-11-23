@@ -1319,6 +1319,36 @@ try {
     "Done summary recovery did not append an extra page: " + engineName,
   );
 
+  mode = "feed";
+  allPaginated = false;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("finite-burst-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  for (const n of [2, 1]) {
+    await moreFeed.click();
+    await expect(
+      page.getByText("Older Machine 1 updated " + n, { exact: true }),
+    ).toBeVisible();
+  }
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
+  holdOlder = true;
+  holdOlderBefore = "4";
+  releaseOlder = undefined;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect.poll(() => !!releaseOlder, { timeout: 15000 }).toBe(true);
+  feedPageRows = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+  releaseOlder();
+  holdOlderBefore = undefined;
+  for (const n of [11, 10, 9])
+    await expect(
+      page.getByText("Older Machine 1 updated " + n, { exact: true }),
+    ).toBeVisible({ timeout: 15000 });
+  console.log(
+    "Finite mid-sweep burst filled without another notification: " + engineName,
+  );
+
   if (!feedOnly) {
     mode = "needs";
     hold = true;

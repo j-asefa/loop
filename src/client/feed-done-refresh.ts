@@ -13,6 +13,7 @@ export type DoneRefresh = {
   // An external notification requires the next sweep even if automatic
   // rescans caused only by a moving head have reached their stopping point.
   invalidated?: boolean;
+  settleGap?: boolean;
   gapUntil?: DonePosition;
   rescanGap?: DonePosition;
 };
@@ -32,10 +33,67 @@ export async function refreshDonePage<
   P extends Page<T>,
 >(
   read: (before?: string) => Promise<P>,
-  previous: Page<T>,
+  previous: P,
   progress: DoneRefresh | undefined,
   current: () => boolean,
 ): Promise<{ page: P; progress?: DoneRefresh; error?: Error }> {
+  if (progress?.settleGap && !progress.restart && !progress.invalidated) {
+    // Finish the gap observed by the last head read without chasing another
+    // moving head. A later notification/pull starts a fresh reconciliation.
+    if (!progress.gapUntil)
+      return {
+        page: { ...previous, next: progress.continuation ?? null },
+      };
+    let page: P;
+    try {
+      page = await read(progress.before);
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") throw error;
+      return {
+        page: previous,
+        progress,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+    if (!current()) return { page };
+    const last = page.items.at(-1);
+    if (
+      page.next &&
+      (page.next === progress.before ||
+        !last ||
+        feedItemOrder(last, progress.after) <= 0)
+    )
+      throw new Error("History pagination did not advance. Try again.");
+    const items = new Map(previous.items.map((item) => [key(item), item]));
+    for (const [id, item] of items)
+      if (
+        feedItemOrder(item, progress.after) > 0 &&
+        (!page.next || (last && feedItemOrder(item, last) <= 0))
+      )
+        items.delete(id);
+    for (const item of page.items) items.set(key(item), item);
+    const complete =
+      !page.next ||
+      (last &&
+        progress.gapUntil &&
+        feedItemOrder(last, progress.gapUntil) >= 0);
+    const continuation =
+      !page.next ||
+      (last && progress.floor && feedItemOrder(last, progress.floor) >= 0)
+        ? page.next
+        : (progress.continuation ?? null);
+    return {
+      page: {
+        ...previous,
+        ...page,
+        items: [...items.values()].sort(feedItemOrder),
+        next: complete ? continuation : page.next,
+      },
+      progress: complete
+        ? undefined
+        : { ...progress, before: page.next!, after: last! },
+    };
+  }
   const first = await read();
   if (
     !current() ||
@@ -111,6 +169,7 @@ export async function refreshDonePage<
   const rescan =
     progress.rescan ||
     (!!progress.head && feedItemOrder(firstLast, progress.head) < 0);
+  const invalidated = progress.invalidated;
   // The newest page can itself reach or extend a formerly exhausted window.
   // Its continuation must become visible even when no history read is needed.
   let next = feedItemOrder(firstLast, oldest) >= 0 ? first.next : continuation;
@@ -177,6 +236,7 @@ export async function refreshDonePage<
       floor: oldest,
       continuation: next,
       gapUntil: rescanGap,
+      settleGap: !invalidated && !!rescanGap,
     };
   // A burst can leave unseen results between the two fresh pages and the
   // retained window. Let Load more reach that gap immediately.

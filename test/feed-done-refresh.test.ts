@@ -31,6 +31,55 @@ it("retains distinct replies to the same question across a history refresh", asy
 });
 const history = (count: number) =>
   Array.from({ length: count }, (_, i) => card(count - i));
+it("finishes a finite burst during a sweep without chasing more heads", async () => {
+  let rows = Array.from({ length: 8 }, (_, i) => 8 - i);
+  let heads = 0;
+  const read = async (before?: string) => {
+    if (!before) heads++;
+    const remaining = before ? rows.filter((n) => n < Number(before)) : rows;
+    const n = remaining[0];
+    return {
+      items: n === undefined ? [] : [card(n)],
+      next: remaining.length > 1 ? String(n) : null,
+    };
+  };
+  let result = await refreshDonePage(
+    read,
+    { items: history(3), next: null },
+    undefined,
+    () => true,
+  );
+  rows = Array.from({ length: 12 }, (_, i) => 12 - i);
+  for (let i = 0; i < 20 && result.progress; i++)
+    result = await refreshDonePage(
+      read,
+      result.page,
+      result.progress,
+      () => true,
+    );
+  expect(result.progress).toBeUndefined();
+  expect(result.page.items).toEqual(history(12));
+  expect(heads).toBe(7);
+});
+it("stops gap settlement when a manual append already covered it", async () => {
+  const page = { items: history(12), next: "8", summary: "preserved" };
+  const result = await refreshDonePage(
+    async () => {
+      throw new Error("The covered gap must not be reread");
+    },
+    page,
+    {
+      before: "12",
+      after: card(12),
+      floor: card(1),
+      continuation: null,
+      settleGap: true,
+    },
+    () => true,
+  );
+  expect(result.progress).toBeUndefined();
+  expect(result.page).toEqual({ ...page, next: null });
+});
 function server(items: Item[]) {
   const calls: (string | undefined)[] = [];
   return {
@@ -45,7 +94,6 @@ function server(items: Item[]) {
       return {
         items: page,
         next: remaining.length > 40 ? JSON.stringify(page.at(-1)) : null,
-        summary: "fresh",
       };
     },
   };
