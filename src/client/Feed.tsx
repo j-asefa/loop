@@ -2125,11 +2125,9 @@ export function Feed({
       let cached = readShown();
       let previous = retainWindow ? cached : undefined;
       const hadVisibleItems = !!cached?.items.length;
-      // A cold roster can reveal individual results before every first page
-      // arrives, but it has no complete paging window to replace yet.
-      const hasPagingWindow = activeSources.every(
-        (source) => cached?.sourceSummaries?.[source.id],
-      );
+      // A cold roster can reveal rows before committing its first paging
+      // window. A cached partial window still counts when a peer failed.
+      const hasPagingWindow = cached !== undefined;
       const refreshKey = JSON.stringify([owner, shownKey()]);
       if (doneRefresh.current.key !== refreshKey)
         doneRefresh.current = {
@@ -2145,8 +2143,8 @@ export function Feed({
         source: string,
         before?: string,
       ) => {
-        followup.delete(source);
         const appending = pages.get(source)!.append;
+        if (!appending) followup.delete(source);
         const cardKey =
           "feed-cards:" + JSON.stringify([owner, shownKey(), source]);
         let priorItems =
@@ -2386,7 +2384,11 @@ export function Feed({
           else historyReadErrors.current.delete(source);
           if (result.progress) {
             doneRefresh.current.sources.set(source, result.progress);
-            if (!result.error && retainWindow) followup.add(source);
+            if (!result.error && retainWindow) {
+              followup.add(source);
+              pendingRefresh.current.sources.add(source);
+              schedulePendingRefresh();
+            }
           } else {
             doneRefresh.current.sources.delete(source);
           }

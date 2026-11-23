@@ -44,6 +44,7 @@ let feedPagination = false,
   holdOlder = false,
   releaseOlder;
 let holdOlderBefore;
+let failReplayCursor;
 let feedPageSize = 1,
   feedLabelSuffix = "",
   delayOlderMs = 0,
@@ -252,6 +253,10 @@ try {
         if (paginated) paginationReads.push(url.searchParams.get("before"));
         if (older && failPaginationAppend) {
           reply({ error: "Synthetic append refused" }, 400);
+          return;
+        }
+        if (older && url.searchParams.get("before") === failReplayCursor) {
+          reply({ error: "Synthetic replay refused" }, 400);
           return;
         }
         if (paginated && !older && failPaginationHead) {
@@ -728,6 +733,86 @@ try {
   delayOlderMs = 0;
   console.log(
     "Slow append completed under continuous notifications: " + engineName,
+  );
+  allPaginated = true;
+  queuedHeadChanged = false;
+  feedFailSlow = true;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("partial-window-feed"));
+  await expect(page.locator(".feed-results .feed-row")).toHaveCount(8);
+  await expect(page.getByRole("alert")).toBeVisible();
+  holdFleetAppends.add(sources[2].id);
+  await moreFeed.click();
+  await expect.poll(() => heldFleetAppends.has(sources[2].id)).toBe(true);
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  feedPageRows = [4, 3, 2, 1];
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Measured Machine 1 updated 4", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  for (const release of heldFleetAppends.values()) release();
+  heldFleetAppends.clear();
+  feedFailSlow = false;
+  console.log(
+    "Partial failed-peer window retained the displayed append: " + engineName,
+  );
+
+  allPaginated = false;
+  feedPageRows = [3, 2, 1];
+  await page.evaluate(() => window.showFeed("failed-replay-feed"));
+  await expect(
+    page.getByText("Measured Machine 1 updated 3", { exact: true }),
+  ).toBeVisible();
+  holdOlder = true;
+  releaseOlder = undefined;
+  await moreFeed.click();
+  await expect.poll(() => !!releaseOlder).toBe(true);
+  feedPageRows = [8, 7, 6, 5, 4, 3, 2, 1];
+  failReplayCursor = "3";
+  hold = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("loop-refresh")));
+  await expect(
+    page.getByText("Measured Machine 1 updated 8", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Older Machine 1 updated 4", { exact: true }),
+  ).toBeVisible({ timeout: 10_000 });
+  assert(
+    hold && pending.size > 0,
+    "History reconciliation must continue despite a failed replay while a peer is stalled",
+  );
+  failReplayCursor = undefined;
+  await page.evaluate(
+    (source) =>
+      window.dispatchEvent(
+        new CustomEvent("loop-workspace-change", {
+          detail: { sources: [source] },
+        }),
+      ),
+    sources[1].id,
+  );
+  await expect(
+    page.getByText("Older Machine 1 updated 2", { exact: true }),
+  ).toBeVisible();
+  hold = false;
+  for (const release of pending) release();
+  pending.clear();
+  releaseOlder();
+  console.log(
+    "Failed replay preserved the unfinished history scan: " + engineName,
   );
 
   if (!feedOnly) {
