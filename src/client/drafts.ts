@@ -1,66 +1,9 @@
-import { LEADING_REPLY_PREFIX } from "../shared/display-spec";
-import type { ComposerContext } from "./composerContext";
 import { viewOwner } from "./viewCache";
 import { withOptionalStorage } from "./browserStorage";
 import { parse } from "./json";
 
 export function appendDraftText(current: string, added: string): string {
   return current.trim() ? `${current.trimEnd()}\n\n${added}` : added;
-}
-
-export function replyButtonBlockReason(
-  currentContext: ComposerContext | null,
-  nextContext: ComposerContext,
-  currentDraft: string,
-  currentQuoted = true,
-): string {
-  if (!currentDraft.trim()) return "";
-  if (LEADING_REPLY_PREFIX.test(currentDraft))
-    return "Send or clear your current draft before using a reply button.";
-  if (
-    currentQuoted &&
-    currentContext?.conversationId === nextContext.conversationId &&
-    currentContext?.messageId &&
-    currentContext.messageId !== nextContext.messageId
-  )
-    return "Send or clear your reply to the other message before using this reply button.";
-  return "";
-}
-
-export function seedReplyDraftText(current: string, prompt: string): string {
-  const trimmed = current.trimEnd();
-  if (!trimmed.trim()) return prompt;
-  if (LEADING_REPLY_PREFIX.test(trimmed)) return current;
-  const target = prompt.trimEnd();
-  if (trimmed === target || trimmed.endsWith(`\n\n${target}`)) return current;
-  return `${trimmed}\n\n${prompt}`;
-}
-
-export function resolveReplyContext(
-  current: ComposerContext | null,
-  next: ComposerContext,
-  hasText: boolean,
-  switching: boolean,
-  currentDraft = "",
-  currentQuoted = true,
-): ComposerContext | null {
-  if (
-    hasText &&
-    !switching &&
-    replyButtonBlockReason(current, next, currentDraft, currentQuoted)
-  )
-    return current;
-  if (
-    hasText &&
-    !switching &&
-    current?.conversationId === next.conversationId &&
-    current?.agentId === next.agentId &&
-    current?.messageId === next.messageId &&
-    Boolean(current?.excerpt) &&
-    !next.excerpt
-  )
-    return current;
-  return next;
 }
 
 export const GLOBAL_DRAFT = "__global__";

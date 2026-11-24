@@ -54,13 +54,11 @@ import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,
-  replyButtonBlockReason,
-  resolveReplyContext,
-  seedReplyDraftText,
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
+import { canApplyReplyButtonPrompt } from "../threadView";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
@@ -206,8 +204,6 @@ export function useAppController(seed?: AppNavigationInitial) {
   attachmentsRef.current = attachments;
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  const replyContextRef = useRef(replyContext);
-  replyContextRef.current = replyContext;
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
   const [dismissNotice, setDismissNotice] = useState<
@@ -538,24 +534,24 @@ export function useAppController(seed?: AppNavigationInitial) {
       !!context.conversationId &&
       (conversation !== context.conversationId ||
         source !== conversationSource);
-    const currentReply = replyContextRef.current;
-    const currentQuoted = currentReply
-      ? quotesReply(currentReply, conversation, latestAgentMessage)
-      : false;
-    if (text !== undefined && !switching) {
-      const blocked = replyButtonBlockReason(
-        currentReply,
-        context,
-        draftRef.current,
-        currentQuoted,
+    if (
+      text !== undefined &&
+      !switching &&
+      !canApplyReplyButtonPrompt({
+        currentDraft: draftRef.current,
+        prompt: text,
+        hasContextArtifact: Boolean(contextArtifact),
+        currentMessageId: replyContext?.messageId,
+        targetMessageId: context.messageId,
+      })
+    ) {
+      setComposerError(
+        "Send or clear your current draft before using a reply button.",
       );
-      if (blocked) {
-        setComposerError(blocked);
-        setComposerExpanded(true);
-        if (context.conversationId) focusComposer();
-        else afterSheetsClose(focusComposer);
-        return;
-      }
+      setComposerExpanded(true);
+      if (context.conversationId) focusComposer();
+      else afterSheetsClose(focusComposer);
+      return;
     }
     // Opening a thread from another source clears the composer's context, so
     // open it before setting the reply.
@@ -563,16 +559,15 @@ export function useAppController(seed?: AppNavigationInitial) {
       setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
-    const nextReply = resolveReplyContext(
-      currentReply,
-      context,
-      text !== undefined,
-      switching,
-      draftRef.current,
-      currentQuoted,
-    );
-    replyContextRef.current = nextReply;
-    setReplyContext(nextReply);
+    const keepSameMessageExcerpt =
+      text !== undefined &&
+      !switching &&
+      replyContext?.conversationId === context.conversationId &&
+      replyContext?.agentId === context.agentId &&
+      replyContext?.messageId === context.messageId &&
+      Boolean(replyContext?.excerpt) &&
+      !context.excerpt;
+    if (!keepSameMessageExcerpt) setReplyContext(context);
     setSelected(context.agentId);
     setFolderChoice(undefined);
     setComposerError("");
@@ -582,21 +577,11 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined) {
-        const saved = readThreadDraft(key, session?.user?.id);
-        if (!saved.text)
-          writeThreadDraft(key, text, saved.files, session?.user?.id);
-      }
+      if (text !== undefined && !readThreadDraft(key).text)
+        writeThreadDraft(key, text, [], session?.user?.id);
     } else if (text !== undefined) {
-      const nextText = seedReplyDraftText(draftRef.current, text);
-      draftRef.current = nextText;
-      setDraft(nextText);
-      if (context.conversationId)
-        saveThreadDraft(
-          context.conversationId,
-          nextText,
-          attachmentsRef.current,
-        );
+      draftRef.current = text;
+      setDraft(text);
     }
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);

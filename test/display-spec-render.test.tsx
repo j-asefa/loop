@@ -3,13 +3,11 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
-import {
-  replyButtonBlockReason,
-  resolveReplyContext,
-  seedReplyDraftText,
-} from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
-import { canReplyFromMessageDisplay } from "../src/client/threadView";
+import {
+  canApplyReplyButtonPrompt,
+  canReplyFromMessageDisplay,
+} from "../src/client/threadView";
 import { checkDisplay } from "../src/server/display-check";
 import { displayFixtures } from "./display-spec-fixtures";
 
@@ -645,109 +643,61 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     );
   }
 
-  // seedReplyDraftText preserves existing plain drafts without duplicating repeated clicks, and leaves leading @/command drafts untouched.
-  expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
-  expect(seedReplyDraftText("Run benchmark", "Run benchmark")).toBe(
-    "Run benchmark",
-  );
+  // canApplyReplyButtonPrompt allows empty drafts or idempotent re-clicks on the same message, and blocks when another draft, message quote, or artifact context is present.
   expect(
-    seedReplyDraftText("Already typed\n\nRun benchmark", "Run benchmark"),
-  ).toBe("Already typed\n\nRun benchmark");
+    canApplyReplyButtonPrompt({
+      currentDraft: "",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(true);
   expect(
-    seedReplyDraftText("Already typed", "Compare these metrics with staging."),
-  ).toBe("Already typed\n\nCompare these metrics with staging.");
-  expect(seedReplyDraftText("@ops check this", "Run benchmark")).toBe(
-    "@ops check this",
-  );
-  expect(seedReplyDraftText("\u3164@ops check this", "Run benchmark")).toBe(
-    "\u3164@ops check this",
-  );
-  expect(seedReplyDraftText("/compact", "Run benchmark")).toBe("/compact");
-
-  // resolveReplyContext switches the quote when a ReplyButton on a different message is clicked, preserves an excerpt quote on the same message, and leaves the context untouched when a leading @/command draft is present.
-  const messageAContext = {
-    agentId: "agent-1",
-    conversationId: "conv-1",
-    messageId: "msg-a",
-    content: "selected line",
-    excerpt: true,
-  };
-  const messageAFullContext = {
-    agentId: "agent-1",
-    conversationId: "conv-1",
-    messageId: "msg-a",
-    content: "Message A",
-  };
-  const messageBContext = {
-    agentId: "agent-1",
-    conversationId: "conv-1",
-    messageId: "msg-b",
-    content: "Message B",
-  };
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(true);
   expect(
-    resolveReplyContext(messageAContext, messageAFullContext, true, false),
-  ).toEqual(messageAContext);
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-b",
+    }),
+  ).toBe(false);
   expect(
-    resolveReplyContext(messageAContext, messageBContext, true, false),
-  ).toEqual(messageBContext);
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: true,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
   expect(
-    resolveReplyContext(
-      messageAContext,
-      messageBContext,
-      true,
-      false,
-      "@ops check this",
-    ),
-  ).toEqual(messageAContext);
+    canApplyReplyButtonPrompt({
+      currentDraft: "Already typed",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
   expect(
-    resolveReplyContext(
-      messageAContext,
-      messageBContext,
-      true,
-      false,
-      "Already typed for A",
-    ),
-  ).toEqual(messageAContext);
-  expect(
-    replyButtonBlockReason(messageAContext, messageBContext, "@ops check this"),
-  ).toBe("Send or clear your current draft before using a reply button.");
-  expect(
-    replyButtonBlockReason(
-      messageAContext,
-      messageBContext,
-      "Already typed for A",
-    ),
-  ).toBe(
-    "Send or clear your reply to the other message before using this reply button.",
-  );
-  expect(
-    replyButtonBlockReason(
-      messageAContext,
-      messageBContext,
-      "Already typed in idle thread",
-      false,
-    ),
-  ).toBe("");
-  expect(
-    resolveReplyContext(
-      messageAContext,
-      messageBContext,
-      true,
-      false,
-      "Already typed in idle thread",
-      false,
-    ),
-  ).toEqual(messageBContext);
-  expect(
-    replyButtonBlockReason(
-      messageAContext,
-      messageAFullContext,
-      "Already typed for A",
-    ),
-  ).toBe("");
-  expect(
-    resolveReplyContext(messageAContext, messageAFullContext, false, false),
-  ).toEqual(messageAFullContext);
+    canApplyReplyButtonPrompt({
+      currentDraft: "@ops check this",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
 
   // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
   expect(

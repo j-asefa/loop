@@ -94,7 +94,7 @@ export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 
 const INVISIBLE_OR_SPACE =
   /[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]/u;
-export const LEADING_REPLY_PREFIX =
+const LEADING_REPLY_PREFIX =
   /^[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]*[@/!$]/u;
 const DISALLOWED_REPLY_CHARS =
   /[\p{Cc}\p{Cs}\p{Co}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0E\uFFA0\u{E0100}-\u{E01EF}]|(?![\u200C\u200D])\p{Cf}/u;
