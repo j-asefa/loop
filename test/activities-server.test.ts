@@ -224,6 +224,69 @@ it("API-provider runs publish structured plans, tool lifecycle and confirmed set
   ).toBe(404);
 });
 
+it("serves a running card's activity line without output or diffs", async () => {
+  const a = agent();
+  const run = submit("alice", {
+    agentId: a.id,
+    input: "x",
+    idempotencyKey: id(),
+  });
+  const conversation = run.conversation_id!;
+  const scope = { owner: "alice", conversation, run: run.id, generation: "g1" };
+  const source = { transport: "native" as const, origin: "fixture" };
+  const write = (update: object) =>
+    expect(
+      applyActivity(scope, { v: 1, source, generation: "g1", ...update } as any)
+        .applied,
+    ).toBe(true);
+  write({
+    kind: "output",
+    id: "o1",
+    patch: {
+      command: "npm test",
+      status: "running",
+      append: [{ stream: "stdout", text: "OUTPUT-TEXT" }],
+    },
+  });
+  // Written later, so newer, but finished: the running command still leads.
+  write({
+    kind: "file_change",
+    id: "f1",
+    patch: {
+      state: "applied",
+      files: [{ path: "src/a.ts", operation: "modify", patch: "DIFF-TEXT" }],
+    },
+  });
+  const path = `/conversations/${conversation}/activity-line?run=${run.id}`;
+  const { status, body } = await get(path);
+  expect(status).toBe(200);
+  expect(body).toEqual({ line: { text: "npm test", state: "live" } });
+  expect(JSON.stringify(body)).not.toMatch(/OUTPUT-TEXT|DIFF-TEXT/);
+  // Once the command exits, the newest step leads.
+  write({ kind: "output", id: "o1", patch: { status: "exited", exitCode: 0 } });
+  expect((await get(path)).body.line).toMatchObject({ state: "done" });
+  // Many newer finished steps do not hide a step still running.
+  write({
+    kind: "tool",
+    id: "t-live",
+    patch: { title: "Build", status: "running" },
+  });
+  for (let i = 0; i < 60; i++)
+    write({
+      kind: "tool",
+      id: "t" + i,
+      patch: { title: "Read " + i, status: "completed" },
+    });
+  expect((await get(path)).body.line).toEqual({ text: "Build", state: "live" });
+  // Another run of the conversation has no line.
+  expect(
+    (await get(`/conversations/${conversation}/activity-line?run=${id()}`))
+      .body,
+  ).toEqual({ line: null });
+  // Another owner cannot read it.
+  expect((await get(path, "bob")).status).toBe(404);
+});
+
 it("adds plan guidance only when loop_plan is advertised", () => {
   const plan = { tool: "loop_plan", connectionId: "__loop__" };
   expect(runtimeInstructions("Cite sources.", [plan])).toBe(

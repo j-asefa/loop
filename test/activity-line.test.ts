@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityLine } from "../src/client/activityLine";
+import { activityLine } from "../src/shared/activity-line";
 
 const base = {
   v: 1 as const,
@@ -122,6 +122,7 @@ describe("activityLine", () => {
     expect(output({ status: "exited", exitCode: 0 })).toBe("done");
     expect(output({ status: "exited", exitCode: 1 })).toBe("failed");
     expect(output({ status: "exited" })).toBe("unknown");
+    expect(output({ status: "exited", signal: "SIGKILL" })).toBe("failed");
     expect(output({ status: "failed" })).toBe("failed");
     expect(output({ status: "unknown" })).toBe("unknown");
   });

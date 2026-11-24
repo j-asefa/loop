@@ -1,4 +1,4 @@
-import type { ActivityRecord } from "../shared/agent-activities";
+import type { ActivityRecord } from "./agent-activities.js";
 
 /**
  * How the step stands, from the harness's own status: still running, done,
@@ -78,7 +78,8 @@ function lineFor(record: ActivityRecord): ActivityLine | null {
                   ? "done"
                   : status === "failed" ||
                       (status === "exited" &&
-                        typeof record.data.exitCode === "number")
+                        (typeof record.data.exitCode === "number" ||
+                          !!record.data.signal))
                     ? "failed"
                     : "unknown",
           }

@@ -18,6 +18,7 @@ import {
   type ActivityRecord,
   type ActivityUpdate,
 } from "../shared/agent-activities.js";
+import { activityLine } from "../shared/activity-line.js";
 
 // Server persistence and projection for shared agent activities. Every
 // producer (API runtime, native adapters, ACP) calls `applyActivity` with a
@@ -435,8 +436,28 @@ export function listActivities(
   };
 }
 
+/** One line of what a run is doing now (see src/shared/activity-line.ts). */
+export function activityLineFor(
+  owner: string,
+  conversation: string,
+  run: string,
+) {
+  ownedConversation(conversation, owner);
+  const items = agentActivitiesQueries
+    .runSteps(db, owner, conversation, run)
+    .map((row) => ({
+      run: row.run_id,
+      sequence: row.sequence,
+      record: JSON.parse(row.record) as ActivityRecord,
+    }));
+  return { line: activityLine(items, run) };
+}
+
 const routes = registrar("activityRoutes");
 export const activityRoutes = routes.mount;
+routes.on(workspaceApi.conversationActivityLine, (req, res) => {
+  res.json(activityLineFor(res.locals.owner, req.params.id, req.query.run));
+});
 routes.on(workspaceApi.conversationActivities, (req, res) => {
   res.json(
     listActivities(res.locals.owner, req.params.id, {

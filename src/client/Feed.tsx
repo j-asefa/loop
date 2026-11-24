@@ -1,8 +1,7 @@
 import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
-import { activityLine } from "./activityLine";
-import { useConversationActivities } from "./activityView";
+import type { ActivityLine } from "../shared/activity-line";
 import { useStableCardProps } from "./stableIdentity";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -1443,6 +1442,8 @@ function NeedsStack({
 /**
  * The agent's latest step, from the harness's own activity records: what it
  * is reading, running or editing now. No line until it reports something.
+ * The server computes the line, so no output or diff reaches the browser; it
+ * is read again on each activity change in the conversation.
  */
 function ActivityLineView({
   conversation,
@@ -1451,12 +1452,62 @@ function ActivityLineView({
   conversation: string;
   run: string;
 }) {
-  // No runs: naming the run would also page through all its file changes.
-  // The recent snapshot still returns the conversation's newest records whole
-  // (output and diffs included), which one line does not need; a line-only
-  // read is the follow-up (track B, B1b). activityLine filters by run.
-  const { items } = useConversationActivities(conversation);
-  const line = activityLine(items, run);
+  const sourceId = useSourceId();
+  const generation = viewGeneration();
+  // The line is kept with the read it answers, so a card whose run (or
+  // source or view) changed never shows the previous run's step.
+  const readKey = JSON.stringify([conversation, run, sourceId, generation]);
+  const [shown, setShown] = useState<{
+    key: string;
+    line: ActivityLine | null;
+  } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const aborted = new AbortController();
+    let reading = false,
+      again = false;
+    const read = async () => {
+      if (reading) {
+        again = true;
+        return;
+      }
+      reading = true;
+      try {
+        const page = await readRoute(
+          workspaceApi.conversationActivityLine,
+          {
+            params: { id: ConversationId.parse(conversation) },
+            query: { run: RunId.parse(run) },
+          },
+          sourceId,
+          aborted.signal,
+        );
+        if (active && generation === viewGeneration())
+          setShown({ key: readKey, line: page.line });
+      } catch {
+        // The line is optional; keep this run's last one until the next change.
+      } finally {
+        reading = false;
+        if (again && active) {
+          again = false;
+          void read();
+        }
+      }
+    };
+    const stop = listenWorkspaceChanges(
+      "activities",
+      () => void read(),
+      sourceId,
+      conversation,
+    );
+    void read();
+    return () => {
+      active = false;
+      aborted.abort();
+      stop();
+    };
+  }, [conversation, run, sourceId, generation, readKey]);
+  const line = shown?.key === readKey ? shown.line : null;
   if (!line) return null;
   return (
     <p className={"feed-activity-line " + line.state}>
