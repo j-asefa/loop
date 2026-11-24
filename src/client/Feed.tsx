@@ -3826,6 +3826,8 @@ export function Feed({
                   return;
                 }
                 // An Undo in flight decides; resending now could race it.
+                // (The toast has already run onExpire, which showed the card
+                // again; it stays shown.)
                 if (dismissingRef.current.has(dismissKey)) return;
                 retried = true;
                 pendingArchives.current.add(itemKey);
@@ -3834,6 +3836,8 @@ export function Feed({
                 settled = hide().catch(() => {});
               },
             },
+            // The toast runs this before a Retry's onSelect too, so a Retry
+            // shows the card again here and onSelect hides it once more.
             onExpire: () => {
               if (retried) return;
               pendingArchives.current.delete(itemKey);
