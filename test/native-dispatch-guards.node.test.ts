@@ -60,29 +60,106 @@ for (const boundary of ["account/read", "config/read"]) {
   });
 }
 
-test("Claude rechecks a follow-up after interruption confirmation", async () => {
-  const adapter: any = new Claude({ ...options, harness: "claude" }, () => {});
-  const waiting = deferred<void>();
-  const writes: unknown[] = [];
-  let revoked = false;
+function liveClaude() {
+  const events: any[] = [];
+  const adapter: any = new Claude(
+    { ...options, harness: "claude" },
+    (event: any) => events.push(event),
+  );
+  const writes: any[] = [];
+  const controls: unknown[] = [];
   adapter.active = true;
-  adapter.control = async () => {
-    waiting.resolve();
+  adapter.session = "session-1";
+  adapter.control = async (request: unknown) => {
+    controls.push(request);
   };
   adapter.native = {
     write: async (value: unknown) => {
       writes.push(value);
     },
+    dispose: async () => {},
   };
-  const result = adapter.steer("must not dispatch", () => {
-    if (revoked) denied();
-  });
-  await waiting.promise;
-  revoked = true;
-  adapter.steering.result();
-  await assert.rejects(result, /authorization revoked/);
+  const echo = (write: any) =>
+    adapter.message({ ...write, isReplay: true, session_id: "session-1" });
+  const result = () =>
+    adapter.message({
+      type: "result",
+      is_error: false,
+      session_id: "session-1",
+      origin: { kind: "human" },
+    });
+  const statuses = () => events.filter((e) => e.type === "status");
+  return { adapter, writes, controls, echo, result, statuses };
+}
+const settled = (promise: Promise<unknown>) =>
+  Promise.race([
+    promise.then(
+      () => "read",
+      () => "rejected",
+    ),
+    new Promise((done) => setImmediate(() => done("waiting"))),
+  ]);
+
+test("Claude checks a follow-up's authorization before writing it", async () => {
+  const { adapter, writes, controls } = liveClaude();
+  await assert.rejects(
+    adapter.steer("must not dispatch", denied),
+    /authorization revoked/,
+  );
   assert.equal(writes.length, 0);
+  assert.equal(controls.length, 0);
 });
+
+test("Claude follow-ups join the running turn and confirm on Claude's echo", async () => {
+  const { adapter, writes, controls, echo, result, statuses } = liveClaude();
+  const steer = adapter.steer("Focus on the tests");
+  await new Promise((done) => setImmediate(done));
+  assert.equal(controls.length, 0, "a follow-up never interrupts the turn");
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].message.content, "Focus on the tests");
+  echo({ ...writes[0], uuid: "another-message" });
+  assert.equal(await settled(steer), "waiting", "only its own echo confirms");
+  echo(writes[0]);
+  assert.equal(await settled(steer), "read");
+  result();
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["completed"],
+  );
+});
+
+test("Claude keeps the run open when a turn ends before it reads a follow-up", async () => {
+  const { adapter, writes, echo, result, statuses } = liveClaude();
+  const steer = adapter.steer("Side question");
+  await new Promise((done) => setImmediate(done));
+  result();
+  assert.equal(statuses().length, 0, "the unread follow-up gets a turn");
+  assert.equal(adapter.active, true);
+  echo(writes[0]);
+  assert.equal(await settled(steer), "read");
+  result();
+  assert.deepEqual(
+    statuses().map((e) => e.status),
+    ["completed"],
+  );
+});
+
+for (const ending of ["cancel", "dispose"] as const)
+  test(`Claude leaves an unread follow-up unconfirmed after ${ending}`, async () => {
+    const { adapter, writes, result, statuses } = liveClaude();
+    const steer = adapter.steer("Side question");
+    await new Promise((done) => setImmediate(done));
+    if (ending === "cancel") {
+      await adapter.cancel();
+      result();
+      assert.deepEqual(
+        statuses().map((e) => e.status),
+        ["interrupted"],
+      );
+    } else await adapter.dispose();
+    await assert.rejects(steer, /Claude/);
+    assert.equal(writes.length, 1, "the follow-up is never written again");
+  });
 
 test("Pi rechecks after metadata and after its steering queue", async () => {
   const adapter: any = new Pi({ ...options, harness: "pi" }, () => {});

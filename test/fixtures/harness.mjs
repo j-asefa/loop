@@ -757,6 +757,20 @@ if (kind !== "opencode") {
     }
     if (["turn/start", "prompt", "user"].includes(type)) {
       audit();
+      // Claude echoes each stdin user message, with its uuid, when it reads it.
+      if (
+        kind === "claude" &&
+        type === "user" &&
+        process.argv.includes("--replay-user-messages")
+      )
+        out({
+          type: "user",
+          isReplay: true,
+          uuid: m.uuid,
+          session_id: m.session_id,
+          parent_tool_use_id: null,
+          message: m.message,
+        });
       active = "turn-" + ++count;
       const text =
         type === "turn/start"
