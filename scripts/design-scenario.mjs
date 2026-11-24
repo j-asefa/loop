@@ -20,6 +20,7 @@ import { feedThreadsSmoke } from "./helpers/feed-threads-smoke.mjs";
 import { feedLoadingSmoke } from "./helpers/feed-loading-smoke.mjs";
 import { mainComposerKeyboardSmoke } from "./helpers/main-composer-keyboard-smoke.mjs";
 import { composerTypingSmoke } from "./helpers/composer-typing-smoke.mjs";
+import { responsivenessSmoke } from "./helpers/responsiveness-smoke.mjs";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
@@ -140,6 +141,7 @@ const scenarios = {
   "agent-thread-feed": agentThreadFeedSmoke,
   "main-composer-keyboard": (p, f, e, c) => mainComposerKeyboardSmoke(p, f, c),
   "composer-typing": composerTypingSmoke,
+  responsiveness: responsivenessSmoke,
   "feed-reply-keyboard": (p, f, e, c) => feedReplyKeyboardSmoke(p, f, c),
   "mobile-nav-viewport": (p, f, e, c) => mobileNavViewportSmoke(p, f, c),
   "feed-reading": (p, f, e, c) => feedReadingSmoke(p, f, c),
