@@ -54,8 +54,8 @@ import { type ScheduledSend } from "../LaterControls";
 import { notify } from "../toast";
 import {
   appendDraftText,
+  resolveReplyContext,
   seedReplyDraftText,
-  seedThreadReplyDraft,
   sourceDraftId,
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
@@ -541,14 +541,9 @@ export function useAppController(seed?: AppNavigationInitial) {
       setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
-    const keepExistingQuote =
-      text !== undefined &&
-      !switching &&
-      Boolean(draftRef.current.trim()) &&
-      replyContext?.conversationId === context.conversationId &&
-      replyContext?.agentId === context.agentId &&
-      Boolean(replyContext?.messageId);
-    if (!keepExistingQuote) setReplyContext(context);
+    setReplyContext(
+      resolveReplyContext(replyContext, context, text !== undefined, switching),
+    );
     setSelected(context.agentId);
     setFolderChoice(undefined);
     setComposerError("");
@@ -558,8 +553,8 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined)
-        seedThreadReplyDraft(key, text, session?.user?.id);
+      if (text !== undefined && !readThreadDraft(key).text)
+        writeThreadDraft(key, text, [], session?.user?.id);
     } else if (text !== undefined) {
       const nextText = seedReplyDraftText(draftRef.current, text);
       draftRef.current = nextText;

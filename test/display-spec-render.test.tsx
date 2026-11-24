@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
 import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
-import { seedReplyDraftText } from "../src/client/drafts";
+import { resolveReplyContext, seedReplyDraftText } from "../src/client/drafts";
 import { compactMarkdown } from "../src/client/preview";
 import { canReplyFromMessageDisplay } from "../src/client/threadView";
 import { checkDisplay } from "../src/server/display-check";
@@ -638,12 +638,45 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   expect(seedReplyDraftText("@ops check this", "Run benchmark")).toBe(
     "Run benchmark\n\n@ops check this",
   );
+  expect(seedReplyDraftText("\u3164@ops check this", "Run benchmark")).toBe(
+    "Run benchmark\n\n\u3164@ops check this",
+  );
   expect(
     seedReplyDraftText("@ops check this\n\nRun benchmark", "Run benchmark"),
   ).toBe("Run benchmark\n\n@ops check this");
   expect(
     seedReplyDraftText("Run benchmark\n\n@ops check this", "Run benchmark"),
   ).toBe("Run benchmark\n\n@ops check this");
+
+  // resolveReplyContext switches the quote when a ReplyButton on a different message is clicked, while preserving an excerpt quote on the same message.
+  const messageAContext = {
+    agentId: "agent-1",
+    conversationId: "conv-1",
+    messageId: "msg-a",
+    content: "selected line",
+    excerpt: true,
+  };
+  const messageAFullContext = {
+    agentId: "agent-1",
+    conversationId: "conv-1",
+    messageId: "msg-a",
+    content: "Message A",
+  };
+  const messageBContext = {
+    agentId: "agent-1",
+    conversationId: "conv-1",
+    messageId: "msg-b",
+    content: "Message B",
+  };
+  expect(
+    resolveReplyContext(messageAContext, messageAFullContext, true, false),
+  ).toEqual(messageAContext);
+  expect(
+    resolveReplyContext(messageAContext, messageBContext, true, false),
+  ).toEqual(messageBContext);
+  expect(
+    resolveReplyContext(messageAContext, messageAFullContext, false, false),
+  ).toEqual(messageAFullContext);
 
   // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
   expect(

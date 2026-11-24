@@ -1,3 +1,5 @@
+import { LEADING_REPLY_PREFIX } from "../shared/display-spec";
+import type { ComposerContext } from "./composerContext";
 import { viewOwner } from "./viewCache";
 import { withOptionalStorage } from "./browserStorage";
 import { parse } from "./json";
@@ -10,7 +12,7 @@ export function seedReplyDraftText(current: string, prompt: string): string {
   const trimmed = current.trimEnd();
   if (!trimmed.trim()) return prompt;
   const target = prompt.trimEnd();
-  if (/^[\s\p{C}]*[@/!$]/u.test(trimmed)) {
+  if (LEADING_REPLY_PREFIX.test(trimmed)) {
     const body = trimmed.endsWith(`\n\n${target}`)
       ? trimmed.slice(0, -`\n\n${target}`.length).trim()
       : trimmed.trimStart();
@@ -23,6 +25,25 @@ export function seedReplyDraftText(current: string, prompt: string): string {
   )
     return current;
   return `${trimmed}\n\n${prompt}`;
+}
+
+export function resolveReplyContext(
+  current: ComposerContext | null,
+  next: ComposerContext,
+  hasText: boolean,
+  switching: boolean,
+): ComposerContext {
+  if (
+    hasText &&
+    !switching &&
+    current?.conversationId === next.conversationId &&
+    current?.agentId === next.agentId &&
+    current?.messageId === next.messageId &&
+    Boolean(current?.excerpt) &&
+    !next.excerpt
+  )
+    return current;
+  return next;
 }
 
 export const GLOBAL_DRAFT = "__global__";
@@ -72,17 +93,6 @@ export function saveThreadDraft(
     },
     undefined,
   );
-}
-
-export function seedThreadReplyDraft(
-  id: string,
-  prompt: string,
-  owner = viewOwner(),
-): string {
-  const saved = threadDraft(id, owner);
-  const nextText = seedReplyDraftText(saved.text, prompt);
-  saveThreadDraft(id, nextText, saved.files, owner);
-  return nextText;
 }
 
 type DraftIdentity = { text: string; files: readonly { id: string }[] };
