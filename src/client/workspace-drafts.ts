@@ -4,6 +4,7 @@ import type { ComposerContext } from "./composerContext";
 
 export type WorkspaceComposerDraft = {
   selected: string;
+  extraRecipients?: string[];
   replyContext: ComposerContext | null;
   folderChoice?: string;
 };

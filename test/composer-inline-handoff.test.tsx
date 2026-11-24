@@ -2,9 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   completeLeadingAgentMention,
+  MAX_COMPOSER_RECIPIENTS,
   parseLeadingAgentMention,
   renderComposer,
   renderComposerSendSheets,
+  resolveExtraComposerAgents,
+  toggleExtraRecipientId,
   useComposerSend,
 } from "../src/client/app/Composer";
 import { listenClientEvent } from "../src/client/clientEvents";
@@ -580,5 +583,410 @@ describe("inline @agent mention and handoff in composer", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("resolves and toggles up to 2 extra connected recipients in new-thread composer mode", () => {
+    vi.stubGlobal("window", {});
+    try {
+      const vera = agent("vera", "vera");
+      const fourth = agent("zen", "zen");
+      const allAgents = [holly, mist, vera, fourth, retired, unconnected];
+
+      expect(MAX_COMPOSER_RECIPIENTS).toBe(3);
+      expect(toggleExtraRecipientId([], "mist", "holly")).toEqual(["mist"]);
+      expect(toggleExtraRecipientId(["mist"], "vera", "holly")).toEqual([
+        "mist",
+        "vera",
+      ]);
+      // Caps extra recipients at 2 (3 total including primary).
+      expect(toggleExtraRecipientId(["mist", "vera"], "zen", "holly")).toEqual([
+        "mist",
+        "vera",
+      ]);
+      // Toggling an already-selected extra recipient removes it.
+      expect(toggleExtraRecipientId(["mist", "vera"], "mist", "holly")).toEqual(
+        ["vera"],
+      );
+      // Ignores toggling the primary recipient.
+      expect(toggleExtraRecipientId(["mist"], "holly", "holly")).toEqual([
+        "mist",
+      ]);
+      // Prunes stale, retired, or unconnected IDs before enforcing the cap.
+      const eligible = new Set(["holly", "mist", "vera", "zen"]);
+      expect(
+        toggleExtraRecipientId(
+          ["old", "unconn", "mist"],
+          "vera",
+          "holly",
+          eligible,
+        ),
+      ).toEqual(["mist", "vera"]);
+
+      expect(
+        resolveExtraComposerAgents({
+          extraRecipients: ["mist", "holly", "old", "unconn", "vera", "zen"],
+          availableAgents: allAgents,
+          activeAgent: holly,
+          selected: "holly",
+          replyContext: null,
+          contextArtifact: null,
+          draft: "Compare these approaches",
+        }).map((a) => a.id),
+      ).toEqual(["mist", "vera"]);
+
+      // Disabled in thread mode, reply context, route preview, @mention, or filing command.
+      expect(
+        resolveExtraComposerAgents({
+          extraRecipients: ["mist"],
+          availableAgents: allAgents,
+          activeAgent: holly,
+          selected: "holly",
+          threadMode: true,
+          conversation: "conv-1",
+          replyContext: null,
+          contextArtifact: null,
+          draft: "Compare these approaches",
+        }),
+      ).toEqual([]);
+      expect(
+        resolveExtraComposerAgents({
+          extraRecipients: ["mist"],
+          availableAgents: allAgents,
+          activeAgent: holly,
+          selected: "holly",
+          replyContext: {
+            agentId: "holly",
+            conversationId: "conv-1",
+            messageId: "msg-1",
+            content: "Earlier message",
+          },
+          contextArtifact: null,
+          draft: "Compare these approaches",
+        }),
+      ).toEqual([]);
+      expect(
+        resolveExtraComposerAgents({
+          extraRecipients: ["mist"],
+          availableAgents: allAgents,
+          activeAgent: holly,
+          selected: "holly",
+          replyContext: null,
+          contextArtifact: null,
+          draft: "@vera Compare these approaches",
+        }),
+      ).toEqual([]);
+
+      const multiView = renderComposer(
+        baseComposerProps({
+          availableAgents: [holly, mist, vera, fourth],
+          composerData: {
+            agents: [holly, mist, vera, fourth],
+            connections: [],
+            folders: [],
+          },
+          data: { agents: [holly, mist, vera, fourth] },
+          extraRecipients: ["mist", "vera"],
+          setExtraRecipients: vi.fn(),
+          draft: "Give me an independent architecture review.",
+        }),
+      );
+      const html = renderToStaticMarkup(<>{multiView.messageComposer}</>);
+      expect(html).toContain("Sends to @holly, @mist, @vera");
+      expect(html).toContain("Send (3)");
+      expect(html).toContain('aria-label="Remove @mist from recipients"');
+      expect(html).toContain('aria-label="Remove @vera from recipients"');
+      expect(html).toContain('aria-label="Also send to @zen"');
+      expect(html).toContain('title="Select up to 3 agents" disabled=""');
+
+      // A retired primary agent disables Send and never fans out to extra recipients.
+      const retiredPrimaryView = renderComposer(
+        baseComposerProps({
+          selected: "old",
+          activeAgent: retired,
+          extraRecipients: ["mist", "vera"],
+          draft: "Give me an independent architecture review.",
+        }),
+      );
+      expect(retiredPrimaryView.extraAgents).toEqual([]);
+      const retiredHtml = renderToStaticMarkup(
+        <>{retiredPrimaryView.messageComposer}</>,
+      );
+      expect(retiredHtml).not.toContain("Sends to @old");
+      expect(retiredHtml).toContain('aria-label="Send message"');
+      expect(retiredHtml).toContain("This agent is retired.");
+
+      const sheets = renderComposerSendSheets({
+        sendMenu: true,
+        setSendMenu: vi.fn(),
+        threadMode: false,
+        threadWork: null,
+        destination: {
+          agent: "holly",
+          project: "Unfiled",
+          thread: "New thread",
+        },
+        extraAgents: multiView.extraAgents,
+        send: async () => {},
+        steersActive: true,
+        setScheduleAt: vi.fn(),
+        scheduleAt: "2026-12-01T10:00",
+        draft: "Give me an independent architecture review.",
+        busy: false,
+        setComposerError: vi.fn(),
+      });
+      const sheetChildrenHtml = renderToStaticMarkup(
+        <>
+          {(sheets.props.children as { props?: { children?: unknown } }[]).map(
+            (child, i) => (
+              <div key={i}>{child?.props?.children as any}</div>
+            ),
+          )}
+        </>,
+      );
+      expect(sheetChildrenHtml).toContain("@holly, @mist, @vera");
+      expect(sheetChildrenHtml).not.toContain("Unfiled");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  describe("multi-agent send", () => {
+    const vera = agent("vera", "vera");
+    const runFor = (body: { agentId: string; input: string }) =>
+      new Response(
+        JSON.stringify({
+          id: `run-${body.agentId}`,
+          agent_id: body.agentId,
+          conversation_id: `conv-${body.agentId}`,
+          input: body.input,
+          payload: "{}",
+          created_at: 1,
+          updated_at: 1,
+          state: "running",
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      );
+    const sent = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.map(
+        (call) =>
+          JSON.parse(String((call as [string, RequestInit])[1].body)) as {
+            agentId: string;
+            idempotencyKey: string;
+          },
+      );
+
+    function setup(failing: Set<string>, status = 503) {
+      const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body || "{}"));
+        if (failing.has(body.agentId))
+          return new Response(JSON.stringify({ error: "Gateway timeout" }), {
+            status,
+            headers: { "content-type": "application/json" },
+          });
+        return runFor(body);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubGlobal("window", new EventTarget());
+      vi.stubGlobal("document", { querySelector: () => null });
+      const storage = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        getItem: (k: string) => storage.get(k) ?? null,
+        setItem: (k: string, v: string) => storage.set(k, v),
+        removeItem: (k: string) => storage.delete(k),
+      });
+      const state = { extras: ["vera", "mist"] };
+      const dropExtraRecipient = vi.fn((id: string) => {
+        state.extras = state.extras.filter((entry) => entry !== id);
+      });
+      const setComposerError = vi.fn();
+      const setDraft = vi.fn();
+      const setSendNotice = vi.fn();
+      const threadApi = vi.fn(async (_route: unknown, input: any) =>
+        input?.body?.sendAt
+          ? { id: `scheduled-${input.body.agentId}` }
+          : undefined,
+      );
+      const request = { current: { signature: "", key: "", unquoted: false } };
+      const send = (
+        draft: string,
+        overrides: Partial<Parameters<typeof useComposerSend>[0]> = {},
+      ) =>
+        useComposerSend({
+          replyQuoted: false,
+          busy: false,
+          uploading: false,
+          draft,
+          conversation: null,
+          conversationTarget: null,
+          viewIdentity: "view-1",
+          threadIdentityRef: { current: "view-1" },
+          threadIdentity: "composer-1",
+          composerIdentityRef: { current: "composer-1" },
+          draftRef: { current: draft },
+          attachmentsRef: { current: [] },
+          attachments: [],
+          setNewAgentPrompt: vi.fn(),
+          setFolder: vi.fn(),
+          projectFilter: "",
+          project: "",
+          setSheet: vi.fn(),
+          replyContext: null,
+          contextArtifact: null,
+          setError: vi.fn(),
+          threadApi: threadApi as unknown as Parameters<
+            typeof useComposerSend
+          >[0]["threadApi"],
+          setFilingResult: vi.fn(),
+          setFiling: vi.fn(),
+          setDraft,
+          changed: async () => {},
+          selected: "holly",
+          extraRecipients: state.extras,
+          dropExtraRecipient,
+          availableAgents: [holly, mist, vera],
+          routePreview: null,
+          folder: "",
+          setBusy: vi.fn(),
+          setRoutePreview: vi.fn(),
+          activeAgent: holly,
+          setComposerError,
+          composerUnavailable: undefined,
+          ownerRef: { current: "owner" },
+          composerData: {
+            agents: [holly, mist, vera],
+            connections: [],
+            folders: [],
+            teams: [],
+          },
+          profile: null,
+          teamSelection: [],
+          folderChoice: undefined,
+          draftId: (id) => id,
+          request,
+          receiptStorageKey: "multi-receipt-key",
+          pendingDraftSave: { current: null },
+          draftKey: "draft-key",
+          openSourceLater: vi.fn(),
+          actionSource: "",
+          setAttachments: vi.fn(),
+          setReplyContext: vi.fn(),
+          collapseComposer: vi.fn(),
+          runsGeneration: { current: 0 },
+          setRuns: vi.fn(),
+          setSendNotice,
+          saveThreadDraft: vi.fn(),
+          setContextArtifact: vi.fn(),
+          withdrawToComposer: async () => {},
+          refresh: async () => {},
+          setThreadNotice: vi.fn(),
+          setDismissNotice: vi.fn(),
+          ...overrides,
+        });
+      return {
+        fetchMock,
+        state,
+        dropExtraRecipient,
+        setComposerError,
+        setDraft,
+        setSendNotice,
+        threadApi,
+        send,
+      };
+    }
+
+    it("sends extras first and the selected agent last, then retries only the agents that did not accept", async () => {
+      const failing = new Set(["mist"]);
+      const t = setup(failing);
+      try {
+        const draft = "Compare WAL with the rollback journal.";
+        await t.send(draft)();
+        const first = sent(t.fetchMock);
+        // vera accepted, mist uncertain (503); holly, the selected agent, waits.
+        expect(first.map((body) => body.agentId)).toEqual(["vera", "mist"]);
+        expect(first[0].idempotencyKey).not.toBe(first[1].idempotencyKey);
+        expect(t.dropExtraRecipient).toHaveBeenCalledWith("vera");
+        expect(t.state.extras).toEqual(["mist"]);
+        expect(t.setDraft).not.toHaveBeenCalledWith("");
+        expect(t.setComposerError).toHaveBeenLastCalledWith(
+          "Sent to @vera. Not sent to the others: Gateway timeout",
+        );
+
+        // The retry sends to mist with its uncertain key, then holly; vera
+        // already accepted and is no longer a recipient.
+        failing.clear();
+        await t.send(draft)();
+        const retry = sent(t.fetchMock).slice(2);
+        expect(retry.map((body) => body.agentId)).toEqual(["mist", "holly"]);
+        expect(retry[0].idempotencyKey).toBe(first[1].idempotencyKey);
+        expect(t.setDraft).toHaveBeenCalledWith("");
+        expect(t.setSendNotice).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: "holly",
+            recipientNames: ["mist", "holly"],
+          }),
+        );
+
+        // Sending the same text to vera alone later is new work with a new
+        // key, not a replay of the accepted batch send.
+        await t.send(draft, {
+          selected: "vera",
+          activeAgent: vera,
+          extraRecipients: [],
+        })();
+        const alone = sent(t.fetchMock).at(-1)!;
+        expect(alone.agentId).toBe("vera");
+        expect(alone.idempotencyKey).not.toBe(first[0].idempotencyKey);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("keeps a refused agent in the composer and reports who already accepted", async () => {
+      const t = setup(new Set(["mist"]), 409);
+      try {
+        await t.send("Review the migration plan.")();
+        expect(sent(t.fetchMock).map((body) => body.agentId)).toEqual([
+          "vera",
+          "mist",
+        ]);
+        expect(t.state.extras).toEqual(["mist"]);
+        expect(t.setComposerError).toHaveBeenLastCalledWith(
+          "Sent to @vera. Not sent to the others: Gateway timeout",
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("schedules each agent once and Undo cancels every scheduled send", async () => {
+      const t = setup(new Set());
+      const toasts: { text: string; undo?: () => Promise<void> | void }[] = [];
+      const unsubscribe = listenClientEvent("loop-toast", (toast) => {
+        if (toast) toasts.push(toast);
+      });
+      try {
+        const sendAt = Date.UTC(2026, 11, 1, 10, 0);
+        await t.send("Post the weekly summary.")({ sendAt });
+        const created = t.threadApi.mock.calls
+          .filter(([route]) => route === workspaceApi.scheduledSendCreate)
+          .map(([, input]) => (input as any).body.agentId);
+        expect(created).toEqual(["vera", "mist", "holly"]);
+        expect(t.state.extras).toEqual([]);
+        const toast = toasts.at(-1)!;
+        expect(toast.text).toMatch(/^Scheduled for @vera, @mist, @holly, /);
+        await toast.undo?.();
+        const cancelled = t.threadApi.mock.calls
+          .filter(([route]) => route === workspaceApi.scheduledSendCancel)
+          .map(([, input]) => (input as any).params.id);
+        expect(cancelled).toEqual([
+          "scheduled-vera",
+          "scheduled-mist",
+          "scheduled-holly",
+        ]);
+      } finally {
+        unsubscribe();
+        vi.unstubAllGlobals();
+      }
+    });
   });
 });

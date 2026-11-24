@@ -134,6 +134,9 @@ export function useAppController(seed?: AppNavigationInitial) {
   const {
     selected,
     setSelected,
+    extraRecipients,
+    setExtraRecipients,
+    dropExtraRecipient,
     replyContext,
     setReplyContext,
     contextArtifact,
@@ -214,6 +217,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     conversationId: string | null;
     agentId: string;
     agentName: string;
+    recipientNames?: string[];
     steering: boolean;
   } | null>(null);
   const [archivedCard, setArchivedCard] = useState<{
@@ -340,6 +344,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   }
   function openAgentChat(agent: Agent) {
     setSelected(agent.id);
+    setExtraRecipients([]);
     setFolder(agent.folder_id || "");
     setFolderChoice(undefined);
     setReplyContext(null);
@@ -513,6 +518,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     setReplyContext(null);
     setContextArtifact(null);
     setSelected(item.agentId);
+    setExtraRecipients([]);
     setFolderChoice(undefined);
     afterSheetsClose(() => restoreToComposer(item.text, item.files));
   }
@@ -569,6 +575,7 @@ export function useAppController(seed?: AppNavigationInitial) {
       !context.excerpt;
     if (!keepSameMessageExcerpt) setReplyContext(context);
     setSelected(context.agentId);
+    if (!context.conversationId) setExtraRecipients([]);
     setFolderChoice(undefined);
     setComposerError("");
     const url = new URL(location.href);
@@ -609,6 +616,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     setProjectFilter("");
     if (!draft.trim() && !attachments.length) {
       setSelected(team.manager_id);
+      setExtraRecipients([]);
       setReplyContext(null);
       setContextArtifact(null);
     }
@@ -617,6 +625,7 @@ export function useAppController(seed?: AppNavigationInitial) {
   function messageTeam(team: Team) {
     setReplyContext(null);
     setSelected(team.manager_id);
+    setExtraRecipients([]);
     setContextArtifact(null);
     if (team.conversation_id) setConversation(team.conversation_id);
     else {
@@ -856,6 +865,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     );
     if (agent) {
       setSelected(agent.id);
+      setExtraRecipients([]);
       setReplyContext(null);
       setFolderChoice(undefined);
       setFolder(project);
@@ -962,6 +972,9 @@ export function useAppController(seed?: AppNavigationInitial) {
     setDraft,
     changed,
     selected,
+    extraRecipients,
+    dropExtraRecipient,
+    availableAgents,
     routePreview,
     folder,
     setBusy,
@@ -1017,6 +1030,7 @@ export function useAppController(seed?: AppNavigationInitial) {
     );
     if (!draft.trim()) {
       setSelected(profile.id);
+      setExtraRecipients([]);
       setFolderChoice(undefined);
       setFolder(profile.folder_id || "");
     }
@@ -1034,7 +1048,10 @@ export function useAppController(seed?: AppNavigationInitial) {
       scopedAgents.find((a) => a.id === selected) ||
       scopedAgents.find((a) => a.connection_id);
     if (target) {
-      setSelected(target.id);
+      if (target.id !== selected) {
+        setSelected(target.id);
+        setExtraRecipients([]);
+      }
       setFolderChoice(undefined);
       setFolder(target.folder_id || "");
     }
@@ -1077,6 +1094,8 @@ export function useAppController(seed?: AppNavigationInitial) {
     folderChoice,
     contextArtifact,
     selected,
+    extraRecipients,
+    setExtraRecipients,
     routePreview,
     busy,
     uploading,

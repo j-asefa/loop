@@ -39,6 +39,8 @@ export type AppViewProps = Pick<
   | "folderChoice"
   | "contextArtifact"
   | "selected"
+  | "extraRecipients"
+  | "setExtraRecipients"
   | "routePreview"
   | "busy"
   | "uploading"
