@@ -723,6 +723,24 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   expect(
     replyButtonBlockReason(
       messageAContext,
+      messageBContext,
+      "Already typed in idle thread",
+      false,
+    ),
+  ).toBe("");
+  expect(
+    resolveReplyContext(
+      messageAContext,
+      messageBContext,
+      true,
+      false,
+      "Already typed in idle thread",
+      false,
+    ),
+  ).toEqual(messageBContext);
+  expect(
+    replyButtonBlockReason(
+      messageAContext,
       messageAFullContext,
       "Already typed for A",
     ),

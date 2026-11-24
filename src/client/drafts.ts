@@ -12,11 +12,13 @@ export function replyButtonBlockReason(
   currentContext: ComposerContext | null,
   nextContext: ComposerContext,
   currentDraft: string,
+  currentQuoted = true,
 ): string {
   if (!currentDraft.trim()) return "";
   if (LEADING_REPLY_PREFIX.test(currentDraft))
     return "Send or clear your current draft before using a reply button.";
   if (
+    currentQuoted &&
     currentContext?.conversationId === nextContext.conversationId &&
     currentContext?.messageId &&
     currentContext.messageId !== nextContext.messageId
@@ -40,11 +42,12 @@ export function resolveReplyContext(
   hasText: boolean,
   switching: boolean,
   currentDraft = "",
+  currentQuoted = true,
 ): ComposerContext | null {
   if (
     hasText &&
     !switching &&
-    replyButtonBlockReason(current, next, currentDraft)
+    replyButtonBlockReason(current, next, currentDraft, currentQuoted)
   )
     return current;
   if (

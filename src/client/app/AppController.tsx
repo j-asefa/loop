@@ -206,6 +206,8 @@ export function useAppController(seed?: AppNavigationInitial) {
   attachmentsRef.current = attachments;
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  const replyContextRef = useRef(replyContext);
+  replyContextRef.current = replyContext;
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState("");
   const [dismissNotice, setDismissNotice] = useState<
@@ -536,11 +538,16 @@ export function useAppController(seed?: AppNavigationInitial) {
       !!context.conversationId &&
       (conversation !== context.conversationId ||
         source !== conversationSource);
+    const currentReply = replyContextRef.current;
+    const currentQuoted = currentReply
+      ? quotesReply(currentReply, conversation, latestAgentMessage)
+      : false;
     if (text !== undefined && !switching) {
       const blocked = replyButtonBlockReason(
-        replyContext,
+        currentReply,
         context,
         draftRef.current,
+        currentQuoted,
       );
       if (blocked) {
         setComposerError(blocked);
@@ -556,15 +563,16 @@ export function useAppController(seed?: AppNavigationInitial) {
       setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
-    setReplyContext(
-      resolveReplyContext(
-        replyContext,
-        context,
-        text !== undefined,
-        switching,
-        draftRef.current,
-      ),
+    const nextReply = resolveReplyContext(
+      currentReply,
+      context,
+      text !== undefined,
+      switching,
+      draftRef.current,
+      currentQuoted,
     );
+    replyContextRef.current = nextReply;
+    setReplyContext(nextReply);
     setSelected(context.agentId);
     setFolderChoice(undefined);
     setComposerError("");
