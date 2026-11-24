@@ -195,8 +195,8 @@ export function sourceCards(
       (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
       EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
       (SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) reminded_at,
-      (SELECT MAX(n.created_at) FROM results n WHERE n.owner_id=@owner AND n.conversation_id=@conversation AND n.sealed=1
-        AND n.kind IN ('run_answer','imported_answer')) newest_done_at,
+      (SELECT n.id FROM results n WHERE n.owner_id=@owner AND n.conversation_id=@conversation AND n.sealed=1
+        AND n.kind IN ('run_answer','imported_answer') ORDER BY n.created_at DESC,n.id DESC LIMIT 1) newest_result,
       c.feed_queued>0 has_queued,c.approval_until,
       COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
@@ -210,7 +210,7 @@ export function sourceCards(
     -- card (or its idle card) back to the top; thread cards keep their order.
     SELECT *,${
       results
-        ? "CASE WHEN done_at>=newest_done_at THEN MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0)) ELSE COALESCE(done_at,last_activity_at) END"
+        ? "CASE WHEN done_card_key=newest_result THEN MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0)) ELSE COALESCE(done_at,last_activity_at) END"
         : done
           ? "MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0))"
           : "last_activity_at"

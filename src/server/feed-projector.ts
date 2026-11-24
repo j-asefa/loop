@@ -217,15 +217,17 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       detail: detail(row.card_run),
       thread,
     });
-    const selected = keys.has("*")
-      ? null
-      : [...keys].filter(
-          (key) => key.startsWith("run:") || key.startsWith("message:"),
-        );
-    // A reminder lifts only the newest result. A reminder change, or a result
-    // write that may make another result the newest, re-projects the two top
-    // result cards: the newest, and one a reminder still lifts.
-    if (selected && (keys.has("later") || selected.length))
+    // A reminder change can lift or drop any of the conversation's results
+    // (there are few), so it re-projects them all.
+    const selected =
+      keys.has("*") || keys.has("later")
+        ? null
+        : [...keys].filter(
+            (key) => key.startsWith("run:") || key.startsWith("message:"),
+          );
+    // A result write may make another result the newest: re-project the two
+    // top result cards too, so one a reminder lifted drops back.
+    if (selected?.length)
       for (const { card_key } of db
         .prepare(
           "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' ORDER BY sort_at DESC,card_key DESC LIMIT 2",

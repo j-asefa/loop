@@ -574,7 +574,7 @@ function FeedCard({
         >
           {item.later?.surfaced_at != null &&
             // Only the card the reminder lifted to the top says so.
-            item.last_activity_at >= item.later.surfaced_at && (
+            item.last_activity_at === item.later.surfaced_at && (
               // A reminder that came due brings the card back to the top.
               <p className="feed-reminded">
                 <AlarmClock size={14} aria-hidden="true" />
