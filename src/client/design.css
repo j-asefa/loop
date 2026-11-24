@@ -8,8 +8,10 @@ h3 {
 .settings-button {
   border-radius: 50%;
 }
-.primary:hover:not(:disabled) {
-  filter: brightness(1.06);
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
 }
 button:focus-visible,
 a:focus-visible {
@@ -59,8 +61,10 @@ a:focus-visible {
   border-radius: 12px;
   line-height: 1.5;
 }
-.sidebar .project-nav:hover {
-  background: var(--secondary);
+@media (hover: hover) {
+  .sidebar .project-nav:hover {
+    background: var(--secondary);
+  }
 }
 [data-page="feed"] .page-heading {
   margin-bottom: 12px;
@@ -69,8 +73,10 @@ a:focus-visible {
   font-size: 22px;
 }
 
-.agent-strip > button:hover .agent-portrait {
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .agent-strip > button:hover .agent-portrait {
+    transform: translateY(-2px);
+  }
 }
 .agent-shortcut-status[data-status="Needs you"] {
   color: var(--orange);
@@ -852,9 +858,11 @@ label.catalog-search {
   width: 48px;
   height: 48px;
 }
-.project-tile:hover {
-  border-color: var(--brass);
-  background: var(--soft);
+@media (hover: hover) {
+  .project-tile:hover {
+    border-color: var(--brass);
+    background: var(--soft);
+  }
 }
 .project-tile > svg:first-child,
 .project-symbol {
@@ -877,8 +885,10 @@ label.catalog-search {
 .thread-head .avatar {
   border-radius: 50%;
 }
-.composer-launch:hover {
-  filter: brightness(1.05);
+@media (hover: hover) {
+  .composer-launch:hover {
+    filter: brightness(1.05);
+  }
 }
 .composer-agent-pills {
   display: flex;
@@ -1414,4 +1424,42 @@ button.avatar {
   color: var(--brass);
   font-size: 12px;
   font-weight: 650;
+}
+
+/* Responsiveness: motion tokens (D6). New motion uses these durations and
+   easings; transform and opacity only, disabled under reduced motion. */
+:root {
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* Responsiveness: press states (D4). A tap shows in the next frame. The
+   individual scale property composes with any transform an element already
+   has instead of replacing it. Text fields are never scaled. */
+button:not(:disabled):active,
+[role="tab"]:not([aria-disabled="true"]):active,
+.chip:active {
+  scale: 0.97;
+}
+[role="button"] {
+  touch-action: manipulation;
+}
+.card-content[role="button"] {
+  transition:
+    scale var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+}
+/* A press on a link or control inside the card shows on that control only. */
+.card-content[role="button"]:active:not(
+    :has(a:active, button:active, input:active, summary:active)
+  ) {
+  scale: 0.99;
+  opacity: 0.88;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-content[role="button"] {
+    transition: none;
+  }
 }

@@ -113,6 +113,7 @@ async function pressLatency(page, locator) {
       const style = getComputedStyle(element);
       return [
         style.transform,
+        style.scale,
         style.opacity,
         style.backgroundColor,
         style.boxShadow,
@@ -430,6 +431,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
             timeout: 10000,
           })
           .then((answer) => ({ answer, receivedAt: Date.now() }));
+        // Handled now, so a timeout on a run that is already failing cannot
+        // end the process before the cleanup below runs.
+        response.catch(() => {});
         const target = page.locator(".feed-results .feed-item-card").first();
         await target.evaluate((element) =>
           element.scrollIntoView({ block: "center" }),
@@ -472,8 +476,14 @@ export async function responsivenessSmoke(page, fixture, engine) {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }
   console.log(`responsiveness ${engine}: ${JSON.stringify(report)}`);
-  // This smoke records a baseline. Each later change asserts its own budget;
-  // here every measurement must have produced a value.
+  // Budgets met so far (D3). Press: every press shows a pressed style, p95
+  // under 50 ms.
+  for (const [name, value] of Object.entries(report.press))
+    if (value.visibleChange !== "5/5" || !(value.p95 < 50))
+      throw new Error(
+        `Press ${name} missed its budget (5/5 visible, p95 < 50 ms): ${JSON.stringify(value)}`,
+      );
+  // Every other measurement must have produced a value.
   const ran = (ok, name) => {
     if (!ok) throw new Error(`Responsiveness measurement did not run: ${name}`);
   };
