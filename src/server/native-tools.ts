@@ -170,7 +170,7 @@ const COMPACT_OMIT_KEYS = new Set([
 // 173-byte UUID regex alongside format:"uuid") so native Loop tools stay
 // compact for MCP clients with tight eager-tool byte budgets. Server-side Zod
 // still validates every bound in invokeNative.
-function compactJsonSchema(node: unknown): unknown {
+export function compactJsonSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(compactJsonSchema);
   if (!node || typeof node !== "object") return node;
   const record = node as Record<string, unknown>;
