@@ -539,8 +539,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
       };
 
       console.log("responsiveness: sheet");
-      // Sheets (D6): opening a result's reading sheet animates it in, and
-      // Close animates it out and then closes it, leaving no open dialog.
+      // Sheets (D6): opening a result's reading sheet fades it in (the rule
+      // applies; this does not prove a faded frame was drawn), and Close
+      // closes it at once, leaving no open dialog.
       await page
         .locator(".feed-results .feed-item-card .feed-row")
         .first()
