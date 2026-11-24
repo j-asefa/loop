@@ -35,8 +35,11 @@ const forms: Record<(typeof DISPLAY_COMPONENTS)[number], string> = {
   Chart:
     'nonempty title and chart; pie uses {type:"pie",segments:[{label,value}]} with positive values; bar, line, or area uses {type,categories,series:[{name,values}],xLabel?,yLabel?} with string categories and at most one numeric value per category in each series',
   Divider: "no props",
-  Actions: "no props; children allowed, typically LinkButton elements",
+  Actions:
+    "no props; children allowed, typically LinkButton or ReplyButton elements",
   LinkButton: "nonempty label and an HTTP(S) url",
+  ReplyButton:
+    "nonempty single-line label (up to 200 chars); optional single-line prompt string (up to 200 chars) to pre-fill a reply (neither may be blank or contain control/invisible characters, and the reply text prompt ?? label cannot start with @, /, !, or $)",
 };
 const patchForm =
   "One JSON object per line with op add or replace. Use path /root with a string key, or /elements/<key> with an element object.";

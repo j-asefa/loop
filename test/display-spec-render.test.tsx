@@ -1,7 +1,13 @@
-import { expect, it } from "vitest";
+import { isValidElement, type ReactElement, type ReactNode } from "react";
+import { expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RichText } from "../src/client/components";
+import { DisplayReplyContext, DisplaySpec } from "../src/client/DisplaySpec";
 import { compactMarkdown } from "../src/client/preview";
+import {
+  canApplyReplyButtonPrompt,
+  canReplyFromMessageDisplay,
+} from "../src/client/threadView";
 import { checkDisplay } from "../src/server/display-check";
 import { displayFixtures } from "./display-spec-fixtures";
 
@@ -352,6 +358,388 @@ it("checks and draws a text explanation alongside a link in Actions", () => {
   const html = render(source);
   expect(html).toContain("Read the full report.");
   expect(html).toContain('href="https://example.com/report"');
+});
+
+it("checks and draws ReplyButton elements and pre-fills the reply handler only when interactive", () => {
+  const raw = patch(
+    { op: "add", path: "/root", value: "actions" },
+    {
+      op: "add",
+      path: "/elements/actions",
+      value: { type: "Actions", children: ["same", "custom"] },
+    },
+    {
+      op: "add",
+      path: "/elements/same",
+      value: { type: "ReplyButton", props: { label: "Run benchmark" } },
+    },
+    {
+      op: "add",
+      path: "/elements/custom",
+      value: {
+        type: "ReplyButton",
+        props: {
+          label: "Compare staging",
+          prompt: "Compare these metrics with staging.",
+        },
+      },
+    },
+  );
+  const source = fence(raw);
+  expect(checkDisplay(source)).toContain("Display valid. Elements: 3.");
+
+  // Without a DisplayReplyContext provider, ReplyButton renders disabled with an explanation title.
+  const disabledHtml = render(source);
+  expect(disabledHtml).toContain(
+    '<button type="button" class="display-reply-button" disabled="" title="Reply is available on finished assistant answers in a conversation">Run benchmark</button>',
+  );
+  expect(disabledHtml).toContain(
+    '<button type="button" class="display-reply-button" disabled="" title="Reply is available on finished assistant answers in a conversation">Compare staging</button>',
+  );
+
+  // With a DisplayReplyContext provider in a non-compact, finished message, ReplyButton is enabled.
+  const onReply = vi.fn();
+  const enabledHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(enabledHtml).toContain(
+    '<button type="button" class="display-reply-button">Run benchmark</button>',
+  );
+  expect(enabledHtml).toContain(
+    '<button type="button" class="display-reply-button" title="Compare these metrics with staging.">Compare staging</button>',
+  );
+
+  // In compact previews or while writing, ReplyButton remains disabled even inside a provider.
+  const compactHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} compact />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(compactHtml).toContain('class="display-reply-button" disabled=""');
+
+  const writingHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={source} writing />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(writingHtml).toContain(
+    'class="display-reply-button" disabled="" title="Wait for the answer to finish to reply"',
+  );
+  const openFinishedHtml = renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <RichText content={"```spec\n" + raw} />
+    </DisplayReplyContext.Provider>,
+  );
+  expect(openFinishedHtml).toContain(
+    'class="display-reply-button" disabled="" title="This display is incomplete"',
+  );
+
+  // Legitimate ZWJ emoji sequences (\u200D), ZWNJ non-Latin words (\u200C), and $-prefixed labels with a valid prompt are accepted.
+  const joinerSource = fence(
+    patch(
+      { op: "add", path: "/root", value: "actions" },
+      {
+        op: "add",
+        path: "/elements/actions",
+        value: { type: "Actions", children: ["emoji", "zwnj", "priced"] },
+      },
+      {
+        op: "add",
+        path: "/elements/emoji",
+        value: {
+          type: "ReplyButton",
+          props: { label: "👩\u200D💻 Review code" },
+        },
+      },
+      {
+        op: "add",
+        path: "/elements/zwnj",
+        value: {
+          type: "ReplyButton",
+          props: { label: "می\u200Cخواهم ادامه دهم" },
+        },
+      },
+      {
+        op: "add",
+        path: "/elements/priced",
+        value: {
+          type: "ReplyButton",
+          props: { label: "$5 plan", prompt: "Select the $5 plan" },
+        },
+      },
+    ),
+  );
+  expect(checkDisplay(joinerSource)).toContain("Display valid. Elements: 4.");
+  expect(render(joinerSource)).toContain("👩\u200D💻 Review code");
+  expect(render(joinerSource)).toContain("می\u200Cخواهم ادامه دهم");
+  expect(render(joinerSource)).toContain("$5 plan");
+
+  // Clicking an active ReplyButton invokes the context callback with prompt ?? label.
+  let capturedTree: ReactNode = null;
+  function Capture() {
+    capturedTree = DisplaySpec({ source: raw, markdown: (text) => text });
+    return <>{capturedTree}</>;
+  }
+  renderToStaticMarkup(
+    <DisplayReplyContext.Provider value={onReply}>
+      <Capture />
+    </DisplayReplyContext.Provider>,
+  );
+  const buttons: ReactElement<{
+    onClick?: () => void;
+    disabled?: boolean;
+  }>[] = [];
+  const collectButtons = (node: ReactNode): void => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(collectButtons);
+      return;
+    }
+    if (isValidElement(node)) {
+      const el = node as ReactElement<{
+        children?: ReactNode;
+        onClick?: () => void;
+        disabled?: boolean;
+      }>;
+      if (typeof el.type === "function") {
+        collectButtons((el.type as (props: unknown) => ReactNode)(el.props));
+        return;
+      }
+      if (el.type === "button") buttons.push(el);
+      if (el.props.children) collectButtons(el.props.children);
+    }
+  };
+  collectButtons(capturedTree);
+  expect(buttons).toHaveLength(2);
+  buttons[0]!.props.onClick?.();
+  buttons[1]!.props.onClick?.();
+  expect(onReply).toHaveBeenNthCalledWith(1, "Run benchmark");
+  expect(onReply).toHaveBeenNthCalledWith(
+    2,
+    "Compare these metrics with staging.",
+  );
+
+  // Leading @, /, !, or $ (including after Unicode whitespace, NEL, control or zero-width chars), multi-line prompts, or blank strings are rejected.
+  for (const badPrompt of [
+    "@other-agent run",
+    "  /compact",
+    "\t!rm -rf",
+    "$skill-name",
+    "\u00A0@other-agent",
+    "\uFEFF/compact",
+    "\u0085/compact",
+    "\u200B@other-agent",
+    "\u2060!cmd",
+    "\u0007$skill",
+  ]) {
+    const invalidSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: badPrompt },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(invalidSource)).toContain(
+      "Reply prompts cannot start with @, /, !, or $",
+    );
+    expect(render(invalidSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+  for (const multiLine of [
+    "First line\nSecond line",
+    "First line\rSecond line",
+    "First line\u0085Second line",
+    "First line\u2028Second line",
+  ]) {
+    const multiLineSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: multiLine },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(multiLineSource)).toContain(
+      "Reply prompts must be a single line",
+    );
+    expect(render(multiLineSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+  for (const blank of [
+    "   ",
+    "\u00A0\t\n",
+    "\uFEFF",
+    "\u200B",
+    "\u200C\u200D",
+    "\u2060",
+    "\u0085",
+    "\u3164",
+    "\u2800",
+    "\u034F",
+  ]) {
+    const blankSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: blank },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(blankSource)).toContain("Reply text cannot be blank");
+    expect(render(blankSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+  for (const hiddenControl of [
+    "Run tests\u{E0061}\u{E0062}",
+    "Run tests\u{E0100}",
+    "Run \u202Etests",
+    "Run \u2066tests\u2069",
+    "Run\u200Btests",
+    "Run\u3164tests",
+    "Run\u2800tests",
+    "Run\u034Ftests",
+    "Run\u0000tests",
+    "Run\u001Btests",
+  ]) {
+    const hiddenSource = fence(
+      patch(
+        { op: "add", path: "/root", value: "btn" },
+        {
+          op: "add",
+          path: "/elements/btn",
+          value: {
+            type: "ReplyButton",
+            props: { label: "Run", prompt: hiddenControl },
+          },
+        },
+      ),
+    );
+    expect(checkDisplay(hiddenSource)).toContain(
+      "Reply text cannot contain control or invisible characters",
+    );
+    expect(render(hiddenSource)).toContain(
+      "This part of the display could not be shown",
+    );
+  }
+
+  // canApplyReplyButtonPrompt allows empty drafts or idempotent re-clicks on the same message, and blocks when another draft, message quote, or artifact context is present.
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(true);
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(true);
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-b",
+    }),
+  ).toBe(false);
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "Run benchmark",
+      prompt: "Run benchmark",
+      hasContextArtifact: true,
+      currentMessageId: "msg-a",
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "Already typed",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
+  expect(
+    canApplyReplyButtonPrompt({
+      currentDraft: "@ops check this",
+      prompt: "Run benchmark",
+      hasContextArtifact: false,
+      currentMessageId: undefined,
+      targetMessageId: "msg-a",
+    }),
+  ).toBe(false);
+
+  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
+  expect(
+    canReplyFromMessageDisplay({
+      role: "assistant",
+      hasReplyTarget: true,
+      progress: false,
+      writing: false,
+    }),
+  ).toBe(true);
+  expect(
+    canReplyFromMessageDisplay({
+      role: "user",
+      hasReplyTarget: true,
+      progress: false,
+      writing: false,
+    }),
+  ).toBe(false);
+  expect(
+    canReplyFromMessageDisplay({
+      role: "assistant",
+      hasReplyTarget: true,
+      progress: true,
+      writing: false,
+    }),
+  ).toBe(false);
+  expect(
+    canReplyFromMessageDisplay({
+      role: "assistant",
+      hasReplyTarget: true,
+      progress: false,
+      writing: true,
+    }),
+  ).toBe(false);
+  expect(
+    canReplyFromMessageDisplay({
+      role: "assistant",
+      hasReplyTarget: false,
+      progress: false,
+      writing: false,
+    }),
+  ).toBe(false);
 });
 
 it("checks and draws a standalone display nested in a quote or list item", () => {

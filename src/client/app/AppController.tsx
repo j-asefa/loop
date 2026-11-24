@@ -58,6 +58,7 @@ import {
   saveThreadDraft as writeThreadDraft,
   threadDraft as readThreadDraft,
 } from "../drafts";
+import { canApplyReplyButtonPrompt } from "../threadView";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { callRoute } from "../api";
 import { type ThreadWork } from "../Conversation";
@@ -533,13 +534,40 @@ export function useAppController(seed?: AppNavigationInitial) {
       !!context.conversationId &&
       (conversation !== context.conversationId ||
         source !== conversationSource);
+    if (
+      text !== undefined &&
+      !switching &&
+      !canApplyReplyButtonPrompt({
+        currentDraft: draftRef.current,
+        prompt: text,
+        hasContextArtifact: Boolean(contextArtifact),
+        currentMessageId: replyContext?.messageId,
+        targetMessageId: context.messageId,
+      })
+    ) {
+      setComposerError(
+        "Send or clear your current draft before using a reply button.",
+      );
+      setComposerExpanded(true);
+      if (context.conversationId) focusComposer();
+      else afterSheetsClose(focusComposer);
+      return;
+    }
     // Opening a thread from another source clears the composer's context, so
     // open it before setting the reply.
     if (switching)
       setConversation(context.conversationId, context.messageId, source);
     setActiveArtifact(null);
     setContextArtifact(null);
-    setReplyContext(context);
+    const keepSameMessageExcerpt =
+      text !== undefined &&
+      !switching &&
+      replyContext?.conversationId === context.conversationId &&
+      replyContext?.agentId === context.agentId &&
+      replyContext?.messageId === context.messageId &&
+      Boolean(replyContext?.excerpt) &&
+      !context.excerpt;
+    if (!keepSameMessageExcerpt) setReplyContext(context);
     setSelected(context.agentId);
     setFolderChoice(undefined);
     setComposerError("");
@@ -551,7 +579,10 @@ export function useAppController(seed?: AppNavigationInitial) {
       const key = draftId(context.conversationId, source);
       if (text !== undefined && !readThreadDraft(key).text)
         writeThreadDraft(key, text, [], session?.user?.id);
-    } else if (text !== undefined) setDraft(text);
+    } else if (text !== undefined) {
+      draftRef.current = text;
+      setDraft(text);
+    }
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);
     else if (context.conversationId) focusComposer();

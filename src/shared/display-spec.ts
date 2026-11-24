@@ -92,6 +92,53 @@ const seriesChart = z.object({
 export const DisplayChartSchema = z.union([pieChart, seriesChart]);
 export type DisplayChart = z.infer<typeof DisplayChartSchema>;
 
+const INVISIBLE_OR_SPACE =
+  /[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]/u;
+const LEADING_REPLY_PREFIX =
+  /^[\s\p{C}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0100}-\u{E01EF}]*[@/!$]/u;
+const DISALLOWED_REPLY_CHARS =
+  /[\p{Cc}\p{Cs}\p{Co}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0E\uFFA0\u{E0100}-\u{E01EF}]|(?![\u200C\u200D])\p{Cf}/u;
+
+const replyLabel = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine(
+    (value) =>
+      value.replace(new RegExp(INVISIBLE_OR_SPACE.source, "gu"), "").length > 0,
+    "Reply text cannot be blank",
+  )
+  .refine(
+    (value) => !/[\r\n\u0085\u2028\u2029]/.test(value),
+    "Reply prompts must be a single line",
+  )
+  .refine(
+    (value) => !DISALLOWED_REPLY_CHARS.test(value),
+    "Reply text cannot contain control or invisible characters",
+  );
+
+const replyPrompt = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine(
+    (value) =>
+      value.replace(new RegExp(INVISIBLE_OR_SPACE.source, "gu"), "").length > 0,
+    "Reply text cannot be blank",
+  )
+  .refine(
+    (value) => !LEADING_REPLY_PREFIX.test(value),
+    "Reply prompts cannot start with @, /, !, or $",
+  )
+  .refine(
+    (value) => !/[\r\n\u0085\u2028\u2029]/.test(value),
+    "Reply prompts must be a single line",
+  )
+  .refine(
+    (value) => !DISALLOWED_REPLY_CHARS.test(value),
+    "Reply text cannot contain control or invisible characters",
+  );
+
 // Props of each catalog component. Unknown props are ignored.
 const propSchemas = {
   Card: z.object({ title: text.nullish(), subtitle: text.nullish() }),
@@ -112,6 +159,19 @@ const propSchemas = {
   Divider: z.object({}),
   Actions: z.object({}),
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
+  ReplyButton: z
+    .object({
+      label: replyLabel,
+      prompt: replyPrompt.nullish(),
+    })
+    .refine(
+      (value) =>
+        value.prompt != null || !LEADING_REPLY_PREFIX.test(value.label),
+      {
+        path: ["label"],
+        message: "Reply prompts cannot start with @, /, !, or $",
+      },
+    ),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);
 export const DISPLAY_COMPONENTS = Object.keys(
@@ -148,6 +208,12 @@ export type DisplayNode =
   | { type: "Divider"; key: string }
   | { type: "Actions"; key: string; children: DisplayNode[] }
   | { type: "LinkButton"; key: string; label: string; url: string }
+  | {
+      type: "ReplyButton";
+      key: string;
+      label: string;
+      prompt: string | null;
+    }
   | {
       type: "Placeholder";
       key: string;
@@ -280,6 +346,17 @@ function build(
       // `https:example.com` would otherwise resolve against Loop's own page.
       return p.success
         ? { type, key, label: p.data.label, url: new URL(p.data.url).href }
+        : problem(p.error);
+    }
+    case "ReplyButton": {
+      const p = propSchemas.ReplyButton.safeParse(props);
+      return p.success
+        ? {
+            type,
+            key,
+            label: p.data.label,
+            prompt: p.data.prompt ?? null,
+          }
         : problem(p.error);
     }
     default:
@@ -441,6 +518,8 @@ function drawnLength(node: DisplayNode): number {
       );
     case "LinkButton":
       return sum([node.label, node.url]);
+    case "ReplyButton":
+      return sum([node.label, node.prompt]);
     default:
       return 0;
   }

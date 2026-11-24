@@ -314,6 +314,38 @@ export function feedReplyQuote(item: {
   };
 }
 
+export function canReplyFromMessageDisplay(message: {
+  role: string;
+  hasReplyTarget: boolean;
+  progress?: boolean;
+  writing: boolean;
+}): boolean {
+  return (
+    message.hasReplyTarget &&
+    message.role === "assistant" &&
+    !message.progress &&
+    !message.writing
+  );
+}
+
+export function canApplyReplyButtonPrompt(state: {
+  currentDraft: string;
+  prompt: string;
+  hasContextArtifact: boolean;
+  currentMessageId?: string;
+  targetMessageId?: string;
+}): boolean {
+  const current = state.currentDraft.trim();
+  if (!current) return true;
+  if (state.hasContextArtifact) return false;
+  if (
+    state.currentMessageId &&
+    state.currentMessageId !== state.targetMessageId
+  )
+    return false;
+  return current === state.prompt.trim();
+}
+
 /** Context for an editable follow-up on a captured Git diff. */
 type ChangeContext = {
   projectName?: string;
