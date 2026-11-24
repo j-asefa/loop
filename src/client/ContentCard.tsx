@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   AlarmClock,
   Archive,
@@ -8,7 +8,16 @@ import {
   MessageSquare,
   MoreHorizontal,
   File,
+  FileText,
+  Globe,
+  Image as ImageIcon,
 } from "lucide-react";
+import {
+  attachmentKind,
+  attachmentSize,
+  attachmentThumbnail,
+} from "./attachmentKind";
+import { isLoopFilePath } from "./loopFilePaths";
 import type { Card } from "../shared/cards";
 import {
   Avatar,
@@ -33,6 +42,66 @@ export function opensContentCard(
   );
   return !control || !card.contains(control);
 }
+// Thumbnails are only for small raster images at a Loop file address; the
+// tile never loads anything the preview itself would refuse to open.
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+function AttachmentTile({
+  file,
+  url,
+  onOpen,
+}: {
+  file: Card["attachments"][number];
+  url: string;
+  onOpen: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  const kind = attachmentKind(file.mime, file.name);
+  const details = `${kind} · ${attachmentSize(file.size)}`;
+  const metaId = useId();
+  const thumbnail =
+    !failed &&
+    attachmentThumbnail(file.mime) &&
+    file.size <= MAX_THUMBNAIL_BYTES &&
+    isLoopFilePath(url);
+  return (
+    <button
+      className="attachment-open"
+      aria-label={
+        file.availability === "sealed"
+          ? `Preview ${file.name} as published`
+          : `Preview ${file.name}`
+      }
+      aria-describedby={metaId}
+      onClick={onOpen}
+    >
+      <span className="attachment-thumb" aria-hidden="true">
+        {thumbnail ? (
+          <img
+            src={url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setFailed(true)}
+          />
+        ) : kind === "Web page" ? (
+          <Globe size={20} />
+        ) : kind === "Image" ? (
+          <ImageIcon size={20} />
+        ) : (
+          <FileText size={20} />
+        )}
+      </span>
+      <span className="attachment-text">
+        <span className="attachment-name" title={file.name}>
+          {file.name}
+        </span>
+        <span className="attachment-meta" id={metaId}>
+          {details}
+        </span>
+      </span>
+    </button>
+  );
+}
 function CardAttachments({ card }: { card: Card }) {
   const path = useSourcePath(),
     source = useSourceId(),
@@ -42,33 +111,35 @@ function CardAttachments({ card }: { card: Card }) {
       {!!card.attachments.length && (
         <ul className="attachment-list" aria-label="Attached files">
           {card.attachments.map((file) => (
-            <li key={file.id}>
-              <File size={17} aria-hidden="true" />
+            <li
+              key={file.id}
+              className={file.download ? "attachment-tile" : undefined}
+            >
               {file.download ? (
-                <button
-                  className="attachment-open"
-                  aria-label={
-                    file.availability === "sealed"
-                      ? `Preview ${file.name} as published`
-                      : `Preview ${file.name}`
-                  }
-                  onClick={() => setPreview(file)}
-                >
-                  {file.name}
-                </button>
+                <AttachmentTile
+                  file={file}
+                  url={path(file.download)}
+                  onOpen={() => setPreview(file)}
+                />
               ) : file.availability === "unavailable" ? (
-                // Never open the current bytes as if they were published.
-                <span className="attachment-unavailable">
-                  {file.name}{" "}
-                  <span className="field-hint">
-                    Published version unavailable ·{" "}
-                    <a href={sourceCardHref(file.href, source)}>
-                      Open current file
-                    </a>
+                <>
+                  {/* Never open the current bytes as if they were published. */}
+                  <File size={17} aria-hidden="true" />
+                  <span className="attachment-unavailable">
+                    {file.name}{" "}
+                    <span className="field-hint">
+                      Published version unavailable ·{" "}
+                      <a href={sourceCardHref(file.href, source)}>
+                        Open current file
+                      </a>
+                    </span>
                   </span>
-                </span>
+                </>
               ) : (
-                <a href={sourceCardHref(file.href, source)}>{file.name}</a>
+                <>
+                  <File size={17} aria-hidden="true" />
+                  <a href={sourceCardHref(file.href, source)}>{file.name}</a>
+                </>
               )}
             </li>
           ))}

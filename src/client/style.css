@@ -2598,6 +2598,9 @@ pre {
   max-height: 150px;
   overflow-y: auto;
 }
+.attachment-list:has(.attachment-tile) {
+  max-height: 220px;
+}
 .attachment-list li {
   display: flex;
   align-items: center;
@@ -2619,6 +2622,47 @@ pre {
 }
 .attachment-list .attachment-open span {
   overflow-wrap: anywhere;
+}
+.attachment-list li.attachment-tile {
+  padding: 6px;
+}
+.attachment-list .attachment-tile .attachment-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.attachment-thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.attachment-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.attachment-text {
+  display: grid;
+  min-width: 0;
+}
+.attachment-list .attachment-tile .attachment-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-meta {
+  color: var(--muted);
+  font-size: 12px;
 }
 .upload-control .error {
   font-size: 13px;
