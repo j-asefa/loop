@@ -1434,7 +1434,10 @@ export function Feed({
     item: StreamItem;
     generation: number;
   } | null>(null);
-  const [savingStream, setSavingStream] = useState<StreamItem | null>(null);
+  const [savingStream, setSavingStream] = useState<{
+    item: StreamItem;
+    generation: number;
+  } | null>(null);
   const combined = !!sources && !project && !teams && !scopedAgent;
   const allSources: AgentSource[] = combined
     ? sources
@@ -1967,8 +1970,13 @@ export function Feed({
   );
   const [needsOpen, setNeedsOpen] = useState(false);
   const { count: newResults, showNewResults } = useNewResultsPill(
-    filter === "done" && !needsOpen,
-    JSON.stringify([selectionScope, selection.read, selection.agent]),
+    filter === "done" && !needsOpen && effectiveStreamSource !== "feeds",
+    JSON.stringify([
+      selectionScope,
+      selection.read,
+      selection.agent,
+      effectiveStreamSource,
+    ]),
     feedRows.map((row) => row.key),
   );
   const needsRequest = useRef(0);
@@ -4604,7 +4612,7 @@ export function Feed({
                       onDismiss={(item) =>
                         void socialStream.dismiss(item.rawId)
                       }
-                      onRemind={(item) => setSavingStream(item)}
+                      onRemind={(item) => setSavingStream({ item, generation })}
                       onMarkRead={(item, read) =>
                         void socialStream.markRead(item.rawId, read)
                       }
@@ -4678,9 +4686,10 @@ export function Feed({
               <button
                 type="button"
                 className="secondary load-more"
-                onClick={() =>
-                  setDoneSelection({ ...selection, stream: "feeds", agent: "" })
-                }
+                onClick={() => {
+                  setSelectedCards(null);
+                  setDoneSelection(selectFeedStreamSource(selection, "feeds"));
+                }}
               >
                 See all feed stories
               </button>
@@ -4781,18 +4790,18 @@ export function Feed({
           images={socialStream.images}
           onClose={() => setReadingStream(null)}
           onDismiss={(item) => void socialStream.dismiss(item.rawId)}
-          onRemind={(item) => setSavingStream(item)}
+          onRemind={(item) => setSavingStream({ item, generation })}
           onMarkRead={(item, read) =>
             void socialStream.markRead(item.rawId, read)
           }
           onAsk={onAsk ? (text) => onAsk(text) : undefined}
         />
       )}
-      {savingStream && (
+      {savingStream?.generation === generation && (
         <LaterSheet
           kind="story"
-          targetId={savingStream.rawId}
-          title={savingStream.title}
+          targetId={savingStream.item.rawId}
+          title={savingStream.item.title}
           sourceId=""
           onClose={() => setSavingStream(null)}
           onDone={(label, created) =>
