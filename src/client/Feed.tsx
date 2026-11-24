@@ -122,7 +122,7 @@ import {
   ChevronRight,
   ChevronUp,
 } from "lucide-react";
-import { feedTakeaway } from "./feedTakeaway";
+import { cardTakeaway } from "./feedTakeaway";
 import { ConversationPulls } from "./ConversationPulls";
 import { sourceUrl } from "./sourceRouting";
 import type {
@@ -348,16 +348,7 @@ function FeedCard({
   const loadedMessage = message?.id === messageId ? message : null;
   // A finished answer that leads with a short paragraph shows just that
   // paragraph on the card; See full opens the whole answer.
-  const takeaway =
-    readAsCard &&
-    !item.card &&
-    !item.live_preview &&
-    !awaitingUpdate &&
-    item.last_message?.role === "assistant"
-      ? feedTakeaway(
-          item.last_message.content ?? item.last_message.preview ?? "",
-        )
-      : null;
+  const takeaway = cardTakeaway(item, readAsCard);
   const fetchSource = item.sourceId ?? scopedSource;
   const fetchKey = messageId ? `${fetchSource ?? ""}:${messageId}` : "";
   const canLoadFull =
@@ -680,12 +671,15 @@ function FeedCard({
               <span className="preview-links">
                 <button
                   className="text-button preview-open"
+                  aria-label={`See full: ${item.title}`}
+                  aria-haspopup="dialog"
                   onClick={openReading}
                 >
-                  <ChevronDown size={14} /> See full
+                  <ChevronDown size={14} aria-hidden="true" /> See full
                 </button>
                 <button
                   className="text-button preview-open"
+                  aria-label={`Open thread: ${item.title}`}
                   onClick={() => {
                     onRead?.();
                     onOpen();
