@@ -1451,9 +1451,10 @@ function ActivityLineView({
   conversation: string;
   run: string;
 }) {
-  // No runs: the recent snapshot already holds the newest steps, and naming
-  // the run would also page through its file changes, which the line never
-  // needs. activityLine filters by run.
+  // No runs: naming the run would also page through all its file changes.
+  // The recent snapshot still returns the conversation's newest records whole
+  // (output and diffs included), which one line does not need; a line-only
+  // read is the follow-up (track B, B1b). activityLine filters by run.
   const { items } = useConversationActivities(conversation);
   const line = activityLine(items, run);
   if (!line) return null;
