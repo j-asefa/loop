@@ -195,6 +195,8 @@ export function sourceCards(
       (SELECT l.id FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) later_id,
       EXISTS(SELECT 1 FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL AND l.surfaced_at IS NULL) snoozed,
       (SELECT l.surfaced_at FROM later_items l WHERE l.owner_id=c.owner_id AND l.kind='conversation' AND l.target_id=c.id AND l.done_at IS NULL) reminded_at,
+      (SELECT MAX(n.created_at) FROM results n WHERE n.owner_id=@owner AND n.conversation_id=@conversation AND n.sealed=1
+        AND n.kind IN ('run_answer','imported_answer')) newest_done_at,
       c.feed_queued>0 has_queued,c.approval_until,
       COALESCE(${results ? "completed.card_key," : ""}'run:'||c.feed_done_run_id,'message:'||c.feed_last_message_id,'run:'||c.feed_run_id) done_card_key,
       COALESCE(c.run_state IN ('awaiting_approval','paused') OR (c.raw_state IN ('failed','interrupted') AND c.attention_dismissed_at IS NULL),0) needs_run,
@@ -204,8 +206,15 @@ export function sourceCards(
     FROM state c ${results ? "CROSS JOIN completed_results completed" : ""}
     LEFT JOIN conversation_positions cp ON cp.owner_id=c.owner_id AND cp.conversation_id=c.id WHERE c.feed_visible=1
   ), page AS MATERIALIZED (
-    -- A reminder that has come due brings its card back to the top.
-    SELECT *,MAX(${done ? "COALESCE(done_at,last_activity_at)" : "last_activity_at"},COALESCE(reminded_at,0)) sort_at,
+    -- In Done, a reminder that has come due lifts the conversation's newest
+    -- card (or its idle card) back to the top; thread cards keep their order.
+    SELECT *,${
+      results
+        ? "CASE WHEN done_at>=newest_done_at THEN MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0)) ELSE COALESCE(done_at,last_activity_at) END"
+        : done
+          ? "MAX(COALESCE(done_at,last_activity_at),COALESCE(reminded_at,0))"
+          : "last_activity_at"
+    } sort_at,
       EXISTS(SELECT 1 FROM done_card_dismissals d WHERE d.owner_id=@owner AND d.conversation_id=flagged.conversation_id AND d.card_key=flagged.done_card_key) hidden
     FROM flagged
   ),${cardSql(expanded)}`;

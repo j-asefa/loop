@@ -222,6 +222,15 @@ export function projectFeed(db: Database.Database, emit: Emit) {
       : [...keys].filter(
           (key) => key.startsWith("run:") || key.startsWith("message:"),
         );
+    // A reminder change moves the newest result to the top or back: re-project
+    // the two top result cards (the newest, and one a reminder still lifts).
+    if (selected && keys.has("later"))
+      for (const { card_key } of db
+        .prepare(
+          "SELECT card_key FROM feed_cards WHERE owner_id=? AND conversation_id=? AND kind='result' ORDER BY sort_at DESC,card_key DESC LIMIT 2",
+        )
+        .all(owner, conversation) as { card_key: string }[])
+        if (!selected.includes(card_key)) selected.push(card_key);
     if (!selected || selected.length) {
       const results = sourceCards(db, owner, conversation, "result", selected);
       const present = new Set(results.map((r) => r.done_card_key));

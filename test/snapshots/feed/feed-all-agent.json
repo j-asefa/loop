@@ -3,58 +3,6 @@
   "body": {
     "items": [
       {
-        "conversation_id": "c-surfaced",
-        "title": "Prompt for r-surfaced",
-        "agent_id": "agent-api",
-        "connection_id": null,
-        "agent_name": "api-agent",
-        "provider": "openai",
-        "project_id": null,
-        "project_name": null,
-        "team_id": null,
-        "origin": "loop",
-        "last_activity_at": 1799644620000,
-        "last_message": {
-          "id": "m-surfaced-answer",
-          "role": "assistant",
-          "preview": "Answer surfaced",
-          "content": "Answer surfaced",
-          "created_at": 1799644500000,
-          "saved": false
-        },
-        "run": {
-          "id": "r-surfaced",
-          "state": "completed",
-          "error": null,
-          "input": "Prompt for r-surfaced",
-          "connection_id": "conn-api",
-          "model": "fixture-model",
-          "resolved_model": null,
-          "created_at": 1799644380000,
-          "updated_at": 1799644620000,
-          "queue_position": null,
-          "can_move_up": false,
-          "can_move_down": false
-        },
-        "pull": null,
-        "queued_runs": [],
-        "live_preview": null,
-        "pending_approvals": 0,
-        "position_message_id": null,
-        "later": {
-          "id": "later-surfaced",
-          "due_at": 1799996400000,
-          "condition": "time",
-          "surfaced_at": 1799996400000,
-          "created_at": 1799644740000
-        },
-        "next_action": {
-          "kind": "result",
-          "run_id": "r-surfaced",
-          "message_id": "m-surfaced-answer"
-        }
-      },
-      {
         "conversation_id": "c-worker-child",
         "title": "Prompt for r-worker-child",
         "agent_id": "agent-api",
@@ -268,6 +216,58 @@
         "position_message_id": null,
         "later": null,
         "next_action": null
+      },
+      {
+        "conversation_id": "c-surfaced",
+        "title": "Prompt for r-surfaced",
+        "agent_id": "agent-api",
+        "connection_id": null,
+        "agent_name": "api-agent",
+        "provider": "openai",
+        "project_id": null,
+        "project_name": null,
+        "team_id": null,
+        "origin": "loop",
+        "last_activity_at": 1799644620000,
+        "last_message": {
+          "id": "m-surfaced-answer",
+          "role": "assistant",
+          "preview": "Answer surfaced",
+          "content": "Answer surfaced",
+          "created_at": 1799644500000,
+          "saved": false
+        },
+        "run": {
+          "id": "r-surfaced",
+          "state": "completed",
+          "error": null,
+          "input": "Prompt for r-surfaced",
+          "connection_id": "conn-api",
+          "model": "fixture-model",
+          "resolved_model": null,
+          "created_at": 1799644380000,
+          "updated_at": 1799644620000,
+          "queue_position": null,
+          "can_move_up": false,
+          "can_move_down": false
+        },
+        "pull": null,
+        "queued_runs": [],
+        "live_preview": null,
+        "pending_approvals": 0,
+        "position_message_id": null,
+        "later": {
+          "id": "later-surfaced",
+          "due_at": 1799996400000,
+          "condition": "time",
+          "surfaced_at": 1799996400000,
+          "created_at": 1799644740000
+        },
+        "next_action": {
+          "kind": "result",
+          "run_id": "r-surfaced",
+          "message_id": "m-surfaced-answer"
+        }
       },
       {
         "conversation_id": "c-approval",
