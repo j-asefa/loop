@@ -134,4 +134,17 @@ describe("activityLine", () => {
       ),
     ).toBeNull();
   });
+
+  it("keeps a running step over a parallel step that finished later", () => {
+    // Sequences are last writes: the read finished (12) after the command
+    // started (10), but the command is still what the agent is doing.
+    const items = [
+      item(10, tool({ title: "Run npm test", status: "running" })),
+      item(12, tool({ title: "Read Feed.tsx", status: "completed" })),
+    ];
+    expect(activityLine(items, "r1")).toEqual({
+      text: "Run npm test",
+      state: "live",
+    });
+  });
 });

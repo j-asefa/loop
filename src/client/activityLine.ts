@@ -25,9 +25,11 @@ const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1);
  * newest step names nothing, has no line.
  */
 export function activityLine(items: Item[], run: string): ActivityLine | null {
-  // Only the newest step counts: an older one shown instead would read as
-  // what the agent is doing now.
-  const newest = items
+  // A record's sequence is its last write, not when its step started, so a
+  // parallel step that just finished can be newer than one still running.
+  // What the agent is doing now is the newest step still running; only when
+  // none is, the newest step. An older finished step never stands in for it.
+  const steps = items
     .filter(
       (item) =>
         item.run === run &&
@@ -35,8 +37,10 @@ export function activityLine(items: Item[], run: string): ActivityLine | null {
         // Records of another version may have another shape.
         item.record.v === 1,
     )
-    .sort((a, b) => b.sequence - a.sequence)[0];
-  return newest ? lineFor(newest.record as ActivityRecord) : null;
+    .sort((a, b) => b.sequence - a.sequence)
+    .map((item) => lineFor(item.record as ActivityRecord));
+  const running = steps.find((line) => line?.state === "live");
+  return running ?? steps[0] ?? null;
 }
 
 const STEP_KINDS: string[] = ["tool", "output", "file_change", "plan"];
