@@ -123,20 +123,22 @@ export function snippetLabel(title: string, content: string): string {
 }
 
 /**
- * Determines whether ReplyButton inside Feed's Done reading sheet should be active.
- * Always disabled while streaming/writing, on non-finished or non-assistant cards,
- * or without a reply handler.
+ * Determines whether ReplyButton / Quick reply inside Feed's Done reading sheet
+ * should be active. Disabled while streaming/writing, on non-finished or
+ * non-assistant cards, or when the card has no quotable reply target.
  */
 export function canReplyFromDoneSheet(options: {
   isFinished: boolean;
   writing: boolean;
   hasReplyHandler: boolean;
+  hasQuote?: boolean;
   isAssistant?: boolean;
 }): boolean {
   return (
     options.isFinished &&
     !options.writing &&
     options.hasReplyHandler &&
+    options.hasQuote !== false &&
     options.isAssistant !== false
   );
 }

@@ -355,9 +355,13 @@ export function useAppController(seed?: AppNavigationInitial) {
   function askAboutPull(text: string, agentId?: string) {
     setReplyContext(null);
     setContextArtifact(null);
-    if (agentId && !draftRef.current.trim() && !attachments.length) {
+    const hasExistingDraft =
+      Boolean(draftRef.current.trim()) || attachments.length > 0;
+    if (agentId && !hasExistingDraft) {
       setSelected(agentId);
       setExtraRecipients([]);
+    } else if (agentId && hasExistingDraft && agentId !== selected) {
+      notify({ text: "Added to your existing draft." });
     }
     setDraft((current) => appendDraftText(current, text));
     focusComposer();
@@ -586,7 +590,9 @@ export function useAppController(seed?: AppNavigationInitial) {
     url.searchParams.delete("artifact");
     history.replaceState(history.state, "", url.pathname + url.search);
     // Opening another thread loads that thread's own draft; seed it first
-    // unless that thread already holds a different unsent draft.
+    // unless that thread already holds a different unsent draft. Use a toast
+    // for the notice because Composer's draft-switch layout effect clears
+    // inline composerError on conversation change.
     if (switching) {
       const key = draftId(context.conversationId, source);
       if (text !== undefined) {
@@ -594,9 +600,9 @@ export function useAppController(seed?: AppNavigationInitial) {
         if (!existing.trim())
           writeThreadDraft(key, text, [], session?.user?.id);
         else if (existing.trim() !== text.trim())
-          setComposerError(
-            "Send or clear your current draft before using a reply button.",
-          );
+          notify({
+            text: "Kept your existing draft in this thread. Send or clear it before using a reply button.",
+          });
       }
     } else if (text !== undefined) {
       draftRef.current = text;

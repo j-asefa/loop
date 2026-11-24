@@ -261,6 +261,7 @@ function FeedCard({
   environment,
   onOpen,
   onReply,
+  canQuickReply = false,
   onRead,
   onReadingChange,
   onQuestion,
@@ -287,6 +288,7 @@ function FeedCard({
   environment?: { kind: ExecutionLocation | null; label: string } | null;
   onOpen: () => void;
   onReply: (prompt?: string) => void;
+  canQuickReply?: boolean;
   onRead?: () => void;
   onReadingChange?: (open: boolean) => void;
   onQuestion?: () => void;
@@ -886,7 +888,8 @@ function FeedCard({
                         isFinished: status.tone === "done",
                         writing:
                           !!item.live_preview && content === item.live_preview,
-                        hasReplyHandler: Boolean(onReply),
+                        hasReplyHandler: canQuickReply,
+                        hasQuote: canQuickReply,
                         isAssistant: item.last_message
                           ? item.last_message.role === "assistant"
                           : true,
@@ -972,7 +975,8 @@ function FeedCard({
                 {canReplyFromDoneSheet({
                   isFinished: status.tone === "done",
                   writing: !!item.live_preview && content === item.live_preview,
-                  hasReplyHandler: Boolean(onReply),
+                  hasReplyHandler: canQuickReply,
+                  hasQuote: canQuickReply,
                   isAssistant: item.last_message
                     ? item.last_message.role === "assistant"
                     : true,
@@ -4398,6 +4402,7 @@ export function Feed({
                 source,
               )
         }
+        canQuickReply={Boolean(onReply && feedReplyQuote(item))}
         onReply={(prompt) =>
           onReply
             ? onReply(

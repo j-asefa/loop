@@ -39,6 +39,7 @@ export function StreamAskSheet({
   const [selectedAgent, setSelectedAgent] = useState<string>(
     () => activeAgents[0]?.id ?? "",
   );
+  const [agentTouched, setAgentTouched] = useState(false);
   const resolvedAgent = activeAgents.some((agent) => agent.id === selectedAgent)
     ? selectedAgent
     : (activeAgents[0]?.id ?? "");
@@ -46,7 +47,9 @@ export function StreamAskSheet({
 
   const choose = (instruction: string, preferCouncil = false) => {
     const target =
-      (preferCouncil && councilAgent?.id) || resolvedAgent || undefined;
+      (preferCouncil && !agentTouched && councilAgent?.id) ||
+      resolvedAgent ||
+      undefined;
     const prompt = buildStreamActionPrompt(item, instruction);
     onClose();
     onAsk(prompt, target);
@@ -76,7 +79,10 @@ export function StreamAskSheet({
             label="Choose agent"
             title="Send to agent"
             value={resolvedAgent}
-            onChange={setSelectedAgent}
+            onChange={(value) => {
+              setSelectedAgent(value);
+              setAgentTouched(true);
+            }}
             agents={activeAgents.map((agent) => ({
               value: agent.id,
               name: agent.name,

@@ -155,5 +155,13 @@ describe("workshop-actions", () => {
         isAssistant: false,
       }),
     ).toBe(false);
+    expect(
+      canReplyFromDoneSheet({
+        isFinished: true,
+        writing: false,
+        hasReplyHandler: true,
+        hasQuote: false,
+      }),
+    ).toBe(false);
   });
 });
