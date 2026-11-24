@@ -348,6 +348,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       // Release away from the target so no click or navigation follows.
       await page.mouse.move(2, 2);
       await page.mouse.up();
+      await page.waitForTimeout(150);
       report.pressHitArea[name] = kept;
     }
     const menu = page.locator("dialog[open]");
@@ -374,6 +375,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
         36,
         600,
       );
+      // Before release, the card must follow the finger: no commits is only
+      // good if the card still moved.
+      report.swipe.cardX = await card.evaluate(
+        (element) => new DOMMatrix(getComputedStyle(element).transform).m41,
+      );
       await client.send("Input.dispatchTouchEvent", {
         type: "touchEnd",
         touchPoints: [],
@@ -392,6 +398,17 @@ export async function responsivenessSmoke(page, fixture, engine) {
         36,
         600,
       );
+      // Before release, the indicator must be showing and ready.
+      report.pull.indicator = await page.evaluate(() => {
+        const element = document.querySelector(".pull-refresh");
+        return element && !element.hidden
+          ? {
+              state: element.dataset.pull || element.className,
+              label: element.getAttribute("aria-label"),
+              y: new DOMMatrix(getComputedStyle(element).transform).m42,
+            }
+          : null;
+      });
       const before = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
@@ -509,6 +526,67 @@ export async function responsivenessSmoke(page, fixture, engine) {
       } finally {
         await page.unroute("**/api/feed/*", hold);
       }
+
+      console.log("responsiveness: swipe to reply");
+      // 6. Swipe an agent message right in a conversation. The message and
+      // its reply hint follow the finger, the hint arms past the threshold,
+      // and release starts a reply. The open thread renders on its own while
+      // it updates, so commits here are reported, not budgeted; the Done card
+      // swipe above budgets the same hook.
+      await page.goto(
+        fixture.base + "/?conversation=" + fixture.conversations[0].id,
+        { waitUntil: "networkidle" },
+      );
+      const message = page
+        .locator("dialog[open] article.message.assistant")
+        .last();
+      // A long message can be taller than the screen: touch a visible point
+      // on the message itself, not a link, control or code block in it.
+      const from = await message.evaluate((element) => {
+        element.scrollIntoView({ block: "center" });
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + 30;
+        for (
+          let y = Math.max(rect.top, 0) + 20;
+          y < Math.min(rect.bottom, innerHeight) - 10;
+          y += 20
+        ) {
+          const hit = document.elementFromPoint(x, y);
+          if (
+            hit &&
+            element.contains(hit) &&
+            !hit.closest("a,button,summary,input,textarea,pre,.table-scroll")
+          )
+            return { x, y };
+        }
+        return null;
+      });
+      if (!from) throw new Error("No plain point on the message to swipe");
+      report.swipeReply = await dragProbe(
+        page,
+        client,
+        from,
+        { x: from.x + 100, y: from.y },
+        20,
+        400,
+      );
+      Object.assign(
+        report.swipeReply,
+        await message.evaluate((element) => ({
+          armed: element.dataset.armed ?? null,
+          x: new DOMMatrix(getComputedStyle(element).transform).m41,
+          hint:
+            getComputedStyle(element.querySelector(".swipe-reply-hint"))
+              .display !== "none",
+        })),
+      );
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await expect(
+        page.locator("dialog[open] .composer textarea"),
+      ).toBeFocused();
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -541,6 +619,28 @@ export async function responsivenessSmoke(page, fixture, engine) {
       throw new Error(
         `Press ${name} missed its budget (5/5 visible, p95 < 50 ms): ${JSON.stringify(value)}`,
       );
+  // Drags (D7): no React commit while the finger moves, and at most 5 % of
+  // frames dropped.
+  const reply = report.swipeReply;
+  if (reply?.armed !== "right" || !(reply.x >= 72) || !reply.hint)
+    throw new Error(
+      `Swipe to reply did not follow the finger: ${JSON.stringify(reply)}`,
+    );
+  if (!(report.swipe.cardX <= -40))
+    throw new Error(
+      `The swiped card did not follow the finger: ${JSON.stringify(report.swipe)}`,
+    );
+  if (report.pull.indicator?.state !== "ready")
+    throw new Error(
+      `The pull indicator was not shown as ready: ${JSON.stringify(report.pull)}`,
+    );
+  for (const name of ["swipe", "pull"]) {
+    const drag = report[name];
+    if (drag.commits !== 0 || drag.dropped > drag.frames * 0.05)
+      throw new Error(
+        `The ${name} drag missed its budget (0 commits, <= 5 % dropped frames): ${JSON.stringify(drag)}`,
+      );
+  }
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)
       throw new Error(

@@ -5291,11 +5291,18 @@ select {
   justify-content: flex-end;
   background: var(--brass-text);
 }
-.swiping .swipe-under {
+/* useSwipe writes --swipe-x, data-swipe and data-armed on the container
+   during a drag, so a move never re-renders React. */
+[data-swipe] > .swipe-track,
+.swipe-track[data-swipe] {
+  transform: translateX(var(--swipe-x));
+}
+[data-swipe="right"] > .swipe-under.left,
+[data-swipe="left"] > .swipe-under.right {
   opacity: 0.75;
 }
-.armed-right .swipe-under.left,
-.armed-left .swipe-under.right {
+[data-armed="right"] > .swipe-under.left,
+[data-armed="left"] > .swipe-under.right {
   opacity: 1;
 }
 .feed-empty {
@@ -5554,13 +5561,18 @@ select {
   height: 36px;
   margin-top: -18px;
   margin-left: -44px;
-  display: grid;
+  display: none;
   place-items: center;
   border-radius: 50%;
   background: var(--secondary);
   color: var(--muted);
 }
-.swipe-reply-hint.armed {
+/* Shown while swiping right; it stays put as the message moves. */
+[data-swipe="right"] > .swipe-reply-hint {
+  display: grid;
+  left: calc(-1 * var(--swipe-x));
+}
+[data-armed="right"] > .swipe-reply-hint {
   background: var(--brass);
   color: #1a1a1c;
 }
@@ -5987,7 +5999,7 @@ details > summary {
   touch-action: pan-y;
   transition: transform 0.18s ease;
 }
-.card-swipe.swiping .feed-card {
+.card-swipe[data-swipe] .feed-card {
   transition: none;
 }
 .done-card-interactive {
@@ -6546,7 +6558,7 @@ details > summary {
   touch-action: pan-y;
   transition: transform 0.18s ease;
 }
-.story-swipe.swiping .story-swipe-card {
+.story-swipe[data-swipe] .story-swipe-card {
   transition: none;
 }
 .story-swipe .swipe-under.right {
@@ -6789,11 +6801,15 @@ details > summary {
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   pointer-events: none;
+  transform: translateY(var(--pull, 0px));
 }
-.pull-refresh.ready {
+.pull-refresh[hidden] {
+  display: none;
+}
+.pull-refresh[data-pull="ready"] {
   color: var(--text);
 }
-.pull-refresh.ready svg {
+.pull-refresh[data-pull="ready"] svg {
   transform: rotate(180deg);
   transition: transform 160ms ease-out;
 }

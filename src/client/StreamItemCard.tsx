@@ -91,31 +91,17 @@ export function StreamItemCard({
   return (
     <li>
       <div
-        className={
-          "card-swipe story-swipe" +
-          (swipe.armed ? " armed-" + swipe.armed : "") +
-          (swipe.offset ? " swiping" : "")
-        }
+        ref={swipe.ref}
+        className="card-swipe story-swipe"
         {...swipe.handlers}
       >
-        {swipe.offset > 0 && (
-          <span className="swipe-under left" aria-hidden="true">
-            <AlarmClock size={20} /> Remind me
-          </span>
-        )}
-        {swipe.offset < 0 && (
-          <span className="swipe-under right" aria-hidden="true">
-            <X size={20} /> Dismiss
-          </span>
-        )}
-        <div
-          className="story-swipe-card"
-          style={
-            swipe.offset
-              ? { transform: `translateX(${swipe.offset}px)` }
-              : undefined
-          }
-        >
+        <span className="swipe-under left" aria-hidden="true">
+          <AlarmClock size={20} /> Remind me
+        </span>
+        <span className="swipe-under right" aria-hidden="true">
+          <X size={20} /> Dismiss
+        </span>
+        <div className="story-swipe-card swipe-track">
           <article
             className="feed-card news-card stream-card"
             data-unread={item.read ? undefined : "true"}

@@ -252,34 +252,14 @@ function SwipeAway({
 }) {
   const swipe = useSwipe({ onLeft: onRemove, onRight: onRemind });
   return (
-    <div
-      className={
-        "card-swipe story-swipe" +
-        (swipe.armed ? " armed-" + swipe.armed : "") +
-        (swipe.offset ? " swiping" : "")
-      }
-      {...swipe.handlers}
-    >
-      {swipe.offset > 0 && (
-        <span className="swipe-under left" aria-hidden="true">
-          <AlarmClock size={20} /> Remind me
-        </span>
-      )}
-      {swipe.offset < 0 && (
-        <span className="swipe-under right" aria-hidden="true">
-          <X size={20} /> Remove
-        </span>
-      )}
-      <div
-        className="story-swipe-card"
-        style={
-          swipe.offset
-            ? { transform: `translateX(${swipe.offset}px)` }
-            : undefined
-        }
-      >
-        {children}
-      </div>
+    <div ref={swipe.ref} className="card-swipe story-swipe" {...swipe.handlers}>
+      <span className="swipe-under left" aria-hidden="true">
+        <AlarmClock size={20} /> Remind me
+      </span>
+      <span className="swipe-under right" aria-hidden="true">
+        <X size={20} /> Remove
+      </span>
+      <div className="story-swipe-card swipe-track">{children}</div>
     </div>
   );
 }

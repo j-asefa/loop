@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 const HOLD_MS = 500;
 const SLOP_PX = 10;
@@ -64,9 +64,13 @@ export function useLongPress(
 }
 
 /**
- * Horizontal swipe on a row or message. Returns the live offset for styling and
- * pointer handlers. `onLeft`/`onRight` fire past 72px when the gesture is
- * clearly horizontal; vertical scrolling is never captured.
+ * Horizontal swipe on a row or message. Attach `ref` to the swipe container.
+ * During a drag the offset is written to that element as the `--swipe-x`
+ * variable with `data-swipe` ("left" or "right") and, past the threshold,
+ * `data-armed`, so a move never re-renders React. CSS moves the container's
+ * `.swipe-track` child (or the container itself when it has that class).
+ * `onLeft`/`onRight` fire past 72px when the gesture is clearly horizontal;
+ * vertical scrolling is never captured.
  */
 export function useSwipe({
   onLeft,
@@ -75,20 +79,39 @@ export function useSwipe({
   onLeft?: () => void;
   onRight?: () => void;
 }) {
-  const [offset, setOffset] = useState(0);
+  const element = useRef<HTMLElement | null>(null);
+  const offset = useRef(0);
   const start = useRef<{ x: number; y: number; id: number } | null>(null);
   const horizontal = useRef<boolean | null>(null);
   // A horizontal drag must not also count as a tap on the row it moved.
   const dragged = useRef(false);
   const threshold = 72;
+  const ref = useCallback((node: HTMLElement | null) => {
+    element.current = node;
+  }, []);
+  const show = (dx: number) => {
+    offset.current = dx;
+    const target = element.current;
+    if (!target) return;
+    if (!dx) {
+      target.style.removeProperty("--swipe-x");
+      delete target.dataset.swipe;
+      delete target.dataset.armed;
+      return;
+    }
+    target.style.setProperty("--swipe-x", `${dx}px`);
+    target.dataset.swipe = dx > 0 ? "right" : "left";
+    const armed = dx >= threshold ? "right" : dx <= -threshold ? "left" : "";
+    if (armed) target.dataset.armed = armed;
+    else delete target.dataset.armed;
+  };
   const reset = () => {
     start.current = null;
     horizontal.current = null;
-    setOffset(0);
+    show(0);
   };
   return {
-    offset,
-    armed: offset >= threshold ? "right" : offset <= -threshold ? "left" : null,
+    ref,
     handlers: {
       onPointerDown: (e: React.PointerEvent) => {
         // Any new press, even a mouse click after a touch swipe, is a tap
@@ -112,12 +135,13 @@ export function useSwipe({
         if (!horizontal.current) return;
         dragged.current = true;
         const allowed = (dx > 0 && onRight) || (dx < 0 && onLeft);
-        setOffset(allowed ? Math.max(-120, Math.min(120, dx)) : 0);
+        show(allowed ? Math.max(-120, Math.min(120, dx)) : 0);
       },
       onPointerUp: () => {
-        if (offset >= threshold) onRight?.();
-        else if (offset <= -threshold) onLeft?.();
+        const released = offset.current;
         reset();
+        if (released >= threshold) onRight?.();
+        else if (released <= -threshold) onLeft?.();
       },
       onPointerCancel: reset,
       onClickCapture: (e: React.MouseEvent) => {

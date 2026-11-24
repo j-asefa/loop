@@ -15,10 +15,12 @@ function ownsVerticalGesture(target: Element) {
     element && element !== document.body;
     element = element.parentElement
   ) {
+    // Cheapest test first: only a scrolled element can own the gesture, so
+    // computed style is read for almost none of the ancestors.
     if (
+      element.scrollTop > 0 &&
       element.scrollHeight > element.clientHeight + 1 &&
-      /auto|scroll/.test(getComputedStyle(element).overflowY) &&
-      element.scrollTop > 0
+      /auto|scroll/.test(getComputedStyle(element).overflowY)
     )
       return true;
   }
@@ -26,8 +28,11 @@ function ownsVerticalGesture(target: Element) {
 }
 
 /**
- * Pull down from the top of a page to refresh it. Returns how far the page is
- * pulled (for the indicator) and whether a refresh is running.
+ * Pull down from the top of a page to refresh it. Returns a ref for the
+ * indicator and whether a refresh is running. While the finger moves, the
+ * indicator is shown and updated directly (`--pull`, `data-pull` and its
+ * label), so a move never re-renders React; state changes only when a
+ * refresh starts and ends.
  */
 export function usePullToRefresh(
   enabled: boolean,
@@ -35,7 +40,7 @@ export function usePullToRefresh(
 ) {
   const refresh = useRef(onRefresh);
   refresh.current = onRefresh;
-  const [pull, setPull] = useState(0);
+  const indicator = useRef<HTMLDivElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const busy = useRef(false);
   useEffect(() => {
@@ -43,10 +48,29 @@ export function usePullToRefresh(
     let gesture: { id: number; x: number; y: number; pulling: boolean } | null =
       null;
     let distance = 0;
+    const show = (pulled: number) => {
+      const element = indicator.current;
+      if (!element) return;
+      if (!pulled) {
+        element.hidden = true;
+        element.style.removeProperty("--pull");
+        delete element.dataset.pull;
+        element.removeAttribute("aria-label");
+        return;
+      }
+      const ready = pulled >= TRIGGER;
+      element.hidden = false;
+      element.style.setProperty("--pull", `${pulled}px`);
+      element.dataset.pull = ready ? "ready" : "pulling";
+      element.setAttribute(
+        "aria-label",
+        ready ? "Release to refresh" : "Pull to refresh",
+      );
+    };
     const reset = () => {
       gesture = null;
       distance = 0;
-      setPull(0);
+      show(0);
     };
     const start = (event: TouchEvent) => {
       gesture = null;
@@ -85,7 +109,7 @@ export function usePullToRefresh(
       if (event.cancelable) event.preventDefault();
       // Resistance: the indicator moves less than the finger.
       distance = Math.min(MAX_PULL, Math.max(0, dy) * 0.5);
-      setPull(distance);
+      show(distance);
     };
     const end = () => {
       const pulled = gesture?.pulling ? distance : 0;
@@ -117,5 +141,5 @@ export function usePullToRefresh(
       document.removeEventListener("touchcancel", reset);
     };
   }, [enabled]);
-  return { pull, refreshing, ready: pull >= TRIGGER };
+  return { indicator, refreshing };
 }

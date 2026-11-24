@@ -235,30 +235,19 @@ export function renderAppPages(
   );
   return (
     <main className="workspace-content">
-      {(pullRefresh.pull > 0 || pullRefresh.refreshing) && (
-        <div
-          className={
-            "pull-refresh" +
-            (pullRefresh.ready ? " ready" : "") +
-            (pullRefresh.refreshing ? " refreshing" : "")
-          }
-          style={
-            pullRefresh.refreshing
-              ? undefined
-              : { transform: `translateY(${pullRefresh.pull}px)` }
-          }
-          role="status"
-          aria-label={
-            pullRefresh.refreshing
-              ? "Refreshing"
-              : pullRefresh.ready
-                ? "Release to refresh"
-                : "Pull to refresh"
-          }
-        >
-          <RefreshCw size={18} aria-hidden="true" />
-        </div>
-      )}
+      {/* Pull to refresh shows and moves this indicator itself while the
+          finger moves; React renders only the refresh. */}
+      <div
+        ref={pullRefresh.indicator}
+        className={
+          "pull-refresh" + (pullRefresh.refreshing ? " refreshing" : "")
+        }
+        hidden={!pullRefresh.refreshing}
+        role="status"
+        aria-label={pullRefresh.refreshing ? "Refreshing" : undefined}
+      >
+        <RefreshCw size={18} aria-hidden="true" />
+      </div>
       {workspaceLoadError && (
         <div className="workspace-load-status note" role="status">
           <span>{workspaceLoadError} Retrying…</span>
