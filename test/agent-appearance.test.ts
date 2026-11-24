@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildAllAnimalSvgs } from "../scripts/generate-animal-avatars.mjs";
 import { agentAppearance } from "../src/client/agentAppearance";
 
 const publicDirectory = new URL("../public/", import.meta.url);
@@ -8,11 +17,12 @@ const animalDirectory = new URL("avatars/animals/", publicDirectory);
 const names = readdirSync(animalDirectory)
   .filter((file) => file.endsWith(".svg"))
   .map((file) => file.slice(0, -4));
-const covers = new Set([
-  ...readdirSync(new URL("profile-covers/", publicDirectory))
-    .filter((file) => file.endsWith(".webp"))
-    .map((file) => `/profile-covers/${file}`),
-]);
+const coverSvg = (cover: string) => {
+  expect(cover.startsWith("data:image/svg+xml,")).toBe(true);
+  return decodeURIComponent(cover.slice("data:image/svg+xml,".length));
+};
+const colours = (svg: string) =>
+  new Set(Array.from(svg.matchAll(/="(#[0-9a-f]{6})"/g), (match) => match[1]));
 
 describe("agent appearance", () => {
   it("ships 100 distinct geometric animal SVG avatars and retires robot artwork", () => {
@@ -31,37 +41,59 @@ describe("agent appearance", () => {
     expect(new Set(artwork).size).toBe(100);
   });
 
-  it("gives every named character a distinct, shipped cover", () => {
-    expect(names).toHaveLength(100);
+  it("draws the shipped avatars from the palettes the covers use", () => {
+    const directory = mkdtempSync(join(tmpdir(), "loop-avatars-"));
+    try {
+      expect(buildAllAnimalSvgs(directory)).toBe(100);
+      for (const name of names) {
+        expect(readFileSync(join(directory, `${name}.svg`), "utf8")).toBe(
+          readFileSync(new URL(`${name}.svg`, animalDirectory), "utf8"),
+        );
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("draws every named character a distinct cover in its avatar's colours", () => {
     const namedCovers = new Set<string>();
     for (const name of names) {
       const appearance = agentAppearance(name);
       expect(appearance.character).toBe(name);
-      expect(covers.has(appearance.cover)).toBe(true);
       expect(agentAppearance(name.toUpperCase())).toEqual(appearance);
+      const avatar = readFileSync(
+        new URL(`${name}.svg`, animalDirectory),
+        "utf8",
+      );
+      const cover = coverSvg(appearance.cover);
+      expect(cover).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" /);
+      expect(cover).not.toMatch(/href|<script|<image/i);
+      // Same sky as the avatar backdrop, drawn mostly in the avatar's colours.
+      const background = /fill="(#[0-9a-f]{6})"/;
+      expect(cover.match(background)?.[1]).toBe(avatar.match(background)?.[1]);
+      const shared = [...colours(cover)].filter((colour) =>
+        colours(avatar).has(colour),
+      );
+      expect(shared.length).toBeGreaterThanOrEqual(4);
       namedCovers.add(appearance.cover);
     }
     expect(namedCovers.size).toBe(100);
   });
 
-  it("makes all 100 covers reachable and varies covers for shared avatars", () => {
-    expect(covers.size).toBe(100);
-    const selected = new Set<string>();
-    const perAvatar = new Map<string, Set<string>>();
+  it("gives every other name the cover of its own avatar", () => {
+    const named = new Map(
+      names.map((name) => [name, agentAppearance(name).cover]),
+    );
+    const characters = new Set<string>();
     for (let index = 0; index < 10000; index++) {
       const appearance = agentAppearance(`profile-${index}`);
-      selected.add(appearance.cover);
-      const variants = perAvatar.get(appearance.character) ?? new Set<string>();
-      variants.add(appearance.cover);
-      perAvatar.set(appearance.character, variants);
+      expect(appearance.cover).toBe(named.get(appearance.character));
+      characters.add(appearance.character);
     }
-    expect(selected).toEqual(covers);
-    expect(perAvatar.size).toBe(100);
-    for (const variants of perAvatar.values()) {
-      expect(variants.size).toBeGreaterThan(1);
-    }
+    expect(characters.size).toBe(100);
     for (const name of ["", "../outside", "constructor", "a/b?c", "Agent 🚀"]) {
-      expect(covers.has(agentAppearance(name).cover)).toBe(true);
+      const appearance = agentAppearance(name);
+      expect(appearance.cover).toBe(named.get(appearance.character));
     }
   });
 });

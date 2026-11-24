@@ -6,10 +6,7 @@ import { agentAppearance } from "./agentAppearance";
 export function ProfileCover({ name }: { name?: string }) {
   const [open, setOpen] = useState(false);
   const label = `${name || "Your profile"} banner`;
-  const src =
-    name === undefined
-      ? "/profile-covers/atlas-scene.webp"
-      : agentAppearance(name).cover;
+  const src = agentAppearance(name ?? "atlas").cover;
   return (
     <>
       <button
@@ -29,9 +26,6 @@ export function ProfileCover({ name }: { name?: string }) {
           height="533"
           decoding="async"
           draggable={false}
-          onError={(event) => {
-            event.currentTarget.hidden = true;
-          }}
         />
       </button>
       {open && (
