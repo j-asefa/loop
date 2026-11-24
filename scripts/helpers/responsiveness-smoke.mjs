@@ -144,11 +144,13 @@ async function pressLatency(page, locator) {
   await page.mouse.move(2, 2);
   await page.mouse.up();
   await page.waitForTimeout(150);
-  // A release that came too late lets the long press open the card menu,
-  // which would put every later step on a modal page.
-  if (await page.locator("dialog[open]").count()) {
+  // On a slow machine the release can come after a Done card's 500 ms long
+  // press, which opens the card menu. The sample was already taken, so close
+  // the menu before the next step rather than measure on a modal page.
+  const menu = page.locator("dialog[open]");
+  if (await menu.count()) {
     await page.keyboard.press("Escape");
-    throw new Error("The held press opened a dialog before it was released");
+    await expect(menu).toHaveCount(0);
   }
   return latency;
 }
@@ -422,10 +424,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
             requestAnimationFrame(check);
           });
         }, title);
-        const response = page.waitForResponse(
-          (candidate) => isArchive(candidate.request()),
-          { timeout: 10000 },
-        );
+        // Stamp arrival as it happens, in case the timing is unavailable.
+        const response = page
+          .waitForResponse((candidate) => isArchive(candidate.request()), {
+            timeout: 10000,
+          })
+          .then((answer) => ({ answer, receivedAt: Date.now() }));
         const target = page.locator(".feed-results .feed-item-card").first();
         await target.evaluate((element) =>
           element.scrollIntoView({ block: "center" }),
@@ -449,8 +453,13 @@ export async function responsivenessSmoke(page, fixture, engine) {
           touchPoints: [],
         });
         const shown = await page.evaluate(() => window.__loopArchive);
-        const timing = (await response).request().timing();
-        const respondedAt = timing.startTime + timing.responseStart;
+        const { answer, receivedAt } = await response;
+        const timing = answer.request().timing();
+        // Playwright reports -1 when a phase was not recorded.
+        const respondedAt =
+          timing.responseStart >= 0
+            ? timing.startTime + timing.responseStart
+            : receivedAt;
         report.archive = shown && {
           visibleMs: Math.round(shown.visibleMs),
           beforeResponse: shown.goneAt < respondedAt,
@@ -479,6 +488,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
     report.refresh?.started > 0 && report.refresh.requests.length > 0,
     "pull to refresh",
   );
+  // A refresh always commits; zero means the commit probe never attached
+  // (for example after a React upgrade), and every count would read zero.
+  ran(report.refresh.commits > 0, "React commit probe");
   ran(Number.isFinite(report.archive?.visibleMs), "archive");
   return report;
 }
