@@ -8,7 +8,15 @@ import {
   MessageSquare,
   MoreHorizontal,
   File,
+  FileText,
+  Globe,
+  Image as ImageIcon,
 } from "lucide-react";
+import {
+  attachmentKind,
+  attachmentSize,
+  attachmentThumbnail,
+} from "./attachmentKind";
 import type { Card } from "../shared/cards";
 import {
   Avatar,
@@ -42,9 +50,13 @@ function CardAttachments({ card }: { card: Card }) {
       {!!card.attachments.length && (
         <ul className="attachment-list" aria-label="Attached files">
           {card.attachments.map((file) => (
-            <li key={file.id}>
-              <File size={17} aria-hidden="true" />
+            <li
+              key={file.id}
+              className={file.download ? "attachment-tile" : undefined}
+            >
               {file.download ? (
+                // A published file shows as a preview tile: a thumbnail for
+                // images, otherwise an icon for its kind, then name and size.
                 <button
                   className="attachment-open"
                   aria-label={
@@ -54,21 +66,53 @@ function CardAttachments({ card }: { card: Card }) {
                   }
                   onClick={() => setPreview(file)}
                 >
-                  {file.name}
+                  <span className="attachment-thumb" aria-hidden="true">
+                    {attachmentThumbnail(file.mime) ? (
+                      <img
+                        src={path(file.download)}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        onError={(event) => {
+                          event.currentTarget.hidden = true;
+                        }}
+                      />
+                    ) : null}
+                    {attachmentKind(file.mime, file.name) === "Web page" ? (
+                      <Globe size={20} />
+                    ) : attachmentKind(file.mime, file.name) === "Image" ? (
+                      <ImageIcon size={20} />
+                    ) : (
+                      <FileText size={20} />
+                    )}
+                  </span>
+                  <span className="attachment-text">
+                    <span className="attachment-name">{file.name}</span>
+                    <span className="attachment-meta">
+                      {attachmentKind(file.mime, file.name)} ·{" "}
+                      {attachmentSize(file.size)}
+                    </span>
+                  </span>
                 </button>
               ) : file.availability === "unavailable" ? (
-                // Never open the current bytes as if they were published.
-                <span className="attachment-unavailable">
-                  {file.name}{" "}
-                  <span className="field-hint">
-                    Published version unavailable ·{" "}
-                    <a href={sourceCardHref(file.href, source)}>
-                      Open current file
-                    </a>
+                <>
+                  <File size={17} aria-hidden="true" />
+                  // Never open the current bytes as if they were published.
+                  <span className="attachment-unavailable">
+                    {file.name}{" "}
+                    <span className="field-hint">
+                      Published version unavailable ·{" "}
+                      <a href={sourceCardHref(file.href, source)}>
+                        Open current file
+                      </a>
+                    </span>
                   </span>
-                </span>
+                </>
               ) : (
-                <a href={sourceCardHref(file.href, source)}>{file.name}</a>
+                <>
+                  <File size={17} aria-hidden="true" />
+                  <a href={sourceCardHref(file.href, source)}>{file.name}</a>
+                </>
               )}
             </li>
           ))}
