@@ -6,6 +6,7 @@ import {
   ConversationId,
   FolderId,
   MessageId,
+  ScheduledSendId,
   parseId,
 } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
@@ -80,6 +81,7 @@ type SendNotice = {
   conversationId: string | null;
   agentId: string;
   agentName: string;
+  recipientNames?: string[];
   steering: boolean;
 };
 type ComposerProps = {
@@ -97,6 +99,9 @@ type ComposerProps = {
   busy: boolean;
   uploading: boolean;
   selected: string;
+  extraRecipients?: string[];
+  setExtraRecipients?: Dispatch<SetStateAction<string[]>>;
+  dropExtraRecipient?: (id: string) => void;
   folder: string;
   project: string;
   projectFilter: string;
@@ -360,6 +365,81 @@ export function completeLeadingAgentMention(
   return `@${agentName} ${rest}`;
 }
 
+export const MAX_COMPOSER_RECIPIENTS = 3;
+
+export function resolveExtraComposerAgents({
+  extraRecipients = [],
+  availableAgents,
+  activeAgent,
+  selected,
+  threadMode,
+  conversation,
+  replyContext,
+  contextArtifact,
+  draft,
+}: {
+  extraRecipients?: readonly string[];
+  availableAgents: readonly Agent[];
+  activeAgent: Agent | undefined;
+  selected: string;
+  threadMode?: boolean;
+  conversation?: string | null;
+  replyContext: ComposerContext | null;
+  contextArtifact: ResultAction | null;
+  draft: string;
+}): Agent[] {
+  if (
+    threadMode ||
+    conversation ||
+    replyContext ||
+    contextArtifact ||
+    selected === "__route__" ||
+    !activeAgent ||
+    !activeAgent.connection_id ||
+    activeAgent.retired_at ||
+    draft.trim().startsWith("@") ||
+    /^(put|move|file|organize)\b[\s\S]*\b(in|into|to)\b/i.test(draft)
+  )
+    return [];
+  const seen = new Set<string>([activeAgent.id]);
+  const resolved: Agent[] = [];
+  for (const id of extraRecipients) {
+    if (seen.has(id)) continue;
+    const agent = availableAgents.find(
+      (a) => a.id === id && Boolean(a.connection_id) && !a.retired_at,
+    );
+    if (!agent) continue;
+    seen.add(id);
+    resolved.push(agent);
+    if (resolved.length >= MAX_COMPOSER_RECIPIENTS - 1) break;
+  }
+  return resolved;
+}
+
+export function toggleExtraRecipientId(
+  current: readonly string[],
+  agentId: string,
+  primaryId: string | undefined,
+  eligibleIds?: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>(primaryId ? [primaryId] : []);
+  const clean: string[] = [];
+  for (const id of current) {
+    if (!id || seen.has(id) || (eligibleIds && !eligibleIds.has(id))) continue;
+    seen.add(id);
+    clean.push(id);
+  }
+  if (
+    !agentId ||
+    agentId === primaryId ||
+    (eligibleIds && !eligibleIds.has(agentId))
+  )
+    return clean;
+  if (clean.includes(agentId)) return clean.filter((id) => id !== agentId);
+  if (clean.length >= MAX_COMPOSER_RECIPIENTS - 1) return clean;
+  return [...clean, agentId];
+}
+
 export function useComposerSend({
   replyQuoted,
   busy,
@@ -388,6 +468,9 @@ export function useComposerSend({
   setDraft,
   changed,
   selected,
+  extraRecipients,
+  availableAgents,
+  dropExtraRecipient,
   routePreview,
   folder,
   setBusy,
@@ -479,7 +562,13 @@ export function useComposerSend({
   | "refresh"
   | "setThreadNotice"
   | "setDismissNotice"
->) {
+> &
+  Partial<
+    Pick<
+      ComposerProps,
+      "extraRecipients" | "availableAgents" | "dropExtraRecipient"
+    >
+  >) {
   async function send(options: { queue?: boolean; sendAt?: number } = {}) {
     if (composerUnavailable) {
       setComposerError(composerUnavailable);
@@ -567,234 +656,357 @@ export function useComposerSend({
     setBusy(true);
     setComposerError("");
     let sentReceipt: SendReceipt | undefined;
-    try {
-      let recipient = activeAgent;
-      if (draft.trim().startsWith("@")) {
-        const route = await threadApi(workspaceApi.sharePreview, {
-          body: { question: draft },
-        });
-        if (!currentView() || !sameComposer()) return;
-        recipient = composerData.agents.find((a) => a.id === route.agent?.id)!;
-        if (!recipient) throw new Error("Choose an accessible @agent.");
-      }
-      const managerTeam = composerData.teams?.find(
-        (t) =>
-          t.manager_id === recipient.id &&
-          (profile || !teamSelection.length || teamSelection.includes(t.id)),
+    // A new thread may go to up to three agents. Extra recipients are sent
+    // first, each through the same durable single send, and the selected
+    // agent last. An accepted extra leaves the composer before its receipt
+    // is settled, so retrying after a later failure only sends to the agents
+    // that have not accepted it; nothing needs a separate batch record.
+    const extras = resolveExtraComposerAgents({
+      extraRecipients,
+      availableAgents: availableAgents ?? [],
+      activeAgent,
+      selected,
+      conversation,
+      replyContext,
+      contextArtifact,
+      draft,
+    });
+    const batch = [...extras, activeAgent];
+    const acceptedNames: string[] = [];
+    const scheduledIds: ScheduledSendId[] = [];
+    // Cancel each scheduled send independently: one that already went out
+    // (the server refuses it) must not stop the rest from being cancelled.
+    const cancelScheduled = async (rows: readonly ScheduledSendId[]) => {
+      const results = await Promise.allSettled(
+        rows.map((id) =>
+          threadApi(workspaceApi.scheduledSendCancel, { params: { id } }),
+        ),
       );
-      const reply =
-        replyContext?.agentId === recipient.id ? replyContext : undefined;
-      const currentConversation =
-        conversation && conversationTarget?.agentId === recipient.id
-          ? conversationTarget.conversationId
-          : undefined;
-      const conversationId =
-        reply?.conversationId ||
-        currentConversation ||
-        (managerTeam
-          ? managerTeam.conversation_id || undefined
-          : contextArtifact &&
-              resultTarget(contextArtifact).agent_id === recipient.id
-            ? resultTarget(contextArtifact).conversation_id || undefined
-            : teamSelection.length === 1 &&
-                composerData.teams?.find((t) => t.id === teamSelection[0])
-                  ?.manager_id === recipient.id
-              ? composerData.teams.find((t) => t.id === teamSelection[0])!
-                  .conversation_id || undefined
-              : undefined);
-      const signature = JSON.stringify([
-        recipient.id,
-        draft,
-        folderChoice,
-        conversationId,
-        reply?.messageId,
-        reply?.excerpt ? reply.content : null,
-        attachments.map((file) => file.id),
-      ]);
-      // The send's mode and exact time travel with its key: a retry after a
-      // lost response repeats the same request rather than a changed one.
-      // Another tab, or this app before a restart, may hold this exact
-      // message's uncertain receipt; it wins over this composer's own.
-      const sendPrepared = async (plan: PreparedSend) => {
-        const quotedId = plan.receipt.unquoted ? undefined : reply?.messageId;
-        request.current = plan.receipt;
-        sentReceipt = plan.receipt;
-        const reconciled = plan.reconciled
-          ? plan.intent.mode === "schedule"
-            ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
-            : " Your earlier request went through as first sent."
-          : "";
-        options =
-          plan.intent.mode === "schedule"
-            ? { sendAt: plan.intent.sendAt! }
-            : plan.intent.mode === "queue"
-              ? { queue: true }
-              : {};
-        const body = {
-          agentId: parseId(AgentId, recipient.id),
-          conversationId: parseId(ConversationId, conversationId),
-          replyToMessageId: parseId(MessageId, quotedId),
-          replyExcerpt: quotedId && reply?.excerpt ? reply.content : undefined,
-          input: draft,
-          idempotencyKey: IdempotencyKey.parse(request.current.key),
-          attachmentIds: attachments.map((file) => ArtifactId.parse(file.id)),
-          folderId: parseId(
-            FolderId,
-            folderChoice !== undefined
-              ? folderChoice || null
-              : conversationId
-                ? undefined
-                : recipient.folder_id || undefined,
-          ),
-        };
-        const settleAccepted = async () => {
-          const pending = pendingDraftSave.current;
-          if (
-            pending?.key === draftKey &&
-            pending.owner === owner &&
-            sameDraft(pending, { text: draft, files: attachments })
-          ) {
-            clearTimeout(pending.timer);
-            pendingDraftSave.current = null;
-          }
-          clearAcceptedDraft(draftKey, draft, attachments, owner);
-          if (
-            request.current.key === sentReceipt!.key &&
-            request.current.attempt === sentReceipt!.attempt
-          )
-            request.current = { signature: "", key: "", unquoted: false };
-          await settleStoredSend(
-            localStorage,
-            receiptStorageKey,
-            sentReceipt!,
-            null,
-          );
-        };
-        if (options.sendAt) {
-          const row = await threadApi(workspaceApi.scheduledSendCreate, {
-            body: { ...body, sendAt: options.sendAt },
+      const failed = results.filter((r) => r.status === "rejected");
+      return {
+        cancelled: results.length - failed.length,
+        error: failed.length
+          ? new Error(
+              `Cancelled ${results.length - failed.length} of ${results.length} scheduled sends. ${(failed[0].reason as Error).message}`,
+            )
+          : undefined,
+      };
+    };
+    // When the batch stops early, the agents that already accepted keep it.
+    // Say so, offer Undo for scheduled ones, and show their new runs.
+    const reportPartial = (reason: string) => {
+      if (!acceptedNames.length || owner !== ownerRef.current) return;
+      const names = acceptedNames.map((name) => `@${name}`).join(", ");
+      const rows = [...scheduledIds];
+      if (currentView() && sameComposer())
+        setComposerError(`${mode} ${names}. ${reason}`);
+      else if (!rows.length) notify({ text: `${mode} ${names}. ${reason}` });
+      if (rows.length)
+        notify({
+          text: `Scheduled for ${names}. The others were not scheduled.`,
+          link: {
+            label: "View",
+            onSelect: () => openSourceLater("scheduled", rows[0], actionSource),
+          },
+          undo: async () => {
+            const { error } = await cancelScheduled(rows);
+            if (error) throw error;
+          },
+        });
+      void refresh().catch(() => {});
+    };
+    const mode = options.sendAt
+      ? "Scheduled for"
+      : options.queue
+        ? "Queued for"
+        : "Sent to";
+    try {
+      for (const [index, batchRecipient] of batch.entries()) {
+        const final = index === batch.length - 1;
+        sentReceipt = undefined;
+        let recipient = batchRecipient;
+        if (batch.length === 1 && draft.trim().startsWith("@")) {
+          const route = await threadApi(workspaceApi.sharePreview, {
+            body: { question: draft },
           });
+          if (!currentView() || !sameComposer()) return;
+          recipient = composerData.agents.find(
+            (a) => a.id === route.agent?.id,
+          )!;
+          if (!recipient) throw new Error("Choose an accessible @agent.");
+        }
+        const managerTeam = composerData.teams?.find(
+          (t) =>
+            t.manager_id === recipient.id &&
+            (profile || !teamSelection.length || teamSelection.includes(t.id)),
+        );
+        const reply =
+          replyContext?.agentId === recipient.id ? replyContext : undefined;
+        const currentConversation =
+          conversation && conversationTarget?.agentId === recipient.id
+            ? conversationTarget.conversationId
+            : undefined;
+        const conversationId =
+          reply?.conversationId ||
+          currentConversation ||
+          (managerTeam
+            ? managerTeam.conversation_id || undefined
+            : contextArtifact &&
+                resultTarget(contextArtifact).agent_id === recipient.id
+              ? resultTarget(contextArtifact).conversation_id || undefined
+              : teamSelection.length === 1 &&
+                  composerData.teams?.find((t) => t.id === teamSelection[0])
+                    ?.manager_id === recipient.id
+                ? composerData.teams.find((t) => t.id === teamSelection[0])!
+                    .conversation_id || undefined
+                : undefined);
+        const signature = JSON.stringify([
+          recipient.id,
+          draft,
+          folderChoice,
+          conversationId,
+          reply?.messageId,
+          reply?.excerpt ? reply.content : null,
+          attachments.map((file) => file.id),
+        ]);
+        // The send's mode and exact time travel with its key: a retry after a
+        // lost response repeats the same request rather than a changed one.
+        // Another tab, or this app before a restart, may hold this exact
+        // message's uncertain receipt; it wins over this composer's own.
+        const sendPrepared = async (plan: PreparedSend) => {
+          const quotedId = plan.receipt.unquoted ? undefined : reply?.messageId;
+          request.current = plan.receipt;
+          sentReceipt = plan.receipt;
+          const reconciled = plan.reconciled
+            ? plan.intent.mode === "schedule"
+              ? ` Your earlier request went through as first sent: scheduled for ${dayLabel(plan.intent.sendAt!).toLowerCase()} at ${timeLabel(plan.intent.sendAt!)}. Change it in Later → Scheduled.`
+              : " Your earlier request went through as first sent."
+            : "";
+          options =
+            plan.intent.mode === "schedule"
+              ? { sendAt: plan.intent.sendAt! }
+              : plan.intent.mode === "queue"
+                ? { queue: true }
+                : {};
+          const body = {
+            agentId: parseId(AgentId, recipient.id),
+            conversationId: parseId(ConversationId, conversationId),
+            replyToMessageId: parseId(MessageId, quotedId),
+            replyExcerpt:
+              quotedId && reply?.excerpt ? reply.content : undefined,
+            input: draft,
+            idempotencyKey: IdempotencyKey.parse(request.current.key),
+            attachmentIds: attachments.map((file) => ArtifactId.parse(file.id)),
+            folderId: parseId(
+              FolderId,
+              folderChoice !== undefined
+                ? folderChoice || null
+                : conversationId
+                  ? undefined
+                  : recipient.folder_id || undefined,
+            ),
+          };
+          const settleAccepted = async () => {
+            if (!final) {
+              // Keep the draft for the remaining agents; this one is done.
+              dropExtraRecipient?.(recipient.id);
+              acceptedNames.push(recipient.name);
+              if (
+                request.current.key === sentReceipt!.key &&
+                request.current.attempt === sentReceipt!.attempt
+              )
+                request.current = { signature: "", key: "", unquoted: false };
+              await settleStoredSend(
+                localStorage,
+                receiptStorageKey,
+                sentReceipt!,
+                null,
+              );
+              return;
+            }
+            const pending = pendingDraftSave.current;
+            if (
+              pending?.key === draftKey &&
+              pending.owner === owner &&
+              sameDraft(pending, { text: draft, files: attachments })
+            ) {
+              clearTimeout(pending.timer);
+              pendingDraftSave.current = null;
+            }
+            clearAcceptedDraft(draftKey, draft, attachments, owner);
+            if (
+              request.current.key === sentReceipt!.key &&
+              request.current.attempt === sentReceipt!.attempt
+            )
+              request.current = { signature: "", key: "", unquoted: false };
+            await settleStoredSend(
+              localStorage,
+              receiptStorageKey,
+              sentReceipt!,
+              null,
+            );
+          };
+          if (options.sendAt) {
+            const row = await threadApi(workspaceApi.scheduledSendCreate, {
+              body: { ...body, sendAt: options.sendAt },
+            });
+            await settleAccepted();
+            scheduledIds.push(row.id);
+            if (!final || owner !== ownerRef.current) return;
+            const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
+            const text = draft;
+            const names = [...acceptedNames, recipient.name]
+              .map((name) => `@${name}`)
+              .join(", ");
+            const rows = [...scheduledIds];
+            // Undo cancels it while it is still waiting; once it has been sent,
+            // the server refuses and says so.
+            notify({
+              text: `Scheduled for ${names}, ${when}.${!sameComposer() ? " Your current draft has been kept." : ""}${reconciled}`,
+              link: {
+                label: "View",
+                onSelect: () =>
+                  openSourceLater("scheduled", row.id, actionSource),
+              },
+              undo: async () => {
+                const { cancelled, error } = await cancelScheduled(rows);
+                if (cancelled && currentView())
+                  setDraft((current) => (current.trim() ? current : text));
+                if (error) throw error;
+              },
+            });
+            if (!sameComposer()) return;
+            setDraft("");
+            setAttachments([]);
+            setReplyContext(
+              conversation && conversationTarget ? conversationTarget : null,
+            );
+            if (!conversation) collapseComposer();
+            return;
+          }
+          const accepted = await callRoute(
+            workspaceApi.submit,
+            {
+              body: {
+                ...body,
+                ...(options.queue ? { queue: true } : {}),
+              },
+            },
+            actionSource,
+          );
           await settleAccepted();
           if (owner !== ownerRef.current) return;
-          const when = `${dayLabel(options.sendAt).toLowerCase()} at ${timeLabel(options.sendAt)}`;
-          const text = draft;
-          // Undo cancels it while it is still waiting; once it has been sent,
-          // the server refuses and says so.
-          notify({
-            text: `Scheduled for @${recipient.name}, ${when}.${!sameComposer() ? " Your current draft has been kept." : ""}${reconciled}`,
-            link: {
-              label: "View",
-              onSelect: () =>
-                openSourceLater("scheduled", row.id, actionSource),
-            },
-            undo: async () => {
-              await threadApi(workspaceApi.scheduledSendCancel, {
-                params: { id: row.id },
-              });
-              if (currentView())
-                setDraft((current) => (current.trim() ? current : text));
-            },
-          });
-          if (!sameComposer()) return;
+          if (!final) {
+            ++runsGeneration.current;
+            if (
+              actionSource === executionSourceId() &&
+              accepted.agent_id &&
+              accepted.state
+            )
+              setRuns((old) => [
+                { ...old.find((run) => run.id === accepted.id), ...accepted },
+                ...old.filter((run) => run.id !== accepted.id),
+              ]);
+            return;
+          }
+          const names = [...acceptedNames, recipient.name]
+            .map((name) => `@${name}`)
+            .join(", ");
+          rememberRecipient(
+            owner,
+            actionSource,
+            accepted.agent_id || recipient.id,
+          );
+          const unchanged = sameComposer();
+          if (!unchanged)
+            notify({
+              text: `${options.queue ? "Queued for" : "Sent to"} ${names}. Your current draft has been kept.${reconciled}`,
+            });
+          // Publish the confirmed receipt before any background refresh. Discard
+          // older reads so a response started before this send cannot erase it.
+          ++runsGeneration.current;
+          if (
+            actionSource === executionSourceId() &&
+            accepted.agent_id &&
+            accepted.state
+          )
+            setRuns((old) => [
+              { ...old.find((run) => run.id === accepted.id), ...accepted },
+              ...old.filter((run) => run.id !== accepted.id),
+            ]);
+          if (!unchanged) return;
+          const handedOffInThread =
+            Boolean(conversation) &&
+            Boolean(conversationTarget?.agentId) &&
+            recipient.id !== conversationTarget?.agentId;
+          if (!conversation)
+            setSendNotice({
+              runId: accepted.id,
+              conversationId:
+                accepted.conversation_id || conversationId || null,
+              agentId: recipient.id,
+              agentName: recipient.name,
+              ...(acceptedNames.length
+                ? { recipientNames: [...acceptedNames, recipient.name] }
+                : {}),
+              steering: Boolean(accepted.steeringId),
+            });
           setDraft("");
           setAttachments([]);
+          const clearedThread = conversation || conversationId;
+          if (clearedThread) saveThreadDraft(clearedThread, "", []);
+          // Stay in the thread after sending; its reply context returns to the
+          // conversation itself rather than the quoted message.
           setReplyContext(
             conversation && conversationTarget ? conversationTarget : null,
           );
+          setContextArtifact(null);
+          if (options.queue && conversation)
+            notify({
+              text:
+                (handedOffInThread
+                  ? `Queued for @${recipient.name}.`
+                  : "Queued after the current task.") + reconciled,
+              // Undo takes it back to a draft, only while it has not started.
+              undo: async () => {
+                await withdrawToComposer(accepted.id);
+                void refresh();
+              },
+            });
+          else if (handedOffInThread)
+            setThreadNotice(`Sent to @${recipient.name}.${reconciled}`);
+          else if (reconciled && conversation)
+            setThreadNotice(reconciled.trim());
+          else if (reconciled) setDismissNotice(reconciled.trim());
           if (!conversation) collapseComposer();
+          else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
+          void refresh().catch((e) => setError(e.message));
+        };
+        const plan = await prepareStoredSend(
+          localStorage,
+          receiptStorageKey,
+          signature,
+          request.current,
+          {
+            mode: options.sendAt
+              ? "schedule"
+              : options.queue
+                ? "queue"
+                : "send",
+            sendAt: options.sendAt ?? null,
+          },
+          !!reply?.messageId && !reply.excerpt && replyQuoted === false,
+          () => owner === ownerRef.current && currentView() && sameComposer(),
+          sendPrepared,
+        );
+        if (!plan) {
+          // The draft, thread or account changed before this agent's send was
+          // recorded; the rest stay in the composer.
+          reportPartial("The others were not sent because the draft changed.");
           return;
         }
-        const accepted = await callRoute(
-          workspaceApi.submit,
-          {
-            body: {
-              ...body,
-              ...(options.queue ? { queue: true } : {}),
-            },
-          },
-          actionSource,
-        );
-        await settleAccepted();
-        if (owner !== ownerRef.current) return;
-        rememberRecipient(
-          owner,
-          actionSource,
-          accepted.agent_id || recipient.id,
-        );
-        const unchanged = sameComposer();
-        if (!unchanged)
-          notify({
-            text: `${options.queue ? "Queued for" : "Sent to"} @${recipient.name}. Your current draft has been kept.${reconciled}`,
-          });
-        // Publish the confirmed receipt before any background refresh. Discard
-        // older reads so a response started before this send cannot erase it.
-        ++runsGeneration.current;
-        if (
-          actionSource === executionSourceId() &&
-          accepted.agent_id &&
-          accepted.state
-        )
-          setRuns((old) => [
-            { ...old.find((run) => run.id === accepted.id), ...accepted },
-            ...old.filter((run) => run.id !== accepted.id),
-          ]);
-        if (!unchanged) return;
-        const handedOffInThread =
-          Boolean(conversation) &&
-          Boolean(conversationTarget?.agentId) &&
-          recipient.id !== conversationTarget?.agentId;
-        if (!conversation)
-          setSendNotice({
-            runId: accepted.id,
-            conversationId: accepted.conversation_id || conversationId || null,
-            agentId: recipient.id,
-            agentName: recipient.name,
-            steering: Boolean(accepted.steeringId),
-          });
-        setDraft("");
-        setAttachments([]);
-        const clearedThread = conversation || conversationId;
-        if (clearedThread) saveThreadDraft(clearedThread, "", []);
-        // Stay in the thread after sending; its reply context returns to the
-        // conversation itself rather than the quoted message.
-        setReplyContext(
-          conversation && conversationTarget ? conversationTarget : null,
-        );
-        setContextArtifact(null);
-        if (options.queue && conversation)
-          notify({
-            text:
-              (handedOffInThread
-                ? `Queued for @${recipient.name}.`
-                : "Queued after the current task.") + reconciled,
-            // Undo takes it back to a draft, only while it has not started.
-            undo: async () => {
-              await withdrawToComposer(accepted.id);
-              void refresh();
-            },
-          });
-        else if (handedOffInThread)
-          setThreadNotice(`Sent to @${recipient.name}.${reconciled}`);
-        else if (reconciled && conversation) setThreadNotice(reconciled.trim());
-        else if (reconciled) setDismissNotice(reconciled.trim());
-        if (!conversation) collapseComposer();
-        else document.querySelector<HTMLTextAreaElement>("#composer")?.blur();
-        void refresh().catch((e) => setError(e.message));
-      };
-      const plan = await prepareStoredSend(
-        localStorage,
-        receiptStorageKey,
-        signature,
-        request.current,
-        {
-          mode: options.sendAt ? "schedule" : options.queue ? "queue" : "send",
-          sendAt: options.sendAt ?? null,
-        },
-        !!reply?.messageId && !reply.excerpt && replyQuoted === false,
-        () => owner === ownerRef.current && currentView() && sameComposer(),
-        sendPrepared,
-      );
-      await plan?.completion;
+        await plan.completion;
+      }
     } catch (e) {
       // A refusal means nothing was accepted, so a different choice may be
       // sent next; anything else stays pending and is retried as first sent.
@@ -816,7 +1028,9 @@ export function useComposerSend({
           failed,
         );
       }
-      if (owner === ownerRef.current && currentView() && sameComposer())
+      if (acceptedNames.length)
+        reportPartial(`Not sent to the others: ${(e as Error).message}`);
+      else if (owner === ownerRef.current && currentView() && sameComposer())
         setComposerError((e as Error).message);
     } finally {
       if (currentView()) setBusy(false);
@@ -833,6 +1047,8 @@ export function renderComposer({
   conversation,
   threadMode,
   selected,
+  extraRecipients,
+  setExtraRecipients,
   routePreview,
   busy,
   uploading,
@@ -893,6 +1109,8 @@ export function renderComposer({
   | "conversation"
   | "threadMode"
   | "selected"
+  | "extraRecipients"
+  | "setExtraRecipients"
   | "routePreview"
   | "busy"
   | "uploading"
@@ -955,6 +1173,33 @@ export function renderComposer({
     mention?.agent && currentTargetId && mention.agent.id !== currentTargetId
       ? mention.agent
       : undefined;
+  const extraAgents = resolveExtraComposerAgents({
+    extraRecipients,
+    availableAgents,
+    activeAgent,
+    selected,
+    threadMode,
+    conversation,
+    replyContext,
+    contextArtifact,
+    draft,
+  });
+  const canAddRecipients =
+    !threadMode &&
+    !conversation &&
+    !replyContext &&
+    !contextArtifact &&
+    selected !== "__route__" &&
+    Boolean(activeAgent?.connection_id) &&
+    !activeAgent?.retired_at &&
+    !draft.trim().startsWith("@") &&
+    !/^(put|move|file|organize)\b[\s\S]*\b(in|into|to)\b/i.test(draft);
+  const eligibleExtraIds = new Set(
+    availableAgents
+      .filter((a) => Boolean(a.connection_id) && !a.retired_at)
+      .map((a) => a.id),
+  );
+  const extraIds = new Set(extraAgents.map((a) => a.id));
   const keepsReplyQuote =
     !mention?.agent || mention.agent.id === replyContext?.agentId;
   // Undecided shows the quote: a send before the thread's fresh snapshot
@@ -997,7 +1242,9 @@ export function renderComposer({
           ? "Sending…"
           : selected === "__route__" && !routePreview
             ? "Preview"
-            : "Send")}
+            : extraAgents.length > 0
+              ? `Send (${1 + extraAgents.length})`
+              : "Send")}
       <ArrowUp size={19} />
     </button>
   );
@@ -1017,6 +1264,7 @@ export function renderComposer({
       );
       if (agent) {
         setSelected(agent.id);
+        setExtraRecipients?.([]);
         setContextArtifact(null);
         setFolderChoice(undefined);
         setFolder(agent.folder_id || "");
@@ -1030,6 +1278,9 @@ export function renderComposer({
   const selectRecipient = (nextId: string) => {
     if (nextId === currentRecipient) return;
     setSelected(nextId);
+    setExtraRecipients?.((current) =>
+      nextId === "__route__" ? [] : current.filter((id) => id !== nextId),
+    );
     setReplyContext(null);
     setContextArtifact(null);
     setFolderChoice(undefined);
@@ -1056,20 +1307,25 @@ export function renderComposer({
                   : WORKING_RUN_DISPLAY_STATES.includes(sentRun?.state || "")
                     ? "Running with"
                     : "Message sent to"}{" "}
-              <strong>@{sendNotice.agentName}</strong>
+              <strong>
+                {sendNotice.recipientNames?.length
+                  ? sendNotice.recipientNames.map((n) => `@${n}`).join(", ")
+                  : `@${sendNotice.agentName}`}
+              </strong>
             </span>
-            {sendNotice.conversationId && (
-              <button
-                className="text-button"
-                onClick={() => {
-                  setSelected(sendNotice.agentId);
-                  setConversation(sendNotice.conversationId);
-                  setSendNotice(null);
-                }}
-              >
-                View conversation <ArrowUpRight size={16} />
-              </button>
-            )}
+            {sendNotice.conversationId &&
+              !sendNotice.recipientNames?.length && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setSelected(sendNotice.agentId);
+                    setConversation(sendNotice.conversationId);
+                    setSendNotice(null);
+                  }}
+                >
+                  View conversation <ArrowUpRight size={16} />
+                </button>
+              )}
             <button
               className="icon-button"
               aria-label="Dismiss send confirmation"
@@ -1168,12 +1424,23 @@ export function renderComposer({
                     {sortedAgents.map((a) => {
                       const active =
                         selected !== "__route__" && activeAgent?.id === a.id;
-                      return (
+                      const isExtra = extraIds.has(a.id);
+                      const showMultiToggle =
+                        canAddRecipients &&
+                        !active &&
+                        Boolean(a.connection_id) &&
+                        !a.retired_at;
+                      const pill = (
                         <button
-                          key={a.id}
+                          key={showMultiToggle ? undefined : a.id}
                           type="button"
                           className={
-                            "composer-agent-pill" + (active ? " selected" : "")
+                            "composer-agent-pill" +
+                            (active
+                              ? " selected"
+                              : isExtra
+                                ? " also-selected"
+                                : "")
                           }
                           aria-label={`@${a.name}`}
                           aria-pressed={active}
@@ -1186,6 +1453,58 @@ export function renderComposer({
                           <span>@{a.name}</span>
                         </button>
                       );
+                      if (!showMultiToggle) return pill;
+                      return (
+                        <span
+                          key={a.id}
+                          className={
+                            "composer-agent-choice" +
+                            (isExtra ? " also-selected" : "")
+                          }
+                        >
+                          {pill}
+                          <button
+                            type="button"
+                            className={
+                              "composer-agent-add" +
+                              (isExtra ? " selected" : "")
+                            }
+                            aria-label={
+                              isExtra
+                                ? `Remove @${a.name} from recipients`
+                                : `Also send to @${a.name}`
+                            }
+                            aria-pressed={isExtra}
+                            title={
+                              isExtra
+                                ? `Remove @${a.name}`
+                                : extraAgents.length >=
+                                    MAX_COMPOSER_RECIPIENTS - 1
+                                  ? `Select up to ${MAX_COMPOSER_RECIPIENTS} agents`
+                                  : `Also send to @${a.name}`
+                            }
+                            disabled={
+                              busy ||
+                              uploading ||
+                              (!isExtra &&
+                                extraAgents.length >=
+                                  MAX_COMPOSER_RECIPIENTS - 1)
+                            }
+                            onClick={() => {
+                              setExtraRecipients?.((current) =>
+                                toggleExtraRecipientId(
+                                  current,
+                                  a.id,
+                                  activeAgent?.id,
+                                  eligibleExtraIds,
+                                ),
+                              );
+                            }}
+                          >
+                            {isExtra ? "✓" : "+"}
+                          </button>
+                        </span>
+                      );
                     })}
                   </div>
                 )}
@@ -1195,17 +1514,20 @@ export function renderComposer({
               (handoffAgent || activeAgent) &&
               selected !== "__route__" &&
               (handoffAgent ||
+                extraAgents.length > 0 ||
                 steersActive ||
                 replyContext ||
                 !["Unfiled", "Workspace"].includes(destination.project)) && (
                 <p className="composer-destination">
                   {handoffAgent
                     ? `Sends to @${handoffAgent.name}`
-                    : steersActive
-                      ? "Continues the current task"
-                      : replyContext
-                        ? destination.thread
-                        : destination.project}
+                    : extraAgents.length > 0
+                      ? `Sends to ${[activeAgent!, ...extraAgents].map((a) => `@${a.name}`).join(", ")}`
+                      : steersActive
+                        ? "Continues the current task"
+                        : replyContext
+                          ? destination.thread
+                          : destination.project}
                 </p>
               )}
             {(handoffAgent
@@ -1538,7 +1860,7 @@ export function renderComposer({
         </button>
       </section>
     ) : null;
-  return { messageComposer, launchComposer, handoffAgent };
+  return { messageComposer, launchComposer, handoffAgent, extraAgents };
 }
 
 export function renderComposerSendSheets({
@@ -1548,6 +1870,7 @@ export function renderComposerSendSheets({
   threadWork,
   destination,
   handoffAgent,
+  extraAgents = [],
   send,
   steersActive,
   setScheduleAt,
@@ -1569,10 +1892,20 @@ export function renderComposerSendSheets({
   | "draft"
   | "busy"
   | "setComposerError"
-> & { handoffAgent?: Agent }) {
-  const effectiveThreadWork = handoffAgent ? null : threadWork;
-  const effectiveSteersActive = handoffAgent ? false : steersActive;
+> & { handoffAgent?: Agent; extraAgents?: readonly Agent[] }) {
+  const multiRecipient = extraAgents.length > 0;
+  const effectiveThreadWork =
+    handoffAgent || multiRecipient ? null : threadWork;
+  const effectiveSteersActive =
+    handoffAgent || multiRecipient ? false : steersActive;
   const recipientName = handoffAgent ? handoffAgent.name : destination.agent;
+  const recipientSummary = handoffAgent
+    ? `@${handoffAgent.name}`
+    : multiRecipient
+      ? [`@${destination.agent}`, ...extraAgents.map((a) => `@${a.name}`)].join(
+          ", ",
+        )
+      : `@${recipientName}`;
   return (
     <>
       {sendMenu && (
@@ -1621,8 +1954,8 @@ export function renderComposerSendSheets({
           ]}
         >
           <p className="send-destination">
-            To <strong>@{recipientName}</strong>
-            {!handoffAgent && (
+            To <strong>{recipientSummary}</strong>
+            {!handoffAgent && !multiRecipient && (
               <>
                 {" "}
                 · <strong>{destination.project}</strong> · {destination.thread}
@@ -1635,8 +1968,8 @@ export function renderComposerSendSheets({
         <Sheet title="Send later" onClose={() => setScheduleAt(null)}>
           <dl className="send-summary">
             <dt>To</dt>
-            <dd>@{recipientName}</dd>
-            {!handoffAgent && (
+            <dd>{recipientSummary}</dd>
+            {!handoffAgent && !multiRecipient && (
               <>
                 <dt>Project</dt>
                 <dd>{destination.project}</dd>

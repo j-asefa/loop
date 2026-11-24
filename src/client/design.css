@@ -910,16 +910,46 @@ label.catalog-search {
   min-height: 22px;
   flex-shrink: 0;
 }
-.composer-agent-pill.selected {
+.composer-agent-pill.selected,
+.composer-agent-pill.also-selected,
+.composer-agent-add.selected {
   border-color: color-mix(in srgb, var(--brass) 55%, var(--line));
   background: color-mix(in srgb, var(--brass) 14%, var(--surface));
   color: var(--text);
   font-weight: 650;
 }
+.composer-agent-choice {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.composer-agent-choice:has(.composer-agent-add) .composer-agent-pill {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+  padding-right: 8px;
+}
+.composer-agent-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 28px;
+  min-height: 36px;
+  padding: 4px 8px 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 0 999px 999px 0;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
 [data-keyboard="open"] .composer-agent-pills {
   padding: 4px 14px 0;
 }
-[data-keyboard="open"] .composer-agent-pill {
+[data-keyboard="open"] .composer-agent-pill,
+[data-keyboard="open"] .composer-agent-add {
   min-height: 32px;
   padding-block: 3px;
 }
