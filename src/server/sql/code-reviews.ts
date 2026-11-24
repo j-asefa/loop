@@ -188,7 +188,7 @@ export function earlier(
 }
 
 const assignedAgentStatement = statement(
-  "SELECT 1 FROM code_reviews c JOIN runs r ON r.id=c.run_id WHERE c.id=@review AND c.owner_id=@owner AND (r.agent_id=@agent OR EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=c.run_id AND child.agent_id=@agent))",
+  "SELECT 1 FROM code_reviews c JOIN runs r ON r.id=c.run_id WHERE c.id=@review AND c.owner_id=@owner AND (r.agent_id=@agent OR EXISTS(SELECT 1 FROM delegations d JOIN runs child ON child.id=d.child_run_id WHERE d.parent_run_id=c.run_id AND substr(d.call_id,1,7)='review:' AND child.agent_id=@agent))",
 );
 const assignedAgentRow = z.object({ "1": z.number() });
 /** Whether the agent is this review's lead or one of the lead's reviewers. */
