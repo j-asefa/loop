@@ -99,7 +99,25 @@ export const LEADING_REPLY_PREFIX =
 const DISALLOWED_REPLY_CHARS =
   /[\p{Cc}\p{Cs}\p{Co}\p{Cn}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0E\uFFA0\u{E0100}-\u{E01EF}]|(?![\u200C\u200D])\p{Cf}/u;
 
-const replyText = z
+const replyLabel = z
+  .string()
+  .min(1)
+  .max(200)
+  .refine(
+    (value) =>
+      value.replace(new RegExp(INVISIBLE_OR_SPACE.source, "gu"), "").length > 0,
+    "Reply text cannot be blank",
+  )
+  .refine(
+    (value) => !/[\r\n\u0085\u2028\u2029]/.test(value),
+    "Reply prompts must be a single line",
+  )
+  .refine(
+    (value) => !DISALLOWED_REPLY_CHARS.test(value),
+    "Reply text cannot contain control or invisible characters",
+  );
+
+const replyPrompt = z
   .string()
   .min(1)
   .max(200)
@@ -141,10 +159,19 @@ const propSchemas = {
   Divider: z.object({}),
   Actions: z.object({}),
   LinkButton: z.object({ label: text.min(1), url: httpUrl }),
-  ReplyButton: z.object({
-    label: replyText,
-    prompt: replyText.nullish(),
-  }),
+  ReplyButton: z
+    .object({
+      label: replyLabel,
+      prompt: replyPrompt.nullish(),
+    })
+    .refine(
+      (value) =>
+        value.prompt != null || !LEADING_REPLY_PREFIX.test(value.label),
+      {
+        path: ["label"],
+        message: "Reply prompts cannot start with @, /, !, or $",
+      },
+    ),
 };
 const takesChildren = new Set(["Card", "Section", "Fields", "Actions"]);
 export const DISPLAY_COMPONENTS = Object.keys(

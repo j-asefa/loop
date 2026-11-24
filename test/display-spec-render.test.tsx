@@ -389,10 +389,10 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
   // Without a DisplayReplyContext provider, ReplyButton renders disabled with an explanation title.
   const disabledHtml = render(source);
   expect(disabledHtml).toContain(
-    '<button type="button" class="display-reply-button" disabled="" title="Open the conversation to reply">Run benchmark</button>',
+    '<button type="button" class="display-reply-button" disabled="" title="Reply is available on finished assistant answers in a conversation">Run benchmark</button>',
   );
   expect(disabledHtml).toContain(
-    '<button type="button" class="display-reply-button" disabled="" title="Open the conversation to reply">Compare staging</button>',
+    '<button type="button" class="display-reply-button" disabled="" title="Reply is available on finished assistant answers in a conversation">Compare staging</button>',
   );
 
   // With a DisplayReplyContext provider in a non-compact, finished message, ReplyButton is enabled.
@@ -426,21 +426,21 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     'class="display-reply-button" disabled="" title="Wait for the answer to finish to reply"',
   );
 
-  // Legitimate ZWJ emoji sequences and ZWNJ non-Latin words are accepted in ReplyButton labels and prompts.
+  // Legitimate ZWJ emoji sequences (\u200D), ZWNJ non-Latin words (\u200C), and $-prefixed labels with a valid prompt are accepted.
   const joinerSource = fence(
     patch(
       { op: "add", path: "/root", value: "actions" },
       {
         op: "add",
         path: "/elements/actions",
-        value: { type: "Actions", children: ["emoji", "zwnj"] },
+        value: { type: "Actions", children: ["emoji", "zwnj", "priced"] },
       },
       {
         op: "add",
         path: "/elements/emoji",
         value: {
           type: "ReplyButton",
-          props: { label: "👩‍💻 Review code" },
+          props: { label: "👩\u200D💻 Review code" },
         },
       },
       {
@@ -451,11 +451,20 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
           props: { label: "می\u200Cخواهم ادامه دهم" },
         },
       },
+      {
+        op: "add",
+        path: "/elements/priced",
+        value: {
+          type: "ReplyButton",
+          props: { label: "$5 plan", prompt: "Select the $5 plan" },
+        },
+      },
     ),
   );
-  expect(checkDisplay(joinerSource)).toContain("Display valid. Elements: 3.");
-  expect(render(joinerSource)).toContain("👩‍💻 Review code");
+  expect(checkDisplay(joinerSource)).toContain("Display valid. Elements: 4.");
+  expect(render(joinerSource)).toContain("👩\u200D💻 Review code");
   expect(render(joinerSource)).toContain("می\u200Cخواهم ادامه دهم");
+  expect(render(joinerSource)).toContain("$5 plan");
 
   // Clicking an active ReplyButton invokes the context callback with prompt ?? label.
   let capturedTree: ReactNode = null;

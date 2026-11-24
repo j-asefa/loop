@@ -160,10 +160,9 @@ export function DisplaySpec({
   const live = open && canGrow && writing;
   const incomplete = live || omitSource;
   const onReply = !compact && !writing && !open && !omitSource ? reply : null;
-  const disabledReplyTitle =
-    writing || open
-      ? "Wait for the answer to finish to reply"
-      : "Open the conversation to reply";
+  const disabledReplyTitle = writing
+    ? "Wait for the answer to finish to reply"
+    : "Reply is available on finished assistant answers in a conversation";
   const read = useMemo(
     () =>
       readDisplaySpec(source, {
