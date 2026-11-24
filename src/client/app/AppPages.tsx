@@ -494,14 +494,14 @@ export function renderAppPages(
             sources={unified.feedSources}
             sourcesLoading={unified.loading}
             onOpen={openSourcedConversation}
-            onReply={(c, source, quote) => {
+            onReply={(c, source, quote, prompt) => {
               if (!quote) {
                 openSourcedConversation(c, undefined, source);
                 return focusThreadComposer(c);
               }
               beginReply(
                 { ...quote, conversationId: c },
-                undefined,
+                prompt,
                 source ?? executionSourceId(),
               );
             }}
@@ -576,10 +576,17 @@ export function renderAppPages(
             setSelected(profile.id);
             setConversation(c, m);
           }}
-          onReply={(c) => {
+          onReply={(c, source, quote, prompt) => {
             setSelected(profile.id);
-            setConversation(c);
-            focusThreadComposer(c);
+            if (!quote) {
+              setConversation(c);
+              return focusThreadComposer(c);
+            }
+            beginReply(
+              { ...quote, conversationId: c },
+              prompt,
+              source ?? executionSourceId(),
+            );
           }}
           onAgent={setProfile}
           onChanged={() => void changed()}
@@ -803,9 +810,16 @@ export function renderAppPages(
               revision={revisionFor("feed")}
               agents={data.agents}
               onOpen={(c, m) => setConversation(c, m)}
-              onReply={(c) => {
-                setConversation(c);
-                focusThreadComposer(c);
+              onReply={(c, source, quote, prompt) => {
+                if (!quote) {
+                  setConversation(c);
+                  return focusThreadComposer(c);
+                }
+                beginReply(
+                  { ...quote, conversationId: c },
+                  prompt,
+                  source ?? executionSourceId(),
+                );
               }}
               connections={data.connections}
               onAgent={setProfile}
@@ -842,9 +856,16 @@ export function renderAppPages(
                 revision={revisionFor("feed")}
                 agents={data.agents}
                 onOpen={(c, m) => setConversation(c, m)}
-                onReply={(c) => {
-                  setConversation(c);
-                  focusThreadComposer(c);
+                onReply={(c, source, quote, prompt) => {
+                  if (!quote) {
+                    setConversation(c);
+                    return focusThreadComposer(c);
+                  }
+                  beginReply(
+                    { ...quote, conversationId: c },
+                    prompt,
+                    source ?? executionSourceId(),
+                  );
                 }}
                 connections={data.connections}
                 onAgent={setProfile}

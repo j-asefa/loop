@@ -11,6 +11,7 @@ import {
   FileText,
   Globe,
   Image as ImageIcon,
+  Sparkles,
 } from "lucide-react";
 import {
   attachmentKind,
@@ -190,6 +191,7 @@ export function ContentCard({
   onProfile,
   onReply,
   onSave,
+  onSaveSnippet,
   onFile,
   onArchive,
   onLater,
@@ -200,6 +202,7 @@ export function ContentCard({
   onProfile?: () => void;
   onReply?: () => void;
   onSave?: () => void;
+  onSaveSnippet?: () => void;
   onFile?: () => void;
   onArchive?: () => void;
   onLater?: () => void;
@@ -249,6 +252,16 @@ export function ContentCard({
             label: card.saved ? "Remove from Saved" : "Save",
             icon: <Bookmark size={18} />,
             onSelect: onSave,
+          },
+        ]
+      : []),
+    ...(onSaveSnippet
+      ? [
+          {
+            id: "snippet",
+            label: "Save as snippet",
+            icon: <Sparkles size={18} />,
+            onSelect: onSaveSnippet,
           },
         ]
       : []),
@@ -433,6 +446,12 @@ export function ContentCard({
             >
               <Bookmark size={16} fill={card.saved ? "currentColor" : "none"} />
               {card.saved ? "Saved" : "Save"}
+            </button>
+          )}
+          {onSaveSnippet && (
+            <button type="button" onClick={onSaveSnippet}>
+              <Sparkles size={16} aria-hidden="true" />
+              Save as snippet
             </button>
           )}
           {onLater && (
