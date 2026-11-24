@@ -1,43 +1,85 @@
-// Claude's streaming input queues ordinary user messages. Interrupt its current
-// generation, wait for its terminal result, then resume the same native session.
-// No tool call or original prompt is replayed by Loop.
+// Claude Code reads a user message written during a turn at its next tool
+// boundary and answers it inside that turn, so Loop never interrupts a turn to
+// deliver a follow-up. With --replay-user-messages Claude echoes each message,
+// with the uuid Loop sent, when it reads it; that echo is the delivery receipt.
+// If the turn ends before Claude reads the follow-up, Claude emits that turn's
+// result, then the echo, then answers in a further turn. It does this after an
+// interrupt too. A result that arrives while a follow-up is unread is held, so
+// the Loop run stays open for that further turn; if no echo follows within
+// HOLD_MS (CANCEL_HOLD_MS after a cancel, shorter than the supervisor's 10 s
+// interrupt deadline), the run ends with the held result and the follow-up is
+// unconfirmed.
+// Both behaviours were observed on Claude Code 2.1.237 and 2.1.325.
+type Waiter = { resolve: () => void; reject: (error: Error) => void };
+
+export const HOLD_MS = 10_000;
+export const CANCEL_HOLD_MS = 3_000;
+
 export class ClaudeSteering {
-  waiting?: { resolve: () => void };
-  async steer(
-    text: string,
-    interrupt: () => Promise<unknown>,
-    prompt: (text: string) => Promise<unknown>,
-  ): Promise<void> {
-    if (this.waiting) throw new Error("A follow-up is already being delivered");
-    let resolve!: () => void;
-    const stopped = new Promise<void>((yes) => {
-      resolve = yes;
+  private unread = new Map<string, Waiter>();
+  private given = new Set<string>();
+  private errors: string[] = [];
+  private timer?: ReturnType<typeof setTimeout>;
+  private fallback?: () => void;
+  /** Resolves when Claude echoes the message with this uuid. */
+  expect(uuid: string) {
+    return new Promise<void>((resolve, reject) => {
+      this.unread.set(uuid, { resolve, reject });
     });
-    this.waiting = { resolve };
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        (async () => {
-          await interrupt();
-          await stopped;
-        })(),
-        new Promise((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error("Claude interruption was not confirmed")),
-            10000,
-          );
-        }),
-      ]);
-      this.waiting = undefined;
-      await prompt(text);
-    } finally {
-      clearTimeout(timer);
-      this.waiting = undefined;
-    }
   }
-  result() {
-    if (!this.waiting) return false;
-    this.waiting.resolve();
+  /** Settles the follow-up Claude just read; false for other echoes. */
+  read(uuid: unknown) {
+    if (typeof uuid !== "string") return false;
+    const waiter = this.unread.get(uuid);
+    if (!waiter) return false;
+    this.unread.delete(uuid);
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.fallback = undefined;
+    waiter.resolve();
     return true;
+  }
+  /** Forgets a follow-up whose write failed; it settles nothing. A held
+   * result with nothing left unread ends its run now. */
+  drop(uuid: string) {
+    this.unread.delete(uuid);
+    // A failed write may still have reached Claude; treat a later echo as an
+    // orphan turn.
+    this.given.add(uuid);
+    const fallback = this.fallback;
+    // The fallback's finish() releases the hold and keeps its errors.
+    if (!this.pending && this.timer && fallback) fallback();
+  }
+  get pending() {
+    return this.unread.size > 0;
+  }
+  /** Holds a turn's result while a follow-up is unread. */
+  hold(result: { errors?: string[] }, ms: number, fallback: () => void) {
+    this.errors.push(...(result.errors ?? []));
+    clearTimeout(this.timer);
+    this.fallback = fallback;
+    this.timer = setTimeout(fallback, ms);
+  }
+  /** Ends holding; returns the errors of the turns that were held. */
+  release() {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.fallback = undefined;
+    const errors = this.errors;
+    this.errors = [];
+    return errors;
+  }
+  /** Whether this echo is a follow-up Loop already gave up on. */
+  abandoned(uuid: unknown) {
+    return typeof uuid === "string" && this.given.delete(uuid);
+  }
+  /** The outcome of every unread follow-up is now unknown; none is resent. */
+  abandon(detail: string) {
+    this.release();
+    for (const [uuid, waiter] of this.unread) {
+      this.given.add(uuid);
+      waiter.reject(new Error(detail));
+    }
+    this.unread.clear();
   }
 }

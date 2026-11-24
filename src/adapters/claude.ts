@@ -6,7 +6,7 @@ import { DirectAdapter } from "./direct-adapter.js";
 import type { Setting, SettingValue } from "../shared/agent-activities.js";
 import { claudeActivities, directUpdates } from "./direct-activities.js";
 import { modelOptions } from "../shared/model-options.js";
-import { ClaudeSteering } from "./claude-steering.js";
+import { CANCEL_HOLD_MS, ClaudeSteering, HOLD_MS } from "./claude-steering.js";
 import { randomUUID } from "node:crypto";
 import { Native } from "../native.js";
 import { NativeMemoryError, nativeFailureDetail } from "../native-memory.js";
@@ -119,6 +119,7 @@ export class Claude extends DirectAdapter implements Adapter {
   private interrupted = false;
   private active = false;
   private steering = new ClaudeSteering();
+  private orphanTurn = false;
   private billing!: Billing;
   constructor(
     private options: Options,
@@ -243,6 +244,7 @@ export class Claude extends DirectAdapter implements Adapter {
         "stream-json",
         "--verbose",
         "--include-partial-messages",
+        "--replay-user-messages",
         "--permission-prompt-tool",
         "stdio",
         ...(this.options.model ? ["--model", this.options.model] : []),
@@ -268,6 +270,9 @@ export class Claude extends DirectAdapter implements Adapter {
     );
     this.native.on("message", (m) => this.message(m));
     this.native.on("failure", (error) => {
+      this.steering.abandon(
+        "Claude exited before confirming that it read the follow-up.",
+      );
       this.emit({
         type: "status",
         status: "failed",
@@ -356,42 +361,43 @@ export class Claude extends DirectAdapter implements Adapter {
     // projector's item window, and an item folded between runs has no run,
     // so a post-dispatch delta must re-establish its commentary item (seeded
     // from childText) or the projector would create a phase-less fragment
-    // that is eligible as the answer. Mid-turn steering follow-ups also call
-    // prompt() while a turn is active; they keep the ids so their deltas
-    // still merge into the open items. Trade-off: if a stream's seed was
+    // that is eligible as the answer. Mid-turn steering follow-ups are written
+    // by steer() and leave the ids alone, so their deltas still merge into the
+    // open items. Trade-off: if a stream's seed was
     // evicted from childText (over 512 streams or 4 MiB in one turn cycle),
     // the re-established item carries only the new fragment, so that
     // stream's progress preview loses earlier text. It is never phase-less.
     if (!this.active) this.childItems.clear();
     this.active = true;
-    await this.native.write({
+    await this.send(text, randomUUID());
+  }
+  private send(text: string, uuid: string) {
+    return this.native.write({
       type: "user",
       session_id: this.session,
-      uuid: randomUUID(),
+      uuid,
       origin: { kind: "human" },
       parent_tool_use_id: null,
       message: { role: "user", content: text },
     });
   }
+  /** Writes a follow-up into the running turn without interrupting it and
+   * resolves once Claude reads it. See ClaudeSteering. */
   async steer(text: string, beforeDispatch?: () => void) {
     if (!this.active) throw new NotDelivered("No active Claude turn.");
     beforeDispatch?.();
+    const uuid = randomUUID();
+    const read = this.steering.expect(uuid);
+    // abandon() can reject it while the write is in flight, before it is awaited.
+    read.catch(() => {});
     try {
-      await this.steering.steer(
-        text,
-        () => this.control({ subtype: "interrupt" }),
-        (value: string) => this.prompt(value, beforeDispatch),
-      );
+      await this.send(text, uuid);
     } catch (error) {
-      this.active = false;
-      this.emit({
-        type: "status",
-        status: "failed",
-        detail:
-          "Claude could not confirm the follow-up. Review its saved progress before continuing.",
-      });
+      // Unconfirmed, so it must not hold the turn open waiting for an echo.
+      this.steering.drop(uuid);
       throw error;
     }
+    await read;
   }
   async cancel() {
     this.interrupted = true;
@@ -436,9 +442,40 @@ export class Claude extends DirectAdapter implements Adapter {
   }
   private activityInputs = new Map<string, { name: string; input: any }>();
   private message(m: any) {
+    if (m.type === "user" && m.isReplay) {
+      this.echo(m.uuid);
+      return;
+    }
+    if (this.orphanTurn) {
+      if (m.type === "result" && !foreignResult(m, true, this.session))
+        this.orphanTurn = false;
+      // Nobody can answer its permission requests; refuse them.
+      if (
+        m.type === "control_request" &&
+        ["can_use_tool", "elicitation"].includes(m.request?.subtype)
+      )
+        void this.native
+          .write({
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id: m.request_id,
+              response:
+                m.request?.subtype === "elicitation"
+                  ? { action: "decline", content: null }
+                  : {
+                      behavior: "deny",
+                      message: "Loop stopped this turn's run.",
+                    },
+            },
+          })
+          .catch(() => {});
+      if (m.type !== "control_response") return;
+    }
     // Streaming input also carries results for turns injected by Claude
     // (notably stopped background tasks on resume). They must not settle the
-    // user's queued prompt, consume a steering interrupt, or clear approvals.
+    // user's queued prompt, end a turn holding an unread follow-up, or clear
+    // approvals.
     if (m.type === "result") {
       const foreign = foreignResult(m, this.active, this.session);
       // A dropped terminal result leaves the run streaming with no watchdog,
@@ -739,35 +776,75 @@ export class Claude extends DirectAdapter implements Adapter {
     if (m.type === "result") {
       const usage = claudeTokens(m.usage);
       if (usage) this.emit({ type: "usage", usage });
-      if (this.steering.result()) return;
-      this.active = false;
-      // The turn's child streams are now complete; freeze their ids so late
-      // events for them cannot move or overwrite this run's native history.
-      // The set is ids-only and kept for the adapter's lifetime: evicting an
-      // id would let a late event treat a completed stream as new and
-      // overwrite its recorded history.
-      for (const id of this.childItems) this.priorChildIds.add(id);
-      for (const id of this.childText.keys()) this.priorChildIds.add(id);
-      this.messageIds.clear();
-      this.childItems.clear();
-      this.childText.clear();
-      this.childTextBytes = 0;
-      for (const id of this.requests.keys())
-        this.emit({ type: "resolved", id });
-      this.requests.clear();
-      this.emit({
-        type: "status",
-        status: this.interrupted
-          ? "interrupted"
-          : m.is_error
-            ? "failed"
-            : "completed",
-        recoverable: !!m.is_error && !this.interrupted,
-        detail: m.errors?.join("\n"),
-      });
+      // Claude answers an unread follow-up in a further turn, even after an
+      // interrupt, so the run stays open until it reads it (see echo()).
+      if (this.steering.pending) {
+        this.steering.hold(m, this.interrupted ? CANCEL_HOLD_MS : HOLD_MS, () =>
+          this.finish({ ...m, errors: [] }),
+        );
+        return;
+      }
+      this.finish(m);
     }
   }
+  /** Claude read the message with this uuid; its turn starts now. */
+  private echo(uuid: unknown) {
+    if (this.steering.abandoned(uuid)) {
+      // A follow-up Loop gave up on started a turn no Loop run owns: drop its
+      // output and result, and stop it so it runs no unrecorded tools. If
+      // Claude finishes it, or reads the next prompt into it, before the
+      // interrupt lands, the interrupt stops the next prompt's turn instead;
+      // that run then ends visibly as failed and recoverable. This needs an
+      // echo after the hold fallback, which was not observed live.
+      this.orphanTurn = true;
+      this.control({ subtype: "interrupt" }).catch(() => {});
+      return;
+    }
+    // Claude reads stdin in order: any other echo means a later message joined
+    // or started the current turn, so that turn is no longer the orphan's.
+    this.orphanTurn = false;
+    const followUp = this.steering.read(uuid);
+    // A cancelled run also stops any turn that starts in it: one answering its
+    // follow-up, or its own prompt read after an orphan turn took the cancel.
+    if (this.interrupted && (followUp || this.active))
+      this.control({ subtype: "interrupt" }).catch(() => {});
+  }
+  private finish(m: any) {
+    const earlier = this.steering.release();
+    this.steering.abandon(
+      "Claude stopped before confirming that it read the follow-up.",
+    );
+    this.active = false;
+    // The turn's child streams are now complete; freeze their ids so late
+    // events for them cannot move or overwrite this run's native history.
+    // The set is ids-only and kept for the adapter's lifetime: evicting an
+    // id would let a late event treat a completed stream as new and
+    // overwrite its recorded history.
+    for (const id of this.childItems) this.priorChildIds.add(id);
+    for (const id of this.childText.keys()) this.priorChildIds.add(id);
+    this.messageIds.clear();
+    this.childItems.clear();
+    this.childText.clear();
+    this.childTextBytes = 0;
+    for (const id of this.requests.keys()) this.emit({ type: "resolved", id });
+    this.requests.clear();
+    this.emit({
+      type: "status",
+      status: this.interrupted
+        ? "interrupted"
+        : m.is_error
+          ? "failed"
+          : "completed",
+      recoverable: !!m.is_error && !this.interrupted,
+      // An earlier turn of this run that ended while a follow-up was unread
+      // keeps its errors here; the status is that of the final turn.
+      detail: [...earlier, ...(m.errors ?? [])].join("\n") || undefined,
+    });
+  }
   async dispose() {
+    this.steering.abandon(
+      "Claude closed before confirming that it read the follow-up.",
+    );
     await this.native?.dispose();
   }
 }
