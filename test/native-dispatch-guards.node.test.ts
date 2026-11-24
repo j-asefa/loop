@@ -258,8 +258,10 @@ test("Claude holds a cancelled run for less than the supervisor's interrupt dead
 test("Claude ends a held run at once when the only unread follow-up's write fails", async () => {
   const { adapter, result, statuses } = liveClaude();
   let fail!: (error: Error) => void;
-  adapter.native.write = () =>
+  let sent: any;
+  adapter.native.write = (value: unknown) =>
     new Promise((_, reject) => {
+      sent = value;
       fail = reject;
     });
   const steer = adapter.steer("Side question");
@@ -272,6 +274,9 @@ test("Claude ends a held run at once when the only unread follow-up's write fail
     statuses().map((e) => [e.status, e.detail]),
     [["failed", "held turn failed"]],
   );
+  // The failed write may still have reached Claude.
+  adapter.message({ type: "user", isReplay: true, uuid: sent.uuid });
+  assert.equal(adapter.orphanTurn, true);
 });
 
 test("Claude leaves no unhandled rejection when a follow-up is abandoned mid-write", async () => {

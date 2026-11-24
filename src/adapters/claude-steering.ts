@@ -43,6 +43,9 @@ export class ClaudeSteering {
    * result with nothing left unread ends its run now. */
   drop(uuid: string) {
     this.unread.delete(uuid);
+    // A failed write may still have reached Claude; treat a later echo as an
+    // orphan turn.
+    this.given.add(uuid);
     const fallback = this.fallback;
     // The fallback's finish() releases the hold and keeps its errors.
     if (!this.pending && this.timer && fallback) fallback();

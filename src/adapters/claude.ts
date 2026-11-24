@@ -792,8 +792,10 @@ export class Claude extends DirectAdapter implements Adapter {
     if (this.steering.abandoned(uuid)) {
       // A follow-up Loop gave up on started a turn no Loop run owns: drop its
       // output and result, and stop it so it runs no unrecorded tools. If
-      // Claude finishes it before the interrupt lands, the interrupt can stop
-      // the next prompt's turn instead; that run then ends visibly.
+      // Claude finishes it, or reads the next prompt into it, before the
+      // interrupt lands, the interrupt stops the next prompt's turn instead;
+      // that run then ends visibly as failed and recoverable. This needs an
+      // echo after the hold fallback, which was not observed live.
       this.orphanTurn = true;
       this.control({ subtype: "interrupt" }).catch(() => {});
       return;
