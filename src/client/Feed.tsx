@@ -288,6 +288,7 @@ function FeedCard({
   groupCount,
   selected,
   onSelect,
+  draftText,
 }: {
   sourceCapabilities?: import("../shared/capabilities").Capabilities;
   item: FeedItem;
@@ -315,6 +316,13 @@ function FeedCard({
   groupCount?: number;
   selected?: boolean;
   onSelect?: () => void;
+  /** The thread's unsent draft, read by Feed so a memoised card sees it. */
+  draftText: string;
+  /**
+   * The current minute. The card's relative times read the clock while it
+   * renders, so this re-renders a memoised card at most once a minute.
+   */
+  clockMinute: number;
 }) {
   const readProjection = useProjectionRoute();
   const [quickReplyOpen, setQuickReplyOpen] = useState(false);
@@ -341,9 +349,7 @@ function FeedCard({
   });
   const taskStatus = runStatus(item.run?.state, item.pending_approvals);
   const status = item.reply ? { label: "Reply", tone: "done" } : taskStatus;
-  const draft = threadDraft(
-    sourceDraftId(item.conversation_id, item.sourceId ?? scopedSource),
-  ).text;
+  const draft = draftText;
   const next = feedNextAction(item.next_action, draft);
   const detail =
     item.reply && item.run
@@ -1848,6 +1854,8 @@ export function Feed({
   // Unchanged cards keep their props' identity, so a refresh re-renders only
   // the cards whose content changed (MemoFeedCard).
   const stableCards = useStableCardProps();
+  // Cards show relative times; they re-render at most once a minute for them.
+  const clockMinute = Math.floor(Date.now() / 60_000);
   const grouping = useDoneThreads(
     activeSources.map((source) => source.id),
     filter === "done" || filter === "threads",
@@ -4498,6 +4506,10 @@ export function Feed({
           ),
         )}
         canQuickReply={Boolean(onReply && feedReplyQuote(item))}
+        draftText={
+          threadDraft(sourceDraftId(item.conversation_id, source)).text
+        }
+        clockMinute={clockMinute}
         dismissing={dismissingCards.has(feedDismissKey(item))}
         dismissLabel={
           dismissFailure

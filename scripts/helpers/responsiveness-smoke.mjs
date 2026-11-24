@@ -305,15 +305,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
     console.log("responsiveness: tabs", JSON.stringify(report.press));
     // 2. Tab switches: cold first visit, then cached revisits.
-    for (const name of [
-      "Working",
-      "Done",
-      "Working",
-      "Done",
-      "Working",
-      "Done",
-    ])
+    // One cold switch, then 21 cached ones: with 21 samples the p95 is not
+    // just the single slowest switch, so one slow frame cannot decide it.
+    for (let i = 0; i < 22; i++) {
+      const name = i % 2 ? "Done" : "Working";
       tabs.push({ name, ...(await tabSwitch(page, name)) });
+    }
     report.tabs = {
       cold: tabs[0],
       cached: summary(tabs.slice(1).map((entry) => entry.ms)),
@@ -626,6 +623,64 @@ export async function responsivenessSmoke(page, fixture, engine) {
       await expect(
         page.locator("dialog[open] .composer textarea"),
       ).toBeFocused();
+
+      console.log("responsiveness: draft");
+      // A memoised card still shows a draft saved elsewhere: Feed reads
+      // drafts and passes them to the card. Type in this thread's composer to
+      // learn the draft key, save a draft for a Done card's thread under the
+      // same owner and source, then refresh the Feed.
+      await page.keyboard.type("Keep this for later");
+      const draftKey = await expect
+        .poll(
+          () =>
+            page.evaluate(() =>
+              Object.keys(localStorage).find((key) =>
+                key.startsWith("loop-draft-text:"),
+              ),
+            ),
+          { timeout: 5000 },
+        )
+        .toBeTruthy()
+        .then(() =>
+          page.evaluate(() =>
+            Object.keys(localStorage).find((key) =>
+              key.startsWith("loop-draft-text:"),
+            ),
+          ),
+        );
+      await page.keyboard.press("Escape");
+      await expect(page.locator("dialog[open]")).toHaveCount(0);
+      const drafted = page.locator(".feed-results .feed-item-card").first();
+      const draftedTitle = await drafted
+        .locator(".feed-row")
+        .getAttribute("aria-label");
+      const draftedConversation = fixture.db
+        .prepare("SELECT id FROM conversations WHERE title=?")
+        .get(draftedTitle);
+      if (!draftedConversation)
+        throw new Error(`No conversation titled ${draftedTitle}`);
+      // Key: loop-draft-text:<owner>:<JSON [source, conversation id]>.
+      const [, owner, threadId] = draftKey.match(
+        /^loop-draft-text:([^:]*):(.*)$/,
+      );
+      const [draftSource] = JSON.parse(threadId);
+      await page.evaluate(
+        ([key, text]) => localStorage.setItem(key, text),
+        [
+          `loop-draft-text:${owner}:${JSON.stringify([draftSource, draftedConversation.id])}`,
+          "Unsent reply from another view",
+        ],
+      );
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await expect(drafted).toContainText("Unsent reply from another view", {
+        timeout: 10000,
+      });
+      report.draft = { shown: true };
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
