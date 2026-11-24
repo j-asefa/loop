@@ -434,6 +434,45 @@ export async function responsivenessSmoke(page, fixture, engine) {
         cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
+      console.log("responsiveness: changed refresh");
+      // A memoised card still re-renders when its content changes. Rename one
+      // Done result's conversation, pull to refresh, and the card shows the
+      // new title while the unchanged cards keep their render.
+      const renamedFrom = await page
+        .locator(".feed-results .feed-item-card .feed-row")
+        .first()
+        .getAttribute("aria-label");
+      const renamed = fixture.db
+        .prepare("SELECT id FROM conversations WHERE title=?")
+        .get(renamedFrom);
+      if (!renamed) throw new Error(`No conversation titled ${renamedFrom}`);
+      const renamedTo = renamedFrom + " (renamed)";
+      // Count from before the change: a background read may pick it up
+      // before the pull finishes.
+      const beforeChange = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      fixture.db
+        .prepare("UPDATE conversations SET title=? WHERE id=?")
+        .run(renamedTo, renamed.id);
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await dragProbe(page, client, top, { x: 195, y: 420 }, 36, 600);
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+      await settle(page, inflight);
+      const afterChange = await page.evaluate(() => ({
+        ...window.__loopCommitProbe,
+      }));
+      await expect(
+        page.getByRole("button", { name: renamedTo, exact: true }),
+      ).toBeVisible();
+      report.changedRefresh = {
+        cardRenders: afterChange.cardRenders - beforeChange.cardRenders,
+        cardWrappers: await page.locator(".feed-item-wrap").count(),
+      };
+
       console.log("responsiveness: writes");
       // 5. A local write with the server held for 800 ms: is the change
       // visible before the response? Archive the first Done result, which
@@ -641,6 +680,21 @@ export async function responsivenessSmoke(page, fixture, engine) {
         `The ${name} drag missed its budget (0 commits, <= 5 % dropped frames): ${JSON.stringify(drag)}`,
       );
   }
+  // Feed updates (D8): an unchanged refresh re-renders no card, and switching
+  // to a cached tab shows it within 100 ms (p95) with no loading placeholder.
+  const changed = report.changedRefresh;
+  if (!(changed.cardRenders >= 1 && changed.cardRenders < changed.cardWrappers))
+    throw new Error(
+      `A refresh with one changed card should re-render it and not every card: ${JSON.stringify(changed)}`,
+    );
+  if (report.refresh.cardRenders !== 0)
+    throw new Error(
+      `An unchanged refresh re-rendered cards: ${JSON.stringify(report.refresh)}`,
+    );
+  if (!(report.tabs.cached?.p95 < 100) || report.tabs.cachedShowedLoading)
+    throw new Error(
+      `A cached tab switch missed its budget (p95 < 100 ms, no placeholder): ${JSON.stringify(report.tabs)}`,
+    );
   for (const [name, kept] of Object.entries(report.pressHitArea))
     if (!kept)
       throw new Error(

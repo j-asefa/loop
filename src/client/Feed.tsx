@@ -1,6 +1,7 @@
 import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
+import { useStableCardProps } from "./stableIdentity";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
 import { IdempotencyKey } from "../shared/contract-ids";
@@ -103,6 +104,7 @@ import { ResultIdentity } from "./ResultIdentity";
 import { createPortal } from "react-dom";
 import {
   useEffect,
+  memo,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -1406,6 +1408,25 @@ function NeedsStack({
   );
 }
 
+// Re-renders only when a prop changes identity. Feed passes kept values and
+// stable handlers (useStableCardProps), so unchanged cards skip a refresh.
+const MemoFeedCard = memo(FeedCard);
+type FeedCardCallbacks = Pick<
+  Parameters<typeof FeedCard>[0],
+  | "onSelect"
+  | "onAggregate"
+  | "onRead"
+  | "onReadingChange"
+  | "onQuestion"
+  | "onOpen"
+  | "onReply"
+  | "onNext"
+  | "onAgent"
+  | "onMenu"
+  | "onDismiss"
+  | "onLater"
+>;
+
 export function Feed({
   filter,
   onFilter,
@@ -1824,6 +1845,9 @@ export function Feed({
   const [notice, setNotice] = useState("");
   const [menu, setMenu] = useState<FeedItem | null>(null);
   const dragSession = useRef<CardDragSession | null>(null);
+  // Unchanged cards keep their props' identity, so a refresh re-renders only
+  // the cards whose content changed (MemoFeedCard).
+  const stableCards = useStableCardProps();
   const grouping = useDoneThreads(
     activeSources.map((source) => source.id),
     filter === "done" || filter === "threads",
@@ -4369,111 +4393,111 @@ export function Feed({
               sourceConnections,
             )
           : undefined;
+    // One identity per rendered card; needs and list cards are separate.
+    const slot = (inNeeds ? "needs:" : "list:") + displayKey;
+    const callbacks = stableCards.handlers<FeedCardCallbacks>(slot, {
+      onSelect:
+        !inNeeds && selectedCards && aggregatable(item)
+          ? () => {
+              if (!bulkReadBusy) toggleSelection(displayKey);
+            }
+          : undefined,
+      onAggregate: combineCards,
+      onRead: item.reply
+        ? () => void markReplyRead(item)
+        : item.read_at !== undefined && !thread
+          ? () => void markDoneRead(item)
+          : undefined,
+      onReadingChange:
+        !inNeeds && !thread && doneRead === "unread"
+          ? (open) => setReadingCard(open ? { item, view: shownKey() } : null)
+          : undefined,
+      onQuestion: item.reply
+        ? () => onOpen(item.conversation_id, item.reply!.message_id, source)
+        : undefined,
+      onOpen: () =>
+        thread
+          ? openThread(thread)
+          : onOpen(
+              item.conversation_id,
+              item.reply ? item.last_message?.id : undefined,
+              source,
+            ),
+      onReply: (prompt) =>
+        onReply
+          ? onReply(
+              item.conversation_id,
+              source,
+              feedReplyQuote(item) ?? undefined,
+              prompt,
+            )
+          : onOpen(item.conversation_id, undefined, source),
+      onNext: (action) =>
+        action.kind === "draft"
+          ? onReply
+            ? onReply(item.conversation_id, source)
+            : onOpen(item.conversation_id, undefined, source)
+          : onOpen(
+              item.conversation_id,
+              action.message_id || undefined,
+              source,
+            ),
+      onAgent: agent ? () => onAgent(agent) : undefined,
+      onMenu: () => {
+        setMenu(item);
+        setMenuThread(thread ?? null);
+      },
+      onDismiss:
+        thread || selectedCards
+          ? undefined
+          : dismissFailure
+            ? () => void runAction(item.run!.id, "dismiss", source)
+            : (filter === "done" && item.done_card_key) ||
+                (filter === "replies" && item.reply_card_key)
+              ? () => void dismissFeedCard(item)
+              : undefined,
+      onLater: () => setLater(item),
+    });
     return (
-      <FeedCard
+      <MemoFeedCard
         key={displayKey}
-        item={
+        item={stableCards.keep(
+          slot + ":item",
           thread
             ? { ...item, title: thread.title, next_action: undefined }
-            : item
-        }
+            : item,
+        )}
         groupCount={thread?.cardIds.length}
         selected={
           !inNeeds && selectedCards
             ? selectedCards.includes(displayKey)
             : undefined
         }
-        onSelect={
-          !inNeeds && selectedCards && aggregatable(item)
-            ? () => {
-                if (!bulkReadBusy) toggleSelection(displayKey);
-              }
-            : undefined
-        }
         aggregationId={!inNeeds && aggregatable(item) ? displayKey : undefined}
         dragSession={dragSession}
-        onAggregate={combineCards}
-        sourceCapabilities={
-          allSources.find((entry) => entry.id === source)?.capabilities
-        }
+        sourceCapabilities={stableCards.keep(
+          slot + ":sourceCapabilities",
+          allSources.find((entry) => entry.id === source)?.capabilities,
+        )}
         readAsCard={
           !inNeeds &&
           !thread &&
           (["done", "replies", "working", "queued"].includes(filter) ||
             (filter === "threads" && threadOutput))
         }
-        agent={agent}
+        agent={stableCards.keep(slot + ":agent", agent)}
         model={model}
-        environment={cardEnvironment(
-          source,
-          connectionId,
-          agent?.executionEnvironment ||
-            (source && allSources.find((item) => item.id === source)?.name) ||
-            item.executionEnvironment,
+        environment={stableCards.keep(
+          slot + ":environment",
+          cardEnvironment(
+            source,
+            connectionId,
+            agent?.executionEnvironment ||
+              (source && allSources.find((item) => item.id === source)?.name) ||
+              item.executionEnvironment,
+          ),
         )}
-        onRead={
-          item.reply
-            ? () => void markReplyRead(item)
-            : item.read_at !== undefined && !thread
-              ? () => void markDoneRead(item)
-              : undefined
-        }
-        onReadingChange={
-          !inNeeds && !thread && doneRead === "unread"
-            ? (open) => setReadingCard(open ? { item, view: shownKey() } : null)
-            : undefined
-        }
-        onQuestion={
-          item.reply
-            ? () => onOpen(item.conversation_id, item.reply!.message_id, source)
-            : undefined
-        }
-        onOpen={() =>
-          thread
-            ? openThread(thread)
-            : onOpen(
-                item.conversation_id,
-                item.reply ? item.last_message?.id : undefined,
-                source,
-              )
-        }
         canQuickReply={Boolean(onReply && feedReplyQuote(item))}
-        onReply={(prompt) =>
-          onReply
-            ? onReply(
-                item.conversation_id,
-                source,
-                feedReplyQuote(item) ?? undefined,
-                prompt,
-              )
-            : onOpen(item.conversation_id, undefined, source)
-        }
-        onNext={(action) =>
-          action.kind === "draft"
-            ? onReply
-              ? onReply(item.conversation_id, source)
-              : onOpen(item.conversation_id, undefined, source)
-            : onOpen(
-                item.conversation_id,
-                action.message_id || undefined,
-                source,
-              )
-        }
-        onAgent={agent ? () => onAgent(agent) : undefined}
-        onMenu={() => {
-          setMenu(item);
-          setMenuThread(thread ?? null);
-        }}
-        onDismiss={
-          thread || selectedCards
-            ? undefined
-            : dismissFailure
-              ? () => void runAction(item.run!.id, "dismiss", source)
-              : (filter === "done" && item.done_card_key) ||
-                  (filter === "replies" && item.reply_card_key)
-                ? () => void dismissFeedCard(item)
-                : undefined
-        }
         dismissing={dismissingCards.has(feedDismissKey(item))}
         dismissLabel={
           dismissFailure
@@ -4482,7 +4506,7 @@ export function Feed({
               ? "Archive reply"
               : undefined
         }
-        onLater={() => setLater(item)}
+        {...callbacks}
       />
     );
   }

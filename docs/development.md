@@ -279,7 +279,7 @@ Set `LOOP_BROWSER_TRACE_DIR=/tmp/loop-traces` to capture Playwright traces for f
 
 Omitting scenario names runs all scenarios; unknown names fail. Each scenario reports timing, and screenshots include its engine/name.
 
-The `responsiveness` scenario measures how the Feed reacts, in Chromium only, at 390 px with 4× CPU throttling. It prints one JSON line: press feedback on a card, a tab and the compose button, cold and cached tab switches, React commits and dropped frames during a card swipe and a pull to refresh, card re-renders after an unchanged refresh, and whether an archive is visible before an 800 ms held response. It asserts only that each measurement ran; a change that improves a number asserts its own budget. Compare runs made back to back on an idle machine:
+The `responsiveness` scenario measures how the Feed reacts, in Chromium only, at 390 px with 4× CPU throttling. It prints one JSON line: press feedback on a card, a tab and the compose button, cold and cached tab switches, React commits and dropped frames during a card swipe and a pull to refresh, card re-renders after an unchanged refresh, and whether an archive is visible before an 800 ms held response. It also swipes a message to reply and re-renders exactly one card after one changes. It asserts each budget met so far (press, drags, refresh, cached tabs). Compare runs made back to back on an idle machine:
 
 ```sh
 npm run build
