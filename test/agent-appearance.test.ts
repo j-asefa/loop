@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildAllAnimalSvgs } from "../scripts/generate-animal-avatars.mjs";
 import { agentAppearance } from "../src/client/agentAppearance";
 
 const publicDirectory = new URL("../public/", import.meta.url);
@@ -30,6 +39,20 @@ describe("agent appearance", () => {
         .digest("hex"),
     );
     expect(new Set(artwork).size).toBe(100);
+  });
+
+  it("draws the shipped avatars from the palettes the covers use", () => {
+    const directory = mkdtempSync(join(tmpdir(), "loop-avatars-"));
+    try {
+      expect(buildAllAnimalSvgs(directory)).toBe(100);
+      for (const name of names) {
+        expect(readFileSync(join(directory, `${name}.svg`), "utf8")).toBe(
+          readFileSync(new URL(`${name}.svg`, animalDirectory), "utf8"),
+        );
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("draws every named character a distinct cover in its avatar's colours", () => {
