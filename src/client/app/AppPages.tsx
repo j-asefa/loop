@@ -1,5 +1,6 @@
 import { ErrorNotice } from "../ErrorNotice";
 import { emitClientEvent } from "../clientEvents";
+import { cacheView, viewOwner } from "../viewCache";
 import { FolderId, parseId } from "../../shared/contract-ids.js";
 import { WORKING_RUN_DISPLAY_STATES } from "../../shared/run-state";
 import { sessionDraft } from "../workspace-drafts";
@@ -511,6 +512,19 @@ export function renderAppPages(
             onScheduled={() => showScheduled()}
             onShowReminder={(id) => openLater("reminders", id)}
             onAsk={availableAgents.length ? askAboutPull : undefined}
+            onOpenSocial={() => {
+              cacheView("later-section", "social", viewOwner());
+              const url = new URL(location.href);
+              url.searchParams.set("profileTab", "social");
+              history.replaceState(
+                history.state,
+                "",
+                url.pathname + url.search,
+              );
+              setConversation(null);
+              setProfile(null);
+              setTab("profile");
+            }}
             needsSlot={
               <div className="run-list">
                 <NativeDecisions onConversation={setConversation} />

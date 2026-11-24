@@ -376,6 +376,7 @@ export function useSocialStream(enabled: boolean) {
 
   return {
     items,
+    loaded: snapshot !== null,
     sessionReadIds,
     loading: enabled && !snapshot && readState.busy,
     busy: readState.busy,

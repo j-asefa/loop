@@ -52,12 +52,18 @@ import {
   type FeedSourceFilter,
 } from "../shared/feed-interleave";
 import {
+  shouldShowFeedStarter,
+  starterDismissKey,
+} from "../shared/feed-starter";
+import {
   canReplyFromDoneSheet,
   DEFAULT_DONE_QUICK_REPLIES,
   snippetLabel,
 } from "../shared/workshop-actions";
 import type { StreamItem } from "../shared/stream-item";
+import { withOptionalStorage } from "./browserStorage";
 import { DisplayReplyContext } from "./DisplaySpec";
+import { FeedStarterCard } from "./FeedStarterCard";
 import { StreamAskSheet } from "./StreamAskSheet";
 import { StreamItemCard, StreamItemReader } from "./StreamItemCard";
 import { useSnippets } from "./useSnippets";
@@ -1428,6 +1434,7 @@ export function Feed({
   onScheduled,
   onShowReminder,
   onAsk,
+  onOpenSocial,
   sources,
   sourcesLoading = false,
 }: {
@@ -1460,6 +1467,7 @@ export function Feed({
   onShowReminder?: (id: string) => void;
 
   onAsk?: (text: string, agentId?: string) => void;
+  onOpenSocial?: () => void;
   /** Present only for the combined top-level Feed. */
   sources?: AgentSource[];
   /** Initial discovery has not established the combined Feed's destinations. */
@@ -1517,6 +1525,41 @@ export function Feed({
     !teams &&
     !scopedAgent;
   const socialStream = useSocialStream(showSocialStream);
+  const starterOwner = viewOwner();
+  const starterKey = starterDismissKey(starterOwner ?? "", scopedSource);
+  const [starterDismissedState, setStarterDismissedState] = useState<{
+    key: string;
+    dismissed: boolean;
+  }>(() => ({
+    key: starterKey,
+    dismissed: starterOwner
+      ? withOptionalStorage(
+          "local",
+          (storage) => storage.getItem(starterKey) === "1",
+          false,
+        )
+      : false,
+  }));
+  const starterDismissed =
+    starterDismissedState.key === starterKey
+      ? starterDismissedState.dismissed
+      : starterOwner
+        ? withOptionalStorage(
+            "local",
+            (storage) => storage.getItem(starterKey) === "1",
+            false,
+          )
+        : false;
+  const dismissStarter = () => {
+    if (starterOwner) {
+      withOptionalStorage(
+        "local",
+        (storage) => storage.setItem(starterKey, "1"),
+        undefined,
+      );
+    }
+    setStarterDismissedState({ key: starterKey, dismissed: true });
+  };
   const [readingStream, setReadingStream] = useState<{
     id: string;
     item: StreamItem;
@@ -4750,7 +4793,32 @@ export function Feed({
           ) : (
             (effectiveStreamSource === "feeds"
               ? !socialStream.error
-              : !error && !readError) && (
+              : !error && !readError) &&
+            (shouldShowFeedStarter({
+              showSocialStream,
+              effectiveStreamSource,
+              doneFiltered,
+              hasAgentRows: feedRows.length > 0,
+              hasActiveWork:
+                summary.working +
+                  summary.queued +
+                  summary.needs +
+                  (summary.done_unread ?? 0) +
+                  (summary.replies_unread ?? 0) >
+                  0 || grouping.threads.length > 0,
+              hasNeedsYou: needs.length > 0,
+              socialLoaded: socialStream.loaded,
+              hasFollowedFeeds: socialStream.hasFollowedFeeds,
+              hasSocialError: Boolean(socialStream.error),
+              dismissed: starterDismissed,
+            }) ? (
+              <FeedStarterCard
+                firstTaskAction={emptyAction}
+                onFeedsAdded={() => socialStream.refresh()}
+                onOpenSocial={onOpenSocial}
+                onDismiss={dismissStarter}
+              />
+            ) : (
               <div className="feed-empty">
                 <p>
                   <strong>
@@ -4777,11 +4845,23 @@ export function Feed({
                                       : "Nothing is queued."}
                   </strong>
                 </p>
-                {!doneFiltered &&
+                {effectiveStreamSource === "feeds" &&
+                  !socialStream.hasFollowedFeeds &&
+                  onOpenSocial && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={onOpenSocial}
+                    >
+                      Open Social
+                    </button>
+                  )}
+                {effectiveStreamSource !== "feeds" &&
+                  !doneFiltered &&
                   ["all", "done", "threads"].includes(filter) &&
                   emptyAction}
               </div>
-            )
+            ))
           )}
           {showSocialStream &&
             effectiveStreamSource === "all" &&
