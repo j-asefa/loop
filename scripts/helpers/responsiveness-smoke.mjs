@@ -111,6 +111,35 @@ const sameMinute = async (page, minute, name) => {
     );
 };
 
+// Done results as the Feed API returns them: the title a card shows and its
+// conversation. A run-backed card is titled by its run's prompt, so only a
+// result whose shown title is its conversation's title changes when the
+// conversation is renamed.
+async function doneResults(page, fixture) {
+  const items = await page.evaluate(async () => {
+    const body = await (await fetch("/api/feed?filter=done")).json();
+    return (body.items || body).map((item) => ({
+      title: item.title,
+      conversation: item.conversation_id,
+    }));
+  });
+  return items.map((item) => ({
+    ...item,
+    titledByConversation:
+      fixture.db
+        .prepare("SELECT title FROM conversations WHERE id=?")
+        .get(item.conversation)?.title === item.title,
+  }));
+}
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// A card's row is labelled with its title, then any status (", Done").
+const rowNamed = (page, title) =>
+  page.locator(".feed-results .feed-item-card").filter({
+    has: page.getByRole("button", {
+      name: new RegExp("^" + escapeRegExp(title) + "(, .*)?$"),
+    }),
+  });
+
 // Time from pointerdown to the first frame whose computed style differs from
 // rest. Resolves to null when nothing changes within 250 ms, well before a
 // Done card's 500 ms long press would open its menu.
@@ -468,15 +497,16 @@ export async function responsivenessSmoke(page, fixture, engine) {
       // A memoised card still re-renders when its content changes. Rename one
       // Done result's conversation, pull to refresh, and the card shows the
       // new title while the unchanged cards keep their render.
-      const renamedFrom = await page
-        .locator(".feed-results .feed-item-card .feed-row")
-        .first()
-        .getAttribute("aria-label");
-      const renamed = fixture.db
-        .prepare("SELECT id FROM conversations WHERE title=?")
-        .get(renamedFrom);
-      if (!renamed) throw new Error(`No conversation titled ${renamedFrom}`);
-      const renamedTo = renamedFrom + " (renamed)";
+      const renamable = (await doneResults(page, fixture)).find(
+        (item) => item.titledByConversation,
+      );
+      if (!renamable)
+        throw new Error(
+          "No Done result shows its conversation's title, so renaming cannot change a card",
+        );
+      await expect(rowNamed(page, renamable.title)).toHaveCount(1);
+      const renamed = { id: renamable.conversation };
+      const renamedTo = renamable.title + " (renamed)";
       // Count from before the change: a background read may pick it up
       // before the pull finishes.
       const changeMinute = await minuteWindow(page, inflight);
@@ -497,9 +527,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         ...window.__loopCommitProbe,
       }));
       await sameMinute(page, changeMinute, "changed refresh");
-      await expect(
-        page.getByRole("button", { name: renamedTo, exact: true }),
-      ).toBeVisible();
+      await expect(rowNamed(page, renamedTo)).toHaveCount(1);
       report.changedRefresh = {
         cardRenders: afterChange.cardRenders - beforeChange.cardRenders,
         cardWrappers: await page.locator(".feed-item-wrap").count(),
@@ -685,15 +713,11 @@ export async function responsivenessSmoke(page, fixture, engine) {
         );
       await page.keyboard.press("Escape");
       await expect(page.locator("dialog[open]")).toHaveCount(0);
-      const drafted = page.locator(".feed-results .feed-item-card").first();
-      const draftedTitle = await drafted
-        .locator(".feed-row")
-        .getAttribute("aria-label");
-      const draftedConversation = fixture.db
-        .prepare("SELECT id FROM conversations WHERE title=?")
-        .get(draftedTitle);
-      if (!draftedConversation)
-        throw new Error(`No conversation titled ${draftedTitle}`);
+      const [draftedResult] = await doneResults(page, fixture);
+      if (!draftedResult) throw new Error("No Done result to draft a reply to");
+      const drafted = rowNamed(page, draftedResult.title);
+      await expect(drafted).toHaveCount(1);
+      const draftedConversation = { id: draftedResult.conversation };
       // Key: loop-draft-text:<owner>:<JSON [source, conversation id]>.
       const [, owner, threadId] = draftKey.match(
         /^loop-draft-text:([^:]*):(.*)$/,
