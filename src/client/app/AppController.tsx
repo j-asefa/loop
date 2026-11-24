@@ -542,7 +542,13 @@ export function useAppController(seed?: AppNavigationInitial) {
     setActiveArtifact(null);
     setContextArtifact(null);
     setReplyContext(
-      resolveReplyContext(replyContext, context, text !== undefined, switching),
+      resolveReplyContext(
+        replyContext,
+        context,
+        text !== undefined,
+        switching,
+        draftRef.current,
+      ),
     );
     setSelected(context.agentId);
     setFolderChoice(undefined);
@@ -553,19 +559,18 @@ export function useAppController(seed?: AppNavigationInitial) {
     // Opening another thread loads that thread's own draft; seed it first.
     if (switching) {
       const key = draftId(context.conversationId, source);
-      if (text !== undefined) {
-        const saved = readThreadDraft(key, session?.user?.id);
-        writeThreadDraft(
-          key,
-          seedReplyDraftText(saved.text, text),
-          saved.files,
-          session?.user?.id,
-        );
-      }
+      if (text !== undefined && !readThreadDraft(key).text)
+        writeThreadDraft(key, text, [], session?.user?.id);
     } else if (text !== undefined) {
       const nextText = seedReplyDraftText(draftRef.current, text);
       draftRef.current = nextText;
       setDraft(nextText);
+      if (context.conversationId)
+        saveThreadDraft(
+          context.conversationId,
+          nextText,
+          attachmentsRef.current,
+        );
     }
     setComposerExpanded(true);
     if (switching) focusThreadComposer(context.conversationId);

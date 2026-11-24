@@ -319,12 +319,14 @@ export function canReplyFromMessageDisplay(message: {
   hasReplyTarget: boolean;
   progress?: boolean;
   writing: boolean;
+  runActive?: boolean;
 }): boolean {
   return (
     message.hasReplyTarget &&
     message.role === "assistant" &&
     !message.progress &&
-    !message.writing
+    !message.writing &&
+    !message.runActive
   );
 }
 

@@ -641,7 +641,7 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     );
   }
 
-  // seedReplyDraftText preserves existing drafts without duplicating repeated clicks or keeping a leading @/command prefix at the start.
+  // seedReplyDraftText preserves existing plain drafts without duplicating repeated clicks, and leaves leading @/command drafts untouched.
   expect(seedReplyDraftText("", "Run benchmark")).toBe("Run benchmark");
   expect(seedReplyDraftText("Run benchmark", "Run benchmark")).toBe(
     "Run benchmark",
@@ -653,19 +653,14 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     seedReplyDraftText("Already typed", "Compare these metrics with staging."),
   ).toBe("Already typed\n\nCompare these metrics with staging.");
   expect(seedReplyDraftText("@ops check this", "Run benchmark")).toBe(
-    "Run benchmark\n\n@ops check this",
+    "@ops check this",
   );
   expect(seedReplyDraftText("\u3164@ops check this", "Run benchmark")).toBe(
-    "Run benchmark\n\n\u3164@ops check this",
+    "\u3164@ops check this",
   );
-  expect(
-    seedReplyDraftText("@ops check this\n\nRun benchmark", "Run benchmark"),
-  ).toBe("Run benchmark\n\n@ops check this");
-  expect(
-    seedReplyDraftText("Run benchmark\n\n@ops check this", "Run benchmark"),
-  ).toBe("Run benchmark\n\n@ops check this");
+  expect(seedReplyDraftText("/compact", "Run benchmark")).toBe("/compact");
 
-  // resolveReplyContext switches the quote when a ReplyButton on a different message is clicked, while preserving an excerpt quote on the same message.
+  // resolveReplyContext switches the quote when a ReplyButton on a different message is clicked, preserves an excerpt quote on the same message, and leaves the context untouched when a leading @/command draft is present.
   const messageAContext = {
     agentId: "agent-1",
     conversationId: "conv-1",
@@ -692,18 +687,37 @@ it("checks and draws ReplyButton elements and pre-fills the reply handler only w
     resolveReplyContext(messageAContext, messageBContext, true, false),
   ).toEqual(messageBContext);
   expect(
+    resolveReplyContext(
+      messageAContext,
+      messageBContext,
+      true,
+      false,
+      "@ops check this",
+    ),
+  ).toEqual(messageAContext);
+  expect(
     resolveReplyContext(messageAContext, messageAFullContext, false, false),
   ).toEqual(messageAFullContext);
 
-  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers.
+  // Conversation enables ReplyButton only on finished, non-imported, non-progress assistant answers whose run is not active.
   expect(
     canReplyFromMessageDisplay({
       role: "assistant",
       hasReplyTarget: true,
       progress: false,
       writing: false,
+      runActive: false,
     }),
   ).toBe(true);
+  expect(
+    canReplyFromMessageDisplay({
+      role: "assistant",
+      hasReplyTarget: true,
+      progress: false,
+      writing: false,
+      runActive: true,
+    }),
+  ).toBe(false);
   expect(
     canReplyFromMessageDisplay({
       role: "user",

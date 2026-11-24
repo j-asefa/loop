@@ -11,19 +11,9 @@ export function appendDraftText(current: string, added: string): string {
 export function seedReplyDraftText(current: string, prompt: string): string {
   const trimmed = current.trimEnd();
   if (!trimmed.trim()) return prompt;
+  if (LEADING_REPLY_PREFIX.test(trimmed)) return current;
   const target = prompt.trimEnd();
-  if (LEADING_REPLY_PREFIX.test(trimmed)) {
-    const body = trimmed.endsWith(`\n\n${target}`)
-      ? trimmed.slice(0, -`\n\n${target}`.length).trim()
-      : trimmed.trimStart();
-    return body ? `${target}\n\n${body}` : target;
-  }
-  if (
-    trimmed === target ||
-    trimmed.endsWith(`\n\n${target}`) ||
-    trimmed.startsWith(`${target}\n\n`)
-  )
-    return current;
+  if (trimmed === target || trimmed.endsWith(`\n\n${target}`)) return current;
   return `${trimmed}\n\n${prompt}`;
 }
 
@@ -32,7 +22,10 @@ export function resolveReplyContext(
   next: ComposerContext,
   hasText: boolean,
   switching: boolean,
-): ComposerContext {
+  currentDraft = "",
+): ComposerContext | null {
+  if (hasText && !switching && LEADING_REPLY_PREFIX.test(currentDraft))
+    return current;
   if (
     hasText &&
     !switching &&
