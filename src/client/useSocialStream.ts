@@ -9,16 +9,39 @@ import {
   socialStoryToStreamItem,
   type StreamItem,
 } from "../shared/stream-item";
+import { eventScopes } from "../shared/workspace-events";
 import { workspaceApi } from "../shared/workspace-api";
 import { callRoute, readRoute } from "./api";
-import { emitClientEvent, listenClientEvent } from "./clientEvents";
+import {
+  emitClientEvent,
+  listenClientEvent,
+  type ClientEvents,
+} from "./clientEvents";
 import { createReadExecutor, type ReadState } from "./read-executor";
 import { notify } from "./toast";
 import { cacheView, cachedView, viewGeneration, viewOwner } from "./viewCache";
-import {
-  listenWorkspaceChanges,
-  workspaceChangeAffects,
-} from "./workspace-changes";
+
+type WorkspaceChangeDetail = ClientEvents["loop-workspace-change"];
+
+/**
+ * Only reload the social stream on explicit local "social" or "all" collection
+ * invalidations — never on agent run/conversation events that occur continuously
+ * while agents work.
+ */
+function affectsLocalSocial(detail: WorkspaceChangeDetail): boolean {
+  if (!detail?.changes) return false;
+  return detail.changes.some(
+    (change) =>
+      change.source === "" &&
+      change.events.some((event) =>
+        eventScopes(event).some(
+          (scope) =>
+            scope.kind === "collection" &&
+            (scope.id === "social" || scope.id === "all"),
+        ),
+      ),
+  );
+}
 
 type SocialStreamSnapshot = SocialResponse & {
   added: string[];
@@ -64,6 +87,8 @@ export function useSocialStream(enabled: boolean) {
   const cancelRef = useRef<() => void>(() => {});
   const pendingMutations = useRef(0);
   const deferredReload = useRef(false);
+  const deferredForce = useRef(false);
+  const forceInFlight = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -87,73 +112,92 @@ export function useSocialStream(enabled: boolean) {
         deferredReload.current = true;
         return;
       }
-      if (options.force) executor.cancel();
-      void executor.load(
-        async (signal, mode) => {
-          const [{ added, own }, social, preferences] = await Promise.all([
-            readRoute(
-              workspaceApi.socialFeeds,
-              {},
-              "",
-              signal,
-              undefined,
-              mode,
-            ),
-            readRoute(
-              workspaceApi.socialList,
-              { query: { refresh: options.force ? "1" : "0" } },
-              "",
-              signal,
-              undefined,
-              mode,
-            ),
-            readRoute(
-              workspaceApi.socialPreferences,
-              {},
-              "",
-              signal,
-              undefined,
-              mode,
-            ),
-          ]);
-          return {
-            ...social,
-            added,
-            own,
-            images: preferences.images,
-          };
-        },
-        (next) => {
-          cacheView(CACHE_KEY, next, owner);
-          setState((prev) => ({
-            scope: scopeKey,
-            snapshot: next,
-            read: prev.scope === scopeKey ? prev.read : EMPTY_READ,
-            sessionReadIds: options.force
-              ? []
-              : prev.scope === scopeKey
-                ? prev.sessionReadIds
-                : [],
-          }));
-        },
-        options.manual,
-      );
+      if (options.force) {
+        executor.cancel();
+        forceInFlight.current = true;
+      }
+      void executor
+        .load(
+          async (signal, mode) => {
+            const [{ added, own }, social, preferences] = await Promise.all([
+              readRoute(
+                workspaceApi.socialFeeds,
+                {},
+                "",
+                signal,
+                undefined,
+                mode,
+              ),
+              readRoute(
+                workspaceApi.socialList,
+                { query: { refresh: options.force ? "1" : "0" } },
+                "",
+                signal,
+                undefined,
+                mode,
+              ),
+              readRoute(
+                workspaceApi.socialPreferences,
+                {},
+                "",
+                signal,
+                undefined,
+                mode,
+              ),
+            ]);
+            return {
+              ...social,
+              added,
+              own,
+              images: preferences.images,
+            };
+          },
+          (next) => {
+            if (options.force) forceInFlight.current = false;
+            cacheView(CACHE_KEY, next, owner);
+            setState((prev) => ({
+              scope: scopeKey,
+              snapshot: next,
+              read: prev.scope === scopeKey ? prev.read : EMPTY_READ,
+              sessionReadIds: options.force
+                ? []
+                : prev.scope === scopeKey
+                  ? prev.sessionReadIds
+                  : [],
+            }));
+          },
+          options.manual,
+        )
+        .finally(() => {
+          if (options.force) forceInFlight.current = false;
+        });
     };
 
     loadRef.current = load;
-    cancelRef.current = () => executor.cancel();
+    cancelRef.current = () => {
+      if (forceInFlight.current) {
+        deferredForce.current = true;
+        deferredReload.current = true;
+        forceInFlight.current = false;
+      }
+      executor.cancel();
+    };
     load();
 
     const stopSocialEvent = listenClientEvent("loop-social-read", () => load());
     const stopRefresh = listenClientEvent("loop-refresh", () =>
       load({ force: true, manual: true }),
     );
-    const stopWorkspace = listenWorkspaceChanges("social", (event) => {
-      if (workspaceChangeAffects(event, "social", "")) load();
-    });
+    const stopWorkspace = listenClientEvent(
+      "loop-workspace-change",
+      (detail) => {
+        if (affectsLocalSocial(detail)) load();
+      },
+    );
 
     return () => {
       active = false;
+      forceInFlight.current = false;
       executor.dispose();
       loadRef.current = () => {};
       cancelRef.current = () => {};
@@ -228,8 +272,10 @@ export function useSocialStream(enabled: boolean) {
       } finally {
         pendingMutations.current = Math.max(0, pendingMutations.current - 1);
         if (pendingMutations.current === 0 && deferredReload.current) {
+          const force = deferredForce.current;
           deferredReload.current = false;
-          loadRef.current();
+          deferredForce.current = false;
+          loadRef.current(force ? { force: true, manual: true } : undefined);
         }
       }
     },
@@ -293,8 +339,12 @@ export function useSocialStream(enabled: boolean) {
                 pendingMutations.current - 1,
               );
               if (pendingMutations.current === 0 && deferredReload.current) {
+                const force = deferredForce.current;
                 deferredReload.current = false;
-                loadRef.current();
+                deferredForce.current = false;
+                loadRef.current(
+                  force ? { force: true, manual: true } : undefined,
+                );
               }
             }
           },
@@ -308,8 +358,10 @@ export function useSocialStream(enabled: boolean) {
       } finally {
         pendingMutations.current = Math.max(0, pendingMutations.current - 1);
         if (pendingMutations.current === 0 && deferredReload.current) {
+          const force = deferredForce.current;
           deferredReload.current = false;
-          loadRef.current();
+          deferredForce.current = false;
+          loadRef.current(force ? { force: true, manual: true } : undefined);
         }
       }
     },

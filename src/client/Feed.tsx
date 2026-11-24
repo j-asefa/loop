@@ -4587,8 +4587,8 @@ export function Feed({
         <>
           {(
             effectiveStreamSource === "feeds"
-              ? (socialStream.loading || socialStream.pendingCount > 0) &&
-                !interleaved.rows.length
+              ? socialStream.loading ||
+                (socialStream.pendingCount > 0 && !socialStream.items.length)
               : (loading ||
                   partialReadPending ||
                   mailThreads.loading ||
