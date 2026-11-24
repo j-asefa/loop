@@ -7,8 +7,8 @@ import { expect } from "@playwright/test";
 
 // React reports each commit to the developer-tools hook when one is present
 // before it loads. Counting commits needs no change to the app itself. A
-// "card render" is a function component that did work in a commit and whose
-// first DOM node is a Feed card wrapper.
+// "card render" is a Feed card wrapper element whose owning components did
+// work in a commit; each card counts at most once per commit.
 function installCommitProbe() {
   const state = { commits: 0, cardRenders: 0 };
   const firstHost = (fiber) => {
@@ -16,14 +16,18 @@ function installCommitProbe() {
       if (node.tag === 5) return node.stateNode;
     return null;
   };
-  const visit = (fiber) => {
+  const visit = (fiber, cards) => {
     for (let node = fiber; node; node = node.sibling) {
       // Function, forwardRef and memo components; PerformedWork is flag 1.
       if ([0, 11, 14, 15].includes(node.tag) && node.flags & 1) {
         const host = firstHost(node);
-        if (host?.classList?.contains("feed-item-wrap")) state.cardRenders++;
+        if (host?.classList?.contains("feed-item-wrap")) cards.add(host);
       }
-      if (node.child) visit(node.child);
+      // A subtree React skipped in this commit keeps its child pointer and
+      // the flags from its last real render, so it is not visited (as React
+      // developer tools do).
+      if (node.child && node.child !== node.alternate?.child)
+        visit(node.child, cards);
     }
   };
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
@@ -38,7 +42,9 @@ function installCommitProbe() {
     onCommitFiberRoot(_id, root) {
       state.commits++;
       try {
-        visit(root.current);
+        const cards = new Set();
+        visit(root.current, cards);
+        state.cardRenders += cards.size;
       } catch {
         // Measurement only; never break the page.
       }
@@ -58,6 +64,22 @@ const summary = (values) => {
     ),
   };
 };
+
+// Waits until no API request is in flight and React has not committed for
+// 500 ms, so a refresh started by a gesture has finished before counting.
+async function settle(page, inflight) {
+  let last = -1,
+    quietSince = Date.now();
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const commits = await page.evaluate(() => window.__loopCommitProbe.commits);
+    if (inflight.size || commits !== last) quietSince = Date.now();
+    last = commits;
+    if (Date.now() - quietSince >= 500) return;
+    await page.waitForTimeout(100);
+  }
+  throw new Error("The Feed did not settle within 15 s");
+}
 
 // Time from pointerdown to the first frame whose computed style differs from
 // rest. Resolves to null when nothing changes within 20 frames.
@@ -221,6 +243,14 @@ export async function responsivenessSmoke(page, fixture, engine) {
   const client = chromium ? await page.context().newCDPSession(page) : null;
   await client?.send("Emulation.setCPUThrottlingRate", { rate: 4 });
   const report = { engine, cpuThrottle: chromium ? 4 : 1 };
+  const tabs = [];
+  // API requests in flight, so waits end when the app's own work does.
+  const inflight = new Set();
+  const isApi = (request) =>
+    new URL(request.url()).pathname.startsWith("/api/");
+  page.on("request", (request) => isApi(request) && inflight.add(request));
+  for (const event of ["requestfinished", "requestfailed"])
+    page.on(event, (request) => inflight.delete(request));
   try {
     // 1. Press feedback on a card body, a tab and the compose button.
     const targets = {
@@ -254,7 +284,6 @@ export async function responsivenessSmoke(page, fixture, engine) {
 
     console.log("responsiveness: tabs", JSON.stringify(report.press));
     // 2. Tab switches: cold first visit, then cached revisits.
-    const tabs = [];
     for (const name of [
       "Working",
       "Done",
@@ -315,8 +344,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         type: "touchEnd",
         touchPoints: [],
       });
-      await page.waitForTimeout(1500);
-      await page.waitForLoadState("networkidle");
+      await settle(page, inflight);
       const after = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
@@ -326,6 +354,8 @@ export async function responsivenessSmoke(page, fixture, engine) {
         visibleCards: await page
           .locator(".feed-results .feed-item-card")
           .count(),
+        // Every card wrapper in the page, including other Feed sections.
+        cardWrappers: await page.locator(".feed-item-wrap").count(),
       };
 
       console.log("responsiveness: writes");
@@ -334,6 +364,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const held = async (match, run, visible) => {
         let responded = 0;
         await page.route(match, async (route) => {
+          if (route.request().method() !== "PATCH") return route.fallback();
           await new Promise((resolve) => setTimeout(resolve, 800));
           await route.continue();
           responded = Date.now();
@@ -352,6 +383,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
         };
       };
       // Archive the first result: the card should leave before the response.
+      // Archiving a Done card sends PATCH /api/feed/:id; only that is held.
       // Read-state writes are measured by the change that makes them local.
       const title = await page
         .locator(".feed-results .feed-item-card .feed-row")
@@ -391,9 +423,20 @@ export async function responsivenessSmoke(page, fixture, engine) {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   }
   console.log(`responsiveness ${engine}: ${JSON.stringify(report)}`);
-  // This smoke records a baseline. Each later change asserts its own budget.
-  for (const value of Object.values(report.press))
-    if (!value.visibleChange) throw new Error("Press measurement did not run");
-  if (!report.tabs.cold) throw new Error("Tab measurement did not run");
+  // This smoke records a baseline. Each later change asserts its own budget;
+  // here every measurement must have produced a value.
+  const ran = (ok, name) => {
+    if (!ok) throw new Error(`Responsiveness measurement did not run: ${name}`);
+  };
+  for (const [name, value] of Object.entries(report.press))
+    ran(/^[0-5]\/5$/.test(value.visibleChange), `press ${name}`);
+  ran(
+    tabs.every((entry) => Number.isFinite(entry.ms)),
+    `tab switches ${JSON.stringify(tabs)}`,
+  );
+  ran(report.swipe?.frames > 0, "swipe");
+  ran(report.pull?.frames > 0, "pull");
+  ran(report.refresh?.commits > 0, "refresh");
+  ran(Number.isFinite(report.archive?.visibleMs), "archive");
   return report;
 }
