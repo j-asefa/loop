@@ -1,6 +1,8 @@
 import { AgentPicker, sortAgentsByName } from "./AgentPicker";
 import { ErrorNotice } from "./ErrorNotice";
 import { listenClientEvent } from "./clientEvents";
+import { activityLine } from "./activityLine";
+import { useConversationActivities } from "./activityView";
 import { useStableCardProps } from "./stableIdentity";
 import { useProjectionRoute } from "./SourceContext";
 import { AgentSourceId } from "../shared/contract-ids";
@@ -283,6 +285,7 @@ function FeedCard({
   dismissLabel = "Remove from Done",
   onLater,
   readAsCard,
+  showActivity = false,
   sourceCapabilities,
   aggregationId,
   dragSession,
@@ -311,6 +314,8 @@ function FeedCard({
   dismissLabel?: string;
   onLater: () => void;
   readAsCard: boolean;
+  /** Show the run's latest activity (B1); Feed limits how many cards do. */
+  showActivity?: boolean;
   aggregationId?: string;
   dragSession: RefObject<CardDragSession | null>;
   onAggregate: (source: string, target: string) => void;
@@ -650,6 +655,19 @@ function FeedCard({
             <InlineMarkdown content={item.title} />
           </h2>
           {detail && <p className="field-hint feed-detail">{detail}</p>}
+          {showActivity &&
+            item.run &&
+            WORKING_RUN_DISPLAY_STATES.includes(item.run.state) && (
+              <SourceProvider
+                sourceId={item.sourceId ?? scopedSource}
+                capabilities={capabilities}
+              >
+                <ActivityLineView
+                  conversation={item.conversation_id}
+                  run={item.run.id}
+                />
+              </SourceProvider>
+            )}
           {item.live_preview ? (
             <div className="preview live-preview">
               {/* live_preview is only set while the run works. */}
@@ -1419,6 +1437,32 @@ function NeedsStack({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The agent's latest step, from the harness's own activity records: what it
+ * is reading, running or editing now. No line until it reports something.
+ */
+function ActivityLineView({
+  conversation,
+  run,
+}: {
+  conversation: string;
+  run: string;
+}) {
+  const { items } = useConversationActivities(conversation, [run]);
+  const line = activityLine(items, run);
+  if (!line) return null;
+  return (
+    <p className={"feed-activity-line" + (line.live ? " live" : "")}>
+      {line.live ? (
+        <span className="feed-activity-pulse" aria-hidden="true" />
+      ) : (
+        <Check size={13} aria-hidden="true" />
+      )}
+      <span className="feed-activity-text">{line.text}</span>
+    </p>
   );
 }
 
@@ -4457,6 +4501,8 @@ export function Feed({
     });
     return actions;
   }
+  // At most this many cards follow their run's activity at once.
+  let activitySlots = 6;
   function card(item: FeedItem, inNeeds = false, thread?: SourcedDoneThread) {
     const displayKey = thread
       ? JSON.stringify([thread.source, "thread", thread.id])
@@ -4585,6 +4631,13 @@ export function Feed({
           slot + ":sourceCapabilities",
           allSources.find((entry) => entry.id === source)?.capabilities,
         )}
+        showActivity={
+          !inNeeds &&
+          filter === "working" &&
+          !!item.run &&
+          WORKING_RUN_DISPLAY_STATES.includes(item.run.state) &&
+          activitySlots-- > 0
+        }
         readAsCard={
           !inNeeds &&
           !thread &&

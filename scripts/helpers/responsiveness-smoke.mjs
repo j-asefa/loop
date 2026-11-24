@@ -7,6 +7,15 @@ const conversations = await tsImport(
   "../../src/server/sql/conversations.ts",
   import.meta.url,
 );
+// The activity step seeds one harness record through the existing writer.
+const activities = await tsImport(
+  "../../src/server/sql/agent-activities.ts",
+  import.meta.url,
+);
+const { activityRecordKey } = await tsImport(
+  "../../src/shared/agent-activities.ts",
+  import.meta.url,
+);
 
 // Measures how quickly the Feed responds to touch, tab switches, drags and
 // local writes, on the production bundle with a 4x CPU slowdown in Chromium.
@@ -878,6 +887,63 @@ export async function responsivenessSmoke(page, fixture, engine) {
         timeout: 10000,
       });
       report.draft = { shown: true };
+
+      console.log("responsiveness: activity line");
+      // A working card shows its run's latest activity in the harness's own
+      // words (B1): seed one running tool step and open the Working tab.
+      const working = await page.evaluate(async () => {
+        const body = await (await fetch("/api/feed?filter=working")).json();
+        const item = (body.items || body).find((entry) => entry.run);
+        return (
+          item && {
+            conversation: item.conversation_id,
+            run: item.run.id,
+            title: item.title,
+          }
+        );
+      });
+      if (!working) throw new Error("No working card with a run");
+      const step = {
+        v: 1,
+        kind: "tool",
+        id: "responsiveness-step",
+        source: { transport: "native", harness: "fixture", origin: "smoke" },
+        revision: 1,
+        fieldSeq: {},
+        partial: false,
+        replayed: false,
+        data: {
+          title: "Run npm test",
+          category: "execute",
+          status: "running",
+          content: [],
+          locations: ["/repo/package.json"],
+          links: {},
+        },
+      };
+      const now = Date.now();
+      activities.upsert(
+        fixture.db,
+        fixture.owner,
+        working.conversation,
+        activityRecordKey(step, working.run),
+        working.conversation,
+        working.run,
+        "tool",
+        JSON.stringify(step),
+        activities.maxSequence(fixture.db, fixture.owner).n + 1,
+        now,
+        now,
+      );
+      await page.getByRole("tab", { name: /^Working/ }).click();
+      const line = rowNamed(page, working.title).locator(".feed-activity-line");
+      await expect(line).toHaveText("Run npm test");
+      await expect(line).toHaveClass(/live/);
+      await page.getByRole("tab", { name: /^Done/ }).click();
+      await expect(
+        page.locator(".feed-results .feed-activity-line"),
+      ).toHaveCount(0);
+      report.activityLine = { shown: true, live: true };
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });

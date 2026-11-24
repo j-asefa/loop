@@ -1496,3 +1496,45 @@ button:not(:disabled):active,
     animation: none !important;
   }
 }
+
+/* Snappy B1: a working card's latest activity, from the harness's records. */
+.feed-activity-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 6px 0 0;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.feed-activity-line.live {
+  color: var(--text);
+}
+.feed-activity-line svg {
+  flex-shrink: 0;
+  color: var(--green);
+}
+.feed-activity-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.feed-activity-pulse {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brass);
+  animation: feed-activity-pulse 1.2s ease-in-out infinite;
+}
+@keyframes feed-activity-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed-activity-pulse {
+    animation: none;
+  }
+}
