@@ -974,7 +974,19 @@ describe("inline @agent mention and handoff in composer", () => {
         expect(t.state.extras).toEqual([]);
         const toast = toasts.at(-1)!;
         expect(toast.text).toMatch(/^Scheduled for @vera, @mist, @holly, /);
-        await toast.undo?.();
+        // vera's send already went out, so its cancel is refused; the
+        // others are still cancelled and the draft comes back.
+        t.threadApi.mockImplementation(async (route: unknown, input: any) => {
+          if (
+            route === workspaceApi.scheduledSendCancel &&
+            input.params.id === "scheduled-vera"
+          )
+            throw Object.assign(new Error("Already sent"), { status: 409 });
+          return undefined;
+        });
+        await expect(toast.undo?.()).rejects.toThrow(
+          "Cancelled 2 of 3 scheduled sends. Already sent",
+        );
         const cancelled = t.threadApi.mock.calls
           .filter(([route]) => route === workspaceApi.scheduledSendCancel)
           .map(([, input]) => (input as any).params.id);
@@ -983,6 +995,45 @@ describe("inline @agent mention and handoff in composer", () => {
           "scheduled-mist",
           "scheduled-holly",
         ]);
+        expect(t.setDraft).toHaveBeenCalledWith(expect.any(Function));
+      } finally {
+        unsubscribe();
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("offers Undo for agents already scheduled when a scheduled batch stops early", async () => {
+      const t = setup(new Set());
+      const toasts: { text: string; undo?: () => Promise<void> | void }[] = [];
+      const unsubscribe = listenClientEvent("loop-toast", (toast) => {
+        if (toast) toasts.push(toast);
+      });
+      try {
+        t.threadApi.mockImplementation(async (route: unknown, input: any) => {
+          if (route === workspaceApi.scheduledSendCreate) {
+            if (input.body.agentId === "mist")
+              throw Object.assign(new Error("Refused"), { status: 409 });
+            return { id: `scheduled-${input.body.agentId}` };
+          }
+          return undefined;
+        });
+        await t.send("Post the weekly summary.")({
+          sendAt: Date.UTC(2026, 11, 1, 10, 0),
+        });
+        expect(t.state.extras).toEqual(["mist"]);
+        expect(t.setComposerError).toHaveBeenLastCalledWith(
+          "Scheduled for @vera. Not sent to the others: Refused",
+        );
+        const toast = toasts.at(-1)!;
+        expect(toast.text).toBe(
+          "Scheduled for @vera. The others were not scheduled.",
+        );
+        await toast.undo?.();
+        expect(
+          t.threadApi.mock.calls
+            .filter(([route]) => route === workspaceApi.scheduledSendCancel)
+            .map(([, input]) => (input as any).params.id),
+        ).toEqual(["scheduled-vera"]);
       } finally {
         unsubscribe();
         vi.unstubAllGlobals();

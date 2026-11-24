@@ -674,6 +674,47 @@ export function useComposerSend({
     const batch = [...extras, activeAgent];
     const acceptedNames: string[] = [];
     const scheduledIds: ScheduledSendId[] = [];
+    // Cancel each scheduled send independently: one that already went out
+    // (the server refuses it) must not stop the rest from being cancelled.
+    const cancelScheduled = async (rows: readonly ScheduledSendId[]) => {
+      const results = await Promise.allSettled(
+        rows.map((id) =>
+          threadApi(workspaceApi.scheduledSendCancel, { params: { id } }),
+        ),
+      );
+      const failed = results.filter((r) => r.status === "rejected");
+      return {
+        cancelled: results.length - failed.length,
+        error: failed.length
+          ? new Error(
+              `Cancelled ${results.length - failed.length} of ${results.length} scheduled sends. ${(failed[0].reason as Error).message}`,
+            )
+          : undefined,
+      };
+    };
+    // When the batch stops early, the agents that already accepted keep it.
+    // Say so, offer Undo for scheduled ones, and show their new runs.
+    const reportPartial = (reason: string) => {
+      if (!acceptedNames.length || owner !== ownerRef.current) return;
+      const names = acceptedNames.map((name) => `@${name}`).join(", ");
+      const rows = [...scheduledIds];
+      if (currentView() && sameComposer())
+        setComposerError(`${mode} ${names}. ${reason}`);
+      else if (!rows.length) notify({ text: `${mode} ${names}. ${reason}` });
+      if (rows.length)
+        notify({
+          text: `Scheduled for ${names}. The others were not scheduled.`,
+          link: {
+            label: "View",
+            onSelect: () => openSourceLater("scheduled", rows[0], actionSource),
+          },
+          undo: async () => {
+            const { error } = await cancelScheduled(rows);
+            if (error) throw error;
+          },
+        });
+      void refresh().catch(() => {});
+    };
     const mode = options.sendAt
       ? "Scheduled for"
       : options.queue
@@ -828,12 +869,10 @@ export function useComposerSend({
                   openSourceLater("scheduled", row.id, actionSource),
               },
               undo: async () => {
-                for (const id of rows)
-                  await threadApi(workspaceApi.scheduledSendCancel, {
-                    params: { id },
-                  });
-                if (currentView())
+                const { cancelled, error } = await cancelScheduled(rows);
+                if (cancelled && currentView())
                   setDraft((current) => (current.trim() ? current : text));
+                if (error) throw error;
               },
             });
             if (!sameComposer()) return;
@@ -963,10 +1002,7 @@ export function useComposerSend({
         if (!plan) {
           // The draft, thread or account changed before this agent's send was
           // recorded; the rest stay in the composer.
-          if (acceptedNames.length && owner === ownerRef.current)
-            setComposerError(
-              `${mode} ${acceptedNames.map((name) => `@${name}`).join(", ")}. The others were not sent because the draft changed.`,
-            );
+          reportPartial("The others were not sent because the draft changed.");
           return;
         }
         await plan.completion;
@@ -992,12 +1028,10 @@ export function useComposerSend({
           failed,
         );
       }
-      if (owner === ownerRef.current && currentView() && sameComposer())
-        setComposerError(
-          acceptedNames.length
-            ? `${mode} ${acceptedNames.map((name) => `@${name}`).join(", ")}. Not sent to the others: ${(e as Error).message}`
-            : (e as Error).message,
-        );
+      if (acceptedNames.length)
+        reportPartial(`Not sent to the others: ${(e as Error).message}`);
+      else if (owner === ownerRef.current && currentView() && sameComposer())
+        setComposerError((e as Error).message);
     } finally {
       if (currentView()) setBusy(false);
     }
