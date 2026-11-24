@@ -51,6 +51,9 @@ function installCommitProbe() {
     },
   };
   window.__loopCommitProbe = state;
+  // Pull to refresh announces itself with this event before it reloads.
+  state.refreshes = 0;
+  addEventListener("loop-refresh", () => state.refreshes++);
 }
 
 const summary = (values) => {
@@ -252,13 +255,13 @@ export async function responsivenessSmoke(page, fixture, engine) {
   const tabs = [];
   // API requests in flight, so waits end when the app's own work does.
   const inflight = new Set();
-  let apiRequests = 0;
   const isApi = (request) =>
     new URL(request.url()).pathname.startsWith("/api/");
+  const apiPaths = [];
   page.on("request", (request) => {
     if (!isApi(request)) return;
     inflight.add(request);
-    apiRequests++;
+    apiPaths.push(`${request.method()} ${new URL(request.url()).pathname}`);
   });
   for (const event of ["requestfinished", "requestfailed"])
     page.on(event, (request) => inflight.delete(request));
@@ -351,7 +354,7 @@ export async function responsivenessSmoke(page, fixture, engine) {
       const before = await page.evaluate(() => ({
         ...window.__loopCommitProbe,
       }));
-      const requestsBefore = apiRequests;
+      const requestsBefore = apiPaths.length;
       await client.send("Input.dispatchTouchEvent", {
         type: "touchEnd",
         touchPoints: [],
@@ -361,8 +364,9 @@ export async function responsivenessSmoke(page, fixture, engine) {
         ...window.__loopCommitProbe,
       }));
       report.refresh = {
-        // API requests the pull started: proof that a refresh ran.
-        requests: apiRequests - requestsBefore,
+        // Refreshes the pull started, and the API reads that followed.
+        started: after.refreshes - before.refreshes,
+        requests: [...new Set(apiPaths.slice(requestsBefore))],
         commits: after.commits - before.commits,
         cardRenders: after.cardRenders - before.cardRenders,
         visibleCards: await page
@@ -373,65 +377,87 @@ export async function responsivenessSmoke(page, fixture, engine) {
       };
 
       console.log("responsiveness: writes");
-      // 5. Local writes with the server held for 800 ms: is the change visible
-      // before the response?
-      const held = async (match, run, visible) => {
-        let responded = 0;
-        await page.route(match, async (route) => {
-          if (route.request().method() !== "PATCH") return route.fallback();
-          await new Promise((resolve) => setTimeout(resolve, 800));
-          await route.continue();
-          responded = Date.now();
-        });
-        const started = Date.now();
-        await run();
-        await visible();
-        const shown = Date.now();
-        await expect
-          .poll(() => responded, { timeout: 5000 })
-          .toBeGreaterThan(0);
-        await page.unroute(match);
-        return {
-          visibleMs: shown - started,
-          beforeResponse: shown < responded,
-        };
-      };
-      // Archive the first result: the card should leave before the response.
-      // Archiving a Done card sends PATCH /api/feed/:id; only that is held.
-      // Read-state writes are measured by the change that makes them local.
+      // 5. A local write with the server held for 800 ms: is the change
+      // visible before the response? Archive the first Done result, which
+      // sends PATCH /api/feed/:id; only that request is held. Both times are
+      // taken in the browser: the frame the row disappears, and the
+      // response's own timing. Read-state writes are measured by the change
+      // that makes them local.
+      const isArchive = (request) =>
+        request.method() === "PATCH" &&
+        /^\/api\/feed\/[^/]+$/.test(new URL(request.url()).pathname);
       const title = await page
         .locator(".feed-results .feed-item-card .feed-row")
         .first()
         .getAttribute("aria-label");
-      const archived = page.locator(`.feed-row[aria-label="${title}"]`);
-      report.archive = await held(
-        (url) => /^\/api\/feed\/[^/]+$/.test(new URL(url).pathname),
-        async () => {
-          const target = page.locator(".feed-results .feed-item-card").first();
-          await target.evaluate((element) =>
-            element.scrollIntoView({ block: "center" }),
-          );
-          const cardBox = await target.boundingBox();
-          const ay = cardBox.y + Math.min(40, cardBox.height / 2);
-          const ax = Math.min(350, cardBox.x + cardBox.width - 30);
-          await client.send("Input.dispatchTouchEvent", {
-            type: "touchStart",
-            touchPoints: [{ x: ax, y: ay, id: 1 }],
+      const hold = async (route) => {
+        if (!isArchive(route.request())) return route.fallback();
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await route.continue();
+      };
+      await page.route("**/api/feed/*", hold);
+      try {
+        await page.evaluate((label) => {
+          window.__loopArchive = new Promise((resolve) => {
+            let released = null;
+            addEventListener(
+              "touchend",
+              () => (released ??= performance.now()),
+              { capture: true, once: true },
+            );
+            setTimeout(() => resolve(null), 10000);
+            const check = () => {
+              const present = [
+                ...document.querySelectorAll(".feed-results .feed-row"),
+              ].some((row) => row.getAttribute("aria-label") === label);
+              if (!present && released !== null) {
+                const gone = performance.now();
+                return resolve({
+                  visibleMs: gone - released,
+                  goneAt: performance.timeOrigin + gone,
+                });
+              }
+              requestAnimationFrame(check);
+            };
+            requestAnimationFrame(check);
           });
-          for (let step = 1; step <= 8; step++) {
-            await client.send("Input.dispatchTouchEvent", {
-              type: "touchMove",
-              touchPoints: [{ x: ax - (170 * step) / 8, y: ay, id: 1 }],
-            });
-            await page.waitForTimeout(16);
-          }
+        }, title);
+        const response = page.waitForResponse(
+          (candidate) => isArchive(candidate.request()),
+          { timeout: 10000 },
+        );
+        const target = page.locator(".feed-results .feed-item-card").first();
+        await target.evaluate((element) =>
+          element.scrollIntoView({ block: "center" }),
+        );
+        const cardBox = await target.boundingBox();
+        const ay = cardBox.y + Math.min(40, cardBox.height / 2);
+        const ax = Math.min(350, cardBox.x + cardBox.width - 30);
+        await client.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x: ax, y: ay, id: 1 }],
+        });
+        for (let step = 1; step <= 8; step++) {
           await client.send("Input.dispatchTouchEvent", {
-            type: "touchEnd",
-            touchPoints: [],
+            type: "touchMove",
+            touchPoints: [{ x: ax - (170 * step) / 8, y: ay, id: 1 }],
           });
-        },
-        () => expect(archived).toHaveCount(0, { timeout: 5000 }),
-      );
+          await page.waitForTimeout(16);
+        }
+        await client.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+        const shown = await page.evaluate(() => window.__loopArchive);
+        const timing = (await response).request().timing();
+        const respondedAt = timing.startTime + timing.responseStart;
+        report.archive = shown && {
+          visibleMs: Math.round(shown.visibleMs),
+          beforeResponse: shown.goneAt < respondedAt,
+        };
+      } finally {
+        await page.unroute("**/api/feed/*", hold);
+      }
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });
@@ -449,7 +475,10 @@ export async function responsivenessSmoke(page, fixture, engine) {
   );
   ran(report.swipe?.frames > 0, "swipe");
   ran(report.pull?.frames > 0, "pull");
-  ran(report.refresh?.requests > 0, "refresh request");
+  ran(
+    report.refresh?.started > 0 && report.refresh.requests.length > 0,
+    "pull to refresh",
+  );
   ran(Number.isFinite(report.archive?.visibleMs), "archive");
   return report;
 }
