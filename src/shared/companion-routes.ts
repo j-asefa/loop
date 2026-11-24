@@ -231,4 +231,15 @@ export const companionRoutes = {
     query: companion.ActivityQuery,
     response: companion.PublicActivityPage,
   }),
+  // One line of what a run is doing now, for a Feed card: computed from its
+  // step records on the server, so no output or diff reaches the browser.
+  conversationActivityLine: endpoint({
+    ...base,
+    operation: "conversationActivityLine",
+    method: "GET",
+    path: "/conversations/:id/activity-line",
+    params: z.object({ id: requestId(ConversationId) }),
+    query: companion.ActivityLineQuery,
+    response: companion.PublicActivityLine,
+  }),
 } as const;

@@ -942,6 +942,16 @@ export async function responsivenessSmoke(page, fixture, engine) {
         now,
         now,
       );
+      // The card reads only its line; it never downloads the activity list.
+      const activityReads = [];
+      const watchActivity = (request) => {
+        const path = new URL(request.url()).pathname;
+        if (
+          path.startsWith(`/api/conversations/${working.conversation}/activit`)
+        )
+          activityReads.push(path.split("/").at(-1));
+      };
+      page.on("request", watchActivity);
       await page.getByRole("tab", { name: /^Working/ }).click();
       const line = rowNamed(page, working.title).locator(".feed-activity-line");
       await expect(line).toHaveText("Run npm test");
@@ -950,7 +960,12 @@ export async function responsivenessSmoke(page, fixture, engine) {
       await expect(
         page.locator(".feed-results .feed-activity-line"),
       ).toHaveCount(0);
-      report.activityLine = { shown: true, live: true };
+      page.off("request", watchActivity);
+      if (!activityReads.includes("activity-line"))
+        throw new Error("Activity line was not read from its route");
+      if (activityReads.includes("activities"))
+        throw new Error("The card downloaded the full activity list");
+      report.activityLine = { shown: true, live: true, lineRouteOnly: true };
     }
   } finally {
     await client?.send("Emulation.setCPUThrottlingRate", { rate: 1 });

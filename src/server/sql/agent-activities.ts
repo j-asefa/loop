@@ -176,3 +176,29 @@ export function fileUpdates(
       parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
     );
 }
+
+// A run's step records (tool, output, file change, plan) for its activity
+// line: the newest few, plus every step still live, which an older running
+// step needs so it is not pushed out by newer finished ones.
+const runStepsStatement = statement(
+  "SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND run_id=?\n      AND kind IN ('tool','output','file_change','plan') ORDER BY sequence DESC LIMIT 50",
+);
+const liveRunStepsStatement = statement(
+  "SELECT * FROM agent_activities WHERE owner_id=? AND scope=? AND run_id=? AND (\n      (kind IN ('tool','output') AND json_extract(record,'$.data.status') IN ('proposed','waiting','running'))\n      OR (kind='file_change' AND json_extract(record,'$.data.state')='proposed')\n      OR kind='plan') ORDER BY sequence DESC LIMIT 50",
+);
+export function runSteps(
+  db: Database.Database,
+  owner: string,
+  scope: string,
+  run: string,
+) {
+  const rows = new Map<string, unknown>();
+  for (const row of [
+    ...runStepsStatement(db).all(owner, scope, run),
+    ...liveRunStepsStatement(db).all(owner, scope, run),
+  ] as { activity_key: string }[])
+    rows.set(row.activity_key, row);
+  return [...rows.values()].map((row) =>
+    parseRecord(QueryRecords.agent_activities, row, "agent_activities"),
+  );
+}

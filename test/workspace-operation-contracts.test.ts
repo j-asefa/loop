@@ -54,6 +54,7 @@ const persistedOperations = [
   "connectionRefresh",
   "conversation",
   "conversationActivities",
+  "conversationActivityLine",
   "conversationContinueStart",
   "conversationFork",
   "conversationMemory",

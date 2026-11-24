@@ -241,6 +241,17 @@ export const PublicNativeHistoryDetail = z.object({
   ),
 });
 const ActivityRunIds = z.array(RunId.min(1).max(150)).min(1).max(50);
+export const ActivityLineQuery = z.object({
+  run: requestId(RunId).max(100),
+});
+export const PublicActivityLine = z.object({
+  line: z
+    .object({
+      text: z.string(),
+      state: z.enum(["live", "done", "failed", "unknown"]),
+    })
+    .nullable(),
+});
 export const ActivityQuery = z.object({
   after: z.coerce.number<string>().int().nonnegative().optional(),
   run: requestId(RunId).max(100).optional(),
